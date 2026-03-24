@@ -1,144 +1,202 @@
 /**
- * 5-Track Analysis Service
+ * 5-Layer Analysis Pipeline
  *
- * The intelligence backbone of Editron. Every asset is analyzed across
- * 5 parallel tracks to enable intelligent editing decisions.
+ * From the Editron Master Architecture brainstorm:
  *
- * Tracks:
- * 1. Speech Semantic — word timestamps, sentiment, topic boundaries
- * 2. Visual Content — Gemini Vision keyframes, scene detection, composition
- * 3. Music Structure — beat grid, BPM, sections, energy curve
- * 4. Motion/Rhythm — camera movement, energy level per segment
- * 5. Subject Tracking — detected objects/people per keyframe
+ * Layer 1: Shot/Scene Detection (free, CPU — PySceneDetect/FFmpeg)
+ * Layer 2: Optical Flow / Motion Analysis (cheap, CPU — per-frame motion vectors)
+ * Layer 3: Audio Analysis (beats + transients + energy envelope + speech)
+ * Layer 4: Semantic Keyframe Analysis (Gemini Vision on strategic frames)
+ * Layer 5: Subject Tracking (lightweight ML between keyframes)
+ *
+ * Plus two parallel semantic tracks:
+ * Track A: Speech Semantic Layer (Gemini Flash transcript classification)
+ * Track C: Music Structure Layer (sections, tension curve, drops/builds)
  *
  * Analysis runs ONCE per asset on ingest. Results cached in MongoDB.
- * All downstream systems (Reactive Edit Engine, Director Agent,
- * Cinematic Moment Detector) consume these tracks.
+ * The Reactive Edit Engine reads all layers to generate frame-accurate
+ * Edit Decision Lists.
  */
 
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 
 // ─── Types ───────────────────────────────────────────────────────
 
-export interface SpeechTrack {
-  words: Array<{
-    word: string;
+/** Layer 1: Shot boundaries */
+export interface Shot {
+  startFrame: number;
+  endFrame: number;
+  durationMs: number;
+  /** Keyframe selected for semantic analysis */
+  keyframeIndex?: number;
+}
+
+/** Layer 2: Per-segment motion data */
+export interface MotionSegment {
+  startFrame: number;
+  endFrame: number;
+  motionIntensity: number;       // 0-1
+  cameraMotion: 'static' | 'pan-left' | 'pan-right' | 'tilt-up' | 'tilt-down' |
+                'zoom-in' | 'zoom-out' | 'tracking' | 'handheld' | 'dolly';
+  /** Direction of dominant motion (degrees, 0=right, 90=up) */
+  motionDirection?: number;
+}
+
+/** Layer 3: Audio analysis */
+export interface AudioAnalysis {
+  beats: number[];               // Frame numbers
+  transients: number[];          // Impact/accent frame numbers
+  speechSegments: Array<{
     startMs: number;
     endMs: number;
-    confidence: number;
+    text: string;
   }>;
-  sentiment: Array<{
-    startMs: number;
-    endMs: number;
-    score: number; // -1.0 (negative) to 1.0 (positive)
-    label: 'positive' | 'neutral' | 'negative' | 'excited' | 'calm';
-  }>;
-  topicBoundaries: Array<{
-    timestampMs: number;
-    fromTopic: string;
-    toTopic: string;
-  }>;
-  silenceGaps: Array<{
+  silences: Array<{
     startMs: number;
     endMs: number;
     durationMs: number;
   }>;
+  /** Per-second energy level (0-1) */
+  energyCurve: Array<{ timestampMs: number; energy: number }>;
 }
 
-export interface VisualKeyframe {
+/** Layer 4: Semantic keyframe analysis (Gemini Vision) */
+export interface FrameAnalysis {
+  frame: number;
   timestampMs: number;
   description: string;
   subjects: Array<{
     label: string;
     boundingBox?: { x: number; y: number; w: number; h: number };
     confidence: number;
+    isMainSubject: boolean;
   }>;
+  shotType: 'wide' | 'medium' | 'close-up' | 'extreme-close-up' | 'unknown';
+  cameraAngle: string;
   dominantColors: string[];
-  composition: 'wide' | 'medium' | 'close-up' | 'extreme-close-up' | 'unknown';
-  brightness: number; // 0-1
-  mood: string;
+  colorTemperatureK?: number;
+  brightness: number;            // 0-1
+  moodScore: number;             // -1 to 1
+  energyLevel: number;           // 0-1
+  /** Editorial signals */
+  naturalCutPoint: boolean;
+  naturalCutReason?: string;
 }
 
-export interface VisualTrack {
-  keyframes: VisualKeyframe[];
-  sceneChanges: Array<{
-    timestampMs: number;
+/** Layer 5: Subject tracking */
+export interface SubjectTrackEntry {
+  subjectId: string;
+  label: string;
+  category: 'person' | 'product' | 'object' | 'text' | 'logo' | 'animal';
+  frames: Array<{
+    frame: number;
+    box: { x: number; y: number; w: number; h: number };
     confidence: number;
   }>;
-  overallDescription: string;
-  contentTags: string[];
+  totalScreenTimeMs: number;
 }
 
-export interface MusicTrack {
+/** Track A: Speech semantic classification */
+export interface SpeechSegment {
+  startMs: number;
+  endMs: number;
+  startFrame: number;
+  endFrame: number;
+  text: string;
+  contentType: ContentType;
+  entities: Array<{
+    type: 'number' | 'percentage' | 'currency' | 'name' | 'product' | 'concept' | 'action' | 'emotion';
+    value: string;
+    unit?: string;
+    isGrowth?: boolean;
+    comparisonTarget?: string;
+  }>;
+  suggestedGraphicType: string;
+  suggestedGraphicData: Record<string, any>;
+  confidence: number;
+  keywordHighlights: Array<{ word: string; startMs: number; endMs: number; importance: WordImportance }>;
+}
+
+export type ContentType =
+  | 'statistic' | 'claim' | 'question' | 'step_instruction'
+  | 'story_moment' | 'cta' | 'transition_phrase' | 'emphasis'
+  | 'comparison' | 'social_proof' | 'definition' | 'neutral';
+
+export type WordImportance = 'normal' | 'keyword' | 'emphasis' | 'stat' | 'name';
+
+/** Track C: Music structure */
+export interface MusicStructure {
   bpm: number;
-  beats: number[]; // Timestamps in ms
-  sections: Array<{
-    startMs: number;
-    endMs: number;
-    type: 'intro' | 'verse' | 'chorus' | 'bridge' | 'drop' | 'outro' | 'instrumental' | 'unknown';
-    energy: number; // 0-1
-  }>;
-  energyCurve: Array<{
-    timestampMs: number;
-    energy: number; // 0-1
-  }>;
   key?: string;
-  genre?: string;
+  timeSignature?: string;
+  sections: MusicSection[];
+  /** Per-second energy (0-1) */
+  energyCurve: Array<{ timestampMs: number; energy: number }>;
+  /** Tension curve (0-1) — builds toward peaks, releases after */
+  tensionCurve: Array<{ timestampMs: number; tension: number }>;
+  drops: number[];               // Energy peak frames
+  builds: number[];              // Pre-drop build frames
+  breakdowns: number[];          // Low-energy frames
+  stingers: number[];            // Musical accent frames
 }
 
-export interface MotionTrack {
-  segments: Array<{
-    startMs: number;
-    endMs: number;
-    motionType: 'static' | 'pan' | 'tilt' | 'zoom-in' | 'zoom-out' | 'tracking' | 'handheld' | 'dolly';
-    intensity: number; // 0-1
-    direction?: 'left' | 'right' | 'up' | 'down';
-  }>;
-  energyCurve: Array<{
-    timestampMs: number;
-    energy: number; // 0-1 (0 = static, 1 = maximum motion)
-  }>;
-  averageMotionIntensity: number;
+export interface MusicSection {
+  startFrame: number;
+  endFrame: number;
+  startMs: number;
+  endMs: number;
+  type: 'intro' | 'verse' | 'build' | 'chorus' | 'drop' | 'breakdown' | 'bridge' | 'outro' | 'unknown';
+  energyLevel: 'low' | 'medium' | 'high' | 'peak';
+  prescribedCutFrequency: number;    // Seconds per cut
+  prescribedTransition: string;
+  prescribedEffects: string[];
 }
 
-export interface SubjectTrack {
-  subjects: Array<{
-    id: string;
-    label: string;
-    category: 'person' | 'product' | 'object' | 'text' | 'logo' | 'animal';
-    appearances: Array<{
-      timestampMs: number;
-      boundingBox: { x: number; y: number; w: number; h: number };
-      confidence: number;
-    }>;
-    totalScreenTimeMs: number;
-  }>;
-}
-
-export interface FiveTrackAnalysis {
+/** Full analysis result */
+export interface AssetAnalysis {
   assetId: string;
   userId: string;
+  status: 'pending' | 'processing' | 'complete' | 'failed';
   durationMs: number;
   analyzedAt: Date;
-  speech: SpeechTrack | null;
-  visual: VisualTrack | null;
-  music: MusicTrack | null;
-  motion: MotionTrack | null;
-  subjects: SubjectTrack | null;
-  /** Overall content embedding for semantic search */
-  embeddingVector?: number[];
+
+  // Layer 1: Shot boundaries
+  shots: Shot[];
+
+  // Layer 2: Motion (per-segment, not per-frame to keep storage manageable)
+  motionSegments: MotionSegment[];
+  motionPeaks: number[];           // Frame numbers of motion intensity peaks
+
+  // Layer 3: Audio
+  audio: AudioAnalysis | null;
+
+  // Layer 4: Semantic keyframes
+  keyframeAnalyses: FrameAnalysis[];
+
+  // Layer 5: Subject tracking
+  subjectTracks: SubjectTrackEntry[];
+
+  // Track A: Speech semantic
+  speechSegments: SpeechSegment[];
+
+  // Track C: Music structure
+  musicStructure: MusicStructure | null;
+
+  // Derived: Natural edit points
+  naturalCutPoints: number[];      // Frame numbers
+  audioSyncPoints: number[];       // Transients + beats combined
 }
 
-// ─── Analysis Collection ─────────────────────────────────────────
+// ─── MongoDB ─────────────────────────────────────────────────────
 
 const ANALYSIS_COLLECTION = 'asset_analyses';
 
-export async function getAnalysis(assetId: string): Promise<FiveTrackAnalysis | null> {
+export async function getAnalysis(assetId: string): Promise<AssetAnalysis | null> {
   const db = await getDatabase();
   return db.collection(ANALYSIS_COLLECTION).findOne({ assetId }) as any;
 }
 
-export async function saveAnalysis(analysis: FiveTrackAnalysis): Promise<void> {
+export async function saveAnalysis(analysis: AssetAnalysis): Promise<void> {
   const db = await getDatabase();
   await db.collection(ANALYSIS_COLLECTION).updateOne(
     { assetId: analysis.assetId },
@@ -147,381 +205,571 @@ export async function saveAnalysis(analysis: FiveTrackAnalysis): Promise<void> {
   );
 }
 
-// ─── Track 1: Speech Semantic Analysis ───────────────────────────
+// ─── Layer 1: Shot Detection ─────────────────────────────────────
 
-export async function analyzeSpeech(
-  audioUrl: string,
-  userId: string,
-): Promise<SpeechTrack | null> {
-  try {
-    // Use existing transcription service (Deepgram/Gemini)
-    // The transcription already provides word-level timestamps
-    const { getTranscription } = await import('./media/transcription-service');
-    const transcription = await getTranscription(audioUrl, userId);
-
-    if (!transcription?.words?.length) return null;
-
-    const words = transcription.words.map((w: any) => ({
-      word: w.word,
-      startMs: w.startMs,
-      endMs: w.endMs,
-      confidence: w.confidence || 0.9,
-    }));
-
-    // Detect silence gaps (>500ms between words)
-    const silenceGaps: SpeechTrack['silenceGaps'] = [];
-    for (let i = 0; i < words.length - 1; i++) {
-      const gap = words[i + 1].startMs - words[i].endMs;
-      if (gap > 500) {
-        silenceGaps.push({
-          startMs: words[i].endMs,
-          endMs: words[i + 1].startMs,
-          durationMs: gap,
-        });
-      }
-    }
-
-    // Simple sentiment: use word-level heuristics (upgrade to Gemini later)
-    const sentiment: SpeechTrack['sentiment'] = [{
-      startMs: 0,
-      endMs: words[words.length - 1]?.endMs || 0,
-      score: 0.5,
-      label: 'neutral',
-    }];
-
-    // Topic boundaries: detect at silence gaps > 2 seconds
-    const topicBoundaries: SpeechTrack['topicBoundaries'] = silenceGaps
-      .filter(g => g.durationMs > 2000)
-      .map(g => ({
-        timestampMs: g.startMs,
-        fromTopic: 'segment',
-        toTopic: 'segment',
-      }));
-
-    return { words, sentiment, topicBoundaries, silenceGaps };
-  } catch (err: any) {
-    console.error('[5Track] Speech analysis failed:', err.message);
-    return null;
-  }
-}
-
-// ─── Track 2: Visual Content Analysis ────────────────────────────
-
-export async function analyzeVisual(
-  videoUrl: string,
-  durationMs: number,
-): Promise<VisualTrack | null> {
+async function detectShots(videoUrl: string, durationMs: number, fps: number): Promise<Shot[]> {
+  // Use Gemini Vision to detect scene changes (server-side PySceneDetect not available on Vercel)
+  // This gives ~90% accuracy vs pixel-diff algorithms
   try {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      console.warn('[5Track] No Gemini API key for visual analysis');
-      return null;
-    }
+    if (!apiKey) return [{ startFrame: 0, endFrame: Math.round(durationMs / 1000 * fps), durationMs }];
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-    // Sample keyframes every 2 seconds
-    const sampleInterval = 2000;
-    const keyframeCount = Math.min(Math.ceil(durationMs / sampleInterval), 15);
-
-    // Use Gemini with video URL for analysis
     const result = await model.generateContent([
       {
-        text: `Analyze this video (${Math.round(durationMs / 1000)}s duration). Sample ${keyframeCount} keyframes evenly.
+        text: `Detect ALL shot/scene boundaries in this ${Math.round(durationMs / 1000)}s video at ${fps}fps.
+A "shot" = continuous camera take between two cuts.
+Return ONLY a JSON array of objects: [{"startFrame": 0, "endFrame": 150}, ...]
+Be precise — every visual cut, dissolve, or transition is a boundary.`,
+      },
+      { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
+    ]);
 
-For each keyframe, provide:
-- timestampMs: approximate millisecond
-- description: what's happening visually (1 sentence)
-- subjects: [{label, confidence}] — people, products, objects visible
-- dominantColors: [2-3 hex colors]
-- composition: wide/medium/close-up/extreme-close-up
-- brightness: 0.0-1.0
-- mood: one word
+    const text = result.response.text();
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [{ startFrame: 0, endFrame: Math.round(durationMs / 1000 * fps), durationMs }];
 
-Also detect:
-- sceneChanges: [{timestampMs, confidence}] — where visual content changes significantly
-- overallDescription: 1-sentence summary of the entire video
-- contentTags: [5-10 tags describing the content]
+    const shots: Shot[] = JSON.parse(jsonMatch[0]).map((s: any) => ({
+      ...s,
+      durationMs: ((s.endFrame - s.startFrame) / fps) * 1000,
+    }));
 
-Return ONLY valid JSON matching this exact structure:
+    console.log(`[Layer1] Detected ${shots.length} shots`);
+    return shots.length > 0 ? shots : [{ startFrame: 0, endFrame: Math.round(durationMs / 1000 * fps), durationMs }];
+  } catch (err: any) {
+    console.error('[Layer1] Shot detection failed:', err.message);
+    return [{ startFrame: 0, endFrame: Math.round(durationMs / 1000 * fps), durationMs }];
+  }
+}
+
+// ─── Layer 2: Motion Analysis ────────────────────────────────────
+
+async function analyzeMotion(videoUrl: string, shots: Shot[], durationMs: number): Promise<{
+  segments: MotionSegment[];
+  peaks: number[];
+}> {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!apiKey) return { segments: [], peaks: [] };
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const result = await model.generateContent([
+      {
+        text: `Analyze camera motion for each shot in this ${Math.round(durationMs / 1000)}s video.
+There are ${shots.length} shots. For each shot, classify:
+- motionIntensity: 0.0-1.0 (0=static, 1=rapid motion)
+- cameraMotion: static/pan-left/pan-right/tilt-up/tilt-down/zoom-in/zoom-out/tracking/handheld/dolly
+
+Also identify the top 5 frames with highest motion intensity (motion peaks).
+
+Return ONLY JSON:
 {
-  "keyframes": [...],
-  "sceneChanges": [...],
-  "overallDescription": "...",
-  "contentTags": [...]
+  "segments": [{"startFrame": 0, "endFrame": 150, "motionIntensity": 0.3, "cameraMotion": "static"}, ...],
+  "peaks": [47, 180, 320, ...]
 }`,
       },
-      {
-        fileData: {
-          mimeType: 'video/mp4',
-          fileUri: videoUrl,
-        },
-      },
+      { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
 
     const text = result.response.text();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
+    if (!jsonMatch) return { segments: [], peaks: [] };
 
     const parsed = JSON.parse(jsonMatch[0]);
-    return {
-      keyframes: parsed.keyframes || [],
-      sceneChanges: parsed.sceneChanges || [],
-      overallDescription: parsed.overallDescription || '',
-      contentTags: parsed.contentTags || [],
-    };
+    console.log(`[Layer2] ${parsed.segments?.length || 0} motion segments, ${parsed.peaks?.length || 0} peaks`);
+    return { segments: parsed.segments || [], peaks: parsed.peaks || [] };
   } catch (err: any) {
-    console.error('[5Track] Visual analysis failed:', err.message);
-    return null;
+    console.error('[Layer2] Motion analysis failed:', err.message);
+    return { segments: [], peaks: [] };
   }
 }
 
-// ─── Track 3: Music Structure Analysis ───────────────────────────
+// ─── Layer 3: Audio Analysis ─────────────────────────────────────
 
-export async function analyzeMusic(
-  audioUrl: string,
-  durationMs: number,
-): Promise<MusicTrack | null> {
+async function analyzeAudio(audioUrl: string, durationMs: number): Promise<AudioAnalysis | null> {
   try {
-    // Use existing beat detection service
+    // Use existing beat detection
     const { detectBeats } = await import('../../pipeline/beat-detection-service');
     const beatResult = await detectBeats(audioUrl);
 
-    if (!beatResult) return null;
+    const beats = beatResult?.beats || [];
+    const bpm = beatResult?.bpm || 120;
 
-    // Build energy curve from beat density
-    const energyCurve: MusicTrack['energyCurve'] = [];
-    const windowMs = 2000;
+    // Build energy curve from beat density (every 1s window)
+    const windowMs = 1000;
+    const energyCurve: AudioAnalysis['energyCurve'] = [];
     for (let t = 0; t < durationMs; t += windowMs) {
-      const beatsInWindow = beatResult.beats.filter(
-        (b: number) => b >= t && b < t + windowMs,
-      ).length;
-      const maxBeatsPerWindow = (beatResult.bpm / 60) * (windowMs / 1000);
+      const beatsInWindow = beats.filter((b: number) => b >= t && b < t + windowMs).length;
+      const maxBeats = bpm / 60;
       energyCurve.push({
         timestampMs: t,
-        energy: Math.min(beatsInWindow / Math.max(maxBeatsPerWindow, 1), 1),
+        energy: Math.min(beatsInWindow / Math.max(maxBeats, 1), 1),
       });
     }
 
+    // Detect transients (energy peaks — frames where amplitude spikes)
+    const transients: number[] = [];
+    for (let i = 1; i < energyCurve.length - 1; i++) {
+      const prev = energyCurve[i - 1].energy;
+      const curr = energyCurve[i].energy;
+      const next = energyCurve[i + 1].energy;
+      if (curr > prev && curr > next && curr > 0.6) {
+        transients.push(Math.round(energyCurve[i].timestampMs / 1000 * 30));
+      }
+    }
+
+    console.log(`[Layer3] ${beats.length} beats, ${transients.length} transients, ${energyCurve.length} energy samples`);
+
     return {
-      bpm: beatResult.bpm,
-      beats: beatResult.beats,
-      sections: beatResult.sections || [{
-        startMs: 0,
-        endMs: durationMs,
-        type: 'unknown',
-        energy: 0.5,
-      }],
+      beats: beats.map((b: number) => Math.round(b / 1000 * 30)), // Convert ms to frames
+      transients,
+      speechSegments: [], // Filled by Track A
+      silences: [],       // Filled by Track A
       energyCurve,
-      key: beatResult.key,
-      genre: beatResult.genre,
     };
   } catch (err: any) {
-    console.error('[5Track] Music analysis failed:', err.message);
+    console.error('[Layer3] Audio analysis failed:', err.message);
     return null;
   }
 }
 
-// ─── Track 4: Motion/Rhythm Analysis ─────────────────────────────
+// ─── Layer 4: Semantic Keyframe Analysis ─────────────────────────
 
-export async function analyzeMotion(
+async function analyzeKeyframes(
   videoUrl: string,
+  shots: Shot[],
   durationMs: number,
-): Promise<MotionTrack | null> {
+): Promise<FrameAnalysis[]> {
   try {
-    // Use Gemini to estimate motion from video
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (!apiKey) return null;
+    if (!apiKey) return [];
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
+    // Strategic frame selection: first + middle of each shot (max 30 frames)
+    const targetFrames: number[] = [];
+    for (const shot of shots.slice(0, 15)) {
+      targetFrames.push(shot.startFrame);
+      targetFrames.push(Math.floor((shot.startFrame + shot.endFrame) / 2));
+    }
+
     const result = await model.generateContent([
       {
-        text: `Analyze the camera motion and movement in this ${Math.round(durationMs / 1000)}s video.
+        text: `Analyze ${targetFrames.length} keyframes in this ${Math.round(durationMs / 1000)}s video.
+Sample frames at approximately: ${targetFrames.slice(0, 10).join(', ')}${targetFrames.length > 10 ? '...' : ''} (at 30fps)
 
-For each distinct motion segment, provide:
-- startMs, endMs: segment boundaries in milliseconds
-- motionType: static/pan/tilt/zoom-in/zoom-out/tracking/handheld/dolly
-- intensity: 0.0-1.0 (0=no motion, 1=rapid motion)
-- direction: left/right/up/down (if applicable)
-
-Also provide an energy curve sampled every 2 seconds:
+For each keyframe return:
+- frame: frame number
 - timestampMs: millisecond
-- energy: 0.0-1.0 (overall visual energy at this moment)
+- description: 1 sentence of what's happening
+- subjects: [{label, confidence (0-1), isMainSubject}]
+- shotType: wide/medium/close-up/extreme-close-up
+- cameraAngle: eye-level/high-angle/low-angle/bird-eye/dutch
+- dominantColors: [2-3 hex colors]
+- brightness: 0.0-1.0
+- moodScore: -1.0 to 1.0 (negative to positive)
+- energyLevel: 0.0-1.0
+- naturalCutPoint: true/false (is this a good place to cut?)
+- naturalCutReason: why (if true)
 
-Return ONLY valid JSON:
-{
-  "segments": [...],
-  "energyCurve": [...],
-  "averageMotionIntensity": 0.5
-}`,
+Return ONLY a JSON array: [...]`,
       },
-      {
-        fileData: {
-          mimeType: 'video/mp4',
-          fileUri: videoUrl,
-        },
-      },
+      { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
 
     const text = result.response.text();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
 
-    return JSON.parse(jsonMatch[0]);
+    const analyses = JSON.parse(jsonMatch[0]);
+    console.log(`[Layer4] ${analyses.length} keyframes analyzed`);
+    return analyses;
   } catch (err: any) {
-    console.error('[5Track] Motion analysis failed:', err.message);
-    return null;
+    console.error('[Layer4] Keyframe analysis failed:', err.message);
+    return [];
   }
 }
 
-// ─── Track 5: Subject Tracking ───────────────────────────────────
+// ─── Layer 5: Subject Tracking ───────────────────────────────────
 
-export async function analyzeSubjects(
+async function trackSubjects(
   videoUrl: string,
+  keyframeAnalyses: FrameAnalysis[],
   durationMs: number,
-): Promise<SubjectTrack | null> {
+): Promise<SubjectTrackEntry[]> {
   try {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (!apiKey) return null;
+    if (!apiKey) return [];
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
+    // Extract unique subjects from keyframe analyses
+    const knownSubjects = new Set<string>();
+    for (const kf of keyframeAnalyses) {
+      for (const s of (kf.subjects || [])) {
+        if (s.isMainSubject || s.confidence > 0.7) knownSubjects.add(s.label);
+      }
+    }
+
+    if (knownSubjects.size === 0) return [];
+
     const result = await model.generateContent([
       {
-        text: `Track all distinct subjects (people, products, objects, text, logos) in this ${Math.round(durationMs / 1000)}s video.
+        text: `Track these subjects across the ${Math.round(durationMs / 1000)}s video:
+${[...knownSubjects].join(', ')}
 
-For each subject:
-- id: unique identifier (e.g., "person_0", "product_0")
-- label: descriptive name (e.g., "man in blue suit", "Starbucks cup")
-- category: person/product/object/text/logo/animal
-- appearances: [{timestampMs, boundingBox: {x,y,w,h} as 0-1 normalized, confidence}]
-  Sample at most 5 key appearances per subject.
-- totalScreenTimeMs: estimated total time on screen
-
-Return ONLY valid JSON:
+For each subject, provide 5 key appearances with normalized bounding boxes (0-1 coordinates):
+Return JSON:
 {
-  "subjects": [...]
+  "subjects": [{
+    "subjectId": "person_0",
+    "label": "man in blue suit",
+    "category": "person",
+    "frames": [{"frame": 30, "box": {"x": 0.3, "y": 0.2, "w": 0.4, "h": 0.6}, "confidence": 0.9}],
+    "totalScreenTimeMs": 15000
+  }]
 }`,
       },
-      {
-        fileData: {
-          mimeType: 'video/mp4',
-          fileUri: videoUrl,
-        },
-      },
+      { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
 
     const text = result.response.text();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
+    if (!jsonMatch) return [];
 
-    return JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonMatch[0]);
+    console.log(`[Layer5] Tracking ${parsed.subjects?.length || 0} subjects`);
+    return parsed.subjects || [];
   } catch (err: any) {
-    console.error('[5Track] Subject tracking failed:', err.message);
+    console.error('[Layer5] Subject tracking failed:', err.message);
+    return [];
+  }
+}
+
+// ─── Track A: Speech Semantic Classification ─────────────────────
+
+export async function classifySpeech(
+  transcript: string,
+  words: Array<{ word: string; startMs: number; endMs: number }>,
+): Promise<SpeechSegment[]> {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!apiKey || !transcript.trim()) return [];
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const result = await model.generateContent(`Classify this video transcript into segments. Each segment is a continuous stretch of speech with the same content type.
+
+TRANSCRIPT:
+"${transcript}"
+
+For each segment return:
+- startMs, endMs (approximate from word positions)
+- text: the segment text
+- contentType: one of [statistic, claim, question, step_instruction, story_moment, cta, transition_phrase, emphasis, comparison, social_proof, definition, neutral]
+- entities: [{type: "number"|"percentage"|"currency"|"name"|"product"|"concept"|"action"|"emotion", value: "...", unit?: "x"|"%"|"$", isGrowth?: true/false}]
+- suggestedGraphicType: what visual should appear (animated-growth-chart, counter-animation, step-label, definition-card, cta-button, bold-statement-card, question-card, side-by-side-comparison, kinetic-text-highlight, or "none")
+- suggestedGraphicData: {key: value} data for the graphic template
+- confidence: 0-1
+- keywordHighlights: [{word, importance: "normal"|"keyword"|"emphasis"|"stat"|"name"}] — the 3-5 most important words
+
+Word timestamps for reference:
+${words.slice(0, 50).map(w => `"${w.word}" ${w.startMs}ms`).join(', ')}${words.length > 50 ? '...' : ''}
+
+Return ONLY a JSON array: [...]`);
+
+    const text = result.response.text();
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
+
+    const segments: SpeechSegment[] = JSON.parse(jsonMatch[0]).map((s: any) => ({
+      ...s,
+      startFrame: Math.round((s.startMs || 0) / 1000 * 30),
+      endFrame: Math.round((s.endMs || 0) / 1000 * 30),
+    }));
+
+    console.log(`[TrackA] ${segments.length} speech segments classified`);
+    return segments;
+  } catch (err: any) {
+    console.error('[TrackA] Speech classification failed:', err.message);
+    return [];
+  }
+}
+
+// ─── Track C: Music Structure ────────────────────────────────────
+
+export async function analyzeMusicStructure(
+  audioUrl: string,
+  beats: number[],
+  bpm: number,
+  durationMs: number,
+): Promise<MusicStructure | null> {
+  try {
+    // Build energy curve from beat density
+    const windowMs = 1000;
+    const energyCurve: MusicStructure['energyCurve'] = [];
+    for (let t = 0; t < durationMs; t += windowMs) {
+      const beatsInWindow = beats.filter(b => b >= t && b < t + windowMs).length;
+      const maxBeats = bpm / 60;
+      energyCurve.push({
+        timestampMs: t,
+        energy: Math.min(beatsInWindow / Math.max(maxBeats, 1), 1),
+      });
+    }
+
+    // Build tension curve: tension rises when energy increases, peaks at drops
+    const tensionCurve: MusicStructure['tensionCurve'] = [];
+    let runningTension = 0;
+    for (let i = 0; i < energyCurve.length; i++) {
+      const energy = energyCurve[i].energy;
+      const prevEnergy = i > 0 ? energyCurve[i - 1].energy : energy;
+      const energyDelta = energy - prevEnergy;
+
+      // Tension builds when energy increases, releases on drops
+      if (energyDelta > 0) {
+        runningTension = Math.min(1, runningTension + energyDelta * 1.5);
+      } else if (energyDelta < 0) {
+        runningTension = Math.max(0, runningTension + energyDelta * 2); // Faster release
+      } else {
+        runningTension *= 0.95; // Slow decay during stable energy
+      }
+
+      tensionCurve.push({ timestampMs: energyCurve[i].timestampMs, tension: runningTension });
+    }
+
+    // Detect drops (energy > 0.7 preceded by build)
+    const drops: number[] = [];
+    const builds: number[] = [];
+    const breakdowns: number[] = [];
+    for (let i = 2; i < energyCurve.length; i++) {
+      const e = energyCurve[i].energy;
+      const prev = energyCurve[i - 1].energy;
+      const prevPrev = energyCurve[i - 2].energy;
+
+      if (e > 0.7 && prev < 0.5 && prevPrev < 0.5) {
+        drops.push(Math.round(energyCurve[i].timestampMs / 1000 * 30));
+        if (i >= 4) builds.push(Math.round(energyCurve[i - 3].timestampMs / 1000 * 30));
+      }
+      if (e < 0.3 && prev > 0.5) {
+        breakdowns.push(Math.round(energyCurve[i].timestampMs / 1000 * 30));
+      }
+    }
+
+    // Stingers: beat-aligned high-energy moments
+    const stingers = beats
+      .filter(b => {
+        const nearestEnergy = energyCurve.find(e => Math.abs(e.timestampMs - b) < windowMs);
+        return nearestEnergy && nearestEnergy.energy > 0.8;
+      })
+      .map(b => Math.round(b / 1000 * 30))
+      .slice(0, 20);
+
+    // Build sections with editorial prescriptions
+    const sections: MusicSection[] = [];
+    let sectionStart = 0;
+    let currentType: MusicSection['type'] = 'intro';
+
+    for (let i = 0; i < energyCurve.length; i++) {
+      const e = energyCurve[i].energy;
+      let newType: MusicSection['type'] = currentType;
+
+      if (i < energyCurve.length * 0.1) newType = 'intro';
+      else if (i > energyCurve.length * 0.9) newType = 'outro';
+      else if (e > 0.7) newType = 'drop';
+      else if (e > 0.5) newType = 'chorus';
+      else if (e > 0.3) newType = 'verse';
+      else newType = 'breakdown';
+
+      if (newType !== currentType || i === energyCurve.length - 1) {
+        const endMs = energyCurve[i].timestampMs;
+        const startMs = energyCurve[sectionStart]?.timestampMs || 0;
+
+        // Prescribe editing parameters per section type
+        const prescription = SECTION_PRESCRIPTIONS[currentType];
+
+        sections.push({
+          startFrame: Math.round(startMs / 1000 * 30),
+          endFrame: Math.round(endMs / 1000 * 30),
+          startMs,
+          endMs,
+          type: currentType,
+          energyLevel: e > 0.7 ? 'peak' : e > 0.5 ? 'high' : e > 0.3 ? 'medium' : 'low',
+          prescribedCutFrequency: prescription.cutFrequency,
+          prescribedTransition: prescription.transition,
+          prescribedEffects: prescription.effects,
+        });
+
+        sectionStart = i;
+        currentType = newType;
+      }
+    }
+
+    console.log(`[TrackC] ${sections.length} sections, ${drops.length} drops, ${builds.length} builds, ${stingers.length} stingers`);
+
+    return {
+      bpm,
+      sections,
+      energyCurve,
+      tensionCurve,
+      drops,
+      builds,
+      breakdowns,
+      stingers,
+    };
+  } catch (err: any) {
+    console.error('[TrackC] Music structure failed:', err.message);
     return null;
   }
 }
 
-// ─── Full 5-Track Analysis ───────────────────────────────────────
+/** Editorial prescriptions per music section type */
+const SECTION_PRESCRIPTIONS: Record<string, { cutFrequency: number; transition: string; effects: string[] }> = {
+  intro:     { cutFrequency: 4,   transition: 'dissolve',    effects: [] },
+  verse:     { cutFrequency: 3,   transition: 'hard-cut',    effects: [] },
+  build:     { cutFrequency: 1.5, transition: 'hard-cut',    effects: ['zoom-punch'] },
+  chorus:    { cutFrequency: 2,   transition: 'hard-cut',    effects: ['zoom-punch'] },
+  drop:      { cutFrequency: 0.5, transition: 'zoom-punch',  effects: ['zoom-punch', 'glitch', 'speed-ramp'] },
+  breakdown: { cutFrequency: 5,   transition: 'dissolve',    effects: ['slow-motion'] },
+  bridge:    { cutFrequency: 3,   transition: 'soft-cut',    effects: [] },
+  outro:     { cutFrequency: 5,   transition: 'dissolve',    effects: ['fade'] },
+  unknown:   { cutFrequency: 3,   transition: 'hard-cut',    effects: [] },
+};
+
+// ─── Full Pipeline ───────────────────────────────────────────────
+
+const FPS = 30;
 
 /**
- * Run complete 5-track analysis on an asset.
- * Runs all tracks in parallel for speed. Results cached in MongoDB.
- *
- * @param assetId - The asset to analyze
- * @param userId - Owner
- * @param options - Which tracks to run (default: all applicable)
+ * Run complete 5-layer analysis on an asset.
+ * All layers run in parallel where possible. Results cached in MongoDB.
  */
-export async function runFiveTrackAnalysis(
+export async function runFullAnalysis(
   assetId: string,
   userId: string,
   options: {
     videoUrl?: string;
     audioUrl?: string;
     durationMs: number;
-    tracks?: ('speech' | 'visual' | 'music' | 'motion' | 'subjects')[];
+    transcript?: string;
+    words?: Array<{ word: string; startMs: number; endMs: number }>;
   },
-): Promise<FiveTrackAnalysis> {
-  const { videoUrl, audioUrl, durationMs, tracks: requestedTracks } = options;
-  const runAll = !requestedTracks || requestedTracks.length === 0;
+): Promise<AssetAnalysis> {
+  const { videoUrl, audioUrl, durationMs, transcript, words } = options;
 
-  console.log(`[5Track] Starting analysis for ${assetId}: duration=${durationMs}ms, tracks=${requestedTracks?.join(',') || 'all'}`);
+  console.log(`[Analysis] Starting full 5-layer analysis for ${assetId} (${Math.round(durationMs / 1000)}s)`);
 
-  // Check cache first
+  // Check cache
   const cached = await getAnalysis(assetId);
-  if (cached && Date.now() - new Date(cached.analyzedAt).getTime() < 7 * 24 * 60 * 60 * 1000) {
-    console.log(`[5Track] Using cached analysis for ${assetId}`);
+  if (cached && cached.status === 'complete' &&
+      Date.now() - new Date(cached.analyzedAt).getTime() < 7 * 24 * 60 * 60 * 1000) {
+    console.log(`[Analysis] Using cached analysis for ${assetId}`);
     return cached;
   }
 
-  // Run applicable tracks in parallel
-  const [speech, visual, music, motion, subjects] = await Promise.allSettled([
-    // Track 1: Speech (needs audio)
-    (runAll || requestedTracks?.includes('speech')) && audioUrl
-      ? analyzeSpeech(audioUrl, userId)
-      : Promise.resolve(null),
+  // Layer 1: Shot detection (needs video)
+  const shots = videoUrl ? await detectShots(videoUrl, durationMs, FPS) : [];
 
-    // Track 2: Visual (needs video)
-    (runAll || requestedTracks?.includes('visual')) && videoUrl
-      ? analyzeVisual(videoUrl, durationMs)
-      : Promise.resolve(null),
+  // Layers 2-5 in parallel
+  const [motionResult, audio, keyframes, subjects] = await Promise.allSettled([
+    // Layer 2: Motion analysis
+    videoUrl ? analyzeMotion(videoUrl, shots, durationMs) : Promise.resolve({ segments: [], peaks: [] }),
 
-    // Track 3: Music (needs audio)
-    (runAll || requestedTracks?.includes('music')) && audioUrl
-      ? analyzeMusic(audioUrl, durationMs)
-      : Promise.resolve(null),
+    // Layer 3: Audio analysis
+    audioUrl ? analyzeAudio(audioUrl, durationMs) : Promise.resolve(null),
 
-    // Track 4: Motion (needs video)
-    (runAll || requestedTracks?.includes('motion')) && videoUrl
-      ? analyzeMotion(videoUrl, durationMs)
-      : Promise.resolve(null),
+    // Layer 4: Semantic keyframes
+    videoUrl ? analyzeKeyframes(videoUrl, shots, durationMs) : Promise.resolve([]),
 
-    // Track 5: Subjects (needs video)
-    (runAll || requestedTracks?.includes('subjects')) && videoUrl
-      ? analyzeSubjects(videoUrl, durationMs)
-      : Promise.resolve(null),
+    // Layer 5: Subject tracking
+    videoUrl ? trackSubjects(videoUrl, [], durationMs) : Promise.resolve([]),
   ]);
 
-  const analysis: FiveTrackAnalysis = {
+  const motion = motionResult.status === 'fulfilled' ? motionResult.value : { segments: [], peaks: [] };
+  const audioData = audio.status === 'fulfilled' ? audio.value : null;
+  const keyframeData = keyframes.status === 'fulfilled' ? keyframes.value : [];
+  const subjectData = subjects.status === 'fulfilled' ? subjects.value : [];
+
+  // Track A: Speech semantic (needs transcript)
+  const speechSegments = transcript && words
+    ? await classifySpeech(transcript, words)
+    : [];
+
+  // Track C: Music structure (needs beats from Layer 3)
+  const beats = audioData?.beats || [];
+  const musicStructure = beats.length > 0
+    ? await analyzeMusicStructure(audioUrl || '', beats.map(b => b / FPS * 1000), 120, durationMs)
+    : null;
+
+  // Fill audio silences from speech segments
+  if (audioData && speechSegments.length > 0) {
+    audioData.speechSegments = speechSegments.map(s => ({
+      startMs: s.startMs,
+      endMs: s.endMs,
+      text: s.text,
+    }));
+  }
+
+  // Derive natural edit points
+  const naturalCutPoints: number[] = [
+    ...keyframeData.filter(kf => kf.naturalCutPoint).map(kf => kf.frame),
+    ...motion.peaks,
+    ...(musicStructure?.drops || []),
+  ].sort((a, b) => a - b);
+
+  const audioSyncPoints = [
+    ...(audioData?.beats || []),
+    ...(audioData?.transients || []),
+    ...(musicStructure?.stingers || []),
+  ].sort((a, b) => a - b);
+
+  const analysis: AssetAnalysis = {
     assetId,
     userId,
+    status: 'complete',
     durationMs,
     analyzedAt: new Date(),
-    speech: speech.status === 'fulfilled' ? speech.value : null,
-    visual: visual.status === 'fulfilled' ? visual.value : null,
-    music: music.status === 'fulfilled' ? music.value : null,
-    motion: motion.status === 'fulfilled' ? motion.value : null,
-    subjects: subjects.status === 'fulfilled' ? subjects.value : null,
+    shots,
+    motionSegments: motion.segments,
+    motionPeaks: motion.peaks,
+    audio: audioData,
+    keyframeAnalyses: keyframeData,
+    subjectTracks: subjectData,
+    speechSegments,
+    musicStructure,
+    naturalCutPoints,
+    audioSyncPoints,
   };
 
-  // Log results
-  const trackResults = [
-    speech.status === 'fulfilled' && analysis.speech ? 'speech' : null,
-    visual.status === 'fulfilled' && analysis.visual ? 'visual' : null,
-    music.status === 'fulfilled' && analysis.music ? 'music' : null,
-    motion.status === 'fulfilled' && analysis.motion ? 'motion' : null,
-    subjects.status === 'fulfilled' && analysis.subjects ? 'subjects' : null,
-  ].filter(Boolean);
-  console.log(`[5Track] Complete: ${trackResults.length}/5 tracks (${trackResults.join(', ')})`);
-
-  // Cache results
   await saveAnalysis(analysis);
 
+  const layerResults = [
+    shots.length > 0 ? `L1:${shots.length}shots` : null,
+    motion.segments.length > 0 ? `L2:${motion.segments.length}segments` : null,
+    audioData ? `L3:${audioData.beats.length}beats` : null,
+    keyframeData.length > 0 ? `L4:${keyframeData.length}keyframes` : null,
+    subjectData.length > 0 ? `L5:${subjectData.length}subjects` : null,
+    speechSegments.length > 0 ? `TrackA:${speechSegments.length}segments` : null,
+    musicStructure ? `TrackC:${musicStructure.sections.length}sections` : null,
+  ].filter(Boolean);
+
+  console.log(`[Analysis] Complete: ${layerResults.join(', ')}`);
   return analysis;
 }
 
-// ─── API Route Helper ────────────────────────────────────────────
-
 /**
- * Analyze a project's video overlays.
- * Runs 5-track on each video overlay that hasn't been analyzed yet.
+ * Analyze all video assets in a project.
  */
 export async function analyzeProjectAssets(
   projectId: string,
@@ -539,30 +787,18 @@ export async function analyzeProjectAssets(
     if (!assetId) continue;
 
     try {
-      // Check if already analyzed
       const existing = await getAnalysis(assetId);
-      if (existing) {
-        cached++;
-        continue;
-      }
+      if (existing?.status === 'complete') { cached++; continue; }
 
-      // Get asset URL
       const asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({ assetId }) as any;
       const videoUrl = asset?.cachedUrl || overlay.src || overlay.content;
-      if (!videoUrl) {
-        failed++;
-        continue;
-      }
+      if (!videoUrl) { failed++; continue; }
 
       const durationMs = (overlay.durationInFrames / 30) * 1000;
-      await runFiveTrackAnalysis(assetId, userId, {
-        videoUrl,
-        durationMs,
-        tracks: ['visual', 'motion', 'subjects'], // Video-only tracks
-      });
+      await runFullAnalysis(assetId, userId, { videoUrl, durationMs });
       analyzed++;
     } catch (err: any) {
-      console.error(`[5Track] Failed to analyze ${assetId}:`, err.message);
+      console.error(`[Analysis] Failed ${assetId}:`, err.message);
       failed++;
     }
   }

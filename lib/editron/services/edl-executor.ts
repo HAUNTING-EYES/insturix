@@ -11,7 +11,6 @@
  */
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
-import type { Overlay, KeyframeTrack } from '../../editron/editor/version-7.0.0/types';
 import { buildTransitionOverlay, type TransitionType, DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
 import { projectService } from '@/lib/editron/services/project-service';
 

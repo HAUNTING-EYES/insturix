@@ -12,10 +12,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { analyzeProjectAssets, getAnalysis, type FiveTrackAnalysis } from '@/lib/editron/services/five-track-analysis';
+import { analyzeProjectAssets, getAnalysis, type AssetAnalysis } from '@/lib/editron/services/five-track-analysis';
 import { generateEditDecisionList } from '@/lib/editron/services/reactive-edit-engine';
 import { detectCinematicMoments } from '@/lib/editron/services/cinematic-moment-detector';
-import { detectContentFromNarration, detectContentFromVisual, mapContentToGraphics } from '@/lib/editron/services/content-graphic-map';
+// Content-to-graphic mapping is now handled by Track A (speech semantic classification)
+// in the Reactive Edit Engine. The EDL contains graphic decisions directly.
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 
 export const runtime = 'nodejs';
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
 
     const videoOverlays = (project.overlays || []).filter((o: any) => o.type === 'video');
-    const analyses: FiveTrackAnalysis[] = [];
+    const analyses: AssetAnalysis[] = [];
 
     for (const overlay of videoOverlays) {
       if (overlay.assetId) {
@@ -65,25 +66,27 @@ export async function POST(req: NextRequest) {
     allMoments.sort((a, b) => b.intensity - a.intensity);
     const topMoments = allMoments.slice(0, 10); // Top 10
 
-    // Step 5: Content-to-graphic mapping
-    const graphicSuggestions = analyses.flatMap(a => {
-      const narrationDetections = a.speech?.words
-        ? detectContentFromNarration(a.speech.words)
-        : [];
-      const visualDetections = a.subjects?.subjects
-        ? detectContentFromVisual(a.subjects.subjects as any)
-        : [];
-      return mapContentToGraphics([...narrationDetections, ...visualDetections]);
-    });
+    // Step 5: Extract graphic suggestions from EDL (Track A generates them directly)
+    const graphicDecisions = edl.decisions.filter(d => d.type === 'graphic');
 
-    console.log(`[Analysis] Complete: ${edl.totalDecisions} edit decisions, ${topMoments.length} cinematic moments, ${graphicSuggestions.length} graphic suggestions`);
+    console.log(`[Analysis] Complete: ${edl.totalDecisions} edit decisions, ${topMoments.length} cinematic moments, ${graphicDecisions.length} graphic suggestions`);
 
     return NextResponse.json({
       success: true,
       assets: assetResults,
       editDecisionList: edl,
       cinematicMoments: topMoments,
-      graphicSuggestions,
+      graphicSuggestions: graphicDecisions,
+      // Per-asset analysis summaries
+      analysisSummaries: analyses.map(a => ({
+        assetId: a.assetId,
+        shots: a.shots.length,
+        motionSegments: a.motionSegments.length,
+        keyframes: a.keyframeAnalyses.length,
+        subjects: a.subjectTracks.length,
+        speechSegments: a.speechSegments.length,
+        musicSections: a.musicStructure?.sections.length || 0,
+      })),
     });
   } catch (error: any) {
     console.error('[Analysis] Error:', error);

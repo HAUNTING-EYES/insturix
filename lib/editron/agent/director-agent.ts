@@ -74,7 +74,7 @@ export async function executeDirectorPlan(
     // edit decisions, and apply them to the timeline BEFORE profile actions.
     try {
       onProgress?.(0, 0, 'Analyzing video assets (5-track)...');
-      const { runFiveTrackAnalysis, getAnalysis } = await import('@/lib/editron/services/five-track-analysis');
+      const { runFullAnalysis, getAnalysis } = await import('@/lib/editron/services/five-track-analysis');
       const { generateEditDecisionList } = await import('@/lib/editron/services/reactive-edit-engine');
       const { executeEDL } = await import('@/lib/editron/services/edl-executor');
       const { detectCinematicMoments } = await import('@/lib/editron/services/cinematic-moment-detector');
@@ -93,10 +93,9 @@ export async function executeDirectorPlan(
           const videoUrl = (vo as any).src || (vo as any).content;
           if (videoUrl) {
             const durationMs = (vo.durationInFrames / 30) * 1000;
-            analysis = await runFiveTrackAnalysis(assetId, userId, {
+            analysis = await runFullAnalysis(assetId, userId, {
               videoUrl,
               durationMs,
-              tracks: ['visual', 'motion', 'subjects'],
             });
           }
         }
