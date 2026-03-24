@@ -92,64 +92,25 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   };
 
-  const navigationItems = [
-    {
-      title: getPanelTitle(OverlayType.VIDEO),
-      url: "#",
-      icon: Film,
-      panel: OverlayType.VIDEO,
-      type: OverlayType.VIDEO,
-    },
-    {
-      title: getPanelTitle(OverlayType.TEXT),
-      url: "#",
-      icon: Type,
-      panel: OverlayType.TEXT,
-      type: OverlayType.TEXT,
-    },
-    {
-      title: getPanelTitle(OverlayType.SOUND),
-      url: "#",
-      icon: Music,
-      panel: OverlayType.SOUND,
-      type: OverlayType.SOUND,
-    },
-    {
-      title: getPanelTitle(OverlayType.CAPTION),
-      url: "#",
-      icon: Subtitles,
-      panel: OverlayType.CAPTION,
-      type: OverlayType.CAPTION,
-    },
-    {
-      title: getPanelTitle(OverlayType.IMAGE),
-      url: "#",
-      icon: ImageIcon,
-      panel: OverlayType.IMAGE,
-      type: OverlayType.IMAGE,
-    },
-    {
-      title: getPanelTitle(OverlayType.STICKER),
-      url: "#",
-      icon: Sticker,
-      panel: OverlayType.STICKER,
-      type: OverlayType.STICKER,
-    },
-    {
-      title: getPanelTitle(OverlayType.LOCAL_DIR),
-      url: "#",
-      icon: FolderOpen,
-      panel: OverlayType.LOCAL_DIR,
-      type: OverlayType.LOCAL_DIR,
-    },
-    {
-      title: getPanelTitle(OverlayType.TEMPLATE),
-      url: "#",
-      icon: Layout,
-      panel: OverlayType.TEMPLATE,
-      type: OverlayType.TEMPLATE,
-    },
+  const [showMorePanels, setShowMorePanels] = React.useState(false);
+
+  // Primary panels — always visible (most used, reduced cognitive load)
+  const primaryItems = [
+    { title: 'Video', icon: Film, panel: OverlayType.VIDEO, type: OverlayType.VIDEO },
+    { title: 'Text', icon: Type, panel: OverlayType.TEXT, type: OverlayType.TEXT },
+    { title: 'Audio', icon: Music, panel: OverlayType.SOUND, type: OverlayType.SOUND },
+    { title: 'Assets', icon: FolderOpen, panel: OverlayType.LOCAL_DIR, type: OverlayType.LOCAL_DIR },
   ];
+
+  // Secondary panels — shown when "More" is toggled
+  const secondaryItems = [
+    { title: 'Captions', icon: Subtitles, panel: OverlayType.CAPTION, type: OverlayType.CAPTION },
+    { title: 'Images', icon: ImageIcon, panel: OverlayType.IMAGE, type: OverlayType.IMAGE },
+    { title: 'Stickers', icon: Sticker, panel: OverlayType.STICKER, type: OverlayType.STICKER },
+    { title: 'Templates', icon: Layout, panel: OverlayType.TEMPLATE, type: OverlayType.TEMPLATE },
+  ];
+
+  const navigationItems = [...primaryItems, ...(showMorePanels ? secondaryItems : [])];
 
   /**
    * Renders the appropriate panel component based on the active panel selection
@@ -240,6 +201,27 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               </TooltipProvider>
             ))}
             
+            {/* More panels toggle */}
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SidebarMenuButton
+                    onClick={() => setShowMorePanels(!showMorePanels)}
+                    size="lg"
+                    className="flex flex-col items-center gap-2 px-1.5 py-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <span className="text-[10px] font-bold">{showMorePanels ? '−' : '+'}</span>
+                    <span className="text-[8px] font-medium leading-none">
+                      {showMorePanels ? 'Less' : 'More'}
+                    </span>
+                  </SidebarMenuButton>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="border bg-background text-foreground">
+                  {showMorePanels ? 'Hide extra panels' : 'Show more panels (Captions, Images, Stickers, Templates)'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
             {/* AI Chat Button - Standard Design */}
             <div className="mt-2 pt-2 border-t border-border">
               <TooltipProvider delayDuration={0}>
