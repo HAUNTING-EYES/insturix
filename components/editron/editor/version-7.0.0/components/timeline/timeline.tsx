@@ -467,6 +467,7 @@ const Timeline: React.FC<TimelineProps> = ({
                 currentFrame={currentFrame}
                 totalDuration={durationInFrames}
                 onSeek={(frame: number) => {
+                  setCurrentFrame(frame);
                   if (playerRef?.current?.seekTo) {
                     playerRef.current.seekTo(frame);
                   }
