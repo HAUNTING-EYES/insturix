@@ -10,14 +10,28 @@
  */
 
 export type TransitionType =
+  // Visual transitions (HTML overlay effects)
   | 'dip-to-black'
   | 'dip-to-white'
   | 'soft-cut'
   | 'zoom-punch'
   | 'whip-pan'
   | 'glitch'
-  | 'dissolve'  // alias for soft-cut until keyframe system is built
-  | 'hard-cut'; // no overlay inserted — just a marker
+  | 'dissolve'
+  | 'flash'           // White flash burst (reveal/impact)
+  | 'film-burn'       // Organic film burn overlay
+  | 'wipe-left'       // Classic horizontal wipe
+  | 'wipe-right'
+  | 'iris-wipe'       // Circular iris closing/opening
+  | 'blur-transition' // Motion blur bridge between shots
+  | 'slide-up'        // Push transition — next scene slides up
+  | 'slide-down'
+  // Editorial cuts (no visual overlay — the CUT IS the transition)
+  | 'hard-cut'        // Standard cut — no overlay
+  | 'smash-cut'       // Abrupt cut for shock (hard-cut + possible audio spike)
+  | 'match-cut'       // Cut where compositions match (editorial, no overlay)
+  | 'jump-cut'        // Same angle, time skip (editorial)
+  | 'cut-on-action';  // Cut timed to subject movement (editorial)
 
 export interface TransitionOverlay {
   type: 'html-scene';
@@ -140,6 +154,69 @@ const TRANSITION_FACTORIES: Record<string, (frames: number, w: number, h: number
 }
 </style>`,
 
+  // ─── New transitions ────────────────────────────────────
+
+  'flash': (frames, w, h) => `
+<div style="position:absolute;inset:0;background:#fff;animation:flashBurst ${frames / 30}s ease-out forwards;">
+</div>
+<style>
+@keyframes flashBurst { 0%{opacity:0} 15%{opacity:1} 100%{opacity:0} }
+</style>`,
+
+  'film-burn': (frames, w, h) => `
+<div style="position:absolute;inset:0;pointer-events:none;">
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 60% 40%, rgba(255,120,0,0.7) 0%, rgba(255,60,0,0.4) 30%, transparent 70%);animation:burnGrow ${frames / 30}s ease-in-out forwards;mix-blend-mode:screen;"></div>
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 30% 70%, rgba(255,200,50,0.5) 0%, transparent 50%);animation:burnFade ${frames / 30}s ease-in forwards;mix-blend-mode:screen;"></div>
+</div>
+<style>
+@keyframes burnGrow { 0%{opacity:0;transform:scale(0.5)} 40%{opacity:1;transform:scale(1.2)} 100%{opacity:0;transform:scale(1.5)} }
+@keyframes burnFade { 0%{opacity:0} 30%{opacity:0.8} 100%{opacity:0} }
+</style>`,
+
+  'wipe-left': (frames, w, h) => `
+<div style="position:absolute;inset:0;background:#000;animation:wipeL ${frames / 30}s ease-in-out forwards;">
+</div>
+<style>
+@keyframes wipeL { 0%{clip-path:inset(0 100% 0 0)} 50%{clip-path:inset(0 0 0 0)} 100%{clip-path:inset(0 0 0 100%)} }
+</style>`,
+
+  'wipe-right': (frames, w, h) => `
+<div style="position:absolute;inset:0;background:#000;animation:wipeR ${frames / 30}s ease-in-out forwards;">
+</div>
+<style>
+@keyframes wipeR { 0%{clip-path:inset(0 0 0 100%)} 50%{clip-path:inset(0 0 0 0)} 100%{clip-path:inset(0 100% 0 0)} }
+</style>`,
+
+  'iris-wipe': (frames, w, h) => `
+<div style="position:absolute;inset:0;background:#000;animation:iris ${frames / 30}s ease-in-out forwards;">
+</div>
+<style>
+@keyframes iris { 0%{clip-path:circle(0% at 50% 50%)} 45%{clip-path:circle(75% at 50% 50%)} 55%{clip-path:circle(75% at 50% 50%)} 100%{clip-path:circle(0% at 50% 50%)} }
+</style>`,
+
+  'blur-transition': (frames, w, h) => `
+<div style="position:absolute;inset:0;backdrop-filter:blur(0px);animation:blurBridge ${frames / 30}s ease-in-out forwards;">
+</div>
+<style>
+@keyframes blurBridge { 0%{backdrop-filter:blur(0px);opacity:0} 40%{backdrop-filter:blur(20px);opacity:1} 60%{backdrop-filter:blur(20px);opacity:1} 100%{backdrop-filter:blur(0px);opacity:0} }
+</style>`,
+
+  'slide-up': (frames, w, h) => `
+<div style="position:absolute;inset:0;background:#000;animation:slideU ${frames / 30}s ease-in-out forwards;">
+</div>
+<style>
+@keyframes slideU { 0%{transform:translateY(100%)} 45%{transform:translateY(0)} 55%{transform:translateY(0)} 100%{transform:translateY(-100%)} }
+</style>`,
+
+  'slide-down': (frames, w, h) => `
+<div style="position:absolute;inset:0;background:#000;animation:slideD ${frames / 30}s ease-in-out forwards;">
+</div>
+<style>
+@keyframes slideD { 0%{transform:translateY(-100%)} 45%{transform:translateY(0)} 55%{transform:translateY(0)} 100%{transform:translateY(100%)} }
+</style>`,
+
+  // ─── Original transitions ──────────────────────────────
+
   'glitch': (frames, w, h) => `
 <div style="position:absolute;inset:0;pointer-events:none;">
   <div style="position:absolute;inset:0;background:rgba(255,0,0,0.15);animation:glitchR ${frames / 30}s steps(8) forwards;mix-blend-mode:screen;"></div>
@@ -181,14 +258,54 @@ const TRANSITION_FACTORIES: Record<string, (frames: number, w: number, h: number
 
 /** Default transition duration in frames at 30fps */
 export const DEFAULT_TRANSITION_FRAMES: Record<TransitionType, number> = {
+  // No overlay (editorial cuts)
   'hard-cut': 0,
-  'dip-to-black': 12,    // 0.4s
-  'dip-to-white': 12,
-  'soft-cut': 18,         // 0.6s
-  'dissolve': 18,
-  'zoom-punch': 8,        // 0.27s (snappy)
+  'smash-cut': 0,
+  'match-cut': 0,
+  'jump-cut': 0,
+  'cut-on-action': 0,
+  // Short transitions (snappy)
+  'zoom-punch': 8,        // 0.27s
+  'flash': 8,             // 0.27s
   'whip-pan': 10,         // 0.33s
-  'glitch': 10,
+  'glitch': 10,           // 0.33s
+  // Medium transitions
+  'dip-to-black': 12,     // 0.4s
+  'dip-to-white': 12,     // 0.4s
+  'wipe-left': 12,        // 0.4s
+  'wipe-right': 12,       // 0.4s
+  'iris-wipe': 15,        // 0.5s
+  'blur-transition': 15,  // 0.5s
+  // Long transitions (smooth)
+  'soft-cut': 18,         // 0.6s
+  'dissolve': 18,         // 0.6s
+  'film-burn': 20,        // 0.67s
+  'slide-up': 15,         // 0.5s
+  'slide-down': 15,       // 0.5s
+};
+
+/** Human-readable names and categories for transition browser UI */
+export const TRANSITION_INFO: Record<TransitionType, { name: string; category: string; description: string }> = {
+  'hard-cut': { name: 'Hard Cut', category: 'Editorial', description: 'Instant cut — the standard' },
+  'smash-cut': { name: 'Smash Cut', category: 'Editorial', description: 'Abrupt cut for shock or comedy' },
+  'match-cut': { name: 'Match Cut', category: 'Editorial', description: 'Compositions match across the cut' },
+  'jump-cut': { name: 'Jump Cut', category: 'Editorial', description: 'Same angle, time skip forward' },
+  'cut-on-action': { name: 'Cut on Action', category: 'Editorial', description: 'Cut timed to subject movement' },
+  'dip-to-black': { name: 'Dip to Black', category: 'Fade', description: 'Fade through black between scenes' },
+  'dip-to-white': { name: 'Dip to White', category: 'Fade', description: 'Fade through white — reveals, dreams' },
+  'soft-cut': { name: 'Soft Cut', category: 'Fade', description: 'Gentle semi-transparent dip' },
+  'dissolve': { name: 'Dissolve', category: 'Fade', description: 'Cross-fade between scenes' },
+  'flash': { name: 'Flash', category: 'Impact', description: 'White flash burst — reveals, impacts' },
+  'film-burn': { name: 'Film Burn', category: 'Stylized', description: 'Organic film burn overlay' },
+  'zoom-punch': { name: 'Zoom Punch', category: 'Impact', description: 'Quick zoom + flash on beats' },
+  'whip-pan': { name: 'Whip Pan', category: 'Motion', description: 'Fast horizontal blur between shots' },
+  'glitch': { name: 'Glitch', category: 'Stylized', description: 'RGB split + noise for tech content' },
+  'wipe-left': { name: 'Wipe Left', category: 'Wipe', description: 'Classic horizontal wipe left' },
+  'wipe-right': { name: 'Wipe Right', category: 'Wipe', description: 'Classic horizontal wipe right' },
+  'iris-wipe': { name: 'Iris Wipe', category: 'Wipe', description: 'Circular iris closing/opening' },
+  'blur-transition': { name: 'Blur Bridge', category: 'Motion', description: 'Motion blur between shots' },
+  'slide-up': { name: 'Slide Up', category: 'Motion', description: 'Next scene pushes up' },
+  'slide-down': { name: 'Slide Down', category: 'Motion', description: 'Next scene pushes down' },
 };
 
 // ─── True Dissolve (Keyframe-Based) ─────────────────────────────
