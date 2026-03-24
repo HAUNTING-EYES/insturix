@@ -214,10 +214,25 @@ export async function executeDirectorPlan(
       }
     }
 
-    // ─── Step 4: Save modified project ───────────────────────
+    // ─── Step 4: Merge and save ───────────────────────────────
+    // Re-read the project to pick up any BGM/SFX overlays that async
+    // audio workers pushed while the Director was executing (~75s).
+    // Without this merge, saveProject() overwrites the array and
+    // clobbers the audio overlays.
+    const freshProject = await projectService.loadProject(userId, projectId);
+    if (freshProject) {
+      const directorOverlayIds = new Set(overlays.map(o => o.id));
+      const asyncOverlays = (freshProject.overlays || []).filter(
+        o => !directorOverlayIds.has(o.id),
+      );
+      if (asyncOverlays.length > 0) {
+        console.log(`[Director] Merging ${asyncOverlays.length} async overlays (BGM/SFX from audio workers)`);
+        overlays.push(...asyncOverlays);
+      }
+    }
+
     await projectService.saveProject(userId, projectId, {
       overlays,
-      // Preserve existing settings
       aspectRatio: project.aspectRatio,
       playerDimensions: project.playerDimensions,
       fps: project.fps,
