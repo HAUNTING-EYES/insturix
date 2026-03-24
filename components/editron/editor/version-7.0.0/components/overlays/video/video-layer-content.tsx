@@ -71,15 +71,22 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     ...(isExitPhase ? exitAnimation : enterAnimation),
   };
 
-  // Create a container style that includes padding and background color
+  // Create a container style that includes padding and background color.
+  // posterUrl (storyboard image) as CSS background — shows through if video fails to load.
+  const posterUrl = (overlay as any).posterUrl;
   const containerStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
     padding: overlay.styles.padding || "0px",
     backgroundColor: overlay.styles.paddingBackgroundColor || "transparent",
-    display: "flex", // Use flexbox for centering
+    display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    ...(posterUrl ? {
+      backgroundImage: `url(${posterUrl})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+    } : {}),
   };
 
   // Determine the video source URL
