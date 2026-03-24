@@ -2043,7 +2043,25 @@ Use this to understand what exists. Then decide what to do based on user intent.
         
         // Use caption service
         const { createCaptions } = await import('../services/media');
-        
+
+        // For pipeline-generated videos (AI video + voiceover), the video has NO audio.
+        // Find the voiceover overlay covering this video's time range and use IT for transcription.
+        const videoFrom = overlay.from;
+        const videoEnd = videoFrom + overlay.durationInFrames;
+        const voiceoverOverlay = project.overlays.find((o: any) => {
+          if (o.type !== 'sound') return false;
+          // Match by: same time range (within 30 frames tolerance) AND on voiceover row (4) or has voiceover_ assetId
+          const isVoiceover = o.row === 4 || (o.assetId || '').startsWith('voiceover_');
+          if (!isVoiceover) return false;
+          const oEnd = o.from + o.durationInFrames;
+          // Check time overlap (not exact match — overlays may differ by a few frames)
+          return !(oEnd <= videoFrom || o.from >= videoEnd);
+        });
+
+        // If voiceover exists, use its assetId for transcription instead of the silent video
+        const transcriptionAssetId = voiceoverOverlay?.assetId || overlay.assetId;
+        console.log(`[add_captions] Using ${voiceoverOverlay ? 'voiceover' : 'video'} asset for transcription: ${transcriptionAssetId}`);
+
         // Build style overrides from custom params
         const styleOverrides: Record<string, any> = {};
         if (input.fontSize) styleOverrides.fontSize = input.fontSize;
@@ -2069,7 +2087,7 @@ Use this to understand what exists. Then decide what to do based on user intent.
         let captionOverlay = await createCaptions({
           videoOverlay: overlay,
           userId,
-          assetId: overlay.assetId,
+          assetId: transcriptionAssetId, // Use voiceover asset if available (video is silent)
           playerDimensions: canvas,
           fps,
           style: input.style,
@@ -3621,7 +3639,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               feedback: input.feedback,
-              userId,
+              userId, // Passed for internal auth fallback
             }),
           });
           if (imgRes.ok) {
@@ -3639,6 +3657,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               sceneIndices: [input.sceneIndex],
+              userId, // Passed for internal auth fallback
             }),
           });
           if (vidRes.ok) {

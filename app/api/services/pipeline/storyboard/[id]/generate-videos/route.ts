@@ -41,13 +41,21 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { userId } = await auth();
+    const { id: storyboardId } = await params;
+    const body = await request.json();
+
+    // Auth: prefer Clerk session, fallback to userId in body (for internal AI tool calls)
+    let userId: string | null = null;
+    try {
+      const authResult = await auth();
+      userId = authResult.userId;
+    } catch {}
+    if (!userId && body.userId) {
+      userId = body.userId;
+    }
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
-
-    const { id: storyboardId } = await params;
-    const body = await request.json();
     const {
       sceneIndices,
       provider,

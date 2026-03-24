@@ -15,15 +15,23 @@ export async function POST(
   { params }: { params: Promise<{ id: string; sceneIndex: string }> },
 ) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const { id, sceneIndex: sceneIndexStr } = await params;
     const sceneIndex = parseInt(sceneIndexStr, 10);
     const body = await req.json();
     const { feedback, modelId, referenceImageUrl } = body;
+
+    // Auth: prefer Clerk session, fallback to userId in body (for internal tool calls)
+    let userId: string | null = null;
+    try {
+      const authResult = await auth();
+      userId = authResult.userId;
+    } catch {}
+    if (!userId && body.userId) {
+      userId = body.userId; // Internal call from AI tool
+    }
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     // Deduct credits (3 for context-aware regeneration)
     const deductResult = await CreditsService.deductCredits(

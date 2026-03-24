@@ -256,11 +256,18 @@ export async function POST(
         editDirections: s.descriptor.editDirections,
         audioDescription: s.descriptor.audioDescription,
       }));
+      // Merge global edit directions from storyboard with profile defaults
+      const globalDirs = (storyboard as any).globalEditDirections || {};
+      // If no default transition from script, use 'soft-cut' as universal default
+      // (hard-cut = no transition overlay = looks like raw assembly)
+      if (!globalDirs.defaultTransition) {
+        globalDirs.defaultTransition = { type: 'soft-cut', durationMs: 500 };
+      }
       const result = applyEditDirections(
         overlays,
         scenesWithDirections,
         sceneFrameMap,
-        (storyboard as any).globalEditDirections,
+        globalDirs,
         width,
         height,
         fps,
