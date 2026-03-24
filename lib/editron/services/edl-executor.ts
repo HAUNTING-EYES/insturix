@@ -272,30 +272,37 @@ function applyGraphic(
     height = canvas.height * 0.3;
   }
 
-  // Create text overlay for the graphic
+  // Create HTML scene overlay for the graphic — styled, not a plain text box.
+  // HTML scenes render via the existing Remotion HTML renderer with proper
+  // animation, backdrop blur, and visual polish.
+  const html = `
+<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:16px;">
+  <div style="background:rgba(0,0,0,0.75);backdrop-filter:blur(12px);border-radius:12px;padding:${graphicType === 'stat-counter' ? '24px 40px' : '12px 24px'};border:1px solid rgba(255,255,255,0.1);animation:graphicIn 0.4s ease-out forwards;">
+    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:${graphicType === 'stat-counter' ? '42px' : '20px'};font-weight:${graphicType === 'stat-counter' ? '800' : '600'};text-align:center;letter-spacing:0.02em;">
+      ${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+    </div>
+  </div>
+</div>
+<style>
+@keyframes graphicIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+</style>`;
+
   const graphicOverlay = {
     id: Date.now() + Math.floor(Math.random() * 10000),
-    type: 'text' as const,
+    type: 'html-scene' as const,
     from: decision.frame,
     durationInFrames: duration,
-    row: 0,
+    row: 1, // Row 1 (above video on row 2, below captions on row 0)
     left,
     top,
     width,
     height,
     isDragging: false,
     rotation: 0,
-    content: text,
+    content: html,
     styles: {
-      fontSize: graphicType === 'stat-counter' ? '48' : '24',
-      fontFamily: 'font-sans',
-      fontWeight: graphicType === 'stat-counter' ? '800' : '600',
-      textAlign: 'center' as const,
-      color: '#ffffff',
-      backgroundColor: 'rgba(0,0,0,0.7)',
-      borderRadius: '8px',
-      padding: '12px',
-      animation: { enter: 'fade', exit: 'fade', duration: 10 },
+      opacity: 1,
+      backgroundColor: 'transparent',
     },
     metadata: {
       sourceType: 'edl-graphic',
