@@ -230,7 +230,16 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
     >
       <div
         style={{
-          fontSize: normalizeFontSize(styles.fontSize),
+          // Scale font size proportionally when user resizes the caption box.
+          // Base font size was designed for a default box height (~150px).
+          // If box is resized, scale the font proportionally.
+          fontSize: (() => {
+            const basePx = parseFloat(normalizeFontSize(styles.fontSize));
+            const defaultHeight = 150; // Default caption box height from calculatePosition
+            const currentHeight = overlay.height || defaultHeight;
+            const scale = Math.max(0.5, Math.min(3, currentHeight / defaultHeight));
+            return `${Math.round(basePx * scale)}px`;
+          })(),
           fontWeight: styles.fontWeight,
           fontFamily: styles.fontFamily?.startsWith('font-') 
             ? 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
