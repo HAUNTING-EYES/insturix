@@ -10,6 +10,7 @@ import { CaptionOverlay, Overlay, OverlayType } from "../../types";
 import { useWaveformProcessor } from "../../hooks/use-waveform-processor";
 import WaveformVisualizer from "../overlays/sounds/waveform-visualizer";
 import { TimelineKeyframes } from "./timeline-keyframes";
+import { TimelineKeyframeDiamonds } from "./timeline-keyframe-diamonds";
 import { useSidebar } from "../../contexts/sidebar-context";
 import { TimelineItemHandle } from "./timeline-item-handle";
 import { TimelineItemContextMenu } from "./timeline-item-context-menu";
@@ -402,6 +403,13 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
             onLoadingChange={(isLoading) =>
               onAssetLoadingChange?.(item.id, isLoading)
             }
+          />
+        )}
+        {/* Keyframe animation diamonds — show for ANY overlay with keyframeTracks */}
+        {item.keyframeTracks && item.keyframeTracks.length > 0 && (
+          <TimelineKeyframeDiamonds
+            overlay={item}
+            itemWidth={100} // Percentage-based, actual width handled by CSS
           />
         )}
       </>

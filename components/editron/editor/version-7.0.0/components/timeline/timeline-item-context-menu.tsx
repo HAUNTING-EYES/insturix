@@ -5,7 +5,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { Trash2, Copy, Scissors } from "lucide-react";
+import { Trash2, Copy, Scissors, Diamond } from "lucide-react";
 
 /**
  * Props for the TimelineItemContextMenu component
@@ -21,6 +21,8 @@ interface TimelineItemContextMenuProps {
   onDuplicateItem: (id: number) => void;
   /** Callback to split the timeline item */
   onSplitItem: (id: number) => void;
+  /** Callback to add a keyframe at the current playhead position */
+  onAddKeyframe?: (id: number) => void;
   /** ID of the timeline item this menu belongs to */
   itemId: number;
 }
@@ -50,6 +52,7 @@ export const TimelineItemContextMenu: React.FC<
   onDeleteItem,
   onDuplicateItem,
   onSplitItem,
+  onAddKeyframe,
   itemId,
 }) => {
   return (
@@ -77,6 +80,15 @@ export const TimelineItemContextMenu: React.FC<
           <Scissors className="mr-4 h-4 w-4" />
           Split
         </ContextMenuItem>
+        {onAddKeyframe && (
+          <ContextMenuItem
+            className="dark:hover:bg-zinc-800 dark:focus:bg-zinc-800 dark:text-zinc-200"
+            onClick={() => onAddKeyframe(itemId)}
+          >
+            <Diamond className="mr-4 h-4 w-4" />
+            Add Keyframe Here
+          </ContextMenuItem>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

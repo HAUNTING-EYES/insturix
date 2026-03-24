@@ -2,6 +2,7 @@ import React from "react";
 import { ClipOverlay } from "../../../types";
 import { AnimationSettings } from "../../shared/animation-preview";
 import { animationTemplates } from "../../../templates/animation-templates";
+import { KeyframeInspectorPanel } from "../shared/keyframe-inspector-panel";
 import {
   Select,
   SelectContent,
@@ -197,6 +198,11 @@ export const VideoSettingsPanel: React.FC<VideoSettingsPanelProps> = ({
         onEnterAnimationSelect={handleEnterAnimationSelect}
         onExitAnimationSelect={handleExitAnimationSelect}
       />
+
+      {/* Keyframe Animation */}
+      {localOverlay && (
+        <KeyframeInspectorPanel overlay={localOverlay as any} />
+      )}
     </div>
   );
 };
