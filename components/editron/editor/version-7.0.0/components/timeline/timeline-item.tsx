@@ -514,6 +514,30 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
             handleTouchStart("resize-end", e);
           }}
         />
+
+        {/* L-Cut / J-Cut visual extensions for sound overlays */}
+        {item.type === OverlayType.SOUND && (item as any).audioStartFrame !== undefined && (item as any).audioStartFrame < item.from && (
+          <div
+            className="absolute top-0 bottom-0 bg-blue-500/20 border-l-2 border-blue-500/40 rounded-l"
+            style={{
+              right: '100%',
+              width: `${(((item.from - (item as any).audioStartFrame) / totalDuration) * 100) / ((item.durationInFrames / totalDuration) * 100) * 100}%`,
+              minWidth: 4,
+            }}
+            title={`J-Cut: audio starts ${Math.round((item.from - (item as any).audioStartFrame) / 30 * 10) / 10}s before video`}
+          />
+        )}
+        {item.type === OverlayType.SOUND && (item as any).audioEndFrame !== undefined && (item as any).audioEndFrame > (item.from + item.durationInFrames) && (
+          <div
+            className="absolute top-0 bottom-0 bg-orange-500/20 border-r-2 border-orange-500/40 rounded-r"
+            style={{
+              left: '100%',
+              width: `${((((item as any).audioEndFrame - item.from - item.durationInFrames) / totalDuration) * 100) / ((item.durationInFrames / totalDuration) * 100) * 100}%`,
+              minWidth: 4,
+            }}
+            title={`L-Cut: audio continues ${Math.round(((item as any).audioEndFrame - item.from - item.durationInFrames) / 30 * 10) / 10}s after video`}
+          />
+        )}
       </div>
     </TimelineItemContextMenu>
   );

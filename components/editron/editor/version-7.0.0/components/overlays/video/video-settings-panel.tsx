@@ -3,6 +3,7 @@ import { ClipOverlay } from "../../../types";
 import { AnimationSettings } from "../../shared/animation-preview";
 import { animationTemplates } from "../../../templates/animation-templates";
 import { KeyframeInspectorPanel } from "../shared/keyframe-inspector-panel";
+import { SpeedCurveEditor } from "./speed-curve-editor";
 import {
   Select,
   SelectContent,
@@ -198,6 +199,11 @@ export const VideoSettingsPanel: React.FC<VideoSettingsPanelProps> = ({
         onEnterAnimationSelect={handleEnterAnimationSelect}
         onExitAnimationSelect={handleExitAnimationSelect}
       />
+
+      {/* Speed Ramping */}
+      {localOverlay && (
+        <SpeedCurveEditor overlay={localOverlay} />
+      )}
 
       {/* Keyframe Animation */}
       {localOverlay && (
