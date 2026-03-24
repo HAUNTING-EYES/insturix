@@ -618,6 +618,17 @@ export function ExportToEditronDialog({
 
           const enqueueData = await enqueueRes.json().catch(() => ({}));
 
+          // Fire-and-forget: Pre-fetch SFX from library PARALLEL to video generation.
+          // Uses scene audioDescriptions as search keywords. Results cached on storyboard
+          // so finalize can use them instead of slow AI generation.
+          if (sbId) {
+            fetch(`/api/services/pipeline/storyboard/${sbId}/prefetch-sfx`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ storyboardId: sbId }),
+            }).catch(() => {}); // Fire-and-forget — doesn't block video gen
+          }
+
           if (!enqueueData.success) {
             throw new Error(enqueueData.error || 'Failed to start video generation');
           }
