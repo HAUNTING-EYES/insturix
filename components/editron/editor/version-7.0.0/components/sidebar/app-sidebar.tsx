@@ -46,6 +46,7 @@ import { AISuggestionsPanel } from "../ai-suggestions/ai-suggestions-panel";
 import { QualityReviewPanel } from "../quality-review/quality-review-panel";
 import { TransitionBrowserPanel } from "../transitions/transition-browser-panel";
 import { SFXLibraryPanel } from "../sfx-library/sfx-library-panel";
+import { LottiePanel } from "../lottie/lottie-panel";
 
 /**
  * AppSidebar Component
@@ -117,6 +118,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     { title: 'Transitions', icon: Film, panel: OverlayType.TRANSITIONS, type: OverlayType.TRANSITIONS },
     { title: 'Sound FX', icon: Volume2, panel: OverlayType.SFX_LIBRARY, type: OverlayType.SFX_LIBRARY },
     { title: 'Images', icon: ImageIcon, panel: OverlayType.IMAGE, type: OverlayType.IMAGE },
+    { title: 'Lottie', icon: Sparkles, panel: OverlayType.LOTTIE, type: OverlayType.LOTTIE },
     { title: 'Stickers', icon: Sticker, panel: OverlayType.STICKER, type: OverlayType.STICKER },
     { title: 'Templates', icon: Layout, panel: OverlayType.TEMPLATE, type: OverlayType.TEMPLATE },
   ];
@@ -155,6 +157,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         return <TransitionBrowserPanel />;
       case OverlayType.SFX_LIBRARY:
         return <SFXLibraryPanel />;
+      case OverlayType.LOTTIE:
+        return <LottiePanel />;
       case OverlayType.HTML_SCENE:
         return <HtmlScenePanel />;
       default:
