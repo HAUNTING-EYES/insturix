@@ -13,6 +13,7 @@ import {
   MessageSquare,
   Sparkles,
   ShieldCheck,
+  Volume2,
 } from "lucide-react";
 import Image from "next/image";
 import {
@@ -44,6 +45,7 @@ import { AIChatPanel } from "../ai-chat/ai-chat-panel";
 import { AISuggestionsPanel } from "../ai-suggestions/ai-suggestions-panel";
 import { QualityReviewPanel } from "../quality-review/quality-review-panel";
 import { TransitionBrowserPanel } from "../transitions/transition-browser-panel";
+import { SFXLibraryPanel } from "../sfx-library/sfx-library-panel";
 
 /**
  * AppSidebar Component
@@ -113,6 +115,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const secondaryItems = [
     { title: 'Captions', icon: Subtitles, panel: OverlayType.CAPTION, type: OverlayType.CAPTION },
     { title: 'Transitions', icon: Film, panel: OverlayType.TRANSITIONS, type: OverlayType.TRANSITIONS },
+    { title: 'Sound FX', icon: Volume2, panel: OverlayType.SFX_LIBRARY, type: OverlayType.SFX_LIBRARY },
     { title: 'Images', icon: ImageIcon, panel: OverlayType.IMAGE, type: OverlayType.IMAGE },
     { title: 'Stickers', icon: Sticker, panel: OverlayType.STICKER, type: OverlayType.STICKER },
     { title: 'Templates', icon: Layout, panel: OverlayType.TEMPLATE, type: OverlayType.TEMPLATE },
@@ -150,6 +153,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         return <QualityReviewPanel />;
       case OverlayType.TRANSITIONS:
         return <TransitionBrowserPanel />;
+      case OverlayType.SFX_LIBRARY:
+        return <SFXLibraryPanel />;
       case OverlayType.HTML_SCENE:
         return <HtmlScenePanel />;
       default:
