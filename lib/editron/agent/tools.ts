@@ -3718,9 +3718,14 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
   // ─── Transition Tool ──────────────────────────────────────────────
 
   const addTransitionSchema = z.object({
-    afterOverlayId: z.coerce.number().optional().describe("ID of the overlay AFTER which to insert the transition. If not provided, adds between all adjacent scenes."),
-    type: z.enum(['dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut', 'zoom-punch', 'whip-pan', 'glitch']).default('soft-cut').describe("Transition type. Use plain language: 'fade to black' = dip-to-black, 'crossfade' = dissolve, 'smooth cut' = soft-cut"),
-    durationMs: z.coerce.number().optional().describe("Transition duration in milliseconds (default: 500)"),
+    afterOverlayId: z.coerce.number().optional().describe("ID of the video overlay AFTER which to insert the transition. If not provided, adds between all adjacent scenes."),
+    type: z.enum([
+      'dissolve', 'dip-to-black', 'dip-to-white', 'flash', 'blur-transition',
+      'wipe-left', 'wipe-right', 'slide-up', 'slide-down',
+      'zoom-punch', 'zoom-out',
+      'hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action',
+    ]).default('dissolve').describe("Transition type. 'crossfade/fade' = dissolve, 'fade to black' = dip-to-black, 'quick/punchy' = zoom-punch, 'smooth' = dissolve"),
+    durationMs: z.coerce.number().optional().describe("Transition duration in milliseconds (default varies by type, typically 500ms)"),
     applyToAll: z.boolean().optional().describe("If true, add this transition between ALL adjacent video clips"),
   });
 
@@ -3729,7 +3734,7 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
       try {
         const project = await loadProject();
         const fps = project.fps || 30;
-        const { buildTransitionOverlay, TRANSITION_DEFAULTS } = await import('../data/transition-templates');
+        const { calculateTransition, TRANSITIONS } = await import('../data/transition-system');
 
         const videoOverlays = project.overlays
           .filter((o: any) => o.type === 'video')
@@ -3739,56 +3744,70 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
           return JSON.stringify({ status: 'error', message: 'Need at least 2 video clips for transitions' });
         }
 
-        const transType = input.type || 'soft-cut';
-        const durMs = input.durationMs || TRANSITION_DEFAULTS[transType]?.durationMs || 500;
-        const durFrames = Math.round((durMs / 1000) * fps);
-        let added = 0;
+        const transId = input.type || 'dissolve';
+        const transDef = TRANSITIONS[transId];
+        if (!transDef) {
+          return JSON.stringify({ status: 'error', message: `Unknown transition type: ${transId}` });
+        }
+
+        const overlapFrames = input.durationMs
+          ? Math.round((input.durationMs / 1000) * fps)
+          : transDef.defaultDurationFrames;
+
+        let applied = 0;
+
+        const applyBetween = async (outgoing: any, incoming: any) => {
+          if (!transDef.hasVisualOverlap) {
+            applied++; // Editorial cut — no changes needed, just count it
+            return;
+          }
+
+          const result = calculateTransition(
+            transId,
+            { from: outgoing.from, durationInFrames: outgoing.durationInFrames, width: outgoing.width || 1920, height: outgoing.height || 1080 },
+            { from: incoming.from, durationInFrames: incoming.durationInFrames },
+            overlapFrames,
+          );
+
+          if (result) {
+            // Update outgoing clip: extend duration + add keyframe tracks
+            const existingOutTracks = outgoing.keyframeTracks || [];
+            await projectService.updateOverlay(userId, projectId, outgoing.id, {
+              durationInFrames: result.outgoingOverlayUpdate.durationInFrames,
+              keyframeTracks: [...existingOutTracks, ...result.outgoingOverlayUpdate.keyframeTracks],
+            });
+
+            // Update incoming clip: start earlier + add keyframe tracks
+            const existingInTracks = incoming.keyframeTracks || [];
+            await projectService.updateOverlay(userId, projectId, incoming.id, {
+              from: result.incomingOverlayUpdate.from,
+              durationInFrames: result.incomingOverlayUpdate.durationInFrames,
+              keyframeTracks: [...existingInTracks, ...result.incomingOverlayUpdate.keyframeTracks],
+            });
+
+            applied++;
+          }
+        };
 
         if (input.applyToAll || !input.afterOverlayId) {
-          // Add between ALL adjacent video clips
           for (let i = 0; i < videoOverlays.length - 1; i++) {
-            const current = videoOverlays[i] as any;
-            const next = videoOverlays[i + 1] as any;
-            const boundaryFrame = current.from + current.durationInFrames;
-            const canvas = getCanvasDimensions(project);
-
-            const transId = Date.now() + i * 100;
-            const transOverlay = buildTransitionOverlay(transType, {
-              startFrame: boundaryFrame - Math.floor(durFrames / 2),
-              durationFrames: durFrames,
-              width: canvas.width,
-              height: canvas.height,
-            }, transId);
-            if (transOverlay) {
-              await projectService.addOverlay(userId, projectId, { ...transOverlay, id: transId, metadata: { isTransition: true, source: 'director', transitionType: transType } } as any);
-              added++;
-            }
+            await applyBetween(videoOverlays[i], videoOverlays[i + 1]);
           }
         } else {
-          // Add after specific overlay
-          const targetOverlay = project.overlays.find((o: any) => o.id === input.afterOverlayId) as any;
-          if (!targetOverlay) {
-            return JSON.stringify({ status: 'error', message: `Overlay ${input.afterOverlayId} not found` });
+          const targetIdx = videoOverlays.findIndex((o: any) => o.id === input.afterOverlayId);
+          if (targetIdx === -1) {
+            return JSON.stringify({ status: 'error', message: `Video overlay ${input.afterOverlayId} not found` });
           }
-          const boundaryFrame = targetOverlay.from + targetOverlay.durationInFrames;
-          const canvas = getCanvasDimensions(project);
-          const singleTransId = Date.now();
-          const transOverlay = buildTransitionOverlay(transType, {
-            startFrame: boundaryFrame - Math.floor(durFrames / 2),
-            durationFrames: durFrames,
-            width: canvas.width,
-            height: canvas.height,
-          }, singleTransId);
-          if (transOverlay) {
-            await projectService.addOverlay(userId, projectId, { ...transOverlay, id: singleTransId } as any);
-            added++;
+          if (targetIdx >= videoOverlays.length - 1) {
+            return JSON.stringify({ status: 'error', message: 'No next clip to transition into' });
           }
+          await applyBetween(videoOverlays[targetIdx], videoOverlays[targetIdx + 1]);
         }
 
         return JSON.stringify({
           status: 'success',
-          data: { transitionsAdded: added, type: transType, durationMs: durMs },
-          message: `Added ${added} ${transType} transition(s)`,
+          data: { transitionsApplied: applied, type: transId, overlapFrames, method: 'clip-overlap' },
+          message: `Applied ${applied} ${transDef.name} transition(s) using clip-overlap compositing`,
         });
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
@@ -3796,15 +3815,18 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
     },
     {
       name: 'add_transition',
-      description: `Add visual transitions between video clips.
+      description: `Add real transitions between video clips using clip-overlap compositing.
+Transitions modify adjacent clips directly — outgoing clip extends, incoming starts early,
+both play simultaneously in the overlap zone with keyframe-driven blending.
 
 Types (use plain language — the tool maps automatically):
-- "fade to black" / "dip to black" → dip-to-black
-- "crossfade" / "dissolve" → dissolve
-- "smooth cut" → soft-cut (default)
-- "zoom punch" / "impact cut" → zoom-punch
-- "whip pan" / "swipe" → whip-pan
-- "glitch" / "digital" → glitch
+BLEND: dissolve (crossfade), dip-to-black (fade to black), dip-to-white (flash white), flash (burst), blur-transition (smooth blur)
+WIPE: wipe-left, wipe-right
+PUSH: slide-up, slide-down
+ZOOM: zoom-punch (impact), zoom-out (pull back)
+EDITORIAL: hard-cut (standard), smash-cut (shock), match-cut (visual match), jump-cut (time skip), cut-on-action (motion-timed)
+
+Default to dissolve. For energetic content use zoom-punch. For scene breaks use dip-to-black.
 
 To add between ALL clips: add_transition({ type: 'dissolve', applyToAll: true })
 To add after a specific clip: add_transition({ afterOverlayId: 123, type: 'dip-to-black' })
