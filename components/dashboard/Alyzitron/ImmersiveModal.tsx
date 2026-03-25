@@ -336,15 +336,6 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
             metadata,
           );
         } else if (source.type === "link") {
-          if (!isYouTubeUrl(source.url)) {
-            toast({
-              title: "Invalid URL",
-              description: "Please paste a valid YouTube link.",
-              variant: "destructive",
-            });
-            setIsProcessing(false);
-            return;
-          }
           const payload = {
             videoUrl: source.url,
             submissionId: submissionId,
@@ -1095,7 +1086,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                       {source.type === "file" && source.file
                         ? `${formatBytes(source.file.size)} • ${formatDuration(source.duration)}`
                         : source.type === "link"
-                          ? "YouTube video"
+                          ? "External media"
                           : ""}
                     </p>
                   </div>
