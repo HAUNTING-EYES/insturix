@@ -89,18 +89,14 @@ async function handler(request: NextRequest) {
         },
       };
 
-      // Add overlay to existing project — push to BOTH overlays arrays.
-      // The project has two overlay locations:
-      // - `overlays` (top-level): what the editor loads on page open
-      // - `state.overlays`: what saveProject writes to
-      // We must push to both so the audio appears regardless of which the editor reads.
+      // F6.6 FIX: Push to overlays AND mark as worker-added.
+      // The _workerAdded flag tells saveProject to preserve these overlays
+      // even when the user saves (browser autosave would otherwise clobber them).
+      const markedBgm = { ...bgmOverlay, _workerAdded: true };
       await db.collection(COLLECTIONS.PROJECTS).updateOne(
         { projectId },
         {
-          $push: {
-            'overlays': bgmOverlay as any,
-            'state.overlays': bgmOverlay as any,
-          },
+          $push: { 'overlays': markedBgm as any },
           $set: { updatedAt: new Date() },
         },
       );
@@ -169,15 +165,13 @@ async function handler(request: NextRequest) {
         );
       }
 
-      // Add all SFX overlays to existing project (both overlay arrays)
+      // F6.6 FIX: Push SFX with _workerAdded flag
       if (sfxOverlays.length > 0) {
+        const markedSfx = sfxOverlays.map(o => ({ ...o, _workerAdded: true }));
         await db.collection(COLLECTIONS.PROJECTS).updateOne(
           { projectId },
           {
-            $push: {
-              'overlays': { $each: sfxOverlays },
-              'state.overlays': { $each: sfxOverlays },
-            },
+            $push: { 'overlays': { $each: markedSfx } },
             $set: { updatedAt: new Date() },
           },
         );

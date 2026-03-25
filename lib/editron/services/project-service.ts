@@ -181,13 +181,29 @@ export class ProjectService {
                         : { width: 1920, height: 1080 };
 
     const db = await getDatabase();
-    
+
+    // F6.6 FIX: Preserve worker-added overlays (BGM, SFX, captions from Director).
+    // These have _workerAdded: true. The browser doesn't know about them yet
+    // (they were pushed after the user loaded the project), so the browser's
+    // save payload doesn't include them. We must merge them back.
+    const currentProject = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId }) as any;
+    const workerOverlays = (currentProject?.overlays || []).filter((o: any) => o._workerAdded === true);
+
+    // Merge: browser overlays + any worker-added overlays not already in browser set
+    const browserOverlayIds = new Set(cleanOverlays.map((o: any) => o.id));
+    const missingWorkerOverlays = workerOverlays.filter((o: any) => !browserOverlayIds.has(o.id));
+    const mergedOverlays = [...cleanOverlays, ...missingWorkerOverlays];
+
+    if (missingWorkerOverlays.length > 0) {
+      console.log(`[saveProject] Preserved ${missingWorkerOverlays.length} worker-added overlays (BGM/SFX/captions)`);
+    }
+
     // Update existing project only - project must exist
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       { projectId }, // Filter by unique projectId
       {
         $set: {
-          overlays: cleanOverlays,
+          overlays: mergedOverlays,
           aspectRatio: state.aspectRatio,
           playerDimensions: dimensions,
           fps: state.fps || 30,
