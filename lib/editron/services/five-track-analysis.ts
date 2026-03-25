@@ -969,15 +969,27 @@ export async function runFullAnalysis(
 export async function analyzeProjectAssets(
   projectId: string,
   userId: string,
-): Promise<{ analyzed: number; cached: number; failed: number }> {
+  /** Max time budget in ms. Analysis stops when exceeded. Default 120s. */
+  timeBudgetMs: number = 120_000,
+): Promise<{ analyzed: number; cached: number; failed: number; timedOut: boolean }> {
+  const startMs = Date.now();
   const db = await getDatabase();
   const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId }) as any;
   if (!project) throw new Error('Project not found');
 
   const videoOverlays = (project.overlays || []).filter((o: any) => o.type === 'video');
   let analyzed = 0, cached = 0, failed = 0;
+  let timedOut = false;
 
   for (const overlay of videoOverlays) {
+    // F10.2: Check time budget before each analysis
+    const elapsed = Date.now() - startMs;
+    if (elapsed > timeBudgetMs) {
+      console.warn(`[Analysis] Time budget exceeded (${Math.round(elapsed / 1000)}s > ${Math.round(timeBudgetMs / 1000)}s). ${videoOverlays.length - analyzed - cached - failed} assets skipped.`);
+      timedOut = true;
+      break;
+    }
+
     const assetId = overlay.assetId;
     if (!assetId) continue;
 
@@ -998,5 +1010,5 @@ export async function analyzeProjectAssets(
     }
   }
 
-  return { analyzed, cached, failed };
+  return { analyzed, cached, failed, timedOut };
 }

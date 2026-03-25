@@ -196,4 +196,13 @@ async function handler(request: NextRequest) {
 
 const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
 const hasSigningKeys = !!process.env.QSTASH_CURRENT_SIGNING_KEY && !!process.env.QSTASH_NEXT_SIGNING_KEY;
-export const POST = (isDev || !hasSigningKeys) ? handler : verifySignatureAppRouter(handler);
+
+async function secureHandler(request: NextRequest) {
+  if (!isDev && !hasSigningKeys) {
+    console.error('[AudioWorker] SECURITY: QSTASH signing keys not set in production. Rejecting.');
+    return NextResponse.json({ error: 'Worker not configured' }, { status: 500 });
+  }
+  return handler(request);
+}
+
+export const POST = isDev ? handler : (hasSigningKeys ? verifySignatureAppRouter(handler) : secureHandler);

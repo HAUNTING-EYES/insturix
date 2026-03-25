@@ -96,17 +96,24 @@ export async function POST(
     }
 
     // Deduct credits (3 credits per video clip)
-    const creditCost = targetScenes.length * 3;
-    const deductResult = await CreditsService.deductCredits(
-      userId,
-      'pipeline',
-      'video_generation',
-    );
-    if (!deductResult.success) {
+    // F4.1 FIX: Deduct per-scene, pre-check total first
+    const costPerVideo = 3;
+    const creditCost = targetScenes.length * costPerVideo;
+
+    const preCheck = await CreditsService.getBalance(userId);
+    if (!preCheck || preCheck.totalCredits < creditCost) {
       return NextResponse.json(
-        { success: false, error: deductResult.error || 'Insufficient credits', creditCost },
+        { success: false, error: `Insufficient credits. Need ${creditCost}, have ${preCheck?.totalCredits || 0}`, creditCost },
         { status: 402 },
       );
+    }
+
+    for (let i = 0; i < targetScenes.length; i++) {
+      const deductResult = await CreditsService.deductCredits(userId, 'pipeline', 'video_generation');
+      if (!deductResult.success) {
+        console.warn(`[generate-videos] Credit deduction failed at scene ${i}/${targetScenes.length}`);
+        break;
+      }
     }
 
     // Build reference subject lookup
@@ -347,6 +354,20 @@ export async function POST(
     }
 
     console.log(`[generate-videos] Batch ${batchId}: ${sceneJobs.length} scenes dispatched (${enqueueErrors} failures)`);
+
+    // F4.3: If ALL enqueues failed, return failure — don't pretend everything is fine
+    if (enqueueErrors >= sceneJobs.length && sceneJobs.length > 0) {
+      // Mark batch as failed
+      await db.collection(VIDEO_BATCHES_COLLECTION).updateOne(
+        { _id: batchId } as any,
+        { $set: { status: 'failed', updatedAt: new Date() } },
+      );
+      return NextResponse.json({
+        success: false,
+        error: `All ${sceneJobs.length} video jobs failed to enqueue. Check QStash configuration.`,
+        batchId,
+      }, { status: 503 });
+    }
 
     return NextResponse.json({
       success: true,

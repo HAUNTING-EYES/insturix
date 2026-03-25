@@ -284,6 +284,14 @@ export async function POST(
     // 2-5 minutes later). This prevents Vercel timeout killing the entire
     // finalize because beatoven is slow.
 
+    // F6.2: Don't create empty project when all generation failed
+    if (currentFrame === 0 || overlays.length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'No content to finalize — all scenes failed to generate. Try regenerating the storyboard.',
+      }, { status: 400 });
+    }
+
     // Create Editron project then save overlays + settings
     const projectName = storyboard.title || 'Storyboard Video';
     const project = await projectService.createProject(userId, projectName);
