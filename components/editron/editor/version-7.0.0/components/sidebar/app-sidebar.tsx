@@ -126,45 +126,57 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const navigationItems = [...primaryItems, ...(showMorePanels ? secondaryItems : [])];
 
   /**
-   * Renders the appropriate panel component based on the active panel selection
-   * @returns {React.ReactNode} The component corresponding to the active panel
+   * All panels rendered simultaneously, shown/hidden via CSS display.
+   * This preserves state (chat messages, search results, scroll position)
+   * when switching between panels — no more lost chat input.
+   *
+   * Heavy panels (AI chat, quality review) stay mounted so websocket
+   * connections and polling don't restart on every tab switch.
    */
-  const renderActivePanel = () => {
-    switch (activePanel) {
-      case OverlayType.TEXT:
-        return <TextOverlaysPanel />;
-      case OverlayType.SOUND:
-        return <SoundsPanel />;
-      case OverlayType.VIDEO:
-        return <VideoOverlayPanel />;
-      case OverlayType.CAPTION:
-        return <CaptionsPanel />;
-      case OverlayType.IMAGE:
-        return <ImageOverlayPanel />;
-      case OverlayType.STICKER:
-        return <StickersPanel />;
-      case OverlayType.LOCAL_DIR:
-        return <LocalMediaPanel />;
-      case OverlayType.TEMPLATE:
-        return <TemplateOverlayPanel />;
-      case OverlayType.AI_CHAT:
-        return <AIChatPanel />;
-      case OverlayType.AI_SUGGESTIONS:
-        return <AISuggestionsPanel />;
-      case OverlayType.QUALITY_REVIEW:
-        return <QualityReviewPanel />;
-      case OverlayType.TRANSITIONS:
-        return <TransitionBrowserPanel />;
-      case OverlayType.SFX_LIBRARY:
-        return <SFXLibraryPanel />;
-      case OverlayType.LOTTIE:
-        return <LottiePanel />;
-      case OverlayType.HTML_SCENE:
-        return <HtmlScenePanel />;
-      default:
-        return null;
+  const allPanels: Array<{ type: string; element: React.ReactNode }> = [
+    { type: OverlayType.TEXT, element: <TextOverlaysPanel /> },
+    { type: OverlayType.SOUND, element: <SoundsPanel /> },
+    { type: OverlayType.VIDEO, element: <VideoOverlayPanel /> },
+    { type: OverlayType.CAPTION, element: <CaptionsPanel /> },
+    { type: OverlayType.IMAGE, element: <ImageOverlayPanel /> },
+    { type: OverlayType.STICKER, element: <StickersPanel /> },
+    { type: OverlayType.LOCAL_DIR, element: <LocalMediaPanel /> },
+    { type: OverlayType.TEMPLATE, element: <TemplateOverlayPanel /> },
+    { type: OverlayType.AI_CHAT, element: <AIChatPanel /> },
+    { type: OverlayType.AI_SUGGESTIONS, element: <AISuggestionsPanel /> },
+    { type: OverlayType.QUALITY_REVIEW, element: <QualityReviewPanel /> },
+    { type: OverlayType.TRANSITIONS, element: <TransitionBrowserPanel /> },
+    { type: OverlayType.SFX_LIBRARY, element: <SFXLibraryPanel /> },
+    { type: OverlayType.LOTTIE, element: <LottiePanel /> },
+    { type: OverlayType.HTML_SCENE, element: <HtmlScenePanel /> },
+  ];
+
+  // Track which panels have been visited — only mount on first visit
+  const [mountedPanels, setMountedPanels] = React.useState<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    if (activePanel && !mountedPanels.has(activePanel)) {
+      setMountedPanels(prev => new Set([...prev, activePanel]));
     }
-  };
+  }, [activePanel, mountedPanels]);
+
+  const renderAllPanels = () => (
+    <>
+      {allPanels.map(({ type, element }) => {
+        // Only mount panels that have been visited at least once
+        if (!mountedPanels.has(type) && activePanel !== type) return null;
+        return (
+          <div
+            key={type}
+            className="h-full"
+            style={{ display: activePanel === type ? 'contents' : 'none' }}
+          >
+            {element}
+          </div>
+        );
+      })}
+    </>
+  );
 
   return (
     <Sidebar
@@ -377,7 +389,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               </div>
             </SidebarHeader>
             <SidebarContent className="text-foreground bg-black">
-              {renderActivePanel()}
+              {renderAllPanels()}
             </SidebarContent>
           </Sidebar>
         )}
