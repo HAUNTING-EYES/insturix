@@ -14,6 +14,9 @@ export enum OverlayType {
   HTML_STICKER = "html-sticker", // HTML generated stickers (transparent, animated elements)
   AI_SUGGESTIONS = "ai-suggestions", // AI Suggestions panel
   QUALITY_REVIEW = "quality-review", // Quality Review panel
+  TRANSITIONS = "transitions",       // Transition browser panel
+  SFX_LIBRARY = "sfx-library",       // SFX library browse panel
+  LOTTIE = "lottie",                 // LottieFiles motion graphics panel
 }
 // ─── Keyframe Animation System ───────────────────────────────────
 // Enables per-property animation curves on any overlay.

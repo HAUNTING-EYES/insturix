@@ -43,6 +43,7 @@ import { useEditorContext } from "../../contexts/editor-context";
 import { AIChatPanel } from "../ai-chat/ai-chat-panel";
 import { AISuggestionsPanel } from "../ai-suggestions/ai-suggestions-panel";
 import { QualityReviewPanel } from "../quality-review/quality-review-panel";
+import { TransitionBrowserPanel } from "../transitions/transition-browser-panel";
 
 /**
  * AppSidebar Component
@@ -87,6 +88,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         return "Sticker";
       case OverlayType.QUALITY_REVIEW:
         return "Quality";
+      case OverlayType.TRANSITIONS:
+        return "Transitions";
+      case OverlayType.SFX_LIBRARY:
+        return "Sound Effects";
+      case OverlayType.LOTTIE:
+        return "Motion Graphics";
       default:
         return "Unknown";
     }
@@ -105,6 +112,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // Secondary panels — shown when "More" is toggled
   const secondaryItems = [
     { title: 'Captions', icon: Subtitles, panel: OverlayType.CAPTION, type: OverlayType.CAPTION },
+    { title: 'Transitions', icon: Film, panel: OverlayType.TRANSITIONS, type: OverlayType.TRANSITIONS },
     { title: 'Images', icon: ImageIcon, panel: OverlayType.IMAGE, type: OverlayType.IMAGE },
     { title: 'Stickers', icon: Sticker, panel: OverlayType.STICKER, type: OverlayType.STICKER },
     { title: 'Templates', icon: Layout, panel: OverlayType.TEMPLATE, type: OverlayType.TEMPLATE },
@@ -140,6 +148,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         return <AISuggestionsPanel />;
       case OverlayType.QUALITY_REVIEW:
         return <QualityReviewPanel />;
+      case OverlayType.TRANSITIONS:
+        return <TransitionBrowserPanel />;
       case OverlayType.HTML_SCENE:
         return <HtmlScenePanel />;
       default:
