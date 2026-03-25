@@ -13,10 +13,47 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Validate URL format
-    new URL(url);
+    // =========================
+    // ✅ 1. Handle YouTube (NO AXIOS)
+    // =========================
+    const isYouTube = (u: string) => {
+      try {
+        const hostname = new URL(u).hostname;
+        return hostname.includes("youtube.com") || hostname.includes("youtu.be");
+      } catch { return false; }
+    };
 
-    // Fetch the webpage content
+    if (isYouTube(url)) {
+      try {
+        const res = await fetch(
+          `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`
+        );
+
+        if (res.ok) {
+          const data = await res.json();
+          return NextResponse.json({
+            title: data.title || "YouTube Video",
+            description: "",
+            image: data.thumbnail_url || null,
+            url,
+          });
+        }
+      } catch (e) {
+        console.error("YouTube oEmbed failed:", e);
+      }
+
+      // fallback for YouTube
+      return NextResponse.json({
+        title: "YouTube Video",
+        description: "",
+        image: null,
+        url,
+      });
+    }
+
+    // =========================
+    // ✅ 2. Normal websites (Axios + Cheerio)
+    // =========================
     const response = await axios.get(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; SocializeLinkPreview/1.0)",

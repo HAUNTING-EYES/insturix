@@ -6,6 +6,9 @@ import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
 
+// Import our new ingestion and transcription pipeline
+import { ingestMediaToGCS } from "@/lib/alyzitron/transcription/downloader";
+import { transcribeAudio } from "@/lib/alyzitron/transcription/deepgram";
 
 async function handler(request: NextRequest) {
   try {
@@ -37,12 +40,11 @@ async function handler(request: NextRequest) {
       clerkUserId: userId,
     });
 
-
-
     if (!task) {
       logger.error("Task not found", { data: { taskId, userId } });
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
+
     // Prevent re-processing if already completed/failed
     if (task.status === "completed" || task.status === "failed") {
       logger.warn("Task already processed", {
@@ -66,16 +68,33 @@ async function handler(request: NextRequest) {
       }
     );
 
-    // 3. Perform video analysis with Vertex AI
+    // 3. Perform Multi-Step Pipeline (Ingest -> Transcribe -> Analyze)
     try {
-      logger.info("Starting Vertex AI analysis", {
-        data: { taskId, userId, videoUrl: task.videoUrl },
+      logger.info("Starting Alyzitron Pipeline", {
+        data: { taskId, userId, originalUrl: task.videoUrl },
       });
 
-      // Call Vertex AI for analysis with all required data
+      // --- STEP 3.1: Download to GCS ---
+      logger.info("Step 1: Ingesting media to GCS...", { data: { taskId } });
+      const gcsSignedUrl = await ingestMediaToGCS(task.videoUrl);
+
+      // --- STEP 3.2: Transcribe via Deepgram ---
+      logger.info("Step 2: Transcribing audio from GCS...", { data: { taskId } });
+      const transcriptResult = await transcribeAudio(gcsSignedUrl);
+
+      // --- STEP 3.3: Analyze with Gemini ---
+      logger.info("Step 3: Starting Vertex AI analysis...", { data: { taskId } });
+
+      // Inject the Deepgram transcript into the context for Gemini
+      const enhancedContext = {
+        ...(task.context || {}),
+        transcript: transcriptResult.formattedTranscript,
+      };
+
+      // Call Vertex AI using the stable GCS URL instead of the raw YouTube link
       const analysisResults = await analyzeVideoWithGemini(
-        task.videoUrl,
-        task.context || {},
+        gcsSignedUrl,
+        enhancedContext,
         task.metadata || {}
       );
 
@@ -83,17 +102,18 @@ async function handler(request: NextRequest) {
         data: { taskId, userId },
       });
 
-      // 4. Save results and mark as completed (MongoDB)
+      // 4. Save ALL results and mark as completed (MongoDB)
       const updateData: any = {
         status: "completed",
         results: analysisResults,
+        transcription: transcriptResult, // <-- Saving Deepgram output to DB
         completedAt: new Date(),
         updatedAt: new Date(),
       };
 
       await analyses.updateOne({ _id: task._id }, { $set: updateData });
 
-      logger.info("Analysis completed successfully", {
+      logger.info("Analysis pipeline completed successfully", {
         data: { taskId, userId },
       });
 
@@ -102,6 +122,7 @@ async function handler(request: NextRequest) {
         taskId,
         status: "completed",
       });
+
     } catch (analysisError) {
       // 5. Handle analysis failure with robust refund logic
       const errorMessage = (() => {
@@ -116,14 +137,15 @@ async function handler(request: NextRequest) {
           if (msg.includes("quota") || msg.includes("429")) {
             return "Server busy: AI analysis quota exceeded. Please wait a few minutes.";
           }
-          if (msg.includes("invalid") || msg.includes("format")) {
-            return "Processing error: The video format is not supported or the file is corrupted.";
+          if (msg.includes("invalid") || msg.includes("format") || msg.includes("yt-dlp")) {
+            return "Processing error: The video format is not supported, the link is invalid, or the file is corrupted.";
           }
           return msg;
         }
         return "Video analysis failed due to an unexpected error.";
       })();
-      logger.error("Video analysis failed", {
+
+      logger.error("Video pipeline failed", {
         data: {
           taskId,
           userId,
@@ -153,7 +175,6 @@ async function handler(request: NextRequest) {
         );
 
         if (updateResult.modifiedCount === 0) {
-          // No modification: either already refunded or update didn't match
           const fresh = await analyses.findOne({ _id: task._id });
           if (fresh?.refunded) {
             shouldRefund = false;
@@ -161,7 +182,6 @@ async function handler(request: NextRequest) {
               data: { taskId },
             });
           } else {
-            // Update didn't modify but refunded not set; we'll still attempt refund
             logger.warn("Failed to mark task as refunded; proceeding to refund anyway", {
               data: { taskId },
             });
@@ -172,13 +192,11 @@ async function handler(request: NextRequest) {
         logger.error("Failed to update task status/refunded flag", {
           data: { taskId, error: updateErr instanceof Error ? updateErr.message : String(updateErr) },
         });
-        // Proceed to refund as a best-effort
         shouldRefund = true;
       }
 
       if (shouldRefund) {
         try {
-          // Perform refund (2 credits per minute for Alyzitron)
           const creditsToRefund = minutes * 2;
           await CreditsService.refundCredits(userId, creditsToRefund, `Video analysis failed: ${errorMessage}`, {
             service: "alyzitron",
@@ -188,7 +206,6 @@ async function handler(request: NextRequest) {
             data: { taskId, userId, minutes, creditsToRefund },
           });
 
-          // Ensure task has refunded flag set (best-effort)
           try {
             await analyses.updateOne(
               { _id: task._id },
@@ -204,10 +221,7 @@ async function handler(request: NextRequest) {
             data: {
               taskId,
               userId,
-              error:
-                refundError instanceof Error
-                  ? refundError.message
-                  : String(refundError),
+              error: refundError instanceof Error ? refundError.message : String(refundError),
             },
           });
         }
@@ -242,7 +256,6 @@ export const POST = async (request: NextRequest) => {
     logger.warn("Development bypass of QStash signature verification enabled");
     return handler(request);
   } else {
-    // Correct usage: wrap the handler
     return verifySignatureAppRouter(handler)(request);
   }
 };
