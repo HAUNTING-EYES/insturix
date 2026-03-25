@@ -205,6 +205,81 @@ export async function saveAnalysis(analysis: AssetAnalysis): Promise<void> {
   );
 }
 
+// ─── Gemini Files API Upload ─────────────────────────────────────
+
+/**
+ * Upload a video to Gemini Files API for Vision analysis.
+ * Downloads from GCS signed URL → uploads to Gemini → returns fileUri.
+ * Files are retained for 48 hours by Google.
+ */
+async function uploadToGeminiFiles(
+  videoUrl: string,
+  assetId: string,
+  durationMs: number,
+): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    console.warn('[GeminiFiles] No API key set');
+    return null;
+  }
+
+  try {
+    // Download video from GCS signed URL
+    console.log(`[GeminiFiles] Downloading video ${assetId} (${Math.round(durationMs / 1000)}s)...`);
+    const response = await fetch(videoUrl);
+    if (!response.ok) {
+      console.error(`[GeminiFiles] Download failed: ${response.status}`);
+      return null;
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const sizeKb = Math.round(buffer.length / 1024);
+    console.log(`[GeminiFiles] Downloaded ${sizeKb}KB, uploading to Gemini...`);
+
+    // Skip videos > 50MB (Gemini free tier practical limit for video)
+    if (buffer.length > 50 * 1024 * 1024) {
+      console.warn(`[GeminiFiles] Video too large (${sizeKb}KB), skipping`);
+      return null;
+    }
+
+    // Upload via Gemini Files API (@google/genai SDK)
+    const { GoogleGenAI } = await import('@google/genai');
+    const ai = new GoogleGenAI({ apiKey });
+
+    const uploadResult = await ai.files.uploadFile(
+      new Blob([buffer], { type: 'video/mp4' }),
+      { mimeType: 'video/mp4', displayName: `${assetId}.mp4` },
+    );
+
+    if (!uploadResult?.uri) {
+      console.error('[GeminiFiles] Upload returned no URI');
+      return null;
+    }
+
+    console.log(`[GeminiFiles] Uploaded: ${uploadResult.uri.substring(0, 80)}...`);
+
+    // Gemini may need a moment to process the video before it's queryable
+    // Wait for the file to be in ACTIVE state
+    let fileState = uploadResult.state;
+    let retries = 0;
+    while (fileState !== 'ACTIVE' && retries < 10) {
+      await new Promise(r => setTimeout(r, 2000));
+      const fileInfo = await ai.files.get({ name: uploadResult.name! });
+      fileState = fileInfo?.state;
+      retries++;
+    }
+
+    if (fileState !== 'ACTIVE') {
+      console.warn(`[GeminiFiles] File not ACTIVE after ${retries * 2}s (state: ${fileState})`);
+    }
+
+    return uploadResult.uri;
+  } catch (err: any) {
+    console.error(`[GeminiFiles] Upload failed: ${err.message}`);
+    return null;
+  }
+}
+
 // ─── Layer 1: Shot Detection ─────────────────────────────────────
 
 async function detectShots(videoUrl: string, durationMs: number, fps: number): Promise<Shot[]> {
@@ -716,97 +791,81 @@ export async function runFullAnalysis(
     durationMs,
   }];
 
-  // Layers 2-5
-  // AI VIDEOS: Use storyboard metadata directly (no Gemini Vision needed).
-  // Gemini Vision can't access GCS signed URLs, and for AI videos we already
-  // have rich scene data from the ThinkForge script.
-  // REAL FOOTAGE: Would use Gemini Files API upload + Vision (future Phase C/D).
+  // Layers 2-5: REAL video analysis via Gemini Files API
+  // Upload video to Gemini, then run Vision analysis on the actual content.
+  // Works for both AI-generated AND real footage — analyzes what's actually
+  // in the video, not what the script intended.
   let motion: { segments: MotionSegment[]; peaks: number[] } = { segments: [], peaks: [] };
   let audioData: AudioAnalysis | null = null;
   let keyframeData: FrameAnalysis[] = [];
   let subjectData: SubjectTrackEntry[] = [];
 
-  if (isAIVideo && storyboardScene) {
-    // Layer 2: Motion from storyboard cameraDirection
-    const cameraDir = storyboardScene.cameraDirection || '';
-    const motionMap: Record<string, MotionSegment['cameraMotion']> = {
-      'push in': 'zoom-in', 'push-in': 'zoom-in', 'zoom in': 'zoom-in',
-      'pull out': 'zoom-out', 'pull-out': 'zoom-out', 'zoom out': 'zoom-out',
-      'pan left': 'pan-left', 'pan right': 'pan-right', 'pan-right': 'pan-right',
-      'tilt up': 'tilt-up', 'tilt down': 'tilt-down',
-      'tracking': 'tracking', 'steadicam': 'tracking', 'dolly': 'dolly',
-      'handheld': 'handheld', 'static': 'static', 'hold': 'static',
-      'orbit': 'tracking', '360': 'tracking',
-      'montage': 'handheld', 'quick': 'handheld', 'whip': 'pan-right',
-    };
+  if (videoUrl) {
+    try {
+      // Upload video to Gemini Files API for real analysis
+      const geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
 
-    let detectedMotion: MotionSegment['cameraMotion'] = 'static';
-    let motionIntensity = 0.3;
-    const lowerCam = cameraDir.toLowerCase();
-    for (const [keyword, motionType] of Object.entries(motionMap)) {
-      if (lowerCam.includes(keyword)) {
-        detectedMotion = motionType;
-        motionIntensity = lowerCam.includes('slow') ? 0.3 : lowerCam.includes('fast') || lowerCam.includes('quick') || lowerCam.includes('whip') ? 0.8 : 0.5;
-        break;
+      if (geminiFileUri) {
+        // Run Layers 2, 4, 5 in parallel using the uploaded file
+        const [motionResult, kfResult, subjectResult] = await Promise.allSettled([
+          analyzeMotion(geminiFileUri, shots, durationMs),
+          analyzeKeyframes(geminiFileUri, shots, durationMs),
+          trackSubjects(geminiFileUri, [], durationMs),
+        ]);
+
+        if (motionResult.status === 'fulfilled') motion = motionResult.value;
+        if (kfResult.status === 'fulfilled') keyframeData = kfResult.value;
+        if (subjectResult.status === 'fulfilled') subjectData = subjectResult.value;
+
+        console.log(`[Analysis] Gemini Vision: motion=${motion.segments.length} segments, keyframes=${keyframeData.length}, subjects=${subjectData.length}`);
+      } else {
+        console.warn(`[Analysis] Gemini Files upload failed, using storyboard metadata as enrichment`);
       }
+    } catch (err: any) {
+      console.error(`[Analysis] Video analysis failed: ${err.message}`);
     }
-
-    motion = {
-      segments: [{
-        startFrame: 0,
-        endFrame: shots[0].endFrame,
-        motionIntensity,
-        cameraMotion: detectedMotion,
-      }],
-      peaks: motionIntensity > 0.5 ? [Math.round(shots[0].endFrame * 0.5)] : [],
-    };
-    console.log(`[Layer2] AI video motion from storyboard: ${detectedMotion} (${motionIntensity})`);
-
-    // Layer 4: Keyframe from storyboard visualDescription
-    const mood = storyboardScene.mood || 'neutral';
-    const moodToScore: Record<string, number> = {
-      'energetic': 0.8, 'dramatic': 0.7, 'melancholic': -0.3, 'peaceful': 0.3,
-      'tense': -0.5, 'mysterious': -0.2, 'hopeful': 0.5, 'neutral': 0.0,
-      'warm': 0.4, 'cool': 0.1, 'dark': -0.4, 'bright': 0.5,
-    };
-    keyframeData = [{
-      frame: 0,
-      timestampMs: 0,
-      description: storyboardScene.visualDescription || '',
-      subjects: [], // Would need Gemini Vision for bounding boxes
-      shotType: lowerCam.includes('close') ? 'close-up' : lowerCam.includes('wide') ? 'wide' : 'medium',
-      cameraAngle: lowerCam.includes('low') ? 'low-angle' : lowerCam.includes('high') ? 'high-angle' : 'eye-level',
-      dominantColors: [],
-      brightness: mood === 'dark' ? 0.3 : mood === 'bright' ? 0.8 : 0.6,
-      moodScore: moodToScore[mood] ?? 0,
-      energyLevel: motionIntensity,
-      naturalCutPoint: false,
-    }];
-    console.log(`[Layer4] AI video keyframe from storyboard: ${keyframeData[0].shotType}, mood=${mood}`);
-
-    // Layer 5: Subject tracking from storyboard (basic — no bounding boxes without Vision)
-    // Still populated from reference subjects if available
   }
 
-  // Layer 3: Audio analysis (works for both AI and real — uses audio URL)
+  // Enrich with storyboard metadata if available (supplements Vision, doesn't replace)
+  // Even with Vision analysis, storyboard data adds intent context (what was MEANT to happen)
+  if (storyboardScene) {
+    // If Vision didn't return motion data, use storyboard as minimum
+    if (motion.segments.length === 0 && storyboardScene.cameraDirection) {
+      const cameraDir = storyboardScene.cameraDirection.toLowerCase();
+      const motionMap: Record<string, MotionSegment['cameraMotion']> = {
+        'push in': 'zoom-in', 'zoom in': 'zoom-in', 'pull out': 'zoom-out',
+        'zoom out': 'zoom-out', 'pan left': 'pan-left', 'pan right': 'pan-right',
+        'tilt up': 'tilt-up', 'tilt down': 'tilt-down', 'tracking': 'tracking',
+        'steadicam': 'tracking', 'dolly': 'dolly', 'handheld': 'handheld',
+        'static': 'static', 'orbit': 'tracking', 'whip': 'pan-right',
+      };
+      let cam: MotionSegment['cameraMotion'] = 'static';
+      let intensity = 0.3;
+      for (const [kw, mt] of Object.entries(motionMap)) {
+        if (cameraDir.includes(kw)) { cam = mt; intensity = cameraDir.includes('slow') ? 0.3 : 0.5; break; }
+      }
+      motion = { segments: [{ startFrame: 0, endFrame: shots[0].endFrame, motionIntensity: intensity, cameraMotion: cam }], peaks: [] };
+    }
+
+    // If Vision didn't return keyframes, use storyboard description
+    if (keyframeData.length === 0 && storyboardScene.visualDescription) {
+      keyframeData = [{
+        frame: 0, timestampMs: 0,
+        description: storyboardScene.visualDescription,
+        subjects: [], shotType: 'medium', cameraAngle: 'eye-level',
+        dominantColors: [], brightness: 0.6,
+        moodScore: 0, energyLevel: 0.3, naturalCutPoint: false,
+      }];
+    }
+  }
+
+  // Layer 3: Audio analysis (independent of video — uses audio URL directly)
   if (audioUrl) {
     try {
       audioData = await analyzeAudio(audioUrl, durationMs);
     } catch (err: any) {
       console.warn(`[Layer3] Audio analysis failed: ${err.message}`);
     }
-  }
-
-  // For real footage: run Gemini Vision (future — would upload to Files API first)
-  if (!isAIVideo && videoUrl) {
-    const [motionResult, kfResult, subjectResult] = await Promise.allSettled([
-      analyzeMotion(videoUrl, shots, durationMs),
-      analyzeKeyframes(videoUrl, shots, durationMs),
-      trackSubjects(videoUrl, [], durationMs),
-    ]);
-    if (motionResult.status === 'fulfilled') motion = motionResult.value;
-    if (kfResult.status === 'fulfilled') keyframeData = kfResult.value;
-    if (subjectResult.status === 'fulfilled') subjectData = subjectResult.value;
   }
 
   // Track A: Speech semantic
