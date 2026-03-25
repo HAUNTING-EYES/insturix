@@ -14,9 +14,10 @@ export enum OverlayType {
   HTML_STICKER = "html-sticker", // HTML generated stickers (transparent, animated elements)
   AI_SUGGESTIONS = "ai-suggestions", // AI Suggestions panel
   QUALITY_REVIEW = "quality-review", // Quality Review panel
-  TRANSITIONS = "transitions",       // Transition browser panel
-  SFX_LIBRARY = "sfx-library",       // SFX library browse panel
-  LOTTIE = "lottie",                 // LottieFiles motion graphics panel
+  TRANSITIONS = "transitions",       // Transition browser panel (sidebar)
+  SFX_LIBRARY = "sfx-library",       // SFX library browse panel (sidebar)
+  LOTTIE = "lottie",                 // LottieFiles motion graphics panel (sidebar)
+  TRANSITION = "transition",         // Actual transition overlay between clips (timeline item)
 }
 // ─── Keyframe Animation System ───────────────────────────────────
 // Enables per-property animation curves on any overlay.
@@ -367,6 +368,31 @@ export type HtmlSceneOverlay = BaseOverlay & {
   };
 };
 
+// ─── Transition Overlay ────────────────────────────────────────────
+// A visible tile on the timeline between two clips.
+// Sits on the SAME row as video clips, overlapping both adjacent clips.
+// When rendered, applies keyframe opacity/scale/position to both clips.
+
+export type TransitionStyle =
+  | 'dissolve' | 'dip-to-black' | 'dip-to-white'
+  | 'wipe-left' | 'wipe-right' | 'wipe-up' | 'wipe-down'
+  | 'zoom-punch' | 'iris-wipe' | 'blur-transition'
+  | 'flash' | 'slide-push';
+
+export type TransitionOverlay = BaseOverlay & {
+  type: OverlayType.TRANSITION;
+  /** Transition visual style */
+  transitionStyle: TransitionStyle;
+  /** ID of the clip BEFORE this transition (scene A) */
+  clipAId: number;
+  /** ID of the clip AFTER this transition (scene B) */
+  clipBId: number;
+  /** Easing for the transition blend */
+  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+  content: string; // Display name for timeline
+  styles: BaseStyles;
+};
+
 // HTML Sticker overlay specific (transparent animated elements)
 export type HtmlStickerOverlay = BaseOverlay & {
   type: OverlayType.HTML_STICKER;
@@ -409,7 +435,8 @@ export type Overlay =
   | CaptionOverlay
   | StickerOverlay
   | HtmlSceneOverlay
-  | HtmlStickerOverlay;
+  | HtmlStickerOverlay
+  | TransitionOverlay;
 
 export type MainProps = {
   readonly overlays: Overlay[];

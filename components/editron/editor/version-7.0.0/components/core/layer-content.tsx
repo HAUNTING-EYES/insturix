@@ -8,6 +8,7 @@ import { ImageLayerContent } from "../overlays/images/image-layer-content";
 import { SoundLayerContent } from "../overlays/captions/sound-layer-content";
 import { StickerLayerContent } from "../overlays/stickers/sticker-layer-content";
 import { HtmlSceneLayerContent } from "../overlays/html/html-scene-layer-content";
+import { TransitionLayerContent } from "../overlays/transitions/transition-layer-content";
 
 /**
  * Props for the LayerContent component
@@ -114,6 +115,13 @@ export const LayerContent: React.FC<LayerContentProps> = ({
 
     case OverlayType.SOUND:
       return <SoundLayerContent overlay={overlay} baseUrl={baseUrl} />;
+
+    case OverlayType.TRANSITION:
+      return (
+        <div style={{ ...commonStyle }}>
+          <TransitionLayerContent overlay={overlay as any} />
+        </div>
+      );
 
     default:
       return null;

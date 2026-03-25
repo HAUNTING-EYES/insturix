@@ -328,7 +328,10 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
         return isHandle
           ? "bg-pink-500/40 dark:bg-pink-500/40"
           : "bg-pink-500/15 hover:bg-pink-500/25 dark:bg-pink-500/15 dark:hover:bg-pink-500/25 border-pink-500/30 dark:border-pink-500/40 text-pink-500 dark:text-pink-400";
-
+      case OverlayType.TRANSITION:
+        return isHandle
+          ? "bg-amber-500/40 dark:bg-amber-500/40"
+          : "bg-amber-500/20 hover:bg-amber-500/30 dark:bg-amber-500/20 dark:hover:bg-amber-500/30 border-amber-500/40 dark:border-amber-500/50 text-amber-400 dark:text-amber-300";
 
       default:
         return isHandle

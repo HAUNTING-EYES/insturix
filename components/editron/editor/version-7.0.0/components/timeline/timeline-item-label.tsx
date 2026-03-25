@@ -49,6 +49,8 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
         return <Sparkles className="w-2 h-2 mr-0.5" />;
       case OverlayType.CAPTION:
         return <></>;
+      case OverlayType.TRANSITION:
+        return <Sparkles className="w-2 h-2 mr-0.5" />;
       default:
         return null;
     }
@@ -69,6 +71,9 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
     }
     if (item.type === OverlayType.TEXT && typeof item.content === "string") {
       return item.content;
+    }
+    if (item.type === OverlayType.TRANSITION) {
+      return (item as any).transitionStyle || 'Transition';
     }
     if (item.type === OverlayType.HTML_SCENE || item.type === OverlayType.HTML_STICKER) {
       // Show truncated description or simple label
