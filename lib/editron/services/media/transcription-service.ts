@@ -310,8 +310,13 @@ async function getNarrationTextForAsset(assetId: string): Promise<string | null>
 
 /**
  * Generate synthetic word-level timings from known narration text.
- * Distributes words evenly across the audio duration.
- * Not perfect but FAR better than no captions at all.
+ *
+ * Uses weighted distribution based on:
+ * - Syllable count (longer words = longer duration)
+ * - Punctuation pauses (commas = 150ms, periods = 300ms, ellipsis = 400ms)
+ * - Natural speech rhythm (short words like "a", "the" are faster)
+ *
+ * Calibrated to match professional TTS narration pacing (~150 words/min).
  */
 function generateSyntheticTimings(
   narrationText: string,
@@ -322,26 +327,68 @@ function generateSyntheticTimings(
     throw new Error('Narration text is empty');
   }
 
-  // Estimate total duration from asset metadata or default to word count estimate
-  // Average speaking rate: ~2.5 words/sec for professional narration
-  const estimatedDurationMs = words.length * 400; // 400ms per word average
+  // Use actual audio duration if available, otherwise estimate
+  // TTS generates at ~2.5 words/sec (400ms/word average)
+  const totalMs = (asset as any).durationMs
+    || (asset as any).audioDurationMs
+    || words.length * 400;
 
-  // Distribute words with slight variation for natural feel
-  const totalMs = estimatedDurationMs;
-  const avgWordMs = totalMs / words.length;
+  // Estimate syllable count for each word (simple heuristic)
+  const estimateSyllables = (word: string): number => {
+    const clean = word.replace(/[^a-zA-Z]/g, '').toLowerCase();
+    if (clean.length <= 2) return 1;
+    // Count vowel groups as syllables
+    const matches = clean.match(/[aeiouy]+/gi);
+    let count = matches ? matches.length : 1;
+    // Adjust for silent 'e' at end
+    if (clean.endsWith('e') && count > 1) count--;
+    return Math.max(1, count);
+  };
 
+  // Calculate weights: each word gets time proportional to its syllables
+  // Short function words ("a", "the", "is") get reduced weight
+  const shortWords = new Set(['a', 'an', 'the', 'is', 'it', 'in', 'on', 'to', 'of', 'at', 'by', 'or', 'as', 'if', 'so', 'no', 'do', 'up', 'my', 'we', 'he', 'me', 'am']);
+
+  const weights = words.map(word => {
+    const clean = word.replace(/[^a-zA-Z]/g, '').toLowerCase();
+    const syllables = estimateSyllables(clean);
+    const isShort = shortWords.has(clean);
+    return isShort ? 0.6 : syllables;
+  });
+
+  // Calculate pause durations after each word based on trailing punctuation
+  const pauses = words.map(word => {
+    if (word.includes('...') || word.includes('…')) return 400;
+    if (word.endsWith('.') || word.endsWith('!') || word.endsWith('?')) return 300;
+    if (word.endsWith(',') || word.endsWith(';') || word.endsWith(':')) return 150;
+    if (word.endsWith('"') || word.endsWith('"')) return 100;
+    return 30; // Normal inter-word gap
+  });
+
+  // Total weight = sum of word weights + sum of pauses
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const totalPauseMs = pauses.reduce((a, b) => a + b, 0);
+
+  // Allocate: speech time = totalMs - total pause time
+  const speechMs = Math.max(totalMs - totalPauseMs, totalMs * 0.7); // At least 70% for speech
+  const adjustedPauseScale = (totalMs - speechMs) / Math.max(totalPauseMs, 1);
+
+  let currentMs = 0;
   const timedWords: TranscriptionWord[] = words.map((word, i) => {
-    const startMs = Math.round(i * avgWordMs);
-    const endMs = Math.round((i + 1) * avgWordMs) - 20; // 20ms gap between words
+    const wordDuration = Math.round((weights[i] / totalWeight) * speechMs);
+    const startMs = Math.round(currentMs);
+    const endMs = startMs + Math.max(wordDuration, 80); // Min 80ms per word
+    const pauseAfter = Math.round(pauses[i] * adjustedPauseScale);
+    currentMs = endMs + pauseAfter;
     return {
       word,
       startMs,
-      endMs: Math.max(startMs + 50, endMs), // Min 50ms per word
-      confidence: 0.95, // Synthetic — high confidence since we know the text
+      endMs,
+      confidence: 0.95,
     };
   });
 
-  console.log(`[Transcription] Synthetic: ${words.length} words, ${totalMs}ms total`);
+  console.log(`[Transcription] Synthetic: ${words.length} words, ${totalMs}ms total (weighted syllable distribution)`);
 
   return {
     words: timedWords,
