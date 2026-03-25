@@ -79,11 +79,21 @@ export async function POST(
       const scriptEstimateSec = Math.min(scene.descriptor.durationSeconds, 15);
 
       // VIDEO duration is king — scene duration matches the actual video clip.
+      // If videoDurationMs isn't set but video URL exists, cap to 10s (max AI clip length).
       // Voiceover is capped to fit within the scene (no extending for long narration).
-      // If no video, use voiceover duration. If neither, use script estimate.
-      const sceneDurationSec = videoDurationSec
-        || voiceoverDurationSec
-        || scriptEstimateSec;
+      // NEVER use script estimate when video exists — script estimates are based on word count
+      // and can be 20-30s while the actual AI clip is only 5-10s.
+      let sceneDurationSec: number;
+      if (videoDurationSec) {
+        sceneDurationSec = videoDurationSec;
+      } else if (scene.videoUrl) {
+        // Video exists but no duration recorded — cap to 10s (AI clip max)
+        sceneDurationSec = Math.min(scriptEstimateSec, 10);
+      } else if (voiceoverDurationSec) {
+        sceneDurationSec = voiceoverDurationSec;
+      } else {
+        sceneDurationSec = scriptEstimateSec;
+      }
       const durationFrames = Math.round(sceneDurationSec * fps);
 
       // Scene background: Only add storyboard image when NO video exists.
