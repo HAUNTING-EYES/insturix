@@ -268,7 +268,7 @@ export async function POST(
       if (!globalDirs.defaultTransition) {
         globalDirs.defaultTransition = { type: 'soft-cut', durationMs: 500 };
       }
-      const result = applyEditDirections(
+      const result = await applyEditDirections(
         overlays,
         scenesWithDirections,
         sceneFrameMap,

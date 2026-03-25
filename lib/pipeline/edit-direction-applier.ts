@@ -31,7 +31,7 @@ interface SceneFrameInfo {
  *
  * @returns Updated overlays array + any modified frame positions
  */
-export function applyEditDirections(
+export async function applyEditDirections(
   overlays: any[],
   scenes: Array<{ sceneIndex: number; editDirections?: SceneEditDirections; audioDescription?: string }>,
   sceneFrameMap: SceneFrameInfo[],
@@ -96,54 +96,75 @@ export function applyEditDirections(
     console.log(`[EditDirections] Pacing applied: multiplier=${pacingMultiplier}, totalShift=${totalFrameShift} frames`);
   }
 
-  // ─── 3. Insert transition overlays ──────────────────────────
-  const transitionsToInsert: any[] = [];
+  // ─── 3. Apply clip-overlap transitions from script directions ───
+  // Production transitions: modify adjacent clip overlays directly
+  // (extend outgoing, start incoming early, add keyframe tracks for blending)
+  const { calculateTransition, TRANSITIONS } = await import('@/lib/editron/data/transition-system');
 
   for (let i = 1; i < scenes.length; i++) {
     const scene = scenes[i];
-    const prevFrameInfo = sceneFrameMap.find(f => f.sceneIndex === scenes[i - 1].sceneIndex);
-    if (!prevFrameInfo) continue;
+    const prevScene = scenes[i - 1];
+    const prevFrameInfo = sceneFrameMap.find(f => f.sceneIndex === prevScene.sceneIndex);
+    const currFrameInfo = sceneFrameMap.find(f => f.sceneIndex === scene.sceneIndex);
+    if (!prevFrameInfo || !currFrameInfo) continue;
 
     // Determine transition type: per-scene > global default > hard-cut
-    let transType: TransitionType = 'hard-cut';
+    let transId = 'hard-cut';
     let transDurationMs: number | undefined;
 
     if (scene.editDirections?.transition) {
-      transType = normalizeTransitionType(scene.editDirections.transition.type);
+      transId = normalizeTransitionType(scene.editDirections.transition.type);
       transDurationMs = scene.editDirections.transition.durationMs;
     } else if (globalDirections?.defaultTransition) {
-      transType = normalizeTransitionType(globalDirections.defaultTransition.type);
+      transId = normalizeTransitionType(globalDirections.defaultTransition.type);
       transDurationMs = globalDirections.defaultTransition.durationMs;
     }
 
-    if (transType === 'hard-cut') continue; // No overlay needed
+    const transDef = TRANSITIONS[transId];
+    if (!transDef || !transDef.hasVisualOverlap) continue;
 
-    const durationFrames = transDurationMs
+    const overlapFrames = transDurationMs
       ? Math.round((transDurationMs / 1000) * fps)
-      : DEFAULT_TRANSITION_FRAMES[transType] || 12;
+      : transDef.defaultDurationFrames;
 
-    // Position: centered on the cut point (half before, half after)
-    const cutFrame = prevFrameInfo.fromFrame + prevFrameInfo.durationFrames;
-    const startFrame = Math.max(0, cutFrame - Math.floor(durationFrames / 2));
+    // Find the actual video overlays for these scenes
+    const outgoingVideo = overlays.find(o =>
+      o.type === 'video' && o.from >= prevFrameInfo.fromFrame &&
+      o.from < prevFrameInfo.fromFrame + prevFrameInfo.durationFrames
+    );
+    const incomingVideo = overlays.find(o =>
+      o.type === 'video' && o.from >= currFrameInfo.fromFrame &&
+      o.from < currFrameInfo.fromFrame + currFrameInfo.durationFrames
+    );
 
-    const transOverlay = buildTransitionOverlay(transType, {
-      startFrame,
-      durationFrames,
-      width,
-      height,
-    }, nextOverlayId++);
+    if (!outgoingVideo || !incomingVideo) continue;
 
-    if (transOverlay) {
-      transitionsToInsert.push({
-        id: nextOverlayId - 1,
-        ...transOverlay,
-        metadata: { isTransition: true, source: 'script', transitionType: transType },
-      });
+    const result = calculateTransition(
+      transId,
+      { from: outgoingVideo.from, durationInFrames: outgoingVideo.durationInFrames, width, height },
+      { from: incomingVideo.from, durationInFrames: incomingVideo.durationInFrames },
+      overlapFrames,
+    );
+
+    if (result) {
+      // Modify outgoing clip
+      outgoingVideo.durationInFrames = result.outgoingOverlayUpdate.durationInFrames;
+      outgoingVideo.keyframeTracks = [
+        ...(outgoingVideo.keyframeTracks || []),
+        ...result.outgoingOverlayUpdate.keyframeTracks,
+      ];
+
+      // Modify incoming clip
+      incomingVideo.from = result.incomingOverlayUpdate.from;
+      incomingVideo.durationInFrames = result.incomingOverlayUpdate.durationInFrames;
+      incomingVideo.keyframeTracks = [
+        ...(incomingVideo.keyframeTracks || []),
+        ...result.incomingOverlayUpdate.keyframeTracks,
+      ];
+
+      console.log(`[EditDirections] Applied ${transDef.name} transition between scene ${prevScene.sceneIndex}→${scene.sceneIndex} (${overlapFrames} frames overlap)`);
     }
   }
-
-  // Add all transitions to overlays
-  overlays.push(...transitionsToInsert);
 
   // ─── 4. Apply camera/motion keyframes from script directions ──
   // Convert cameraRig and pacing directions into actual keyframe tracks
