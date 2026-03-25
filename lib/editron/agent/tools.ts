@@ -4281,20 +4281,42 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         const project = await loadProject();
         const canvas = getCanvasDimensions(project);
 
-        // Search templates
+        // Search templates (Tier 1: MongoDB curated library)
         const match = await findBestTemplate(input.description);
-        if (!match || match.score < 0.3) {
-          return JSON.stringify({
-            status: 'error',
-            message: `No matching motion graphic template found for "${input.description}". Use generate_html_scene instead for custom animations.`,
-            nextAction: 'continue',
-          });
+
+        let filledHtml: string;
+
+        if (match && match.score >= 0.15) {
+          // Template found — fill slots with AI
+          console.log(`[MOTION-GRAPHIC] Matched template: "${match.template.name}" (score: ${match.score.toFixed(2)})`);
+          filledHtml = await fillTemplateSlots(match.template, input.description);
+        } else {
+          // No template match — auto-fallback to AI-generated HTML motion graphic via Gemini
+          console.log(`[MOTION-GRAPHIC] No template match for "${input.description.substring(0, 60)}", generating via Gemini...`);
+
+          const { GoogleGenerativeAI } = await import('@google/generative-ai');
+          const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+          const genAI = new GoogleGenerativeAI(apiKey);
+          const gemini = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+          const genResult = await gemini.generateContent(`Create a self-contained HTML motion graphic for a video editor overlay.
+Description: ${input.description}
+Canvas: ${input.width ?? canvas.width}x${input.height ?? canvas.height}px
+
+Requirements:
+- Single <div> root element with position:absolute, inset:0
+- Clean, professional design with CSS animations
+- Dark/transparent background, white or accent-colored text
+- Inline CSS only (no external resources, no <link> tags)
+- Include @keyframes for entrance animation (fade-in, slide, or scale)
+- Font: system fonts only (-apple-system, BlinkMacSystemFont, sans-serif)
+- Content should be readable at a glance (large text, high contrast)
+- Return ONLY the HTML, no explanation, no markdown fences`);
+
+          filledHtml = genResult.response.text()?.trim() || '<div></div>';
+          // Strip markdown fences if present
+          filledHtml = filledHtml.replace(/^```html?\n?/i, '').replace(/\n?```$/i, '').trim();
         }
-
-        console.log(`[MOTION-GRAPHIC] Matched template: "${match.template.name}" (score: ${match.score.toFixed(2)})`);
-
-        // Fill slots with AI
-        const filledHtml = await fillTemplateSlots(match.template, input.description);
 
         const id = Date.now() + Math.floor(Math.random() * 10000);
         const overlayWidth = input.width ?? canvas.width;
