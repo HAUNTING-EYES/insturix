@@ -68,19 +68,22 @@ export const TransitionBrowserPanel: React.FC = () => {
     setApplying(transitionId);
 
     try {
-      // Call the add_transition tool via the AI chat API
+      // Direct tool invocation — no AI/LLM involved, instant execution
       const res = await fetch('/api/services/editron/chat/tool-call', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          projectId,
           toolName: 'add_transition',
           params: { type: transitionId, applyToAll: true },
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (data.status === 'success') {
-        // Refresh project to show changes
+        // Refresh project to show new transition tiles
         window.location.reload();
+      } else {
+        console.error('[TransitionBrowser] Tool error:', data.message);
       }
     } catch (err) {
       console.error('[TransitionBrowser] Apply failed:', err);

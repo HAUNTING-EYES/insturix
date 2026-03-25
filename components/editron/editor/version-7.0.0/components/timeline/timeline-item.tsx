@@ -452,6 +452,8 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
         style={{
           left: `${(item.from / totalDuration) * 100}%`,
           width: `${(item.durationInFrames / totalDuration) * 100}%`,
+          // Ensure transition tiles are at least 40px wide so they're clickable/resizable
+          minWidth: item.type === OverlayType.TRANSITION ? 40 : undefined,
           zIndex: isDragging ? 1 : isSelected ? 35 : 30, // Increase z-index when selected
           // Apply transform immediately if pushed, otherwise use standard transition
           transition: `opacity 0.2s ${
