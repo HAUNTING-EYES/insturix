@@ -309,6 +309,34 @@ async function executeAction(
     }
 
     case 'add_transition': {
+      // RULE: Script transitions ALWAYS win over profile transitions.
+      // Finalize applies script transitions (from editDirections) BEFORE Director runs.
+      // Director should only add transitions where none exist yet (gaps between scenes).
+      const existingTransitions = overlays.filter(
+        o => o.type === 'html-scene' && (o as any).metadata?.isTransition,
+      );
+
+      if (existingTransitions.length > 0) {
+        console.log(`[Director] add_transition: ${existingTransitions.length} script transitions already exist, respecting user's script intent`);
+        // Check if there are gaps (scenes without transitions between them)
+        const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
+        const transitionFrames = new Set(existingTransitions.map(t => t.from));
+        let gapCount = 0;
+        for (let i = 0; i < videoOverlays.length - 1; i++) {
+          const boundaryFrame = videoOverlays[i].from + videoOverlays[i].durationInFrames;
+          // Check if any transition exists near this boundary (±15 frames)
+          const hasTransition = existingTransitions.some(
+            t => Math.abs(t.from - boundaryFrame) < 30 || Math.abs((t.from + t.durationInFrames) - boundaryFrame) < 30,
+          );
+          if (!hasTransition) gapCount++;
+        }
+        if (gapCount === 0) {
+          console.log('[Director] add_transition: all scene boundaries have transitions, skipping');
+          break;
+        }
+        console.log(`[Director] add_transition: ${gapCount} gaps without transitions, filling with profile default`);
+      }
+
       // Get transition type from params or profile default
       let transType = action.params.type || profile.defaultTransition?.type || profile.defaultTransition || 'soft-cut';
       if (typeof transType === 'object') transType = transType.type || 'soft-cut';
@@ -320,7 +348,9 @@ async function executeAction(
       }
 
       // Validate against the enum the tool accepts
-      const validTypes = ['dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut', 'zoom-punch', 'whip-pan', 'glitch'];
+      const validTypes = ['dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut', 'zoom-punch', 'whip-pan', 'glitch',
+        'match-cut', 'cutaway', 'smash-cut', 'iris', 'film-burn', 'light-leak', 'slide-left', 'slide-right',
+        'slide-up', 'slide-down', 'morph', 'pixelate', 'blur-transition', 'color-flash'];
       if (!validTypes.includes(transType)) {
         console.warn(`[Director] add_transition: "${transType}" not in valid types, defaulting to soft-cut`);
         transType = 'soft-cut';

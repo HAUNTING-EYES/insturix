@@ -134,7 +134,11 @@ export function applyEditDirections(
     }, nextOverlayId++);
 
     if (transOverlay) {
-      transitionsToInsert.push({ id: nextOverlayId - 1, ...transOverlay });
+      transitionsToInsert.push({
+        id: nextOverlayId - 1,
+        ...transOverlay,
+        metadata: { isTransition: true, source: 'script', transitionType: transType },
+      });
     }
   }
 
