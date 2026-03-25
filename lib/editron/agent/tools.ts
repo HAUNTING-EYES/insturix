@@ -3785,6 +3785,26 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
               keyframeTracks: [...existingInTracks, ...result.incomingOverlayUpdate.keyframeTracks],
             });
 
+            // Create visible TRANSITION tile on timeline (DaVinci-style)
+            const transFrom = outgoing.from + outgoing.durationInFrames - overlapFrames;
+            const transOverlay = {
+              id: Date.now() + Math.floor(Math.random() * 100000) + applied,
+              type: 'transition',
+              transitionStyle: transId,
+              clipAId: outgoing.id,
+              clipBId: incoming.id,
+              easing: 'ease-in-out',
+              from: transFrom,
+              durationInFrames: overlapFrames,
+              row: outgoing.row || 2, // Same row as video clips
+              left: 0, top: 0, width: outgoing.width || 1920, height: outgoing.height || 1080,
+              isDragging: false, rotation: 0,
+              content: transDef.name || transId,
+              styles: { opacity: 1 },
+              metadata: { isTransition: true, source: 'tool', transitionType: transId },
+            };
+            await projectService.addOverlay(userId, projectId, transOverlay as any);
+
             applied++;
           }
         };
