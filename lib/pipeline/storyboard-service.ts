@@ -242,24 +242,31 @@ export async function generateStoryboardImage(
   // Single attempt with circuit breaker — if IP-adapter keeps failing,
   // skip it entirely rather than wasting 30-90s per scene on timeouts.
   if (hasReferences && _ipAdapterConsecutiveFailures < IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD) {
-    const primaryRef = options.referenceImages![0];
-    const cleanRefUrl = primaryRef.imageUrl;
-    const refStrength = primaryRef.weight ?? 0.65;
-    console.log(`[Storyboard] Scene ${options.sceneIndex}: Trying IP-adapter with ref ${primaryRef.subjectId} (strength=${refStrength}, failures=${_ipAdapterConsecutiveFailures}/${IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD})`);
+    // Build IP-adapter entries for ALL references in this scene (not just the first).
+    // Each reference gets its own adapter with appropriate weight.
+    // Primary ref (first) gets higher weight, additional refs get lower weight.
+    const refs = options.referenceImages!;
+    const primaryRef = refs[0];
+    console.log(`[Storyboard] Scene ${options.sceneIndex}: Trying IP-adapter with ${refs.length} ref(s): ${refs.map(r => r.name || r.subjectId).join(', ')} (failures=${_ipAdapterConsecutiveFailures}/${IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD})`);
 
     const ipAdapterModelId = 'fal-ai/flux-general';
-    const ipAdapterTimeout = 45_000; // 45s — if it doesn't respond by then, it's cold-starting and won't make it
+    const ipAdapterTimeout = 45_000;
+
+    // Build IP-adapter array — primary gets higher scale, secondary refs get lower
+    const ipAdapters = refs.slice(0, 3).map((ref, idx) => ({
+      path: 'XLabs-AI/flux-ip-adapter',
+      image_encoder_path: 'openai/clip-vit-large-patch14',
+      image_url: ref.imageUrl,
+      scale: idx === 0
+        ? Math.min((ref.weight ?? 0.65) + 0.15, 1.0)  // Primary: stronger
+        : Math.min((ref.weight ?? 0.4), 0.6),           // Secondary: weaker to avoid conflict
+    }));
 
     try {
       const result = await falSubscribeWithTimeout(ipAdapterModelId, {
         input: {
-          prompt: `${prompt}. Maintain exact visual consistency with the reference image for the main subject.`,
-          ip_adapters: [{
-            path: 'XLabs-AI/flux-ip-adapter',
-            image_encoder_path: 'openai/clip-vit-large-patch14',
-            image_url: cleanRefUrl,
-            scale: Math.min(refStrength + 0.15, 1.0),
-          }],
+          prompt: `${prompt}. Maintain exact visual consistency with all reference subjects.`,
+          ip_adapters: ipAdapters,
           image_size: { width, height },
           num_images: 1,
           enable_safety_checker: false,

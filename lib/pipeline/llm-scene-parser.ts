@@ -103,7 +103,10 @@ CRITICAL RULES:
 - If a scene has NO voiceover/dialogue text, set narration to an EMPTY STRING "". Do NOT invent narration. Silent scenes are valid.
 
 IMAGE PROMPT RULES (visualDescription):
-- This generates a STILL IMAGE. Absolutely NO camera movement words (no "tracking", "dolly", "pan", "zoom", "follows"). Describe a FROZEN MOMENT in time.
+- This generates ONE SINGLE STILL IMAGE. Absolutely NO camera movement words (no "tracking", "dolly", "pan", "zoom", "follows"). Describe a FROZEN MOMENT in time.
+- NEVER describe multiple frames, panels, grids, collages, storyboards, or split-screen layouts. ONE image = ONE continuous photograph.
+- If the script mentions "quick cuts" or "montage" with multiple elements (A, B, C), pick the SINGLE most visually striking element as the image subject. The others are edit directions, not visual content.
+- NEVER write things like "split into frames showing..." or "a series of images..." or "four panels..." — this creates collage artifacts in the image generator.
 - Write as a detailed AI image generation prompt describing what the camera frame captures as a photograph.
 - Include: specific subject with exact visual details (colors, materials, textures), setting/environment, lighting setup (type, direction, quality), color palette, composition (framing, rule of thirds, centered), viewing angle (eye level, low angle, overhead), atmosphere/mood.
 - Be SPECIFIC. Instead of "a person at a desk", write a detailed description with exact visual attributes: hair, clothing, materials, lighting direction, environment details, and color specifics. Describe what the camera frame actually captures.
@@ -164,8 +167,16 @@ EDIT DIRECTIONS EXTRACTION:
   - Narrative structure (AIDA, before/after, three-act)
 - CRITICAL: Return null for ANY field not explicitly in the script. Do NOT invent directions.
 
-DURATION: Based on voiceover pacing at ~150 words/minute. If no voiceover, use 5-8 seconds.
-TOTAL TARGET: ~${options.targetDuration || 30} seconds.
+DURATION: Based on voiceover pacing at ~150 words/minute. If no voiceover, use 5-8 seconds per scene.
+TOTAL TARGET: ~${options.targetDuration || 30} seconds total.
+
+SCENE COUNT RULES — THIS IS CRITICAL:
+- For a ${options.targetDuration || 30}-second video: generate EXACTLY ${Math.max(2, Math.min(Math.ceil((options.targetDuration || 30) / 7), 8))} to ${Math.max(3, Math.min(Math.ceil((options.targetDuration || 30) / 5), 12))} scenes. NO MORE.
+- Each scene = ONE continuous camera shot / ONE storyboard frame. A scene is 5-10 seconds of footage.
+- "Quick cuts: A, B, C" or "Montage: X, Y, Z" = ONE scene with the MOST IMPORTANT visual element as the visualDescription. The quick cuts/montage is a PACING instruction (set pacing: "fast"), NOT multiple scenes.
+- If the script explicitly labels scenes (Scene 1, Scene 2, etc.), use EXACTLY those scene boundaries. Do NOT split a labeled scene into multiple scenes.
+- Multiple visual actions within one scene stay as ONE scene. Pick the SINGLE most striking frame for the storyboard image.
+- NEVER generate more than 12 scenes for any video under 2 minutes.
 ${options.aspectRatio ? `ASPECT RATIO: ${options.aspectRatio}. Adjust composition and framing accordingly.` : ''}
 
 SCRIPT:
