@@ -5,10 +5,13 @@ import { CreditsService } from "@/lib/services/creditsService";
 import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
+import { GCSManager } from "../utils/gcs";
 
-// Import our new ingestion and transcription pipeline
 import { ingestMediaToGCS } from "@/lib/alyzitron/transcription/downloader";
 import { transcribeAudio } from "@/lib/alyzitron/transcription/deepgram";
+
+// 🔥 FIX: Import BOTH upsert functions to perfectly sync with the Chat Module's expectations
+import { upsertTranscriptionProcessing, upsertTranscriptionCompleted } from "@/lib/alyzitron";
 
 async function handler(request: NextRequest) {
   try {
@@ -16,248 +19,147 @@ async function handler(request: NextRequest) {
     const { taskId, userId } = body;
 
     if (!taskId || !userId) {
-      logger.error("Missing required fields in QStash payload", {
-        data: { taskId, userId },
-      });
-      return NextResponse.json(
-        { error: "Missing taskId or userId" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing taskId or userId" }, { status: 400 });
     }
     const { analyses } = await getCollections();
 
-    // Validate ObjectId format
     if (!ObjectId.isValid(taskId)) {
-      return NextResponse.json(
-        { error: "Invalid taskId format" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid taskId format" }, { status: 400 });
     }
 
-    // 1. Fetch the task
     const task = await analyses.findOne({
       _id: ObjectId.createFromHexString(taskId),
       clerkUserId: userId,
     });
 
-    if (!task) {
-      logger.error("Task not found", { data: { taskId, userId } });
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
-    }
+    if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
 
-    // Prevent re-processing if already completed/failed
     if (task.status === "completed" || task.status === "failed") {
-      logger.warn("Task already processed", {
-        data: { taskId, userId, status: task.status },
-      });
-      return NextResponse.json({
-        success: true,
-        message: "Task already processed",
-      });
+      return NextResponse.json({ success: true, message: "Task already processed" });
     }
 
-    // 2. Update status to processing (MongoDB)
     await analyses.updateOne(
       { _id: task._id },
-      {
-        $set: {
-          status: "processing",
-          processingStartTime: new Date(),
-          updatedAt: new Date(),
-        },
-      }
+      { $set: { status: "processing", processingStartTime: new Date(), updatedAt: new Date() } }
     );
 
-    // 3. Perform Multi-Step Pipeline (Ingest -> Transcribe -> Analyze)
     try {
-      logger.info("Starting Alyzitron Pipeline", {
-        data: { taskId, userId, originalUrl: task.videoUrl },
-      });
+      logger.info("Starting Parallel Pipeline (Turbo Mode) 🚀", { data: { taskId, videoUrl: task.videoUrl } });
+      const isGCSPath = task.videoUrl.startsWith("gs://");
 
-      // --- STEP 3.1: Download to GCS ---
-      logger.info("Step 1: Ingesting media to GCS...", { data: { taskId } });
-      const gcsSignedUrl = await ingestMediaToGCS(task.videoUrl);
+      // 🚀 THE FIX PART 1: Initialize the transcription record in DB so 'Completed' doesn't fail!
+      try {
+        await upsertTranscriptionProcessing(taskId, task.videoUrl);
+        logger.info("Initialized transcript record in DB for Chat Module synchronization.");
+      } catch (e) {
+        logger.warn("Could not set initial processing state for transcript, might already exist.");
+      }
 
-      // --- STEP 3.2: Transcribe via Deepgram ---
-      logger.info("Step 2: Transcribing audio from GCS...", { data: { taskId } });
-      const transcriptResult = await transcribeAudio(gcsSignedUrl);
+      // ---------------------------------------------------------
+      // PROMISE 1: Transcription Pipeline
+      // ---------------------------------------------------------
+      const transcriptionPromise = (async () => {
+        let targetUrl: string;
+        if (isGCSPath) {
+          const bucketName = process.env.GCS_BUCKET_NAME || "";
+          const objectPath = task.videoUrl.replace(`gs://${bucketName}/`, "");
+          targetUrl = await GCSManager.getSignedReadUrl(objectPath);
+        } else {
+          logger.info("Ingesting audio for Deepgram...");
+          const ingestionResult = await ingestMediaToGCS(task.videoUrl);
+          targetUrl = typeof ingestionResult === 'string' ? ingestionResult : ingestionResult.signedUrl;
+        }
+        logger.info("Transcribing audio...", { data: { taskId } });
+        return await transcribeAudio(targetUrl);
+      })();
 
-      // --- STEP 3.3: Analyze with Gemini ---
-      logger.info("Step 3: Starting Vertex AI analysis...", { data: { taskId } });
+      // ---------------------------------------------------------
+      // PROMISE 2: Gemini Analysis Pipeline
+      // ---------------------------------------------------------
+      const analysisPromise = (async () => {
+        logger.info("Starting Vertex AI analysis...", { data: { taskId } });
+        const enhancedContext = {
+          ...(task.context || {}),
+          transcript: "Relying on native video audio for analysis."
+        };
+        return await analyzeVideoWithGemini(
+          task.videoUrl,
+          enhancedContext,
+          task.metadata || {}
+        );
+      })();
 
-      // Inject the Deepgram transcript into the context for Gemini
-      const enhancedContext = {
-        ...(task.context || {}),
-        transcript: transcriptResult.formattedTranscript,
-      };
+      // ---------------------------------------------------------
+      // EXECUTE BOTH IN PARALLEL 🔥
+      // ---------------------------------------------------------
+      const [transcriptResult, analysisResults] = await Promise.all([
+        transcriptionPromise,
+        analysisPromise
+      ]);
 
-      // Call Vertex AI using the stable GCS URL instead of the raw YouTube link
-      const analysisResults = await analyzeVideoWithGemini(
-        gcsSignedUrl,
-        enhancedContext,
-        task.metadata || {}
-      );
+      logger.info("Both Transcription and Analysis finished! 🎉", { data: { taskId } });
 
-      logger.info("Vertex AI analysis completed", {
-        data: { taskId, userId },
-      });
+      // 🚀 THE FIX PART 2: Instantly sync the transcript for the Chat Session so it doesn't re-run!
+      try {
+        await upsertTranscriptionCompleted(taskId, {
+          deepgramRequestId: transcriptResult.id,
+          text: transcriptResult.text,
+          detectedLanguage: transcriptResult.detectedLanguage,
+          confidence: transcriptResult.confidence,
+          speakerSegments: transcriptResult.speakerSegments,
+          formattedTranscript: transcriptResult.formattedTranscript,
+          durationMs: transcriptResult.durationMs,
+          wordCount: transcriptResult.wordCount,
+        });
+        logger.info("Transcript synced to Chat Module seamlessly! 💬");
+      } catch (syncError) {
+        logger.error("Failed to sync transcript for chat", { data: { error: String(syncError) } });
+      }
 
-      // 4. Save ALL results and mark as completed (MongoDB)
+      // 4. Save results to analyses collection
       const updateData: any = {
         status: "completed",
         results: analysisResults,
-        transcription: transcriptResult, // <-- Saving Deepgram output to DB
+        transcription: transcriptResult,
         completedAt: new Date(),
         updatedAt: new Date(),
       };
 
       await analyses.updateOne({ _id: task._id }, { $set: updateData });
 
-      logger.info("Analysis pipeline completed successfully", {
-        data: { taskId, userId },
-      });
-
-      return NextResponse.json({
-        success: true,
-        taskId,
-        status: "completed",
-      });
+      return NextResponse.json({ success: true, taskId, status: "completed" });
 
     } catch (analysisError) {
-      // 5. Handle analysis failure with robust refund logic
-      const errorMessage = (() => {
-        if (analysisError instanceof Error) {
-          const msg = analysisError.message;
-          if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("SocketTimeout")) {
-            return "Network error: Failed to reach AI analysis service. Please retry.";
-          }
-          if (msg.includes("permission") || msg.includes("API_KEY") || msg.includes("access denied")) {
-            return "Configuration error: AI service access denied.";
-          }
-          if (msg.includes("quota") || msg.includes("429")) {
-            return "Server busy: AI analysis quota exceeded. Please wait a few minutes.";
-          }
-          if (msg.includes("invalid") || msg.includes("format") || msg.includes("yt-dlp")) {
-            return "Processing error: The video format is not supported, the link is invalid, or the file is corrupted.";
-          }
-          return msg;
-        }
-        return "Video analysis failed due to an unexpected error.";
-      })();
+      const errorMessage = analysisError instanceof Error ? analysisError.message : String(analysisError);
+      logger.error("Video pipeline failed", { data: { taskId, error: errorMessage } });
 
-      logger.error("Video pipeline failed", {
-        data: {
-          taskId,
-          userId,
-          error: errorMessage,
-          videoUrl: task.videoUrl,
-        },
-      });
+      const minutes = task.usageMinutes || Math.max(1, Math.ceil((task.metadata?.videoDuration || 0) / 60));
 
-      // Compute refund minutes (fallback to 1 minute if unknown)
-      const minutes =
-        task.usageMinutes ||
-        Math.max(1, Math.ceil((task.metadata?.videoDuration || 0) / 60));
-
-      // Try to atomically mark task as failed and refunded when possible
-      let shouldRefund = true;
-      try {
-        const updateResult = await analyses.updateOne(
-          { _id: task._id, refunded: { $ne: true } },
-          {
-            $set: {
-              status: "failed",
-              error: { message: errorMessage, timestamp: new Date() },
-              refunded: true,
-              updatedAt: new Date(),
-            },
-          }
-        );
-
-        if (updateResult.modifiedCount === 0) {
-          const fresh = await analyses.findOne({ _id: task._id });
-          if (fresh?.refunded) {
-            shouldRefund = false;
-            logger.info("Task already marked refunded, skipping refund", {
-              data: { taskId },
-            });
-          } else {
-            logger.warn("Failed to mark task as refunded; proceeding to refund anyway", {
-              data: { taskId },
-            });
-            shouldRefund = true;
-          }
-        }
-      } catch (updateErr) {
-        logger.error("Failed to update task status/refunded flag", {
-          data: { taskId, error: updateErr instanceof Error ? updateErr.message : String(updateErr) },
-        });
-        shouldRefund = true;
-      }
-
-      if (shouldRefund) {
-        try {
-          const creditsToRefund = minutes * 2;
-          await CreditsService.refundCredits(userId, creditsToRefund, `Video analysis failed: ${errorMessage}`, {
-            service: "alyzitron",
-            action: "video_analysis",
-          });
-          logger.info("Credits refunded after analysis failure", {
-            data: { taskId, userId, minutes, creditsToRefund },
-          });
-
-          try {
-            await analyses.updateOne(
-              { _id: task._id },
-              { $set: { refunded: true, updatedAt: new Date() } }
-            );
-          } catch (setFlagErr) {
-            logger.warn("Failed to set refunded flag after refund", {
-              data: { taskId, error: setFlagErr instanceof Error ? setFlagErr.message : String(setFlagErr) },
-            });
-          }
-        } catch (refundError) {
-          logger.error("Failed to refund credits", {
-            data: {
-              taskId,
-              userId,
-              error: refundError instanceof Error ? refundError.message : String(refundError),
-            },
-          });
-        }
-      }
-
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Analysis failed, credits refunded (or attempted)",
-          taskId,
-        },
-        { status: 500 }
+      await analyses.updateOne(
+        { _id: task._id, refunded: { $ne: true } },
+        { $set: { status: "failed", error: { message: errorMessage, timestamp: new Date() }, refunded: true, updatedAt: new Date() } }
       );
+
+      try {
+        await CreditsService.refundCredits(userId, minutes * 2, `Video analysis failed: ${errorMessage}`, {
+          service: "alyzitron", action: "video_analysis",
+        });
+      } catch (refundError) {
+        logger.error("Failed to refund credits", { data: { taskId } });
+      }
+
+      return NextResponse.json({ success: false, error: errorMessage, taskId }, { status: 500 });
     }
   } catch (error) {
-    logger.error("Processor error", {
-      data: { error: error instanceof Error ? error.message : String(error) },
-    });
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logger.error("Processor error", { data: { error: String(error) } });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-// Development bypass logic
 export const POST = async (request: NextRequest) => {
   const bypassHeader = request.headers.get("x-development-bypass");
-  const isDevelopmentBypass = bypassHeader === "true";
-
-  if (isDevelopmentBypass) {
-    logger.warn("Development bypass of QStash signature verification enabled");
-    return handler(request);
-  } else {
-    return verifySignatureAppRouter(handler)(request);
-  }
+  if (bypassHeader === "true") return handler(request);
+  return verifySignatureAppRouter(handler)(request);
 };
 
 export const runtime = "nodejs";

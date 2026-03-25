@@ -44,14 +44,48 @@ Instead of streaming directly from YouTube to Deepgram, we decouple the download
 
 ---
 
+## 3. Normal Video Upload Flow (Frontend -> GCS)
+**Goal:** Document how manually uploaded videos (not YouTube links) are handled from the UI to the analysis engine.
+
+### 🔄 The Upload & Analysis Flow:
+
+1.  **Request Upload URL (Frontend):**
+    - **Action:** User selects a file in the dashboard.
+    - **API:** `POST /api/services/alyzitron/gcs/sign`
+    - **Logic:** Backend generates a **V4 PUT Signed URL**.
+    - **Path:** `user_{userId}/alyzitron-uploads/{timestamp}_{filename}`
+    - **File:** [sign/route.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/app/api/services/alyzitron/gcs/sign/route.ts)
+
+2.  **Direct Upload to GCS (Frontend):**
+    - **Action:** UI uses the signed URL to `PUT` the binary file directly to Google Cloud Storage.
+    - **Benefit:** Reduces server load as the video doesn't pass through the Next.js backend.
+
+3.  **Trigger Analysis (Frontend):**
+    - **API:** `POST /api/services/alyzitron/analyze`
+    - **Payload:** `{ video_url: "user_xxx/alyzitron-uploads/...", metadata: { duration: ... } }`
+    - **Logic:** 
+        - Backend normalizes the path to `gs://{bucket}/{path}`.
+        - Deducts credits based on metadata duration.
+        - Creates a task and queues it via **QStash**.
+    - **File:** [analyze/route.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/app/api/services/alyzitron/analyze/route.ts)
+
+4.  **Background Processing (Processor):**
+    - **API:** `/api/services/alyzitron/processor` (Triggered by QStash)
+    - **Logic:** 
+        - Picks up the GCS URI.
+        - Runs Deepgram transcription (using a temporary signed URL for access).
+        - Passes the GCS URI directly to Gemini for visual analysis.
+    - **File:** [processor/route.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/app/api/services/alyzitron/processor/route.ts)
+
+---
+
 ## Technical File Map
 
 | Feature | Key Files |
 | :--- | :--- |
+| **GCS Signed URL Creation** | [sign/route.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/app/api/services/alyzitron/gcs/sign/route.ts) |
+| **Analysis Entry Route** | [analyze/route.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/app/api/services/alyzitron/analyze/route.ts) |
+| **Background Processor** | [processor/route.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/app/api/services/alyzitron/processor/route.ts) |
 | **Transcription Logic** | [deepgram.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/lib/alyzitron/transcription/deepgram.ts) |
-| **Main Analysis Orchestrator** | [processor/route.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/app/api/services/alyzitron/processor/route.ts) |
 | **Gemini AI Service** | [vertexAiService.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/lib/services/vertexAiService.ts) |
-| **Link Preview (Social Scraper)** | [route.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/app/api/link-preview/route.ts) |
-| **Entry Route** | [analyze/route.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/app/api/services/alyzitron/analyze/route.ts) |
-| **In-App Navigation** | [alyzitron/index.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/lib/alyzitron/index.ts) |
-| **Database Actions** | [dbUtils.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/lib/alyzitron/dbUtils.ts) |
+| **Social Media Scraper** | [route.ts](file:///home/harsimran-singh/Documents/Insturix/Front-End/app/api/link-preview/route.ts) |

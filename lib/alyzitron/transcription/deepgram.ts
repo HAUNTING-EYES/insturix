@@ -1,4 +1,5 @@
 import { createClient, DeepgramClient } from "@deepgram/sdk";
+import { logger } from "@/app/api/services/alyzitron/utils/logger";
 
 // ---------------------------------------------------------------------------
 // Deepgram supports these languages for transcription + speaker diarization.
@@ -89,26 +90,43 @@ const DEEPGRAM_OPTIONS = {
 export async function transcribeAudio(mediaUrl: string): Promise<TranscriptionResult> {
   const deepgram = getClient();
 
-  const { result, error } = await deepgram.listen.prerecorded.transcribeUrl(
-    { url: mediaUrl },
-    DEEPGRAM_OPTIONS
-  );
+  try {
+    logger.info("Deepgram: Fetching file from GCS for buffer transcription...", { data: { mediaUrl } });
 
-  if (error) {
-    console.error("🔥 Deepgram FULL ERROR OBJECT:", error);
+    // 1. URL se file fetch karo (Buffer nikaalne ke liye)
+    const response = await fetch(mediaUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch media from GCS: ${response.statusText}`);
+    }
 
-    // sometimes useful fields:
-    console.error("🔥 Deepgram message:", (error as any)?.message);
-    console.error("🔥 Deepgram cause:", (error as any)?.cause);
-    console.error("🔥 Deepgram stack:", (error as any)?.stack);
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
 
-    throw new Error(`Deepgram transcription failed: ${(error as any)?.message || "Unknown error"}`);
+    // 2. Transcribe using 'transcribeFile' instead of 'transcribeUrl'
+    const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
+      buffer, // 👈 Passing the actual data
+      {
+        ...DEEPGRAM_OPTIONS,
+        // Optional: Force mimetype if you know it's always audio/mpeg or video/mp4
+        // mimetype: "audio/mpeg" 
+      }
+    );
+
+    if (error) {
+      console.error("🔥 Deepgram FULL ERROR OBJECT:", error);
+      throw new Error(`Deepgram transcription failed: ${(error as any)?.message || "Unknown error"}`);
+    }
+
+    if (!result) {
+      throw new Error("Deepgram returned an empty result");
+    }
+
+    return parseDeepgramResult(result);
+
+  } catch (err: any) {
+    logger.error("🔥 Deepgram Pipeline Error:", { data: { error: err.message } });
+    throw err;
   }
-  if (!result) {
-    throw new Error("Deepgram returned an empty result");
-  }
-
-  return parseDeepgramResult(result);
 }
 
 // ---------------------------------------------------------------------------

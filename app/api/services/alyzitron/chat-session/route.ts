@@ -9,18 +9,11 @@ import {
   upsertTranscriptionError,
 } from "@/lib/alyzitron";
 import { transcribeAudio } from "@/lib/alyzitron/transcription/deepgram";
-import { getGcsSignedUrl } from "@/app/dashboard/alyzitron/utils/GcsSignedUrl"; // Your existing file with getGcsSignedUrl
+import { GCSManager } from "../utils/gcs"; // Updated to use your GCSManager
+import { ingestMediaToGCS } from "@/lib/alyzitron/transcription/downloader"; // Import the downloader
 
 /**
  * POST /api/alyzitron/chat-session
- *
- * Creates (or returns existing) chat session for a task.
- * Automatically triggers transcription if not already available:
- *   - YouTube URLs are passed directly to Deepgram (public)
- *   - GCS URLs (gs://...) are converted to a signed URL first
- *
- * Body: { taskId: string, videoUrl: string, userId?: string }
- * Returns: { sessionId, isNew, transcriptionStatus, messages, hasSummary }
  */
 export async function POST(req: NextRequest) {
   let taskId: string | undefined;
@@ -49,20 +42,9 @@ export async function POST(req: NextRequest) {
     const transcriptionReady =
       existing?.status === "completed" && !!existing.formattedTranscript;
 
-    if (!transcriptionReady) {
-      // Resolve the public URL to pass to Deepgram
-      let publicUrl: string;
-      if (videoUrl.startsWith("gs://")) {
-        publicUrl = await getGcsSignedUrl(videoUrl);
-      } else {
-        // YouTube or any other public URL — pass directly
-        publicUrl = videoUrl;
-      }
-
-      // Fire transcription in the background — don't await so session creation
-      // returns immediately. The chat route reads transcription from DB each turn,
-      // so it will pick it up once ready.
-      triggerTranscription(taskId, videoUrl, publicUrl).catch((err) => {
+    if (!transcriptionReady && existing?.status !== "processing") {
+      // 🚀 THE FIX: Resolve the correct URL for Deepgram
+      triggerTranscription(taskId, videoUrl).catch((err) => {
         console.error("[Alyzitron/chat-session] Background transcription error:", err);
       });
     }
@@ -83,59 +65,73 @@ export async function POST(req: NextRequest) {
 
 /**
  * Background transcription runner.
- * Marks as processing → calls Deepgram → saves result.
- * Errors are caught and saved to DB without crashing the session response.
+ * Now correctly handles YouTube vs GCS paths.
  */
 async function triggerTranscription(
   taskId: string,
-  videoUrl: string,   // original URL (stored in DB)
-  publicUrl: string   // resolved public URL (passed to Deepgram)
+  videoUrl: string
 ): Promise<void> {
   try {
     await upsertTranscriptionProcessing(taskId, videoUrl);
-    const result = await transcribeAudio(publicUrl);
+
+    let deepgramUrl: string;
+
+    if (videoUrl.startsWith("gs://")) {
+      // Case A: File is in GCS, get signed URL
+      const bucketName = process.env.GCS_BUCKET_NAME || "";
+      const objectPath = videoUrl.replace(`gs://${bucketName}/`, "");
+      deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
+    } else {
+      // Case B: YouTube URL - MUST download audio first
+      console.log("[ChatSession] Ingesting YouTube audio for Deepgram...");
+      const ingestionResult = await ingestMediaToGCS(videoUrl);
+
+      // Safety check for return type
+      deepgramUrl = typeof ingestionResult === 'string'
+        ? ingestionResult
+        : ingestionResult.signedUrl;
+    }
+
+    // Now call transcribeAudio with the resolved .mp3 URL
+    const result = await transcribeAudio(deepgramUrl);
+
     await upsertTranscriptionCompleted(taskId, {
-      deepgramRequestId:  result.id,
+      deepgramRequestId: result.id,
       text: result.text,
-      detectedLanguage:   result.detectedLanguage,
+      detectedLanguage: result.detectedLanguage,
       confidence: result.confidence,
       speakerSegments: result.speakerSegments,
       formattedTranscript: result.formattedTranscript,
       durationMs: result.durationMs,
       wordCount: result.wordCount,
     });
+
+    console.log(`✅ [ChatSession] Transcription completed for task: ${taskId}`);
+
   } catch (err: any) {
-    await upsertTranscriptionError(taskId, err.message).catch(() => {});
-    throw err; // re-throw so the caller's .catch() can log it
+    console.error(`❌ [ChatSession] Transcription failed: ${err.message}`);
+    await upsertTranscriptionError(taskId, err.message).catch(() => { });
+    throw err;
   }
 }
 
 /**
- * GET /api/alyzitron/chat-session?taskId=xxx&userId=xxx
- *
- * Returns stored chat history for a task.
- * Response: { sessionId, messages, hasSummary, totalMessagesEver }
- *           or { session: null, messages: [] } if no session exists yet.
+ * GET and DELETE handlers remain the same...
  */
 export async function GET(req: NextRequest) {
   try {
     const taskId = req.nextUrl.searchParams.get("taskId");
-    const userId  = req.nextUrl.searchParams.get("userId") ?? null;
+    const userId = req.nextUrl.searchParams.get("userId") ?? null;
 
-    if (!taskId) {
-      return NextResponse.json({ error: "taskId is required" }, { status: 400 });
-    }
+    if (!taskId) return NextResponse.json({ error: "taskId is required" }, { status: 400 });
 
     const session = await findChatSession(taskId, userId);
-
-    if (!session) {
-      return NextResponse.json({ session: null, messages: [] });
-    }
+    if (!session) return NextResponse.json({ session: null, messages: [] });
 
     return NextResponse.json({
-      sessionId:         session._id,
-      messages:          session.messages,
-      hasSummary:        !!session.summary,
+      sessionId: session._id,
+      messages: session.messages,
+      hasSummary: !!session.summary,
       totalMessagesEver: session.totalMessagesEver,
     });
   } catch (error: any) {
@@ -143,23 +139,14 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/**
- * DELETE /api/alyzitron/chat-session?taskId=xxx&userId=xxx
- *
- * Clears the chat history and summary for a task.
- * The transcription record is unaffected.
- */
 export async function DELETE(req: NextRequest) {
   try {
     const taskId = req.nextUrl.searchParams.get("taskId");
-    const userId  = req.nextUrl.searchParams.get("userId") ?? null;
+    const userId = req.nextUrl.searchParams.get("userId") ?? null;
 
-    if (!taskId) {
-      return NextResponse.json({ error: "taskId is required" }, { status: 400 });
-    }
+    if (!taskId) return NextResponse.json({ error: "taskId is required" }, { status: 400 });
 
     await deleteChatSession(taskId, userId);
-
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -19,7 +19,8 @@ export const GenerativeFillPanel: React.FC<GenerativeFillPanelProps> = ({
 }) => {
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
-  const [guidanceScale, setGuidanceScale] = useState(7.5);
+  const [guidanceScale, pnpm start
+    setGuidanceScale] = useState(7.5);
   const [numInferenceSteps, setNumInferenceSteps] = useState(28);
   const [selectedModelId, setSelectedModelId] = useState<string>("");
 
