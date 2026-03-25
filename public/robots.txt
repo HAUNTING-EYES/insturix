@@ -26,7 +26,7 @@ User-agent: Google-Extended
 Allow: /
 
 # Host
-Host: https://insturix.com
+Host: https://www.insturix.com
 
 # Sitemaps
-Sitemap: https://insturix.com/sitemap.xml
+Sitemap: https://www.insturix.com/sitemap.xml

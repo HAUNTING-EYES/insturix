@@ -56,8 +56,9 @@ export async function POST(
 
     const fps = 30;
     const overlays: any[] = [];
+    const warnings: string[] = [];
     let currentFrame = 0;
-    let overlayId = Date.now();
+    let overlayId = Date.now() + Math.floor(Math.random() * 10000); // F6.4: random offset for ID uniqueness
 
     // Track per-scene frame offsets so we can place SFX overlays later
     const sceneFrameMap: Array<{ sceneIndex: number; fromFrame: number; durationFrames: number; durationSec: number }> = [];
@@ -145,6 +146,10 @@ export async function POST(
         const voDurationFrames = Math.round((scene.voiceover.audioDurationMs / 1000) * fps);
         // Cap VO to scene duration so it never overlaps the next scene's voiceover
         const cappedVoDuration = Math.min(voDurationFrames, durationFrames);
+        // F6.7: Warn if voiceover was truncated significantly (>20% cut off)
+        if (voDurationFrames > durationFrames * 1.2) {
+          warnings.push(`Scene ${scene.sceneIndex}: voiceover truncated from ${Math.round(voDurationFrames / fps * 10) / 10}s to ${Math.round(durationFrames / fps * 10) / 10}s`);
+        }
         overlays.push({
           id: overlayId++,
           type: 'sound',
@@ -274,7 +279,9 @@ export async function POST(
       );
       console.log(`[Finalize] Edit directions applied: ${overlays.length} overlays (${result.totalFrameShift} frame shift)`);
     } catch (editErr: any) {
+      // F6.3: Surface the error in response, not just logs
       console.warn('[Finalize] Edit direction application failed, continuing without:', editErr.message);
+      warnings.push(`Edit directions partially failed: ${editErr.message}`);
     }
 
     // ─── Create Editron project FIRST, then dispatch audio workers ─────
@@ -403,6 +410,7 @@ export async function POST(
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
       audioGenerating: true, // Frontend can show "BGM/SFX generating in background"
+      ...(warnings.length > 0 && { warnings }),
     });
   } catch (error: any) {
     console.error('[Finalize]', error);

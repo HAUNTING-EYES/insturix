@@ -63,11 +63,11 @@ export async function POST(
       status: 'generating',
     });
 
-    console.log(`[Voiceover] Generating for ${scenesWithNarration.length} scenes (parallel, batch=8)`);
+    console.log(`[Voiceover] Generating for ${scenesWithNarration.length} scenes (parallel, batch=4)`);
 
-    // ─── Parallel TTS generation (batches of 8) ─────────────
-    // TTS is fast (~2-5s per call) so we can parallelize aggressively
-    const BATCH_SIZE = 8;
+    // ─── Parallel TTS generation (batches of 4) ─────────────
+    // F5.4: Reduced from 8 to 4 to avoid overwhelming TTS provider with 429s
+    const BATCH_SIZE = 4;
     const results: Array<{ sceneIndex: number; audioUrl: string; durationMs: number }> = [];
     const errors: Array<{ sceneIndex: number; error: string }> = [];
 
@@ -114,7 +114,10 @@ export async function POST(
       }
     }
 
-    const finalStatus = results.length > 0 ? 'ready' : 'error';
+    // F5.5: Use 'partial' status when some scenes failed, not 'ready'
+    const finalStatus = errors.length === 0 ? 'ready'
+      : results.length > 0 ? 'partial'
+      : 'error';
     await updateStoryboardVoiceover(id, { status: finalStatus });
 
     return NextResponse.json({

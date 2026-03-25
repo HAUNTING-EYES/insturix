@@ -218,22 +218,27 @@ export class AssetResolver {
       let modified = overlay as any;
       let changed = false;
 
-      // Strip GCS signed URLs from src field
-      if ('src' in modified && modified.src) {
+      // Strip temporary URLs from src field (GCS signed + fal.ai CDN)
+      // F9.5: fal.ai URLs expire after ~24h — must be stripped like GCS
+      if ('src' in modified && modified.src && modified.assetId) {
         const src = modified.src as string;
-        const isGCSSignedUrl = src.includes('storage.googleapis.com') && src.includes('X-Goog-Signature');
-        if (isGCSSignedUrl) {
+        const isTemporaryUrl = (src.includes('storage.googleapis.com') && src.includes('X-Goog-Signature'))
+          || src.includes('fal.media/files/')
+          || src.includes('fal.run/');
+        if (isTemporaryUrl) {
           const { src: _, ...rest } = modified;
           modified = rest;
           changed = true;
         }
       }
 
-      // Strip GCS signed URLs from content field (sound overlays store audio URL here too)
+      // Strip temporary URLs from content field (sound overlays store audio URL here too)
       if ('content' in modified && modified.content && modified.assetId) {
         const content = modified.content as string;
-        const isGCSSignedUrl = content.includes('storage.googleapis.com') && content.includes('X-Goog-Signature');
-        if (isGCSSignedUrl) {
+        const isTemporaryUrl = (content.includes('storage.googleapis.com') && content.includes('X-Goog-Signature'))
+          || content.includes('fal.media/files/')
+          || content.includes('fal.run/');
+        if (isTemporaryUrl) {
           modified = { ...modified, content: '' };
           changed = true;
         }

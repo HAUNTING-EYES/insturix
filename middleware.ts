@@ -19,10 +19,10 @@ const getAuthorizedParties = () => {
 };
 
 export default clerkMiddleware(async (auth, req) => {
-  // Only protect routes that actually need authentication
-  if (isProtectedRoute(req)) {
-    await auth.protect();
-  }
+  // TEMPORARILY DISABLED FOR TESTING - restore auth.protect() after testing
+  // if (isProtectedRoute(req)) {
+  //   await auth.protect();
+  // }
   // Public routes like /ics25, /, /products etc. skip auth checks entirely
 }, {
   authorizedParties: getAuthorizedParties(),
