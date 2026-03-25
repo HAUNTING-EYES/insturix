@@ -4337,23 +4337,63 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           console.log(`[MOTION-GRAPHIC] No template match for "${input.description.substring(0, 60)}", searching LottieFiles...`);
 
           // Extract search keywords from description
-          const keywords = input.description
-            .replace(/[^\w\s]/g, '')
-            .split(/\s+/)
-            .filter((w: string) => w.length > 3)
-            .slice(0, 3)
-            .join(' ');
+          // Map the description to CATEGORY-based search terms for LottieFiles.
+          // Raw description text ("Product name: Nova Speaker") won't find animations.
+          // We need to search for the TYPE of graphic (logo reveal, text animation, etc.)
+          const desc = (input.description || '').toLowerCase();
+          const categoryKeywords: Record<string, string> = {
+            'logo': 'logo reveal animation',
+            'brand': 'brand reveal animation',
+            'stat': 'number counter animation',
+            'counter': 'number counter',
+            'price': 'price tag animation',
+            'feature': 'feature highlight animation',
+            'title': 'title text animation',
+            'name': 'text reveal animation',
+            'callout': 'callout bubble animation',
+            'check': 'checkmark animation',
+            'star': 'star rating animation',
+            'subscribe': 'subscribe button animation',
+            'like': 'like heart animation',
+            'arrow': 'arrow pointer animation',
+            'graph': 'graph chart animation',
+            'growth': 'growth chart animation',
+            'step': 'step number animation',
+            'timer': 'timer countdown animation',
+            'location': 'location pin animation',
+            'phone': 'phone notification animation',
+            'social': 'social media animation',
+          };
+
+          let searchQuery = input.category || 'text animation';
+          for (const [keyword, query] of Object.entries(categoryKeywords)) {
+            if (desc.includes(keyword)) {
+              searchQuery = query;
+              break;
+            }
+          }
 
           let lottieUrl: string | null = null;
+          let lottieTitle: string = '';
           try {
             const baseUrl = process.env.VERCEL_URL
               ? `https://${process.env.VERCEL_URL}`
               : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-            const searchRes = await fetch(`${baseUrl}/api/services/editron/lottie/search?q=${encodeURIComponent(keywords || input.category)}&limit=3`);
+            const searchRes = await fetch(`${baseUrl}/api/services/editron/lottie/search?q=${encodeURIComponent(searchQuery)}&limit=5`);
             const searchData = await searchRes.json().catch(() => ({}));
             if (searchData.results?.length > 0) {
               lottieUrl = searchData.results[0].lottieUrl;
-              console.log(`[MOTION-GRAPHIC] Found Lottie: "${searchData.results[0].title}" (${lottieUrl?.substring(0, 60)})`);
+              lottieTitle = searchData.results[0].title;
+              console.log(`[MOTION-GRAPHIC] Found Lottie: "${lottieTitle}" for query "${searchQuery}"`);
+            } else {
+              console.log(`[MOTION-GRAPHIC] No Lottie results for "${searchQuery}", trying generic`);
+              // Try generic search
+              const genericRes = await fetch(`${baseUrl}/api/services/editron/lottie/search?q=text+animation&limit=3`);
+              const genericData = await genericRes.json().catch(() => ({}));
+              if (genericData.results?.length > 0) {
+                lottieUrl = genericData.results[0].lottieUrl;
+                lottieTitle = genericData.results[0].title;
+              }
             }
           } catch (e: any) {
             console.warn(`[MOTION-GRAPHIC] LottieFiles search failed: ${e.message}`);
@@ -4366,11 +4406,15 @@ NEVER ask the user which clips — default to applyToAll: true.`,
   <script src="https://unpkg.com/@dotlottie/player-component@2/dist/dotlottie-player.mjs" type="module"></script>
 </div>`;
           } else {
-            // Last resort: simple styled HTML text (better than black box)
-            console.log(`[MOTION-GRAPHIC] No Lottie found, generating styled text overlay`);
-            filledHtml = `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);padding:20px;">
-  <p style="color:white;font-size:32px;font-family:-apple-system,sans-serif;font-weight:700;text-align:center;text-shadow:0 2px 8px rgba(0,0,0,0.5);">${input.description.substring(0, 80)}</p>
-</div>`;
+            // Professional CSS motion graphic — glass morphism lower-third style.
+            // NOT a black box. Transparent background with subtle blur and accent line.
+            console.log(`[MOTION-GRAPHIC] No Lottie found, creating professional CSS overlay`);
+            const text = input.description.substring(0, 60);
+            filledHtml = `<div style="position:absolute;bottom:12%;left:5%;right:5%;display:flex;align-items:center;gap:12px;padding:16px 24px;background:rgba(255,255,255,0.08);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.12);border-radius:12px;animation:slideUp 0.5s ease-out;">
+  <div style="width:4px;height:36px;background:linear-gradient(180deg,#60a5fa,#3b82f6);border-radius:2px;flex-shrink:0;"></div>
+  <p style="color:white;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-weight:600;margin:0;line-height:1.3;text-shadow:0 1px 4px rgba(0,0,0,0.3);">${text}</p>
+</div>
+<style>@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}</style>`;
           }
         }
 
