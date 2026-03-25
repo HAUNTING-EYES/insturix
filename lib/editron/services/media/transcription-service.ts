@@ -243,18 +243,69 @@ Return ONLY the JSON array, no other text. Example:
 async function getNarrationTextForAsset(assetId: string): Promise<string | null> {
   const db = await getDatabase();
 
-  // Search storyboards for a scene with this voiceover assetId
+  // Strategy 1: Direct lookup by voiceover assetId in storyboard scenes
   const storyboard = await db.collection('storyboards').findOne({
     'scenes.voiceover.audioAssetId': assetId,
   }) as any;
 
-  if (!storyboard) return null;
+  if (storyboard) {
+    const scene = storyboard.scenes.find(
+      (s: any) => s.voiceover?.audioAssetId === assetId,
+    );
+    if (scene?.descriptor?.narration) return scene.descriptor.narration;
+  }
 
-  const scene = storyboard.scenes.find(
-    (s: any) => s.voiceover?.audioAssetId === assetId,
-  );
+  // Strategy 2: Find via project → sourceStoryboardId → match by time position
+  // This handles cases where the assetId format doesn't match exactly
+  if (assetId.startsWith('voiceover_') || assetId.startsWith('vo_')) {
+    // Find any project that references this asset
+    const project = await db.collection('projects').findOne({
+      'overlays.assetId': assetId,
+    }) as any;
 
-  return scene?.descriptor?.narration || null;
+    if (project?.sourceStoryboardId) {
+      const sb = await db.collection('storyboards').findOne({
+        storyboardId: project.sourceStoryboardId,
+      }) as any;
+
+      if (sb?.scenes) {
+        // Find the overlay with this assetId to get its time position
+        const overlay = (project.overlays || []).find((o: any) => o.assetId === assetId);
+        if (overlay) {
+          // Match by time position — find the scene that covers this overlay's start frame
+          const fps = project.fps || 30;
+          const overlayStartSec = overlay.from / fps;
+          let cumulativeSec = 0;
+          for (const scene of sb.scenes) {
+            const sceneDur = scene.descriptor?.durationSeconds || 5;
+            if (overlayStartSec >= cumulativeSec && overlayStartSec < cumulativeSec + sceneDur) {
+              if (scene.descriptor?.narration) {
+                console.log(`[Transcription] Found narration via project→storyboard time match for ${assetId}`);
+                return scene.descriptor.narration;
+              }
+            }
+            cumulativeSec += sceneDur;
+          }
+        }
+
+        // Last resort: if only one scene has narration matching the overlay count
+        const scenesWithNarration = sb.scenes.filter((s: any) => s.descriptor?.narration?.trim());
+        if (scenesWithNarration.length > 0) {
+          // Try matching by position in the voiceover list
+          const voiceoverOverlays = (project.overlays || [])
+            .filter((o: any) => (o.assetId || '').startsWith('voiceover_') || (o.assetId || '').startsWith('vo_'))
+            .sort((a: any, b: any) => a.from - b.from);
+          const idx = voiceoverOverlays.findIndex((o: any) => o.assetId === assetId);
+          if (idx >= 0 && idx < scenesWithNarration.length) {
+            console.log(`[Transcription] Found narration via voiceover index match (${idx}) for ${assetId}`);
+            return scenesWithNarration[idx].descriptor.narration;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
