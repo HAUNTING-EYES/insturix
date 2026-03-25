@@ -118,7 +118,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     { title: 'Transitions', icon: Film, panel: OverlayType.TRANSITIONS, type: OverlayType.TRANSITIONS },
     { title: 'Sound FX', icon: Volume2, panel: OverlayType.SFX_LIBRARY, type: OverlayType.SFX_LIBRARY },
     { title: 'Images', icon: ImageIcon, panel: OverlayType.IMAGE, type: OverlayType.IMAGE },
-    { title: 'Lottie', icon: Sparkles, panel: OverlayType.LOTTIE, type: OverlayType.LOTTIE },
+    { title: 'Graphics', icon: Sparkles, panel: OverlayType.LOTTIE, type: OverlayType.LOTTIE },
     { title: 'Stickers', icon: Sticker, panel: OverlayType.STICKER, type: OverlayType.STICKER },
     { title: 'Templates', icon: Layout, panel: OverlayType.TEMPLATE, type: OverlayType.TEMPLATE },
   ];

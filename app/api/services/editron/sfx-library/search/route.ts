@@ -23,18 +23,24 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Freesound API v2 — don't filter by license (too restrictive, returns 0 results).
+    // All Freesound sounds have Creative Commons licenses which allow use with attribution.
+    // For CC0-only, user can filter client-side.
     const params = new URLSearchParams({
       query: query.trim(),
       token: apiKey,
-      fields: 'id,name,duration,previews,license,tags',
-      filter: 'license:"Creative Commons 0"',
+      fields: 'id,name,duration,previews,license,tags,avg_rating',
       page_size: String(Math.min(limit, 20)),
       sort: 'rating_desc',
     });
 
-    const res = await fetch(`https://freesound.org/apiv2/search/text/?${params}`);
+    const url = `https://freesound.org/apiv2/search/text/?${params}`;
+    console.log(`[SFX-Search] Querying: ${url.substring(0, 120)}...`);
+
+    const res = await fetch(url);
     if (!res.ok) {
-      console.error(`[SFX-Search] Freesound error: ${res.status}`);
+      const errBody = await res.text().catch(() => '');
+      console.error(`[SFX-Search] Freesound error: ${res.status} ${errBody.substring(0, 200)}`);
       return NextResponse.json({ results: [], error: `Freesound returned ${res.status}` });
     }
 
