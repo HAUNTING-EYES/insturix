@@ -1,24 +1,25 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
 
-/**
- * Props for the TimelineMarker component.
- */
 interface TimelineMarkerProps {
   currentFrame: number;
   totalDuration: number;
-  /** Called when user drags the marker to a new position */
+  /** Called continuously during drag (updates frame state for visual feedback) */
   onSeek?: (frame: number) => void;
+  /** Called once on drag end (syncs player to final position) */
+  onSeekEnd?: (frame: number) => void;
 }
 
 /**
  * TimelineMarker — the red playhead line on the timeline.
- * Now draggable: grab the triangle handle and drag to scrub.
- * Click-to-seek on the timeline still works independently.
+ * Draggable: grab the triangle handle and drag to scrub.
+ * During drag: only updates frame state (fast, no player sync).
+ * On release: syncs the player to the final position.
  */
 const TimelineMarker: React.FC<TimelineMarkerProps> = React.memo(
-  ({ currentFrame, totalDuration, onSeek }) => {
+  ({ currentFrame, totalDuration, onSeek, onSeekEnd }) => {
     const [isDragging, setIsDragging] = useState(false);
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const lastFrameRef = useRef(currentFrame);
 
     const markerPosition = useMemo(() => {
       const position = (currentFrame / totalDuration) * 100;
@@ -30,8 +31,6 @@ const TimelineMarker: React.FC<TimelineMarkerProps> = React.memo(
       e.stopPropagation();
       setIsDragging(true);
 
-      // Find the scrollable timeline container (has overflow-x-auto or the timeline-grid)
-      // Walk up from the marker to find the element with actual scroll width
       let timelineEl = containerRef.current?.parentElement;
       while (timelineEl && timelineEl.scrollWidth <= timelineEl.clientWidth) {
         timelineEl = timelineEl.parentElement;
@@ -42,44 +41,45 @@ const TimelineMarker: React.FC<TimelineMarkerProps> = React.memo(
       const handleMouseMove = (moveEvent: MouseEvent) => {
         if (!timelineEl) return;
         const rect = timelineEl.getBoundingClientRect();
-        // Account for scroll position — scrollLeft shifts the visible area
         const x = Math.max(0, moveEvent.clientX - rect.left + timelineEl.scrollLeft);
         const totalWidth = timelineEl.scrollWidth;
         const percent = Math.min(x / totalWidth, 1);
         const frame = Math.round(percent * totalDuration);
+        lastFrameRef.current = frame;
         onSeek?.(frame);
       };
 
       const handleMouseUp = () => {
         setIsDragging(false);
+        // Sync player to final drag position
+        onSeekEnd?.(lastFrameRef.current);
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
       };
 
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
-    }, [totalDuration, onSeek]);
+    }, [totalDuration, onSeek, onSeekEnd]);
 
     return (
       <div
         ref={containerRef}
-        className={`absolute top-0 w-[2px] bg-red-500/90 dark:bg-red-500 z-50 ${isDragging ? '' : ''}`}
+        className={`absolute top-0 w-[2px] bg-red-500/90 dark:bg-red-500 z-50`}
         style={{
           left: markerPosition,
           transform: "translateX(-50%)",
           height: "calc(100% + 0px)",
           top: "0px",
-          willChange: "transform, left",
-          pointerEvents: "none", // Line itself doesn't capture events
+          willChange: "left",
+          pointerEvents: "none",
         }}
       >
         {/* Draggable triangle handle at the top */}
         <div
           onMouseDown={handleMouseDown}
-          className={`absolute top-[-2px] left-1/2 transform -translate-x-1/2 cursor-grab ${isDragging ? 'cursor-grabbing' : ''}`}
+          className={`absolute top-[-2px] left-1/2 transform -translate-x-1/2 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
           style={{
-            pointerEvents: "auto", // Handle IS interactive
-            // Larger hit area for easier grabbing
+            pointerEvents: "auto",
             width: 16,
             height: 14,
             display: "flex",

@@ -467,6 +467,11 @@ const Timeline: React.FC<TimelineProps> = ({
                 currentFrame={currentFrame}
                 totalDuration={durationInFrames}
                 onSeek={(frame: number) => {
+                  // Update frame state immediately (moves the red line)
+                  setCurrentFrame(frame);
+                }}
+                onSeekEnd={(frame: number) => {
+                  // Sync player only on drag end (prevents player feedback loop during drag)
                   setCurrentFrame(frame);
                   if (playerRef?.current?.seekTo) {
                     playerRef.current.seekTo(frame);

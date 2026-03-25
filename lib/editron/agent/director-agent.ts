@@ -312,8 +312,9 @@ async function executeAction(
       // RULE: Script transitions ALWAYS win over profile transitions.
       // Finalize applies script transitions (from editDirections) BEFORE Director runs.
       // Director should only add transitions where none exist yet (gaps between scenes).
+      // Detect transitions by: metadata tag OR html-scene on row 1 (transition layer)
       const existingTransitions = overlays.filter(
-        o => o.type === 'html-scene' && (o as any).metadata?.isTransition,
+        o => o.type === 'html-scene' && (o.row === 1 || (o as any).metadata?.isTransition),
       );
 
       if (existingTransitions.length > 0) {

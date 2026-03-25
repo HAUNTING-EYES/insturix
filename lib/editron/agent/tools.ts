@@ -3760,7 +3760,7 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
               height: canvas.height,
             }, transId);
             if (transOverlay) {
-              await projectService.addOverlay(userId, projectId, { ...transOverlay, id: transId } as any);
+              await projectService.addOverlay(userId, projectId, { ...transOverlay, id: transId, metadata: { isTransition: true, source: 'director', transitionType: transType } } as any);
               added++;
             }
           }
