@@ -4712,6 +4712,135 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     },
   );
 
+  // ─── Regenerate BGM Tool ──────────────────────────────────────
+  const regenerateBGMSchema = z.object({
+    mood: z.string().describe("The mood/style for the new music (e.g., 'heroic', 'calm ambient', 'energetic electronic', 'cinematic orchestral')"),
+    prompt: z.string().optional().describe("Optional detailed music prompt. If not provided, generated from mood."),
+  });
+
+  const regenerateBGM = tool(
+    async (input: z.infer<typeof regenerateBGMSchema>) => {
+      try {
+        const project = await loadProject();
+        const overlays = (project as any).overlays || [];
+        const fps = (project as any).fps || 30;
+        const totalFrames = (project as any).durationInFrames || overlays.reduce((max: number, o: any) => Math.max(max, (o.from || 0) + (o.durationInFrames || 0)), 0);
+        const totalDurationSec = Math.round(totalFrames / fps);
+
+        // Remove existing BGM (row 5 sound overlays)
+        const bgmOverlays = overlays.filter((o: any) => o.type === 'sound' && o.row === 5);
+        for (const bgm of bgmOverlays) {
+          await projectService.deleteOverlay(userId, projectId, bgm.id);
+        }
+
+        // Generate new BGM
+        const { generateBackgroundMusic } = await import('@/lib/pipeline/bgm-service');
+        const musicPrompt = input.prompt || `${input.mood}, instrumental only, no vocals, background music for video`;
+        const bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec);
+
+        // Add new BGM overlay
+        const newBgmOverlay = {
+          id: Date.now() + Math.floor(Math.random() * 100000),
+          type: 'sound',
+          from: 0,
+          durationInFrames: totalFrames,
+          row: 5,
+          left: 0, top: 0, width: 0, height: 0,
+          isDragging: false, rotation: 0,
+          content: bgm.audioUrl,
+          src: bgm.audioUrl,
+          assetId: bgm.audioAssetId,
+          styles: {
+            volume: 0.75, opacity: 1,
+            duckingConfig: { enabled: true, duckLevel: 0.20, rampDownMs: 300, rampUpMs: 600, lookAheadMs: 200 },
+          },
+        };
+        await projectService.addOverlay(userId, projectId, newBgmOverlay as any);
+
+        // Register asset
+        const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+        const db = await getDatabase();
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+          { assetId: bgm.audioAssetId },
+          { $setOnInsert: { assetId: bgm.audioAssetId, userId, type: 'audio', filename: `${bgm.audioAssetId}.mp3`, source: 'user-upload', gcsPath: bgm.gcsPath, cachedUrl: bgm.audioUrl, urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), size: 0, uploadedAt: new Date() } },
+          { upsert: true },
+        );
+
+        return JSON.stringify({
+          status: 'success',
+          data: { assetId: bgm.audioAssetId, mood: input.mood, durationSec: totalDurationSec, removed: bgmOverlays.length },
+          message: `Generated new ${input.mood} background music (${totalDurationSec}s). ${bgmOverlays.length > 0 ? 'Replaced existing BGM.' : 'Added BGM.'}`,
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'regenerate_bgm',
+      description: `Regenerate background music with a new mood/style. Removes existing BGM and generates fresh music using CassetteAI.
+Examples:
+- regenerate_bgm({ mood: "heroic cinematic" })
+- regenerate_bgm({ mood: "calm ambient piano" })
+- regenerate_bgm({ mood: "energetic electronic", prompt: "Driving synth beat, 140 BPM, future bass style" })`,
+      schema: regenerateBGMSchema,
+    },
+  );
+
+  // ─── Replace SFX Tool ──────────────────────────────────────────
+  const replaceSFXSchema = z.object({
+    overlayId: z.coerce.number().optional().describe("ID of the SFX overlay to replace. If not provided, replaces the selected overlay."),
+    query: z.string().describe("Search query for the new SFX (e.g., 'whoosh', 'impact hit', 'crowd cheer', 'car engine')"),
+  });
+
+  const replaceSFX = tool(
+    async (input: z.infer<typeof replaceSFXSchema>) => {
+      try {
+        const project = await loadProject();
+        const overlays = (project as any).overlays || [];
+
+        // Find the target SFX overlay
+        const targetId = input.overlayId || (project as any).selectedOverlayId;
+        const sfxOverlay = overlays.find((o: any) => o.id === targetId && o.type === 'sound');
+        if (!sfxOverlay) {
+          return JSON.stringify({ status: 'error', message: `SFX overlay ${targetId || 'selected'} not found. Please select or specify the SFX overlay ID.` });
+        }
+
+        // Search Freesound for replacement
+        const searchRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')}/api/services/editron/sfx-library/search?q=${encodeURIComponent(input.query)}&limit=1`);
+        const searchData = await searchRes.json().catch(() => ({ results: [] }));
+
+        if (!searchData.results || searchData.results.length === 0) {
+          return JSON.stringify({ status: 'error', message: `No SFX found for "${input.query}". Try different keywords.` });
+        }
+
+        const newSfx = searchData.results[0];
+
+        // Update the overlay with new audio URL
+        await projectService.updateOverlay(userId, projectId, sfxOverlay.id, {
+          content: newSfx.url,
+          src: newSfx.url,
+        } as any);
+
+        return JSON.stringify({
+          status: 'success',
+          data: { overlayId: sfxOverlay.id, title: newSfx.title, duration: newSfx.duration, source: newSfx.source },
+          message: `Replaced SFX with "${newSfx.title}" (${newSfx.duration}s from ${newSfx.source})`,
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'replace_sfx',
+      description: `Replace a sound effect with a new one from the Freesound library. Search by keyword, automatically replaces the specified or selected SFX overlay.
+Examples:
+- replace_sfx({ query: "crowd cheer" })
+- replace_sfx({ overlayId: 123456, query: "car engine startup" })
+- replace_sfx({ query: "cinematic whoosh impact" })`,
+      schema: replaceSFXSchema,
+    },
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -4752,6 +4881,9 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     syncCutsToBeats,      // NEW: Music-synced cuts via beat detection
     // --- Keyframe Animation Tools ---
     setKeyframes,         // NEW: Per-property keyframe animation (zoom, fade, speed ramp)
+    // --- Audio Regeneration Tools ---
+    regenerateBGM,        // NEW: Regenerate background music with new mood/prompt
+    replaceSFX,           // NEW: Replace a sound effect with Freesound search
   ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };
