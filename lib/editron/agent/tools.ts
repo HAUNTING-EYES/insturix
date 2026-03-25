@@ -4343,7 +4343,7 @@ Requirements:
         const id = Date.now() + Math.floor(Math.random() * 10000);
         const overlayWidth = input.width ?? canvas.width;
         const overlayHeight = input.height ?? canvas.height;
-        const duration = input.duration || match.template.defaultDuration;
+        const duration = input.duration || match?.template?.defaultDuration || 90; // 3s at 30fps
 
         const cleanHtml = sanitizeHtml(filledHtml);
         const wrappedHtml = createSandboxedWrapper({
