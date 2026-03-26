@@ -12,6 +12,7 @@ import WaveformVisualizer from "../overlays/sounds/waveform-visualizer";
 import { TimelineKeyframes } from "./timeline-keyframes";
 import { TimelineKeyframeDiamonds } from "./timeline-keyframe-diamonds";
 import { useSidebar } from "../../contexts/sidebar-context";
+import { useEditorContext } from "../../contexts/editor-context";
 import { TimelineItemHandle } from "./timeline-item-handle";
 import { TimelineItemContextMenu } from "./timeline-item-context-menu";
 import { TimelineItemLabel } from "./timeline-item-label";
@@ -117,6 +118,7 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
   const isSelected = selectedItem?.id === item.id;
   const itemRef = useRef<HTMLDivElement>(null);
   const { setActivePanel, setIsOpen } = useSidebar();
+  const { changeOverlay: editorChangeOverlay } = useEditorContext();
   const keyframeContext = useKeyframeContext();
 
   // New state variables for touch interactions
@@ -520,28 +522,98 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
           }}
         />
 
-        {/* L-Cut / J-Cut visual extensions for sound overlays */}
-        {item.type === OverlayType.SOUND && (item as any).audioStartFrame !== undefined && (item as any).audioStartFrame < item.from && (
-          <div
-            className="absolute top-0 bottom-0 bg-blue-500/20 border-l-2 border-blue-500/40 rounded-l"
-            style={{
-              right: '100%',
-              width: `${(((item.from - (item as any).audioStartFrame) / totalDuration) * 100) / ((item.durationInFrames / totalDuration) * 100) * 100}%`,
-              minWidth: 4,
-            }}
-            title={`J-Cut: audio starts ${Math.round((item.from - (item as any).audioStartFrame) / 30 * 10) / 10}s before video`}
-          />
-        )}
-        {item.type === OverlayType.SOUND && (item as any).audioEndFrame !== undefined && (item as any).audioEndFrame > (item.from + item.durationInFrames) && (
-          <div
-            className="absolute top-0 bottom-0 bg-orange-500/20 border-r-2 border-orange-500/40 rounded-r"
-            style={{
-              left: '100%',
-              width: `${((((item as any).audioEndFrame - item.from - item.durationInFrames) / totalDuration) * 100) / ((item.durationInFrames / totalDuration) * 100) * 100}%`,
-              minWidth: 4,
-            }}
-            title={`L-Cut: audio continues ${Math.round(((item as any).audioEndFrame - item.from - item.durationInFrames) / 30 * 10) / 10}s after video`}
-          />
+        {/* L-Cut / J-Cut audio boundary handles for sound overlays.
+            J-Cut (blue, left): audio starts BEFORE the visual clip
+            L-Cut (orange, right): audio continues AFTER the visual clip
+            Drag handle to extend/retract the audio boundary. */}
+        {item.type === OverlayType.SOUND && isSelected && (
+          <>
+            {/* J-Cut handle (left) — drag to make audio start before video */}
+            <div
+              className="absolute top-0 bottom-0 cursor-col-resize group/jcut"
+              style={{ right: '100%', width: 12 }}
+              title="Drag left to create J-Cut (audio starts before video)"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const startX = e.clientX;
+                const currentAudioStart = (item as any).audioStartFrame ?? item.from;
+                const parentEl = (e.target as HTMLElement).closest('[class*="absolute inset-y"]')?.parentElement;
+                const parentWidth = parentEl?.clientWidth || 600;
+                const framesPerPx = totalDuration / parentWidth;
+
+                const handleMove = (moveE: MouseEvent) => {
+                  const deltaX = moveE.clientX - startX;
+                  const deltaFrames = Math.round(deltaX * framesPerPx);
+                  const newAudioStart = Math.max(0, currentAudioStart + deltaFrames);
+                  editorChangeOverlay(item.id, { audioStartFrame: Math.min(newAudioStart, item.from) } as any);
+                };
+                const handleUp = () => {
+                  document.removeEventListener('mousemove', handleMove);
+                  document.removeEventListener('mouseup', handleUp);
+                };
+                document.addEventListener('mousemove', handleMove);
+                document.addEventListener('mouseup', handleUp);
+              }}
+            >
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] bg-blue-500/60 group-hover/jcut:bg-blue-400 rounded-l transition-colors" />
+            </div>
+
+            {/* J-Cut extension visualization */}
+            {(item as any).audioStartFrame !== undefined && (item as any).audioStartFrame < item.from && (
+              <div
+                className="absolute top-0 bottom-0 bg-blue-500/15 border-l-2 border-blue-500/40 rounded-l pointer-events-none"
+                style={{
+                  right: '100%',
+                  width: `${(((item.from - (item as any).audioStartFrame) / totalDuration) * 100) / ((item.durationInFrames / totalDuration) * 100) * 100}%`,
+                  minWidth: 4,
+                }}
+              />
+            )}
+
+            {/* L-Cut handle (right) — drag to make audio continue after video */}
+            <div
+              className="absolute top-0 bottom-0 cursor-col-resize group/lcut"
+              style={{ left: '100%', width: 12 }}
+              title="Drag right to create L-Cut (audio continues after video)"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const startX = e.clientX;
+                const currentAudioEnd = (item as any).audioEndFrame ?? (item.from + item.durationInFrames);
+                const parentEl = (e.target as HTMLElement).closest('[class*="absolute inset-y"]')?.parentElement;
+                const parentWidth = parentEl?.clientWidth || 600;
+                const framesPerPx = totalDuration / parentWidth;
+
+                const handleMove = (moveE: MouseEvent) => {
+                  const deltaX = moveE.clientX - startX;
+                  const deltaFrames = Math.round(deltaX * framesPerPx);
+                  const newAudioEnd = Math.max(item.from + item.durationInFrames, currentAudioEnd + deltaFrames);
+                  editorChangeOverlay(item.id, { audioEndFrame: newAudioEnd } as any);
+                };
+                const handleUp = () => {
+                  document.removeEventListener('mousemove', handleMove);
+                  document.removeEventListener('mouseup', handleUp);
+                };
+                document.addEventListener('mousemove', handleMove);
+                document.addEventListener('mouseup', handleUp);
+              }}
+            >
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] bg-orange-500/60 group-hover/lcut:bg-orange-400 rounded-r transition-colors" />
+            </div>
+
+            {/* L-Cut extension visualization */}
+            {(item as any).audioEndFrame !== undefined && (item as any).audioEndFrame > (item.from + item.durationInFrames) && (
+              <div
+                className="absolute top-0 bottom-0 bg-orange-500/15 border-r-2 border-orange-500/40 rounded-r pointer-events-none"
+                style={{
+                  left: '100%',
+                  width: `${((((item as any).audioEndFrame - item.from - item.durationInFrames) / totalDuration) * 100) / ((item.durationInFrames / totalDuration) * 100) * 100}%`,
+                  minWidth: 4,
+                }}
+              />
+            )}
+          </>
         )}
       </div>
     </TimelineItemContextMenu>
