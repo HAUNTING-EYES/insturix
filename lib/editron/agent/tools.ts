@@ -4885,6 +4885,102 @@ Examples:
     },
   );
 
+  // ─── Add SFX Tool (search Freesound + download + add to timeline) ─
+  const addSFXSchema = z.object({
+    query: z.string().describe("Search query for the sound effect (e.g., 'coffee slurp', 'door slam', 'crowd cheer', 'typing keyboard')"),
+    startFrame: z.coerce.number().optional().describe("Frame to place the SFX at. Defaults to current playhead or selected overlay position."),
+    durationSeconds: z.coerce.number().optional().describe("Max duration in seconds. Defaults to clip duration."),
+  });
+
+  const addSFX = tool(
+    async (input: z.infer<typeof addSFXSchema>) => {
+      try {
+        // Search Freesound for the SFX
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+        const searchRes = await fetch(`${baseUrl}/api/services/editron/sfx-library/search?q=${encodeURIComponent(input.query)}&limit=1`);
+        const searchData = await searchRes.json().catch(() => ({ results: [] }));
+
+        if (!searchData.results || searchData.results.length === 0) {
+          return JSON.stringify({ status: 'error', message: `No SFX found for "${input.query}". Try different keywords (e.g., 'whoosh', 'chime', 'impact').` });
+        }
+
+        const sfx = searchData.results[0];
+
+        // Download the audio and upload to GCS for permanent storage
+        const { uploadToGCS } = await import('@/lib/editron/services/gcs-service');
+        const { nanoid } = await import('nanoid');
+
+        const audioRes = await fetch(sfx.url);
+        if (!audioRes.ok) {
+          return JSON.stringify({ status: 'error', message: `Failed to download SFX audio (${audioRes.status})` });
+        }
+        const buffer = Buffer.from(await audioRes.arrayBuffer());
+        const assetId = `sfx_${nanoid(12)}`;
+        const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.mp3`, 'audio/mpeg');
+
+        // Register as media asset for URL resolution
+        const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+        const db = await getDatabase();
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+          { assetId },
+          {
+            $setOnInsert: {
+              assetId, userId, type: 'audio',
+              filename: `${assetId}.mp3`, source: 'sfx-library',
+              gcsPath: uploadResult.gcsPath, cachedUrl: uploadResult.signedUrl,
+              urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              size: buffer.length, uploadedAt: new Date(),
+            },
+          },
+          { upsert: true },
+        );
+
+        // Determine placement
+        const project = await loadProject();
+        const fps = (project as any).fps || 30;
+        const startFrame = input.startFrame ?? 0;
+        const durationFrames = Math.round((input.durationSeconds || sfx.duration || 5) * fps);
+
+        // Add overlay to project
+        const overlayId = Date.now() + Math.floor(Math.random() * 100000);
+        await projectService.addOverlay(userId, projectId, {
+          id: overlayId,
+          type: 'sound',
+          from: startFrame,
+          durationInFrames: durationFrames,
+          row: 6, // SFX row
+          left: 0, top: 0, width: 0, height: 0,
+          isDragging: false, rotation: 0,
+          content: uploadResult.signedUrl,
+          src: uploadResult.signedUrl,
+          assetId,
+          styles: { volume: 0.5, opacity: 1 },
+        } as any);
+
+        return JSON.stringify({
+          status: 'success',
+          data: { overlayId, assetId, title: sfx.title, duration: sfx.duration, source: sfx.source },
+          message: `Added "${sfx.title}" SFX (${sfx.duration}s) at frame ${startFrame}`,
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'add_sfx',
+      description: `Add a sound effect to the timeline by searching the Freesound library. Downloads the audio, uploads to storage, and places it on the SFX row.
+
+ALWAYS use this tool when the user asks to "add sound effect", "add SFX", "add audio clip", etc.
+NEVER use addOverlay for sound effects — it creates fake assets that can't play.
+
+Examples:
+- add_sfx({ query: "coffee slurp" })
+- add_sfx({ query: "crowd cheer", startFrame: 300 })
+- add_sfx({ query: "whoosh transition", durationSeconds: 2 })`,
+      schema: addSFXSchema,
+    },
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -4928,6 +5024,7 @@ Examples:
     // --- Audio Regeneration Tools ---
     regenerateBGM,        // NEW: Regenerate background music with new mood/prompt
     replaceSFX,           // NEW: Replace a sound effect with Freesound search
+    addSFX,               // NEW: Add SFX from Freesound (search + download + place)
   ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };
