@@ -1,13 +1,17 @@
 'use client';
 
-import React from 'react';
+import React, { useCallback, useRef } from 'react';
 import { Overlay, KeyframeTrack } from '../../types';
+import { useEditorContext } from '../../contexts/editor-context';
 
 /**
  * Timeline Keyframe Diamonds
  *
- * Renders small colored diamond markers on the timeline item for each keyframe.
- * Shows as a thin strip at the bottom of the item when keyframeTracks exist.
+ * Renders interactive colored diamond markers on the timeline item for each keyframe.
+ * - Click: seek to keyframe position
+ * - Drag: move keyframe to new frame position
+ * - Right-click: delete the keyframe
+ * - Hover: shows property, value, easing in tooltip
  */
 
 const PROPERTY_COLORS: Record<string, string> = {
@@ -19,50 +23,145 @@ const PROPERTY_COLORS: Record<string, string> = {
   speed: '#a855f7',    // purple
 };
 
+const PROPERTY_LABELS: Record<string, string> = {
+  x: 'Position X',
+  y: 'Position Y',
+  scale: 'Scale',
+  opacity: 'Opacity',
+  rotation: 'Rotation',
+  speed: 'Speed',
+};
+
 interface TimelineKeyframeDiamondsProps {
   overlay: Overlay;
   itemWidth: number;
-  onSeekToFrame?: (frame: number) => void;
+  totalDuration?: number;
 }
 
 export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> = ({
   overlay,
   itemWidth,
-  onSeekToFrame,
+  totalDuration,
 }) => {
+  const { changeOverlay, setCurrentFrame } = useEditorContext();
   const tracks = overlay.keyframeTracks;
   if (!tracks || tracks.length === 0) return null;
 
   const duration = overlay.durationInFrames || 1;
+  const dragRef = useRef<{
+    trackIndex: number;
+    keyframeIndex: number;
+    startX: number;
+    startFrame: number;
+  } | null>(null);
+
+  // Click: seek to this keyframe's position
+  const handleClick = useCallback((frame: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const globalFrame = overlay.from + frame;
+    if (setCurrentFrame) {
+      setCurrentFrame(globalFrame);
+    }
+  }, [overlay.from, setCurrentFrame]);
+
+  // Drag: move keyframe to new frame position
+  const handleMouseDown = useCallback((trackIndex: number, keyframeIndex: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const startX = e.clientX;
+    const startFrame = tracks[trackIndex].keyframes[keyframeIndex].frame;
+    dragRef.current = { trackIndex, keyframeIndex, startX, startFrame };
+
+    const parentEl = (e.target as HTMLElement).closest('.absolute.bottom-0');
+    const parentWidth = parentEl?.clientWidth || 100;
+
+    const handleMouseMove = (moveE: MouseEvent) => {
+      if (!dragRef.current) return;
+      const deltaX = moveE.clientX - dragRef.current.startX;
+      const deltaFrames = Math.round((deltaX / parentWidth) * duration);
+      const newFrame = Math.max(0, Math.min(duration, dragRef.current.startFrame + deltaFrames));
+
+      // Update the keyframe in place
+      if (changeOverlay) {
+        changeOverlay(overlay.id, (ov) => {
+          const newTracks = [...(ov.keyframeTracks || [])];
+          const track = { ...newTracks[dragRef.current!.trackIndex] };
+          const keyframes = [...track.keyframes];
+          keyframes[dragRef.current!.keyframeIndex] = {
+            ...keyframes[dragRef.current!.keyframeIndex],
+            frame: newFrame,
+          };
+          track.keyframes = keyframes;
+          newTracks[dragRef.current!.trackIndex] = track;
+          return { ...ov, keyframeTracks: newTracks };
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      dragRef.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [tracks, overlay.id, overlay.keyframeTracks, duration, changeOverlay]);
+
+  // Right-click: delete this keyframe
+  const handleContextMenu = useCallback((trackIndex: number, keyframeIndex: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (!changeOverlay) return;
+
+    // Don't delete if only 2 keyframes left (minimum for a track)
+    const track = tracks[trackIndex];
+    if (track.keyframes.length <= 2) return;
+
+    changeOverlay(overlay.id, (ov) => {
+      const newTracks = [...(ov.keyframeTracks || [])];
+      const newTrack = { ...newTracks[trackIndex] };
+      newTrack.keyframes = newTrack.keyframes.filter((_: any, i: number) => i !== keyframeIndex);
+      newTracks[trackIndex] = newTrack;
+      // Remove track entirely if no keyframes left
+      return { ...ov, keyframeTracks: newTracks.filter(t => t.keyframes.length > 0) };
+    });
+  }, [tracks, overlay.id, changeOverlay]);
 
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 h-[6px] pointer-events-auto"
+      className="absolute bottom-0 left-0 right-0 h-[8px] pointer-events-auto"
       style={{ zIndex: 10 }}
     >
       {tracks.map((track: KeyframeTrack, ti: number) =>
         track.keyframes.map((kf, ki) => {
           const xPercent = (kf.frame / duration) * 100;
           const color = PROPERTY_COLORS[track.property] || '#888';
+          const label = PROPERTY_LABELS[track.property] || track.property;
 
           return (
             <div
               key={`${ti}-${ki}`}
-              className="absolute cursor-pointer hover:scale-150 transition-transform"
+              className="absolute cursor-grab hover:scale-[2] active:scale-[2.5] active:cursor-grabbing transition-transform"
               style={{
                 left: `${xPercent}%`,
                 top: '50%',
                 transform: 'translate(-50%, -50%) rotate(45deg)',
-                width: 5,
-                height: 5,
+                width: 6,
+                height: 6,
                 backgroundColor: color,
                 borderRadius: 1,
+                border: '1px solid rgba(0,0,0,0.3)',
+                boxShadow: `0 0 3px ${color}60`,
               }}
-              title={`${track.property}: ${kf.value} at frame ${kf.frame} (${kf.easing})`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSeekToFrame?.(overlay.from + kf.frame);
+              title={`${label}: ${typeof kf.value === 'number' ? kf.value.toFixed(2) : kf.value} at frame ${kf.frame}\n${kf.easing || 'ease-in-out'}\nDrag to move • Right-click to delete`}
+              onClick={(e) => handleClick(kf.frame, e)}
+              onMouseDown={(e) => {
+                if (e.button === 0) handleMouseDown(ti, ki, e);
               }}
+              onContextMenu={(e) => handleContextMenu(ti, ki, e)}
             />
           );
         }),
