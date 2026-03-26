@@ -26,9 +26,20 @@ export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db
     return { client: cachedClient, db: cachedDb };
   }
 
-  // Create new connection
-  const client = new MongoClient(uri);
-  
+  // Create new connection with pool sizing for Vercel serverless.
+  // Each serverless instance gets its own connection pool.
+  // maxPoolSize=10: enough for concurrent requests on one instance
+  // minPoolSize=2: keep warm connections to avoid cold-start latency
+  // maxIdleTimeMS=30000: close idle connections after 30s (Vercel instances are short-lived)
+  // serverSelectionTimeoutMS=5000: fail fast if Atlas is unreachable
+  const client = new MongoClient(uri, {
+    maxPoolSize: 10,
+    minPoolSize: 2,
+    maxIdleTimeMS: 30000,
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 5000,
+  });
+
   await client.connect();
   const db = client.db(dbName);
 

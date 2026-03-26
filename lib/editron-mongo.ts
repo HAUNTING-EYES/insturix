@@ -1,35 +1,27 @@
-// MongoDB connection utility for Editron service
+/**
+ * MongoDB connection utility for Editron service.
+ *
+ * CONSOLIDATED: Delegates to lib/editron/db/mongodb.ts (single shared client).
+ * Previously had its own MongoClient with zero pool config — now uses the
+ * shared client with proper pooling (maxPoolSize=10, minPoolSize=2).
+ */
 
-import { MongoClient, Db, Collection } from "mongodb";
+import { Collection } from "mongodb";
+import { connectToDatabase } from "@/lib/editron/db/mongodb";
+import type { EditronTask } from "@/lib/types";
 
-const uri = process.env.MONGODB_URI!;
-const dbName = process.env.MONGODB_DB_NAME!;
-const collectionName = process.env.EDITRON_MONGO_TASKS_COLLECTION!;
+const dbName = process.env.MONGODB_DB_NAME || 'insturix_prod';
+const collectionName = process.env.EDITRON_MONGO_TASKS_COLLECTION || 'editron_tasks';
 
-if (!uri || !dbName || !collectionName) {
-  throw new Error("Missing MongoDB environment variables for Editron integration.");
-}
-
-let client: MongoClient | null = null;
-let db: Db | null = null;
-
-export async function getMongoClient(): Promise<MongoClient> {
-  if (client) {
-    return client;
-  }
-  client = new MongoClient(uri, { });
-  await client.connect();
+export async function getMongoClient() {
+  const { client } = await connectToDatabase();
   return client;
 }
 
-export async function getEditronDb(): Promise<Db> {
-  if (db) return db;
-  const mongoClient = await getMongoClient();
-  db = mongoClient.db(dbName);
-  return db;
+export async function getEditronDb() {
+  const { client } = await connectToDatabase();
+  return client.db(dbName);
 }
-
-import { EditronTask } from "@/lib/types";
 
 export async function getTasksCollection(): Promise<Collection<EditronTask>> {
   const database = await getEditronDb();

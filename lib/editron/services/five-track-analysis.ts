@@ -321,6 +321,134 @@ Be precise — every visual cut, dissolve, or transition is a boundary.`,
   }
 }
 
+// ─── Merged Analysis (W3 Optimization) ──────────────────────────
+
+/**
+ * Single Gemini Vision call that analyzes motion, keyframes, and subjects
+ * in one structured prompt. Reduces 3 API calls to 1.
+ *
+ * Returns null if the merged call fails (caller falls back to individual calls).
+ */
+async function analyzeVideoComprehensive(
+  fileUri: string,
+  shots: Shot[],
+  durationMs: number,
+): Promise<{
+  motion: { segments: MotionSegment[]; peaks: number[] };
+  keyframes: FrameAnalysis[];
+  subjects: SubjectTrackEntry[];
+} | null> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const fps = 30;
+    const totalFrames = Math.round((durationMs / 1000) * fps);
+
+    const prompt = `Analyze this video comprehensively. Return a JSON object with exactly these three sections:
+
+{
+  "motion": {
+    "segments": [
+      {
+        "startFrame": 0,
+        "endFrame": ${totalFrames},
+        "motionIntensity": 0.0-1.0,
+        "cameraMotion": "static|pan-left|pan-right|zoom-in|zoom-out|tilt-up|tilt-down|tracking|dolly|handheld"
+      }
+    ],
+    "peaks": [frame numbers where motion intensity peaks]
+  },
+  "keyframes": [
+    {
+      "frame": 0,
+      "timestampMs": 0,
+      "description": "What is visible in this moment",
+      "subjects": [{"label": "person/object name", "confidence": 0.0-1.0}],
+      "shotType": "wide|medium|close-up|extreme-close-up",
+      "cameraAngle": "eye-level|low-angle|high-angle|overhead",
+      "dominantColors": ["color1", "color2"],
+      "brightness": 0.0-1.0,
+      "moodScore": -1.0 to 1.0,
+      "energyLevel": 0.0-1.0,
+      "naturalCutPoint": true/false
+    }
+  ],
+  "subjects": [
+    {
+      "frame": 0,
+      "subjectId": "person_0",
+      "label": "main subject",
+      "boundingBox": {"x": 0-1, "y": 0-1, "width": 0-1, "height": 0-1},
+      "confidence": 0.0-1.0
+    }
+  ]
+}
+
+Analyze at least 3 keyframes spread across the video. Identify all visible subjects. Detect camera motion type and intensity. Mark natural cut points. Return ONLY valid JSON, no markdown.`;
+
+    const result = await model.generateContent([
+      { fileData: { fileUri, mimeType: 'video/mp4' } },
+      { text: prompt },
+    ]);
+
+    const text = result.response.text();
+    // Extract JSON from response (may be wrapped in ```json ... ```)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn('[Analysis] Merged: no JSON in response');
+      return null;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Validate and normalize each section
+    const motionSegments: MotionSegment[] = (parsed.motion?.segments || []).map((s: any) => ({
+      startFrame: s.startFrame || 0,
+      endFrame: s.endFrame || totalFrames,
+      motionIntensity: Math.min(1, Math.max(0, s.motionIntensity || 0.3)),
+      cameraMotion: s.cameraMotion || 'static',
+    }));
+
+    const keyframes: FrameAnalysis[] = (parsed.keyframes || []).map((kf: any) => ({
+      frame: kf.frame || 0,
+      timestampMs: kf.timestampMs || 0,
+      description: kf.description || '',
+      subjects: (kf.subjects || []).map((s: any) => ({ label: s.label || '', confidence: s.confidence || 0.5 })),
+      shotType: kf.shotType || 'medium',
+      cameraAngle: kf.cameraAngle || 'eye-level',
+      dominantColors: kf.dominantColors || [],
+      brightness: kf.brightness || 0.6,
+      moodScore: kf.moodScore || 0,
+      energyLevel: kf.energyLevel || 0.3,
+      naturalCutPoint: kf.naturalCutPoint || false,
+    }));
+
+    const subjects: SubjectTrackEntry[] = (parsed.subjects || []).map((s: any) => ({
+      frame: s.frame || 0,
+      subjectId: s.subjectId || 'unknown',
+      label: s.label || 'unknown',
+      boundingBox: s.boundingBox || { x: 0.3, y: 0.3, width: 0.4, height: 0.4 },
+      confidence: s.confidence || 0.5,
+    }));
+
+    console.log(`[Analysis] Merged: ${motionSegments.length} motion, ${keyframes.length} keyframes, ${subjects.length} subjects`);
+
+    return {
+      motion: { segments: motionSegments, peaks: parsed.motion?.peaks || [] },
+      keyframes,
+      subjects,
+    };
+  } catch (err: any) {
+    console.error(`[Analysis] Merged call failed: ${err.message}`);
+    return null;
+  }
+}
+
 // ─── Layer 2: Motion Analysis ────────────────────────────────────
 
 async function analyzeMotion(videoUrl: string, shots: Shot[], durationMs: number): Promise<{
@@ -813,16 +941,27 @@ export async function runFullAnalysis(
       const geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
 
       if (geminiFileUri && !isOverBudget()) {
-        // Run Layers 2, 4, 5 in parallel using the uploaded file
-        const [motionResult, kfResult, subjectResult] = await Promise.allSettled([
-          analyzeMotion(geminiFileUri, shots, durationMs),
-          analyzeKeyframes(geminiFileUri, shots, durationMs),
-          trackSubjects(geminiFileUri, [], durationMs),
-        ]);
-
-        if (motionResult.status === 'fulfilled') motion = motionResult.value;
-        if (kfResult.status === 'fulfilled') keyframeData = kfResult.value;
-        if (subjectResult.status === 'fulfilled') subjectData = subjectResult.value;
+        // W3 OPTIMIZATION: Single merged Gemini Vision call for Layers 2+4+5.
+        // Previously 3 separate calls with the same fileUri. Now 1 structured prompt.
+        try {
+          const merged = await analyzeVideoComprehensive(geminiFileUri, shots, durationMs);
+          if (merged) {
+            motion = merged.motion;
+            keyframeData = merged.keyframes;
+            subjectData = merged.subjects;
+          }
+        } catch (mergeErr: any) {
+          console.warn(`[Analysis] Merged analysis failed: ${mergeErr.message}, trying individual calls`);
+          // Fallback to individual calls if merged prompt fails
+          const [motionResult, kfResult, subjectResult] = await Promise.allSettled([
+            analyzeMotion(geminiFileUri, shots, durationMs),
+            analyzeKeyframes(geminiFileUri, shots, durationMs),
+            trackSubjects(geminiFileUri, [], durationMs),
+          ]);
+          if (motionResult.status === 'fulfilled') motion = motionResult.value;
+          if (kfResult.status === 'fulfilled') keyframeData = kfResult.value;
+          if (subjectResult.status === 'fulfilled') subjectData = subjectResult.value;
+        }
 
         console.log(`[Analysis] Gemini Vision: motion=${motion.segments.length} segments, keyframes=${keyframeData.length}, subjects=${subjectData.length}`);
       } else {
