@@ -54,6 +54,16 @@ async function handler(request: NextRequest) {
 
     const db = await getDatabase();
 
+    // C7 FIX: Validate userId owns the project
+    const project = await db.collection('projects').findOne({ projectId }) as any;
+    if (!project) {
+      return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 });
+    }
+    if (project.userId !== userId) {
+      console.error(`[AudioWorker] SECURITY: userId mismatch. Payload: ${userId}, Project: ${project.userId}`);
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 403 });
+    }
+
     if (type === 'bgm') {
       const { musicPrompt, totalDurationSec, totalFrames, fps } = payload;
       if (!musicPrompt || !totalDurationSec || !totalFrames || !fps) {

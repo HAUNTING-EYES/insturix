@@ -188,8 +188,15 @@ export class AssetResolver {
 
     // Refresh signed URL (only for user uploads with gcsPath)
     if (!asset.gcsPath) {
-      console.warn(`Asset ${asset.assetId} has no gcsPath and is not a public asset`);
-      return asset.cachedUrl; // Fallback to cached URL
+      // B4 FIX: Don't return expired URL — it'll cause silent 403 errors.
+      // If cachedUrl is still valid (not expired yet), use it. Otherwise return empty.
+      const now = Date.now();
+      const expiresAt = new Date(asset.urlExpiresAt).getTime();
+      if (expiresAt > now) {
+        return asset.cachedUrl; // Still valid, use it
+      }
+      console.error(`[AssetResolver] Asset ${asset.assetId} expired and has no gcsPath — media unavailable`);
+      return ''; // Empty → editor shows "media unavailable" placeholder
     }
 
     const { url: newUrl, expiresAt: newExpiresAt } = await refreshSignedUrl(asset.gcsPath);

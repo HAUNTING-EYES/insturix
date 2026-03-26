@@ -234,10 +234,25 @@ export class ProjectService {
 
     const db = await getDatabase();
 
-    // A3 FIX: Preserve worker-added overlays on autosave (same as saveProject).
-    // Without this, browser autosave (every 5s) clobbers BGM/SFX/captions
-    // that audio workers added after the user loaded the project.
+    // E2 FIX: Skip autosave if Director Agent is currently executing.
+    // Director sets directorLock=true during execution. Autosave would
+    // clobber Director's in-progress changes.
     const currentProject = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId }) as any;
+    if (currentProject?.directorLock) {
+      const lockAge = Date.now() - new Date(currentProject.directorLockAt).getTime();
+      if (lockAge < 5 * 60 * 1000) { // Lock valid for up to 5 minutes
+        console.log(`[Autosave] Skipped — Director Agent is running (locked ${Math.round(lockAge / 1000)}s ago)`);
+        return;
+      }
+      // Lock expired (>5 min) — Director probably crashed. Release and continue.
+      console.warn(`[Autosave] Director lock expired (${Math.round(lockAge / 1000)}s), releasing`);
+      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        { projectId },
+        { $unset: { directorLock: '', directorLockAt: '' } },
+      );
+    }
+
+    // A3 FIX: Preserve worker-added overlays on autosave.
     const workerOverlays = (currentProject?.overlays || []).filter((o: any) => o._workerAdded === true);
     const browserOverlayIds = new Set(cleanOverlays.map((o: any) => o.id));
     const missingWorkerOverlays = workerOverlays.filter((o: any) => !browserOverlayIds.has(o.id));

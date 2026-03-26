@@ -60,6 +60,15 @@ export async function executeDirectorPlan(
   };
 
   try {
+    // E2 FIX: Lock project during Director execution.
+    // Prevents browser autosave from clobbering Director changes.
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const lockDb = await getDatabase();
+    await lockDb.collection('projects').updateOne(
+      { projectId },
+      { $set: { directorLock: true, directorLockAt: new Date() } },
+    );
+
     // ─── Step 1: Load project state ──────────────────────────
     const project = await projectService.loadProject(userId, projectId);
     if (!project) {
@@ -245,6 +254,16 @@ export async function executeDirectorPlan(
     result.warnings.push(`Director Agent failed: ${err.message}`);
     console.error('[Director] Execution failed:', err.message);
   }
+
+  // E2 FIX: Release project lock (always, even on error)
+  try {
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const unlockDb = await getDatabase();
+    await unlockDb.collection('projects').updateOne(
+      { projectId },
+      { $unset: { directorLock: '', directorLockAt: '' } },
+    );
+  } catch {}
 
   result.executionMs = Date.now() - startTime;
   console.log(`[Director] Complete: ${result.actionsExecuted} actions, ${result.actionsSkipped.length} skipped, ${result.executionMs}ms`);

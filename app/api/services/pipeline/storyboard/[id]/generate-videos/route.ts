@@ -79,6 +79,21 @@ export async function POST(
       );
     }
 
+    // E1 FIX: Check for active video generation batch — prevent concurrent runs
+    const db0 = await getDatabase();
+    const activeBatch = await db0.collection(VIDEO_BATCHES_COLLECTION).findOne({
+      storyboardId,
+      status: 'processing',
+      createdAt: { $gt: new Date(Date.now() - 15 * 60 * 1000) }, // Active within last 15 min
+    } as any);
+    if (activeBatch) {
+      return NextResponse.json({
+        success: false,
+        error: `Video generation already in progress (batch ${(activeBatch as any)._id}). Wait for it to complete or check status.`,
+        existingBatchId: (activeBatch as any)._id,
+      }, { status: 409 });
+    }
+
     // Determine which scenes to generate videos for
     const targetScenes = storyboard.scenes.filter((s) => {
       if (!s.imageUrl) return false;
