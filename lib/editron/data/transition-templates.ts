@@ -34,7 +34,7 @@ export type TransitionType =
   | 'cut-on-action';  // Cut timed to subject movement (editorial)
 
 export interface TransitionOverlay {
-  type: 'html-scene';
+  type: 'transition';
   from: number;
   durationInFrames: number;
   row: number;
@@ -44,8 +44,13 @@ export interface TransitionOverlay {
   height: number;
   isDragging: boolean;
   rotation: number;
-  content: string; // HTML content
+  content: string; // HTML content for visual effect
   styles: Record<string, any>;
+  metadata?: {
+    isTransition: boolean;
+    transitionType: string;
+    source?: string;
+  };
 }
 
 interface TransitionConfig {
@@ -73,7 +78,7 @@ export function buildTransitionOverlay(
   const html = factory(durationFrames, width, height);
 
   return {
-    type: 'html-scene',
+    type: 'transition' as any,
     from: startFrame,
     durationInFrames: durationFrames,
     row: 1, // Transition layer — in front of video (row 2) and image (row 3)
@@ -87,6 +92,11 @@ export function buildTransitionOverlay(
     styles: {
       opacity: 1,
       backgroundColor: 'transparent',
+    },
+    metadata: {
+      isTransition: true,
+      transitionType: type,
+      source: 'auto',
     },
   };
 }
