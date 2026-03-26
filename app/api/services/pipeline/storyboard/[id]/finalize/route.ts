@@ -174,7 +174,11 @@ export async function POST(
           rotation: 0,
           content: scene.voiceover.audioUrl,
           src: scene.voiceover.audioUrl,
-          assetId: scene.voiceover.audioAssetId, // Needed for URL resolution after save
+          assetId: scene.voiceover.audioAssetId,
+          // L-Cut/J-Cut: Set explicit audio boundaries so timeline handles are visible.
+          // Users can drag these to extend audio before/after the visual cut.
+          audioStartFrame: currentFrame,
+          audioEndFrame: currentFrame + cappedVoDuration,
           styles: { volume: 1 },
         });
       }

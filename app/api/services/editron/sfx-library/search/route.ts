@@ -37,11 +37,24 @@ export async function GET(req: NextRequest) {
     const url = `https://freesound.org/apiv2/search/text/?${params}`;
     console.log(`[SFX-Search] Querying: ${url.substring(0, 120)}...`);
 
-    const res = await fetch(url);
+    // Freesound can be slow or return 504. Use AbortController for 8s timeout.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    let res: Response;
+    try {
+      res = await fetch(url, { signal: controller.signal });
+    } catch (fetchErr: any) {
+      clearTimeout(timeout);
+      console.error(`[SFX-Search] Freesound timeout/error: ${fetchErr.message}`);
+      return NextResponse.json({ results: [], error: 'Freesound is currently unavailable. Try again later.' });
+    }
+    clearTimeout(timeout);
+
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
       console.error(`[SFX-Search] Freesound error: ${res.status} ${errBody.substring(0, 200)}`);
-      return NextResponse.json({ results: [], error: `Freesound returned ${res.status}` });
+      return NextResponse.json({ results: [], error: `Freesound returned ${res.status}. The service may be temporarily down.` });
     }
 
     const data = await res.json();

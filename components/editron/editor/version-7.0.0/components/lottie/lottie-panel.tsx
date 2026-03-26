@@ -45,14 +45,14 @@ export const LottiePanel: React.FC = () => {
   const handleAdd = useCallback((lottie: LottieResult) => {
     setAdding(lottie.id);
 
-    // Create an HTML overlay that renders the Lottie animation
-    const html = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-  <dotlottie-player src="${lottie.lottieUrl}" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player>
-  <script src="https://unpkg.com/@dotlottie/player-component@2/dist/dotlottie-player.mjs" type="module"></script>
-</div>`;
+    // Use animated GIF URL — works natively in Remotion's <Img> component.
+    // The GIF is a real animated image from LottieFiles CDN.
+    // Web component approach (<dotlottie-player>) doesn't work in Remotion's
+    // rendering context because external scripts don't load in the iframe.
+    const animatedUrl = lottie.gifUrl || lottie.previewUrl || lottie.lottieUrl;
 
     addOverlay({
-      type: OverlayType.HTML_STICKER,
+      type: OverlayType.IMAGE,
       from: 0,
       durationInFrames: 90, // 3 seconds at 30fps
       row: 1,
@@ -62,9 +62,11 @@ export const LottiePanel: React.FC = () => {
       height: 300,
       isDragging: false,
       rotation: 0,
-      content: html,
+      content: animatedUrl,
+      src: animatedUrl,
       styles: {
         opacity: 1,
+        objectFit: 'contain',
         backgroundColor: 'transparent',
       },
       metadata: {
