@@ -725,5 +725,43 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
         </CollapsibleSection>
       </TabsContent>
     </Tabs>
+
+      {/* Batch apply — sync this caption's style to all other captions */}
+      <div className="mt-3 pt-3 border-t border-zinc-700">
+        <button
+          onClick={async () => {
+            const projectId = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : '';
+            if (!projectId) return;
+            try {
+              const res = await fetch('/api/services/editron/chat/tool-call', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  projectId,
+                  toolName: 'batch_edit_captions',
+                  params: {
+                    style: overlay.template || 'subtitle',
+                    fontSize: styles.fontSize,
+                    fontFamily: styles.fontFamily,
+                    fontWeight: styles.fontWeight,
+                    color: styles.color,
+                    backgroundColor: styles.backgroundColor,
+                  },
+                }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (data.status === 'success') {
+                window.location.reload();
+              }
+            } catch (err) {
+              console.error('[BatchCaption] Failed:', err);
+            }
+          }}
+          className="w-full px-3 py-2 text-xs bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 rounded-md transition-colors"
+        >
+          Apply Style to All Captions
+        </button>
+        <p className="text-[9px] text-zinc-500 mt-1 text-center">Syncs this caption&apos;s style to every caption in the project</p>
+      </div>
   );
 };

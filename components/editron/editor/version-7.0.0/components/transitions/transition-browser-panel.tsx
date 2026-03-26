@@ -125,17 +125,22 @@ export const TransitionBrowserPanel: React.FC = () => {
                   <button
                     key={t.id}
                     onClick={() => handleApplyToAll(t.id)}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('application/editron-transition', JSON.stringify({ type: t.id, name: t.name }));
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }}
                     disabled={videoOverlays.length < 2 || applying !== null}
                     className={`
                       flex flex-col items-center gap-1 p-2.5 rounded-md border text-center
-                      transition-all duration-150
+                      transition-all duration-150 cursor-grab active:cursor-grabbing
                       ${applying === t.id
                         ? 'border-emerald-500 bg-emerald-900/30 text-emerald-300'
                         : 'border-zinc-700/50 bg-zinc-800/50 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800'
                       }
                       disabled:opacity-40 disabled:cursor-not-allowed
                     `}
-                    title={t.description}
+                    title={`${t.description}\nClick to apply between all scenes, or drag to timeline.`}
                   >
                     <div className="text-zinc-400">
                       {ICON_MAP[t.icon] || <Layers className="h-4 w-4" />}

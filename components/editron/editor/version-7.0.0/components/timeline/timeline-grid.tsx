@@ -178,10 +178,61 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
     return gaps;
   };
 
+  // Handle transition drop from sidebar panel
+  const handleTransitionDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    const transitionData = e.dataTransfer.getData('application/editron-transition');
+    if (!transitionData) return;
+
+    e.preventDefault();
+    try {
+      const { type } = JSON.parse(transitionData);
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left + e.currentTarget.scrollLeft;
+      const dropFrame = Math.round((x / e.currentTarget.scrollWidth) * totalDuration);
+
+      // Find the video overlay boundary closest to the drop position
+      const videoOverlays = overlays
+        .filter(o => o.type === 'video')
+        .sort((a, b) => a.from - b.from);
+
+      let bestOverlayId: number | null = null;
+      let bestDistance = Infinity;
+
+      for (const vo of videoOverlays) {
+        const endFrame = vo.from + vo.durationInFrames;
+        const dist = Math.abs(endFrame - dropFrame);
+        if (dist < bestDistance) {
+          bestDistance = dist;
+          bestOverlayId = vo.id;
+        }
+      }
+
+      if (bestOverlayId && onOverlayChange) {
+        // Call the tool-call API to add transition after this overlay
+        fetch('/api/services/editron/chat/tool-call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectId: typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : '',
+            toolName: 'add_transition',
+            params: { type, afterOverlayId: bestOverlayId },
+          }),
+        }).then(() => window.location.reload()).catch(console.error);
+      }
+    } catch {}
+  }, [overlays, totalDuration, onOverlayChange]);
+
   return (
     <div
       className="relative overflow-x-auto overflow-y-hidden bg-[hsl(var(--background))] h-full"
       style={{ height: `${visibleRows * ROW_HEIGHT}px` }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('application/editron-transition')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      }}
+      onDrop={handleTransitionDrop}
     >
       {/* Container for Rows and Alignment Lines */}
       <div className="absolute inset-0 flex flex-col gap-2 pt-2 pb-2">
