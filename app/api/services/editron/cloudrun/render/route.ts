@@ -54,7 +54,45 @@ export async function POST(request: Request) {
       }
     }
 
-    // Start the render on Lambda
+    // Phase D W6: Auto-detect long videos and use chapter-based rendering
+    const totalFrames = resolvedProps.durationInFrames || 0;
+    const { shouldUseChapterRendering, startChapterRender } = await import('@/lib/editron/services/chapter-renderer');
+
+    if (shouldUseChapterRendering(totalFrames)) {
+      console.log(`[Render] Long video detected (${totalFrames} frames). Using chapter-based rendering.`);
+      const fps = resolvedProps.fps || 30;
+      const width = resolvedProps.width || 1920;
+      const height = resolvedProps.height || 1080;
+
+      const { jobId, chapters } = await startChapterRender(
+        projectId || 'unknown',
+        userId,
+        resolvedProps.overlays || [],
+        totalFrames,
+        fps,
+        width,
+        height,
+        serveUrl,
+        functionName,
+      );
+
+      // Save job reference
+      try {
+        await createJob(jobId, userId, projectId || 'unknown', 'chapter-render');
+      } catch {}
+
+      return NextResponse.json({
+        type: 'success',
+        renderId: jobId,
+        bucketName: 'chapter-render',
+        region,
+        isChapterRender: true,
+        chapters,
+        message: `Split into ${chapters} chapters for parallel rendering`,
+      });
+    }
+
+    // Standard single-Lambda render (videos under 3 minutes)
     const { bucketName, renderId } = await renderMediaOnLambda({
       region,
       functionName,

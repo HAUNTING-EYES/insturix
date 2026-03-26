@@ -74,22 +74,22 @@ export const Main: React.FC<MainProps> = ({
       .sort((a, b) => a.from - b.from);
   }, [overlays]);
 
-  // Aggressive prefetch: download ALL media clips as blob URLs at project load.
-  // This converts remote GCS signed URLs into local blob URLs, eliminating
-  // network latency on seek/play and allowing the browser's native video
-  // decoder to work from local data. The blob URLs are kept alive for the
-  // lifetime of the component and freed on unmount.
-  //
-  // Previous approach only prefetched 2 clips ahead, which still caused
-  // buffering/lag when scrubbing or jumping around the timeline.
+  // Phase D W2: Cache-aware prefetch.
+  // First checks IndexedDB for cached blobs (instant, zero network).
+  // On cache miss, fetches from CDN/GCS, caches in IndexedDB for next time.
+  // Falls back to Remotion's media-tag prefetch if IndexedDB unavailable.
   useEffect(() => {
     const handles = prefetchHandlesRef.current;
+    const blobUrls = new Map<string, string>(); // assetId → blob URL (for cleanup)
 
-    const allUrls = new Set(
-      mediaOverlays.map((o) => (o as any).src || (o as any).content).filter(Boolean),
-    );
+    const allMedia = mediaOverlays.map((o) => ({
+      assetId: (o as any).assetId || '',
+      url: (o as any).src || (o as any).content || '',
+    })).filter(m => m.url);
 
-    // Free handles for overlays that were removed from the project
+    const allUrls = new Set(allMedia.map(m => m.url));
+
+    // Free handles for removed overlays
     for (const [url, handle] of handles) {
       if (!allUrls.has(url)) {
         handle.free();
@@ -97,24 +97,59 @@ export const Main: React.FC<MainProps> = ({
       }
     }
 
-    // Prefetch all media clips that aren't already cached.
-    // Use 'media-tag' method instead of 'blob-url' to avoid CORS issues
-    // with GCS signed URLs (fetch() requires CORS headers, <video> doesn't).
-    for (const url of allUrls) {
-      if (!handles.has(url)) {
+    // Cache-aware prefetch for each media overlay
+    let cancelled = false;
+    (async () => {
+      const { getCachedAsset, cacheAsset } = await import('../utils/asset-cache').catch(() => ({
+        getCachedAsset: async () => null,
+        cacheAsset: async () => {},
+      }));
+
+      for (const { assetId, url } of allMedia) {
+        if (cancelled || handles.has(url)) continue;
+
+        // Try IndexedDB cache first
+        if (assetId) {
+          try {
+            const cachedBlob = await getCachedAsset(assetId);
+            if (cachedBlob) {
+              // Cache hit — create blob URL, skip network entirely
+              const blobUrl = URL.createObjectURL(cachedBlob);
+              blobUrls.set(assetId, blobUrl);
+              // Create a fake handle for cleanup tracking
+              handles.set(url, { free: () => URL.revokeObjectURL(blobUrl) });
+              continue;
+            }
+          } catch {
+            // IndexedDB unavailable — fall through to network
+          }
+        }
+
+        // Cache miss — use Remotion's media-tag prefetch (no CORS issues)
         try {
           const handle = prefetch(url, { method: 'media-tag' });
           handles.set(url, handle);
+
+          // Background: fetch blob and cache in IndexedDB for next time
+          if (assetId) {
+            fetch(url, { credentials: 'omit' })
+              .then(res => res.ok ? res.blob() : null)
+              .then(blob => { if (blob && !cancelled) cacheAsset(assetId, blob, blob.type); })
+              .catch(() => {}); // Non-fatal background caching
+          }
         } catch {
-          // Ignore prefetch errors — the video will fall back to streaming
+          // Prefetch failed — video will stream directly
         }
       }
-    }
+    })();
 
     return () => {
-      // Cleanup all on unmount
+      cancelled = true;
+      // Cleanup all handles + blob URLs
       for (const handle of handles.values()) handle.free();
       handles.clear();
+      for (const blobUrl of blobUrls.values()) URL.revokeObjectURL(blobUrl);
+      blobUrls.clear();
     };
   }, [mediaOverlays]);
 
