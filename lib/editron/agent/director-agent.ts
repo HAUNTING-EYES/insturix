@@ -45,6 +45,16 @@ export async function executeDirectorPlan(
   const startTime = Date.now();
   const profile = getProfileById(profileId);
 
+  // C6 FIX: Validate profile exists before proceeding
+  if (!profile) {
+    return {
+      success: false, profileId,
+      actionsExecuted: 0, actionsSkipped: [{ action: 'all', reason: `Profile "${profileId}" not found` }],
+      overlaysModified: 0, checkpointId: '', executionMs: 0,
+      warnings: [`Edit profile "${profileId}" not found. Available profiles can be seen in the export dialog.`],
+    };
+  }
+
   // Apply brief overrides
   const effectiveProfile = applyBriefOverrides(profile, brief);
 
