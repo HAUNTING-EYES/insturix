@@ -270,7 +270,8 @@ async function uploadToGeminiFiles(
     }
 
     if (fileState !== 'ACTIVE') {
-      console.warn(`[GeminiFiles] File not ACTIVE after ${retries * 2}s (state: ${fileState})`);
+      console.error(`[GeminiFiles] File not ACTIVE after ${retries * 2}s (state: ${fileState}). Aborting analysis.`);
+      return null; // Hard fail — don't pass non-ACTIVE file to Vision
     }
 
     return uploadResult.uri;
@@ -771,7 +772,10 @@ export async function runFullAnalysis(
   const { videoUrl, audioUrl, durationMs, transcript, words, storyboardScene, sourceType = 'ai-generated' } = options;
 
   const isAIVideo = sourceType === 'ai-generated';
-  console.log(`[Analysis] Starting ${isAIVideo ? 'AI-video' : 'real-footage'} analysis for ${assetId} (${Math.round(durationMs / 1000)}s)`);
+  const analysisStartMs = Date.now();
+  const TIME_BUDGET_MS = 120_000; // 120s max — leaves 180s for Director execution within 300s Vercel limit
+  const isOverBudget = () => Date.now() - analysisStartMs > TIME_BUDGET_MS;
+  console.log(`[Analysis] Starting ${isAIVideo ? 'AI-video' : 'real-footage'} analysis for ${assetId} (${Math.round(durationMs / 1000)}s, budget: ${TIME_BUDGET_MS / 1000}s)`);
 
   // Check cache
   const cached = await getAnalysis(assetId);
@@ -802,10 +806,13 @@ export async function runFullAnalysis(
 
   if (videoUrl) {
     try {
+      if (isOverBudget()) {
+        console.warn(`[Analysis] Time budget exceeded before video upload (${Math.round((Date.now() - analysisStartMs) / 1000)}s), skipping Vision layers`);
+      } else {
       // Upload video to Gemini Files API for real analysis
       const geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
 
-      if (geminiFileUri) {
+      if (geminiFileUri && !isOverBudget()) {
         // Run Layers 2, 4, 5 in parallel using the uploaded file
         const [motionResult, kfResult, subjectResult] = await Promise.allSettled([
           analyzeMotion(geminiFileUri, shots, durationMs),
@@ -819,8 +826,9 @@ export async function runFullAnalysis(
 
         console.log(`[Analysis] Gemini Vision: motion=${motion.segments.length} segments, keyframes=${keyframeData.length}, subjects=${subjectData.length}`);
       } else {
-        console.warn(`[Analysis] Gemini Files upload failed, using storyboard metadata as enrichment`);
+        console.warn(`[Analysis] Gemini Files upload failed or budget exceeded, using storyboard metadata`);
       }
+      } // close budget else
     } catch (err: any) {
       console.error(`[Analysis] Video analysis failed: ${err.message}`);
     }

@@ -3770,15 +3770,33 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
           );
 
           if (result) {
-            // Update outgoing clip: extend duration + add keyframe tracks
-            const existingOutTracks = outgoing.keyframeTracks || [];
+            // Validate overlap doesn't exceed clip duration
+            if (overlapFrames >= outgoing.durationInFrames || overlapFrames >= incoming.durationInFrames) {
+              console.warn(`[add_transition] Overlap ${overlapFrames} exceeds clip duration, reducing`);
+              const maxOverlap = Math.min(outgoing.durationInFrames - 1, incoming.durationInFrames - 1, overlapFrames);
+              if (maxOverlap < 2) return; // Skip — clips too short for transition
+            }
+
+            // Check for existing transition on this boundary — remove if found (idempotent)
+            const existingTrans = (project as any).overlays?.find((o: any) =>
+              o.type === 'transition' && o.clipAId === outgoing.id && o.clipBId === incoming.id
+            );
+            if (existingTrans) {
+              await projectService.deleteOverlay(userId, projectId, existingTrans.id);
+            }
+
+            // Merge keyframe tracks: new tracks replace existing tracks for same property
+            const existingOutTracks = (outgoing.keyframeTracks || []).filter(
+              (t: any) => !result.outgoingOverlayUpdate.keyframeTracks.some((nt: any) => nt.property === t.property)
+            );
             await projectService.updateOverlay(userId, projectId, outgoing.id, {
               durationInFrames: result.outgoingOverlayUpdate.durationInFrames,
               keyframeTracks: [...existingOutTracks, ...result.outgoingOverlayUpdate.keyframeTracks],
             });
 
-            // Update incoming clip: start earlier + add keyframe tracks
-            const existingInTracks = incoming.keyframeTracks || [];
+            const existingInTracks = (incoming.keyframeTracks || []).filter(
+              (t: any) => !result.incomingOverlayUpdate.keyframeTracks.some((nt: any) => nt.property === t.property)
+            );
             await projectService.updateOverlay(userId, projectId, incoming.id, {
               from: result.incomingOverlayUpdate.from,
               durationInFrames: result.incomingOverlayUpdate.durationInFrames,
@@ -4895,28 +4913,60 @@ Examples:
   const addSFX = tool(
     async (input: z.infer<typeof addSFXSchema>) => {
       try {
-        // Search Freesound for the SFX
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-        const searchRes = await fetch(`${baseUrl}/api/services/editron/sfx-library/search?q=${encodeURIComponent(input.query)}&limit=1`);
-        const searchData = await searchRes.json().catch(() => ({ results: [] }));
-
-        if (!searchData.results || searchData.results.length === 0) {
-          return JSON.stringify({ status: 'error', message: `No SFX found for "${input.query}". Try different keywords (e.g., 'whoosh', 'chime', 'impact').` });
+        if (!userId) {
+          return JSON.stringify({ status: 'error', message: 'Authentication required for SFX upload' });
         }
 
-        const sfx = searchData.results[0];
+        const baseUrl = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
-        // Download the audio and upload to GCS for permanent storage
+        // Search with word-splitting fallback: "coffee slurp" → try full, then "coffee", then "slurp"
+        let sfx: any = null;
+        const queries = [input.query];
+        if (input.query.includes(' ')) {
+          queries.push(...input.query.split(' ').filter(w => w.length > 2));
+        }
+
+        for (const q of queries) {
+          const searchRes = await fetch(`${baseUrl}/api/services/editron/sfx-library/search?q=${encodeURIComponent(q)}&limit=3`);
+          const searchData = await searchRes.json().catch(() => ({ results: [] }));
+          if (searchData.results?.length > 0) {
+            sfx = searchData.results[0];
+            break;
+          }
+        }
+
+        if (!sfx) {
+          return JSON.stringify({ status: 'error', message: `No SFX found for "${input.query}". Try simpler keywords (e.g., 'whoosh', 'chime', 'click', 'impact').` });
+        }
+
+        // Download audio with retry
         const { uploadToGCS } = await import('@/lib/editron/services/gcs-service');
         const { nanoid } = await import('nanoid');
 
-        const audioRes = await fetch(sfx.url);
-        if (!audioRes.ok) {
-          return JSON.stringify({ status: 'error', message: `Failed to download SFX audio (${audioRes.status})` });
+        let buffer: Buffer | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const audioRes = await fetch(sfx.url);
+            if (audioRes.ok) {
+              buffer = Buffer.from(await audioRes.arrayBuffer());
+              break;
+            }
+          } catch {}
+          if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
         }
-        const buffer = Buffer.from(await audioRes.arrayBuffer());
+        if (!buffer || buffer.length < 100) {
+          return JSON.stringify({ status: 'error', message: `Failed to download SFX audio after 3 attempts` });
+        }
+
         const assetId = `sfx_${nanoid(12)}`;
         const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.mp3`, 'audio/mpeg');
+
+        // Validate upload succeeded
+        if (!uploadResult?.signedUrl || !uploadResult?.gcsPath) {
+          return JSON.stringify({ status: 'error', message: 'GCS upload failed — no URL returned' });
+        }
 
         // Register as media asset for URL resolution
         const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
@@ -4941,8 +4991,9 @@ Examples:
         const startFrame = input.startFrame ?? 0;
         const durationFrames = Math.round((input.durationSeconds || sfx.duration || 5) * fps);
 
-        // Add overlay to project
-        const overlayId = Date.now() + Math.floor(Math.random() * 100000);
+        // Unique overlay ID
+        const { nanoid: nid } = await import('nanoid');
+        const overlayId = Date.now() + parseInt(nid(4), 36);
         await projectService.addOverlay(userId, projectId, {
           id: overlayId,
           type: 'sound',
