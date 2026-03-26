@@ -165,11 +165,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       {allPanels.map(({ type, element }) => {
         // Only mount panels that have been visited at least once
         if (!mountedPanels.has(type) && activePanel !== type) return null;
+        const isActive = activePanel === type;
         return (
           <div
             key={type}
-            className="h-full"
-            style={{ display: activePanel === type ? 'contents' : 'none' }}
+            className={`h-full ${isActive ? '' : 'absolute invisible h-0 overflow-hidden pointer-events-none'}`}
           >
             {element}
           </div>
