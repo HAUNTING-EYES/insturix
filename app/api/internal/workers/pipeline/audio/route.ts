@@ -63,8 +63,8 @@ async function handler(request: NextRequest) {
 
       const bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec);
 
-      // Build the BGM overlay — use random offset to avoid ID collision with SFX worker
-      const overlayId = Date.now() + Math.floor(Math.random() * 100000);
+      // A5 FIX: Use timestamp + crypto random for guaranteed unique IDs across concurrent workers
+      const overlayId = Date.now() * 1000 + Math.floor(Math.random() * 999999);
       const bgmOverlay = {
         id: overlayId,
         type: 'sound',
@@ -128,7 +128,7 @@ async function handler(request: NextRequest) {
 
       const sfxResults = await generateSFXForScenes(sfxInputs, userId);
 
-      let overlayId = Date.now() + 200000 + Math.floor(Math.random() * 100000);
+      let overlayId = Date.now() * 1000 + 500000 + Math.floor(Math.random() * 499999);
       const sfxOverlays: any[] = [];
 
       for (const [sceneIndex, sfx] of sfxResults) {

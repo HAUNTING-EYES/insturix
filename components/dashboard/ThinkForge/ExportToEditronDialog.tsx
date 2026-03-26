@@ -757,6 +757,10 @@ export function ExportToEditronDialog({
         createdProjectId = finalizeData.projectId;
         setProjectId(createdProjectId);
         if (finalizeData.audioGenerating) setAudioGenerating(true);
+        // A4 FIX: Surface finalize warnings (edit directions, VO truncation, etc.)
+        if (finalizeData.warnings?.length > 0) {
+          setError(finalizeData.warnings.join(' | '));
+        }
       } else {
         // No storyboard — import scenes directly
         const importRes = await fetch('/api/services/editron/projects/import-from-script', {

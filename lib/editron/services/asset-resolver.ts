@@ -176,10 +176,11 @@ export class AssetResolver {
     // For user-uploaded assets, check expiration
     const now = Date.now();
     const expiresAt = new Date(asset.urlExpiresAt).getTime();
-    const oneDayFromNow = now + 24 * 60 * 60 * 1000; // Refresh if <1 day remaining
-
-    // Refresh if expired or expiring within 1 day
-    const needsRefresh = expiresAt < oneDayFromNow;
+    // A2 FIX: Refresh if <3 days remaining (was 1 day).
+    // GCS max is 7 days. Refreshing at 3 days gives a comfortable buffer
+    // even if the user doesn't open the project for a few days.
+    const threeDaysFromNow = now + 3 * 24 * 60 * 60 * 1000;
+    const needsRefresh = expiresAt < threeDaysFromNow;
 
     if (!needsRefresh) {
       return asset.cachedUrl;

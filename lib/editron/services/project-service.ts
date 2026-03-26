@@ -233,14 +233,22 @@ export class ProjectService {
                         : { width: 1920, height: 1080 };
 
     const db = await getDatabase();
-    
+
+    // A3 FIX: Preserve worker-added overlays on autosave (same as saveProject).
+    // Without this, browser autosave (every 5s) clobbers BGM/SFX/captions
+    // that audio workers added after the user loaded the project.
+    const currentProject = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId }) as any;
+    const workerOverlays = (currentProject?.overlays || []).filter((o: any) => o._workerAdded === true);
+    const browserOverlayIds = new Set(cleanOverlays.map((o: any) => o.id));
+    const missingWorkerOverlays = workerOverlays.filter((o: any) => !browserOverlayIds.has(o.id));
+    const mergedOverlays = [...cleanOverlays, ...missingWorkerOverlays];
+
     // Update existing project only (no upsert for autosave)
-    // If project doesn't exist, autosave should fail silently
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId }, // Filter by unique projectId
+      { projectId },
       {
         $set: {
-          overlays: cleanOverlays,
+          overlays: mergedOverlays,
           aspectRatio: state.aspectRatio,
           playerDimensions: dimensions,
           fps: state.fps || 30,

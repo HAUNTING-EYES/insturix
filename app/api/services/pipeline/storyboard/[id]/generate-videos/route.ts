@@ -96,7 +96,7 @@ export async function POST(
     }
 
     // Deduct credits (3 credits per video clip)
-    // F4.1 FIX: Deduct per-scene, pre-check total first
+    // A1 FIX: Atomic credit deduction — single call for all scenes
     const costPerVideo = 3;
     const creditCost = targetScenes.length * costPerVideo;
 
@@ -108,8 +108,8 @@ export async function POST(
       );
     }
 
-    for (let i = 0; i < targetScenes.length; i++) {
-      const deductResult = await CreditsService.deductCredits(userId, 'pipeline', 'video_generation');
+    {
+      const deductResult = await CreditsService.deductCredits(userId, 'pipeline', 'video_generation', { quantity: targetScenes.length });
       if (!deductResult.success) {
         console.warn(`[generate-videos] Credit deduction failed at scene ${i}/${targetScenes.length}`);
         break;

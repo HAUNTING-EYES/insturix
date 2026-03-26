@@ -127,6 +127,8 @@ export class CreditsService {
       tokenCount?: number;
       durationMinutes?: number;
       taskId?: string;
+      /** Multiply the base cost by this quantity (e.g., 4 scenes × 2 credits = 8 total) */
+      quantity?: number;
     }
   ): Promise<CreditsDeductResult> {
     await connectToDatabase();
@@ -147,7 +149,8 @@ export class CreditsService {
       };
     }
 
-    const cost = getCreditCost(service, action, options);
+    const baseCost = getCreditCost(service, action, options);
+    const cost = baseCost * (options?.quantity || 1);
     const balance = user.creditsBalance;
     const totalAvailable = balance.subscriptionCredits + balance.topupCredits;
 

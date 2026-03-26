@@ -96,12 +96,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Deduct credits upfront: 2 per scene
-    // F3.1 FIX: Deduct for EACH scene, not once. Pre-check total first.
+    // A1 FIX: Atomic credit deduction — deduct ALL at once, not in a loop.
+    // Pre-check + single deduction prevents race conditions where another
+    // request consumes credits between pre-check and per-scene deduction.
     const costPerScene = 2;
     const totalCost = scenes.length * costPerScene;
 
-    // Pre-check: verify user has enough credits for all scenes
     const preCheck = await CreditsService.getBalance(userId);
     if (!preCheck || preCheck.totalCredits < totalCost) {
       return NextResponse.json(
@@ -110,18 +110,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Deduct per-scene
-    for (let i = 0; i < scenes.length; i++) {
-      const deductResult = await CreditsService.deductCredits(
-        userId, 'pipeline', 'storyboard_image_generation',
+    // Single atomic deduction for all scenes
+    const deductResult = await CreditsService.deductCredits(
+      userId, 'pipeline', 'storyboard_image_generation', { quantity: scenes.length },
+    );
+    if (!deductResult.success) {
+      return NextResponse.json(
+        { success: false, error: `Credit deduction failed. Need ${totalCost} credits.` },
+        { status: 402 },
       );
-      if (!deductResult.success) {
-        // Partial deduction — some scenes charged, rest can't be
-        console.warn(`[Storyboard] Credit deduction failed at scene ${i}/${scenes.length}. Proceeding with ${i} scenes.`);
-        // Truncate scenes to what we can afford
-        scenes.splice(i);
-        break;
-      }
     }
 
     if (scenes.length === 0) {

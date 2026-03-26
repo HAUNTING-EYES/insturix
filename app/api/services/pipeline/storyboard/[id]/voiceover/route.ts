@@ -44,17 +44,15 @@ export async function POST(
       return NextResponse.json({ error: 'No scenes have narration text' }, { status: 400 });
     }
 
-    // Deduct credits upfront (1 per scene)
-    for (let i = 0; i < scenesWithNarration.length; i++) {
-      const deductResult = await CreditsService.deductCredits(
-        userId, 'pipeline', 'voiceover_generation',
+    // A1 FIX: Atomic credit deduction — single call for all scenes
+    const deductResult = await CreditsService.deductCredits(
+      userId, 'pipeline', 'voiceover_generation', { quantity: scenesWithNarration.length },
+    );
+    if (!deductResult.success) {
+      return NextResponse.json(
+        { error: 'Insufficient credits', required: scenesWithNarration.length },
+        { status: 402 },
       );
-      if (!deductResult.success) {
-        return NextResponse.json(
-          { error: 'Insufficient credits', required: scenesWithNarration.length, charged: i },
-          { status: 402 },
-        );
-      }
     }
 
     await updateStoryboardVoiceover(id, {
