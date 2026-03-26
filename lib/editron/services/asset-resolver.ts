@@ -181,12 +181,16 @@ export class AssetResolver {
       return asset.publicUrl;
     }
 
-    // For user-uploaded assets, check expiration
+    // Phase D W1: If CDN is configured, return CDN URL (never expires)
+    // The Cloudflare Worker handles R2 caching + GCS fallback transparently.
+    const cdnWorkerUrl = process.env.CDN_WORKER_URL;
+    if (cdnWorkerUrl && asset.assetId) {
+      return `https://${cdnWorkerUrl.replace(/^https?:\/\//, '')}/asset/${asset.assetId}`;
+    }
+
+    // Fallback: GCS signed URL flow (when CDN not configured)
     const now = Date.now();
     const expiresAt = new Date(asset.urlExpiresAt).getTime();
-    // A2 FIX: Refresh if <3 days remaining (was 1 day).
-    // GCS max is 7 days. Refreshing at 3 days gives a comfortable buffer
-    // even if the user doesn't open the project for a few days.
     const threeDaysFromNow = now + 3 * 24 * 60 * 60 * 1000;
     const needsRefresh = expiresAt < threeDaysFromNow;
 
