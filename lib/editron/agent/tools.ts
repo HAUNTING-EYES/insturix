@@ -1119,15 +1119,18 @@ TYPE-SPECIFIC FIELDS:
         const project = await loadProject();
         const overlay = project.overlays.find((o: any) => o.id === input.id);
         
-        // If deleting a video, also delete any linked captions and fancy captions
+        // If deleting a video, cascade delete linked captions, transitions, and fancy captions
         if (overlay?.type === 'video') {
-          const linkedCaptions = project.overlays.filter(
+          const linkedOverlays = project.overlays.filter(
             (o: any) =>
-              (o.type === 'caption' || (o.type === 'html-scene' && o.metadata?.sourceType === 'fancy-caption')) &&
-              o.sourceVideoId === input.id
+              // Captions linked to this video
+              ((o.type === 'caption' || (o.type === 'html-scene' && o.metadata?.sourceType === 'fancy-caption')) &&
+                o.sourceVideoId === input.id) ||
+              // Transitions referencing this video as clip A or B
+              (o.type === 'transition' && (o.clipAId === input.id || o.clipBId === input.id))
           );
-          for (const caption of linkedCaptions) {
-            await projectService.deleteOverlay(userId, projectId, caption.id);
+          for (const linked of linkedOverlays) {
+            await projectService.deleteOverlay(userId, projectId, linked.id);
           }
         }
 
@@ -5032,6 +5035,85 @@ Examples:
     },
   );
 
+  // ─── Batch Caption Edit Tool ─────────────────────────────────────
+  const batchEditCaptionsSchema = z.object({
+    style: z.string().optional().describe("Caption style to apply to ALL captions (e.g., 'tiktok', 'subtitle', 'karaoke', 'kinetic')"),
+    fontSize: z.string().optional().describe("Font size for all captions (e.g., '24px', '32px')"),
+    color: z.string().optional().describe("Text color for all captions (e.g., '#ffffff', 'yellow')"),
+    backgroundColor: z.string().optional().describe("Background color (e.g., 'rgba(0,0,0,0.7)', 'transparent')"),
+    position: z.string().optional().describe("Position: 'top', 'center', 'bottom'"),
+    fontFamily: z.string().optional().describe("Font family (e.g., 'font-bold', 'font-mono')"),
+    fontWeight: z.string().optional().describe("Font weight (e.g., '400', '600', '700', '900')"),
+  });
+
+  const batchEditCaptions = tool(
+    async (input: z.infer<typeof batchEditCaptionsSchema>) => {
+      try {
+        const project = await loadProject();
+        const captions = (project as any).overlays?.filter((o: any) => o.type === 'caption') || [];
+
+        if (captions.length === 0) {
+          return JSON.stringify({ status: 'error', message: 'No captions found in this project. Add captions first.' });
+        }
+
+        const updates: Record<string, any> = {};
+        if (input.fontSize) updates['styles.fontSize'] = input.fontSize;
+        if (input.color) updates['styles.color'] = input.color;
+        if (input.backgroundColor) updates['styles.backgroundColor'] = input.backgroundColor;
+        if (input.fontFamily) updates['styles.fontFamily'] = input.fontFamily;
+        if (input.fontWeight) updates['styles.fontWeight'] = input.fontWeight;
+
+        // Style preset overrides
+        if (input.style) updates['template'] = input.style;
+
+        let modified = 0;
+        for (const caption of captions) {
+          try {
+            const styleUpdate: any = { ...caption.styles };
+            if (input.fontSize) styleUpdate.fontSize = input.fontSize;
+            if (input.color) styleUpdate.color = input.color;
+            if (input.backgroundColor) styleUpdate.backgroundColor = input.backgroundColor;
+            if (input.fontFamily) styleUpdate.fontFamily = input.fontFamily;
+            if (input.fontWeight) styleUpdate.fontWeight = input.fontWeight;
+
+            await projectService.updateOverlay(userId, projectId, caption.id, {
+              styles: styleUpdate,
+              ...(input.style ? { template: input.style } : {}),
+              ...(input.position ? { position: input.position } : {}),
+            } as any);
+            modified++;
+          } catch (err: any) {
+            console.warn(`[batch_edit_captions] Failed for caption ${caption.id}: ${err.message}`);
+          }
+        }
+
+        return JSON.stringify({
+          status: 'success',
+          data: { modified, total: captions.length },
+          message: `Updated ${modified}/${captions.length} captions`,
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'batch_edit_captions',
+      description: `Edit ALL captions in the project at once for consistency. Change style, font, color, position, etc. across every caption.
+
+Use this when user says:
+- "make all captions match" / "make captions consistent"
+- "change all caption styles to kinetic"
+- "make captions bigger" / "change caption color"
+- "update all captions to match scene 1"
+
+Examples:
+- batch_edit_captions({ style: "tiktok", fontSize: "28px" })
+- batch_edit_captions({ color: "#ffcc00", fontWeight: "700" })
+- batch_edit_captions({ style: "karaoke", backgroundColor: "transparent" })`,
+      schema: batchEditCaptionsSchema,
+    },
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -5076,6 +5158,7 @@ Examples:
     regenerateBGM,        // NEW: Regenerate background music with new mood/prompt
     replaceSFX,           // NEW: Replace a sound effect with Freesound search
     addSFX,               // NEW: Add SFX from Freesound (search + download + place)
+    batchEditCaptions,    // NEW: Edit all captions at once for consistency
   ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };

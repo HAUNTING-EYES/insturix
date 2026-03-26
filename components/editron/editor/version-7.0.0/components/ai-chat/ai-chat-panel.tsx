@@ -127,6 +127,7 @@ export function AIChatPanel() {
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const projectId = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() || 'default' : 'default';
 
   // Auto-scroll to bottom
@@ -335,6 +336,11 @@ export function AIChatPanel() {
     setMessages((prev) => [...prev, assistantMsg]);
 
     try {
+      // Create AbortController for this stream (allows cancellation)
+      abortControllerRef.current?.abort(); // Cancel any previous stream
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       const response = await fetch('/api/services/editron/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -344,6 +350,7 @@ export function AIChatPanel() {
           sessionId: currentSessionId,
           selectedOverlayId: selectedOverlayId || undefined,
         }),
+        signal: controller.signal,
       });
 
       // Handle insufficient credits (402)

@@ -64,6 +64,13 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await res.json();
+
+    // GraphQL can return errors with 200 status
+    if (data?.errors?.length > 0) {
+      console.error(`[LottieSearch] GraphQL errors:`, data.errors.map((e: any) => e.message).join(', '));
+      return await searchLottieHost(query, limit);
+    }
+
     const edges = data?.data?.searchPublicAnimations?.edges || [];
 
     const results = edges.map((edge: any) => {
