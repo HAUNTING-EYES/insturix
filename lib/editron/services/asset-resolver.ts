@@ -130,16 +130,24 @@ export class AssetResolver {
       }
     }
 
-    // Build assetId → URL map (with auto-refresh)
+    // Build assetId → URL map
+    // Phase D W1: Use CDN URLs when available (never expire, edge-cached).
+    // Falls back to GCS signed URL refresh for assets not yet in CDN.
+    const cdnBaseUrl = process.env.CDN_WORKER_URL; // e.g., https://editron-asset-proxy.aged-shape-8752.workers.dev
     const assetMap = new Map<string, string>();
 
     for (const asset of assets) {
       try {
-        const url = await this.getOrRefreshUrl(asset);
-        assetMap.set(asset.assetId, url);
+        if (cdnBaseUrl && asset.gcsPath) {
+          // CDN URL — never expires, edge-cached, auto-fills R2 on first access
+          assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${asset.assetId}`);
+        } else {
+          // No CDN configured or no gcsPath — use traditional GCS URL refresh
+          const url = await this.getOrRefreshUrl(asset);
+          assetMap.set(asset.assetId, url);
+        }
       } catch (err: any) {
         console.error(`[AssetResolver] Failed to resolve URL for ${asset.assetId}:`, err.message);
-        // Fallback to cachedUrl if available
         if (asset.cachedUrl) {
           assetMap.set(asset.assetId, asset.cachedUrl);
         }
