@@ -39,7 +39,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
 };
 
 export const TransitionBrowserPanel: React.FC = () => {
-  const { overlays, changeOverlay } = useEditorContext();
+  const { overlays, changeOverlay, projectId } = useEditorContext();
   const [search, setSearch] = useState('');
   const [applying, setApplying] = useState<string | null>(null);
 
