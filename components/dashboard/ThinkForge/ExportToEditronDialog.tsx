@@ -481,10 +481,16 @@ export function ExportToEditronDialog({
               console.warn('[ExportToEditron] Reference image generation failed, skipping');
             }
           } else {
-            console.log('[ExportToEditron] No subjects extracted, skipping reference images');
+            console.log('[ExportToEditron] No subjects extracted — showing review step for manual addition');
+            // Still show the review step so user can manually add reference subjects
+            setStep('reviewing-references');
+            return;
           }
         } else {
-          console.warn('[ExportToEditron] Subject extraction failed, skipping reference images');
+          console.warn('[ExportToEditron] Subject extraction failed — showing review step for manual addition');
+          // Still show review step even on failure — user can add subjects manually
+          setStep('reviewing-references');
+          return;
         }
       }
 
