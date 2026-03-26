@@ -87,6 +87,39 @@ async function handler(request: NextRequest) {
       videoDurationMs: result.durationMs || (durationSeconds * 1000),
     });
 
+    // Run 5-Track analysis on the generated video immediately.
+    // Analysis is cached in MongoDB — Director reads it instantly later.
+    // This removes analysis from the Director's time budget entirely.
+    try {
+      const { runFullAnalysis, getAnalysis } = await import('@/lib/editron/services/five-track-analysis');
+
+      // Only analyze if not already cached (e.g., from a previous generation)
+      const existing = await getAnalysis(result.assetId);
+      if (!existing) {
+        const durationMs = result.durationMs || (durationSeconds * 1000);
+
+        // Get storyboard scene for metadata enrichment
+        const { getStoryboard } = await import('@/lib/pipeline/storyboard-db');
+        const storyboard = await getStoryboard(storyboardId, userId);
+        const scene = storyboard?.scenes?.find((s: any) => s.sceneIndex === sceneIndex);
+
+        await runFullAnalysis({
+          assetId: result.assetId,
+          videoUrl: result.videoUrl,
+          audioUrl: undefined, // Voiceover added later, not available yet
+          durationMs,
+          fps: 30,
+          isAIVideo: true,
+          storyboardScene: scene?.descriptor,
+        });
+
+        console.log(`[VideoWorker] 5-Track analysis cached for ${result.assetId}`);
+      }
+    } catch (analysisErr: any) {
+      // Non-fatal — Director will run analysis if cache miss
+      console.warn(`[VideoWorker] Analysis failed (non-fatal): ${analysisErr.message}`);
+    }
+
     // Mark job complete
     await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
       { _id: jobId },
