@@ -123,12 +123,12 @@ export async function POST(
       );
     }
 
-    {
-      const deductResult = await CreditsService.deductCredits(userId, 'pipeline', 'video_generation', { quantity: targetScenes.length });
-      if (!deductResult.success) {
-        console.warn(`[generate-videos] Credit deduction failed at scene ${i}/${targetScenes.length}`);
-        break;
-      }
+    const deductResult = await CreditsService.deductCredits(userId, 'pipeline', 'video_generation', { quantity: targetScenes.length });
+    if (!deductResult.success) {
+      return NextResponse.json(
+        { success: false, error: 'Credit deduction failed', creditCost },
+        { status: 402 },
+      );
     }
 
     // Build reference subject lookup
