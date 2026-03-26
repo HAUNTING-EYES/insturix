@@ -271,7 +271,7 @@ export const createTools = (userId: string, projectId: string) => {
       exit: z.string().optional(),
       duration: z.coerce.number().optional(),
     })
-    .strict()
+    ()
     .optional();
 
   const textOverlayStylesSchema = z
@@ -292,7 +292,7 @@ export const createTools = (userId: string, projectId: string) => {
       opacity: z.coerce.number().optional(),
       animation: animationStyleSchema,
     })
-    .strict();
+    ;
 
   const mediaOverlayStylesSchema = z
     .object({
@@ -302,7 +302,7 @@ export const createTools = (userId: string, projectId: string) => {
       borderRadius: z.string().optional(),
       animation: animationStyleSchema,
     })
-    .strict();
+    ;
 
   const shapeOverlayStylesSchema = z
     .object({
@@ -312,7 +312,7 @@ export const createTools = (userId: string, projectId: string) => {
       opacity: z.coerce.number().optional(),
       borderRadius: z.string().optional(),
     })
-    .strict();
+    ;
 
   const genericOverlayStylesSchema = z
     .object({
@@ -320,7 +320,7 @@ export const createTools = (userId: string, projectId: string) => {
       borderRadius: z.string().optional(),
       animation: animationStyleSchema,
     })
-    .strict();
+    ;
 
   const overlayStylesUpdateSchema = z.union([
     textOverlayStylesSchema,
@@ -4758,7 +4758,9 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           keyframes: input.keyframes,
         });
 
-        await saveProject({ overlays });
+        await projectService.updateOverlay(userId, projectId, overlay.id, {
+          keyframeTracks: overlay.keyframeTracks,
+        } as any);
 
         return successEnvelope({
           overlayId: input.overlayId,
