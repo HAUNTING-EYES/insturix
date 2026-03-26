@@ -446,7 +446,7 @@ async function invokeAITool(
       let captionCount = 0;
       for (const vo of videoOverlays) {
         try {
-          const captionParams = { videoOverlayId: vo.id, style: captionStyle, position: 'bottom' };
+          const captionParams = { videoOverlayId: vo.id, style: captionStyle, position: 'bottom', overwrite: true };
           console.log(`[Director] add_captions: video ${vo.id} (${captionCount + 1}/${videoOverlays.length})`);
           const resultStr = await tool.invoke(captionParams);
           const result = JSON.parse(resultStr);
@@ -467,7 +467,7 @@ async function invokeAITool(
       let fancyCaptionCount = 0;
       for (const vo of videoOverlays) {
         try {
-          const fancyParams = { videoOverlayId: vo.id, style: fancyStyle, intensity: params.intensity || 'medium' };
+          const fancyParams = { videoOverlayId: vo.id, style: fancyStyle, intensity: params.intensity || 'medium', overwrite: true };
           console.log(`[Director] add_fancy_captions: video ${vo.id} (${fancyCaptionCount + 1}/${videoOverlays.length})`);
           const resultStr = await tool.invoke(fancyParams);
           const result = JSON.parse(resultStr);
