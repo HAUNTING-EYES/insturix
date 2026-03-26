@@ -527,7 +527,7 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
             J-Cut (blue, left): audio starts BEFORE the visual clip
             L-Cut (orange, right): audio continues AFTER the visual clip
             Drag handle to extend/retract the audio boundary. */}
-        {item.type === OverlayType.SOUND && isSelected && (
+        {item.type === OverlayType.SOUND && (isSelected || item.row === 4) && (
           <>
             {/* J-Cut handle (left) — drag to make audio start before video */}
             <div

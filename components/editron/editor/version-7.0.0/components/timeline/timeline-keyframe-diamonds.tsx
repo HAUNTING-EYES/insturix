@@ -43,7 +43,7 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
   itemWidth,
   totalDuration,
 }) => {
-  const { changeOverlay, setCurrentFrame } = useEditorContext();
+  const { changeOverlay, seekTo } = useEditorContext();
   const tracks = overlay.keyframeTracks;
   if (!tracks || tracks.length === 0) return null;
 
@@ -59,10 +59,8 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
   const handleClick = useCallback((frame: number, e: React.MouseEvent) => {
     e.stopPropagation();
     const globalFrame = overlay.from + frame;
-    if (setCurrentFrame) {
-      setCurrentFrame(globalFrame);
-    }
-  }, [overlay.from, setCurrentFrame]);
+    seekTo?.(globalFrame);
+  }, [overlay.from, seekTo]);
 
   // Drag: move keyframe to new frame position
   const handleMouseDown = useCallback((trackIndex: number, keyframeIndex: number, e: React.MouseEvent) => {
