@@ -23,9 +23,9 @@ export async function GET(request: Request) {
       );
     }
 
-    // Set AWS credentials for the Lambda client
-    process.env.AWS_ACCESS_KEY_ID = process.env.REMOTION_AWS_ACCESS_KEY_ID;
-    process.env.AWS_SECRET_ACCESS_KEY = process.env.REMOTION_AWS_SECRET_ACCESS_KEY;
+    // Phase D W5: Use STS AssumeRole for short-lived credentials
+    const { setAWSCredentials } = await import('@/lib/editron/utils/aws-credentials');
+    await setAWSCredentials();
 
     const functionName = process.env.REMOTION_LAMBDA_FUNCTION_NAME;
     if (!functionName) {

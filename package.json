@@ -30,6 +30,7 @@
   "dependencies": {
     "@ai-sdk/google": "^2.0.39",
     "@aws-sdk/client-ses": "^3.934.0",
+    "@aws-sdk/client-sts": "^3.1018.0",
     "@clerk/elements": "^0.23.83",
     "@clerk/nextjs": "^6.35.2",
     "@deepgram/sdk": "^4.11.3",
