@@ -68,7 +68,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   } = useOverlays(DEFAULT_OVERLAYS);
 
   // Video player controls and state
-  const { isPlaying, currentFrame, playerRef, togglePlayPause, formatTime } =
+  const { isPlaying, currentFrame, playerRef, togglePlayPause, formatTime, seekTo } =
     useVideoPlayer();
 
   // Composition duration calculations
@@ -227,6 +227,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
     currentFrame,
     playerRef,
     togglePlayPause,
+    seekTo,
     formatTime,
     handleTimelineClick,
     playbackRate,

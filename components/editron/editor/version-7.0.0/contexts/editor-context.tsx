@@ -24,6 +24,7 @@ interface EditorContextProps {
   // Player Controls
   togglePlayPause: () => void; // Toggle play/pause state
   formatTime: (frame: number) => string; // Convert frame number to timestamp
+  seekTo: (frame: number) => void; // Seek to a specific frame (updates both state AND player)
   handleTimelineClick: (e: React.MouseEvent<HTMLDivElement>) => void; // Handle timeline scrubbing
 
   // Overlay Operations

@@ -99,6 +99,7 @@ export const Editor: React.FC = () => {
     formatTime, // Function to format time display
     handleOverlayChange, // Function to handle overlay modifications
     handleTimelineClick, // Function to handle timeline interaction
+    seekTo, // Function to seek to frame (updates state + player)
     deleteOverlay, // Function to remove an overlay
     duplicateOverlay, // Function to clone an overlay
     splitOverlay, // Function to split an overlay at current position
@@ -210,11 +211,7 @@ export const Editor: React.FC = () => {
         onOverlayDelete={deleteOverlay}
         onOverlayDuplicate={duplicateOverlay}
         onSplitOverlay={splitOverlay}
-        setCurrentFrame={(frame) => {
-          if (playerRef.current) {
-            playerRef.current.seekTo(frame);
-          }
-        }}
+        setCurrentFrame={seekTo}
         setOverlays={setOverlays}
         onTimelineClick={handleTimelineClick}
         playerRef={playerRef}
