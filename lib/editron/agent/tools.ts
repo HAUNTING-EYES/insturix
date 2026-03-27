@@ -4908,11 +4908,12 @@ Examples:
     },
   );
 
-  // ─── Add SFX Tool (search Freesound + download + add to timeline) ─
+  // ─── Add SFX Tool (AI generation + library search + add to timeline) ─
   const addSFXSchema = z.object({
-    query: z.string().describe("Search query for the sound effect (e.g., 'coffee slurp', 'door slam', 'crowd cheer', 'typing keyboard')"),
-    startFrame: z.coerce.number().optional().describe("Frame to place the SFX at. Defaults to current playhead or selected overlay position."),
-    durationSeconds: z.coerce.number().optional().describe("Max duration in seconds. Defaults to clip duration."),
+    query: z.string().describe("Description of the sound effect (e.g., 'coffee slurping', 'door slam', 'crowd cheer', 'typing keyboard')"),
+    sceneIndex: z.coerce.number().optional().describe("0-based scene index to add SFX to. If provided, the tool will use the scene's video for context-aware audio generation via mirelo."),
+    startFrame: z.coerce.number().optional().describe("Frame to place the SFX at. Defaults to start of the target scene or frame 0."),
+    durationSeconds: z.coerce.number().optional().describe("Max duration in seconds. Defaults to scene duration or 5s."),
   });
 
   const addSFX = tool(
@@ -4925,25 +4926,85 @@ Examples:
         const { uploadToGCS } = await import('@/lib/editron/services/gcs-service');
         const { nanoid } = await import('nanoid');
         const assetId = `sfx_${nanoid(12)}`;
-        const durationSec = input.durationSeconds || 5;
         let audioUrl: string | null = null;
         let gcsPath: string | null = null;
         let sfxTitle = input.query;
-        let sfxDuration = durationSec;
         let sfxSource = 'unknown';
 
-        // ─── Priority 1: CassetteAI text-to-SFX (always available via fal.ai) ─
-        // Uses cassetteai/music-generator with SFX-style prompts. Reliable, $0.02/min.
-        // Same model used in the pipeline's sfx-service.ts fallback path.
-        try {
-          const { fal } = await import('@fal-ai/client');
-          const falKey = process.env.FAL_AI_API_KEY;
-          if (falKey) {
-            fal.config({ credentials: falKey });
-            // CassetteAI needs minimum 10s duration
+        // Resolve scene video URL and duration if sceneIndex provided
+        const project = await loadProject();
+        const fps = (project as any).fps || 30;
+        const videoOverlays = ((project as any).overlays || [])
+          .filter((o: any) => o.type === 'video')
+          .sort((a: any, b: any) => a.from - b.from);
+
+        let targetSceneVideo: any = null;
+        let sceneDuration = input.durationSeconds || 5;
+        let sceneStartFrame = input.startFrame ?? 0;
+
+        if (input.sceneIndex !== undefined && input.sceneIndex < videoOverlays.length) {
+          targetSceneVideo = videoOverlays[input.sceneIndex];
+          sceneDuration = input.durationSeconds || (targetSceneVideo.durationInFrames / fps);
+          sceneStartFrame = input.startFrame ?? targetSceneVideo.from;
+        } else if (input.sceneIndex === undefined) {
+          // No scene specified — try to find last scene (common: "add sfx to last scene")
+          // The LLM should specify sceneIndex, but if not, default to frame 0
+        }
+        const durationSec = sceneDuration;
+        let sfxDuration = durationSec;
+
+        const { fal } = await import('@fal-ai/client');
+        const falKey = process.env.FAL_AI_API_KEY;
+        if (falKey) fal.config({ credentials: falKey });
+
+        // ─── Priority 1: mirelo video-to-audio (if scene has video) ─
+        // Uses the actual video clip + text prompt for context-aware SFX.
+        // Best quality: understands what's happening visually.
+        if (!audioUrl && falKey && targetSceneVideo) {
+          const videoSrc = targetSceneVideo.src || targetSceneVideo.content;
+          if (videoSrc) {
+            try {
+              const mireloDuration = Math.min(Math.max(Math.round(durationSec), 1), 10);
+              console.log(`[add_sfx] P1: mirelo video-to-audio for scene ${input.sceneIndex}, prompt="${input.query}" (${mireloDuration}s)`);
+              const mireloResult: any = await fal.subscribe('mirelo-ai/sfx-v1.5/video-to-audio', {
+                input: {
+                  video_url: videoSrc,
+                  text_prompt: input.query || undefined,
+                  duration: mireloDuration,
+                  num_samples: 2,
+                },
+                logs: true,
+                pollInterval: 2000,
+              });
+              const data = mireloResult?.data || mireloResult;
+              const audioArr = data?.audio || data?.audio_files || data?.audios || [];
+              if (audioArr.length > 0 && audioArr[0]?.url) {
+                const audioRes = await fetch(audioArr[0].url);
+                if (audioRes.ok) {
+                  const buffer = Buffer.from(await audioRes.arrayBuffer());
+                  const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.wav`, 'audio/wav');
+                  if (uploadResult?.signedUrl) {
+                    audioUrl = uploadResult.signedUrl;
+                    gcsPath = uploadResult.gcsPath;
+                    sfxSource = 'mirelo-video-to-audio';
+                    sfxDuration = mireloDuration;
+                    console.log(`[add_sfx] mirelo success: ${assetId}`);
+                  }
+                }
+              }
+            } catch (mireloErr: any) {
+              console.warn(`[add_sfx] mirelo failed: ${mireloErr.message}, trying CassetteAI`);
+            }
+          }
+        }
+
+        // ─── Priority 2: CassetteAI text-to-SFX (always available) ─
+        // Text-only generation. Works for any query, $0.02/min.
+        if (!audioUrl && falKey) {
+          try {
             const cassDuration = Math.min(Math.max(Math.round(durationSec), 10), 180);
-            console.log(`[add_sfx] Trying CassetteAI gen for: "${input.query}" (${cassDuration}s)`);
-            const mireloResult: any = await fal.subscribe('cassetteai/music-generator', {
+            console.log(`[add_sfx] P2: CassetteAI gen for: "${input.query}" (${cassDuration}s)`);
+            const cassResult: any = await fal.subscribe('cassetteai/music-generator', {
               input: {
                 prompt: `${input.query}, sound effect, ambient audio, no vocals, no music`,
                 duration: cassDuration,
@@ -4951,25 +5012,24 @@ Examples:
               logs: true,
               pollInterval: 3000,
             });
-            const data = mireloResult?.data || mireloResult;
+            const data = cassResult?.data || cassResult;
             const firstAudio = data?.audio_file?.url || data?.audio?.url || data?.audio?.[0]?.url || data?.output?.url || data?.url;
             if (firstAudio) {
               const audioRes = await fetch(firstAudio);
               if (audioRes.ok) {
                 const buffer = Buffer.from(await audioRes.arrayBuffer());
-                const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.wav`, 'audio/wav');
+                const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.mp3`, 'audio/mpeg');
                 if (uploadResult?.signedUrl) {
                   audioUrl = uploadResult.signedUrl;
                   gcsPath = uploadResult.gcsPath;
                   sfxSource = 'cassetteai';
-                  sfxTitle = input.query;
                   console.log(`[add_sfx] CassetteAI success: ${assetId}`);
                 }
               }
             }
+          } catch (cassErr: any) {
+            console.warn(`[add_sfx] CassetteAI failed: ${cassErr.message}, trying Freesound`);
           }
-        } catch (mireloErr: any) {
-          console.warn(`[add_sfx] CassetteAI failed: ${mireloErr.message}, trying Freesound`);
         }
 
         // ─── Priority 2: Freesound library search (free, CC-licensed) ─
@@ -5040,9 +5100,7 @@ Examples:
         );
 
         // Place on timeline
-        const project = await loadProject();
-        const fps = (project as any).fps || 30;
-        const startFrame = input.startFrame ?? 0;
+        const startFrame = sceneStartFrame;
         const durationFrames = Math.round(sfxDuration * fps);
 
         const { nanoid: nid } = await import('nanoid');
@@ -5072,14 +5130,19 @@ Examples:
     },
     {
       name: 'add_sfx',
-      description: `Add a sound effect to the timeline. Uses AI generation (mirelo/CassetteAI) as primary, Freesound library as fallback. Downloads the audio, uploads to storage, and places it on the SFX row.
+      description: `Add a sound effect to the timeline using AI generation.
+
+PRIORITY: If user mentions a scene, ALWAYS pass sceneIndex — this enables mirelo video-to-audio
+which analyzes the actual video clip and generates perfectly synced SFX.
+Fallback: CassetteAI text-to-audio, then Freesound library search.
 
 ALWAYS use this tool when the user asks to "add sound effect", "add SFX", "add audio clip", etc.
 NEVER use addOverlay for sound effects — it creates fake assets that can't play.
+Scene indices are 0-based (scene 1 = 0, scene 2 = 1, last scene = total-1).
 
 Examples:
-- add_sfx({ query: "coffee slurp" })
-- add_sfx({ query: "crowd cheer", startFrame: 300 })
+- add_sfx({ query: "coffee slurping", sceneIndex: 3 }) — uses video from scene 4 for context
+- add_sfx({ query: "crowd cheer", sceneIndex: 0, startFrame: 30 })
 - add_sfx({ query: "whoosh transition", durationSeconds: 2 })`,
       schema: addSFXSchema,
     },

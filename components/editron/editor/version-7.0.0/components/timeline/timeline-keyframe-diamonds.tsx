@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Overlay, KeyframeTrack } from '../../types';
 import { useEditorContext } from '../../contexts/editor-context';
 
@@ -32,6 +32,16 @@ const PROPERTY_LABELS: Record<string, string> = {
   speed: 'Speed',
 };
 
+// Human-readable descriptions of what each property does
+const PROPERTY_HELP: Record<string, string> = {
+  x: 'Moves the clip horizontally across the frame',
+  y: 'Moves the clip vertically across the frame',
+  scale: 'Zooms the clip in or out (1.0 = normal, 1.5 = 50% larger)',
+  opacity: 'Controls visibility (0 = invisible, 1 = fully visible). Used for fade effects and transitions',
+  rotation: 'Rotates the clip (in degrees)',
+  speed: 'Changes playback speed (1 = normal, 0.5 = slow-mo, 2 = double speed)',
+};
+
 interface TimelineKeyframeDiamondsProps {
   overlay: Overlay;
   itemWidth: number;
@@ -45,6 +55,7 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
 }) => {
   const { changeOverlay, seekTo } = useEditorContext();
   const tracks = overlay.keyframeTracks;
+  const [showLegend, setShowLegend] = useState(false);
   if (!tracks || tracks.length === 0) return null;
 
   const duration = overlay.durationInFrames || 1;
@@ -128,16 +139,48 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
     });
   }, [tracks, overlay.id, changeOverlay]);
 
+  // Get unique properties in this overlay for the legend
+  const uniqueProperties = [...new Set(tracks.map(t => t.property))];
+
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 h-[8px] pointer-events-auto"
+      className="absolute bottom-0 left-0 right-0 h-[10px] pointer-events-auto"
       style={{ zIndex: 50 }}
+      onMouseEnter={() => setShowLegend(true)}
+      onMouseLeave={() => setShowLegend(false)}
     >
+      {/* Keyframe legend popover — shows on hover */}
+      {showLegend && (
+        <div
+          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2.5 py-1.5 rounded-md bg-zinc-900 border border-zinc-700 shadow-xl text-[9px] text-zinc-300 whitespace-nowrap pointer-events-none"
+          style={{ zIndex: 100 }}
+        >
+          <div className="font-semibold text-zinc-100 mb-0.5">Keyframes — Animation Points</div>
+          <div className="text-zinc-500 mb-1">Drag to move | Click to seek | Right-click to delete</div>
+          {uniqueProperties.map(prop => (
+            <div key={prop} className="flex items-center gap-1.5 leading-relaxed">
+              <span
+                className="inline-block w-2 h-2 rounded-[1px]"
+                style={{
+                  backgroundColor: PROPERTY_COLORS[prop] || '#888',
+                  transform: 'rotate(45deg)',
+                }}
+              />
+              <span className="text-zinc-200 font-medium">{PROPERTY_LABELS[prop] || prop}</span>
+              <span className="text-zinc-500">— {PROPERTY_HELP[prop] || 'Animates this property over time'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {tracks.map((track: KeyframeTrack, ti: number) =>
         track.keyframes.map((kf, ki) => {
           const xPercent = (kf.frame / duration) * 100;
           const color = PROPERTY_COLORS[track.property] || '#888';
           const label = PROPERTY_LABELS[track.property] || track.property;
+          const help = PROPERTY_HELP[track.property] || 'Animates this property';
+          const valueStr = typeof kf.value === 'number' ? kf.value.toFixed(2) : String(kf.value);
+          const timeStr = `${(kf.frame / 30).toFixed(1)}s`;
 
           return (
             <div
@@ -155,7 +198,7 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
                 boxShadow: `0 0 4px ${color}80`,
                 zIndex: 51,
               }}
-              title={`${label}: ${typeof kf.value === 'number' ? kf.value.toFixed(2) : kf.value} at frame ${kf.frame}\n${kf.easing || 'ease-in-out'}\nDrag to move • Right-click to delete`}
+              title={`${label}: ${valueStr} at ${timeStr}\n${help}\nEasing: ${kf.easing || 'ease-in-out'}\n\nDrag to reposition | Right-click to delete`}
               onClick={(e) => handleClick(kf.frame, e)}
               onMouseDown={(e) => {
                 if (e.button === 0) handleMouseDown(ti, ki, e);
