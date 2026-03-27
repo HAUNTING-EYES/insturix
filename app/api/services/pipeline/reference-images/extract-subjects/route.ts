@@ -31,7 +31,20 @@ export async function POST(req: NextRequest) {
       subjectCount: result.subjects.length,
     });
   } catch (error: any) {
-    console.error('[extract-subjects]', error);
+    console.error('[extract-subjects] Error:', error.message, error.stack?.substring(0, 300));
+
+    // If LLM fails, return empty subjects rather than 500 — the pipeline can continue
+    // without reference images (storyboard gen uses visualDescription directly)
+    if (error.message?.includes('Gemini') || error.message?.includes('generate') || error.message?.includes('parse')) {
+      console.warn('[extract-subjects] LLM extraction failed, returning empty subjects');
+      return NextResponse.json({
+        success: true,
+        subjects: [],
+        subjectCount: 0,
+        warning: 'Subject extraction failed — you can add reference images manually.',
+      });
+    }
+
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

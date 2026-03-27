@@ -19,24 +19,34 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const [projectExists, setProjectExists] = useState<boolean | null>(null);
   const [isChecking, setIsChecking] = useState(true);
 
-  // Check if project exists
+  // Check if project exists — retry on transient errors
   useEffect(() => {
-    const checkProject = async () => {
+    const checkProject = async (retries = 2) => {
       try {
         const response = await fetch(`/api/services/editron/projects/${projectId}`);
         if (response.ok) {
           setProjectExists(true);
         } else if (response.status === 404) {
           setProjectExists(false);
+        } else if (retries > 0) {
+          // Transient error (500, 502, 503) — retry after 1s
+          console.warn(`[Project] Check returned ${response.status}, retrying...`);
+          await new Promise(r => setTimeout(r, 1000));
+          return checkProject(retries - 1);
         } else {
           setProjectExists(false);
         }
       } catch (error) {
         console.error("Error checking project:", error);
+        if (retries > 0) {
+          await new Promise(r => setTimeout(r, 1000));
+          return checkProject(retries - 1);
+        }
         setProjectExists(false);
       } finally {
-        setIsChecking(false);
+        if (retries === 0 || !retries) setIsChecking(false);
       }
+      setIsChecking(false);
     };
 
     checkProject();
