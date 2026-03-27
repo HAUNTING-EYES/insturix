@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getStoryboard, updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
-import { searchSFXLibrary } from '@/lib/pipeline/sfx-library-service';
+import { searchAndDownloadSFX } from '@/lib/pipeline/sfx-library-service';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -46,7 +46,7 @@ export async function POST(
         const query = scene.descriptor.audioDescription!;
         const durationSec = Math.min(scene.descriptor.durationSeconds, 10);
 
-        const sfx = await searchSFXLibrary(query, userId, { maxDuration: durationSec });
+        const sfx = await searchAndDownloadSFX(query, userId, { maxDuration: durationSec });
         if (sfx) {
           // Cache on the storyboard scene for finalize to use
           await updateStoryboardScene(id, scene.sceneIndex, {

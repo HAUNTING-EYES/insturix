@@ -525,7 +525,7 @@ Return ONLY JSON:
 async function analyzeAudio(audioUrl: string, durationMs: number): Promise<AudioAnalysis | null> {
   try {
     // Use existing beat detection
-    const { detectBeats } = await import('../../pipeline/beat-detection-service');
+    const { detectBeats } = await import('./media/beat-detection-service');
     const beatResult = await detectBeats(audioUrl);
 
     const beats = beatResult?.beats || [];
