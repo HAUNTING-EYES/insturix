@@ -242,39 +242,65 @@ async function uploadToGeminiFiles(
       return null;
     }
 
-    // Upload via Gemini Files API (@google/genai SDK)
-    const { GoogleGenAI } = await import('@google/genai');
-    const ai = new GoogleGenAI({ apiKey });
+    // Upload via Gemini Files REST API (direct HTTP — avoids @google/genai SDK version issues)
+    const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
 
-    const uploadResult = await ai.files.uploadFile(
-      new Blob([buffer], { type: 'video/mp4' }),
-      { mimeType: 'video/mp4', displayName: `${assetId}.mp4` },
-    );
+    const metadata = JSON.stringify({ file: { displayName: `${assetId}.mp4` } });
+    const boundary = '---GEMINI_FILE_BOUNDARY---';
+    const multipartBody = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Type: video/mp4\r\n\r\n`),
+      buffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
 
-    if (!uploadResult?.uri) {
-      console.error('[GeminiFiles] Upload returned no URI');
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+        'Content-Length': String(multipartBody.length),
+      },
+      body: multipartBody,
+    });
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text().catch(() => '');
+      console.error(`[GeminiFiles] Upload HTTP error: ${uploadRes.status} ${errText.substring(0, 200)}`);
       return null;
     }
 
-    console.log(`[GeminiFiles] Uploaded: ${uploadResult.uri.substring(0, 80)}...`);
+    const uploadData = await uploadRes.json();
+    const fileUri = uploadData?.file?.uri;
+    const fileName = uploadData?.file?.name;
 
-    // Gemini may need a moment to process the video before it's queryable
-    // Wait for the file to be in ACTIVE state
-    let fileState = uploadResult.state;
+    if (!fileUri) {
+      console.error('[GeminiFiles] No URI in response:', JSON.stringify(uploadData).substring(0, 200));
+      return null;
+    }
+
+    console.log(`[GeminiFiles] Uploaded: ${fileUri.substring(0, 80)}...`);
+
+    // Wait for ACTIVE state (Gemini processes the video)
+    let fileState = uploadData?.file?.state;
     let retries = 0;
     while (fileState !== 'ACTIVE' && retries < 10) {
       await new Promise(r => setTimeout(r, 2000));
-      const fileInfo = await ai.files.get({ name: uploadResult.name! });
-      fileState = fileInfo?.state;
+      try {
+        const checkRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`);
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          fileState = checkData?.state;
+        }
+      } catch {} // Ignore check errors, keep polling
       retries++;
     }
 
     if (fileState !== 'ACTIVE') {
       console.error(`[GeminiFiles] File not ACTIVE after ${retries * 2}s (state: ${fileState}). Aborting analysis.`);
-      return null; // Hard fail — don't pass non-ACTIVE file to Vision
+      return null;
     }
 
-    return uploadResult.uri;
+    return fileUri;
   } catch (err: any) {
     console.error(`[GeminiFiles] Upload failed: ${err.message}`);
     return null;
