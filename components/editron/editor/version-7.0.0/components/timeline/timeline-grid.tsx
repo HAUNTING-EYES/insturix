@@ -4,7 +4,7 @@
  * Supports drag and drop, resizing, and various item management operations.
  */
 
-import React, { useMemo } from "react";
+import React, { useMemo, useCallback } from "react";
 import { ROW_HEIGHT } from "../../constants";
 import { useTimeline } from "../../contexts/timeline-context";
 import { Overlay } from "../../types";
