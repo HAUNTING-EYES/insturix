@@ -230,7 +230,7 @@ const creditTransactionSchema = new Schema<ICreditTransaction>({
   type: {
     type: String,
     required: true,
-    enum: ['subscription_grant', 'topup', 'usage', 'refund', 'expiry', 'adjustment'],
+    enum: ['subscription_grant', 'topup', 'usage', 'refund', 'expiry', 'adjustment', 'bonus'],
   },
   amount: { type: Number, required: true },
   service: { type: String },
