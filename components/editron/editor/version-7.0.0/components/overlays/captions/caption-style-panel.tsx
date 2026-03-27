@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { CaptionOverlay, CaptionStyles, HighlightEffect, HighlightAnimation, CaptionDisplayMode, CaptionDisplayConfig, DEFAULT_DISPLAY_CONFIGS } from "../../../types";
 import { captionTemplates } from "../../../templates/caption-templates";
 import { defaultDisplayConfig } from "./default-caption-styles";
