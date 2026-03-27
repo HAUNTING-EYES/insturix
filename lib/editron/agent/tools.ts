@@ -271,7 +271,6 @@ export const createTools = (userId: string, projectId: string) => {
       exit: z.string().optional(),
       duration: z.coerce.number().optional(),
     })
-    ()
     .optional();
 
   const textOverlayStylesSchema = z
