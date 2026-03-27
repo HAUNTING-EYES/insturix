@@ -450,7 +450,7 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
             ? "border-2 border-black dark:border-white"
             : "border-[0px]"
         } 
-        select-none pointer-events-auto overflow-hidden`}
+        select-none pointer-events-auto overflow-visible`}
         style={{
           left: `${(item.from / totalDuration) * 100}%`,
           width: `${(item.durationInFrames / totalDuration) * 100}%`,

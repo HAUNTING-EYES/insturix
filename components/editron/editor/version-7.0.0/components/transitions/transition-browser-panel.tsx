@@ -39,7 +39,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
 };
 
 export const TransitionBrowserPanel: React.FC = () => {
-  const { overlays, changeOverlay, projectId, setOverlays } = useEditorContext();
+  const { overlays, changeOverlay, projectId, setOverlays, selectedOverlayId } = useEditorContext();
   const [search, setSearch] = useState('');
   const [applying, setApplying] = useState<string | null>(null);
 
@@ -63,11 +63,36 @@ export const TransitionBrowserPanel: React.FC = () => {
     overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from),
   [overlays]);
 
-  const handleApplyToAll = async (transitionId: string) => {
+  // Check if a video overlay is selected (for targeted replace)
+  const selectedOverlay = useMemo(() => {
+    if (!selectedOverlayId) return null;
+    return overlays.find(o => o.id === selectedOverlayId && o.type === 'video') || null;
+  }, [overlays, selectedOverlayId]);
+
+  // Find which video pair the selected overlay belongs to (for single-transition replace)
+  const selectedVideoIndex = useMemo(() => {
+    if (!selectedOverlay) return -1;
+    return videoOverlays.findIndex(o => o.id === selectedOverlay.id);
+  }, [selectedOverlay, videoOverlays]);
+
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+
+  const handleApply = async (transitionId: string) => {
     if (videoOverlays.length < 2) return;
     setApplying(transitionId);
+    const transDef = TRANSITIONS[transitionId];
+    setStatusMsg(`Applying ${transDef?.name || transitionId}...`);
 
     try {
+      // If a video overlay is selected, apply transition after it (single replace).
+      // Otherwise apply to all scene boundaries.
+      const params: Record<string, any> = { type: transitionId };
+      if (selectedOverlay && selectedVideoIndex >= 0 && selectedVideoIndex < videoOverlays.length - 1) {
+        params.afterOverlayId = selectedOverlay.id;
+      } else {
+        params.applyToAll = true;
+      }
+
       // Direct tool invocation — no AI/LLM involved, instant execution
       const res = await fetch('/api/services/editron/chat/tool-call', {
         method: 'POST',
@@ -75,11 +100,12 @@ export const TransitionBrowserPanel: React.FC = () => {
         body: JSON.stringify({
           projectId,
           toolName: 'add_transition',
-          params: { type: transitionId, applyToAll: true },
+          params,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (data.status === 'success') {
+        setStatusMsg('Transition applied!');
         // Re-fetch updated project overlays instead of reloading the page
         const projRes = await fetch(`/api/services/editron/projects/${projectId}`);
         const projData = await projRes.json().catch(() => null);
@@ -87,17 +113,25 @@ export const TransitionBrowserPanel: React.FC = () => {
           setOverlays(projData.project.overlays);
         }
       } else {
+        setStatusMsg(`Failed: ${data.message || 'Unknown error'}`);
         console.error('[TransitionBrowser] Tool error:', data.message);
       }
     } catch (err) {
+      setStatusMsg('Apply failed');
       console.error('[TransitionBrowser] Apply failed:', err);
     } finally {
       setApplying(null);
+      setTimeout(() => setStatusMsg(null), 2500);
     }
   };
 
   return (
     <div className="flex flex-col h-full">
+      {statusMsg && (
+        <div className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium text-center">
+          {statusMsg}
+        </div>
+      )}
       <div className="p-3 border-b border-zinc-800">
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
@@ -111,6 +145,9 @@ export const TransitionBrowserPanel: React.FC = () => {
         </div>
         {videoOverlays.length < 2 && (
           <p className="text-[10px] text-amber-400 mt-2">Need at least 2 video clips for transitions</p>
+        )}
+        {selectedOverlay && selectedVideoIndex >= 0 && selectedVideoIndex < videoOverlays.length - 1 && (
+          <p className="text-[10px] text-emerald-400 mt-2">Click a transition to apply after the selected clip</p>
         )}
       </div>
 
@@ -128,7 +165,7 @@ export const TransitionBrowserPanel: React.FC = () => {
                 {items.map(t => (
                   <button
                     key={t.id}
-                    onClick={() => handleApplyToAll(t.id)}
+                    onClick={() => handleApply(t.id)}
                     draggable
                     onDragStart={(e) => {
                       e.dataTransfer.setData('application/editron-transition', JSON.stringify({ type: t.id, name: t.name }));
@@ -144,7 +181,7 @@ export const TransitionBrowserPanel: React.FC = () => {
                       }
                       disabled:opacity-40 disabled:cursor-not-allowed
                     `}
-                    title={`${t.description}\nClick to apply between all scenes, or drag to timeline.`}
+                    title={`${t.description}\n${selectedOverlay ? 'Click to apply after selected clip' : 'Click to apply between all scenes'}, or drag to timeline.`}
                   >
                     <div className="text-zinc-400">
                       {ICON_MAP[t.icon] || <Layers className="h-4 w-4" />}

@@ -87,8 +87,11 @@ export async function POST(
       if (videoDurationSec) {
         sceneDurationSec = videoDurationSec;
       } else if (scene.videoUrl) {
-        // Video exists but no duration recorded — cap to 10s (AI clip max)
-        sceneDurationSec = Math.min(scriptEstimateSec, 10);
+        // Video exists but no duration recorded — cap to 5s (typical AI clip length).
+        // AI models like Kling/Wan/LTX produce 5-10s clips. Using 5s prevents freeze-frame
+        // stretching where Remotion shows a frozen last frame for the extra seconds.
+        // If the actual clip is longer, users can manually extend on the timeline.
+        sceneDurationSec = Math.min(scriptEstimateSec, 5);
       } else if (voiceoverDurationSec) {
         sceneDurationSec = voiceoverDurationSec;
       } else {

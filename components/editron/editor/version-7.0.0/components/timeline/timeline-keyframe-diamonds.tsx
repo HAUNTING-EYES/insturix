@@ -131,7 +131,7 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
   return (
     <div
       className="absolute bottom-0 left-0 right-0 h-[8px] pointer-events-auto"
-      style={{ zIndex: 10 }}
+      style={{ zIndex: 50 }}
     >
       {tracks.map((track: KeyframeTrack, ti: number) =>
         track.keyframes.map((kf, ki) => {
@@ -142,17 +142,18 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
           return (
             <div
               key={`${ti}-${ki}`}
-              className="absolute cursor-grab hover:scale-[2] active:scale-[2.5] active:cursor-grabbing transition-transform"
+              className="absolute cursor-grab hover:scale-[2] active:scale-[2.5] active:cursor-grabbing transition-transform pointer-events-auto"
               style={{
                 left: `${xPercent}%`,
                 top: '50%',
                 transform: 'translate(-50%, -50%) rotate(45deg)',
-                width: 6,
-                height: 6,
+                width: 8,
+                height: 8,
                 backgroundColor: color,
                 borderRadius: 1,
-                border: '1px solid rgba(0,0,0,0.3)',
-                boxShadow: `0 0 3px ${color}60`,
+                border: '1px solid rgba(0,0,0,0.4)',
+                boxShadow: `0 0 4px ${color}80`,
+                zIndex: 51,
               }}
               title={`${label}: ${typeof kf.value === 'number' ? kf.value.toFixed(2) : kf.value} at frame ${kf.frame}\n${kf.easing || 'ease-in-out'}\nDrag to move • Right-click to delete`}
               onClick={(e) => handleClick(kf.frame, e)}

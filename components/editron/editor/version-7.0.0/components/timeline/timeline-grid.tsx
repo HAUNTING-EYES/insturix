@@ -4,7 +4,7 @@
  * Supports drag and drop, resizing, and various item management operations.
  */
 
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useState } from "react";
 import { ROW_HEIGHT } from "../../constants";
 import { useTimeline } from "../../contexts/timeline-context";
 import { useEditorContext } from "../../contexts/editor-context";
@@ -180,6 +180,9 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
     return gaps;
   };
 
+  // Status banner for async operations (transition drop, etc.)
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
+
   // Handle transition drop from sidebar panel
   const handleTransitionDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
     const transitionData = e.dataTransfer.getData('application/editron-transition');
@@ -187,7 +190,9 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
 
     e.preventDefault();
     try {
-      const { type } = JSON.parse(transitionData);
+      const { type, name } = JSON.parse(transitionData);
+      setActionStatus(`Applying ${name || type} transition...`);
+
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left + e.currentTarget.scrollLeft;
       const dropFrame = Math.round((x / e.currentTarget.scrollWidth) * totalDuration);
@@ -209,7 +214,10 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
         }
       }
 
-      if (!bestOverlayId || !projectId) return;
+      if (!bestOverlayId || !projectId) {
+        setActionStatus(null);
+        return;
+      }
 
       // Call the tool-call API to add transition after this overlay
       const res = await fetch('/api/services/editron/chat/tool-call', {
@@ -224,6 +232,7 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
       const data = await res.json().catch(() => ({}));
 
       if (data.status === 'success') {
+        setActionStatus('Transition applied!');
         // Re-fetch updated project overlays instead of reloading the page
         const projRes = await fetch(`/api/services/editron/projects/${projectId}`);
         const projData = await projRes.json().catch(() => null);
@@ -231,11 +240,15 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
           setOverlays(projData.project.overlays);
         }
       } else {
+        setActionStatus(`Failed: ${data.message || 'Unknown error'}`);
         console.error('[TransitionDrop] Tool error:', data.message);
       }
     } catch (err) {
+      setActionStatus('Transition drop failed');
       console.error('[TransitionDrop] Drop failed:', err);
     }
+    // Clear status after 2.5s
+    setTimeout(() => setActionStatus(null), 2500);
   }, [overlays, totalDuration, projectId, setOverlays]);
 
   return (
@@ -250,6 +263,12 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
       }}
       onDrop={handleTransitionDrop}
     >
+      {/* Action status banner (transition drop, etc.) */}
+      {actionStatus && (
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 z-[100] px-3 py-1.5 rounded-b-md bg-emerald-600 text-white text-xs font-medium shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
+          {actionStatus}
+        </div>
+      )}
       {/* Container for Rows and Alignment Lines */}
       <div className="absolute inset-0 flex flex-col gap-2 pt-2 pb-2">
         {/* Render Alignment Lines - Conditionally visible and higher contrast */}

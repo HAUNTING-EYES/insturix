@@ -63,8 +63,11 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
   const hasDecoupledAudio = overlay.audioStartFrame !== undefined || overlay.audioEndFrame !== undefined;
 
   if (hasDecoupledAudio) {
-    const audioFrom = overlay.audioStartFrame ?? overlay.from;
-    const audioEnd = overlay.audioEndFrame ?? (overlay.from + overlay.durationInFrames);
+    // audioStartFrame/audioEndFrame are ABSOLUTE global frame numbers (set by finalize.ts),
+    // but this component is already inside a parent <Sequence from={overlay.from}>,
+    // so we must convert to RELATIVE frame coordinates.
+    const audioFrom = (overlay.audioStartFrame ?? overlay.from) - overlay.from;
+    const audioEnd = (overlay.audioEndFrame ?? (overlay.from + overlay.durationInFrames)) - overlay.from;
     const audioDuration = Math.max(1, audioEnd - audioFrom);
 
     return (

@@ -456,22 +456,36 @@ export function AIChatPanel() {
                   if (data.tool === 'regenerate_scene' && data.output) {
                     try {
                       const toolOutput = typeof data.output === 'string' ? JSON.parse(data.output) : data.output;
-                      const batchMatch = (toolOutput?.data?.results || []).join(' ').match(/batch: (vb_[A-Za-z0-9_-]+)/);
-                      if (batchMatch) {
+                      const resultText = (toolOutput?.results || toolOutput?.data?.results || []).join(' ');
+                      const batchMatch = resultText.match(/batch: (vb_[A-Za-z0-9_-]+)/);
+                      // Extract storyboardId from the tool output or from the project
+                      const storyboardId = toolOutput?.storyboardId || toolOutput?.data?.storyboardId;
+
+                      if (batchMatch && storyboardId) {
                         const batchId = batchMatch[1];
-                        toast({ title: '🎬 Video regenerating...', description: 'This takes 1-3 minutes. You\'ll be notified when ready.' });
+                        toast({ title: 'Video regenerating...', description: 'This takes 1-3 minutes. You\'ll be notified when ready.' });
 
                         // Poll for completion in background
                         const pollInterval = setInterval(async () => {
                           try {
-                            const statusRes = await fetch(`/api/services/pipeline/storyboard/sb_placeholder/generate-videos/status?batchId=${batchId}`);
+                            const statusRes = await fetch(`/api/services/pipeline/storyboard/${storyboardId}/generate-videos/status?batchId=${batchId}`);
                             const statusData = await statusRes.json().catch(() => ({}));
                             if (statusData.isComplete) {
                               clearInterval(pollInterval);
                               if (statusData.completed > 0) {
-                                toast({ title: '✅ Video ready!', description: `Scene video regenerated. Refresh to see it.` });
+                                toast({ title: 'Video ready!', description: 'Scene video regenerated. Refreshing timeline...' });
+                                // Auto-refresh overlays so user sees the new video
+                                try {
+                                  const projRes = await fetch(`/api/services/editron/projects/${projectId}`);
+                                  if (projRes.ok) {
+                                    const projData = await projRes.json();
+                                    if (projData?.project?.overlays) {
+                                      setOverlays(projData.project.overlays);
+                                    }
+                                  }
+                                } catch {}
                               } else {
-                                toast({ title: '❌ Video failed', description: 'Regeneration failed. Try again.', variant: 'destructive' });
+                                toast({ title: 'Video failed', description: 'Regeneration failed. Try again.', variant: 'destructive' });
                               }
                             }
                           } catch {} // Silent poll failure
@@ -479,6 +493,9 @@ export function AIChatPanel() {
 
                         // Auto-stop after 5 minutes
                         setTimeout(() => clearInterval(pollInterval), 5 * 60 * 1000);
+                      } else if (batchMatch) {
+                        // No storyboardId — still notify but can't poll
+                        toast({ title: 'Video regenerating...', description: 'This takes 1-3 minutes. Reload the page to check.' });
                       }
                     } catch {} // Non-critical
                   }
@@ -496,11 +513,23 @@ export function AIChatPanel() {
                   // Caption tools
                   'add_captions', 'add_fancy_captions',
                   'refresh_captions', 'refresh_fancy_captions',
+                  'batch_edit_captions', 'batchEditCaptions',
+                  // Transition tools
+                  'add_transition', 'addTransition',
+                  // SFX tools
+                  'add_sfx', 'addSFX', 'replace_sfx', 'replaceSFX',
+                  // Sticker/lottie tools
+                  'add_sticker', 'addSticker',
                   // Advanced editing
                   'sync_cuts_to_beats', 'set_keyframes',
                   'auto_edit_from_script', 'apply_style',
                   // Scene regeneration (updates storyboard + project)
                   'regenerate_scene',
+                  // Filter tools
+                  'apply_filter', 'applyFilter',
+                  // Delete/modify tools
+                  'delete_overlay', 'deleteOverlay',
+                  'update_overlay', 'updateOverlay',
                   // Legacy tools
                   'apply_project_patch',
                   'add_text_overlay', 'add_image_overlay',

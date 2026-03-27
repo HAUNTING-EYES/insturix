@@ -4009,6 +4009,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           status: "success",
           sceneIndex: input.sceneIndex,
           target: input.target,
+          storyboardId, // Needed by frontend for polling video regen status
           results,
           message: `Scene ${input.sceneIndex} ${input.target} regeneration complete. ${results.join('. ')}`,
           nextAction: "continue",
@@ -4921,55 +4922,103 @@ Examples:
           return JSON.stringify({ status: 'error', message: 'Authentication required for SFX upload' });
         }
 
-        const baseUrl = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+        const { uploadToGCS } = await import('@/lib/editron/services/gcs-service');
+        const { nanoid } = await import('nanoid');
+        const assetId = `sfx_${nanoid(12)}`;
+        const durationSec = input.durationSeconds || 5;
+        let audioUrl: string | null = null;
+        let gcsPath: string | null = null;
+        let sfxTitle = input.query;
+        let sfxDuration = durationSec;
+        let sfxSource = 'unknown';
 
-        // Search with word-splitting fallback: "coffee slurp" → try full, then "coffee", then "slurp"
-        let sfx: any = null;
-        const queries = [input.query];
-        if (input.query.includes(' ')) {
-          queries.push(...input.query.split(' ').filter(w => w.length > 2));
+        // ─── Priority 1: mirelo AI-generated SFX (always available via fal.ai) ─
+        // Generates context-aware audio from text prompt. Works for any query.
+        try {
+          const { fal } = await import('@fal-ai/client');
+          const falKey = process.env.FAL_AI_API_KEY;
+          if (falKey) {
+            fal.config({ credentials: falKey });
+            console.log(`[add_sfx] Trying mirelo AI gen for: "${input.query}" (${durationSec}s)`);
+            const mireloResult: any = await fal.subscribe('cassetteai/sound-effects', {
+              input: {
+                prompt: input.query,
+                duration: Math.min(Math.max(Math.round(durationSec), 1), 22),
+                num_results: 1,
+              },
+              logs: true,
+              pollInterval: 2000,
+            });
+            const data = mireloResult?.data || mireloResult;
+            const audioArr = data?.audio_files || data?.audio || data?.audios || [];
+            const firstAudio = audioArr[0]?.url || data?.audio_file?.url || data?.audio?.url;
+            if (firstAudio) {
+              const audioRes = await fetch(firstAudio);
+              if (audioRes.ok) {
+                const buffer = Buffer.from(await audioRes.arrayBuffer());
+                const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.wav`, 'audio/wav');
+                if (uploadResult?.signedUrl) {
+                  audioUrl = uploadResult.signedUrl;
+                  gcsPath = uploadResult.gcsPath;
+                  sfxSource = 'mirelo-ai';
+                  sfxTitle = input.query;
+                  console.log(`[add_sfx] mirelo success: ${assetId}`);
+                }
+              }
+            }
+          }
+        } catch (mireloErr: any) {
+          console.warn(`[add_sfx] mirelo failed: ${mireloErr.message}, trying Freesound`);
         }
 
-        for (const q of queries) {
-          const searchRes = await fetch(`${baseUrl}/api/services/editron/sfx-library/search?q=${encodeURIComponent(q)}&limit=3`);
-          const searchData = await searchRes.json().catch(() => ({ results: [] }));
-          if (searchData.results?.length > 0) {
-            sfx = searchData.results[0];
-            break;
+        // ─── Priority 2: Freesound library search (free, CC-licensed) ─
+        if (!audioUrl) {
+          const baseUrl = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+
+          const queries = [input.query];
+          if (input.query.includes(' ')) {
+            queries.push(...input.query.split(' ').filter(w => w.length > 2));
+          }
+
+          for (const q of queries) {
+            try {
+              const searchRes = await fetch(`${baseUrl}/api/services/editron/sfx-library/search?q=${encodeURIComponent(q)}&limit=3`);
+              const searchData = await searchRes.json().catch(() => ({ results: [] }));
+              if (searchData.results?.length > 0) {
+                const sfx = searchData.results[0];
+                // Download with retry
+                let buffer: Buffer | null = null;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                  try {
+                    const audioRes = await fetch(sfx.url);
+                    if (audioRes.ok) {
+                      buffer = Buffer.from(await audioRes.arrayBuffer());
+                      break;
+                    }
+                  } catch {}
+                  if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+                }
+                if (buffer && buffer.length >= 100) {
+                  const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.mp3`, 'audio/mpeg');
+                  if (uploadResult?.signedUrl) {
+                    audioUrl = uploadResult.signedUrl;
+                    gcsPath = uploadResult.gcsPath;
+                    sfxTitle = sfx.title;
+                    sfxDuration = sfx.duration || durationSec;
+                    sfxSource = 'freesound';
+                    console.log(`[add_sfx] Freesound hit: "${sfx.title}"`);
+                    break;
+                  }
+                }
+              }
+            } catch {}
           }
         }
 
-        if (!sfx) {
-          return JSON.stringify({ status: 'error', message: `No SFX found for "${input.query}". Try simpler keywords (e.g., 'whoosh', 'chime', 'click', 'impact').` });
-        }
-
-        // Download audio with retry
-        const { uploadToGCS } = await import('@/lib/editron/services/gcs-service');
-        const { nanoid } = await import('nanoid');
-
-        let buffer: Buffer | null = null;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            const audioRes = await fetch(sfx.url);
-            if (audioRes.ok) {
-              buffer = Buffer.from(await audioRes.arrayBuffer());
-              break;
-            }
-          } catch {}
-          if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
-        }
-        if (!buffer || buffer.length < 100) {
-          return JSON.stringify({ status: 'error', message: `Failed to download SFX audio after 3 attempts` });
-        }
-
-        const assetId = `sfx_${nanoid(12)}`;
-        const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.mp3`, 'audio/mpeg');
-
-        // Validate upload succeeded
-        if (!uploadResult?.signedUrl || !uploadResult?.gcsPath) {
-          return JSON.stringify({ status: 'error', message: 'GCS upload failed — no URL returned' });
+        if (!audioUrl || !gcsPath) {
+          return JSON.stringify({ status: 'error', message: `Could not generate or find SFX for "${input.query}". mirelo AI generation and Freesound search both failed. Try a different description.` });
         }
 
         // Register as media asset for URL resolution
@@ -4980,22 +5029,21 @@ Examples:
           {
             $setOnInsert: {
               assetId, userId, type: 'audio',
-              filename: `${assetId}.mp3`, source: 'sfx-library',
-              gcsPath: uploadResult.gcsPath, cachedUrl: uploadResult.signedUrl,
+              filename: `${assetId}.mp3`, source: sfxSource,
+              gcsPath, cachedUrl: audioUrl,
               urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-              size: buffer.length, uploadedAt: new Date(),
+              uploadedAt: new Date(),
             },
           },
           { upsert: true },
         );
 
-        // Determine placement
+        // Place on timeline
         const project = await loadProject();
         const fps = (project as any).fps || 30;
         const startFrame = input.startFrame ?? 0;
-        const durationFrames = Math.round((input.durationSeconds || sfx.duration || 5) * fps);
+        const durationFrames = Math.round(sfxDuration * fps);
 
-        // Unique overlay ID
         const { nanoid: nid } = await import('nanoid');
         const overlayId = Date.now() + parseInt(nid(4), 36);
         await projectService.addOverlay(userId, projectId, {
@@ -5003,19 +5051,19 @@ Examples:
           type: 'sound',
           from: startFrame,
           durationInFrames: durationFrames,
-          row: 6, // SFX row
+          row: 6,
           left: 0, top: 0, width: 0, height: 0,
           isDragging: false, rotation: 0,
-          content: uploadResult.signedUrl,
-          src: uploadResult.signedUrl,
+          content: audioUrl,
+          src: audioUrl,
           assetId,
           styles: { volume: 0.5, opacity: 1 },
         } as any);
 
         return JSON.stringify({
           status: 'success',
-          data: { overlayId, assetId, title: sfx.title, duration: sfx.duration, source: sfx.source },
-          message: `Added "${sfx.title}" SFX (${sfx.duration}s) at frame ${startFrame}`,
+          data: { overlayId, assetId, title: sfxTitle, duration: sfxDuration, source: sfxSource },
+          message: `Added "${sfxTitle}" SFX (${sfxDuration}s) from ${sfxSource} at frame ${startFrame}`,
         });
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
@@ -5023,7 +5071,7 @@ Examples:
     },
     {
       name: 'add_sfx',
-      description: `Add a sound effect to the timeline by searching the Freesound library. Downloads the audio, uploads to storage, and places it on the SFX row.
+      description: `Add a sound effect to the timeline. Uses AI generation (mirelo/CassetteAI) as primary, Freesound library as fallback. Downloads the audio, uploads to storage, and places it on the SFX row.
 
 ALWAYS use this tool when the user asks to "add sound effect", "add SFX", "add audio clip", etc.
 NEVER use addOverlay for sound effects — it creates fake assets that can't play.
