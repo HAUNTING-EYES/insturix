@@ -153,6 +153,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
   };
 
   return (
+    <>
     <Tabs defaultValue="display" className="w-full">
       {/* Tab Navigation */}
       <TabsList className="w-full grid grid-cols-3 bg-muted/50 backdrop-blur-sm rounded-sm border border-border gap-1 mb-4">
@@ -763,5 +764,6 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
         </button>
         <p className="text-[9px] text-zinc-500 mt-1 text-center">Syncs this caption&apos;s style to every caption in the project</p>
       </div>
+    </>
   );
 };
