@@ -4,6 +4,7 @@ import React, { useState, useCallback } from "react";
 import { CaptionOverlay, CaptionStyles, HighlightEffect, HighlightAnimation, CaptionDisplayMode, CaptionDisplayConfig, DEFAULT_DISPLAY_CONFIGS } from "../../../types";
 import { captionTemplates } from "../../../templates/caption-templates";
 import { defaultDisplayConfig } from "./default-caption-styles";
+import { useEditorContext } from "../../../contexts/editor-context";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -109,6 +110,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
   localOverlay,
   setLocalOverlay,
 }) => {
+  const { projectId, setOverlays } = useEditorContext();
   const styles = localOverlay.styles;
   const highlight = styles.highlight || styles.highlightStyle;
   const displayConfig = localOverlay.displayConfig || defaultDisplayConfig;
@@ -731,7 +733,6 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
       <div className="mt-3 pt-3 border-t border-zinc-700">
         <button
           onClick={async () => {
-            const projectId = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : '';
             if (!projectId) return;
             try {
               const res = await fetch('/api/services/editron/chat/tool-call', {
@@ -741,7 +742,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
                   projectId,
                   toolName: 'batch_edit_captions',
                   params: {
-                    style: overlay.template || 'subtitle',
+                    style: localOverlay.template || 'subtitle',
                     fontSize: styles.fontSize,
                     fontFamily: styles.fontFamily,
                     fontWeight: styles.fontWeight,
@@ -752,7 +753,12 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
               });
               const data = await res.json().catch(() => ({}));
               if (data.status === 'success') {
-                window.location.reload();
+                // Re-fetch updated project overlays instead of reloading the page
+                const projRes = await fetch(`/api/services/editron/projects/${projectId}`);
+                const projData = await projRes.json().catch(() => null);
+                if (projData?.project?.overlays) {
+                  setOverlays(projData.project.overlays);
+                }
               }
             } catch (err) {
               console.error('[BatchCaption] Failed:', err);

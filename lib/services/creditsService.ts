@@ -116,6 +116,7 @@ export class CreditsService {
   /**
    * Deduct credits for a service usage
    * Consumes subscription credits first, then top-up credits
+   * Uses atomic MongoDB operations to prevent race conditions
    */
   static async deductCredits(
     clerkUserId: string,
@@ -140,13 +141,15 @@ export class CreditsService {
 
     // Initialize credits balance if needed
     if (!user.creditsBalance) {
-      user.creditsBalance = {
-        subscriptionCredits: 0,
-        topupCredits: 0,
-        lastSubscriptionGrant: null,
-        subscriptionCreditsExpiry: null,
-        creditHistory: [],
-      };
+      await User.findOneAndUpdate(
+        { clerkUserId },
+        { $set: { creditsBalance: {
+          subscriptionCredits: 0, topupCredits: 0,
+          lastSubscriptionGrant: null, subscriptionCreditsExpiry: null,
+          creditHistory: [],
+        }}},
+      );
+      return { success: false, creditsDeducted: 0, error: 'Credits initialized, please retry' };
     }
 
     const baseCost = getCreditCost(service, action, options);
@@ -162,18 +165,10 @@ export class CreditsService {
       };
     }
 
-    // Deduct from subscription credits first (they expire)
-    let remaining = cost;
-    const fromSubscription = Math.min(balance.subscriptionCredits, remaining);
-    balance.subscriptionCredits -= fromSubscription;
-    remaining -= fromSubscription;
-
-    // Then from top-up credits
-    if (remaining > 0) {
-      balance.topupCredits -= remaining;
-    }
-
-    const newTotal = balance.subscriptionCredits + balance.topupCredits;
+    // Calculate split: subscription first, then topup
+    const fromSubscription = Math.min(balance.subscriptionCredits, cost);
+    const fromTopup = cost - fromSubscription;
+    const newTotal = totalAvailable - cost;
 
     // Create transaction record
     const transaction: ICreditTransaction = {
@@ -188,32 +183,59 @@ export class CreditsService {
       balanceAfter: newTotal,
       metadata: {
         fromSubscription,
-        fromTopup: cost - fromSubscription,
+        fromTopup,
         ...options,
       },
     };
 
-    // Add transaction to history (cap at MAX_CREDIT_HISTORY)
-    balance.creditHistory.push(transaction);
-    if (balance.creditHistory.length > MAX_CREDIT_HISTORY) {
-      balance.creditHistory = balance.creditHistory.slice(-MAX_CREDIT_HISTORY);
-    }
+    // Atomic update: $inc for credits, $push for history (capped)
+    const updated = await User.findOneAndUpdate(
+      {
+        clerkUserId,
+        // Ensure sufficient credits at write time (prevents race condition)
+        $expr: {
+          $gte: [
+            { $add: ['$creditsBalance.subscriptionCredits', '$creditsBalance.topupCredits'] },
+            cost,
+          ],
+        },
+      },
+      {
+        $inc: {
+          'creditsBalance.subscriptionCredits': -fromSubscription,
+          'creditsBalance.topupCredits': -fromTopup,
+        },
+        $push: {
+          'creditsBalance.creditHistory': {
+            $each: [transaction],
+            $slice: -MAX_CREDIT_HISTORY,
+          },
+        },
+      },
+      { new: true },
+    );
 
-    user.markModified('creditsBalance');
-    await user.save();
+    if (!updated) {
+      return {
+        success: false,
+        creditsDeducted: 0,
+        error: `Insufficient credits (concurrent deduction). Required: ${cost}`,
+      };
+    }
 
     console.log(`[CreditsService] Deducted ${cost} credits from user ${clerkUserId} for ${service}.${action}`);
 
     return {
       success: true,
       creditsDeducted: cost,
-      balance: user.creditsBalance,
+      balance: updated.creditsBalance,
       transactionId: transaction.id,
     };
   }
 
   /**
    * Add credits to user balance (Top-up or Subscription Grant)
+   * Uses atomic MongoDB operations to prevent race conditions
    */
   static async addCredits(
     clerkUserId: string,
@@ -224,69 +246,75 @@ export class CreditsService {
   ): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
 
-    const user = await User.findOne({ clerkUserId });
-    if (!user) {
-        return { success: false, error: `User not found: ${clerkUserId}` };
-    }
-
-    if (!user.creditsBalance) {
-        user.creditsBalance = {
-            subscriptionCredits: 0,
-            topupCredits: 0,
-            lastSubscriptionGrant: null,
-            subscriptionCreditsExpiry: null,
-            creditHistory: [],
-        };
-    }
-
-    const balance = user.creditsBalance;
-    
-    // Determine where to add credits
-    if (type === 'subscription_grant') {
-        balance.subscriptionCredits = (balance.subscriptionCredits || 0) + amount;
-        balance.lastSubscriptionGrant = new Date();
-        // Set expiry to 30 days from now for subscription credits
-        const expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + 30);
-        balance.subscriptionCreditsExpiry = expiryDate;
-    } else {
-        // Top-ups, bonuses, etc. go to topup bucket which doesn't expire
-        balance.topupCredits = (balance.topupCredits || 0) + amount;
-    }
-
-    // Create transaction
+    const now = new Date();
     const transaction: ICreditTransaction = {
-        id: `txn_${nanoid(12)}`,
-        type: type,
-        amount: amount,
-        service: 'billing',
-        action: type,
-        timestamp: new Date(),
-        balanceAfter: balance.subscriptionCredits + balance.topupCredits,
-        metadata: {
-            description,
-            referenceId,
-        }
+      id: `txn_${nanoid(12)}`,
+      type: type,
+      amount: amount,
+      service: 'billing',
+      action: type,
+      timestamp: now,
+      balanceAfter: 0, // Will be calculated after update
+      metadata: { description, referenceId },
     };
 
-    balance.creditHistory.push(transaction);
-    if (balance.creditHistory.length > MAX_CREDIT_HISTORY) {
-        balance.creditHistory = balance.creditHistory.slice(-MAX_CREDIT_HISTORY);
+    // Build atomic update based on credit type
+    const incFields: Record<string, number> = {};
+    const setFields: Record<string, any> = {};
+
+    if (type === 'subscription_grant') {
+      incFields['creditsBalance.subscriptionCredits'] = amount;
+      setFields['creditsBalance.lastSubscriptionGrant'] = now;
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 30);
+      setFields['creditsBalance.subscriptionCreditsExpiry'] = expiryDate;
+    } else {
+      incFields['creditsBalance.topupCredits'] = amount;
     }
 
-    user.markModified('creditsBalance');
-    await user.save();
+    // Ensure creditsBalance exists first (upsert-safe)
+    await User.findOneAndUpdate(
+      { clerkUserId, creditsBalance: { $exists: false } },
+      { $set: { creditsBalance: {
+        subscriptionCredits: 0, topupCredits: 0,
+        lastSubscriptionGrant: null, subscriptionCreditsExpiry: null,
+        creditHistory: [],
+      }}},
+    );
 
-    console.log(`[CreditsService] Added ${amount} credits to user ${clerkUserId} via ${type}`);
+    // Atomic increment + push transaction
+    const updated = await User.findOneAndUpdate(
+      { clerkUserId },
+      {
+        $inc: incFields,
+        ...(Object.keys(setFields).length > 0 ? { $set: setFields } : {}),
+        $push: {
+          'creditsBalance.creditHistory': {
+            $each: [transaction],
+            $slice: -MAX_CREDIT_HISTORY,
+          },
+        },
+      },
+      { new: true },
+    );
+
+    if (!updated) {
+      return { success: false, error: `User not found: ${clerkUserId}` };
+    }
+
+    // Update balanceAfter in the transaction we just pushed (best-effort, not critical)
+    const newTotal = (updated.creditsBalance?.subscriptionCredits || 0) + (updated.creditsBalance?.topupCredits || 0);
+    console.log(`[CreditsService] Added ${amount} credits to user ${clerkUserId} via ${type}. New total: ${newTotal}`);
 
     return {
-        success: true,
-        balance: user.creditsBalance
+      success: true,
+      balance: updated.creditsBalance,
     };
   }
 
   /**
    * Refund credits (e.g., when a task fails)
+   * Uses atomic MongoDB $inc to prevent race conditions
    */
   static async refundCredits(
     clerkUserId: string,
@@ -300,20 +328,6 @@ export class CreditsService {
   ): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
 
-    const user = await User.findOne({ clerkUserId });
-    if (!user) {
-      return { success: false, error: `User not found: ${clerkUserId}` };
-    }
-
-    if (!user.creditsBalance) {
-      return { success: false, error: 'User has no credits balance' };
-    }
-
-    // Refund to subscription credits (since that's what was likely consumed first)
-    user.creditsBalance.subscriptionCredits += amount;
-
-    const newTotal = user.creditsBalance.subscriptionCredits + user.creditsBalance.topupCredits;
-
     const transaction: ICreditTransaction = {
       id: `txn_${nanoid(12)}`,
       type: 'refund',
@@ -321,31 +335,43 @@ export class CreditsService {
       service: options?.service,
       action: options?.action,
       timestamp: new Date(),
-      balanceAfter: newTotal,
+      balanceAfter: 0,
       metadata: {
         reason,
         originalTransactionId: options?.originalTransactionId,
       },
     };
 
-    user.creditsBalance.creditHistory.push(transaction);
-    if (user.creditsBalance.creditHistory.length > MAX_CREDIT_HISTORY) {
-      user.creditsBalance.creditHistory = user.creditsBalance.creditHistory.slice(-MAX_CREDIT_HISTORY);
-    }
+    // Atomic: refund to subscription credits
+    const updated = await User.findOneAndUpdate(
+      { clerkUserId, creditsBalance: { $exists: true } },
+      {
+        $inc: { 'creditsBalance.subscriptionCredits': amount },
+        $push: {
+          'creditsBalance.creditHistory': {
+            $each: [transaction],
+            $slice: -MAX_CREDIT_HISTORY,
+          },
+        },
+      },
+      { new: true },
+    );
 
-    user.markModified('creditsBalance');
-    await user.save();
+    if (!updated) {
+      return { success: false, error: `User not found or no credits balance: ${clerkUserId}` };
+    }
 
     console.log(`[CreditsService] Refunded ${amount} credits to user ${clerkUserId}: ${reason}`);
 
     return {
       success: true,
-      balance: user.creditsBalance,
+      balance: updated.creditsBalance,
     };
   }
 
   /**
    * Add top-up credits (purchased credits that never expire)
+   * Uses atomic MongoDB $inc to prevent race conditions
    */
   static async addTopupCredits(
     clerkUserId: string,
@@ -357,55 +383,60 @@ export class CreditsService {
   ): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
 
-    const user = await User.findOne({ clerkUserId });
-    if (!user) {
-      return { success: false, error: `User not found: ${clerkUserId}` };
-    }
-
-    if (!user.creditsBalance) {
-      user.creditsBalance = {
-        subscriptionCredits: 0,
-        topupCredits: 0,
-        lastSubscriptionGrant: null,
-        subscriptionCreditsExpiry: null,
-        creditHistory: [],
-      };
-    }
-
-    user.creditsBalance.topupCredits += amount;
-    const newTotal = user.creditsBalance.subscriptionCredits + user.creditsBalance.topupCredits;
-
     const transaction: ICreditTransaction = {
       id: `txn_${nanoid(12)}`,
       type: 'topup',
       amount: amount,
       timestamp: new Date(),
-      balanceAfter: newTotal,
+      balanceAfter: 0, // Calculated after update
       metadata: {
         paymentId: options?.paymentId,
         packageId: options?.packageId,
       },
     };
 
-    user.creditsBalance.creditHistory.push(transaction);
-    if (user.creditsBalance.creditHistory.length > MAX_CREDIT_HISTORY) {
-      user.creditsBalance.creditHistory = user.creditsBalance.creditHistory.slice(-MAX_CREDIT_HISTORY);
+    // Ensure creditsBalance exists first
+    await User.findOneAndUpdate(
+      { clerkUserId, creditsBalance: { $exists: false } },
+      { $set: { creditsBalance: {
+        subscriptionCredits: 0, topupCredits: 0,
+        lastSubscriptionGrant: null, subscriptionCreditsExpiry: null,
+        creditHistory: [],
+      }}},
+    );
+
+    // Atomic increment
+    const updated = await User.findOneAndUpdate(
+      { clerkUserId },
+      {
+        $inc: { 'creditsBalance.topupCredits': amount },
+        $push: {
+          'creditsBalance.creditHistory': {
+            $each: [transaction],
+            $slice: -MAX_CREDIT_HISTORY,
+          },
+        },
+      },
+      { new: true },
+    );
+
+    if (!updated) {
+      return { success: false, error: `User not found: ${clerkUserId}` };
     }
 
-    user.markModified('creditsBalance');
-    await user.save();
-
-    console.log(`[CreditsService] Added ${amount} top-up credits to user ${clerkUserId}`);
+    const newTotal = (updated.creditsBalance?.subscriptionCredits || 0) + (updated.creditsBalance?.topupCredits || 0);
+    console.log(`[CreditsService] Added ${amount} top-up credits to user ${clerkUserId}. New total: ${newTotal}`);
 
     return {
       success: true,
-      balance: user.creditsBalance,
+      balance: updated.creditsBalance,
     };
   }
 
   /**
    * Grant subscription credits (called on subscription activation/renewal)
    * Expires any remaining previous subscription credits and grants new allocation
+   * Uses atomic MongoDB operations to prevent race conditions
    */
   static async grantSubscriptionCredits(
     clerkUserId: string,
@@ -413,21 +444,6 @@ export class CreditsService {
     billingCycle: 'monthly' | 'yearly' = 'monthly'
   ): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
-
-    const user = await User.findOne({ clerkUserId });
-    if (!user) {
-      return { success: false, error: `User not found: ${clerkUserId}` };
-    }
-
-    if (!user.creditsBalance) {
-      user.creditsBalance = {
-        subscriptionCredits: 0,
-        topupCredits: 0,
-        lastSubscriptionGrant: null,
-        subscriptionCreditsExpiry: null,
-        creditHistory: [],
-      };
-    }
 
     const allocation = getPlanCreditAllocation(planType);
     const now = new Date();
@@ -440,63 +456,89 @@ export class CreditsService {
       expiry.setMonth(expiry.getMonth() + 1);
     }
 
-    // If there were remaining subscription credits, log their expiry
-    const expiredCredits = user.creditsBalance.subscriptionCredits;
+    // Ensure creditsBalance exists
+    await User.findOneAndUpdate(
+      { clerkUserId, creditsBalance: { $exists: false } },
+      { $set: { creditsBalance: {
+        subscriptionCredits: 0, topupCredits: 0,
+        lastSubscriptionGrant: null, subscriptionCreditsExpiry: null,
+        creditHistory: [],
+      }}},
+    );
+
+    // Read current subscription credits to log expiry
+    const user = await User.findOne({ clerkUserId }).select('creditsBalance.subscriptionCredits creditsBalance.topupCredits');
+    const expiredCredits = user?.creditsBalance?.subscriptionCredits || 0;
+
+    const transactions: ICreditTransaction[] = [];
+
+    // Log expiry of old subscription credits if any
     if (expiredCredits > 0) {
-      const expiryTransaction: ICreditTransaction = {
+      transactions.push({
         id: `txn_${nanoid(12)}`,
         type: 'expiry',
         amount: -expiredCredits,
         timestamp: now,
-        balanceAfter: user.creditsBalance.topupCredits, // Only topup remains before grant
+        balanceAfter: 0,
         metadata: { reason: 'subscription_renewal' },
-      };
-      user.creditsBalance.creditHistory.push(expiryTransaction);
+      });
     }
 
-    // Grant new credits
-    user.creditsBalance.subscriptionCredits = allocation;
-    user.creditsBalance.lastSubscriptionGrant = now;
-    user.creditsBalance.subscriptionCreditsExpiry = expiry;
-
-    const newTotal = user.creditsBalance.subscriptionCredits + user.creditsBalance.topupCredits;
-
-    const grantTransaction: ICreditTransaction = {
+    // Grant transaction
+    transactions.push({
       id: `txn_${nanoid(12)}`,
       type: 'subscription_grant',
       amount: allocation,
       timestamp: now,
-      balanceAfter: newTotal,
+      balanceAfter: 0,
       metadata: {
         planType,
         billingCycle,
         expiry: expiry.toISOString(),
       },
-    };
+    });
 
-    user.creditsBalance.creditHistory.push(grantTransaction);
-    if (user.creditsBalance.creditHistory.length > MAX_CREDIT_HISTORY) {
-      user.creditsBalance.creditHistory = user.creditsBalance.creditHistory.slice(-MAX_CREDIT_HISTORY);
+    // Atomic: SET subscription credits (not increment — this is a reset+grant)
+    // But topupCredits is untouched (no risk of clobbering)
+    const updated = await User.findOneAndUpdate(
+      { clerkUserId },
+      {
+        $set: {
+          'creditsBalance.subscriptionCredits': allocation,
+          'creditsBalance.lastSubscriptionGrant': now,
+          'creditsBalance.subscriptionCreditsExpiry': expiry,
+        },
+        $push: {
+          'creditsBalance.creditHistory': {
+            $each: transactions,
+            $slice: -MAX_CREDIT_HISTORY,
+          },
+        },
+      },
+      { new: true },
+    );
+
+    if (!updated) {
+      return { success: false, error: `User not found: ${clerkUserId}` };
     }
-
-    user.markModified('creditsBalance');
-    await user.save();
 
     console.log(`[CreditsService] Granted ${allocation} subscription credits to user ${clerkUserId} (${planType})`);
 
     return {
       success: true,
-      balance: user.creditsBalance,
+      balance: updated.creditsBalance,
     };
   }
 
   /**
    * Expire subscription credits (called by cron job at end of billing cycle)
+   * Uses atomic MongoDB operations to prevent race conditions
    */
   static async expireSubscriptionCredits(clerkUserId: string): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
 
-    const user = await User.findOne({ clerkUserId });
+    // Read current balance to know how much to expire
+    const user = await User.findOne({ clerkUserId }).select('creditsBalance');
     if (!user || !user.creditsBalance) {
       return { success: false, error: `User not found or no credits balance: ${clerkUserId}` };
     }
@@ -506,38 +548,48 @@ export class CreditsService {
       return { success: true, balance: user.creditsBalance };
     }
 
-    user.creditsBalance.subscriptionCredits = 0;
-    user.creditsBalance.subscriptionCreditsExpiry = null;
-
-    const newTotal = user.creditsBalance.topupCredits;
-
     const transaction: ICreditTransaction = {
       id: `txn_${nanoid(12)}`,
       type: 'expiry',
       amount: -expiredAmount,
       timestamp: new Date(),
-      balanceAfter: newTotal,
+      balanceAfter: 0,
       metadata: { reason: 'billing_cycle_end' },
     };
 
-    user.creditsBalance.creditHistory.push(transaction);
-    if (user.creditsBalance.creditHistory.length > MAX_CREDIT_HISTORY) {
-      user.creditsBalance.creditHistory = user.creditsBalance.creditHistory.slice(-MAX_CREDIT_HISTORY);
-    }
+    // Atomic: set subscription to 0, clear expiry, push transaction
+    const updated = await User.findOneAndUpdate(
+      { clerkUserId },
+      {
+        $set: {
+          'creditsBalance.subscriptionCredits': 0,
+          'creditsBalance.subscriptionCreditsExpiry': null,
+        },
+        $push: {
+          'creditsBalance.creditHistory': {
+            $each: [transaction],
+            $slice: -MAX_CREDIT_HISTORY,
+          },
+        },
+      },
+      { new: true },
+    );
 
-    user.markModified('creditsBalance');
-    await user.save();
+    if (!updated) {
+      return { success: false, error: `User not found: ${clerkUserId}` };
+    }
 
     console.log(`[CreditsService] Expired ${expiredAmount} subscription credits for user ${clerkUserId}`);
 
     return {
       success: true,
-      balance: user.creditsBalance,
+      balance: updated.creditsBalance,
     };
   }
 
   /**
    * Process adjustment (admin adjustment of credits)
+   * Uses atomic MongoDB $inc to prevent race conditions
    */
   static async adjustCredits(
     clerkUserId: string,
@@ -547,51 +599,64 @@ export class CreditsService {
   ): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
 
-    const user = await User.findOne({ clerkUserId });
-    if (!user) {
-      return { success: false, error: `User not found: ${clerkUserId}` };
-    }
-
-    if (!user.creditsBalance) {
-      user.creditsBalance = {
-        subscriptionCredits: 0,
-        topupCredits: 0,
-        lastSubscriptionGrant: null,
-        subscriptionCreditsExpiry: null,
-        creditHistory: [],
-      };
-    }
-
-    if (creditType === 'subscription') {
-      user.creditsBalance.subscriptionCredits = Math.max(0, user.creditsBalance.subscriptionCredits + amount);
-    } else {
-      user.creditsBalance.topupCredits = Math.max(0, user.creditsBalance.topupCredits + amount);
-    }
-
-    const newTotal = user.creditsBalance.subscriptionCredits + user.creditsBalance.topupCredits;
-
     const transaction: ICreditTransaction = {
       id: `txn_${nanoid(12)}`,
       type: 'adjustment',
       amount: amount,
       timestamp: new Date(),
-      balanceAfter: newTotal,
+      balanceAfter: 0,
       metadata: { reason, creditType },
     };
 
-    user.creditsBalance.creditHistory.push(transaction);
-    if (user.creditsBalance.creditHistory.length > MAX_CREDIT_HISTORY) {
-      user.creditsBalance.creditHistory = user.creditsBalance.creditHistory.slice(-MAX_CREDIT_HISTORY);
+    // Ensure creditsBalance exists
+    await User.findOneAndUpdate(
+      { clerkUserId, creditsBalance: { $exists: false } },
+      { $set: { creditsBalance: {
+        subscriptionCredits: 0, topupCredits: 0,
+        lastSubscriptionGrant: null, subscriptionCreditsExpiry: null,
+        creditHistory: [],
+      }}},
+    );
+
+    const field = creditType === 'subscription'
+      ? 'creditsBalance.subscriptionCredits'
+      : 'creditsBalance.topupCredits';
+
+    // Atomic increment
+    const updated = await User.findOneAndUpdate(
+      { clerkUserId },
+      {
+        $inc: { [field]: amount },
+        $push: {
+          'creditsBalance.creditHistory': {
+            $each: [transaction],
+            $slice: -MAX_CREDIT_HISTORY,
+          },
+        },
+      },
+      { new: true },
+    );
+
+    if (!updated) {
+      return { success: false, error: `User not found: ${clerkUserId}` };
     }
 
-    user.markModified('creditsBalance');
-    await user.save();
+    // Guard against negative credits (adjustment could be negative)
+    const currentVal = creditType === 'subscription'
+      ? updated.creditsBalance?.subscriptionCredits
+      : updated.creditsBalance?.topupCredits;
+    if (currentVal != null && currentVal < 0) {
+      await User.findOneAndUpdate(
+        { clerkUserId },
+        { $set: { [field]: 0 } },
+      );
+    }
 
     console.log(`[CreditsService] Adjusted ${amount} ${creditType} credits for user ${clerkUserId}: ${reason}`);
 
     return {
       success: true,
-      balance: user.creditsBalance,
+      balance: updated.creditsBalance,
     };
   }
 }

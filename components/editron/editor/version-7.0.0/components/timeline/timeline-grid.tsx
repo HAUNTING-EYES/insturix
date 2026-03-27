@@ -7,6 +7,7 @@
 import React, { useMemo, useCallback } from "react";
 import { ROW_HEIGHT } from "../../constants";
 import { useTimeline } from "../../contexts/timeline-context";
+import { useEditorContext } from "../../contexts/editor-context";
 import { Overlay } from "../../types";
 import GapIndicator from "./timeline-gap-indicator";
 import TimelineItem from "./timeline-item";
@@ -109,6 +110,7 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
   showBeatMarkers,
 }) => {
   const { visibleRows } = useTimeline();
+  const { projectId, setOverlays } = useEditorContext();
 
   // Create a memoized selectedItem object
   const selectedItem = useMemo(
@@ -179,7 +181,7 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
   };
 
   // Handle transition drop from sidebar panel
-  const handleTransitionDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  const handleTransitionDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
     const transitionData = e.dataTransfer.getData('application/editron-transition');
     if (!transitionData) return;
 
@@ -207,20 +209,34 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
         }
       }
 
-      if (bestOverlayId && onOverlayChange) {
-        // Call the tool-call API to add transition after this overlay
-        fetch('/api/services/editron/chat/tool-call', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            projectId: typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : '',
-            toolName: 'add_transition',
-            params: { type, afterOverlayId: bestOverlayId },
-          }),
-        }).then(() => window.location.reload()).catch(console.error);
+      if (!bestOverlayId || !projectId) return;
+
+      // Call the tool-call API to add transition after this overlay
+      const res = await fetch('/api/services/editron/chat/tool-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          toolName: 'add_transition',
+          params: { type, afterOverlayId: bestOverlayId },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (data.status === 'success') {
+        // Re-fetch updated project overlays instead of reloading the page
+        const projRes = await fetch(`/api/services/editron/projects/${projectId}`);
+        const projData = await projRes.json().catch(() => null);
+        if (projData?.project?.overlays) {
+          setOverlays(projData.project.overlays);
+        }
+      } else {
+        console.error('[TransitionDrop] Tool error:', data.message);
       }
-    } catch {}
-  }, [overlays, totalDuration, onOverlayChange]);
+    } catch (err) {
+      console.error('[TransitionDrop] Drop failed:', err);
+    }
+  }, [overlays, totalDuration, projectId, setOverlays]);
 
   return (
     <div

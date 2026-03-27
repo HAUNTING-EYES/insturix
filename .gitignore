@@ -43,3 +43,6 @@ tsconfig.tsbuildinfo
 .env*.local
 
 .vercel
+
+# Claude Code context file (not part of codebase)
+CLAUDE.md

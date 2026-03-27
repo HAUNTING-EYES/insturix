@@ -39,7 +39,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
 };
 
 export const TransitionBrowserPanel: React.FC = () => {
-  const { overlays, changeOverlay, projectId } = useEditorContext();
+  const { overlays, changeOverlay, projectId, setOverlays } = useEditorContext();
   const [search, setSearch] = useState('');
   const [applying, setApplying] = useState<string | null>(null);
 
@@ -80,8 +80,12 @@ export const TransitionBrowserPanel: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (data.status === 'success') {
-        // Refresh project to show new transition tiles
-        window.location.reload();
+        // Re-fetch updated project overlays instead of reloading the page
+        const projRes = await fetch(`/api/services/editron/projects/${projectId}`);
+        const projData = await projRes.json().catch(() => null);
+        if (projData?.project?.overlays) {
+          setOverlays(projData.project.overlays);
+        }
       } else {
         console.error('[TransitionBrowser] Tool error:', data.message);
       }
