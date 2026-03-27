@@ -87,6 +87,54 @@ async function handler(request: NextRequest) {
       videoDurationMs: result.durationMs || (durationSeconds * 1000),
     });
 
+    // Also update the Editron project overlay if this storyboard is linked to a project.
+    // Without this, video regen updates the storyboard but the editor still shows the old clip.
+    try {
+      const { getStoryboard } = await import('@/lib/pipeline/storyboard-db');
+      const sb = await getStoryboard(storyboardId, userId);
+      const linkedProjectId = sb?.projectId;
+      if (linkedProjectId) {
+        // Find the video overlay for this scene (by matching assetId or from-frame position)
+        const scene = sb.scenes?.find((s: any) => s.sceneIndex === sceneIndex);
+        const oldAssetId = scene?.videoAssetId;
+
+        // Register the new asset first
+        await db.collection('media_assets').updateOne(
+          { assetId: result.assetId },
+          {
+            $setOnInsert: {
+              assetId: result.assetId, userId, type: 'video',
+              filename: `${result.assetId}.mp4`, source: 'video-regen',
+              gcsPath: result.gcsPath, cachedUrl: result.videoUrl,
+              urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              uploadedAt: new Date(),
+            },
+          },
+          { upsert: true },
+        );
+
+        // Update the overlay in the project that has the old assetId
+        if (oldAssetId) {
+          await db.collection('projects').updateOne(
+            { projectId: linkedProjectId, 'overlays.assetId': oldAssetId },
+            {
+              $set: {
+                'overlays.$.src': result.videoUrl,
+                'overlays.$.content': result.videoUrl,
+                'overlays.$.assetId': result.assetId,
+                'overlays.$.videoDurationMs': result.durationMs || (durationSeconds * 1000),
+                updatedAt: new Date(),
+              },
+            },
+          );
+          console.log(`[VideoWorker] Updated Editron project ${linkedProjectId} overlay: ${oldAssetId} → ${result.assetId}`);
+        }
+      }
+    } catch (projErr: any) {
+      // Non-fatal — user can still re-finalize
+      console.warn(`[VideoWorker] Project overlay update failed (non-fatal): ${projErr.message}`);
+    }
+
     // Run 5-Track analysis on the generated video immediately.
     // Analysis is cached in MongoDB — Director reads it instantly later.
     // This removes analysis from the Director's time budget entirely.

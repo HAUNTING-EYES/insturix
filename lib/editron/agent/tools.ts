@@ -4932,26 +4932,27 @@ Examples:
         let sfxDuration = durationSec;
         let sfxSource = 'unknown';
 
-        // ─── Priority 1: mirelo AI-generated SFX (always available via fal.ai) ─
-        // Generates context-aware audio from text prompt. Works for any query.
+        // ─── Priority 1: CassetteAI text-to-SFX (always available via fal.ai) ─
+        // Uses cassetteai/music-generator with SFX-style prompts. Reliable, $0.02/min.
+        // Same model used in the pipeline's sfx-service.ts fallback path.
         try {
           const { fal } = await import('@fal-ai/client');
           const falKey = process.env.FAL_AI_API_KEY;
           if (falKey) {
             fal.config({ credentials: falKey });
-            console.log(`[add_sfx] Trying mirelo AI gen for: "${input.query}" (${durationSec}s)`);
-            const mireloResult: any = await fal.subscribe('cassetteai/sound-effects', {
+            // CassetteAI needs minimum 10s duration
+            const cassDuration = Math.min(Math.max(Math.round(durationSec), 10), 180);
+            console.log(`[add_sfx] Trying CassetteAI gen for: "${input.query}" (${cassDuration}s)`);
+            const mireloResult: any = await fal.subscribe('cassetteai/music-generator', {
               input: {
-                prompt: input.query,
-                duration: Math.min(Math.max(Math.round(durationSec), 1), 22),
-                num_results: 1,
+                prompt: `${input.query}, sound effect, ambient audio, no vocals, no music`,
+                duration: cassDuration,
               },
               logs: true,
-              pollInterval: 2000,
+              pollInterval: 3000,
             });
             const data = mireloResult?.data || mireloResult;
-            const audioArr = data?.audio_files || data?.audio || data?.audios || [];
-            const firstAudio = audioArr[0]?.url || data?.audio_file?.url || data?.audio?.url;
+            const firstAudio = data?.audio_file?.url || data?.audio?.url || data?.audio?.[0]?.url || data?.output?.url || data?.url;
             if (firstAudio) {
               const audioRes = await fetch(firstAudio);
               if (audioRes.ok) {
@@ -4960,15 +4961,15 @@ Examples:
                 if (uploadResult?.signedUrl) {
                   audioUrl = uploadResult.signedUrl;
                   gcsPath = uploadResult.gcsPath;
-                  sfxSource = 'mirelo-ai';
+                  sfxSource = 'cassetteai';
                   sfxTitle = input.query;
-                  console.log(`[add_sfx] mirelo success: ${assetId}`);
+                  console.log(`[add_sfx] CassetteAI success: ${assetId}`);
                 }
               }
             }
           }
         } catch (mireloErr: any) {
-          console.warn(`[add_sfx] mirelo failed: ${mireloErr.message}, trying Freesound`);
+          console.warn(`[add_sfx] CassetteAI failed: ${mireloErr.message}, trying Freesound`);
         }
 
         // ─── Priority 2: Freesound library search (free, CC-licensed) ─
