@@ -253,39 +253,131 @@ function applyGraphic(
   if (!text) return null;
 
   const duration = decision.durationFrames || 90;
+  const safeText = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  // Position the graphic
+  // Position + dimensions per graphic type
   let left = canvas.width * 0.05;
   let top = canvas.height * 0.8;
   let width = canvas.width * 0.4;
-  let height = 60;
+  let height = 80;
 
-  if (graphicType === 'callout' && position) {
-    // Position near the detected subject
-    left = (position.x || 0.5) * canvas.width;
-    top = Math.max(0, ((position.y || 0.5) * canvas.height) - 80);
-    width = Math.min(canvas.width * 0.4, 400);
-  } else if (graphicType === 'stat-counter' || graphicType === 'quote-card') {
-    left = canvas.width * 0.2;
-    top = canvas.height * 0.35;
-    width = canvas.width * 0.6;
-    height = canvas.height * 0.3;
-  }
+  // ── Build HTML per graphic type (5 distinct templates) ──
+  let html = '';
 
-  // Create HTML scene overlay for the graphic — styled, not a plain text box.
-  // HTML scenes render via the existing Remotion HTML renderer with proper
-  // animation, backdrop blur, and visual polish.
-  const html = `
-<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:16px;">
-  <div style="background:rgba(0,0,0,0.75);backdrop-filter:blur(12px);border-radius:12px;padding:${graphicType === 'stat-counter' ? '24px 40px' : '12px 24px'};border:1px solid rgba(255,255,255,0.1);animation:graphicIn 0.4s ease-out forwards;">
-    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:${graphicType === 'stat-counter' ? '42px' : '20px'};font-weight:${graphicType === 'stat-counter' ? '800' : '600'};text-align:center;letter-spacing:0.02em;">
-      ${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+  switch (graphicType) {
+    case 'stat-counter': {
+      // Big number center-screen with accent bar — for statistics, percentages
+      left = canvas.width * 0.2;
+      top = canvas.height * 0.3;
+      width = canvas.width * 0.6;
+      height = canvas.height * 0.35;
+      html = `
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;">
+  <div style="background:linear-gradient(135deg,rgba(0,0,0,0.85),rgba(20,20,40,0.9));backdrop-filter:blur(16px);border-radius:16px;padding:32px 48px;border:1px solid rgba(255,255,255,0.08);box-shadow:0 20px 60px rgba(0,0,0,0.5);animation:statIn 0.5s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
+    <div style="width:40px;height:3px;background:linear-gradient(90deg,#6366f1,#8b5cf6);border-radius:2px;margin-bottom:16px;"></div>
+    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:48px;font-weight:900;text-align:center;letter-spacing:-0.02em;line-height:1.1;">
+      ${safeText}
+    </div>
+    <div style="width:40px;height:3px;background:linear-gradient(90deg,#8b5cf6,#6366f1);border-radius:2px;margin-top:16px;"></div>
+  </div>
+</div>
+<style>
+@keyframes statIn { 0% { opacity:0; transform:scale(0.8) translateY(20px); } 100% { opacity:1; transform:scale(1) translateY(0); } }
+</style>`;
+      break;
+    }
+
+    case 'callout': {
+      // Positioned near subject with arrow indicator — for product/feature callouts
+      if (position) {
+        left = Math.min(Math.max((position.x || 0.5) * canvas.width - 150, 20), canvas.width - 340);
+        top = Math.max(20, ((position.y || 0.5) * canvas.height) - 60);
+      }
+      width = 320;
+      height = 70;
+      html = `
+<div style="display:flex;align-items:center;gap:10px;width:100%;height:100%;padding:8px;">
+  <div style="width:4px;height:36px;background:#f59e0b;border-radius:2px;flex-shrink:0;animation:barIn 0.3s ease-out forwards;"></div>
+  <div style="background:rgba(0,0,0,0.8);backdrop-filter:blur(12px);border-radius:10px;padding:10px 18px;border:1px solid rgba(245,158,11,0.3);animation:callIn 0.35s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
+    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:17px;font-weight:600;letter-spacing:0.01em;">
+      ${safeText}
     </div>
   </div>
 </div>
 <style>
-@keyframes graphicIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+@keyframes callIn { 0% { opacity:0; transform:translateX(-12px); } 100% { opacity:1; transform:translateX(0); } }
+@keyframes barIn { 0% { height:0; } 100% { height:36px; } }
 </style>`;
+      break;
+    }
+
+    case 'lower-third': {
+      // Bottom-left name/title bar — for person introductions
+      left = canvas.width * 0.04;
+      top = canvas.height * 0.78;
+      width = canvas.width * 0.45;
+      height = 80;
+      html = `
+<div style="display:flex;align-items:flex-end;width:100%;height:100%;padding:8px 0;">
+  <div style="position:relative;animation:ltIn 0.4s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
+    <div style="background:rgba(255,255,255,0.95);padding:8px 24px 8px 16px;border-radius:0 8px 8px 0;">
+      <div style="color:#111;font-family:system-ui,-apple-system,sans-serif;font-size:18px;font-weight:700;letter-spacing:0.01em;">
+        ${safeText}
+      </div>
+    </div>
+    <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:#ef4444;border-radius:2px 0 0 2px;"></div>
+  </div>
+</div>
+<style>
+@keyframes ltIn { 0% { opacity:0; transform:translateX(-30px); } 100% { opacity:1; transform:translateX(0); } }
+</style>`;
+      break;
+    }
+
+    case 'quote-card': {
+      // Centered quote with quotation marks — for direct quotes, testimonials
+      left = canvas.width * 0.15;
+      top = canvas.height * 0.3;
+      width = canvas.width * 0.7;
+      height = canvas.height * 0.35;
+      html = `
+<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;">
+  <div style="background:rgba(0,0,0,0.8);backdrop-filter:blur(20px);border-radius:16px;padding:28px 36px;border:1px solid rgba(255,255,255,0.06);max-width:600px;animation:quoteIn 0.5s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
+    <div style="color:rgba(255,255,255,0.3);font-size:40px;font-family:Georgia,serif;line-height:1;margin-bottom:-8px;">\u201C</div>
+    <div style="color:#fff;font-family:Georgia,serif;font-size:22px;font-weight:400;font-style:italic;text-align:center;line-height:1.5;letter-spacing:0.01em;">
+      ${safeText}
+    </div>
+    <div style="color:rgba(255,255,255,0.3);font-size:40px;font-family:Georgia,serif;line-height:1;text-align:right;margin-top:-8px;">\u201D</div>
+  </div>
+</div>
+<style>
+@keyframes quoteIn { 0% { opacity:0; transform:scale(0.95); } 100% { opacity:1; transform:scale(1); } }
+</style>`;
+      break;
+    }
+
+    case 'keyword-highlight':
+    default: {
+      // Compact pop-up keyword — for emphasis words, topic labels, highlights
+      left = canvas.width * 0.05;
+      top = canvas.height * 0.82;
+      width = Math.min(canvas.width * 0.5, Math.max(200, safeText.length * 14 + 60));
+      height = 56;
+      html = `
+<div style="display:flex;align-items:center;width:100%;height:100%;padding:6px;">
+  <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(0,0,0,0.85);backdrop-filter:blur(12px);border-radius:8px;padding:8px 18px;border:1px solid rgba(255,255,255,0.1);animation:kwIn 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0;transform-origin:left center;">
+    <div style="width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
+    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:16px;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;">
+      ${safeText}
+    </div>
+  </div>
+</div>
+<style>
+@keyframes kwIn { 0% { opacity:0; transform:scale(0.7); } 100% { opacity:1; transform:scale(1); } }
+</style>`;
+      break;
+    }
+  }
 
   const graphicOverlay = {
     id: Date.now() + Math.floor(Math.random() * 10000),

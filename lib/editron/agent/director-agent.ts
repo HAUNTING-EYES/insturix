@@ -89,115 +89,168 @@ export async function executeDirectorPlan(
     result.checkpointId = `director_${Date.now()}`;
 
     // ─── Step 1.5: Run 5-Track Analysis → EDL → Execute ──────
-    // This is the intelligence layer. Analyze video assets, generate
-    // edit decisions, and apply them to the timeline BEFORE profile actions.
-    try {
-      onProgress?.(0, 0, 'Analyzing video assets (5-track)...');
+    // Intelligence layer with PER-ASSET error isolation.
+    // If one asset fails analysis, others still contribute to the EDL.
+    const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
+      totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
+      assetsAnalyzed: 0, assetsFailed: 0, failedAssets: [],
+    };
+    {
       const { runFullAnalysis, getAnalysis } = await import('@/lib/editron/services/five-track-analysis');
       const { generateEditDecisionList } = await import('@/lib/editron/services/reactive-edit-engine');
       const { executeEDL } = await import('@/lib/editron/services/edl-executor');
       const { detectCinematicMoments } = await import('@/lib/editron/services/cinematic-moment-detector');
 
-      // Analyze each video asset (cached — fast if already analyzed)
       const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
       const voiceoverOverlays = overlays.filter(o => o.type === 'sound' && o.row === 4).sort((a, b) => a.from - b.from);
       const analyses: any[] = [];
 
-      // Detect if this is an AI-generated project (has storyboard link)
-      const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-      const projectDoc = await db.collection('projects').findOne({ projectId }) as any;
-      const storyboardId = projectDoc?.sourceStoryboardId;
+      // ── Load storyboard metadata (non-fatal) ──
       let storyboardScenes: any[] = [];
-
-      if (storyboardId) {
-        const { getStoryboard } = await import('@/lib/pipeline/storyboard-db');
-        const sb = await getStoryboard(storyboardId, userId);
-        if (sb) {
-          storyboardScenes = sb.scenes.map(s => ({
-            sceneIndex: s.sceneIndex,
-            narration: s.descriptor.narration,
-            visualDescription: s.descriptor.visualDescription,
-            mood: s.descriptor.mood,
-            audioDescription: s.descriptor.audioDescription,
-            cameraDirection: s.descriptor.cameraDirection,
-            editDirections: s.descriptor.editDirections,
-          }));
-          console.log(`[Director] Found storyboard ${storyboardId} with ${storyboardScenes.length} scenes`);
+      try {
+        const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+        const projectDoc = await db.collection('projects').findOne({ projectId }) as any;
+        const storyboardId = projectDoc?.sourceStoryboardId;
+        if (storyboardId) {
+          const { getStoryboard } = await import('@/lib/pipeline/storyboard-db');
+          const sb = await getStoryboard(storyboardId, userId);
+          if (sb) {
+            storyboardScenes = sb.scenes.map(s => ({
+              sceneIndex: s.sceneIndex,
+              narration: s.descriptor.narration,
+              visualDescription: s.descriptor.visualDescription,
+              mood: s.descriptor.mood,
+              audioDescription: s.descriptor.audioDescription,
+              cameraDirection: s.descriptor.cameraDirection,
+              editDirections: s.descriptor.editDirections,
+            }));
+            console.log(`[Director] Found storyboard with ${storyboardScenes.length} scenes`);
+          }
         }
+      } catch (sbErr: any) {
+        console.warn(`[Director] Storyboard load failed (non-fatal): ${sbErr.message}`);
       }
 
       const isAIProject = storyboardScenes.length > 0;
 
+      // ── Per-asset analysis with INDIVIDUAL error isolation ──
+      onProgress?.(0, 0, `Analyzing ${videoOverlays.length} video assets (5-track)...`);
+
       for (let i = 0; i < videoOverlays.length; i++) {
         const vo = videoOverlays[i];
         const assetId = (vo as any).assetId;
-        if (!assetId) continue;
-
-        // Check cache first
-        let analysis = await getAnalysis(assetId);
-        if (!analysis) {
-          const videoUrl = (vo as any).src || (vo as any).content;
-          if (videoUrl) {
-            const durationMs = (vo.durationInFrames / 30) * 1000;
-
-            // Get voiceover text for this scene (word timestamps from TTS)
-            const matchingVO = voiceoverOverlays[i];
-            const storyboardScene = isAIProject ? storyboardScenes[i] : undefined;
-            const narrationText = storyboardScene?.narration || '';
-
-            // Build synthetic word timestamps from narration if no real transcription
-            const words = narrationText ? narrationText.split(/\s+/).map((w: string, idx: number, arr: string[]) => {
-              const wordDurationMs = durationMs / arr.length;
-              return { word: w, startMs: idx * wordDurationMs, endMs: (idx + 1) * wordDurationMs };
-            }) : undefined;
-
-            analysis = await runFullAnalysis(assetId, userId, {
-              videoUrl,
-              durationMs,
-              transcript: narrationText || undefined,
-              words,
-              storyboardScene,
-              sourceType: isAIProject ? 'ai-generated' : 'real-footage',
-            });
-          }
+        if (!assetId) {
+          console.warn(`[Director] Scene ${i}: no assetId, skipping analysis`);
+          edlSummary.assetsFailed++;
+          edlSummary.failedAssets.push(`scene_${i}:no_assetId`);
+          continue;
         }
-        if (analysis) analyses.push(analysis);
+
+        try {
+          // Check cache first
+          let analysis = await getAnalysis(assetId);
+          if (analysis) {
+            console.log(`[Director] Scene ${i} (${assetId}): analysis CACHED`);
+            analyses.push(analysis);
+            edlSummary.assetsAnalyzed++;
+            continue;
+          }
+
+          const videoUrl = (vo as any).src || (vo as any).content;
+          if (!videoUrl) {
+            console.warn(`[Director] Scene ${i} (${assetId}): no video URL, skipping`);
+            edlSummary.assetsFailed++;
+            edlSummary.failedAssets.push(`${assetId}:no_url`);
+            continue;
+          }
+
+          const durationMs = (vo.durationInFrames / 30) * 1000;
+          const storyboardScene = isAIProject ? storyboardScenes[i] : undefined;
+          const narrationText = storyboardScene?.narration || '';
+
+          const words = narrationText ? narrationText.split(/\s+/).map((w: string, idx: number, arr: string[]) => {
+            const wordDurationMs = durationMs / arr.length;
+            return { word: w, startMs: idx * wordDurationMs, endMs: (idx + 1) * wordDurationMs };
+          }) : undefined;
+
+          onProgress?.(0, 0, `Analyzing scene ${i + 1}/${videoOverlays.length}...`);
+
+          analysis = await runFullAnalysis(assetId, userId, {
+            videoUrl,
+            durationMs,
+            transcript: narrationText || undefined,
+            words,
+            storyboardScene,
+            sourceType: isAIProject ? 'ai-generated' : 'real-footage',
+          });
+
+          if (analysis) {
+            analyses.push(analysis);
+            edlSummary.assetsAnalyzed++;
+            console.log(`[Director] Scene ${i} (${assetId}): analysis SUCCESS`);
+          } else {
+            edlSummary.assetsFailed++;
+            edlSummary.failedAssets.push(`${assetId}:null_result`);
+            console.warn(`[Director] Scene ${i} (${assetId}): analysis returned null`);
+          }
+        } catch (assetErr: any) {
+          edlSummary.assetsFailed++;
+          edlSummary.failedAssets.push(`${assetId}:${assetErr.message?.slice(0, 60)}`);
+          console.warn(`[Director] Scene ${i} (${assetId}): analysis FAILED: ${assetErr.message}`);
+          // Continue to next asset — don't abort the whole intelligence layer
+        }
       }
 
+      // ── Generate + Execute EDL from whatever we got ──
       if (analyses.length > 0) {
-        // Generate Edit Decision List
-        const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
-        const edl = generateEditDecisionList(analyses, totalDurationMs, {
-          targetCutsPerMinute: effectiveProfile.cutFrequencyTarget
-            ? 60 / effectiveProfile.cutFrequencyTarget
-            : 6,
-          transitionStyle: effectiveProfile.defaultTransition?.type === 'dissolve' ? 'dissolve'
-            : effectiveProfile.defaultTransition?.type === 'hard-cut' ? 'hard-cut'
-            : 'mixed',
-          graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
-          pacing: effectiveProfile.pacing || 'medium',
-        });
+        try {
+          onProgress?.(0, 0, `Generating edit decisions from ${analyses.length} analyzed assets...`);
+          const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
+          const edl = generateEditDecisionList(analyses, totalDurationMs, {
+            targetCutsPerMinute: effectiveProfile.cutFrequencyTarget
+              ? 60 / effectiveProfile.cutFrequencyTarget
+              : 6,
+            transitionStyle: effectiveProfile.defaultTransition?.type === 'dissolve' ? 'dissolve'
+              : effectiveProfile.defaultTransition?.type === 'hard-cut' ? 'hard-cut'
+              : 'mixed',
+            graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
+            pacing: effectiveProfile.pacing || 'medium',
+          });
 
-        // Detect cinematic moments
-        const moments = analyses.flatMap(a => detectCinematicMoments(a));
+          const moments = analyses.flatMap(a => detectCinematicMoments(a));
+          const canvas = project.playerDimensions || { width: 1920, height: 1080 };
+          const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas);
 
-        // Execute EDL decisions on the overlay array
-        const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-        const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas);
+          // Build summary by decision type
+          for (const d of edl.decisions) {
+            edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
+          }
+          edlSummary.totalDecisions = edl.totalDecisions;
+          edlSummary.executed = edlResult.decisionsExecuted;
+          edlSummary.skipped = edlResult.decisionsSkipped;
+          edlSummary.cinematicMoments = moments.length;
 
-        console.log(`[Director] 5-Track: ${analyses.length} assets analyzed, ${edl.totalDecisions} decisions, ${edlResult.decisionsExecuted} executed, ${moments.length} cinematic moments`);
-        result.overlaysModified += edlResult.overlaysModified + edlResult.overlaysCreated;
+          result.overlaysModified += edlResult.overlaysModified + edlResult.overlaysCreated;
 
-        if (edlResult.errors.length > 0) {
-          result.warnings.push(...edlResult.errors.slice(0, 3));
+          if (edlResult.errors.length > 0) {
+            result.warnings.push(...edlResult.errors.slice(0, 3));
+          }
+
+          console.log(`[Director] 5-Track complete: ${edlSummary.assetsAnalyzed}/${videoOverlays.length} analyzed, ${edlSummary.totalDecisions} decisions (${edlSummary.executed} executed), ${moments.length} cinematic moments`);
+        } catch (edlErr: any) {
+          console.warn(`[Director] EDL generation/execution failed: ${edlErr.message}`);
+          result.warnings.push(`EDL: ${edlErr.message}`);
         }
       } else {
-        console.log('[Director] No video assets to analyze, skipping 5-track');
+        console.log(`[Director] No assets analyzed (${edlSummary.assetsFailed} failed), skipping intelligence`);
+        if (edlSummary.assetsFailed > 0) {
+          result.warnings.push(`Intelligence: 0/${videoOverlays.length} assets analyzed (${edlSummary.failedAssets.join(', ')})`);
+        }
       }
-    } catch (analysisErr: any) {
-      console.warn('[Director] 5-Track analysis failed (non-fatal):', analysisErr.message);
-      result.warnings.push(`Analysis: ${analysisErr.message}`);
     }
+
+    // Attach EDL summary to result for frontend inspection
+    (result as any).edlSummary = edlSummary;
 
     // ─── Step 2: Check conditions and filter actions ──────────
     const actions = effectiveProfile.actions
