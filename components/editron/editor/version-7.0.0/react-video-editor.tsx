@@ -4,6 +4,7 @@
 import { SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "./components/sidebar/app-sidebar";
 import { Editor } from "./components/core/editor";
+import { VideoRegenBanner } from "./components/core/video-regen-banner";
 import { SidebarProvider as UISidebarProvider } from "@/components/ui/sidebar";
 import { SidebarProvider as EditorSidebarProvider } from "./contexts/sidebar-context";
 
@@ -287,6 +288,18 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
                 <AssetLoadingProvider>
                   <AppSidebar />
                   <SidebarInset className="relative">
+                    <VideoRegenBanner
+                      projectId={projectId}
+                      onOverlaysRefresh={async () => {
+                        try {
+                          const res = await fetch(`/api/services/editron/projects/${projectId}`);
+                          if (res.ok) {
+                            const data = await res.json();
+                            if (data?.project?.overlays) setOverlays(data.project.overlays);
+                          }
+                        } catch {}
+                      }}
+                    />
                     <Editor />
                     {/* AI Processing Overlay */}
                     <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/50 backdrop-blur-sm transition-opacity duration-300 ${isAIProcessing ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
