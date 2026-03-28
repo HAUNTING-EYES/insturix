@@ -195,6 +195,8 @@ export async function POST(
             aspectRatio,
             referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
             videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+            cameraDirection: scene.descriptor.cameraDirection,
+            transitionHint: (scene.descriptor as any).editDirections?.transition,
           };
           motionPrompt = await refineVideoPrompt(promptContext);
           console.log(`[generate-videos] Scene ${scene.sceneIndex}: prompt refined (${motionPrompt.length} chars)`);

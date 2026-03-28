@@ -162,7 +162,7 @@ export function buildStoryboardPrompt(
  * Build a negative prompt from style guide (things to avoid).
  */
 export function buildNegativePrompt(styleGuide?: StyleGuide): string {
-  const base = 'blurry, low quality, distorted, deformed, watermark, text overlay, logo, bad anatomy, extra limbs';
+  const base = 'blurry, low quality, low resolution, pixelated, distorted, deformed, disfigured, watermark, text overlay, logo, subtitles, bad anatomy, extra limbs, extra fingers, fused fingers, missing fingers, duplicate subject, collage, split screen, multiple panels, grid layout, side by side, tiled, comic strip, plastic skin, mannequin-like, uncanny valley';
   if (styleGuide?.negativePrompt) {
     return `${base}, ${styleGuide.negativePrompt}`;
   }

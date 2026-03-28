@@ -152,6 +152,19 @@ export interface VideoGenerationResult {
  * Do NOT change these without checking the model's API page first:
  *   https://fal.ai/models/{model-id}/api
  */
+// Standard negative prompt for ALL video models that support it.
+// Prevents common AI video artifacts: morphing, garbled text, limb distortion, etc.
+const VIDEO_NEGATIVE_PROMPT = [
+  'blur, blurry, out of focus, low quality, low resolution, pixelated',
+  'distorted, deformed, disfigured, morphing, melting, warping',
+  'bad anatomy, extra limbs, extra fingers, missing fingers, fused fingers',
+  'unnatural movement, jittery, flickering, strobing',
+  'text overlay, watermark, logo, subtitles, UI elements',
+  'uncanny valley, plastic skin, dead eyes, mannequin-like',
+  'inconsistent lighting, sudden exposure change',
+  'duplicate subject, clone artifacts, ghost images',
+].join(', ');
+
 function buildFalVideoInput(
   modelKey: FalVideoModel,
   imageUrl: string,
@@ -173,7 +186,7 @@ function buildFalVideoInput(
     case 'kling-2.6':
       base.start_image_url = imageUrl;
       base.duration = duration >= 8 ? '10' : '5'; // Snap to nearest valid enum
-      base.negative_prompt = 'blur, distort, and low quality';
+      base.negative_prompt = VIDEO_NEGATIVE_PROMPT;
       base.generate_audio = false; // we handle audio separately
       // Cross-scene chaining: end frame transitions toward next scene
       if (nextSceneImageUrl) base.end_image_url = nextSceneImageUrl;
@@ -189,7 +202,7 @@ function buildFalVideoInput(
       base.duration = duration >= 8 ? '10' : '5'; // Snap to nearest valid enum
       base.aspect_ratio = aspectRatio;
       base.cfg_scale = 0.5;
-      base.negative_prompt = 'blur, distort, and low quality';
+      base.negative_prompt = VIDEO_NEGATIVE_PROMPT;
       // Cross-scene chaining: tail frame transitions toward next scene
       if (nextSceneImageUrl) base.tail_image_url = nextSceneImageUrl;
       break;
@@ -234,6 +247,7 @@ function buildFalVideoInput(
         ? aspectRatio : 'auto';
       base.resolution = '720p';
       base.generate_audio = false; // we handle audio separately
+      base.negative_prompt = VIDEO_NEGATIVE_PROMPT;
       // Map duration to nearest Veo enum: 4s, 6s, or 8s
       if (duration <= 4) base.duration = '4s';
       else if (duration <= 6) base.duration = '6s';
@@ -250,6 +264,7 @@ function buildFalVideoInput(
       base.resolution = '720p';
       base.aspect_ratio = (aspectRatio === '16:9' || aspectRatio === '9:16') ? aspectRatio : 'auto';
       base.video_quality = 'high';
+      base.negative_prompt = VIDEO_NEGATIVE_PROMPT;
       if (nextSceneImageUrl) base.end_image_url = nextSceneImageUrl;
       break;
 
@@ -263,6 +278,7 @@ function buildFalVideoInput(
       base.aspect_ratio = (aspectRatio === '16:9' || aspectRatio === '9:16') ? aspectRatio : 'auto';
       base.fps = 25;
       base.generate_audio = false; // we handle audio separately
+      base.negative_prompt = VIDEO_NEGATIVE_PROMPT;
       if (nextSceneImageUrl) base.end_image_url = nextSceneImageUrl;
       break;
 
@@ -280,6 +296,37 @@ function buildFalVideoInput(
 /**
  * Extract the video URL from fal.ai response — different models nest it differently.
  */
+/**
+ * Compute the ACTUAL duration the model will produce, given requested duration.
+ * Each model snaps to fixed enum values — this returns what the model actually generates.
+ */
+function getActualModelDuration(modelKey: FalVideoModel, requestedDuration: number): number {
+  switch (modelKey) {
+    case 'kling-2.6':
+    case 'kling-2.1':
+    case 'kling-1.5':
+      return requestedDuration >= 8 ? 10 : 5;
+    case 'veo-3.1':
+    case 'veo-3':
+    case 'veo-2':
+      if (requestedDuration <= 4) return 4;
+      if (requestedDuration <= 6) return 6;
+      return 8;
+    case 'luma-ray2':
+    case 'luma-dream-machine':
+      return requestedDuration >= 7 ? 9 : 5;
+    case 'wan-2.2':
+      // Wan uses num_frames at 16fps, 17-161 frames → 1.06s-10.06s
+      return Math.min(Math.max(Math.round(requestedDuration * 16), 17), 161) / 16;
+    case 'ltx-2.3':
+      return Math.min(Math.max(Math.round(requestedDuration), 6), 10);
+    case 'minimax':
+      return requestedDuration; // MiniMax doesn't expose duration control
+    default:
+      return requestedDuration >= 8 ? 10 : 5;
+  }
+}
+
 function extractVideoUrl(data: any): string | null {
   return (
     data?.video?.url ||
@@ -378,14 +425,18 @@ async function generateVideoWithFal(
   const filename = `${assetId}.mp4`;
   const uploadResult = await uploadToGCS(buffer, userId, filename, 'video/mp4');
 
-  console.log(`[VideoGen] Scene complete: model=${modelKey}, totalMs=${Date.now() - startTime}, assetId=${assetId}`);
+  // Use the ACTUAL model output duration, not the requested duration.
+  // Models snap to fixed enums (Kling: 5/10s, Veo: 4/6/8s, etc.)
+  // Using requested duration causes scene stretching in the timeline.
+  const actualDuration = getActualModelDuration(modelKey, duration);
+  console.log(`[VideoGen] Scene complete: model=${modelKey}, requested=${duration}s, actual=${actualDuration}s, totalMs=${Date.now() - startTime}, assetId=${assetId}`);
 
   return {
     videoUrl: uploadResult.signedUrl,
     gcsPath: uploadResult.gcsPath,
     assetId,
     provider: 'fal-ai',
-    durationMs: duration * 1000,
+    durationMs: actualDuration * 1000,
   };
 }
 

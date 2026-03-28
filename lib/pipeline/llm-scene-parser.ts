@@ -316,6 +316,10 @@ export interface VideoPromptContext {
   }>;
   /** LLM-generated video quality tokens */
   videoQualityTokens?: string;
+  /** Camera rig from script editDirections (e.g., "tracking shot", "static tripod", "handheld") */
+  cameraDirection?: string;
+  /** Transition hint from script editDirections (e.g., "dissolve to next", "hard cut") */
+  transitionHint?: string;
 }
 
 /**
@@ -351,6 +355,8 @@ NEVER add explanations, NEVER say "here is the prompt". Just the raw optimized p
 === SCENE CONTEXT ===
 What the starting image shows: ${context.visualDescription.substring(0, 400)}
 Initial motion direction: ${context.videoMotionPrompt || 'Not specified — infer from scene'}
+${context.cameraDirection ? `Script camera direction: ${context.cameraDirection} — HONOR this rig choice.` : ''}
+${context.transitionHint ? `Scene ends with: ${context.transitionHint} — shape the motion to support this transition.` : ''}
 Scene narration: ${context.narration?.substring(0, 800) || 'No narration'}
 Mood: ${context.mood || 'neutral'}
 Duration: ${context.durationSeconds}s
