@@ -110,7 +110,7 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
   showBeatMarkers,
 }) => {
   const { visibleRows } = useTimeline();
-  const { projectId, setOverlays } = useEditorContext();
+  const { projectId, setOverlays, addOverlay } = useEditorContext();
 
   // Create a memoized selectedItem object
   const selectedItem = useMemo(
@@ -251,17 +251,115 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
     setTimeout(() => setActionStatus(null), 2500);
   }, [overlays, totalDuration, projectId, setOverlays]);
 
+  // Handle asset drop from Asset Library panel
+  const handleAssetDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    const assetData = e.dataTransfer.getData('application/editron-asset');
+    if (!assetData) return;
+
+    e.preventDefault();
+    try {
+      const asset = JSON.parse(assetData);
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left + e.currentTarget.scrollLeft;
+      const y = e.clientY - rect.top;
+      const dropFrame = Math.round((x / e.currentTarget.scrollWidth) * totalDuration);
+      const targetRow = Math.max(0, Math.min(visibleRows - 1, Math.floor(y / ROW_HEIGHT)));
+
+      const fps = 30;
+      const durationFrames = asset.duration ? Math.round(asset.duration * fps) : 150;
+
+      // Determine segment props if this is a segment
+      const segmentStart = asset.segmentStart || 0;
+      const segmentEnd = asset.segmentEnd || undefined;
+      const segmentDuration = segmentEnd
+        ? Math.round((segmentEnd - segmentStart) * fps)
+        : durationFrames;
+
+      let newOverlay: any;
+
+      if (asset.type === 'audio') {
+        newOverlay = {
+          id: Date.now(),
+          type: 'sound',
+          from: dropFrame,
+          durationInFrames: segmentDuration,
+          row: targetRow,
+          left: 0, top: 0, width: 0, height: 0,
+          isDragging: false, rotation: 0,
+          assetId: asset.assetId,
+          src: asset.path,
+          content: asset.name,
+          startFromSound: Math.round(segmentStart * fps),
+          styles: { volume: 1 },
+        };
+      } else if (asset.type === 'video') {
+        newOverlay = {
+          id: Date.now(),
+          type: 'video',
+          from: dropFrame,
+          durationInFrames: segmentDuration,
+          row: targetRow,
+          left: 0, top: 0,
+          width: asset.dimensions?.width || 1920,
+          height: asset.dimensions?.height || 1080,
+          isDragging: false, rotation: 0,
+          assetId: asset.assetId,
+          src: asset.path,
+          content: asset.thumbnail || '',
+          videoStartTime: Math.round(segmentStart * fps),
+          styles: { opacity: 1, objectFit: 'cover' },
+        };
+      } else if (asset.type === 'image') {
+        newOverlay = {
+          id: Date.now(),
+          type: 'image',
+          from: dropFrame,
+          durationInFrames: 150, // 5 seconds for images
+          row: targetRow,
+          left: 0, top: 0,
+          width: asset.dimensions?.width || 1920,
+          height: asset.dimensions?.height || 1080,
+          isDragging: false, rotation: 0,
+          assetId: asset.assetId,
+          src: asset.path,
+          content: asset.path,
+          styles: { objectFit: 'cover' },
+        };
+      }
+
+      if (newOverlay) {
+        addOverlay(newOverlay);
+        setActionStatus(`Added ${asset.name} to timeline`);
+        setTimeout(() => setActionStatus(null), 2000);
+      }
+    } catch (err) {
+      console.error('[AssetDrop] Failed:', err);
+      setActionStatus('Failed to add asset');
+      setTimeout(() => setActionStatus(null), 2500);
+    }
+  }, [totalDuration, visibleRows, addOverlay]);
+
+  // Combined drop handler
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    if (e.dataTransfer.types.includes('application/editron-transition')) {
+      handleTransitionDrop(e);
+    } else if (e.dataTransfer.types.includes('application/editron-asset')) {
+      handleAssetDrop(e);
+    }
+  }, [handleTransitionDrop, handleAssetDrop]);
+
   return (
     <div
       className="relative overflow-x-auto overflow-y-hidden bg-[hsl(var(--background))] h-full"
       style={{ height: `${visibleRows * ROW_HEIGHT}px` }}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('application/editron-transition')) {
+        if (e.dataTransfer.types.includes('application/editron-transition') ||
+            e.dataTransfer.types.includes('application/editron-asset')) {
           e.preventDefault();
           e.dataTransfer.dropEffect = 'copy';
         }
       }}
-      onDrop={handleTransitionDrop}
+      onDrop={handleDrop}
     >
       {/* Action status banner (transition drop, etc.) */}
       {actionStatus && (

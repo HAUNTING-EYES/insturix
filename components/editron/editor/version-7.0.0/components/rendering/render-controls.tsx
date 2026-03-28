@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, Loader2, Bell, Save, X } from "lucide-react";
+import { Download, Loader2, Bell, Save, X, Layers, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -319,6 +319,40 @@ const RenderControls: React.FC<RenderControlsProps> = ({
         >
           <X className="w-3.5 h-3.5" />
         </Button>
+      )}
+
+      {/* Chapter rendering indicator — shows when render uses chapter mode */}
+      {state.chapterCount > 0 && (state.status === "rendering" || state.status === "invoking") && (
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-900/30 border border-indigo-800/50 rounded-md">
+          <Layers className="w-3 h-3 text-indigo-400" />
+          <span className="text-[10px] text-indigo-300 font-medium">
+            {state.chapterCount} chapters
+          </span>
+          {state.chapterProgress && (
+            <div className="flex gap-0.5 ml-1">
+              {state.chapterProgress.map((cp: { index: number; status: string; progress: number }, i: number) => (
+                <div
+                  key={i}
+                  className={`w-1.5 h-3 rounded-[1px] ${
+                    cp.status === 'completed' ? 'bg-emerald-500' :
+                    cp.status === 'rendering' ? 'bg-indigo-400 animate-pulse' :
+                    cp.status === 'failed' ? 'bg-red-500' :
+                    'bg-zinc-600'
+                  }`}
+                  title={`Chapter ${i + 1}: ${cp.status}${cp.progress ? ` (${Math.round(cp.progress)}%)` : ''}`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Long video info — shown when not rendering but project > 3 min */}
+      {state.totalFrames > 5400 && state.status !== "rendering" && state.status !== "invoking" && (
+        <div className="flex items-center gap-1 text-[10px] text-zinc-500" title="Videos over 3 minutes use parallel chapter rendering for faster export">
+          <Info className="w-3 h-3" />
+          <span>Chapter render (parallel)</span>
+        </div>
       )}
     </>
   );

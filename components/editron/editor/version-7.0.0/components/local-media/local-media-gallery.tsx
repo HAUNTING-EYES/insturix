@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, lazy } from "react";
+
+const SegmentExtractorLazy = lazy(() => import("../asset-library/segment-extractor"));
 import { useLocalMedia } from "../../contexts/local-media-context";
 import { formatBytes, formatDuration } from "../../utils/format-utils";
 import { Button } from "@/components/ui/button";
@@ -417,19 +419,42 @@ export function LocalMediaGallery({
         </TabsContent>
       </Tabs>
 
-      {/* Media Preview Dialog */}
+      {/* Media Preview Dialog — with Segment Extraction for video/audio */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-2xl rounded-xl p-8 sm:p-8">
-          <DialogHeader className="mb-4">
-            <DialogTitle>{selectedFile?.name}</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-w-2xl rounded-xl p-6 sm:p-8">
+          <DialogHeader className="mb-3">
+            <DialogTitle className="text-sm">{selectedFile?.name}</DialogTitle>
+            <DialogDescription className="text-xs">
               {selectedFile?.type} • {formatBytes(selectedFile?.size)}
+              {selectedFile?.duration ? ` • ${formatDuration(selectedFile.duration)}` : ''}
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-center">{renderPreviewContent()}</div>
-          <div className="flex justify-end mt-4">
+
+          {/* Show segment extractor for video/audio, normal preview for images */}
+          {selectedFile?.duration && (selectedFile?.type === 'video' || selectedFile?.type === 'audio') ? (
+            <React.Suspense fallback={<div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
+              <SegmentExtractorLazy
+                asset={{
+                  assetId: selectedFile.assetId || selectedFile.id,
+                  name: selectedFile.name,
+                  type: selectedFile.type,
+                  path: selectedFile.path,
+                  duration: selectedFile.duration,
+                  thumbnail: selectedFile.thumbnail,
+                }}
+                onClose={() => setPreviewOpen(false)}
+              />
+            </React.Suspense>
+          ) : (
+            <div className="flex justify-center">{renderPreviewContent()}</div>
+          )}
+
+          <div className="flex justify-end mt-3 gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPreviewOpen(false)}>
+              Close
+            </Button>
             <Button variant="default" size="sm" onClick={handleAddToTimeline}>
-              Add to Timeline
+              Add Full Asset to Timeline
             </Button>
           </div>
         </DialogContent>
