@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { useLocalMedia } from "../../contexts/local-media-context";
 import { formatBytes, formatDuration } from "../../utils/format-utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Upload, Trash2, Image, Video, Music } from "lucide-react";
+import { Loader2, Upload, Trash2, Image, Video, Music, Search, Tag } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -37,7 +37,41 @@ export function LocalMediaGallery({
   const [selectedFile, setSelectedFile] = useState<any>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const searchTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  // Semantic search with debounce
+  const handleSearch = useCallback(async (query: string) => {
+    setSearchQuery(query);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+
+    if (!query.trim()) {
+      setSearchResults(null);
+      return;
+    }
+
+    searchTimeout.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch('/api/services/editron/media/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: query.trim(), limit: 20 }),
+        });
+        const data = await res.json();
+        if (data.success && data.results) {
+          setSearchResults(data.results);
+        }
+      } catch (err) {
+        console.error('[AssetSearch] Failed:', err);
+      } finally {
+        setSearching(false);
+      }
+    }, 400); // 400ms debounce
+  }, []);
 
   // Filter media files based on active tab
   const filteredMedia = localMediaFiles.filter((file) => {
@@ -142,13 +176,27 @@ export function LocalMediaGallery({
 
   // Render media item
   const renderMediaItem = (file: any) => {
-    console.log(file);
     return (
       <div
         key={file.id}
-        className="relative group/item border dark:border-gray-700 border-gray-200 rounded-md overflow-hidden cursor-pointer 
-          hover:border-zinc-500 dark:hover:border-zinc-400 transition-all 
+        className="relative group/item border dark:border-gray-700 border-gray-200 rounded-md overflow-hidden cursor-pointer
+          hover:border-zinc-500 dark:hover:border-zinc-400 transition-all
           bg-white dark:bg-gray-800/80 shadow-sm hover:shadow-md"
+        draggable
+        onDragStart={(e) => {
+          // Encode asset data for timeline drop
+          e.dataTransfer.setData('application/editron-asset', JSON.stringify({
+            assetId: file.assetId || file.id,
+            type: file.type,
+            name: file.name,
+            path: file.path,
+            thumbnail: file.thumbnail,
+            duration: file.duration,
+            dimensions: file.dimensions,
+            size: file.size,
+          }));
+          e.dataTransfer.effectAllowed = 'copy';
+        }}
         onClick={() => handleMediaSelect(file)}
       >
         {/* Thumbnail */}
@@ -184,9 +232,29 @@ export function LocalMediaGallery({
           <p className="text-sm font-medium truncate text-gray-900 dark:text-gray-100">
             {file.name}
           </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {formatBytes(file.size)}
-          </p>
+          <div className="flex items-center gap-1 mt-0.5">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {formatBytes(file.size)}
+            </p>
+            {file.score != null && (
+              <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-medium">
+                {Math.round(file.score * 100)}%
+              </span>
+            )}
+          </div>
+          {/* Tags */}
+          {file.tags?.length > 0 && (
+            <div className="flex flex-wrap gap-0.5 mt-1">
+              {file.tags.slice(0, 3).map((tag: string) => (
+                <span key={tag} className="text-[9px] px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
+                  {tag}
+                </span>
+              ))}
+              {file.tags.length > 3 && (
+                <span className="text-[9px] text-zinc-400">+{file.tags.length - 3}</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Delete button */}
@@ -235,6 +303,19 @@ export function LocalMediaGallery({
             disabled={isLoading}
           />
         </div>
+      </div>
+
+      {/* Semantic Search */}
+      <div className="relative mb-2">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+        <input
+          type="text"
+          placeholder="Search assets... (e.g. 'close-up of product')"
+          value={searchQuery}
+          onChange={(e) => handleSearch(e.target.value)}
+          className="w-full pl-8 pr-3 py-1.5 text-xs bg-muted/50 border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/60"
+        />
+        {searching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 animate-spin text-muted-foreground" />}
       </div>
 
       {uploadError && (
@@ -314,8 +395,22 @@ export function LocalMediaGallery({
                 Upload Asset
               </Button>
             </div>
+          ) : searchResults ? (
+            <div>
+              <div className="text-[10px] text-muted-foreground mb-2 px-1">
+                {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for "{searchQuery}"
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-2 gap-2">
+                {searchResults.map((r: any) => renderMediaItem({
+                  ...r,
+                  id: r.assetId,
+                  name: r.filename,
+                  path: r.url,
+                }))}
+              </div>
+            </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-2 gap-2 ">
+            <div className="grid grid-cols-2 sm:grid-cols-2 gap-2">
               {filteredMedia.map(renderMediaItem)}
             </div>
           )}

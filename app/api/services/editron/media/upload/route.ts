@@ -106,6 +106,40 @@ export async function POST(request: NextRequest) {
     const db = await getDatabase();
     await db.collection(COLLECTIONS.MEDIA_ASSETS).insertOne(mediaAsset);
 
+    // ── Trigger async asset analysis via QStash ──
+    // Runs 5-Track analysis (video), Gemini Vision (image), or basic tagging (audio)
+    // in background. Does NOT block upload response.
+    try {
+      const qstashToken = process.env.QSTASH_TOKEN;
+      const baseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+
+      if (qstashToken) {
+        await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(`${baseUrl}/api/internal/workers/asset-analysis`), {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${qstashToken}`,
+            'Content-Type': 'application/json',
+            'Upstash-Retries': '2',
+            'Upstash-Timeout': '300',
+          },
+          body: JSON.stringify({
+            assetId,
+            userId,
+            type: fileType,
+            url: readUrl,
+            duration: duration ? parseFloat(duration) : undefined,
+            filename,
+          }),
+        });
+        console.log(`[Upload] Dispatched analysis worker for ${assetId}`);
+      }
+    } catch (qErr: any) {
+      // Non-fatal — asset is uploaded even if analysis dispatch fails
+      console.warn(`[Upload] Analysis dispatch failed: ${qErr.message}`);
+    }
+
     return NextResponse.json({
       success: true,
       assetId,
