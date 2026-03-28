@@ -135,6 +135,32 @@ async function handler(request: NextRequest) {
       console.warn(`[VideoWorker] Project overlay update failed (non-fatal): ${projErr.message}`);
     }
 
+    // Run video quality check — detect AI slop before accepting the clip.
+    // If quality is too low, log it and flag for potential regeneration.
+    try {
+      const { checkVideoQuality } = await import('@/lib/pipeline/consistency-scoring-service');
+      const qualityResult = await checkVideoQuality(result.videoUrl, imageUrl);
+
+      // Store quality score on the job
+      await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
+        { _id: jobId },
+        { $set: { qualityScore: qualityResult.score, qualityIssues: qualityResult.issues } },
+      );
+
+      if (qualityResult.shouldRegenerate) {
+        console.warn(`[VideoWorker] LOW QUALITY (${qualityResult.score}/100) for scene ${sceneIndex}: ${qualityResult.issues.join(', ')}`);
+        // Store flag — the Director or UI can offer regeneration
+        await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
+          { _id: jobId },
+          { $set: { qualityFlag: 'low', qualityShouldRegenerate: true } },
+        );
+      } else {
+        console.log(`[VideoWorker] Quality OK (${qualityResult.score}/100) for scene ${sceneIndex}`);
+      }
+    } catch (qualityErr: any) {
+      console.warn(`[VideoWorker] Quality check failed (non-fatal): ${qualityErr.message}`);
+    }
+
     // Run 5-Track analysis on the generated video immediately.
     // Analysis is cached in MongoDB — Director reads it instantly later.
     // This removes analysis from the Director's time budget entirely.

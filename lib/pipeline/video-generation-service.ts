@@ -132,6 +132,8 @@ export interface VideoGenerationRequest {
   falVideoModel?: FalVideoModel;
   /** Next scene's storyboard image URL — used as tail/end frame for smooth cross-scene transitions */
   nextSceneImageUrl?: string;
+  /** Reference subject images for IP-Adapter consistency (Kling 2.6 only) */
+  referenceImageUrls?: Array<{ url: string; weight?: number }>;
 }
 
 export interface VideoGenerationResult {
@@ -172,6 +174,7 @@ function buildFalVideoInput(
   duration: number,
   aspectRatio: string,
   nextSceneImageUrl?: string,
+  referenceImageUrls?: Array<{ url: string; weight?: number }>,
 ): Record<string, any> {
   const base: Record<string, any> = {
     prompt,
@@ -190,6 +193,13 @@ function buildFalVideoInput(
       base.generate_audio = false; // we handle audio separately
       // Cross-scene chaining: end frame transitions toward next scene
       if (nextSceneImageUrl) base.end_image_url = nextSceneImageUrl;
+      // IP-Adapter for subject consistency — only Kling 2.6 supports this.
+      // Reference images anchor character/product appearance across scenes.
+      if (referenceImageUrls && referenceImageUrls.length > 0) {
+        base.subject_reference_image_urls = referenceImageUrls
+          .slice(0, 4) // Kling supports up to 4 reference images
+          .map(r => r.url);
+      }
       break;
 
     // ─── Kling 2.1 Pro / 1.5 Pro ──────────────────────────────
@@ -362,6 +372,17 @@ async function generateVideoWithFal(
   const cleanMs = Date.now() - startTime;
   console.log(`[VideoGen] Scene: model=${modelKey}, duration=${duration}s, cleanUrl=${cleanMs}ms, chained=${!!nextSceneImageUrl}, imageUrl=${imageUrl.substring(0, 80)}...`);
 
+  // Clean reference image URLs too (for IP-Adapter on Kling 2.6)
+  let cleanedRefImages: Array<{ url: string; weight?: number }> | undefined;
+  if (request.referenceImageUrls && request.referenceImageUrls.length > 0 && modelKey === 'kling-2.6') {
+    cleanedRefImages = await Promise.all(
+      request.referenceImageUrls.slice(0, 4).map(async (r) => ({
+        url: await getCleanImageUrl(r.url),
+        weight: r.weight,
+      })),
+    );
+  }
+
   const input = buildFalVideoInput(
     modelKey,
     imageUrl,
@@ -369,6 +390,7 @@ async function generateVideoWithFal(
     duration,
     request.aspectRatio || '16:9',
     nextSceneImageUrl,
+    cleanedRefImages,
   );
 
   // Log the exact input being sent to fal.ai for debugging
@@ -657,8 +679,10 @@ export function buildMotionPrompt(scene: {
   mood?: string;
   videoMotionPrompt?: string;
   videoQualityTokens?: string;
+  artStyle?: string;
 }): string {
   const parts: string[] = [];
+  const style = (scene.artStyle || 'cinematic').toLowerCase();
 
   // Prefer LLM-generated motion prompt (already optimized for video AI)
   if (scene.videoMotionPrompt) {
@@ -668,8 +692,37 @@ export function buildMotionPrompt(scene: {
     if (scene.cameraDirection) {
       parts.push(scene.cameraDirection);
     } else {
-      // Default subtle camera movement based on mood
-      const moodToCamera: Record<string, string> = {
+      // Style-aware camera movements — anime gets animation language, etc.
+      const styleCamera: Record<string, Record<string, string>> = {
+        anime: {
+          energetic: 'Dynamic camera pan with speed lines, high-energy composition shift',
+          calm: 'Gentle parallax scroll, floating composition drift',
+          serious: 'Slow dramatic zoom, weight in every frame',
+          dramatic: 'Intense camera shake into rapid zoom, manga-style impact',
+          neutral: 'Subtle floating camera movement, soft parallax',
+        },
+        'pixel-art': {
+          energetic: 'Smooth pixel-perfect horizontal scroll with screen shake',
+          calm: 'Gentle sub-pixel drift, retro-style slow pan',
+          dramatic: 'Flash white impact frame, screen shake, zoom-in',
+          neutral: 'Slow tile-aligned camera drift',
+        },
+        watercolor: {
+          energetic: 'Colors bleeding and shifting with motion, wet paint flowing',
+          calm: 'Soft pigment diffusion, gentle watercolor bleeding between areas',
+          dramatic: 'Bold ink strokes appearing, wet-on-wet color intensifying',
+          neutral: 'Subtle paper texture shift, gentle watercolor breathing',
+        },
+        '3d-render': {
+          energetic: 'Dynamic orbit around subject, depth of field shifting',
+          calm: 'Slow smooth dolly with realistic depth blur',
+          dramatic: 'Dramatic crane shot with volumetric lighting shift',
+          neutral: 'Subtle push-in with ambient occlusion, realistic physics',
+        },
+      };
+
+      // Default cinematic fallback
+      const defaultCamera: Record<string, string> = {
         energetic: 'Slow tracking shot with subtle dynamic energy',
         calm: 'Gentle, barely perceptible push-in',
         serious: 'Steady measured dolly forward',
@@ -679,29 +732,61 @@ export function buildMotionPrompt(scene: {
         inspirational: 'Graceful rising camera movement',
         neutral: 'Subtle slow push-in',
       };
-      parts.push(moodToCamera[scene.mood || 'neutral'] || 'Subtle slow push-in');
+
+      const mood = scene.mood || 'neutral';
+      const styleMap = styleCamera[style];
+      const camera = styleMap?.[mood] || styleMap?.neutral || defaultCamera[mood] || 'Subtle slow push-in';
+      parts.push(camera);
     }
 
-    // Add one atmospheric detail instead of dumping the visual description
-    if (scene.mood) {
-      const moodAtmosphere: Record<string, string> = {
-        energetic: 'light particles catching motion, subtle energy in the air',
-        calm: 'soft ambient light shifting gently, peaceful stillness',
-        serious: 'shadows deepening subtly, weighted atmosphere',
-        playful: 'warm light dancing softly, gentle movement in details',
-        mysterious: 'fog wisps drifting slowly, light filtering through haze',
-        dramatic: 'volumetric light rays shifting, atmospheric tension building',
-        inspirational: 'golden light gradually intensifying, uplifting atmosphere',
-        neutral: 'natural ambient light, gentle environmental movement',
-      };
-      const atmo = moodAtmosphere[scene.mood];
-      if (atmo) parts.push(atmo);
-    }
+    // Style-aware atmospheric detail
+    const styleAtmosphere: Record<string, Record<string, string>> = {
+      anime: {
+        energetic: 'impact frames, motion blur streaks, dynamic composition',
+        calm: 'cherry blossom petals floating, soft ambient glow',
+        dramatic: 'dramatic backlighting, wind-swept hair and clothing',
+        neutral: 'soft cel-shaded lighting, gentle hair and cloth movement',
+      },
+      'pixel-art': {
+        energetic: 'pixel particles scattering, screen flash effects',
+        calm: 'ambient pixel dust floating, soft palette cycling',
+        dramatic: 'dramatic pixel-art lighting, dithered shadow shift',
+        neutral: 'subtle sprite animation, ambient pixel movement',
+      },
+      watercolor: {
+        energetic: 'splashes of color expanding, pigment flowing with energy',
+        calm: 'gentle color bleeding at edges, watercolor wash settling',
+        dramatic: 'bold strokes appearing, ink intensity building',
+        neutral: 'soft paper texture movement, gentle pigment drift',
+      },
+    };
+
+    const defaultAtmosphere: Record<string, string> = {
+      energetic: 'light particles catching motion, subtle energy in the air',
+      calm: 'soft ambient light shifting gently, peaceful stillness',
+      serious: 'shadows deepening subtly, weighted atmosphere',
+      playful: 'warm light dancing softly, gentle movement in details',
+      mysterious: 'fog wisps drifting slowly, light filtering through haze',
+      dramatic: 'volumetric light rays shifting, atmospheric tension building',
+      inspirational: 'golden light gradually intensifying, uplifting atmosphere',
+      neutral: 'natural ambient light, gentle environmental movement',
+    };
+
+    const mood = scene.mood || 'neutral';
+    const styleAtmo = styleAtmosphere[style];
+    const atmo = styleAtmo?.[mood] || styleAtmo?.neutral || defaultAtmosphere[mood];
+    if (atmo) parts.push(atmo);
   }
 
-  // Append LLM-generated video quality tokens (dynamic per art style)
+  // Validate and append quality tokens — strip invalid Midjourney/SD flags
   if (scene.videoQualityTokens) {
-    parts.push(scene.videoQualityTokens);
+    const cleaned = scene.videoQualityTokens
+      .replace(/--\w+\s*\S*/g, '')           // Remove --ar, --stylize, etc.
+      .replace(/\b(steps|cfg|seed)\s*[:=]\s*\d+/gi, '') // Remove steps:50, cfg:7, etc.
+      .replace(/\b(sd|sdxl|midjourney|mj|niji)\b/gi, '') // Remove model names
+      .replace(/\s{2,}/g, ' ')               // Collapse whitespace
+      .trim();
+    if (cleaned.length > 5) parts.push(cleaned);
   }
 
   return parts.join(', ').substring(0, 500);

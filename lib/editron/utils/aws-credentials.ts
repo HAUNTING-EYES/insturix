@@ -46,6 +46,10 @@ export async function getAWSCredentials(): Promise<{
   const baseSecretKey = process.env.REMOTION_AWS_SECRET_ACCESS_KEY;
 
   if (!baseAccessKey || !baseSecretKey) {
+    // SECURITY NOTE: REMOTION_AWS_ACCESS_KEY_ID should belong to an IAM user
+    // with ONLY sts:AssumeRole permission on the editron-remotion-render role.
+    // All actual Lambda/S3 permissions come from the assumed role's session token.
+    // This ensures that even if env vars leak, the credentials can't access resources directly.
     throw new Error('REMOTION_AWS_ACCESS_KEY_ID and REMOTION_AWS_SECRET_ACCESS_KEY must be set');
   }
 

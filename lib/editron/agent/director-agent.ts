@@ -168,10 +168,38 @@ export async function executeDirectorPlan(
           const storyboardScene = isAIProject ? storyboardScenes[i] : undefined;
           const narrationText = storyboardScene?.narration || '';
 
-          const words = narrationText ? narrationText.split(/\s+/).map((w: string, idx: number, arr: string[]) => {
-            const wordDurationMs = durationMs / arr.length;
-            return { word: w, startMs: idx * wordDurationMs, endMs: (idx + 1) * wordDurationMs };
-          }) : undefined;
+          // Try to get real word timestamps from voiceover TTS (if available).
+          // Falls back to proportional estimate (equal time per word), which drifts on long scenes.
+          let words: Array<{ word: string; startMs: number; endMs: number }> | undefined;
+          if (narrationText) {
+            // Check if matching voiceover has Deepgram/Kokoro word timing stored
+            const matchingVo = voiceoverOverlays[i];
+            const voAssetId = (matchingVo as any)?.assetId;
+            if (voAssetId) {
+              try {
+                const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+                const voAsset = await db.collection('media_assets').findOne({ assetId: voAssetId });
+                if (voAsset?.wordTimestamps && Array.isArray(voAsset.wordTimestamps)) {
+                  words = voAsset.wordTimestamps;
+                  console.log(`[Director] Scene ${i}: using REAL word timestamps (${words.length} words)`);
+                }
+              } catch { /* non-fatal */ }
+            }
+
+            // Fallback: proportional estimate with variable word-length weighting
+            if (!words) {
+              const rawWords = narrationText.split(/\s+/).filter(Boolean);
+              const totalChars = rawWords.reduce((sum, w) => sum + w.length, 0);
+              let cursor = 0;
+              words = rawWords.map((w) => {
+                // Weight by character count — longer words take more time
+                const wordPortion = (w.length / totalChars) * durationMs;
+                const startMs = cursor;
+                cursor += wordPortion;
+                return { word: w, startMs, endMs: cursor };
+              });
+            }
+          }
 
           onProgress?.(0, 0, `Analyzing scene ${i + 1}/${videoOverlays.length}...`);
 
@@ -237,15 +265,48 @@ export async function executeDirectorPlan(
           }
 
           console.log(`[Director] 5-Track complete: ${edlSummary.assetsAnalyzed}/${videoOverlays.length} analyzed, ${edlSummary.totalDecisions} decisions (${edlSummary.executed} executed), ${moments.length} cinematic moments`);
+
+          // Store intelligence status on project for UI
+          try {
+            const db2 = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+            await db2.collection('projects').updateOne(
+              { projectId },
+              { $set: {
+                'intelligence.status': edlSummary.assetsFailed > 0 ? 'partial' : 'complete',
+                'intelligence.assetsAnalyzed': edlSummary.assetsAnalyzed,
+                'intelligence.assetsFailed': edlSummary.assetsFailed,
+                'intelligence.failedAssets': edlSummary.failedAssets,
+                'intelligence.decisionsGenerated': edlSummary.totalDecisions,
+                'intelligence.decisionsExecuted': edlSummary.executed,
+                'intelligence.cinematicMoments': moments.length,
+                'intelligence.lastRun': new Date(),
+              }},
+            );
+          } catch { /* non-fatal */ }
         } catch (edlErr: any) {
           console.warn(`[Director] EDL generation/execution failed: ${edlErr.message}`);
           result.warnings.push(`EDL: ${edlErr.message}`);
         }
       } else {
-        console.log(`[Director] No assets analyzed (${edlSummary.assetsFailed} failed), skipping intelligence`);
-        if (edlSummary.assetsFailed > 0) {
-          result.warnings.push(`Intelligence: 0/${videoOverlays.length} assets analyzed (${edlSummary.failedAssets.join(', ')})`);
-        }
+        // CRITICAL: Zero assets analyzed — Director is running without intelligence.
+        // This produces worse output. Surface this prominently.
+        const failMsg = `⚠️ Intelligence SKIPPED: 0/${videoOverlays.length} video assets analyzed (${edlSummary.failedAssets.join(', ')}). Editing decisions are rule-based only, not content-aware.`;
+        console.error(`[Director] ${failMsg}`);
+        result.warnings.push(failMsg);
+
+        // Store failure state on project for UI to display
+        try {
+          const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+          await db.collection('projects').updateOne(
+            { projectId },
+            { $set: {
+              'intelligence.status': 'failed',
+              'intelligence.failedAssets': edlSummary.failedAssets,
+              'intelligence.lastAttempt': new Date(),
+              'intelligence.message': failMsg,
+            }},
+          );
+        } catch { /* non-fatal */ }
       }
     }
 

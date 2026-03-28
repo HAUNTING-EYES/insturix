@@ -42,14 +42,32 @@ export async function GET(
 
     // Look up asset in media_assets collection
     const db = await getDatabase();
-    const query: any = { assetId };
-    if (userId && !isCdnWorker) {
-      // For user requests, verify ownership
-      // But some assets are shared (storyboard images used across scenes)
-      // so we check without userId first, then verify
-    }
 
-    const asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(query) as any;
+    // For user requests, enforce ownership. CDN workers can access any asset.
+    let asset: any = null;
+    if (isCdnWorker) {
+      asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({ assetId });
+    } else {
+      // Check user's own assets first
+      asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({ assetId, userId });
+      if (!asset) {
+        // Check if asset belongs to a project the user has access to
+        // (handles shared storyboard assets across scenes)
+        const userProjects = await db.collection('projects')
+          .find({ userId }, { projection: { projectId: 1 } })
+          .toArray();
+        const projectIds = userProjects.map(p => p.projectId);
+        if (projectIds.length > 0) {
+          asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({
+            assetId,
+            $or: [
+              { projectId: { $in: projectIds } },
+              { source: { $in: ['pipeline', 'storyboard', 'video-gen', 'video-regen'] } },
+            ],
+          });
+        }
+      }
+    }
 
     if (!asset) {
       return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
