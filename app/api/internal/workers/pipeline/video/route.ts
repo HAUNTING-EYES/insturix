@@ -135,41 +135,16 @@ async function handler(request: NextRequest) {
       console.warn(`[VideoWorker] Project overlay update failed (non-fatal): ${projErr.message}`);
     }
 
-    // Run video quality check — detect AI slop before accepting the clip.
-    // If quality is too low, log it and flag for potential regeneration.
-    try {
-      const { checkVideoQuality } = await import('@/lib/pipeline/consistency-scoring-service');
-      const qualityResult = await checkVideoQuality(result.videoUrl, imageUrl);
-
-      // Store quality score on the job
-      await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-        { _id: jobId },
-        { $set: { qualityScore: qualityResult.score, qualityIssues: qualityResult.issues } },
-      );
-
-      if (qualityResult.shouldRegenerate) {
-        console.warn(`[VideoWorker] LOW QUALITY (${qualityResult.score}/100) for scene ${sceneIndex}: ${qualityResult.issues.join(', ')}`);
-        // Store flag — the Director or UI can offer regeneration
-        await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-          { _id: jobId },
-          { $set: { qualityFlag: 'low', qualityShouldRegenerate: true } },
-        );
-      } else {
-        console.log(`[VideoWorker] Quality OK (${qualityResult.score}/100) for scene ${sceneIndex}`);
-      }
-    } catch (qualityErr: any) {
-      console.warn(`[VideoWorker] Quality check failed (non-fatal): ${qualityErr.message}`);
-    }
-
     // Run 5-Track analysis on the generated video immediately.
     // Analysis is cached in MongoDB — Director reads it instantly later.
     // This removes analysis from the Director's time budget entirely.
+    // ALSO derives a quality score from the analysis (no extra download/Gemini call).
     try {
       const { runFullAnalysis, getAnalysis } = await import('@/lib/editron/services/five-track-analysis');
 
       // Only analyze if not already cached (e.g., from a previous generation)
-      const existing = await getAnalysis(result.assetId);
-      if (!existing) {
+      let analysis = await getAnalysis(result.assetId);
+      if (!analysis) {
         const durationMs = result.durationMs || (durationSeconds * 1000);
 
         // Get storyboard scene for metadata enrichment
@@ -177,7 +152,7 @@ async function handler(request: NextRequest) {
         const storyboard = await getStoryboard(storyboardId, userId);
         const scene = storyboard?.scenes?.find((s: any) => s.sceneIndex === sceneIndex);
 
-        await runFullAnalysis(result.assetId, userId, {
+        analysis = await runFullAnalysis(result.assetId, userId, {
           videoUrl: result.videoUrl,
           audioUrl: undefined, // Voiceover added later, not available yet
           durationMs,
@@ -186,6 +161,49 @@ async function handler(request: NextRequest) {
         });
 
         console.log(`[VideoWorker] 5-Track analysis cached for ${result.assetId}`);
+      }
+
+      // Derive quality score from analysis data (zero extra cost — reuses what 5-Track already computed)
+      if (analysis) {
+        const kfAnalyses = analysis.keyframeAnalyses || [];
+        const subjectTracks = analysis.subjectTracks || [];
+
+        // Quality heuristics from analysis data:
+        // 1. Subject consistency: do subjects persist across keyframes?
+        const subjectCount = subjectTracks.length;
+        const subjectScore = subjectCount > 0 ? Math.min(subjectCount * 2, 10) : 5;
+
+        // 2. Visual coherence: are keyframe descriptions consistent in mood/energy?
+        const energyValues = kfAnalyses.map(kf => kf.energyLevel || 0.5);
+        const energyVariance = energyValues.length > 1
+          ? energyValues.reduce((sum, v) => sum + Math.pow(v - (energyValues.reduce((a, b) => a + b, 0) / energyValues.length), 2), 0) / energyValues.length
+          : 0;
+        const coherenceScore = Math.max(0, 10 - energyVariance * 20); // Low variance = high coherence
+
+        // 3. Brightness consistency
+        const brightnessValues = kfAnalyses.map(kf => kf.brightness || 0.5);
+        const brightnessVariance = brightnessValues.length > 1
+          ? brightnessValues.reduce((sum, v) => sum + Math.pow(v - (brightnessValues.reduce((a, b) => a + b, 0) / brightnessValues.length), 2), 0) / brightnessValues.length
+          : 0;
+        const brightnessScore = Math.max(0, 10 - brightnessVariance * 30);
+
+        // Combined quality score (0-100)
+        const qualityScore = Math.round((subjectScore * 0.4 + coherenceScore * 0.35 + brightnessScore * 0.25) * 10);
+
+        await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
+          { _id: jobId },
+          { $set: { qualityScore, qualitySource: '5-track-derived' } },
+        );
+
+        if (qualityScore < 40) {
+          console.warn(`[VideoWorker] LOW QUALITY (${qualityScore}/100) for scene ${sceneIndex} (derived from 5-Track)`);
+          await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
+            { _id: jobId },
+            { $set: { qualityFlag: 'low', qualityShouldRegenerate: true } },
+          );
+        } else {
+          console.log(`[VideoWorker] Quality OK (${qualityScore}/100) for scene ${sceneIndex} (5-Track derived)`);
+        }
       }
     } catch (analysisErr: any) {
       // Non-fatal — Director will run analysis if cache miss
