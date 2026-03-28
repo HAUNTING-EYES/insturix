@@ -394,12 +394,19 @@ export async function checkVideoQuality(
       }
     }
 
-    // Add the video URL for Gemini to analyze
+    // Download video and send as inlineData (Gemini doesn't accept raw GCS signed URLs as fileUri)
     parts.push({
       text: '\n\nAnalyze this AI-generated video (compare first frame vs last frame):',
     });
+    const videoRes = await fetch(videoUrl);
+    if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.status}`);
+    const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
+    // Gemini inlineData limit is ~20MB — skip if too large
+    if (videoBuffer.length > 20 * 1024 * 1024) {
+      throw new Error(`Video too large for inline analysis (${Math.round(videoBuffer.length / 1024 / 1024)}MB)`);
+    }
     parts.push({
-      fileData: { mimeType: 'video/mp4', fileUri: videoUrl },
+      inlineData: { mimeType: 'video/mp4', data: videoBuffer.toString('base64') },
     });
 
     const result = await model.generateContent({

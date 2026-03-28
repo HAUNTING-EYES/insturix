@@ -246,12 +246,17 @@ async function uploadToGeminiFiles(
     const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
 
     const metadata = JSON.stringify({ file: { displayName: `${assetId}.mp4` } });
-    const boundary = '---GEMINI_FILE_BOUNDARY---';
+    // Use a unique boundary that can't appear in video binary
+    const boundary = `gemini_upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    // Build multipart body with exact RFC 2046 formatting
+    const metadataPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`;
+    const filePart = `--${boundary}\r\nContent-Type: video/mp4\r\n\r\n`;
+    const closing = `\r\n--${boundary}--`;
     const multipartBody = Buffer.concat([
-      Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`),
-      Buffer.from(`--${boundary}\r\nContent-Type: video/mp4\r\n\r\n`),
+      Buffer.from(metadataPart),
+      Buffer.from(filePart),
       buffer,
-      Buffer.from(`\r\n--${boundary}--\r\n`),
+      Buffer.from(closing),
     ]);
 
     const uploadRes = await fetch(uploadUrl, {

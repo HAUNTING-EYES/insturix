@@ -3726,7 +3726,8 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
       'wipe-left', 'wipe-right', 'slide-up', 'slide-down',
       'zoom-punch', 'zoom-out',
       'hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action',
-    ]).default('dissolve').describe("Transition type. 'crossfade/fade' = dissolve, 'fade to black' = dip-to-black, 'quick/punchy' = zoom-punch, 'smooth' = dissolve"),
+      'soft-cut', 'crossfade',
+    ]).default('dissolve').describe("Transition type. 'crossfade/fade/soft-cut' = dissolve, 'fade to black' = dip-to-black, 'quick/punchy' = zoom-punch, 'smooth' = dissolve"),
     durationMs: z.coerce.number().optional().describe("Transition duration in milliseconds (default varies by type, typically 500ms)"),
     applyToAll: z.boolean().optional().describe("If true, add this transition between ALL adjacent video clips"),
   });
@@ -3746,10 +3747,19 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
           return JSON.stringify({ status: 'error', message: 'Need at least 2 video clips for transitions' });
         }
 
-        const transId = input.type || 'dissolve';
+        // Map aliases to canonical transition names
+        const TRANSITION_ALIASES: Record<string, string> = {
+          'soft-cut': 'dissolve',
+          'crossfade': 'dissolve',
+          'fade': 'dissolve',
+          'fade-to-black': 'dip-to-black',
+          'fade-to-white': 'dip-to-white',
+        };
+        const rawType = input.type || 'dissolve';
+        const transId = TRANSITION_ALIASES[rawType] || rawType;
         const transDef = TRANSITIONS[transId];
         if (!transDef) {
-          return JSON.stringify({ status: 'error', message: `Unknown transition type: ${transId}` });
+          return JSON.stringify({ status: 'error', message: `Unknown transition type: ${transId}. Available: ${Object.keys(TRANSITIONS).join(', ')}` });
         }
 
         const overlapFrames = input.durationMs

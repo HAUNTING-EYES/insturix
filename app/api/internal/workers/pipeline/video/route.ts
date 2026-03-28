@@ -177,14 +177,12 @@ async function handler(request: NextRequest) {
         const storyboard = await getStoryboard(storyboardId, userId);
         const scene = storyboard?.scenes?.find((s: any) => s.sceneIndex === sceneIndex);
 
-        await runFullAnalysis({
-          assetId: result.assetId,
+        await runFullAnalysis(result.assetId, userId, {
           videoUrl: result.videoUrl,
           audioUrl: undefined, // Voiceover added later, not available yet
           durationMs,
-          fps: 30,
-          isAIVideo: true,
           storyboardScene: scene?.descriptor,
+          sourceType: 'ai-generated',
         });
 
         console.log(`[VideoWorker] 5-Track analysis cached for ${result.assetId}`);
