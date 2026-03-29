@@ -1,0 +1,499 @@
+'use client';
+
+import React, { useState, useCallback } from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Loader2, FileText, Database, Brain, Layers, Wand2, Copy, CheckCircle2 } from 'lucide-react';
+
+// ─── Script Parser Tab ─────────────────────────────────────────
+function ScriptParserTab() {
+  const [script, setScript] = useState('');
+  const [artStyle, setArtStyle] = useState('cinematic');
+  const [aspectRatio, setAspectRatio] = useState('16:9');
+  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const parseScript = useCallback(async () => {
+    if (!script.trim()) return;
+    setLoading(true);
+    setError('');
+    setResult(null);
+    try {
+      const res = await fetch('/api/services/thinkforge/script/export-for-editron', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plainText: script, artStyle, aspectRatio }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setResult(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [script, artStyle, aspectRatio]);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Script → Scene Parser</CardTitle>
+          <CardDescription>Paste a script to see how the LLM parser decomposes it into scenes. No generation, just parsing (~$0.001).</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            placeholder="Paste your full script here..."
+            value={script}
+            onChange={(e) => setScript(e.target.value)}
+            rows={12}
+            className="font-mono text-xs"
+          />
+          <div className="flex gap-2 items-center">
+            <select value={artStyle} onChange={(e) => setArtStyle(e.target.value)} className="px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-xs">
+              <option value="cinematic">Cinematic</option>
+              <option value="anime">Anime</option>
+              <option value="corporate">Corporate</option>
+              <option value="pixel-art">Pixel Art</option>
+              <option value="watercolor">Watercolor</option>
+            </select>
+            <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-xs">
+              <option value="16:9">16:9</option>
+              <option value="9:16">9:16</option>
+              <option value="1:1">1:1</option>
+              <option value="4:5">4:5</option>
+            </select>
+            <Button onClick={parseScript} disabled={loading || !script.trim()} size="sm">
+              {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <FileText className="w-3 h-3 mr-1" />}
+              Parse Script
+            </Button>
+            <span className="text-xs text-zinc-500">{script.length} chars</span>
+          </div>
+          {error && <div className="text-red-400 text-xs p-2 bg-red-950/30 rounded">{error}</div>}
+        </CardContent>
+      </Card>
+
+      {result && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              Parsed: {result.title}
+              <Badge variant="outline">{result.sceneCount} scenes</Badge>
+              <Badge variant="outline">{result.totalDurationSeconds}s total</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Global metadata */}
+            {result.overallMusicPrompt && (
+              <div className="text-xs p-2 bg-zinc-800/50 rounded">
+                <span className="text-zinc-400">Music:</span> {result.overallMusicPrompt}
+              </div>
+            )}
+            {result.characterDescriptions && Object.keys(result.characterDescriptions).length > 0 && (
+              <div className="text-xs p-2 bg-zinc-800/50 rounded">
+                <span className="text-zinc-400">Characters:</span> {JSON.stringify(result.characterDescriptions)}
+              </div>
+            )}
+            {result.globalEditDirections && (
+              <div className="text-xs p-2 bg-zinc-800/50 rounded">
+                <span className="text-zinc-400">Global Edit Directions:</span>
+                <pre className="mt-1 text-[10px] text-zinc-300 overflow-x-auto">{JSON.stringify(result.globalEditDirections, null, 2)}</pre>
+              </div>
+            )}
+
+            {/* Per-scene breakdown */}
+            {result.scenes?.map((scene: any, i: number) => (
+              <div key={i} className="border border-zinc-800 rounded p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-blue-600 text-[10px]">Scene {scene.sceneIndex + 1}</Badge>
+                  <span className="text-sm font-medium">{scene.title}</span>
+                  <Badge variant="outline" className="text-[10px]">{scene.durationSeconds}s</Badge>
+                  <Badge variant="outline" className="text-[10px]">{scene.mood}</Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <div className="text-zinc-500 mb-0.5">Narration:</div>
+                    <div className="text-zinc-300 bg-zinc-900 p-1.5 rounded">{scene.narration || '(none)'}</div>
+                  </div>
+                  <div>
+                    <div className="text-zinc-500 mb-0.5">Visual Description:</div>
+                    <div className="text-zinc-300 bg-zinc-900 p-1.5 rounded max-h-20 overflow-y-auto">{scene.visualDescription || '(none)'}</div>
+                  </div>
+                  <div>
+                    <div className="text-zinc-500 mb-0.5">Video Motion:</div>
+                    <div className="text-zinc-300 bg-zinc-900 p-1.5 rounded">{scene.videoMotionPrompt || '(none)'}</div>
+                  </div>
+                  <div>
+                    <div className="text-zinc-500 mb-0.5">Audio:</div>
+                    <div className="text-zinc-300 bg-zinc-900 p-1.5 rounded">{scene.audioDescription || '(none)'}</div>
+                  </div>
+                </div>
+
+                {scene.editDirections && (
+                  <div className="text-[10px] p-1.5 bg-zinc-900 rounded">
+                    <span className="text-amber-400">Edit Directions:</span>
+                    <pre className="text-zinc-400 mt-0.5 overflow-x-auto">{JSON.stringify(scene.editDirections, null, 2)}</pre>
+                  </div>
+                )}
+
+                {scene.imageQualityTokens && (
+                  <div className="text-[10px] text-zinc-500">
+                    <span className="text-zinc-400">Quality:</span> {scene.imageQualityTokens}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Raw JSON toggle */}
+            <details className="text-xs">
+              <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Raw JSON</summary>
+              <pre className="mt-2 p-2 bg-zinc-950 rounded text-[10px] max-h-96 overflow-auto">{JSON.stringify(result, null, 2)}</pre>
+            </details>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── Project Inspector Tab ─────────────────────────────────────
+function ProjectInspectorTab() {
+  const [projectId, setProjectId] = useState('');
+  const [project, setProject] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadProject = useCallback(async () => {
+    if (!projectId.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/services/editron/projects/${encodeURIComponent(projectId)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setProject(data.project || data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  const overlays = project?.overlays || [];
+  const overlaysByType = overlays.reduce((acc: Record<string, number>, o: any) => {
+    acc[o.type] = (acc[o.type] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  const overlaysByRow = overlays.reduce((acc: Record<string, number>, o: any) => {
+    acc[`Row ${o.row}`] = (acc[`Row ${o.row}`] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Project Inspector</CardTitle>
+          <CardDescription>Load any project and inspect its raw overlay structure, row assignments, and timing.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2">
+            <Input placeholder="Project ID (e.g. proj_abc123)" value={projectId} onChange={(e) => setProjectId(e.target.value)} className="font-mono text-xs" />
+            <Button onClick={loadProject} disabled={loading} size="sm">
+              {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />}
+            </Button>
+          </div>
+          {error && <div className="text-red-400 text-xs mt-2">{error}</div>}
+        </CardContent>
+      </Card>
+
+      {project && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              {project.title || project.projectId}
+              <Badge variant="outline">{overlays.length} overlays</Badge>
+              <Badge variant="outline">{project.fps || 30} fps</Badge>
+              <Badge variant="outline">{project.durationInFrames} frames ({Math.round((project.durationInFrames || 0) / (project.fps || 30))}s)</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Summary badges */}
+            <div className="flex gap-1 flex-wrap">
+              {Object.entries(overlaysByType).map(([type, count]) => (
+                <Badge key={type} variant="outline" className="text-[10px]">{type}: {count as number}</Badge>
+              ))}
+            </div>
+            <div className="flex gap-1 flex-wrap">
+              {Object.entries(overlaysByRow).sort().map(([row, count]) => (
+                <Badge key={row} variant="outline" className="text-[10px] bg-zinc-800">{row}: {count as number}</Badge>
+              ))}
+            </div>
+
+            {/* Timeline view — simplified */}
+            <div className="space-y-1">
+              <div className="text-xs text-zinc-400 font-medium">Timeline Layout:</div>
+              {Object.keys(overlaysByRow).sort().map(row => {
+                const rowNum = parseInt(row.replace('Row ', ''));
+                const rowOverlays = overlays.filter((o: any) => o.row === rowNum).sort((a: any, b: any) => a.from - b.from);
+                return (
+                  <div key={row} className="flex items-center gap-1 text-[10px]">
+                    <span className="text-zinc-500 w-12">{row}:</span>
+                    <div className="flex gap-0.5 overflow-x-auto">
+                      {rowOverlays.map((o: any) => (
+                        <div
+                          key={o.id}
+                          className="px-1.5 py-0.5 rounded text-[9px] whitespace-nowrap border border-zinc-700"
+                          style={{
+                            backgroundColor: o.type === 'video' ? '#1e3a5f' : o.type === 'image' ? '#3a1e5f' : o.type === 'text' ? '#1e5f3a' : o.type === 'caption' ? '#5f3a1e' : o.type === 'sound' ? '#5f1e3a' : o.type === 'transition' ? '#5f5f1e' : '#333',
+                          }}
+                        >
+                          {o.type} #{o.id} ({o.from}-{o.from + o.durationInFrames})
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Per-overlay detail */}
+            <details className="text-xs">
+              <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">All Overlays ({overlays.length})</summary>
+              <div className="mt-2 space-y-1 max-h-96 overflow-y-auto">
+                {overlays.sort((a: any, b: any) => a.from - b.from).map((o: any) => (
+                  <div key={o.id} className="p-1.5 bg-zinc-900 rounded text-[10px] font-mono">
+                    <span className="text-blue-400">#{o.id}</span>{' '}
+                    <span className="text-amber-400">{o.type}</span>{' '}
+                    row={o.row} from={o.from} dur={o.durationInFrames}{' '}
+                    {o.src && <span className="text-zinc-500">src={o.src.substring(0, 40)}...</span>}
+                    {o.content && typeof o.content === 'string' && <span className="text-zinc-500">"{o.content.substring(0, 50)}"</span>}
+                    {o.keyframeTracks?.length > 0 && <span className="text-green-400"> [{o.keyframeTracks.length} kf tracks]</span>}
+                    {o.metadata?.isTransition && <span className="text-yellow-400"> [transition: {o.metadata.transitionType}]</span>}
+                  </div>
+                ))}
+              </div>
+            </details>
+
+            <details className="text-xs">
+              <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Raw Project JSON</summary>
+              <pre className="mt-2 p-2 bg-zinc-950 rounded text-[10px] max-h-96 overflow-auto">{JSON.stringify(project, null, 2)}</pre>
+            </details>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── Asset Analysis Tab ────────────────────────────────────────
+function AssetAnalysisTab() {
+  const [assetId, setAssetId] = useState('');
+  const [analysis, setAnalysis] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadAnalysis = useCallback(async () => {
+    if (!assetId.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/services/editron/analysis?assetId=${encodeURIComponent(assetId)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setAnalysis(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [assetId]);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Asset Analysis Viewer</CardTitle>
+          <CardDescription>View 5-Track analysis results for any asset. Enter an asset ID from a project&apos;s overlay.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2">
+            <Input placeholder="Asset ID (e.g. asset_xyz123 or sfx_abc)" value={assetId} onChange={(e) => setAssetId(e.target.value)} className="font-mono text-xs" />
+            <Button onClick={loadAnalysis} disabled={loading} size="sm">
+              {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+            </Button>
+          </div>
+          {error && <div className="text-red-400 text-xs mt-2">{error}</div>}
+        </CardContent>
+      </Card>
+
+      {analysis && (
+        <Card>
+          <CardContent className="pt-4">
+            <pre className="text-[10px] font-mono bg-zinc-950 p-3 rounded max-h-[600px] overflow-auto">{JSON.stringify(analysis, null, 2)}</pre>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── EDL Viewer Tab ────────────────────────────────────────────
+function EDLViewerTab() {
+  const [projectId, setProjectId] = useState('');
+  const [edl, setEdl] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const runAnalysis = useCallback(async () => {
+    if (!projectId.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/services/editron/analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setEdl(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  const decisions = edl?.editDecisionList?.decisions || [];
+  const decisionsByType = decisions.reduce((acc: Record<string, number>, d: any) => {
+    acc[d.type] = (acc[d.type] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">EDL Viewer (Edit Decision List)</CardTitle>
+          <CardDescription>Run 5-Track analysis on a project and see what edit decisions the Reactive Engine generates. Costs ~$0.05-0.20 for Gemini Vision calls.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2">
+            <Input placeholder="Project ID" value={projectId} onChange={(e) => setProjectId(e.target.value)} className="font-mono text-xs" />
+            <Button onClick={runAnalysis} disabled={loading} size="sm" variant="destructive">
+              {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wand2 className="w-3 h-3 mr-1" />}
+              Run Analysis
+            </Button>
+          </div>
+          {error && <div className="text-red-400 text-xs mt-2">{error}</div>}
+        </CardContent>
+      </Card>
+
+      {edl && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              Analysis Results
+              <Badge variant="outline">{decisions.length} decisions</Badge>
+              {edl.cinematicMoments?.length > 0 && <Badge variant="outline">{edl.cinematicMoments.length} cinematic moments</Badge>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex gap-1 flex-wrap">
+              {Object.entries(decisionsByType).map(([type, count]) => (
+                <Badge key={type} variant="outline" className="text-[10px]">{type}: {count as number}</Badge>
+              ))}
+            </div>
+
+            {edl.editDecisionList?.stats && (
+              <div className="text-xs p-2 bg-zinc-800/50 rounded grid grid-cols-3 gap-2">
+                <div>Cuts/min: {edl.editDecisionList.stats.cutsPerMinute?.toFixed(1)}</div>
+                <div>Transitions: {edl.editDecisionList.stats.transitionCount}</div>
+                <div>Graphics: {edl.editDecisionList.stats.graphicCount}</div>
+                <div>Zooms: {edl.editDecisionList.stats.zoomCount}</div>
+                <div>Speed changes: {edl.editDecisionList.stats.speedChangeCount}</div>
+                <div>Avg confidence: {edl.editDecisionList.stats.averageConfidence?.toFixed(2)}</div>
+              </div>
+            )}
+
+            {/* Decisions table */}
+            <div className="max-h-96 overflow-y-auto">
+              <table className="w-full text-[10px]">
+                <thead className="text-zinc-500 border-b border-zinc-800">
+                  <tr><th className="text-left p-1">Frame</th><th className="text-left p-1">Time</th><th className="text-left p-1">Type</th><th className="text-left p-1">Confidence</th><th className="text-left p-1">Reason</th></tr>
+                </thead>
+                <tbody>
+                  {decisions.slice(0, 100).map((d: any, i: number) => (
+                    <tr key={i} className="border-b border-zinc-900 hover:bg-zinc-800/30">
+                      <td className="p-1 font-mono">{d.frame}</td>
+                      <td className="p-1 font-mono">{(d.frame / 30).toFixed(1)}s</td>
+                      <td className="p-1"><Badge variant="outline" className="text-[9px]">{d.type}</Badge></td>
+                      <td className="p-1">{(d.confidence * 100).toFixed(0)}%</td>
+                      <td className="p-1 text-zinc-400 max-w-xs truncate">{d.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <details className="text-xs">
+              <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Raw JSON</summary>
+              <pre className="mt-2 p-2 bg-zinc-950 rounded text-[10px] max-h-96 overflow-auto">{JSON.stringify(edl, null, 2)}</pre>
+            </details>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Debug Page ───────────────────────────────────────────
+export default function EditronDebugPage() {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-white p-6 max-w-6xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <Layers className="w-5 h-5 text-blue-400" />
+            Editron Debug Panel
+          </h1>
+          <p className="text-xs text-zinc-500 mt-1">Test individual pipeline steps without running the full generation</p>
+        </div>
+        <Badge variant="outline" className="text-amber-400 border-amber-400/30">DEV ONLY</Badge>
+      </div>
+
+      <Tabs defaultValue="parser" className="w-full">
+        <TabsList className="bg-zinc-900 border border-zinc-800">
+          <TabsTrigger value="parser" className="text-xs data-[state=active]:bg-zinc-700">
+            <FileText className="w-3 h-3 mr-1" /> Script Parser
+          </TabsTrigger>
+          <TabsTrigger value="project" className="text-xs data-[state=active]:bg-zinc-700">
+            <Database className="w-3 h-3 mr-1" /> Project Inspector
+          </TabsTrigger>
+          <TabsTrigger value="analysis" className="text-xs data-[state=active]:bg-zinc-700">
+            <Brain className="w-3 h-3 mr-1" /> Asset Analysis
+          </TabsTrigger>
+          <TabsTrigger value="edl" className="text-xs data-[state=active]:bg-zinc-700">
+            <Wand2 className="w-3 h-3 mr-1" /> EDL Viewer
+          </TabsTrigger>
+        </TabsList>
+
+        <div className="mt-4">
+          <TabsContent value="parser"><ScriptParserTab /></TabsContent>
+          <TabsContent value="project"><ProjectInspectorTab /></TabsContent>
+          <TabsContent value="analysis"><AssetAnalysisTab /></TabsContent>
+          <TabsContent value="edl"><EDLViewerTab /></TabsContent>
+        </div>
+      </Tabs>
+    </div>
+  );
+}

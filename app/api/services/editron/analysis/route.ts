@@ -93,3 +93,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+/**
+ * GET /api/services/editron/analysis?assetId=xxx
+ * Retrieve cached analysis for a specific asset (debug panel).
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const assetId = req.nextUrl.searchParams.get('assetId');
+    if (!assetId) return NextResponse.json({ error: 'assetId required' }, { status: 400 });
+
+    const analysis = await getAnalysis(assetId);
+    if (!analysis) {
+      return NextResponse.json({ error: 'No analysis found for this asset', assetId }, { status: 404 });
+    }
+
+    return NextResponse.json({ assetId, analysis });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
