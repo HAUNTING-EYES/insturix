@@ -13,7 +13,7 @@
  *   // Returns { url, filename, duration, source }
  */
 
-import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
 
 export interface SFXLibraryResult {
@@ -178,7 +178,7 @@ export async function searchAndDownloadSFX(
     const buffer = Buffer.from(await response.arrayBuffer());
     const assetId = `sfx_lib_${nanoid(8)}`;
     const ext = found.url.includes('.wav') ? 'wav' : 'mp3';
-    const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`);
+    const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`);
 
     return {
       audioUrl: uploadResult.signedUrl,

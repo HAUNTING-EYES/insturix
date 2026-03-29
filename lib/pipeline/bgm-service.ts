@@ -6,7 +6,7 @@
  */
 
 import { fal } from '@fal-ai/client';
-import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
 
 // Configure fal.ai on every call — env vars may change between deployments
@@ -89,7 +89,7 @@ export async function generateBackgroundMusic(
   const buffer = Buffer.from(await response.arrayBuffer());
 
   const filename = `${assetId}.mp3`;
-  const uploadResult = await uploadToGCS(buffer, userId, filename, 'audio/mpeg');
+  const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/mpeg');
 
   console.log(`[BGM] Uploaded to GCS: ${uploadResult.gcsPath} (${buffer.length} bytes)`);
 

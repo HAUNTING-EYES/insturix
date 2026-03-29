@@ -4933,7 +4933,7 @@ Examples:
           return JSON.stringify({ status: 'error', message: 'Authentication required for SFX upload' });
         }
 
-        const { uploadToGCS } = await import('@/lib/editron/services/gcs-service');
+        const { uploadMedia } = await import('@/lib/editron/services/upload-service');
         const { nanoid } = await import('nanoid');
         const assetId = `sfx_${nanoid(12)}`;
         let audioUrl: string | null = null;
@@ -5000,7 +5000,7 @@ Examples:
                     (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
                   );
                   if (!validAudio) throw new Error('mirelo returned invalid audio');
-                  const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.wav`, 'audio/wav');
+                  const uploadResult = await uploadMedia(buffer, userId, `${assetId}.wav`, 'audio/wav');
                   if (uploadResult?.signedUrl) {
                     audioUrl = uploadResult.signedUrl;
                     gcsPath = uploadResult.gcsPath;
@@ -5044,7 +5044,7 @@ Examples:
                   (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
                 );
                 if (!validAudio) throw new Error('CassetteAI returned invalid audio');
-                const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.mp3`, 'audio/mpeg');
+                const uploadResult = await uploadMedia(buffer, userId, `${assetId}.mp3`, 'audio/mpeg');
                 if (uploadResult?.signedUrl) {
                   audioUrl = uploadResult.signedUrl;
                   gcsPath = uploadResult.gcsPath;
@@ -5095,7 +5095,7 @@ Examples:
                   (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
                 );
                 if (validFreesound) {
-                  const uploadResult = await uploadToGCS(buffer!, userId, `${assetId}.mp3`, 'audio/mpeg');
+                  const uploadResult = await uploadMedia(buffer!, userId, `${assetId}.mp3`, 'audio/mpeg');
                   if (uploadResult?.signedUrl) {
                     audioUrl = uploadResult.signedUrl;
                     gcsPath = uploadResult.gcsPath;

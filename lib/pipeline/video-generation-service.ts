@@ -10,7 +10,7 @@
 
 import { fal } from '@fal-ai/client';
 import { nanoid } from 'nanoid';
-import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { uploadMedia } from '@/lib/editron/services/upload-service';
 
 // Configure fal.ai if key exists
 let _falConfigured = false;
@@ -476,7 +476,8 @@ async function generateVideoWithFal(
 
   const assetId = `video_${nanoid(12)}`;
   const filename = `${assetId}.mp4`;
-  const uploadResult = await uploadToGCS(buffer, userId, filename, 'video/mp4');
+  // R2 primary (browser) + GCS secondary (Gemini 5-Track analysis needs gs:// URIs)
+  const uploadResult = await uploadMedia(buffer, userId, filename, 'video/mp4', { alsoUploadToGCS: true });
 
   // Use the ACTUAL model output duration, not the requested duration.
   // Models snap to fixed enums (Kling: 5/10s, Veo: 4/6/8s, etc.)
@@ -578,7 +579,8 @@ async function generateVideoWithKie(
 
       const assetId = `video_${nanoid(12)}`;
       const filename = `${assetId}.mp4`;
-      const uploadResult = await uploadToGCS(buffer, userId, filename, 'video/mp4');
+      // R2 primary (browser) + GCS secondary (Gemini 5-Track analysis needs gs:// URIs)
+  const uploadResult = await uploadMedia(buffer, userId, filename, 'video/mp4', { alsoUploadToGCS: true });
 
       return {
         videoUrl: uploadResult.signedUrl,

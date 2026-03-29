@@ -6,7 +6,7 @@
  */
 
 import { fal } from '@fal-ai/client';
-import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
 
 // ─── Voice Catalog ──────────────────────────────────────────────
@@ -133,7 +133,7 @@ async function generateWithKokoro(
 
   const assetId = `voiceover_${nanoid(12)}`;
   const filename = `${assetId}.wav`;
-  const uploadResult = await uploadToGCS(audioBuffer, userId, filename, 'audio/wav');
+  const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav');
 
   return {
     audioBuffer,
@@ -189,7 +189,7 @@ async function generateWithDeepgram(
 
   const assetId = `voiceover_${nanoid(12)}`;
   const filename = `${assetId}.wav`;
-  const uploadResult = await uploadToGCS(audioBuffer, userId, filename, 'audio/wav');
+  const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav');
 
   return {
     audioBuffer,

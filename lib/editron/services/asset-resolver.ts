@@ -138,9 +138,13 @@ export class AssetResolver {
 
     for (const asset of assets) {
       try {
-        if (cdnBaseUrl && asset.gcsPath) {
-          // CDN URL — never expires, edge-cached, auto-fills R2 on first access
+        if (cdnBaseUrl && (asset.gcsPath || asset.r2Key || asset.cachedUrl?.includes(cdnBaseUrl))) {
+          // CDN URL — never expires, edge-cached.
+          // Works for both R2-primary assets (r2Key) and GCS assets (gcsPath → Worker fetches from GCS on miss)
           assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${asset.assetId}`);
+        } else if (cdnBaseUrl && asset.cachedUrl && !asset.cachedUrl.includes('storage.googleapis.com')) {
+          // Asset already has a non-GCS URL (e.g., R2 public URL) — use directly
+          assetMap.set(asset.assetId, asset.cachedUrl);
         } else {
           // No CDN configured or no gcsPath — use traditional GCS URL refresh
           const url = await this.getOrRefreshUrl(asset);

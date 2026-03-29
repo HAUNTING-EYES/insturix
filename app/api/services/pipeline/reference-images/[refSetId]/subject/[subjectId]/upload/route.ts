@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getReferenceImageSet, updateSubjectReference } from '@/lib/pipeline/reference-image-db';
-import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
@@ -113,7 +113,7 @@ export async function POST(
     console.log(`[upload] Uploading reference image for "${subject.name}" (${file.size} bytes, ${file.type})`);
 
     // Upload to GCS
-    const uploadResult = await uploadToGCS(buffer, userId, filename, file.type);
+    const uploadResult = await uploadMedia(buffer, userId, filename, file.type);
 
     // Analyze uploaded image with Gemini Vision to get accurate visual description
     const analyzedDescription = await analyzeUploadedImage(

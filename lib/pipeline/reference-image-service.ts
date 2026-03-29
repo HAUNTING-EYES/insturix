@@ -19,7 +19,7 @@ import { fal } from '@fal-ai/client';
 import { nanoid } from 'nanoid';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateText } from 'ai';
-import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { saveReferenceImageSet, updateSubjectReference } from './reference-image-db';
 import type { ReferenceImageSet, SubjectReference } from './schemas/reference-image';
 import type { ExtractedSubject } from './llm-scene-parser';
@@ -287,7 +287,7 @@ export async function generateReferenceImage(
 
   const assetId = `ref_${nanoid(12)}`;
   const filename = `${assetId}.png`;
-  const uploadResult = await uploadToGCS(buffer, userId, filename, 'image/png');
+  const uploadResult = await uploadMedia(buffer, userId, filename, 'image/png');
 
   return {
     imageUrl: uploadResult.signedUrl,

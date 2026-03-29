@@ -9,7 +9,7 @@
 
 import { nanoid } from 'nanoid';
 import { fal } from '@fal-ai/client';
-import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { buildStoryboardPrompt, buildNegativePrompt } from './storyboard-prompt-builder';
 import {
   getStoryboard,
@@ -191,7 +191,7 @@ export async function generateSceneSequential(
 
     const assetId = `sb_seq_${nanoid(12)}`;
     const filename = `${assetId}.png`;
-    const uploadResult = await uploadToGCS(buffer, userId, filename, 'image/png');
+    const uploadResult = await uploadMedia(buffer, userId, filename, 'image/png');
 
     const modelUsed = usedIpAdapter
       ? IP_ADAPTER_MODEL
@@ -482,7 +482,7 @@ export async function regenerateWithContext(
 
     const assetId = `sb_regen_${nanoid(12)}`;
     const filename = `${assetId}.png`;
-    const uploadResult = await uploadToGCS(buffer, userId, filename, 'image/png');
+    const uploadResult = await uploadMedia(buffer, userId, filename, 'image/png');
 
     const actualModelUsed = ipAdapterSucceeded
       ? IP_ADAPTER_MODEL

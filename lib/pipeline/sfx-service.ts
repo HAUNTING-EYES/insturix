@@ -9,7 +9,7 @@
  */
 
 import { fal } from '@fal-ai/client';
-import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
 
 // ─── Configuration ──────────────────────────────────────────────
@@ -129,7 +129,7 @@ export async function generateSFX(
           throw new Error('mirelo returned invalid audio format');
         }
         const filename = `${assetId}.wav`;
-        const uploadResult = await uploadToGCS(buffer, userId, filename, 'audio/wav');
+        const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/wav');
         return {
           audioUrl: uploadResult.signedUrl,
           gcsPath: uploadResult.gcsPath,
@@ -211,7 +211,7 @@ export async function generateSFX(
 
   // Upload to GCS under the user's path
   const filename = `${assetId}.${ext}`;
-  const uploadResult = await uploadToGCS(buffer, userId, filename, mime);
+  const uploadResult = await uploadMedia(buffer, userId, filename, mime);
 
   return {
     audioUrl: uploadResult.signedUrl,

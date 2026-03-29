@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getStoryboard, updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
-import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
@@ -61,7 +61,7 @@ export async function POST(
 
     console.log(`[scene-upload] Uploading image for scene ${sceneIndex} of ${storyboardId} (${file.size} bytes)`);
 
-    const uploadResult = await uploadToGCS(buffer, userId, filename, file.type);
+    const uploadResult = await uploadMedia(buffer, userId, filename, file.type);
 
     // Update the scene's storyboard image
     await updateStoryboardScene(storyboardId, sceneIndex, {

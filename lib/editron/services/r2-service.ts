@@ -1,0 +1,169 @@
+/**
+ * Cloudflare R2 Storage Service
+ *
+ * Primary storage for all browser-facing media assets.
+ * Uses S3-compatible API to upload to Cloudflare R2.
+ *
+ * Assets are served via the Cloudflare Worker (editron-asset-proxy)
+ * which provides:
+ *   - Edge caching (nearest POP)
+ *   - CORS headers (Access-Control-Allow-Origin: *)
+ *   - Permanent URLs (never expire, no signed URL refresh needed)
+ *   - Cache-Control: immutable (1 year browser cache)
+ *
+ * GCS is kept ONLY for Gemini Vision integration (requires gs:// URIs).
+ */
+
+import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { nanoid } from 'nanoid';
+
+// ─── Configuration ────────────────────────────────────────────────
+
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY;
+const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
+const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'editron-cdn';
+const CDN_WORKER_URL = process.env.CDN_WORKER_URL;
+
+/**
+ * Check if R2 is configured. If not, callers should fall back to GCS.
+ */
+export function isR2Available(): boolean {
+  return !!(R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_ACCOUNT_ID);
+}
+
+// Lazy-init S3 client (only created when first used)
+let _s3Client: S3Client | null = null;
+
+function getS3Client(): S3Client {
+  if (!_s3Client) {
+    if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_ACCOUNT_ID) {
+      throw new Error('R2 credentials not configured (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID)');
+    }
+    _s3Client = new S3Client({
+      region: 'auto',
+      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY_ID,
+        secretAccessKey: R2_SECRET_ACCESS_KEY,
+      },
+    });
+  }
+  return _s3Client;
+}
+
+// ─── Types ────────────────────────────────────────────────────────
+
+export interface R2UploadResult {
+  assetId: string;
+  /** R2 object key (same format as gcsPath for compatibility) */
+  r2Key: string;
+  /** Public URL via Cloudflare Worker — never expires, has CORS */
+  publicUrl: string;
+  /** Size in bytes */
+  size: number;
+  /** MIME type */
+  contentType: string;
+}
+
+// ─── Upload ───────────────────────────────────────────────────────
+
+/**
+ * Upload file to R2 and return asset metadata with permanent public URL.
+ *
+ * The public URL is served via the Cloudflare Worker:
+ *   https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/{assetId}
+ *
+ * This URL:
+ *   - Never expires (unlike GCS 7-day signed URLs)
+ *   - Has CORS headers (Access-Control-Allow-Origin: *)
+ *   - Is edge-cached globally (Cloudflare network)
+ *   - Returns Cache-Control: immutable (browser caches for 1 year)
+ */
+export async function uploadToR2(
+  file: Buffer,
+  userId: string,
+  filename: string,
+  contentType: string,
+): Promise<R2UploadResult> {
+  const client = getS3Client();
+  const assetId = `a_${nanoid(8)}`;
+
+  // Use assetId as the R2 key — the Worker routes /asset/{assetId} to this key
+  // Also store under a path for organizational clarity
+  const r2Key = assetId;
+
+  await client.send(new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: r2Key,
+    Body: file,
+    ContentType: contentType,
+    // Store metadata for debugging
+    Metadata: {
+      userId,
+      filename,
+      uploadedAt: new Date().toISOString(),
+    },
+  }));
+
+  // Public URL via Cloudflare Worker
+  const publicUrl = CDN_WORKER_URL
+    ? `${CDN_WORKER_URL}/asset/${assetId}`
+    : `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET_NAME}/${r2Key}`;
+
+  console.log(`[R2] Uploaded ${assetId} (${Math.round(file.length / 1024)}KB ${contentType}) → ${publicUrl}`);
+
+  return {
+    assetId,
+    r2Key,
+    publicUrl,
+    size: file.length,
+    contentType,
+  };
+}
+
+// ─── Delete ───────────────────────────────────────────────────────
+
+/**
+ * Delete file from R2.
+ */
+export async function deleteFromR2(r2Key: string): Promise<void> {
+  const client = getS3Client();
+  await client.send(new DeleteObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: r2Key,
+  }));
+  console.log(`[R2] Deleted ${r2Key}`);
+}
+
+// ─── Check Existence ──────────────────────────────────────────────
+
+/**
+ * Check if file exists in R2.
+ */
+export async function r2FileExists(r2Key: string): Promise<boolean> {
+  try {
+    const client = getS3Client();
+    await client.send(new HeadObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: r2Key,
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── URL Helpers ──────────────────────────────────────────────────
+
+/**
+ * Get the public CDN URL for an asset.
+ * Unlike GCS, this never expires and doesn't need refresh.
+ */
+export function getR2PublicUrl(assetId: string): string {
+  if (CDN_WORKER_URL) {
+    return `${CDN_WORKER_URL}/asset/${assetId}`;
+  }
+  // Fallback: direct R2 URL (no CORS, not ideal)
+  return `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET_NAME}/${assetId}`;
+}
