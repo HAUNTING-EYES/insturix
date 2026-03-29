@@ -90,9 +90,9 @@ export async function POST(request: Request) {
       apiKey: geminiApiKey,
     });
 
-    // Use the gemini-2.0-flash model for prompt enhancement
+    // Use the gemini-2.5-flash model for prompt enhancement
     // Use standard model name
-    const model = google("gemini-2.0-flash");
+    const model = google("gemini-2.5-flash");
 
     // Define system prompts for different task types
     const systemPrompts = {

@@ -19,7 +19,7 @@ import type { LanguageModel } from 'ai';
  * - Structural: schema/routing/metadata/extraction (Gemini 3.1 Flash-Lite — cheapest, fastest)
  *   $0.25/1M input, 2.5X faster TTFAT than 2.5 Flash. Ideal for Observer, Post-Mortem, fact extraction.
  *   https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-3-1-flash-lite/
- * - Reasoning: prose/synthesis/advanced reasoning (gemini-2.0-flash)
+ * - Reasoning: prose/synthesis/advanced reasoning (gemini-2.5-flash)
  */
 export enum ModelTier {
   Structural = 'structural',
@@ -31,7 +31,7 @@ export enum ModelTier {
  */
 const TIER_MODEL_MAP: Record<ModelTier, string> = {
   [ModelTier.Structural]: 'gemini-3.1-flash-lite-preview',
-  [ModelTier.Reasoning]: 'gemini-2.0-flash',
+  [ModelTier.Reasoning]: 'gemini-2.5-flash',
 };
 
 // Cache the provider instance
@@ -91,11 +91,11 @@ export function createModelByTier(tier: ModelTier): LanguageModel {
 /**
  * Create a model instance for ThinkForge agents
  * 
- * @param modelName - Model name (defaults to gemini-2.0-flash)
+ * @param modelName - Model name (defaults to gemini-2.5-flash)
  * @returns Model instance compatible with Vercel AI SDK
  * @deprecated Use createModelByTier for new code
  */
-export function createThinkForgeModel(modelName: string = 'gemini-2.0-flash'): LanguageModel {
+export function createThinkForgeModel(modelName: string = 'gemini-2.5-flash'): LanguageModel {
   const provider = getProvider();
   return provider(modelName) as unknown as LanguageModel;
 }

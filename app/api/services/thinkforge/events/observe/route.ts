@@ -68,7 +68,7 @@ async function processObservation(
     model = createModelByTier(ModelTier.Structural);
   } catch {
     const { createThinkForgeModel } = await import('@/lib/thinkforge/agents/model-factory');
-    model = createThinkForgeModel('gemini-2.0-flash');
+    model = createThinkForgeModel('gemini-2.5-flash');
   }
 
   const { object } = await generateObject({

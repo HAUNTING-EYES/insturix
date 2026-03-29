@@ -100,7 +100,7 @@ async function comparePair(
     ]);
 
     const result = await generateText({
-      model: google('gemini-2.0-flash'),
+      model: google('gemini-2.5-flash'),
       messages: [
         {
           role: 'user',
@@ -405,7 +405,7 @@ export async function checkVideoQuality(
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     const parts: any[] = [
       { text: VIDEO_QUALITY_PROMPT },

@@ -265,7 +265,7 @@ export async function extractEditDNA(params: {
 
   // Call Gemini 2.0 Flash with the video
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   console.log("[STYLE-TRANSFER] Sending video to Gemini for Edit DNA extraction...");
 

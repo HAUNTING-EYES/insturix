@@ -3621,7 +3621,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
 
         const { GoogleGenerativeAI } = await import('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
         const densityGuide = input.density === 'minimal' ? '1-2 total' : input.density === 'heavy' ? 'one per scene' : '2-3 total';
 

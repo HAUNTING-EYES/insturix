@@ -105,7 +105,7 @@ export async function parseScriptWithLLM(
   } = {},
 ): Promise<LLMParseResult> {
   const google = getGeminiProvider();
-  const model = google('gemini-2.0-flash');
+  const model = google('gemini-2.5-flash');
 
   const { object } = await generateObject({
     model,
@@ -366,7 +366,7 @@ export async function extractSubjectsFromScenes(
   options: { artStyle?: string } = {},
 ): Promise<SubjectExtractionResult> {
   const google = getGeminiProvider();
-  const model = google('gemini-2.0-flash');
+  const model = google('gemini-2.5-flash');
 
   // Give the LLM the FULL visual description + narration — not truncated.
   // The narration often contains key subject details the visual desc misses.
@@ -485,7 +485,7 @@ export async function refineVideoPrompt(
   context: VideoPromptContext,
 ): Promise<string> {
   const google = getGeminiProvider();
-  const model = google('gemini-2.0-flash');
+  const model = google('gemini-2.5-flash');
 
   // Build reference subject context
   const subjectContext = context.referenceSubjects && context.referenceSubjects.length > 0
