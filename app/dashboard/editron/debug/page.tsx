@@ -268,14 +268,29 @@ function ProjectInspectorTab() {
               <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">All Overlays ({overlays.length})</summary>
               <div className="mt-2 space-y-1 max-h-96 overflow-y-auto">
                 {overlays.sort((a: any, b: any) => a.from - b.from).map((o: any) => (
-                  <div key={o.id} className="p-1.5 bg-zinc-900 rounded text-[10px] font-mono">
-                    <span className="text-blue-400">#{o.id}</span>{' '}
-                    <span className="text-amber-400">{o.type}</span>{' '}
-                    row={o.row} from={o.from} dur={o.durationInFrames}{' '}
-                    {o.src && <span className="text-zinc-500">src={o.src.substring(0, 40)}...</span>}
-                    {o.content && typeof o.content === 'string' && <span className="text-zinc-500">"{o.content.substring(0, 50)}"</span>}
-                    {o.keyframeTracks?.length > 0 && <span className="text-green-400"> [{o.keyframeTracks.length} kf tracks]</span>}
-                    {o.metadata?.isTransition && <span className="text-yellow-400"> [transition: {o.metadata.transitionType}]</span>}
+                  <div key={o.id} className="p-1.5 bg-zinc-900 rounded text-[10px] font-mono group">
+                    <div className="flex items-center gap-1">
+                      <span className="text-blue-400">#{o.id}</span>{' '}
+                      <span className="text-amber-400">{o.type}</span>{' '}
+                      row={o.row} from={o.from} dur={o.durationInFrames}{' '}
+                      {o.content && typeof o.content === 'string' && <span className="text-zinc-500">&quot;{o.content.substring(0, 50)}&quot;</span>}
+                      {o.keyframeTracks?.length > 0 && <span className="text-green-400"> [{o.keyframeTracks.length} kf tracks]</span>}
+                      {o.metadata?.isTransition && <span className="text-yellow-400"> [transition: {o.metadata.transitionType}]</span>}
+                    </div>
+                    {o.src && (
+                      <div className="mt-0.5 flex items-center gap-1">
+                        <span className="text-zinc-600">src:</span>
+                        <span className="text-cyan-600 break-all select-all text-[9px]">{o.src}</span>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(o.src); }}
+                          className="text-zinc-600 hover:text-white px-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Copy URL"
+                        >📋</button>
+                      </div>
+                    )}
+                    {o.metadata && Object.keys(o.metadata).length > 0 && (
+                      <div className="mt-0.5 text-[9px] text-zinc-600">meta: {JSON.stringify(o.metadata)}</div>
+                    )}
                   </div>
                 ))}
               </div>
