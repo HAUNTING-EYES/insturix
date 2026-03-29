@@ -9,6 +9,7 @@ import type { Storyboard } from '@/lib/pipeline/schemas/storyboard';
 import { buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
 import { isSFXAvailable } from '@/lib/pipeline/sfx-service';
 import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -108,7 +109,7 @@ export async function POST(
           type: 'image',
           from: currentFrame,
           durationInFrames: durationFrames,
-          row: 3, // Background row (behind video)
+          row: ROW.VIDEO, // Image on video row (no video exists for this scene)
           left: 0,
           top: 0,
           width,
@@ -132,7 +133,7 @@ export async function POST(
           type: 'video',
           from: currentFrame,
           durationInFrames: durationFrames,
-          row: 2, // Video layer (in front of image on row 3)
+          row: ROW.VIDEO, // Video layer
           left: 0,
           top: 0,
           width,
@@ -168,7 +169,7 @@ export async function POST(
           type: 'sound',
           from: currentFrame,
           durationInFrames: cappedVoDuration,
-          row: 4, // Audio track
+          row: ROW.VOICEOVER, // Voiceover audio track
           left: 0,
           top: 0,
           width: 0,

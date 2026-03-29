@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { generateBackgroundMusic, buildMusicPrompt } from '@/lib/pipeline/bgm-service';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { generateSFXForScenes } from '@/lib/pipeline/sfx-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 
@@ -80,7 +81,7 @@ async function handler(request: NextRequest) {
         type: 'sound',
         from: 0,
         durationInFrames: totalFrames,
-        row: 5,
+        row: ROW.BGM,
         left: 0, top: 0, width: 0, height: 0,
         isDragging: false, rotation: 0,
         content: bgm.audioUrl,
@@ -150,7 +151,7 @@ async function handler(request: NextRequest) {
           type: 'sound',
           from: frameInfo.fromFrame,
           durationInFrames: frameInfo.durationFrames,
-          row: 6,
+          row: ROW.SFX,
           left: 0, top: 0, width: 0, height: 0,
           isDragging: false, rotation: 0,
           content: sfx.audioUrl,
