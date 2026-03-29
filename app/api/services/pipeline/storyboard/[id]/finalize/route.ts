@@ -179,10 +179,11 @@ export async function POST(
           content: scene.voiceover.audioUrl,
           src: scene.voiceover.audioUrl,
           assetId: scene.voiceover.audioAssetId,
-          // L-Cut/J-Cut: Set explicit audio boundaries so timeline handles are visible.
-          // Users can drag these to extend audio before/after the visual cut.
-          audioStartFrame: currentFrame,
-          audioEndFrame: currentFrame + cappedVoDuration,
+          // Do NOT set audioStartFrame/audioEndFrame by default.
+          // Setting them causes: (1) L-cut/J-cut handles showing unnecessarily,
+          // (2) audio delay bug when applyEditDirections shifts overlay.from
+          //     without updating audioStartFrame.
+          // Users can enable L-cut/J-cut manually via the editor if needed.
           styles: { volume: 1 },
         });
       }

@@ -62,6 +62,14 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
   const audioSourceOffset = overlay.startFromSound || 0;
   const hasDecoupledAudio = overlay.audioStartFrame !== undefined || overlay.audioEndFrame !== undefined;
 
+  // Resolve volume: if ducking callback exists AND is a valid function, use it.
+  // Remotion's <Audio volume> accepts either a number or a frame=>number callback.
+  // If createDuckingVolume returns something unexpected, fall back to static number.
+  const baseVolume = typeof overlay.styles?.volume === 'number' ? overlay.styles.volume : 1;
+  const resolvedVolume = volumeCallback && typeof volumeCallback === 'function'
+    ? volumeCallback
+    : baseVolume;
+
   if (hasDecoupledAudio) {
     // audioStartFrame/audioEndFrame are ABSOLUTE global frame numbers (set by finalize.ts),
     // but this component is already inside a parent <Sequence from={overlay.from}>,
@@ -71,11 +79,11 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
     const audioDuration = Math.max(1, audioEnd - audioFrom);
 
     return (
-      <Sequence from={audioFrom} durationInFrames={audioDuration} layout="none">
+      <Sequence from={Math.max(0, audioFrom)} durationInFrames={audioDuration} layout="none">
         <Audio
           src={audioSrc}
           startFrom={audioSourceOffset}
-          volume={volumeCallback ?? (overlay.styles?.volume ?? 1)}
+          volume={resolvedVolume}
         />
       </Sequence>
     );
@@ -85,7 +93,7 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
     <Audio
       src={audioSrc}
       startFrom={audioSourceOffset}
-      volume={volumeCallback ?? (overlay.styles?.volume ?? 1)}
+      volume={resolvedVolume}
     />
   );
 };

@@ -193,20 +193,42 @@ export async function applyEditDirections(
     );
 
     if (result) {
-      // Modify outgoing clip
+      // Modify outgoing clip — extend duration + add fade-out keyframes
       outgoingVideo.durationInFrames = result.outgoingOverlayUpdate.durationInFrames;
-      outgoingVideo.keyframeTracks = [
-        ...(outgoingVideo.keyframeTracks || []),
-        ...result.outgoingOverlayUpdate.keyframeTracks,
-      ];
+      // MERGE keyframes: for each property, combine existing + new into one track.
+      // This prevents the incoming fade-in from being overwritten by the outgoing fade-out
+      // on middle clips that participate in TWO transitions.
+      const mergedOutTracks = [...(outgoingVideo.keyframeTracks || [])];
+      for (const newTrack of result.outgoingOverlayUpdate.keyframeTracks) {
+        const existingIdx = mergedOutTracks.findIndex((t: any) => t.property === newTrack.property);
+        if (existingIdx >= 0) {
+          // Merge: keep existing keyframes (e.g. incoming fade-in) + add new ones (outgoing fade-out)
+          const existing = mergedOutTracks[existingIdx];
+          const mergedKeyframes = [...existing.keyframes, ...newTrack.keyframes]
+            .sort((a: any, b: any) => a.frame - b.frame);
+          mergedOutTracks[existingIdx] = { ...existing, keyframes: mergedKeyframes };
+        } else {
+          mergedOutTracks.push(newTrack);
+        }
+      }
+      outgoingVideo.keyframeTracks = mergedOutTracks;
 
-      // Modify incoming clip
+      // Modify incoming clip — start earlier + extend duration + add fade-in keyframes
       incomingVideo.from = result.incomingOverlayUpdate.from;
       incomingVideo.durationInFrames = result.incomingOverlayUpdate.durationInFrames;
-      incomingVideo.keyframeTracks = [
-        ...(incomingVideo.keyframeTracks || []),
-        ...result.incomingOverlayUpdate.keyframeTracks,
-      ];
+      const mergedInTracks = [...(incomingVideo.keyframeTracks || [])];
+      for (const newTrack of result.incomingOverlayUpdate.keyframeTracks) {
+        const existingIdx = mergedInTracks.findIndex((t: any) => t.property === newTrack.property);
+        if (existingIdx >= 0) {
+          const existing = mergedInTracks[existingIdx];
+          const mergedKeyframes = [...newTrack.keyframes, ...existing.keyframes]
+            .sort((a: any, b: any) => a.frame - b.frame);
+          mergedInTracks[existingIdx] = { ...existing, keyframes: mergedKeyframes };
+        } else {
+          mergedInTracks.push(newTrack);
+        }
+      }
+      incomingVideo.keyframeTracks = mergedInTracks;
 
       console.log(`[EditDirections] Applied ${transDef.name} transition between scene ${prevScene.sceneIndex}→${scene.sceneIndex} (${overlapFrames} frames overlap)`);
     }

@@ -43,12 +43,23 @@ export async function POST(req: NextRequest) {
 
     const videoOverlays = (project.overlays || []).filter((o: any) => o.type === 'video');
     const analyses: AssetAnalysis[] = [];
+    const analysisErrors: string[] = [];
 
     for (const overlay of videoOverlays) {
-      if (overlay.assetId) {
-        const analysis = await getAnalysis(overlay.assetId);
-        if (analysis) analyses.push(analysis);
+      if (!overlay.assetId) {
+        analysisErrors.push(`Overlay #${overlay.id} (row ${overlay.row}, from ${overlay.from}): no assetId — cannot analyze`);
+        continue;
       }
+      const analysis = await getAnalysis(overlay.assetId);
+      if (analysis) {
+        analyses.push(analysis);
+      } else {
+        analysisErrors.push(`Asset ${overlay.assetId}: no cached analysis found (analysis may have failed during generation)`);
+      }
+    }
+
+    if (analyses.length === 0 && videoOverlays.length > 0) {
+      console.warn(`[Analysis] 0 analyses for ${videoOverlays.length} videos. Errors: ${analysisErrors.join('; ')}`);
     }
 
     // Step 3: Generate Edit Decision List
@@ -87,6 +98,12 @@ export async function POST(req: NextRequest) {
         speechSegments: a.speechSegments.length,
         musicSections: a.musicStructure?.sections.length || 0,
       })),
+      // Debug info: why some assets may have failed
+      ...(analysisErrors.length > 0 && {
+        analysisErrors,
+        videoOverlayCount: videoOverlays.length,
+        analyzedCount: analyses.length,
+      }),
     });
   } catch (error: any) {
     console.error('[Analysis] Error:', error);
