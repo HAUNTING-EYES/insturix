@@ -32,17 +32,31 @@ const SceneEditDirectionsSchema = z.object({
   cameraRig: z.string().optional().describe('Camera movement/rig notes from the script (e.g. "steadicam", "dolly", "crane shot"). Preserved for reference. null if not mentioned.'),
 }).describe('Editing directions for this scene. Return null for any field NOT explicitly present in the script — do NOT invent directions.');
 
+const SubShotSchema = z.object({
+  description: z.string().describe('What this sub-shot shows (e.g. "child reaching for Happy Meal toy")'),
+  startNormalized: z.number().min(0).max(1).describe('Where in the parent clip this sub-shot starts (0.0 = beginning, 1.0 = end)'),
+  endNormalized: z.number().min(0).max(1).describe('Where in the parent clip this sub-shot ends'),
+  targetDurationSeconds: z.number().describe('How long this sub-shot appears in the final video (can be shorter than the clip segment)'),
+  narration: z.string().optional().describe('Narration during this sub-shot. Empty if narration continues from the scene level.'),
+});
+
 const SceneSchema = z.object({
   title: z.string().describe('Short cinematic scene title (2-6 words, no markdown, no "Scene 1" generic labels)'),
   narration: z.string().describe('ONLY the voiceover/dialogue words spoken aloud by a voice actor. Extract exact quoted text from "Voiceover:" or "VO:" or "Narrator:" labels. Empty string "" if no voiceover in this scene. NEVER include visual descriptions, camera directions, audio notes, or music cues.'),
-  visualDescription: z.string().describe('Static image prompt: what the camera frame captures as a STILL photograph. Subject, setting, lighting, colors, composition, framing. NO camera movement, NO motion words.'),
+  visualDescription: z.string().describe('Static image prompt: ONE subject, ONE setting, ONE frozen moment. This generates a SINGLE photograph. NO montage, NO collage, NO multiple subjects in different locations.'),
   videoMotionPrompt: z.string().describe('Video animation prompt: how this still frame comes to life. Camera movement (dolly, pan, orbit), subject micro-motion, atmospheric effects (particles, light shifts, fabric movement). Keep subtle and cinematic.'),
   audioDescription: z.string().describe('Background audio/sound effects for this scene (not voiceover): ambient sounds, music mood, sfx.'),
-  durationSeconds: z.number().describe('Scene duration in seconds based on voiceover pacing (~150 words/minute). Minimum 3s, maximum 15s.'),
+  durationSeconds: z.number().describe('Total duration this generation unit occupies in the final video (sum of all sub-shot durations if sub-shots exist). Minimum 3s, maximum 15s.'),
   mood: z.enum(['energetic', 'calm', 'serious', 'playful', 'mysterious', 'dramatic', 'inspirational', 'neutral']),
   imageQualityTokens: z.string().describe('Style-appropriate quality descriptors for the image. E.g. for cinematic: "35mm film grain, shallow depth of field, anamorphic lens". For anime: "cel-shaded, clean linework, vibrant saturation". Tailor to the art style.'),
   videoQualityTokens: z.string().describe('Style-appropriate quality descriptors for the video. E.g. for cinematic: "smooth cinematic footage, film grain, professional color grade". For anime: "fluid animation, consistent character model, clean frames". Tailor to the art style.'),
   editDirections: SceneEditDirectionsSchema.optional().describe('Editing directions extracted from the script. ONLY populate fields that are explicitly mentioned in the script text. Return null/omit for anything not stated.'),
+
+  // Generation unit + sub-shots
+  generationUnitId: z.string().describe('Group ID for scenes generated from the SAME video clip. Scenes with the same generationUnitId share one AI video generation call. Use a short descriptive ID like "playground", "car-night", "food-closeup". Each unique ID = one $0.35 video gen call.'),
+  primaryVisualForUnit: z.boolean().describe('true if this scene is the PRIMARY visual for its generation unit (the one that gets generated). false if this scene reuses/cuts from another scene\'s generated video.'),
+  subShots: z.array(SubShotSchema).optional().describe('If the script describes multiple quick cuts within this scene\'s time window (e.g. "Quick cuts: A, B, C"), define sub-shots here. Each sub-shot becomes a separate timeline segment cut from the same generated video. Leave empty/omit for continuous scenes.'),
+  sceneType: z.enum(['continuous', 'montage', 'logo-reveal', 'text-card', 'talking-head']).describe('Scene type: "continuous" = one unbroken shot, "montage" = rapid cuts from the same clip, "logo-reveal" = brand/logo moment, "text-card" = title/end card, "talking-head" = speaker on camera'),
 });
 
 const GlobalEditDirectionsSchema = z.object({
@@ -194,27 +208,59 @@ Must be specific to the art style. Dynamic per scene.
 - Sports/commercial → "high-speed camera, crisp motion freeze, stadium lighting, editorial color grade"
 - NEVER use generic "high quality, 4K, masterpiece" tokens.
 
-## SCENE DECOMPOSITION
-Target: ~${options.targetDuration ? Math.ceil(options.targetDuration / 5) : '6-12'} scenes for a ${options.targetDuration || '30-60'}-second video.
+## GENERATION UNIT GROUPING (CRITICAL — this controls cost and quality)
 
-### If the script IS already decomposed into scenes (FORMAT G/H):
-- If a script scene has ONE subject in ONE composition/framing → keep as ONE pipeline scene
-- If a script scene has a MONTAGE of DIFFERENT subjects/locations → SPLIT into separate pipeline scenes. Set pacing: "fast" on all.
-- If a script scene has the SAME subject but DIFFERENT camera setups → SPLIT into separate pipeline scenes. Group beats that share the same framing.
-- If a script scene has the SAME subject in SAME framing across continuous action → keep as ONE pipeline scene, pick the most dynamic moment.
-- Apply the script scene's transition to the LAST pipeline scene in the group.
-- Distribute SFX/camera/music across all derived pipeline scenes.
-- Narration attaches to the FIRST pipeline scene in the group. Other derived scenes: narration "".
+Each output scene = ONE AI video generation call (~$0.35). Your job is to MINIMIZE generation calls while MAXIMIZING visual coverage.
 
-### If the script is NOT pre-decomposed:
-One scene = one continuous shot. SPLIT when: location changes, subject changes, time jumps, script marks cut/transition, dialogue switches speakers.
-MERGE when: same subject + same location + continuous action → one scene.
+RULE: Group shots by SUBJECT + LOCATION + VISUAL STYLE. One generation unit = one 5-second video clip that can be CUT into multiple sub-shots.
 
-### Special cases (all formats):
-- Title cards / logo reveals → own scene, narration: ""
-- Text-on-screen / end cards → own scene, include text in visualDescription
-- Logo animations → own scene, describe logo and animation style
-- Talking head with B-roll → split: one talking scene, separate B-roll scenes
+### How to group:
+1. Read ALL visual descriptions across the entire script
+2. Identify distinct SUBJECT+LOCATION combinations (e.g., "children at playground", "teenagers in car", "food close-ups")
+3. Each unique combination = ONE generation unit with a descriptive ID
+4. Assign generationUnitId to each scene
+5. Mark primaryVisualForUnit=true on the BEST scene in each unit (most visually rich)
+6. Other scenes in the same unit get primaryVisualForUnit=false (they reuse the generated video)
+
+### Sub-shots for montage sections:
+When a script section says "Quick cuts: A, B, C" and A/B/C share the same subject/location:
+- Create ONE scene with subShots array
+- Each sub-shot defines a cut point within the generated clip
+- The assembly step will cut the 5s clip into 1-2s segments
+
+Example for McDonald's "0:00-0:04 — Quick cuts: child reaching for toy, kids on playground, parent wiping ketchup":
+→ All share subject "children at McDonald's" → ONE generation unit "childhood-mcdonalds"
+→ visualDescription: "A young child reaching excitedly for a Happy Meal toy at a colorful McDonald's table, warm golden lighting, soft film grain"
+→ subShots: [
+    { description: "child's hand reaching for toy", startNormalized: 0, endNormalized: 0.33, targetDurationSeconds: 1.3 },
+    { description: "kids laughing on playground", startNormalized: 0.33, endNormalized: 0.66, targetDurationSeconds: 1.3 },
+    { description: "parent wiping ketchup", startNormalized: 0.66, endNormalized: 1.0, targetDurationSeconds: 1.4 }
+  ]
+→ sceneType: "montage"
+
+### When to SPLIT into separate generation units:
+- DIFFERENT subjects in DIFFERENT locations (runner vs basketball player vs gymnast)
+- Dramatically different visual styles within the same script (nostalgic film vs crisp modern)
+- Logo/brand reveals (always their own unit)
+
+### When to MERGE into one generation unit:
+- Same subject, same location, different camera angles → ONE unit, use sub-shots
+- Same setting, related subjects (family members at same table) → ONE unit
+- Progressive reveal of same scene (wide → close-up) → ONE unit
+
+Target: ${options.targetDuration ? Math.ceil(options.targetDuration / 8) + '-' + Math.ceil(options.targetDuration / 4) : '4-8'} generation units for a ${options.targetDuration || '30-60'}-second video.
+
+### Scene types:
+- "continuous" — one unbroken shot, no cuts needed
+- "montage" — rapid cuts from the same clip (MUST have subShots)
+- "logo-reveal" — brand/logo moment
+- "text-card" — title/end card
+- "talking-head" — speaker on camera
+
+### Special cases:
+- Title cards / logo reveals → own generation unit, sceneType: "logo-reveal", narration: ""
+- Text-on-screen / end cards → own unit, sceneType: "text-card"
+- Talking head with B-roll → split: talking-head unit + separate B-roll units
 
 ## DURATION
 If the script provides timestamps → calculate durationSeconds for each pipeline scene.

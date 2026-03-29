@@ -5,6 +5,24 @@
  * visual reference / stencils for video production in Editron.
  */
 
+/**
+ * SubShot — a cut point within a generated video clip.
+ * The assembly step uses these to cut one 5s video into multiple timeline segments.
+ * Example: a 5s McDonald's playground clip → 3 sub-shots of ~1.5s each.
+ */
+export interface SubShot {
+  /** What this sub-shot shows (used for asset analysis matching) */
+  description: string;
+  /** Approximate start time within the parent clip (0-1 normalized) */
+  startNormalized: number;
+  /** Approximate end time within the parent clip (0-1 normalized) */
+  endNormalized: number;
+  /** Duration in seconds this sub-shot should appear in final video */
+  targetDurationSeconds: number;
+  /** Narration that plays during this sub-shot (empty if narration continues from previous) */
+  narration?: string;
+}
+
 export interface SceneDescriptor {
   sceneIndex: number;
   title: string;
@@ -27,6 +45,24 @@ export interface SceneDescriptor {
   /** Structured edit directions extracted from the script by the LLM parser.
    *  These drive automated editing in the finalize route and Director Agent. */
   editDirections?: SceneEditDirections;
+
+  // ─── Generation Unit + Sub-Shot System ────────────────────────
+
+  /** Generation unit ID — scenes sharing this ID are generated from the SAME video clip.
+   *  The parser groups related shots (same subject/location) under one generation unit.
+   *  Example: "playground" unit generates one 5s clip, cut into 3 sub-shots. */
+  generationUnitId?: string;
+
+  /** The PRIMARY visual for this generation unit. Only set on the first scene of a unit.
+   *  Other scenes in the same unit inherit the generated video and use subShots for cutting. */
+  primaryVisualForUnit?: boolean;
+
+  /** Sub-shots within this scene's generated video. If present, the assembly step
+   *  cuts the generated clip at these points instead of using it as one continuous piece. */
+  subShots?: SubShot[];
+
+  /** Scene type — determines assembly strategy */
+  sceneType?: 'continuous' | 'montage' | 'logo-reveal' | 'text-card' | 'talking-head';
 }
 
 /** Per-scene editing instructions extracted from the script. */
