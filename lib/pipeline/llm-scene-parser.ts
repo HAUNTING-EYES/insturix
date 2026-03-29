@@ -26,7 +26,7 @@ const SceneEditDirectionsSchema = z.object({
     durationMs: z.number().optional(),
   }).optional().describe('Transition INTO this scene. Only set if the script explicitly mentions a transition (e.g. "CUT TO", "DISSOLVE TO", "FADE IN"). null if not mentioned.'),
   filterPresetId: z.string().optional().describe('Color grade for this scene, mapped to preset ID. Only set if the script explicitly describes a color mood for this specific scene. Options: cinematic, teal-orange, blade-runner, neon-nights, muted-doc, golden-hour-pro, desaturated-drama, film-portra, clean-corporate, vivid, warm-neutral, noir, retro, warm, cool. null if not mentioned.'),
-  pacing: z.enum(['fast', 'medium', 'slow', 'building', 'beat-synced']).optional().describe('Pacing for this scene. Only set if the script explicitly mentions pacing (e.g. "quick cuts", "slow reveal"). null if not mentioned.'),
+  pacing: z.enum(['fast', 'medium', 'slow', 'building', 'beat-synced']).optional().describe('Pacing for THIS specific scene. ONLY set if the script explicitly describes pacing for this scene (e.g. "quick cuts", "slow reveal", "building tension"). Do NOT propagate global pacing to individual scenes — the global pacing field handles that. null if this scene has no explicit pacing instruction.'),
   sfxCue: z.string().optional().describe('Specific sound effect cue beyond general audio. Only set if the script explicitly describes an SFX moment (e.g. "whoosh", "heartbeat", "glass shatter"). null if not mentioned.'),
   motionGraphicCue: z.string().optional().describe('Motion graphic to overlay. Only set if the script mentions a callout, lower third, stat display, or graphic overlay. null if not mentioned.'),
   cameraRig: z.string().optional().describe('Camera movement/rig notes from the script (e.g. "steadicam", "dolly", "crane shot"). Preserved for reference. null if not mentioned.'),
@@ -43,11 +43,11 @@ const SubShotSchema = z.object({
 const SceneSchema = z.object({
   title: z.string().describe('Short cinematic scene title (2-6 words, no markdown, no "Scene 1" generic labels)'),
   narration: z.string().describe('ONLY the voiceover/dialogue words spoken aloud by a voice actor. Extract exact quoted text from "Voiceover:" or "VO:" or "Narrator:" labels. Empty string "" if no voiceover in this scene. NEVER include visual descriptions, camera directions, audio notes, or music cues.'),
-  visualDescription: z.string().describe('Static image prompt: ONE subject, ONE setting, ONE frozen moment. This generates a SINGLE photograph. NO montage, NO collage, NO multiple subjects in different locations.'),
+  visualDescription: z.string().describe('Static image prompt: ONE primary subject, ONE setting, ONE frozen moment. This generates a SINGLE photograph.\n\nBAD: "A family sharing a meal, a grandparent smiling at a grandchild, friends laughing over lunch" — this is 3 different shots, will produce a collage.\nGOOD: "A grandmother smiling warmly at her young grandchild across a McDonald\'s table, warm golden overhead lighting, soft bokeh background" — ONE moment, ONE camera position.\n\nPick the HERO moment from the script. Other visual beats become separate scenes or sub-shots.'),
   videoMotionPrompt: z.string().describe('Video animation prompt: how this still frame comes to life. Camera movement (dolly, pan, orbit), subject micro-motion, atmospheric effects (particles, light shifts, fabric movement). Keep subtle and cinematic.'),
   audioDescription: z.string().describe('Background audio/sound effects for this scene (not voiceover): ambient sounds, music mood, sfx.'),
   durationSeconds: z.number().describe('Total duration this generation unit occupies in the final video (sum of all sub-shot durations if sub-shots exist). Minimum 3s, maximum 15s.'),
-  mood: z.enum(['energetic', 'calm', 'serious', 'playful', 'mysterious', 'dramatic', 'inspirational', 'neutral']),
+  mood: z.enum(['energetic', 'calm', 'serious', 'playful', 'mysterious', 'dramatic', 'inspirational', 'neutral']).describe('Scene mood based on actual content: energetic=action/montage/high-energy, calm=gentle/reflective/slow moments, serious=corporate/formal/grave, playful=fun/light/humorous, mysterious=suspense/unknown/moody, dramatic=emotional-peak/conflict/revelation, inspirational=uplifting/triumph/brand-aspiration, neutral=informational/transitional. Vary based on what happens in each scene — do NOT assign the same mood to every scene.'),
   imageQualityTokens: z.string().describe('Style-appropriate quality descriptors for the image. E.g. for cinematic: "35mm film grain, shallow depth of field, anamorphic lens". For anime: "cel-shaded, clean linework, vibrant saturation". Tailor to the art style.'),
   videoQualityTokens: z.string().describe('Style-appropriate quality descriptors for the video. E.g. for cinematic: "smooth cinematic footage, film grain, professional color grade". For anime: "fluid animation, consistent character model, clean frames". Tailor to the art style.'),
   editDirections: SceneEditDirectionsSchema.optional().describe('Editing directions extracted from the script. ONLY populate fields that are explicitly mentioned in the script text. Return null/omit for anything not stated.'),
@@ -147,7 +147,8 @@ FORMAT G — Pre-decomposed storyboard (already split into named scenes with sub
 
 FORMAT H — ThinkForge output (scenes with Visuals/Audio/Camera/Music Direction subsections, plus header and Production Notes):
 → Same decomposition rule as FORMAT G: split multi-subject scenes.
-→ Extract: Visuals → visualDescription, Audio → sfxCue + narration, Camera → videoMotionPrompt + cameraRig, Music Direction → audioDescription, Transition line → editDirections.transition (apply to LAST pipeline scene in that group).
+→ Extract: Visuals → visualDescription, Audio → split into narration + sfxCue (see SFX EXTRACTION), Camera → videoMotionPrompt + cameraRig, Music Direction → audioDescription, **Transition:** line → editDirections.transition (map to exact transition ID).
+→ IMPORTANT: Look for standalone **Transition:** lines between scenes (e.g. "**Transition:** Hard cut to next scene", "**Transition:** Fast dissolve into next scene"). Map these to transition IDs: "Hard cut"→"hard-cut", "Fast dissolve"→"dissolve", "Quick energetic cut"→"hard-cut".
 → Header block (Emotional Target, Genre, Tempo, Key, Instrumentation, Reference Tracks) → IGNORE for scenes. This is global metadata.
 → Production Notes → IGNORE entirely.
 
@@ -201,12 +202,20 @@ The video model ALREADY SEES the image. Describe ONLY what changes.
 - For fast-paced scenes: describe the dominant motion, note "quick energy" in the prompt.
 
 ## QUALITY TOKENS
-Must be specific to the art style. Dynamic per scene.
-- Cinematic → "35mm Kodak Portra 400, shallow depth of field, anamorphic lens flare"
-- Animation → "smooth vector lines, consistent stroke weight, cel-shaded"
-- Documentary → "handheld natural light, 4K sensor, ungraded footage"
-- Sports/commercial → "high-speed camera, crisp motion freeze, stadium lighting, editorial color grade"
+Must be specific to the art style AND the scene content.
+- If the script has a global style guide (e.g. "35mm Portra" in production notes) → use it consistently across all scenes. That's intentional.
+- If no global guide → vary tokens based on scene content:
+  - Food close-up → "macro lens, shallow depth of field, food photography lighting"
+  - Night scene → "high ISO, neon reflections, ambient city glow"
+  - Logo reveal → "clean sharp render, minimal depth of field, studio lighting"
+  - Establishing wide → "wide-angle lens, deep focus, golden hour"
+- Reference examples by style:
+  - Cinematic → "35mm Kodak Portra 400, shallow depth of field, anamorphic lens flare"
+  - Animation → "smooth vector lines, consistent stroke weight, cel-shaded"
+  - Documentary → "handheld natural light, 4K sensor, ungraded footage"
+  - Sports/commercial → "high-speed camera, crisp motion freeze, stadium lighting"
 - NEVER use generic "high quality, 4K, masterpiece" tokens.
+- NEVER put quality tokens inside videoMotionPrompt — that field is ONLY for motion/animation.
 
 ## GENERATION UNIT GROUPING (CRITICAL — this controls cost and quality)
 
@@ -278,10 +287,21 @@ If the script implies text overlays, statistics, branded elements:
 → Extract into editDirections.motionGraphicCue: "stat counter: 50% off", "lower third: LIMITLESS FLOW", "brand logo reveal: Nike swoosh"
 If nothing → motionGraphicCue: ""
 
-## SFX EXTRACTION
-If the script's Audio section describes sound effects (e.g., "SFX: chalk dust puff"):
-→ Extract into editDirections.sfxCue as a concise description (strip "SFX:" prefix)
-If nothing → sfxCue: ""
+## SFX EXTRACTION (CRITICAL — must split from audioDescription)
+The Audio section often mixes music, narration, and SFX. You MUST split them:
+- Text after "SFX:" or "Sound:" → editDirections.sfxCue (strip the label prefix)
+- Music mood, background audio → audioDescription
+- Spoken words → narration
+
+Example: "**Audio:** SFX: Chalk dust puff, fabric rustle, light sharp click. Subtle ambient gym hum, faint rhythmic breathing."
+→ sfxCue: "chalk dust puff, fabric rustle, light sharp click"
+→ audioDescription: "subtle ambient gym hum, faint rhythmic breathing"
+
+Example: "**Audio:** SFX: Exaggerated whoosh for jump, subtle crowd roar. Warm, comforting background music."
+→ sfxCue: "exaggerated whoosh, subtle crowd roar"
+→ audioDescription: "warm, comforting background music"
+
+If no SFX mentioned → sfxCue: null (not empty string)
 
 ## EDIT DIRECTIONS MAPPING
 ### Transitions (map script cues to exact IDs):
@@ -295,7 +315,8 @@ Durations: dissolve=500, dip-to-black=600, flash=270, hard-cut=0, zoom-punch=270
 ## META CONTENT — IGNORE FOR SCENES
 Skip: Project overviews, creative briefs, emotional targets (header), genre/style descriptions, reference tracks, style guides, platform notes, production notes, color grade (global), sound design (global). These are metadata, NOT scenes.
 
-CRITICAL: Return null for ANY editDirections field not explicitly in the script. Do NOT invent.
+CRITICAL: Return null for individual editDirections FIELDS not explicitly in the script. Do NOT invent field values.
+BUT: Every scene MUST have an editDirections object (even if all fields inside are null). Never omit the editDirections object entirely.
 ${options.aspectRatio ? `ASPECT RATIO: ${options.aspectRatio}. Adjust composition and framing accordingly.` : ''}
 
 ## STYLE GUIDE EXTRACTION
