@@ -4992,6 +4992,14 @@ Examples:
                 const audioRes = await fetch(audioArr[0].url);
                 if (audioRes.ok) {
                   const buffer = Buffer.from(await audioRes.arrayBuffer());
+                  // Validate audio headers to prevent render crashes
+                  const validAudio = buffer.length > 12 && (
+                    (buffer[0] === 0x52 && buffer[1] === 0x49) || // WAV
+                    (buffer[0] === 0x49 && buffer[1] === 0x44) || // MP3 ID3
+                    (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG
+                    (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
+                  );
+                  if (!validAudio) throw new Error('mirelo returned invalid audio');
                   const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.wav`, 'audio/wav');
                   if (uploadResult?.signedUrl) {
                     audioUrl = uploadResult.signedUrl;
@@ -5028,6 +5036,14 @@ Examples:
               const audioRes = await fetch(firstAudio);
               if (audioRes.ok) {
                 const buffer = Buffer.from(await audioRes.arrayBuffer());
+                // Validate audio headers
+                const validAudio = buffer.length > 12 && (
+                  (buffer[0] === 0x52 && buffer[1] === 0x49) || // WAV
+                  (buffer[0] === 0x49 && buffer[1] === 0x44) || // MP3 ID3
+                  (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG
+                  (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
+                );
+                if (!validAudio) throw new Error('CassetteAI returned invalid audio');
                 const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.mp3`, 'audio/mpeg');
                 if (uploadResult?.signedUrl) {
                   audioUrl = uploadResult.signedUrl;
@@ -5071,8 +5087,15 @@ Examples:
                   } catch {}
                   if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
                 }
-                if (buffer && buffer.length >= 100) {
-                  const uploadResult = await uploadToGCS(buffer, userId, `${assetId}.mp3`, 'audio/mpeg');
+                // Validate audio format before uploading
+                const validFreesound = buffer && buffer.length >= 100 && (
+                  (buffer[0] === 0x52 && buffer[1] === 0x49) || // WAV
+                  (buffer[0] === 0x49 && buffer[1] === 0x44) || // MP3 ID3
+                  (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG
+                  (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
+                );
+                if (validFreesound) {
+                  const uploadResult = await uploadToGCS(buffer!, userId, `${assetId}.mp3`, 'audio/mpeg');
                   if (uploadResult?.signedUrl) {
                     audioUrl = uploadResult.signedUrl;
                     gcsPath = uploadResult.gcsPath;

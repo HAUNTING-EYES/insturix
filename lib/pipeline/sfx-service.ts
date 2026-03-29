@@ -112,6 +112,16 @@ export async function generateSFX(
         const response = await fetch(audioUrl);
         if (!response.ok) throw new Error('Failed to download mirelo SFX');
         const buffer = Buffer.from(await response.arrayBuffer());
+        // Validate audio before upload — prevent render crashes from corrupt files
+        if (buffer.length < 12) throw new Error('mirelo audio too small, likely corrupted');
+        const isValidAudio = (buffer[0] === 0x52 && buffer[1] === 0x49) || // RIFF/WAV
+                             (buffer[0] === 0x49 && buffer[1] === 0x44) || // ID3/MP3
+                             (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG sync
+                             (buffer[0] === 0x4F && buffer[1] === 0x67);   // OGG
+        if (!isValidAudio) {
+          console.error(`[SFX] mirelo returned invalid audio. First bytes: ${buffer.slice(0, 8).toString('hex')}`);
+          throw new Error('mirelo returned invalid audio format');
+        }
         const filename = `${assetId}.wav`;
         const uploadResult = await uploadToGCS(buffer, userId, filename, 'audio/wav');
         return {
@@ -173,9 +183,29 @@ export async function generateSFX(
   if (!response.ok) throw new Error('Failed to download generated SFX');
   const buffer = Buffer.from(await response.arrayBuffer());
 
+  // Validate audio: check for valid MP3/WAV headers to prevent render crashes
+  // MP3 starts with ID3 tag (0x49 0x44 0x33) or MPEG sync word (0xFF 0xFB/0xFF 0xF3/0xFF 0xF2)
+  // WAV starts with RIFF header (0x52 0x49 0x46 0x46)
+  if (buffer.length < 12) {
+    throw new Error(`SFX audio too small (${buffer.length} bytes), likely corrupted`);
+  }
+  const isMP3 = (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) || // ID3 tag
+                (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0);                 // MPEG sync
+  const isWAV = buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
+  const isOGG = buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53;
+
+  if (!isMP3 && !isWAV && !isOGG) {
+    console.error(`[SFX] Invalid audio format. First 8 bytes: ${buffer.slice(0, 8).toString('hex')}. Skipping upload.`);
+    throw new Error('SFX generation returned invalid audio (not MP3/WAV/OGG)');
+  }
+
+  // Determine correct extension from actual format
+  const ext = isWAV ? 'wav' : isOGG ? 'ogg' : 'mp3';
+  const mime = isWAV ? 'audio/wav' : isOGG ? 'audio/ogg' : 'audio/mpeg';
+
   // Upload to GCS under the user's path
-  const filename = `${assetId}.mp3`;
-  const uploadResult = await uploadToGCS(buffer, userId, filename, 'audio/mpeg');
+  const filename = `${assetId}.${ext}`;
+  const uploadResult = await uploadToGCS(buffer, userId, filename, mime);
 
   return {
     audioUrl: uploadResult.signedUrl,
