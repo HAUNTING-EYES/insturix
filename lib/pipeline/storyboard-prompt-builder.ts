@@ -76,6 +76,10 @@ export function buildStoryboardPrompt(
 ): string {
   const parts: string[] = [];
 
+  // CRITICAL: Anti-collage prefix — Flux/SDXL tend to generate multi-panel images
+  // when the prompt describes multiple moments. This forces single-frame output.
+  parts.push('A single photographic frame capturing one moment in time. NO collage, NO split screen, NO multiple panels, NO grid, NO side-by-side images, NO diptych, NO storyboard');
+
   // Core visual description — this is the most important part, placed FIRST
   // IP-adapter consistency depends on the visual content being prominent in the prompt.
   if (scene.visualDescription) {
@@ -97,6 +101,15 @@ export function buildStoryboardPrompt(
       .replace(/\b(camera|shot|slow|fast)\s+(dolly|pan|tilt|zoom|track|orbit|crane|steadicam|follow|whip)\w*\b/gi, '')
       .replace(/\s{2,}/g, ' ')
       .trim();
+
+    // If visual description contains multiple distinct subjects/sentences that could
+    // produce a collage, detect and pick the primary visual moment.
+    // Heuristic: if there are 3+ sentences AND they describe different subjects → take first 2
+    const sentences = cleanVisual.split(/\.\s+/).filter(s => s.length > 10);
+    if (sentences.length >= 3) {
+      // Take the first 2 sentences max — the most important visual moment
+      cleanVisual = sentences.slice(0, 2).join('. ') + '.';
+    }
 
     if (cleanVisual.length > 3000) {
       parts.push(cleanVisual.substring(0, 3000));
