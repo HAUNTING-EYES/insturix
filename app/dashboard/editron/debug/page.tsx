@@ -612,6 +612,145 @@ function VideoAnalysisTestTab() {
   );
 }
 
+// ─── Assembly Simulator Tab ─────────────────────────────────────
+function AssemblySimulatorTab() {
+  const [scenesJson, setScenesJson] = useState('');
+  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const simulate = useCallback(async () => {
+    if (!scenesJson.trim()) return;
+    setLoading(true);
+    setError('');
+    setResult(null);
+    try {
+      const res = await fetch('/api/services/editron/debug/simulate-assembly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenes: JSON.parse(scenesJson) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setResult(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [scenesJson]);
+
+  const overlays = result?.overlays || [];
+  const ROW_NAMES: Record<number, string> = { 0: 'SFX', 1: 'BGM', 2: 'Video', 3: 'Voiceover', 4: 'Captions', 5: 'Transitions', 6: 'Graphics' };
+  const ROW_COLORS: Record<number, string> = { 0: '#5f1e3a', 1: '#3a5f1e', 2: '#1e3a5f', 3: '#5f3a1e', 4: '#1e5f3a', 5: '#5f5f1e', 6: '#3a1e5f' };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Layers className="w-4 h-4 text-purple-400" />
+            Assembly Simulator
+          </CardTitle>
+          <CardDescription>
+            Paste the &quot;scenes&quot; array from Script Parser output. Shows exactly what overlays scene-to-editron.ts would create — without generating any media. $0 cost.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            placeholder={'Paste scenes JSON array here...\n\nTip: Copy the "scenes" array from the Script Parser tab\'s Raw JSON output.'}
+            value={scenesJson}
+            onChange={(e) => setScenesJson(e.target.value)}
+            rows={8}
+            className="font-mono text-xs"
+          />
+          <div className="flex gap-2 items-center">
+            <Button onClick={simulate} disabled={loading || !scenesJson.trim()} size="sm">
+              {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Layers className="w-3 h-3 mr-1" />}
+              Simulate Assembly
+            </Button>
+            <span className="text-xs text-zinc-500">No media generated — just overlay structure</span>
+          </div>
+          {error && <div className="text-red-400 text-xs p-2 bg-red-950/30 rounded">{error}</div>}
+        </CardContent>
+      </Card>
+
+      {result && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              Assembly Result
+              <Badge variant="outline">{overlays.length} overlays</Badge>
+              <Badge variant="outline">{result.totalFrames} frames ({Math.round(result.totalFrames / 30)}s)</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Visual timeline */}
+            <div className="text-xs text-zinc-400 font-medium mb-1">Timeline Layout (Row → Overlays):</div>
+            <div className="space-y-1.5 border border-zinc-800 rounded p-3 bg-zinc-900/50">
+              {[0, 1, 2, 3, 4, 5, 6].map(rowNum => {
+                const rowOverlays = overlays.filter((o: any) => o.row === rowNum).sort((a: any, b: any) => a.from - b.from);
+                if (rowOverlays.length === 0) return null;
+                const totalFrames = result.totalFrames || 1;
+                return (
+                  <div key={rowNum} className="flex items-center gap-2">
+                    <span className="text-[10px] text-zinc-500 w-20 shrink-0 font-mono">
+                      R{rowNum} {ROW_NAMES[rowNum] || ''}
+                    </span>
+                    <div className="flex-1 relative h-6 bg-zinc-950 rounded overflow-hidden">
+                      {rowOverlays.map((o: any) => {
+                        const leftPct = (o.from / totalFrames) * 100;
+                        const widthPct = (o.durationInFrames / totalFrames) * 100;
+                        return (
+                          <div
+                            key={o.id}
+                            className="absolute top-0 h-full flex items-center px-1 text-[8px] text-white/80 truncate border-r border-zinc-800"
+                            style={{
+                              left: `${leftPct}%`,
+                              width: `${Math.max(widthPct, 1)}%`,
+                              backgroundColor: ROW_COLORS[rowNum] || '#333',
+                            }}
+                            title={`${o.type} #${o.id} | ${o.from}-${o.from + o.durationInFrames} (${(o.durationInFrames / 30).toFixed(1)}s) | ${o.content?.substring(0, 60) || o.src?.substring(0, 40) || ''}`}
+                          >
+                            {o.type === 'text' || o.type === 'caption' ? o.content?.substring(0, 20) : `${o.type} #${o.id}`}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <span className="text-[9px] text-zinc-600 w-6 shrink-0">{rowOverlays.length}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Overlay list */}
+            <details className="text-xs">
+              <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">All Overlays ({overlays.length})</summary>
+              <div className="mt-2 space-y-1 max-h-96 overflow-y-auto">
+                {overlays.sort((a: any, b: any) => a.row - b.row || a.from - b.from).map((o: any) => (
+                  <div key={o.id} className="p-1.5 bg-zinc-900 rounded text-[10px] font-mono">
+                    <span className="text-blue-400">#{o.id}</span>{' '}
+                    <span className="text-amber-400">{o.type}</span>{' '}
+                    <span className="text-zinc-500">R{o.row}({ROW_NAMES[o.row] || '?'})</span>{' '}
+                    {o.from}-{o.from + o.durationInFrames} ({(o.durationInFrames / 30).toFixed(1)}s){' '}
+                    {o.content && typeof o.content === 'string' && <span className="text-zinc-500">&quot;{o.content.substring(0, 60)}&quot;</span>}
+                    {o.metadata && <div className="text-[9px] text-zinc-600 mt-0.5">meta: {JSON.stringify(o.metadata)}</div>}
+                  </div>
+                ))}
+              </div>
+            </details>
+
+            <details className="text-xs">
+              <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Raw JSON</summary>
+              <pre className="mt-2 p-2 bg-zinc-950 rounded text-[10px] max-h-96 overflow-auto">{JSON.stringify(result, null, 2)}</pre>
+            </details>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Debug Page ───────────────────────────────────────────
 export default function EditronDebugPage() {
   const [copied, setCopied] = useState(false);
@@ -634,6 +773,9 @@ export default function EditronDebugPage() {
           <TabsTrigger value="parser" className="text-xs data-[state=active]:bg-zinc-700">
             <FileText className="w-3 h-3 mr-1" /> Script Parser
           </TabsTrigger>
+          <TabsTrigger value="assembly" className="text-xs data-[state=active]:bg-zinc-700">
+            <Layers className="w-3 h-3 mr-1" /> Assembly Sim
+          </TabsTrigger>
           <TabsTrigger value="project" className="text-xs data-[state=active]:bg-zinc-700">
             <Database className="w-3 h-3 mr-1" /> Project Inspector
           </TabsTrigger>
@@ -650,6 +792,7 @@ export default function EditronDebugPage() {
 
         <div className="mt-4">
           <TabsContent value="parser"><ScriptParserTab /></TabsContent>
+          <TabsContent value="assembly"><AssemblySimulatorTab /></TabsContent>
           <TabsContent value="project"><ProjectInspectorTab /></TabsContent>
           <TabsContent value="analysis"><AssetAnalysisTab /></TabsContent>
           <TabsContent value="video-test"><VideoAnalysisTestTab /></TabsContent>

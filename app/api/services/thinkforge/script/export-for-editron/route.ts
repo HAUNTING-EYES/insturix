@@ -21,7 +21,7 @@ import {
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30; // LLM parsing can take a few seconds
+export const maxDuration = 120; // Gemini 2.5 Flash (thinking model) needs 30-90s for structured output
 
 export async function POST(request: NextRequest) {
   try {
