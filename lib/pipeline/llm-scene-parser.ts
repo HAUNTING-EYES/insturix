@@ -105,7 +105,7 @@ CRITICAL RULES:
 IMAGE PROMPT RULES (visualDescription):
 - This generates ONE SINGLE STILL IMAGE. Absolutely NO camera movement words (no "tracking", "dolly", "pan", "zoom", "follows"). Describe a FROZEN MOMENT in time.
 - NEVER describe multiple frames, panels, grids, collages, storyboards, or split-screen layouts. ONE image = ONE continuous photograph.
-- If the script mentions "quick cuts" or "montage" with multiple elements (A, B, C), pick the SINGLE most visually striking element as the image subject. The others are edit directions, not visual content.
+- The image should show the MAIN SUBJECT of this scene in its environment. If the scene covers multiple moments of the same subject, show the most visually representative moment.
 - NEVER write things like "split into frames showing..." or "a series of images..." or "four panels..." — this creates collage artifacts in the image generator.
 - Write as a detailed AI image generation prompt describing what the camera frame captures as a photograph.
 - Include: specific subject with exact visual details (colors, materials, textures), setting/environment, lighting setup (type, direction, quality), color palette, composition (framing, rule of thirds, centered), viewing angle (eye level, low angle, overhead), atmosphere/mood.
@@ -170,13 +170,28 @@ EDIT DIRECTIONS EXTRACTION:
 DURATION: Based on voiceover pacing at ~150 words/minute. If no voiceover, use 5-8 seconds per scene.
 TOTAL TARGET: ~${options.targetDuration || 30} seconds total.
 
-SCENE COUNT RULES — THIS IS CRITICAL:
-- For a ${options.targetDuration || 30}-second video: generate EXACTLY ${Math.max(2, Math.min(Math.ceil((options.targetDuration || 30) / 7), 8))} to ${Math.max(3, Math.min(Math.ceil((options.targetDuration || 30) / 5), 12))} scenes. NO MORE.
-- Each scene = ONE continuous camera shot / ONE storyboard frame. A scene is 5-10 seconds of footage.
-- "Quick cuts: A, B, C" or "Montage: X, Y, Z" = ONE scene with the MOST IMPORTANT visual element as the visualDescription. The quick cuts/montage is a PACING instruction (set pacing: "fast"), NOT multiple scenes.
-- If the script explicitly labels scenes (Scene 1, Scene 2, etc.), use EXACTLY those scene boundaries. Do NOT split a labeled scene into multiple scenes.
-- Multiple visual actions within one scene stay as ONE scene. Pick the SINGLE most striking frame for the storyboard image.
-- NEVER generate more than 12 scenes for any video under 2 minutes.
+SCENE DECOMPOSITION RULES — THIS IS CRITICAL:
+Your job is to figure out what distinct VIDEO CLIPS need to be generated. Each output scene = ONE AI video generation call. Think about what a video model CAN produce in a single clip.
+
+GROUPING LOGIC — decide what becomes ONE scene vs SEPARATE scenes:
+- SAME subject + SAME location + continuous action → GROUP into ONE scene.
+  Example: "runner sprinting through park, then stretching" → ONE scene (same person, same place, continuous)
+- DIFFERENT subjects OR different locations → SEPARATE scenes.
+  Example: "runner sprinting" then "basketball player dribbling" → TWO separate scenes (different people)
+- "Montage of X, Y, Z" where X/Y/Z are the SAME subject → ONE scene with pacing: "fast". The montage is editing, not separate generation.
+  Example: "montage of chef chopping, stirring, plating" → ONE scene (same person, same kitchen)
+- "Montage of X, Y, Z" where X/Y/Z are DIFFERENT subjects → SEPARATE scenes for each distinct subject.
+  Example: "montage of runner's eyes, basketball hands, gymnast feet" → THREE scenes (three different people)
+- "Quick cuts between details of ONE object/product" → ONE scene showing the object. The quick cutting is an edit direction (set pacing: "fast"), not separate generations.
+  Example: "rapid cuts showing shoe sole, lacing, fabric" → ONE scene of the shoe
+- A talking head / presenter with continuous speech → ONE scene per location change, regardless of how long.
+- B-roll cutaways → EACH distinct cutaway subject gets its own scene.
+
+SCENE COUNT GUIDANCE:
+- For ${options.targetDuration || 30}s video: typically ${Math.max(2, Math.min(Math.ceil((options.targetDuration || 30) / 7), 8))}-${Math.max(3, Math.min(Math.ceil((options.targetDuration || 30) / 4), 15))} scenes, but let the content determine it.
+- Fewer, well-defined scenes > many vague ones. AI video models produce better quality with clear, focused prompts.
+- NEVER generate more than 15 scenes for videos under 2 minutes.
+- Each scene's visualDescription should describe the PRIMARY VISUAL that the AI video model sees as its starting frame.
 ${options.aspectRatio ? `ASPECT RATIO: ${options.aspectRatio}. Adjust composition and framing accordingly.` : ''}
 
 SCRIPT:
