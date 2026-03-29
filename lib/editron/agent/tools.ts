@@ -2120,8 +2120,8 @@ Use this to understand what exists. Then decide what to do based on user intent.
           );
         }
         
-        // Set caption to row 0
-        captionOverlay = { ...captionOverlay, row: 0 };
+        // Set caption to dedicated caption row (Row 4 in standard layout)
+        captionOverlay = { ...captionOverlay, row: 4 };
         
         // Add caption to project
         await projectService.addOverlay(userId, projectId, captionOverlay as any);
@@ -2648,7 +2648,7 @@ Linked captions are automatically moved with their videos.`,
             lockTypography: input.lockTypography || false,
             typographyProfile,
           },
-          row: 0,
+          row: 6, // Motion graphics row
           left: videoBox.left,
           top: videoBox.top,
           width: videoBox.width,

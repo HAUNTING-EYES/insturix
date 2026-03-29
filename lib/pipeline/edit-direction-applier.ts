@@ -18,6 +18,7 @@ import {
   DEFAULT_TRANSITION_FRAMES,
   type TransitionType,
 } from '@/lib/editron/data/transition-templates';
+import { ROW } from './scene-to-editron';
 
 interface SceneFrameInfo {
   sceneIndex: number;
@@ -75,6 +76,7 @@ export async function applyEditDirections(
 
     for (const overlay of overlays) {
       if ((overlay.type === 'image' || overlay.type === 'video') &&
+          overlay.row === ROW.VIDEO &&
           overlay.from >= frameInfo.fromFrame &&
           overlay.from < frameInfo.fromFrame + frameInfo.durationFrames) {
         overlay.styles = { ...overlay.styles, filter: preset.filter };
