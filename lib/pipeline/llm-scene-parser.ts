@@ -16,7 +16,13 @@ import { z } from 'zod';
 
 const SceneEditDirectionsSchema = z.object({
   transition: z.object({
-    type: z.enum(['dissolve', 'dip-to-black', 'dip-to-white', 'hard-cut', 'zoom-punch', 'whip-pan', 'wipe-left', 'glitch', 'soft-cut']),
+    type: z.enum([
+      'dissolve', 'dip-to-black', 'dip-to-white', 'flash', 'blur-transition',
+      'wipe-left', 'wipe-right', 'slide-up', 'slide-down',
+      'zoom-punch', 'zoom-out',
+      'whip-pan', 'glitch', 'film-burn', 'iris-wipe', 'soft-cut',
+      'hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'
+    ]),
     durationMs: z.number().optional(),
   }).optional().describe('Transition INTO this scene. Only set if the script explicitly mentions a transition (e.g. "CUT TO", "DISSOLVE TO", "FADE IN"). null if not mentioned.'),
   filterPresetId: z.string().optional().describe('Color grade for this scene, mapped to preset ID. Only set if the script explicitly describes a color mood for this specific scene. Options: cinematic, teal-orange, blade-runner, neon-nights, muted-doc, golden-hour-pro, desaturated-drama, film-portra, clean-corporate, vivid, warm-neutral, noir, retro, warm, cool. null if not mentioned.'),
@@ -90,112 +96,170 @@ export async function parseScriptWithLLM(
   const { object } = await generateObject({
     model,
     schema: ParseResultSchema,
-    prompt: `You are a premium video production director working with a client's script. Your job is to faithfully translate their creative vision into AI-optimized scene descriptions.
+    temperature: 0.3,
+    prompt: `You are a senior video production director. Decompose a client script into discrete scenes, each representing ONE AI video generation call.
 
-CRITICAL RULES:
-- HONOR THE USER'S SCRIPT: Every scene must faithfully represent what the user wrote. Do NOT invent new content, alter their message, or add creative liberties beyond what the script describes.
-- IGNORE all meta sections: project overview, creative direction, style guide, target audience, format notes, platform info, production notes, branding guidelines — anything that describes the document itself rather than a scene.
-- ONLY extract scenes that would appear as footage in the final video.
-- Scene titles should be SHORT and CINEMATIC (e.g. "City Night Chase", "Holographic Display"), never generic like "Scene 1" or "Introduction".
-- Narration = ONLY the spoken voiceover/dialogue words that a voice actor reads aloud. NOTHING ELSE.
-- If the script labels voiceover (e.g. "**Voiceover:**", "VO:", "NARRATOR:"), extract ONLY those exact quoted words.
-- DO NOT include stage directions, visual descriptions, camera notes, audio notes, music cues, or transition instructions in narration.
-- If a scene has NO voiceover/dialogue text, set narration to an EMPTY STRING "". Do NOT invent narration. Silent scenes are valid.
+## INPUT CONTRACT
+- You receive a script in ANY format: screenplay, voiceover, bullet points, two-column A/V, timestamped, casual notes, pre-decomposed storyboard, ThinkForge output, or any mix.
+- The script may be in any language or mixed languages (e.g., Hindi + English, Hinglish).
+- It may be complete or truncated (if truncated, a notice appears at the end).
+- If truncated: process only what you have. Add a final scene with title "SCRIPT_TRUNCATED" and empty fields.
 
-IMAGE PROMPT RULES (visualDescription):
-- This generates ONE SINGLE STILL IMAGE. Absolutely NO camera movement words (no "tracking", "dolly", "pan", "zoom", "follows"). Describe a FROZEN MOMENT in time.
-- NEVER describe multiple frames, panels, grids, collages, storyboards, or split-screen layouts. ONE image = ONE continuous photograph.
-- The image should show the MAIN SUBJECT of this scene in its environment. If the scene covers multiple moments of the same subject, show the most visually representative moment.
-- NEVER write things like "split into frames showing..." or "a series of images..." or "four panels..." — this creates collage artifacts in the image generator.
-- Write as a detailed AI image generation prompt describing what the camera frame captures as a photograph.
-- Include: specific subject with exact visual details (colors, materials, textures), setting/environment, lighting setup (type, direction, quality), color palette, composition (framing, rule of thirds, centered), viewing angle (eye level, low angle, overhead), atmosphere/mood.
-- Be SPECIFIC. Instead of "a person at a desk", write a detailed description with exact visual attributes: hair, clothing, materials, lighting direction, environment details, and color specifics. Describe what the camera frame actually captures.
-- Keep the SAME subject visually identical across every scene it appears in. Repeat key identifying details (hair color, clothing, object shape/color) verbatim each time.
-${options.artStyle ? `- Art style: ${options.artStyle}. EVERY visual description must be written FOR THIS SPECIFIC STYLE. Adapt subject rendering, lighting, and composition to match this aesthetic. Do NOT write photorealistic descriptions for an anime style, or cartoon descriptions for a cinematic style.` : '- Infer the appropriate visual style from the script content and maintain it consistently.'}
+## STEP 1: FORMAT DETECTION (do this silently — do not output your detection)
+Read the entire script and identify its format. This determines extraction strategy:
 
-VIDEO MOTION PROMPT RULES (videoMotionPrompt):
-- This animates the still image into a 5-second video clip. The storyboard image is the STARTING FRAME.
-- Describe ONLY motion and change over time: how the camera moves, how the subject moves, how light/atmosphere shifts.
-- AI video models work best with SLOW, DELIBERATE, MINIMAL motion. One primary motion + one secondary detail.
-- GOOD: "Slow push-in toward subject's face, hair gently moving in breeze, warm light gradually intensifying"
-- GOOD: "Static camera, steam slowly rising from coffee cup, morning light shifting across table surface"
-- GOOD: "Gentle orbit left around product, reflections sliding across metallic surface, soft bokeh circles drifting"
-- BAD: "Fast zoom, explosion, rapid cuts, character runs across room" — AI video CANNOT handle this.
-- DO NOT repeat the visual description. The video model already sees the image. Only describe WHAT CHANGES.
+FORMAT A — Screenplay (INT./EXT. sluglines, VO:/NARRATOR: labels):
+→ Sluglines = scene boundaries. Labeled dialogue/VO = narration. Stage directions = visualDescription.
 
-QUALITY TOKENS (imageQualityTokens & videoQualityTokens):
-- These must be DYNAMIC and SPECIFIC to the art style. Do NOT use generic "high quality" tokens.
-- For "${options.artStyle || 'the chosen style'}", write tokens that an expert in that medium would use.
-- Image examples by style:
-  - cinematic → "35mm Kodak Portra 400, anamorphic lens flare, shallow depth of field, color graded"
-  - anime → "studio quality cel animation, clean linework, vibrant saturated colors, detailed backgrounds"
-  - superhero → "Marvel concept art, dynamic composition, vivid saturated palette, volumetric god rays"
-  - watercolor → "wet-on-wet technique, organic pigment bleeding, visible paper texture, luminous washes"
-  - horror → "desaturated cold tones, heavy vignette, grain, unsettling negative space"
-- Video examples by style:
-  - cinematic → "smooth 24fps footage, professional color grade, film grain, anamorphic breathing"
-  - anime → "fluid 12fps animation, consistent model sheet, clean in-betweens, no morphing artifacts"
-  - superhero → "dynamic camera energy, vivid color persistence, clean motion trails, no flickering"
-  - watercolor → "organic paint-like motion, colors bleeding gently, brushstroke texture preserved"
-- NEVER use style-inappropriate tokens. "Film grain" makes no sense for pixel art. "Cel-shaded" makes no sense for photorealistic.
+FORMAT B — Voiceover script (continuous prose, no/minimal visual directions):
+→ All prose = narration. You must INVENT appropriate visuals for each segment.
 
-STYLE GUIDE EXTRACTION:
-- characterDescriptions: For any character/person appearing in 2+ scenes, create a CHARACTER SHEET entry mapping their name to an exhaustive visual description (face, hair, skin, build, clothing, accessories). This ensures visual consistency across scenes. If no recurring characters, return an empty object.
-- colorPalette: Extract 3-8 specific, named colors that define the script's visual identity from across all scenes. Use precise color names like "cobalt blue", "warm amber", "brushed silver" — never generic like "blue" or "red".
-- environmentNotes: Write 1-3 sentences summarizing the dominant visual environment/world of the entire video. What kind of spaces, lighting, and atmosphere define this script?
+FORMAT C — Two-column A/V (separate VISUAL and AUDIO sections):
+→ Visual → visualDescription. Audio → extract spoken text as narration, SFX as sfxCue, music notes as audioDescription. Camera → videoMotionPrompt + cameraRig.
 
-EDIT DIRECTIONS EXTRACTION:
-- For each scene, extract editDirections ONLY from explicit script cues:
-  - "CUT TO:" → transition: { type: "hard-cut" }
-  - "DISSOLVE TO:" / "CROSS DISSOLVE" → transition: { type: "dissolve" }
-  - "FADE TO BLACK" / "FADE OUT" → transition: { type: "dip-to-black" }
-  - "SMASH CUT" → transition: { type: "zoom-punch" }
-  - "Quick cuts" / "rapid editing" → pacing: "fast"
-  - "Slow reveal" / "hold on" → pacing: "slow"
-  - Camera rig mentions → cameraRig: the specific camera note
-  - Explicit sound effect mentions → sfxCue: the specific SFX
-  - "lower third" / "text overlay" / "stat display" → motionGraphicCue
-- For globalEditDirections, extract from production notes / creative direction sections:
-  - Color grade instructions → map to filter preset IDs using these mappings:
-    "cool sophisticated" → "cinematic", "warm" → "golden-hour-pro"
-    "gritty" → "muted-doc", "clean" → "clean-corporate"
-    "teal and orange" → "teal-orange", "neon" → "neon-nights"
-    "dark/thriller" → "desaturated-drama", "film stock" → "film-portra"
-  - Overall pacing instructions
-  - Graphics density hints
-  - Music mood from sound design sections
-  - Narrative structure (AIDA, before/after, three-act)
-- CRITICAL: Return null for ANY field not explicitly in the script. Do NOT invent directions.
+FORMAT D — Bullet-point brief (bullets, numbered steps):
+→ Each bullet or logical group = one scene. Bullets are visual directions unless they contain quoted speech or are labeled as VO.
 
-DURATION: Based on voiceover pacing at ~150 words/minute. If no voiceover, use 5-8 seconds per scene.
-TOTAL TARGET: ~${options.targetDuration || 30} seconds total.
+FORMAT E — Timestamped (timecodes like [00:00-00:05] or 0:00-0:05):
+→ Use timestamps to set durationSeconds. Text between timestamps: spoken words = narration, visual directions = visualDescription.
 
-SCENE DECOMPOSITION RULES — THIS IS CRITICAL:
-Your job is to figure out what distinct VIDEO CLIPS need to be generated. Each output scene = ONE AI video generation call. Think about what a video model CAN produce in a single clip.
+FORMAT F — Casual/conversational (unstructured paragraph, informal tone):
+→ Parse intent from natural language. "show X" = visual. Quoted text = narration. "add music" = audioDescription.
 
-GROUPING LOGIC — decide what becomes ONE scene vs SEPARATE scenes:
-- SAME subject + SAME location + continuous action → GROUP into ONE scene.
-  Example: "runner sprinting through park, then stretching" → ONE scene (same person, same place, continuous)
-- DIFFERENT subjects OR different locations → SEPARATE scenes.
-  Example: "runner sprinting" then "basketball player dribbling" → TWO separate scenes (different people)
-- "Montage of X, Y, Z" where X/Y/Z are the SAME subject → ONE scene with pacing: "fast". The montage is editing, not separate generation.
-  Example: "montage of chef chopping, stirring, plating" → ONE scene (same person, same kitchen)
-- "Montage of X, Y, Z" where X/Y/Z are DIFFERENT subjects → SEPARATE scenes for each distinct subject.
-  Example: "montage of runner's eyes, basketball hands, gymnast feet" → THREE scenes (three different people)
-- "Quick cuts between details of ONE object/product" → ONE scene showing the object. The quick cutting is an edit direction (set pacing: "fast"), not separate generations.
-  Example: "rapid cuts showing shoe sole, lacing, fabric" → ONE scene of the shoe
-- A talking head / presenter with continuous speech → ONE scene per location change, regardless of how long.
-- B-roll cutaways → EACH distinct cutaway subject gets its own scene.
+FORMAT G — Pre-decomposed storyboard (already split into named scenes with sub-directions):
+→ Script "scenes" are EDITORIAL sections. Pipeline scenes are VIDEO GENERATION UNITS (one subject, one location, one frozen frame). These are NOT the same thing.
+→ If script scene has ONE subject in ONE location with continuous action → keep as one pipeline scene.
+→ If script scene describes a MONTAGE of DIFFERENT subjects/locations → DECOMPOSE into separate pipeline scenes, one per distinct subject/location.
 
-SCENE COUNT GUIDANCE:
-- For ${options.targetDuration || 30}s video: typically ${Math.max(2, Math.min(Math.ceil((options.targetDuration || 30) / 7), 8))}-${Math.max(3, Math.min(Math.ceil((options.targetDuration || 30) / 4), 15))} scenes, but let the content determine it.
-- Fewer, well-defined scenes > many vague ones. AI video models produce better quality with clear, focused prompts.
-- NEVER generate more than 15 scenes for videos under 2 minutes.
-- Each scene's visualDescription should describe the PRIMARY VISUAL that the AI video model sees as its starting frame.
+FORMAT H — ThinkForge output (scenes with Visuals/Audio/Camera/Music Direction subsections, plus header and Production Notes):
+→ Same decomposition rule as FORMAT G: split multi-subject scenes.
+→ Extract: Visuals → visualDescription, Audio → sfxCue + narration, Camera → videoMotionPrompt + cameraRig, Music Direction → audioDescription, Transition line → editDirections.transition (apply to LAST pipeline scene in that group).
+→ Header block (Emotional Target, Genre, Tempo, Key, Instrumentation, Reference Tracks) → IGNORE for scenes. This is global metadata.
+→ Production Notes → IGNORE entirely.
+
+MIXED FORMATS: Apply the most specific matching format per section. Priority: labeled VO > quoted speech > prose paragraphs > visual directions.
+
+## NARRATION EXTRACTION
+Priority order:
+1. Text labeled VO: / VOICEOVER: / NARRATOR: → extract verbatim
+2. Quoted text after a character name (SARAH: "Hello") → extract quoted text
+3. In FORMAT B: all prose paragraphs = narration
+4. In FORMAT C/H: text in the AUDIO section that is clearly spoken words (not SFX, not music)
+5. Unlabeled prose in mixed scripts → narration ONLY if it reads as speakable
+6. Stage directions, camera notes, SFX descriptions, music cues → NEVER narration
+7. When uncertain → "" (empty string). Silent scenes are valid. Commercial/brand scripts often have ZERO narration.
+
+## VISUAL DESCRIPTION (generates ONE still image)
+This text is sent to an AI image model to generate a single photograph.
+- Describe what a camera captures in ONE exposure
+- Include: subject (exact visual details — colors, materials, textures, proportions), environment, lighting (type + direction + quality), color palette, composition, viewing angle, mood
+- MANDATORY: if a subject appeared in a previous scene, repeat their EXACT visual description for consistency
+
+### Handling multiple visual beats in one scene:
+If SAME subject from SAME camera setup (e.g., "runner starts, accelerates, hits stride"):
+→ Keep as one pipeline scene. Pick the most visually striking moment. Other beats inform videoMotionPrompt.
+
+If SAME subject from DIFFERENT camera setups (e.g., "tight on alarm clock, then low angle of feet"):
+→ SPLIT — each requires a different photograph. Group beats that share the same framing.
+
+If DIFFERENT subjects (e.g., "runner's eyes, then basketball hands, then gymnast feet"):
+→ ALWAYS SPLIT into separate pipeline scenes.
+
+### Handling montage descriptions:
+"Rapid montage of X details" where X is ONE subject (e.g., "montage of Nike shoe details"):
+→ Pick the most distinctive detail as the frozen frame. Set pacing: "fast"
+
+"Rapid montage of DIFFERENT subjects":
+→ SPLIT into separate pipeline scenes (one per subject)
+
+${options.artStyle ? `Art style for ALL scenes: ${options.artStyle}. Adapt every description to this style.` : 'Default art style: photorealistic cinematic with natural lighting. Maintain consistently.'}
+
+BANNED in visualDescription (cause generation artifacts):
+- Camera movement: tracking, dolly, pan, zoom, follows, sweeps
+- Multi-frame: split, panels, grid, collage, storyboard, montage, series, diptych, triptych
+- Temporal: then, next, afterward, transitions to, cuts to
+
+## VIDEO MOTION (animates the frozen frame for ~5 seconds)
+The video model ALREADY SEES the image. Describe ONLY what changes.
+- One primary motion + one secondary atmospheric detail. Slow and deliberate.
+- Do NOT redescribe the visual contents.
+- USE the script's Camera section if present (tracking shot → slow tracking, push-in → gentle push-in).
+- For fast-paced scenes: describe the dominant motion, note "quick energy" in the prompt.
+
+## QUALITY TOKENS
+Must be specific to the art style. Dynamic per scene.
+- Cinematic → "35mm Kodak Portra 400, shallow depth of field, anamorphic lens flare"
+- Animation → "smooth vector lines, consistent stroke weight, cel-shaded"
+- Documentary → "handheld natural light, 4K sensor, ungraded footage"
+- Sports/commercial → "high-speed camera, crisp motion freeze, stadium lighting, editorial color grade"
+- NEVER use generic "high quality, 4K, masterpiece" tokens.
+
+## SCENE DECOMPOSITION
+Target: ~${options.targetDuration ? Math.ceil(options.targetDuration / 5) : '6-12'} scenes for a ${options.targetDuration || '30-60'}-second video.
+
+### If the script IS already decomposed into scenes (FORMAT G/H):
+- If a script scene has ONE subject in ONE composition/framing → keep as ONE pipeline scene
+- If a script scene has a MONTAGE of DIFFERENT subjects/locations → SPLIT into separate pipeline scenes. Set pacing: "fast" on all.
+- If a script scene has the SAME subject but DIFFERENT camera setups → SPLIT into separate pipeline scenes. Group beats that share the same framing.
+- If a script scene has the SAME subject in SAME framing across continuous action → keep as ONE pipeline scene, pick the most dynamic moment.
+- Apply the script scene's transition to the LAST pipeline scene in the group.
+- Distribute SFX/camera/music across all derived pipeline scenes.
+- Narration attaches to the FIRST pipeline scene in the group. Other derived scenes: narration "".
+
+### If the script is NOT pre-decomposed:
+One scene = one continuous shot. SPLIT when: location changes, subject changes, time jumps, script marks cut/transition, dialogue switches speakers.
+MERGE when: same subject + same location + continuous action → one scene.
+
+### Special cases (all formats):
+- Title cards / logo reveals → own scene, narration: ""
+- Text-on-screen / end cards → own scene, include text in visualDescription
+- Logo animations → own scene, describe logo and animation style
+- Talking head with B-roll → split: one talking scene, separate B-roll scenes
+
+## DURATION
+If the script provides timestamps → calculate durationSeconds for each pipeline scene.
+If narration exists → estimate: ~150 words per minute, add 1-2s buffer.
+If no data → default to 5.
+
+## AUDIO DESCRIPTION EXTRACTION
+If the script includes per-scene music direction (emotional target, texture, dynamics, tempo):
+→ Extract into audioDescription: "focused anticipation, low synth pulse, minimal percussion, building intensity"
+If no music direction but ambient audio → audioDescription: "gym ambiance, rhythmic breathing"
+If nothing → audioDescription: ""
+
+## MOTION GRAPHIC CUE EXTRACTION
+If the script implies text overlays, statistics, branded elements:
+→ Extract into editDirections.motionGraphicCue: "stat counter: 50% off", "lower third: LIMITLESS FLOW", "brand logo reveal: Nike swoosh"
+If nothing → motionGraphicCue: ""
+
+## SFX EXTRACTION
+If the script's Audio section describes sound effects (e.g., "SFX: chalk dust puff"):
+→ Extract into editDirections.sfxCue as a concise description (strip "SFX:" prefix)
+If nothing → sfxCue: ""
+
+## EDIT DIRECTIONS MAPPING
+### Transitions (map script cues to exact IDs):
+VISUAL: DISSOLVE/"dissolve", FADE TO BLACK/"dip-to-black", FADE TO WHITE/"dip-to-white", FLASH/"flash", BLUR/"blur-transition", WIPE LEFT/"wipe-left", WIPE RIGHT/"wipe-right", SLIDE UP/"slide-up", SLIDE DOWN/"slide-down", ZOOM IN/"zoom-punch", ZOOM OUT/"zoom-out", WHIP PAN/"whip-pan", GLITCH/"glitch", FILM BURN/"film-burn", IRIS WIPE/"iris-wipe", SOFT CUT/"soft-cut"
+EDITORIAL: CUT TO/"hard-cut", SMASH CUT/"smash-cut", MATCH CUT/"match-cut", JUMP CUT/"jump-cut", CUT ON ACTION/"cut-on-action"
+DEFAULT: Any unlisted or ambiguous → "hard-cut"
+Durations: dissolve=500, dip-to-black=600, flash=270, hard-cut=0, zoom-punch=270, blur-transition=600
+
+### Pacing: "quick cuts"/"fast", "slow"/"slow", "build/escalating"/"building", default/"medium"
+
+## META CONTENT — IGNORE FOR SCENES
+Skip: Project overviews, creative briefs, emotional targets (header), genre/style descriptions, reference tracks, style guides, platform notes, production notes, color grade (global), sound design (global). These are metadata, NOT scenes.
+
+CRITICAL: Return null for ANY editDirections field not explicitly in the script. Do NOT invent.
 ${options.aspectRatio ? `ASPECT RATIO: ${options.aspectRatio}. Adjust composition and framing accordingly.` : ''}
 
+## STYLE GUIDE EXTRACTION
+- characterDescriptions: For recurring subjects (2+ scenes), create exhaustive visual description for consistency. Empty object if none.
+- colorPalette: 3-8 specific named colors from visual descriptions (e.g., "cobalt blue", not "blue").
+- environmentNotes: 1-3 sentences summarizing the dominant visual world.
+
 SCRIPT:
-${scriptText.substring(0, 24000)}`,
+${scriptText.substring(0, 24000)}
+${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters. Process only content above. Add final scene with title "SCRIPT_TRUNCATED".]' : ''}`,
   });
 
   return object;
@@ -251,6 +315,7 @@ export async function extractSubjectsFromScenes(
   const { object } = await generateObject({
     model,
     schema: SubjectExtractionSchema,
+    temperature: 0.2,
     prompt: `You are a senior concept artist doing pre-production for a video. Read EVERY scene carefully and extract ALL visual subjects that could benefit from a reference image.
 
 === SCENES ===
@@ -335,6 +400,10 @@ export interface VideoPromptContext {
   cameraDirection?: string;
   /** Transition hint from script editDirections (e.g., "dissolve to next", "hard cut") */
   transitionHint?: string;
+  /** Previous scene's last frame description for visual continuity */
+  previousSceneLastFrame?: string;
+  /** Target video model for model-specific prompt tuning */
+  targetModel?: 'kling' | 'veo' | 'minimax' | 'luma' | 'wan' | 'ltx';
 }
 
 /**
@@ -358,44 +427,50 @@ export async function refineVideoPrompt(
         .join('\n')
     : 'No specific reference subjects — describe motion generically for what\'s in the image.';
 
+  // Model-specific tuning guide
+  const modelTuning: Record<string, string> = {
+    kling: 'Kling: cinematic language, include lens type, favor push-in/pull-out. 100-150 words.',
+    veo: 'Veo: handles complex motion well, ambitious camera paths OK. 100-150 words.',
+    minimax: 'MiniMax: short, dense prompts only. Under 100 words.',
+    luma: 'Luma Ray2: excels at lighting shifts. Emphasize light/shadow changes. 80-120 words.',
+    wan: 'Wan: good with natural motion, describe organic movement. 80-120 words.',
+    ltx: 'LTX: clean, simple prompts. One motion direction. 60-100 words.',
+  };
+  const modelGuide = modelTuning[context.targetModel || ''] || 'Default: slow push-in, minimal motion, one atmospheric detail. 80-120 words.';
+
   const { object } = await generateObject({
     model,
     schema: RefinedVideoPromptSchema,
-    prompt: `You are VideoPromptMaster — an expert prompt engineer specialized in generating MAXIMUM-ACCURACY prompts for image-to-video AI models (Kling, Runway Gen-3, Luma Ray2, MiniMax).
+    temperature: 0.7,
+    prompt: `You are VideoPromptMaster — a prompt engineer for image-to-video AI models.
 
-You receive a STARTING IMAGE + your text prompt. The model already SEES the image.
-Your ONLY job: output ONE dense, optimized text prompt describing how the image comes to life.
-NEVER add explanations, NEVER say "here is the prompt". Just the raw optimized prompt.
+## TASK
+Refine a motion prompt for one scene. The video model receives the starting image + your text. Output ONE prompt describing how the image comes to life.
 
-=== SCENE CONTEXT ===
-What the starting image shows: ${context.visualDescription.substring(0, 400)}
-Initial motion direction: ${context.videoMotionPrompt || 'Not specified — infer from scene'}
-${context.cameraDirection ? `Script camera direction: ${context.cameraDirection} — HONOR this rig choice.` : ''}
-${context.transitionHint ? `Scene ends with: ${context.transitionHint} — shape the motion to support this transition.` : ''}
-Scene narration: ${context.narration?.substring(0, 800) || 'No narration'}
-Mood: ${context.mood || 'neutral'}
-Duration: ${context.durationSeconds}s
-Art style: ${context.artStyle || 'cinematic'}
-Aspect ratio: ${context.aspectRatio || '16:9'}
+## SCENE CONTEXT
+Starting image shows: ${context.visualDescription.substring(0, 400)}
+Initial motion idea: ${context.videoMotionPrompt || 'Not specified — choose most cinematic option'}
+Narration: ${context.narration?.substring(0, 800) || 'Silent'}
+Mood: ${context.mood || 'neutral'} | Duration: ${context.durationSeconds}s
+${context.cameraDirection ? `Camera direction: ${context.cameraDirection}` : ''}
+${context.transitionHint ? `Scene ends with: ${context.transitionHint}` : ''}
+${context.previousSceneLastFrame ? 'Continues from previous scene — maintain visual continuity.' : ''}
 
-=== KEY SUBJECTS IN THIS SCENE ===
+## KEY SUBJECTS
 ${subjectContext}
 
-=== STRICT RULES ===
-1. The model SEES the starting image. Do NOT fully re-describe the scene. Instead, open with a brief subject anchor (1 line, key identifying details only) then immediately describe motion.
-2. For subjects with reference descriptions: weave in 1-2 key identity anchors naturally (use the subject's specific name/description, not a generic term) and add "maintaining exact appearance throughout" once.
-3. Describe primary motion first: camera movement (slow dolly, gentle orbit, static hold, subtle push-in, etc.) + main subject action.
-4. Layer secondary motion: atmospheric details (particles, light shifts, fabric/hair movement, reflections, liquid, smoke).
-5. Include physics that sell realism: wind effect on hair/fabric, weight in movement, natural light caustics, surface reflections shifting.
-${context.durationSeconds > 5 ? `6. For this ${context.durationSeconds}s clip, imply timing naturally: "gradually...", "then slowly...", "building to..." — guide the temporal arc.` : '6. For this short clip, keep motion minimal and focused — one clean camera move + one detail.'}
-7. End with style-appropriate motion quality tokens for ${context.artStyle || 'cinematic'} — these must match the medium (don't use "film grain" for anime or "cel-shaded" for photorealistic).
-8. Dense but concise: 80-200 words. Every word must earn its place.
-9. NEVER invent elements not in the scene context or reference subjects.
-10. NEVER use Midjourney/StableDiffusion flags (--ar, --stylize, etc.) — these are API-based models.
-11. Adapt language to the art style: cinematic = film language, anime = animation language, etc.
-${context.videoQualityTokens ? `12. Incorporate these quality tokens naturally: ${context.videoQualityTokens}` : ''}
+## RULES
+1. Open with 5-10 word subject anchor using identity details from subject sheet
+2. Primary: ONE camera movement + ONE subject action. Slow, deliberate.
+3. Secondary: ONE atmospheric detail (wind, light shift, particles)
+4. Include physics: weight, momentum, reflections where natural
+5. Reference ONLY elements from visual description and subject sheets
 
-Output ONLY the final video generation prompt. Nothing else.`,
+## MODEL-SPECIFIC TUNING
+${modelGuide}
+
+## OUTPUT
+Return ONLY the refined prompt text. No JSON wrapper needed — put it in the prompt field.`,
   });
 
   return object.prompt;

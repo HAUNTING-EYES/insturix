@@ -93,11 +93,19 @@ async function generateWithKokoro(
   if (!key) throw new Error('FAL_AI_API_KEY not set');
   fal.config({ credentials: key });
 
+  // Pacing-aware TTS speed — injected via the 4th argument or defaults to 1.0
+  const ttsSpeed = (arguments[4] as number) || 1.0;
+
+  // Natural cadence: inject subtle pauses at ellipses and em-dashes
+  const processedText = text
+    .replace(/\.\.\./g, '... ')
+    .replace(/—/g, '— ');
+
   const result: any = await fal.subscribe('fal-ai/kokoro/american-english', {
     input: {
-      prompt: text,
+      prompt: processedText,
       voice: kokoroVoice,
-      speed: 1.0,
+      speed: ttsSpeed,
     },
     logs: false,
   });

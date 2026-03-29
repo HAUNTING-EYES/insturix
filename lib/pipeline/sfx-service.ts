@@ -54,6 +54,8 @@ export async function generateSFX(
   userId: string,
   durationSec: number,
   videoUrl?: string,
+  /** Explicit SFX cue from script editDirections (e.g., "chalk dust puff, fabric rustle") */
+  sfxCue?: string,
 ): Promise<SFXResult> {
   ensureFalConfig();
 
@@ -61,8 +63,12 @@ export async function generateSFX(
   const duration = Math.min(Math.max(durationSec, 1), 35);
   const assetId = `sfx_${nanoid(12)}`;
 
+  // Use sfxCue as primary (explicit script direction), audioDescription as fallback (ambient context)
+  const sfxPrompt = sfxCue || audioDescription;
+  const ambientContext = sfxCue ? audioDescription : ''; // Keep ambient for mixing context
+
   console.log(
-    `[SFX] Generating: desc="${audioDescription.substring(0, 100)}", duration=${duration}s`,
+    `[SFX] Generating: sfxCue="${(sfxCue || '').substring(0, 60)}", desc="${audioDescription.substring(0, 60)}", duration=${duration}s`,
   );
 
   // ─── Priority 1: SFX Library (Pixabay/Freesound) ────────────────
@@ -71,7 +77,7 @@ export async function generateSFX(
   try {
     const { searchAndDownloadSFX, audioDescriptionToSearchQuery, isSFXLibraryAvailable } = await import('./sfx-library-service');
     if (isSFXLibraryAvailable()) {
-      const searchQuery = audioDescriptionToSearchQuery(audioDescription);
+      const searchQuery = audioDescriptionToSearchQuery(sfxPrompt);
       console.log(`[SFX] Searching library: "${searchQuery}"`);
       const libResult = await searchAndDownloadSFX(searchQuery, userId, Math.round(duration));
       if (libResult) {
@@ -94,7 +100,7 @@ export async function generateSFX(
       // Mirelo requires: video_url (accessible URL), duration (1-10 integer), num_samples (2-8)
       const mireloInput: any = {
         video_url: videoUrl,
-        text_prompt: audioDescription || undefined,
+        text_prompt: `${sfxPrompt}. Clean recording, minimal reverb, suitable for mixing under dialogue. Primary sound source only.` || undefined,
         duration: Math.min(Math.max(Math.round(duration), 1), 10),
         num_samples: 2,
       };

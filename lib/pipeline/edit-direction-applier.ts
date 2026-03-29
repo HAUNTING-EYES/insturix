@@ -67,33 +67,62 @@ export async function applyEditDirections(
     }
   }
 
-  // ─── 2. Apply pacing adjustments ────────────────────────────
-  const pacingMultiplier = globalDirections?.pacingMultiplier;
-  if (pacingMultiplier && pacingMultiplier !== 1.0) {
+  // ─── 2. Apply pacing adjustments (per-scene + global) ───────
+  // Per-scene pacing from script editDirections takes precedence over global
+  const pacingMultiplierMap: Record<string, number> = {
+    'fast': 0.85,
+    'slow': 1.2,
+    'building': 0.95,
+    'beat-synced': 1.0,
+    'medium': 1.0,
+  };
+  const globalPacingMult = globalDirections?.pacingMultiplier || 1.0;
+
+  {
     let frameShift = 0;
+    let anyPacingApplied = false;
+
     for (const info of sceneFrameMap) {
+      const scene = scenes.find(s => s.sceneIndex === info.sceneIndex);
+      const scenePacing = scene?.editDirections?.pacing;
+      const multiplier = scenePacing
+        ? (pacingMultiplierMap[scenePacing] || 1.0)
+        : globalPacingMult;
+
+      if (multiplier === 1.0) {
+        // Still need to shift by accumulated frameShift from previous scenes
+        const sceneOverlays = overlays.filter(o =>
+          o.from >= info.fromFrame && o.from < info.fromFrame + info.durationFrames,
+        );
+        for (const overlay of sceneOverlays) {
+          overlay.from += frameShift;
+        }
+        continue;
+      }
+
+      anyPacingApplied = true;
       const sceneOverlays = overlays.filter(o =>
         o.from >= info.fromFrame && o.from < info.fromFrame + info.durationFrames,
       );
 
       const originalDuration = info.durationFrames;
-      const newDuration = Math.max(30, Math.round(originalDuration * pacingMultiplier)); // Min 1s at 30fps
+      const newDuration = Math.max(30, Math.round(originalDuration * multiplier));
       const frameDelta = newDuration - originalDuration;
 
-      // Adjust duration of overlays within this scene
       for (const overlay of sceneOverlays) {
         if (overlay.type === 'video' || overlay.type === 'image') {
-          overlay.durationInFrames = Math.max(30, Math.round(overlay.durationInFrames * pacingMultiplier));
+          overlay.durationInFrames = Math.max(30, Math.round(overlay.durationInFrames * multiplier));
         }
-        // Shift all overlays by accumulated frame shift
         overlay.from += frameShift;
       }
 
-      // Also shift overlays that come AFTER this scene
       frameShift += frameDelta;
     }
-    totalFrameShift += frameShift;
-    console.log(`[EditDirections] Pacing applied: multiplier=${pacingMultiplier}, totalShift=${totalFrameShift} frames`);
+
+    if (anyPacingApplied) {
+      totalFrameShift += frameShift;
+      console.log(`[EditDirections] Per-scene pacing applied, totalShift=${totalFrameShift} frames`);
+    }
   }
 
   // ─── 3. Apply clip-overlap transitions from script directions ───

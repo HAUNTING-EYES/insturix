@@ -103,25 +103,45 @@ export async function generateBackgroundMusic(
 
 /**
  * Build a music prompt from scene moods and audio descriptions.
+ * If ThinkForge provided per-scene music direction, uses it as an energy arc.
+ * Otherwise, infers from moods and pacing.
  */
-export function buildMusicPrompt(scenes: Array<{
-  mood?: string;
-  audioDescription?: string;
-}>): string {
-  const moods = new Set<string>();
-  const descriptions: string[] = [];
+export function buildMusicPrompt(
+  scenes: Array<{
+    mood?: string;
+    audioDescription?: string;
+    editDirections?: { pacing?: string };
+    narration?: string;
+  }>,
+  totalDurationSeconds?: number,
+): string {
+  const audioDescriptions = scenes.map(s => s.audioDescription).filter(Boolean) as string[];
+  const moods = [...new Set(scenes.map(s => s.mood).filter(Boolean))] as string[];
+  const hasFast = scenes.some(s => s.editDirections?.pacing === 'fast');
+  const hasVO = scenes.some(s => (s.narration?.length || 0) > 0);
+  const duration = totalDurationSeconds || scenes.length * 5;
 
-  for (const scene of scenes) {
-    if (scene.mood && scene.mood !== 'neutral') moods.add(scene.mood);
-    if (scene.audioDescription) descriptions.push(scene.audioDescription);
+  // If ThinkForge provided detailed per-scene music direction, use it as energy arc
+  if (audioDescriptions.length > 0) {
+    return [
+      `Per-scene energy arc: ${audioDescriptions.join(' → ')}`,
+      `${duration} seconds`,
+      'instrumental only, no vocals, no lyrics, no humming',
+      hasVO ? 'leave mid-range clear for speech' : 'full-range mix OK',
+      'clean production, gentle fade-out in final 3 seconds',
+    ].join(', ');
   }
 
-  const parts: string[] = [];
-  if (moods.size > 0) parts.push([...moods].join(', '));
-  if (descriptions.length > 0) parts.push(descriptions.slice(0, 3).join('; '));
-  if (parts.length === 0) parts.push('cinematic ambient');
-
-  return parts.join(', ');
+  // Fallback: infer from moods and pacing
+  return [
+    moods.length > 0 ? `${moods.join(' and ')} mood` : 'cinematic ambient',
+    `${duration} seconds`,
+    `energy: ${scenes.length > 4 ? 'builds to peak at 70% then resolves' : 'steady'}`,
+    hasFast ? 'tempo 120-140 BPM, driving rhythm' : 'tempo 80-100 BPM, relaxed',
+    'instrumental only, no vocals, no lyrics, no humming',
+    hasVO ? 'leave mid-range clear for speech' : 'full-range mix OK',
+    'clean production, gentle fade-out in final 3 seconds',
+  ].join(', ');
 }
 
 /**

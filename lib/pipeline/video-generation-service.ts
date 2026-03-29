@@ -154,18 +154,49 @@ export interface VideoGenerationResult {
  * Do NOT change these without checking the model's API page first:
  *   https://fal.ai/models/{model-id}/api
  */
-// Standard negative prompt for ALL video models that support it.
-// Prevents common AI video artifacts: morphing, garbled text, limb distortion, etc.
-const VIDEO_NEGATIVE_PROMPT = [
-  'blur, blurry, out of focus, low quality, low resolution, pixelated',
-  'distorted, deformed, disfigured, morphing, melting, warping',
-  'bad anatomy, extra limbs, extra fingers, missing fingers, fused fingers',
-  'unnatural movement, jittery, flickering, strobing',
-  'text overlay, watermark, logo, subtitles, UI elements',
-  'uncanny valley, plastic skin, dead eyes, mannequin-like',
-  'inconsistent lighting, sudden exposure change',
-  'duplicate subject, clone artifacts, ghost images',
-].join(', ');
+// Dynamic negative prompt builder — adapts to scene content and model
+function buildVideoNegativePrompt(scene?: { editDirections?: { pacing?: string }; artStyle?: string; hasTextOverlay?: boolean }, model?: string): string {
+  const base = [
+    'blur, out of focus, low quality, low resolution, pixelated',
+    'distorted, deformed, disfigured, bad anatomy',
+    'extra limbs, extra fingers, missing fingers, fused fingers',
+    'duplicate subject, clone artifacts, ghost images',
+    'inconsistent lighting, sudden exposure change',
+    'aspect ratio distortion, temporal flickering, color banding',
+    'depth-of-field collapse, background replacement artifacts',
+  ];
+
+  // Only add text negatives if the scene doesn't intentionally have text
+  if (!scene?.hasTextOverlay) {
+    base.push('text overlay, watermark, logo, subtitles, UI elements');
+  }
+
+  // Don't suppress rapid movement if the scene is fast-paced
+  if (scene?.editDirections?.pacing !== 'fast') {
+    base.push('jittery, strobing, rapid movement');
+  }
+
+  // Don't suppress uncanny valley for surreal/dreamlike styles
+  if (scene?.artStyle !== 'surreal') {
+    base.push('uncanny valley, plastic skin, dead eyes, mannequin-like');
+  }
+
+  // Model-specific negatives
+  const modelNeg: Record<string, string> = {
+    kling: 'face morphing, identity drift between frames',
+    minimax: 'color banding in gradients, flat lighting',
+    luma: 'overexposure bloom, washed out highlights',
+    veo: 'texture swimming, edge warping',
+    wan: 'motion blur bleeding, subject doubling',
+    ltx: 'frame stuttering, temporal inconsistency',
+  };
+  if (model && modelNeg[model]) base.push(modelNeg[model]);
+
+  return base.join(', ');
+}
+
+// Backward-compatible static fallback
+const VIDEO_NEGATIVE_PROMPT = buildVideoNegativePrompt();
 
 function buildFalVideoInput(
   modelKey: FalVideoModel,
