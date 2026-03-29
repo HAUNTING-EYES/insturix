@@ -88,13 +88,14 @@ async function generateWithKokoro(
   text: string,
   userId: string,
   kokoroVoice: string,
+  ttsSpeedOverride?: number,
 ): Promise<TTSResult> {
   const key = process.env.FAL_AI_API_KEY;
   if (!key) throw new Error('FAL_AI_API_KEY not set');
   fal.config({ credentials: key });
 
-  // Pacing-aware TTS speed — injected via the 4th argument or defaults to 1.0
-  const ttsSpeed = (arguments[4] as number) || 1.0;
+  // Pacing-aware TTS speed — defaults to 1.0
+  const ttsSpeed = ttsSpeedOverride || 1.0;
 
   // Natural cadence: inject subtle pauses at ellipses and em-dashes
   const processedText = text

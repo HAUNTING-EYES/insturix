@@ -56,8 +56,6 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
   const { changeOverlay, seekTo } = useEditorContext();
   const tracks = overlay.keyframeTracks;
   const [showLegend, setShowLegend] = useState(false);
-  if (!tracks || tracks.length === 0) return null;
-
   const duration = overlay.durationInFrames || 1;
   const dragRef = useRef<{
     trackIndex: number;
@@ -138,6 +136,9 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
       return { ...ov, keyframeTracks: newTracks.filter(t => t.keyframes.length > 0) };
     });
   }, [tracks, overlay.id, changeOverlay]);
+
+  // Early return AFTER all hooks (React rules of hooks)
+  if (!tracks || tracks.length === 0) return null;
 
   // Get unique properties in this overlay for the legend
   const uniqueProperties = [...new Set(tracks.map(t => t.property))];

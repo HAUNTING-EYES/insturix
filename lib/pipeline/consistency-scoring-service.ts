@@ -157,6 +157,7 @@ async function comparePair(
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -385,7 +386,7 @@ Return ONLY valid JSON. No markdown, no code fences.
 export async function checkVideoQuality(
   videoUrl: string,
   referenceImageUrl?: string,
-  threshold: number = 40,
+  _threshold: number = 40,
 ): Promise<VideoQualityResult> {
   const google = getGeminiProvider();
   if (!google) {
