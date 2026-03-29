@@ -454,6 +454,149 @@ function EDLViewerTab() {
   );
 }
 
+// ─── Video Analysis Test Tab ───────────────────────────────────
+function VideoAnalysisTestTab() {
+  const [videoUrl, setVideoUrl] = useState('');
+  const [durationMs, setDurationMs] = useState('5000');
+  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const runTest = useCallback(async () => {
+    if (!videoUrl.trim()) return;
+    setLoading(true);
+    setError('');
+    setResult(null);
+    try {
+      const res = await fetch('/api/services/editron/analysis/test-single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl, durationMs: parseInt(durationMs) || 5000 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setResult(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [videoUrl, durationMs]);
+
+  const trace = result?.analysisResult?._diagnosticTrace || [];
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-red-400" />
+            Video Analysis Diagnostic
+          </CardTitle>
+          <CardDescription>Test 5-Track analysis on a single video URL. Shows EXACTLY where each step succeeds or fails. Costs ~$0.05-0.10.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Input placeholder="Video URL (GCS signed URL or any video URL)" value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} className="font-mono text-xs" />
+          <div className="flex gap-2 items-center">
+            <Input placeholder="Duration (ms)" value={durationMs} onChange={(e) => setDurationMs(e.target.value)} className="font-mono text-xs w-32" />
+            <Button onClick={runTest} disabled={loading || !videoUrl.trim()} size="sm" variant="destructive">
+              {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+              Run Diagnostic
+            </Button>
+          </div>
+          {error && <div className="text-red-400 text-xs p-2 bg-red-950/30 rounded">{error}</div>}
+        </CardContent>
+      </Card>
+
+      {result && (
+        <>
+          {/* Pre-flight checks */}
+          <Card>
+            <CardHeader><CardTitle className="text-sm">Pre-Flight Checks</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <div className="flex items-center gap-2">
+                <Badge variant={result.testResults.fetchTest.status === 'ok' ? 'default' : 'destructive'} className="text-[10px]">
+                  {result.testResults.fetchTest.status === 'ok' ? '✅' : '❌'} Video Fetch
+                </Badge>
+                <span className="text-zinc-400">
+                  HTTP {result.testResults.fetchTest.statusCode} | {result.testResults.fetchTest.contentType} | {result.testResults.fetchTest.sizeKb}KB
+                </span>
+                {result.testResults.fetchTest.error && <span className="text-red-400">{result.testResults.fetchTest.error}</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={result.testResults.geminiKeyStatus.startsWith('present') ? 'default' : 'destructive'} className="text-[10px]">
+                  {result.testResults.geminiKeyStatus.startsWith('present') ? '✅' : '❌'} Gemini API Key
+                </Badge>
+                <span className="text-zinc-400">{result.testResults.geminiKeyStatus}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-[10px]">⏱ {result.testResults.analysisDurationMs}ms total</Badge>
+                {result.testResults.analysisError && <span className="text-red-400">{result.testResults.analysisError}</span>}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Diagnostic trace — THE KEY DEBUG INFO */}
+          <Card>
+            <CardHeader><CardTitle className="text-sm">Diagnostic Trace (Step by Step)</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-1">
+                {trace.length === 0 && <div className="text-zinc-500 text-xs">No trace data — analysis may not have run</div>}
+                {trace.map((t: any, i: number) => (
+                  <div key={i} className="flex items-center gap-2 text-xs p-1.5 rounded bg-zinc-900">
+                    <Badge
+                      variant={t.status === 'ok' || t.status?.startsWith('ok') ? 'default' : t.status === 'FAILED' ? 'destructive' : 'outline'}
+                      className="text-[9px] w-16 justify-center"
+                    >
+                      {t.status === 'FAILED' ? '❌ FAIL' : t.status?.startsWith('ok') ? '✅ OK' : '⏭ SKIP'}
+                    </Badge>
+                    <span className="text-zinc-300 font-mono w-48">{t.step}</span>
+                    <span className="text-zinc-500">{t.durationMs}ms</span>
+                    {t.error && <span className="text-red-400 truncate max-w-md">{t.error}</span>}
+                    {t.status !== 'FAILED' && t.status !== 'ok' && <span className="text-zinc-400 truncate max-w-md">{t.status}</span>}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Analysis summary */}
+          {result.analysisResult && (
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Analysis Output</CardTitle></CardHeader>
+              <CardContent className="text-xs space-y-2">
+                <div className="grid grid-cols-4 gap-2">
+                  <div className={result.analysisResult.motionSegments > 0 ? 'text-green-400' : 'text-red-400'}>Motion: {result.analysisResult.motionSegments}</div>
+                  <div className={result.analysisResult.keyframes > 1 ? 'text-green-400' : 'text-red-400'}>Keyframes: {result.analysisResult.keyframes}</div>
+                  <div className={result.analysisResult.subjects > 0 ? 'text-green-400' : 'text-red-400'}>Subjects: {result.analysisResult.subjects}</div>
+                  <div className={result.analysisResult.speechSegments > 0 ? 'text-green-400' : 'text-zinc-500'}>Speech: {result.analysisResult.speechSegments}</div>
+                </div>
+                {result.sampleKeyframe && (
+                  <details>
+                    <summary className="cursor-pointer text-zinc-500">Sample Keyframe</summary>
+                    <pre className="mt-1 p-2 bg-zinc-950 rounded text-[10px] overflow-x-auto">{JSON.stringify(result.sampleKeyframe, null, 2)}</pre>
+                  </details>
+                )}
+                {result.sampleMotion && (
+                  <details>
+                    <summary className="cursor-pointer text-zinc-500">Sample Motion Segment</summary>
+                    <pre className="mt-1 p-2 bg-zinc-950 rounded text-[10px] overflow-x-auto">{JSON.stringify(result.sampleMotion, null, 2)}</pre>
+                  </details>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          <details className="text-xs">
+            <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Full Raw Response</summary>
+            <pre className="mt-2 p-2 bg-zinc-950 rounded text-[10px] max-h-96 overflow-auto">{JSON.stringify(result, null, 2)}</pre>
+          </details>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Debug Page ───────────────────────────────────────────
 export default function EditronDebugPage() {
   const [copied, setCopied] = useState(false);
@@ -482,6 +625,9 @@ export default function EditronDebugPage() {
           <TabsTrigger value="analysis" className="text-xs data-[state=active]:bg-zinc-700">
             <Brain className="w-3 h-3 mr-1" /> Asset Analysis
           </TabsTrigger>
+          <TabsTrigger value="video-test" className="text-xs data-[state=active]:bg-zinc-700 data-[state=active]:text-red-400">
+            <CheckCircle2 className="w-3 h-3 mr-1" /> Video Diagnostic
+          </TabsTrigger>
           <TabsTrigger value="edl" className="text-xs data-[state=active]:bg-zinc-700">
             <Wand2 className="w-3 h-3 mr-1" /> EDL Viewer
           </TabsTrigger>
@@ -491,6 +637,7 @@ export default function EditronDebugPage() {
           <TabsContent value="parser"><ScriptParserTab /></TabsContent>
           <TabsContent value="project"><ProjectInspectorTab /></TabsContent>
           <TabsContent value="analysis"><AssetAnalysisTab /></TabsContent>
+          <TabsContent value="video-test"><VideoAnalysisTestTab /></TabsContent>
           <TabsContent value="edl"><EDLViewerTab /></TabsContent>
         </div>
       </Tabs>

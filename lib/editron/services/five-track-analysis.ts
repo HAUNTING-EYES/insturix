@@ -955,54 +955,102 @@ export async function runFullAnalysis(
   }];
 
   // Layers 2-5: REAL video analysis via Gemini Files API
-  // Upload video to Gemini, then run Vision analysis on the actual content.
-  // Works for both AI-generated AND real footage — analyzes what's actually
-  // in the video, not what the script intended.
   let motion: { segments: MotionSegment[]; peaks: number[] } = { segments: [], peaks: [] };
   let audioData: AudioAnalysis | null = null;
   let keyframeData: FrameAnalysis[] = [];
   let subjectData: SubjectTrackEntry[] = [];
 
+  // ─── DIAGNOSTIC TRACE — tracks exactly where analysis fails ───
+  const trace: { step: string; status: string; durationMs: number; error?: string }[] = [];
+  const traceStep = (step: string) => {
+    const start = Date.now();
+    return {
+      ok: (detail?: string) => trace.push({ step, status: detail || 'ok', durationMs: Date.now() - start }),
+      fail: (err: string) => trace.push({ step, status: 'FAILED', durationMs: Date.now() - start, error: err }),
+      skip: (reason: string) => trace.push({ step, status: `skipped: ${reason}`, durationMs: Date.now() - start }),
+    };
+  };
+
   if (videoUrl) {
     try {
+      const t0 = traceStep('budget_check');
       if (isOverBudget()) {
-        console.warn(`[Analysis] Time budget exceeded before video upload (${Math.round((Date.now() - analysisStartMs) / 1000)}s), skipping Vision layers`);
+        t0.skip(`exceeded before video upload (${Math.round((Date.now() - analysisStartMs) / 1000)}s)`);
+        console.warn(`[Analysis] Time budget exceeded before video upload`);
       } else {
-      // Upload video to Gemini Files API for real analysis
-      const geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
+        t0.ok();
 
-      if (geminiFileUri && !isOverBudget()) {
-        // W3 OPTIMIZATION: Single merged Gemini Vision call for Layers 2+4+5.
-        // Previously 3 separate calls with the same fileUri. Now 1 structured prompt.
+        // Upload video to Gemini Files API
+        const t1 = traceStep('gemini_upload');
+        let geminiFileUri: string | null = null;
         try {
-          const merged = await analyzeVideoComprehensive(geminiFileUri, shots, durationMs);
-          if (merged) {
-            motion = merged.motion;
-            keyframeData = merged.keyframes;
-            subjectData = merged.subjects;
+          geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
+          if (geminiFileUri) {
+            t1.ok(`uri=${geminiFileUri.substring(0, 60)}...`);
+          } else {
+            t1.fail('returned null — check GCS URL accessibility or Gemini API key');
           }
-        } catch (mergeErr: any) {
-          console.warn(`[Analysis] Merged analysis failed: ${mergeErr.message}, trying individual calls`);
-          // Fallback to individual calls if merged prompt fails
-          const [motionResult, kfResult, subjectResult] = await Promise.allSettled([
-            analyzeMotion(geminiFileUri, shots, durationMs),
-            analyzeKeyframes(geminiFileUri, shots, durationMs),
-            trackSubjects(geminiFileUri, [], durationMs),
-          ]);
-          if (motionResult.status === 'fulfilled') motion = motionResult.value;
-          if (kfResult.status === 'fulfilled') keyframeData = kfResult.value;
-          if (subjectResult.status === 'fulfilled') subjectData = subjectResult.value;
+        } catch (uploadErr: any) {
+          t1.fail(uploadErr.message);
+          console.error(`[Analysis] Upload failed:`, uploadErr.message);
         }
 
-        console.log(`[Analysis] Gemini Vision: motion=${motion.segments.length} segments, keyframes=${keyframeData.length}, subjects=${subjectData.length}`);
-      } else {
-        console.warn(`[Analysis] Gemini Files upload failed or budget exceeded, using storyboard metadata`);
+        if (geminiFileUri && !isOverBudget()) {
+          // Merged Gemini Vision call for Layers 2+4+5
+          const t2 = traceStep('merged_vision_analysis');
+          try {
+            const merged = await analyzeVideoComprehensive(geminiFileUri, shots, durationMs);
+            if (merged) {
+              motion = merged.motion;
+              keyframeData = merged.keyframes;
+              subjectData = merged.subjects;
+              t2.ok(`motion=${motion.segments.length}, keyframes=${keyframeData.length}, subjects=${subjectData.length}`);
+            } else {
+              t2.fail('analyzeVideoComprehensive returned null');
+            }
+          } catch (mergeErr: any) {
+            t2.fail(mergeErr.message);
+            console.warn(`[Analysis] Merged analysis failed: ${mergeErr.message}, trying individual calls`);
+
+            // Fallback to individual calls
+            const t3 = traceStep('fallback_individual_calls');
+            try {
+              const [motionResult, kfResult, subjectResult] = await Promise.allSettled([
+                analyzeMotion(geminiFileUri, shots, durationMs),
+                analyzeKeyframes(geminiFileUri, shots, durationMs),
+                trackSubjects(geminiFileUri, [], durationMs),
+              ]);
+              const motionOk = motionResult.status === 'fulfilled';
+              const kfOk = kfResult.status === 'fulfilled';
+              const subOk = subjectResult.status === 'fulfilled';
+              if (motionOk) motion = motionResult.value;
+              if (kfOk) keyframeData = kfResult.value;
+              if (subOk) subjectData = subjectResult.value;
+              t3.ok(`motion=${motionOk}, keyframes=${kfOk}, subjects=${subOk}`);
+            } catch (fallbackErr: any) {
+              t3.fail(fallbackErr.message);
+            }
+          }
+
+          console.log(`[Analysis] Gemini Vision: motion=${motion.segments.length}, keyframes=${keyframeData.length}, subjects=${subjectData.length}`);
+        } else if (!geminiFileUri) {
+          // Already traced above
+        } else {
+          const tBudget = traceStep('post_upload_budget');
+          tBudget.skip('budget exceeded after upload');
+        }
       }
-      } // close budget else
     } catch (err: any) {
+      const tOuter = traceStep('outer_catch');
+      tOuter.fail(err.message);
       console.error(`[Analysis] Video analysis failed: ${err.message}`);
     }
+  } else {
+    trace.push({ step: 'video_url', status: 'skipped: no videoUrl provided', durationMs: 0 });
   }
+
+  // Log full trace for debugging
+  console.log(`[Analysis] TRACE for ${assetId}:`, JSON.stringify(trace));
 
   // Enrich with storyboard metadata if available (supplements Vision, doesn't replace)
   // Even with Vision analysis, storyboard data adds intent context (what was MEANT to happen)
@@ -1124,6 +1172,9 @@ export async function runFullAnalysis(
     naturalCutPoints,
     audioSyncPoints,
   };
+
+  // Store diagnostic trace for debugging (accessible via debug panel)
+  (analysis as any)._diagnosticTrace = trace;
 
   await saveAnalysis(analysis);
 
