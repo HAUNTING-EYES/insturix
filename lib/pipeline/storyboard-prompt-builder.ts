@@ -162,7 +162,25 @@ export function buildStoryboardPrompt(
  * Build a negative prompt from style guide (things to avoid).
  */
 export function buildNegativePrompt(styleGuide?: StyleGuide): string {
-  const base = 'blurry, low quality, low resolution, pixelated, distorted, deformed, disfigured, watermark, text overlay, logo, subtitles, bad anatomy, extra limbs, extra fingers, fused fingers, missing fingers, duplicate subject, collage, split screen, multiple panels, grid layout, side by side, tiled, comic strip, plastic skin, mannequin-like, uncanny valley';
+  const base = [
+    // Core quality
+    'blurry, low quality, low resolution, pixelated, distorted, deformed, disfigured',
+    // Anatomy (Flux/SDXL common failures)
+    'bad anatomy, extra limbs, extra fingers, fused fingers, missing fingers, merged hands',
+    // Text artifacts (major Flux failure mode — generates random text)
+    'watermark, text overlay, logo, subtitles, random text, letters, words on image',
+    // Multi-frame/collage artifacts (Flux generates panels instead of single images)
+    'duplicate subject, mirror image, perfect symmetry',
+    'collage, split screen, multiple panels, grid layout, side by side, tiled',
+    'comic strip, diptych, triptych, before and after, storyboard sequence',
+    // Uncanny valley
+    'plastic skin, mannequin-like, uncanny valley, wax figure',
+    // Overprocessing (SDXL/Flux HDR tendency)
+    'HDR glow, oversaturated, mobile game aesthetic',
+    // Framing artifacts
+    'border, frame, vignette, picture frame',
+  ].join(', ');
+
   if (styleGuide?.negativePrompt) {
     return `${base}, ${styleGuide.negativePrompt}`;
   }

@@ -43,12 +43,27 @@ export async function applyEditDirections(
   let nextOverlayId = Math.max(...overlays.map(o => o.id || 0), 0) + 1;
   let totalFrameShift = 0;
 
+  // ─── Mood → filter fallback mapping ─────────────────────────
+  const moodFilterMap: Record<string, string> = {
+    'dramatic': 'desaturated-drama',
+    'serious': 'muted-doc',
+    'mysterious': 'noir',
+    'calm': 'golden-hour-pro',
+    'inspirational': 'golden-hour-pro',
+    'energetic': 'vivid',
+    'playful': 'vivid',
+    'neutral': 'clean-corporate',
+  };
+
   // ─── 1. Apply filters ───────────────────────────────────────
   const globalFilterId = globalDirections?.defaultFilterPresetId
     || (globalDirections?.colorGrade ? resolveFilterFromDescription(globalDirections.colorGrade) : undefined);
 
   for (const scene of scenes) {
-    const filterPresetId = scene.editDirections?.filterPresetId || globalFilterId;
+    // Priority: explicit scene filter > global filter > mood-based fallback
+    const filterPresetId = scene.editDirections?.filterPresetId
+      || globalFilterId
+      || ((scene as any).mood ? moodFilterMap[(scene as any).mood] : undefined);
     if (!filterPresetId) continue;
 
     const preset = getFilterPresetById(filterPresetId);

@@ -32,11 +32,20 @@ export interface ConsistencyReport {
 
 // ─── Internal Types ──────────────────────────────────────────────
 
+type TierScore = 'pass' | 'warn' | 'fail';
+
 interface PairwiseResult {
-  subject: number;   // 0-10
-  lighting: number;  // 0-10
-  color: number;     // 0-10
-  style: number;     // 0-10
+  subject: TierScore;
+  lighting: TierScore;
+  color: TierScore;
+  style: TierScore;
+  worst_issue: string | null;
+  regenerate_recommendation: 'none' | 'scene_a' | 'scene_b' | 'both';
+  // Legacy numeric fields for backward compatibility
+  subject_num: number;
+  lighting_num: number;
+  color_num: number;
+  style_num: number;
   issues: string[];
 }
 
@@ -50,23 +59,22 @@ function getGeminiProvider() {
 
 // ─── Pairwise Comparison ─────────────────────────────────────────
 
-const CONSISTENCY_PROMPT = `You are a visual consistency analyst for a video storyboard pipeline.
-You will be given two sequential storyboard frames from a video project.
-Analyze them for visual consistency across the following dimensions.
+const CONSISTENCY_PROMPT = `You are a visual consistency QA analyst for an AI video production pipeline.
+Compare two SEQUENTIAL storyboard frames that appear back-to-back in a final video.
 
-Score each dimension from 0 to 10 (10 = perfectly consistent, 0 = completely different):
+## SCORING (3-tier — more reliable than numeric scales)
+- "pass" — consistent enough for production
+- "warn" — viewer might notice a discontinuity
+- "fail" — breaks continuity, scene should be regenerated
 
-1. **Subject consistency**: Does the main subject (character, object, product) look the same across both frames? Same features, proportions, clothing, distinguishing marks?
-2. **Lighting consistency**: Same lighting direction, color temperature (warm/cool), intensity, shadow placement?
-3. **Color consistency**: Same overall color palette, saturation levels, contrast, color grading?
-4. **Style consistency**: Same art style, rendering technique, level of detail, visual treatment?
+Dimensions:
+1. subject_identity: Shared subjects look like the same entity? (Skip/pass if no shared subjects)
+2. lighting_match: Same direction, temperature, intensity?
+3. color_palette: Same color world, saturation, contrast?
+4. style_coherence: Same art style, rendering quality, detail level?
 
-Also list any specific inconsistencies you notice.
-
-IMPORTANT: Return ONLY valid JSON with no markdown formatting, no code fences, no explanation outside the JSON. The JSON must match this exact structure:
-{"subject":N,"lighting":N,"color":N,"style":N,"issues":["issue1","issue2"]}
-
-Where N is a number 0-10. If there are no issues, use an empty array: "issues":[]`;
+Return ONLY valid JSON. No markdown, no code fences.
+{"subject_identity":"pass","lighting_match":"pass","color_palette":"warn","style_coherence":"pass","worst_issue":"slight color shift from warm to cool","regenerate_recommendation":"none"}`;
 
 /**
  * Compare two adjacent scene images using Gemini Vision.
@@ -116,22 +124,34 @@ async function comparePair(
     });
 
     const raw = result.text.trim();
-    // Strip markdown code fences if present
     const jsonStr = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    const parsed = JSON.parse(jsonStr) as PairwiseResult;
+    const parsed = JSON.parse(jsonStr);
 
-    // Validate and clamp scores
+    // Convert 3-tier to numeric for backward compatibility
+    const tierToNum = (t: string): number => t === 'fail' ? 3 : t === 'warn' ? 6 : 9;
+    const validTier = (t: any): TierScore => ['pass', 'warn', 'fail'].includes(t) ? t : 'pass';
+
     return {
-      subject: clamp(parsed.subject ?? 10, 0, 10),
-      lighting: clamp(parsed.lighting ?? 10, 0, 10),
-      color: clamp(parsed.color ?? 10, 0, 10),
-      style: clamp(parsed.style ?? 10, 0, 10),
-      issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+      subject: validTier(parsed.subject_identity),
+      lighting: validTier(parsed.lighting_match),
+      color: validTier(parsed.color_palette),
+      style: validTier(parsed.style_coherence),
+      worst_issue: parsed.worst_issue || null,
+      regenerate_recommendation: parsed.regenerate_recommendation || 'none',
+      subject_num: tierToNum(parsed.subject_identity || 'pass'),
+      lighting_num: tierToNum(parsed.lighting_match || 'pass'),
+      color_num: tierToNum(parsed.color_palette || 'pass'),
+      style_num: tierToNum(parsed.style_coherence || 'pass'),
+      issues: parsed.worst_issue ? [parsed.worst_issue] : [],
     };
   } catch (err: any) {
     console.error(`[ConsistencyScoring] Pair (${sceneIndexA}, ${sceneIndexB}) failed:`, err.message);
-    // Return neutral scores on failure so we don't falsely flag scenes
-    return { subject: 7, lighting: 7, color: 7, style: 7, issues: [`Analysis failed: ${err.message}`] };
+    return {
+      subject: 'pass', lighting: 'pass', color: 'pass', style: 'pass',
+      worst_issue: `Analysis failed: ${err.message}`, regenerate_recommendation: 'none',
+      subject_num: 7, lighting_num: 7, color_num: 7, style_num: 7,
+      issues: [`Analysis failed: ${err.message}`],
+    };
   }
 }
 
@@ -251,10 +271,11 @@ export async function scoreStoryboardConsistency(
     }
 
     // Average across all pairwise comparisons this scene participates in
-    const avgSubject = comparisons.reduce((sum, c) => sum + c.subject, 0) / comparisons.length;
-    const avgLighting = comparisons.reduce((sum, c) => sum + c.lighting, 0) / comparisons.length;
-    const avgColor = comparisons.reduce((sum, c) => sum + c.color, 0) / comparisons.length;
-    const avgStyle = comparisons.reduce((sum, c) => sum + c.style, 0) / comparisons.length;
+    // Use _num fields for backward-compatible numeric averaging
+    const avgSubject = comparisons.reduce((sum, c) => sum + c.subject_num, 0) / comparisons.length;
+    const avgLighting = comparisons.reduce((sum, c) => sum + c.lighting_num, 0) / comparisons.length;
+    const avgColor = comparisons.reduce((sum, c) => sum + c.color_num, 0) / comparisons.length;
+    const avgStyle = comparisons.reduce((sum, c) => sum + c.style_num, 0) / comparisons.length;
 
     const subjectConsistency = normalize(avgSubject);
     const lightingConsistency = normalize(avgLighting);
@@ -313,34 +334,44 @@ export async function scoreStoryboardConsistency(
 export interface VideoQualityResult {
   score: number;             // 0-100
   issues: string[];          // specific problems found
-  shouldRegenerate: boolean; // true if score < 40
+  shouldRegenerate: boolean; // true if any dimension is "fail"
+  verdict: 'accept' | 'regenerate';
   details: {
-    morphingArtifacts: number;   // 0-10
-    textClarity: number;         // 0-10
-    subjectStability: number;    // 0-10
-    motionNaturalness: number;   // 0-10
-    lightingStability: number;   // 0-10
-    overallCoherence: number;    // 0-10
+    temporal_coherence: TierScore;
+    identity_preservation: TierScore;
+    physics_plausibility: TierScore;
+    artifact_presence: TierScore;
+    lighting_stability: TierScore;
+    worst_artifact: string | null;
+    artifact_location: string | null;
+    // Legacy numeric fields
+    morphingArtifacts: number;
+    textClarity: number;
+    subjectStability: number;
+    motionNaturalness: number;
+    lightingStability: number;
+    overallCoherence: number;
   };
 }
 
-const VIDEO_QUALITY_PROMPT = `You are a video quality analyst for an AI video generation pipeline.
-You will see the FIRST and LAST frames of an AI-generated video clip.
-Analyze them for common AI video artifacts and quality issues.
+const VIDEO_QUALITY_PROMPT = `You are a video QA analyst detecting AI generation artifacts.
+Review this AI-generated video clip. Gemini can analyze the full video, not just frames.
 
-Score each dimension from 0 to 10 (10 = perfect, 0 = unwatchable):
+## SCORING (3-tier — reliable and actionable)
+For each dimension, score: "pass" (production ready), "warn" (viewer might notice), "fail" (must regenerate).
 
-1. **morphing**: Are there visible morphing/melting/warping artifacts between the two frames? 10 = no morphing at all, 0 = severe distortion.
-2. **text**: If there is text visible, is it legible and consistent? If no text, score 10. 0 = garbled/unreadable.
-3. **subject**: Does the main subject (person/object/product) maintain consistent appearance between frames? 10 = identical subject, 0 = completely different person/object.
-4. **motion**: Does the implied motion between frames look physically natural? 10 = natural movement, 0 = teleportation/impossible physics.
-5. **lighting**: Is the lighting consistent and natural between frames? 10 = stable lighting, 0 = sudden exposure/color shift.
-6. **coherence**: Overall, does this look like a real video or obviously AI-generated slop? 10 = could pass as real footage, 0 = immediately recognizable as broken AI.
+1. temporal_coherence: Do objects maintain their form throughout? (morphing, melting, warping)
+2. identity_preservation: Is the main subject the SAME entity in all frames? (face drift, clothing change, body proportion shift)
+3. physics_plausibility: Does motion obey physics? (floating objects, impossible bending, clipping through surfaces)
+4. artifact_presence: Any glitches? (duplicate limbs, transparency holes, texture swimming, random text appearing)
+5. lighting_stability: Consistent lighting? (brightness jumps, shadow direction flips, color temperature shifts)
 
-Also list any specific visual issues you notice.
+## VERDICT
+"accept" — no fails, usable for production
+"regenerate" — any "fail" dimension, or 3+ "warn" dimensions
 
-IMPORTANT: Return ONLY valid JSON with no markdown formatting:
-{"morphing":N,"text":N,"subject":N,"motion":N,"lighting":N,"coherence":N,"issues":["issue1","issue2"]}`;
+Return ONLY valid JSON. No markdown, no code fences.
+{"temporal_coherence":"pass","identity_preservation":"pass","physics_plausibility":"warn","artifact_presence":"pass","lighting_stability":"pass","overall_verdict":"accept","worst_artifact":"slight physics issue at midpoint","artifact_location":"50% through clip"}`;
 
 /**
  * Check AI-generated video quality by analyzing first and last frames.
@@ -418,37 +449,65 @@ export async function checkVideoQuality(
     const jsonStr = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
     const parsed = JSON.parse(jsonStr);
 
-    const details = {
-      morphingArtifacts: clamp(parsed.morphing ?? 7, 0, 10),
-      textClarity: clamp(parsed.text ?? 7, 0, 10),
-      subjectStability: clamp(parsed.subject ?? 7, 0, 10),
-      motionNaturalness: clamp(parsed.motion ?? 7, 0, 10),
-      lightingStability: clamp(parsed.lighting ?? 7, 0, 10),
-      overallCoherence: clamp(parsed.coherence ?? 7, 0, 10),
-    };
+    const tierToNum = (t: string): number => t === 'fail' ? 2 : t === 'warn' ? 6 : 9;
+    const validTier = (t: any): TierScore => ['pass', 'warn', 'fail'].includes(t) ? t : 'pass';
 
-    // Weighted score (0-100)
+    const tc = validTier(parsed.temporal_coherence);
+    const ip = validTier(parsed.identity_preservation);
+    const pp = validTier(parsed.physics_plausibility);
+    const ap = validTier(parsed.artifact_presence);
+    const ls = validTier(parsed.lighting_stability);
+    const verdict = parsed.overall_verdict === 'regenerate' ? 'regenerate' : 'accept';
+
+    // Derive numeric score for backward compat
     const score = Math.round(
-      (details.morphingArtifacts * 0.25 +
-       details.subjectStability * 0.25 +
-       details.motionNaturalness * 0.20 +
-       details.overallCoherence * 0.15 +
-       details.lightingStability * 0.10 +
-       details.textClarity * 0.05) * 10,
+      (tierToNum(tc) * 0.25 + tierToNum(ip) * 0.25 + tierToNum(pp) * 0.20 +
+       tierToNum(ap) * 0.15 + tierToNum(ls) * 0.15) * 10,
     );
 
-    const issues = Array.isArray(parsed.issues) ? parsed.issues : [];
+    const hasFail = [tc, ip, pp, ap, ls].some(t => t === 'fail');
+    const warnCount = [tc, ip, pp, ap, ls].filter(t => t === 'warn').length;
+    const shouldRegen = hasFail || warnCount >= 3 || verdict === 'regenerate';
 
-    console.log(`[VideoQuality] Score: ${score}/100, issues: ${issues.length}, shouldRegen: ${score < threshold}`);
+    const issues = parsed.worst_artifact ? [parsed.worst_artifact] : [];
 
-    return { score, issues, shouldRegenerate: score < threshold, details };
+    console.log(`[VideoQuality] Score: ${score}/100, verdict: ${verdict}, tiers: tc=${tc} ip=${ip} pp=${pp} ap=${ap} ls=${ls}`);
+
+    return {
+      score,
+      issues,
+      shouldRegenerate: shouldRegen,
+      verdict,
+      details: {
+        temporal_coherence: tc,
+        identity_preservation: ip,
+        physics_plausibility: pp,
+        artifact_presence: ap,
+        lighting_stability: ls,
+        worst_artifact: parsed.worst_artifact || null,
+        artifact_location: parsed.artifact_location || null,
+        // Legacy numeric
+        morphingArtifacts: tierToNum(tc),
+        textClarity: 9, // Not checked separately anymore
+        subjectStability: tierToNum(ip),
+        motionNaturalness: tierToNum(pp),
+        lightingStability: tierToNum(ls),
+        overallCoherence: tierToNum(ap),
+      },
+    };
   } catch (err: any) {
     console.warn(`[VideoQuality] Check failed: ${err.message} — skipping`);
     return {
       score: 60,
       issues: [`Quality check failed: ${err.message}`],
       shouldRegenerate: false,
-      details: { morphingArtifacts: 6, textClarity: 6, subjectStability: 6, motionNaturalness: 6, lightingStability: 6, overallCoherence: 6 },
+      verdict: 'accept',
+      details: {
+        temporal_coherence: 'pass', identity_preservation: 'pass',
+        physics_plausibility: 'pass', artifact_presence: 'pass', lighting_stability: 'pass',
+        worst_artifact: `Check failed: ${err.message}`, artifact_location: null,
+        morphingArtifacts: 6, textClarity: 6, subjectStability: 6, motionNaturalness: 6, lightingStability: 6, overallCoherence: 6,
+      },
     };
   }
 }
