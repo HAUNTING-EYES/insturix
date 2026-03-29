@@ -437,7 +437,7 @@ function generateSubjectDecisions(
   if (density === 'minimal') return decisions;
 
   for (const subject of subjects) {
-    if (!subject.frames.length) continue;
+    if (!subject.frames || !subject.frames.length) continue;
     const firstFrame = subject.frames[0];
 
     // Products/logos = callout
