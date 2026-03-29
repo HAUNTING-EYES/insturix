@@ -242,70 +242,57 @@ async function uploadToGeminiFiles(
       return null;
     }
 
-    // Upload via Gemini Files REST API (direct HTTP — avoids @google/genai SDK version issues)
-    const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
+    // Upload via @google/generative-ai SDK — more reliable than manual multipart
+    const { GoogleAIFileManager } = await import('@google/generative-ai/server');
+    const fileManager = new GoogleAIFileManager(apiKey);
 
-    const metadata = JSON.stringify({ file: { displayName: `${assetId}.mp4` } });
-    // Use a unique boundary that can't appear in video binary
-    const boundary = `gemini_upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    // Build multipart body with exact RFC 2046 formatting
-    const metadataPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`;
-    const filePart = `--${boundary}\r\nContent-Type: video/mp4\r\n\r\n`;
-    const closing = `\r\n--${boundary}--`;
-    const multipartBody = Buffer.concat([
-      Buffer.from(metadataPart),
-      Buffer.from(filePart),
-      buffer,
-      Buffer.from(closing),
-    ]);
+    // Write buffer to temp file (SDK needs a file path)
+    const os = await import('os');
+    const path = await import('path');
+    const fs = await import('fs');
+    const tmpPath = path.join(os.tmpdir(), `gemini_${assetId}_${Date.now()}.mp4`);
 
-    const uploadRes = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': `multipart/related; boundary=${boundary}`,
-        'Content-Length': String(multipartBody.length),
-      },
-      body: multipartBody,
-    });
+    try {
+      fs.writeFileSync(tmpPath, buffer);
+      console.log(`[GeminiFiles] Wrote temp file: ${tmpPath} (${sizeKb}KB)`);
 
-    if (!uploadRes.ok) {
-      const errText = await uploadRes.text().catch(() => '');
-      console.error(`[GeminiFiles] Upload HTTP error: ${uploadRes.status} ${errText.substring(0, 200)}`);
-      return null;
+      const uploadResult = await fileManager.uploadFile(tmpPath, {
+        mimeType: 'video/mp4',
+        displayName: `${assetId}.mp4`,
+      });
+
+      const fileUri = uploadResult?.file?.uri;
+      const fileName = uploadResult?.file?.name;
+
+      if (!fileUri) {
+        console.error('[GeminiFiles] No URI in upload response:', JSON.stringify(uploadResult).substring(0, 300));
+        return null;
+      }
+
+      console.log(`[GeminiFiles] Uploaded: ${fileUri.substring(0, 80)}...`);
+
+      // Wait for ACTIVE state (Gemini processes the video)
+      let fileState = uploadResult?.file?.state;
+      let retries = 0;
+      while (fileState !== 'ACTIVE' && retries < 15) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          const checkResult = await fileManager.getFile(fileName!);
+          fileState = checkResult?.state;
+        } catch {} // Ignore check errors, keep polling
+        retries++;
+      }
+
+      if (fileState !== 'ACTIVE') {
+        console.error(`[GeminiFiles] File not ACTIVE after ${retries * 2}s (state: ${fileState}). Aborting.`);
+        return null;
+      }
+
+      return fileUri;
+    } finally {
+      // Clean up temp file
+      try { fs.unlinkSync(tmpPath); } catch {}
     }
-
-    const uploadData = await uploadRes.json();
-    const fileUri = uploadData?.file?.uri;
-    const fileName = uploadData?.file?.name;
-
-    if (!fileUri) {
-      console.error('[GeminiFiles] No URI in response:', JSON.stringify(uploadData).substring(0, 200));
-      return null;
-    }
-
-    console.log(`[GeminiFiles] Uploaded: ${fileUri.substring(0, 80)}...`);
-
-    // Wait for ACTIVE state (Gemini processes the video)
-    let fileState = uploadData?.file?.state;
-    let retries = 0;
-    while (fileState !== 'ACTIVE' && retries < 10) {
-      await new Promise(r => setTimeout(r, 2000));
-      try {
-        const checkRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`);
-        if (checkRes.ok) {
-          const checkData = await checkRes.json();
-          fileState = checkData?.state;
-        }
-      } catch {} // Ignore check errors, keep polling
-      retries++;
-    }
-
-    if (fileState !== 'ACTIVE') {
-      console.error(`[GeminiFiles] File not ACTIVE after ${retries * 2}s (state: ${fileState}). Aborting analysis.`);
-      return null;
-    }
-
-    return fileUri;
   } catch (err: any) {
     console.error(`[GeminiFiles] Upload failed: ${err.message}`);
     return null;
