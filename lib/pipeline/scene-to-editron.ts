@@ -1,15 +1,38 @@
 /**
- * Scene-to-Editron Converter
+ * Scene-to-Editron Converter v2
  *
- * Converts SceneDescriptor arrays into Editron overlay arrays,
- * creating a timeline-ready project structure.
+ * Converts SceneDescriptor arrays into Editron overlay arrays with proper
+ * row-based timeline structure and sub-shot cutting support.
  *
- * IMPORTANT: All overlays MUST conform to Editron's BaseOverlay type which
- * requires: id, from, durationInFrames, row, left, top, width, height,
- * isDragging, rotation, type.  Text overlays need string-typed style values.
+ * ROW LAYOUT (standardized):
+ *   Row 0: SFX (sound effects)
+ *   Row 1: BGM (background music) — full-length track
+ *   Row 2: Video clips (base video track) — cut/stitched per script
+ *   Row 3: Voiceover (per-scene narration audio)
+ *   Row 4: Captions (single row, proper caption overlays)
+ *   Row 5: Transitions (overlap zone between video clips on Row 2)
+ *   Row 6: Motion graphics / stickers / overlays
+ *
+ * GENERATION UNIT SYSTEM:
+ * - Scenes with the same generationUnitId share ONE generated video
+ * - The primaryVisualForUnit scene gets the video generation call
+ * - Sub-shots cut the 5s generated clip into multiple timeline segments
+ * - Non-primary scenes reuse the same video with different in/out points
  */
 
-import type { SceneDescriptor } from './schemas/storyboard';
+import type { SceneDescriptor, SubShot } from './schemas/storyboard';
+
+// ─── Constants ─────────────────────────────────────────────────
+
+export const ROW = {
+  SFX: 0,
+  BGM: 1,
+  VIDEO: 2,
+  VOICEOVER: 3,
+  CAPTIONS: 4,
+  TRANSITIONS: 5,
+  MOTION_GRAPHICS: 6,
+} as const;
 
 interface EditronConvertOptions {
   fps: number;
@@ -20,7 +43,6 @@ interface EditronConvertOptions {
 export interface StoryboardImage {
   sceneIndex: number;
   imageUrl: string;
-  /** Optional GCS asset ID — required so images survive save/load round-trips */
   assetId?: string;
 }
 
@@ -30,39 +52,39 @@ const MOOD_GRADIENTS: Record<string, { from: string; to: string }> = {
   calm: { from: '#1a535c', to: '#4ecdc4' },
   serious: { from: '#1a1a2e', to: '#16213e' },
   playful: { from: '#7209b7', to: '#f72585' },
-  somber: { from: '#2d3436', to: '#636e72' },
+  dramatic: { from: '#0d0d0d', to: '#1a1a2e' },
+  mysterious: { from: '#1a0a2e', to: '#0d1b2a' },
+  inspirational: { from: '#1a3a5c', to: '#4ecdc4' },
   neutral: { from: '#0f0c29', to: '#302b63' },
 };
 
 let overlayIdCounter = 1;
+function nextId(): number { return overlayIdCounter++; }
 
-function nextId(): number {
-  return overlayIdCounter++;
-}
+// ─── Main Converter ────────────────────────────────────────────
 
 /**
- * Convert scenes into Editron overlays for a ready-to-edit project.
+ * Convert scenes into Editron overlays with proper row-based layout.
  *
- * For each scene creates:
- *  1. A background layer — storyboard image (if provided) OR gradient placeholder
- *  2. A TextOverlay with scene title (top center, first 2 seconds)
- *  3. A TextOverlay with narration positioned as lower-third caption
+ * For each scene/generation unit creates:
+ *   - Row 2: Video/image overlays (with sub-shot cutting if applicable)
+ *   - Row 3: Voiceover placeholder (actual audio added by TTS worker)
+ *   - Row 4: Caption text overlay for narration
  *
- * @param scenes         Scene descriptors from script parser
- * @param options        FPS, width, height
- * @param storyboardImages  Optional array of storyboard images to place on timeline
+ * BGM (Row 1), SFX (Row 0), Transitions (Row 5), and Motion Graphics (Row 6)
+ * are added by the Director Agent / edit-direction-applier, not here.
  */
 export function scenesToOverlays(
   scenes: SceneDescriptor[],
   options: EditronConvertOptions,
   storyboardImages?: StoryboardImage[],
 ): any[] {
-  overlayIdCounter = 1; // reset for deterministic IDs
+  overlayIdCounter = 1;
   const { fps, width, height } = options;
   const overlays: any[] = [];
   let currentFrame = 0;
 
-  // Build a lookup map for storyboard images by scene index
+  // Build image lookup
   const imageMap = new Map<number, StoryboardImage>();
   if (storyboardImages) {
     for (const img of storyboardImages) {
@@ -70,114 +92,155 @@ export function scenesToOverlays(
     }
   }
 
+  // Track generation units to avoid duplicate video placement
+  const placedUnits = new Set<string>();
+
   for (const scene of scenes) {
-    const durationFrames = Math.round(scene.durationSeconds * fps);
+    const sceneDurationFrames = Math.round(scene.durationSeconds * fps);
     const sbImage = imageMap.get(scene.sceneIndex);
+    const unitId = (scene as any).generationUnitId || `scene_${scene.sceneIndex}`;
+    const isPrimary = (scene as any).primaryVisualForUnit !== false;
+    const subShots: SubShot[] = (scene as any).subShots || [];
+    const sceneType = (scene as any).sceneType || 'continuous';
 
-    if (sbImage) {
-      // 1a. Storyboard image as background
-      overlays.push({
-        id: nextId(),
-        type: 'image',
-        from: currentFrame,
-        durationInFrames: durationFrames,
-        row: 3,
-        left: 0,
-        top: 0,
-        width,
-        height,
-        isDragging: false,
-        rotation: 0,
-        src: sbImage.imageUrl,
-        assetId: sbImage.assetId,
-        styles: {
-          opacity: 1,
-          objectFit: 'cover',
-        },
-      });
+    // ─── Row 2: Video/Image Track ────────────────────────────
+
+    if (sceneType === 'montage' && subShots.length > 0) {
+      // MONTAGE: Cut one video into multiple sub-shot segments
+      let subFrame = currentFrame;
+      for (const sub of subShots) {
+        const subDur = Math.round(sub.targetDurationSeconds * fps);
+        if (sbImage) {
+          overlays.push({
+            id: nextId(),
+            type: 'image',
+            from: subFrame,
+            durationInFrames: subDur,
+            row: ROW.VIDEO,
+            left: 0, top: 0, width, height,
+            isDragging: false, rotation: 0,
+            src: sbImage.imageUrl,
+            assetId: sbImage.assetId,
+            styles: { opacity: 1, objectFit: 'cover' },
+            metadata: {
+              generationUnitId: unitId,
+              subShotDescription: sub.description,
+              subShotStart: sub.startNormalized,
+              subShotEnd: sub.endNormalized,
+              sceneIndex: scene.sceneIndex,
+              sceneType,
+            },
+          });
+        } else {
+          // Placeholder for sub-shot (will be replaced when video arrives)
+          const gradient = MOOD_GRADIENTS[scene.mood] || MOOD_GRADIENTS.neutral;
+          overlays.push({
+            id: nextId(),
+            type: 'html-scene',
+            from: subFrame,
+            durationInFrames: subDur,
+            row: ROW.VIDEO,
+            left: 0, top: 0, width, height,
+            isDragging: false, rotation: 0,
+            content: `<div style="width:100%;height:100%;background:linear-gradient(135deg,${gradient.from},${gradient.to});display:flex;align-items:center;justify-content:center;"><span style="color:rgba(255,255,255,0.3);font-size:24px;font-family:sans-serif;">${sub.description}</span></div>`,
+            styles: { opacity: 1 },
+            metadata: {
+              generationUnitId: unitId,
+              subShotDescription: sub.description,
+              subShotStart: sub.startNormalized,
+              subShotEnd: sub.endNormalized,
+              sceneIndex: scene.sceneIndex,
+              sceneType,
+            },
+          });
+        }
+        subFrame += subDur;
+      }
     } else {
-      // 1b. Placeholder background (HTML scene overlay with gradient)
-      const gradient = MOOD_GRADIENTS[scene.mood] || MOOD_GRADIENTS.neutral;
-      const bgHtml = `<div style="width:100%;height:100%;background:linear-gradient(135deg,${gradient.from},${gradient.to});display:flex;align-items:center;justify-content:center;"><span style="color:rgba(255,255,255,0.15);font-size:48px;font-family:sans-serif;">Scene ${scene.sceneIndex + 1}</span></div>`;
+      // CONTINUOUS / LOGO / TEXT-CARD / TALKING-HEAD: One overlay for the full scene
+      if (sbImage) {
+        overlays.push({
+          id: nextId(),
+          type: 'image',
+          from: currentFrame,
+          durationInFrames: sceneDurationFrames,
+          row: ROW.VIDEO,
+          left: 0, top: 0, width, height,
+          isDragging: false, rotation: 0,
+          src: sbImage.imageUrl,
+          assetId: sbImage.assetId,
+          styles: { opacity: 1, objectFit: 'cover' },
+          metadata: {
+            generationUnitId: unitId,
+            sceneIndex: scene.sceneIndex,
+            sceneType,
+            isPrimaryVisual: isPrimary,
+          },
+        });
+      } else {
+        const gradient = MOOD_GRADIENTS[scene.mood] || MOOD_GRADIENTS.neutral;
+        overlays.push({
+          id: nextId(),
+          type: 'html-scene',
+          from: currentFrame,
+          durationInFrames: sceneDurationFrames,
+          row: ROW.VIDEO,
+          left: 0, top: 0, width, height,
+          isDragging: false, rotation: 0,
+          content: `<div style="width:100%;height:100%;background:linear-gradient(135deg,${gradient.from},${gradient.to});display:flex;align-items:center;justify-content:center;"><span style="color:rgba(255,255,255,0.15);font-size:48px;font-family:sans-serif;">${scene.title}</span></div>`,
+          styles: { opacity: 1 },
+          metadata: {
+            generationUnitId: unitId,
+            sceneIndex: scene.sceneIndex,
+            sceneType,
+          },
+        });
+      }
+    }
 
+    // ─── Row 3: Voiceover Placeholder ────────────────────────
+    // Actual audio gets added by TTS worker. This reserves the slot.
+    if (scene.narration && scene.narration.trim()) {
       overlays.push({
         id: nextId(),
-        type: 'html-scene',
+        type: 'sound',
         from: currentFrame,
-        durationInFrames: durationFrames,
-        row: 3,
-        left: 0,
-        top: 0,
-        width,
-        height,
-        isDragging: false,
-        rotation: 0,
-        content: bgHtml,
-        styles: {
-          opacity: 1,
+        durationInFrames: sceneDurationFrames,
+        row: ROW.VOICEOVER,
+        left: 0, top: 0, width: 200, height: 40,
+        isDragging: false, rotation: 0,
+        src: '', // TTS worker fills this
+        content: `VO: ${scene.narration.substring(0, 50)}...`,
+        styles: { opacity: 1 },
+        metadata: {
+          isVoiceover: true,
+          sceneIndex: scene.sceneIndex,
+          narrationText: scene.narration,
+          generationUnitId: unitId,
         },
       });
     }
 
-    // 2. Scene title (top center, first 3 seconds of scene)
-    const titleDuration = Math.min(Math.round(3 * fps), durationFrames);
-    overlays.push({
-      id: nextId(),
-      type: 'text',
-      from: currentFrame,
-      durationInFrames: titleDuration,
-      row: 1,
-      left: Math.round(width * 0.1),
-      top: Math.round(height * 0.08),
-      width: Math.round(width * 0.8),
-      height: Math.round(height * 0.12),
-      isDragging: false,
-      rotation: 0,
-      content: scene.title,
-      styles: {
-        fontSize: '48',
-        fontFamily: 'font-sans',
-        fontWeight: '700',
-        color: '#ffffff',
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        fontStyle: 'normal',
-        textDecoration: 'none',
-        textAlign: 'center',
-        textShadow: '0 2px 8px rgba(0,0,0,0.7)',
-        opacity: 1,
-        borderRadius: '12px',
-        padding: '16px',
-        animation: { enter: 'fade', exit: 'fade', duration: 15 },
-      },
-    });
-
-    // 3. Narration text (lower-third, full scene duration)
-    if (scene.narration) {
-      // For captions: split into chunks that fit on screen (~15 words each)
-      const words = scene.narration.split(/\s+/).filter(Boolean);
-      const WORDS_PER_CHUNK = 15;
-      const chunks: string[] = [];
-      for (let i = 0; i < words.length; i += WORDS_PER_CHUNK) {
-        chunks.push(words.slice(i, i + WORDS_PER_CHUNK).join(' '));
-      }
-
-      const makeNarrationOverlay = (text: string, fromFrame: number, dur: number, label: string) => ({
+    // ─── Row 4: Caption Text ─────────────────────────────────
+    // Simple text overlay for narration. Director Agent upgrades to
+    // proper caption overlays with word timing after TTS completes.
+    if (scene.narration && scene.narration.trim()) {
+      overlays.push({
         id: nextId(),
         type: 'text',
-        from: fromFrame,
-        durationInFrames: dur,
-        row: 0,
+        from: currentFrame,
+        durationInFrames: sceneDurationFrames,
+        row: ROW.CAPTIONS,
         left: Math.round(width * 0.05),
         top: Math.round(height * 0.82),
         width: Math.round(width * 0.9),
         height: Math.round(height * 0.14),
-        isDragging: false,
-        rotation: 0,
-        content: text,
+        isDragging: false, rotation: 0,
+        content: scene.narration,
         styles: {
           fontSize: '28',
           fontFamily: 'font-sans',
-          fontWeight: '400',
+          fontWeight: '500',
           color: '#ffffff',
           backgroundColor: 'rgba(0,0,0,0.6)',
           fontStyle: 'normal',
@@ -188,30 +251,14 @@ export function scenesToOverlays(
           padding: '12px',
           animation: { enter: 'fade', exit: 'fade', duration: 10 },
         },
+        metadata: {
+          sceneIndex: scene.sceneIndex,
+          isNarrationCaption: true,
+        },
       });
-
-      if (chunks.length <= 1) {
-        const displayText =
-          scene.narration.length > 140 ? scene.narration.substring(0, 137) + '...' : scene.narration;
-        overlays.push(
-          makeNarrationOverlay(displayText, currentFrame, durationFrames, `Narration: Scene ${scene.sceneIndex + 1}`),
-        );
-      } else {
-        const framesPerChunk = Math.max(1, Math.floor(durationFrames / chunks.length));
-        chunks.forEach((chunk, ci) => {
-          overlays.push(
-            makeNarrationOverlay(
-              chunk,
-              currentFrame + ci * framesPerChunk,
-              ci === chunks.length - 1 ? durationFrames - ci * framesPerChunk : framesPerChunk,
-              `Caption ${ci + 1}: Scene ${scene.sceneIndex + 1}`,
-            ),
-          );
-        });
-      }
     }
 
-    currentFrame += durationFrames;
+    currentFrame += sceneDurationFrames;
   }
 
   return overlays;
