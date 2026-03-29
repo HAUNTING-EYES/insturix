@@ -105,7 +105,7 @@ export async function parseScriptWithLLM(
   } = {},
 ): Promise<LLMParseResult> {
   const google = getGeminiProvider();
-  const model = google('gemini-2.5-flash');
+  const model = google('gemini-2.5-flash', { structuredOutputs: true });
 
   const { object } = await generateObject({
     model,
