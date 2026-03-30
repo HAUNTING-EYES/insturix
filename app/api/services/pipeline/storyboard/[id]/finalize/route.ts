@@ -478,10 +478,10 @@ export async function POST(
       }
     }
 
-    // ─── Dispatch Director Agent via QStash (delayed 15s) ──────────
-    // Director auto-applies: filters, transitions, captions, motion graphics,
-    // audio ducking, quality review. Delayed to let BGM/SFX workers start first.
-    // Uses auto-detected edit profile from script metadata.
+    // ─── Store detected edit profile on project for Director ──────────
+    // Director runs AFTER video generation completes (dispatched from video worker),
+    // NOT here — because videos aren't ready yet at finalize time.
+    // We store the profile detection result so the video worker can use it.
     try {
       const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
       const thinkforgeMetadata = {
@@ -498,38 +498,15 @@ export async function POST(
         format: '',
       };
       const { profileId } = getAutoSelectedProfile(thinkforgeMetadata);
-
-      const directorUrl = (() => {
-        const base = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-        return `${base}/api/services/editron/director/execute`;
-      })();
-
-      if (process.env.QSTASH_TOKEN) {
-        const qstash = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
-        const dirResult = await qstash.publishJSON({
-          url: directorUrl,
-          body: { projectId: project.projectId, editProfileId: profileId, userId, _internal: true },
-          retries: 1,
-          delay: 15, // 15 seconds delay — let BGM/SFX workers start
-        });
-        console.log(`[Finalize] Director dispatched (profile: ${profileId}, delay: 15s): ${(dirResult as any)?.messageId || 'ok'}`);
-      } else {
-        // Dev fallback: fire-and-forget after 15s
-        setTimeout(() => {
-          fetch(directorUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectId: project.projectId, editProfileId: profileId, userId, _internal: true }),
-          }).catch(() => {});
-        }, 15000);
-        console.log(`[Finalize] Director dispatched via fetch fallback (profile: ${profileId})`);
-      }
+      // Store on project so video worker can dispatch Director with correct profile
+      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        { projectId: project.projectId },
+        { $set: { pendingDirectorProfileId: profileId, pendingDirectorUserId: userId } },
+      );
+      console.log(`[Finalize] Director profile detected: ${profileId} (will run after video gen completes)`);
     } catch (dirErr: any) {
-      // Non-fatal — project is already created, Director can be run manually
-      console.warn(`[Finalize] Director auto-dispatch failed: ${dirErr.message}`);
-      warnings.push(`Director auto-run failed: ${dirErr.message}. You can run it manually from the editor.`);
+      console.warn(`[Finalize] Profile detection failed: ${dirErr.message}`);
+      warnings.push(`Edit profile auto-detection failed: ${dirErr.message}`);
     }
 
     return NextResponse.json({
@@ -538,8 +515,8 @@ export async function POST(
       name: projectName,
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
-      audioGenerating: true, // Frontend can show "BGM/SFX generating in background"
-      directorQueued: true, // Director Agent will auto-apply edits in ~15s
+      audioGenerating: true,
+      directorQueued: true, // Director runs after video gen, not immediately
       ...(warnings.length > 0 && { warnings }),
     });
   } catch (error: any) {

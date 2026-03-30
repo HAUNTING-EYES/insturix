@@ -279,6 +279,55 @@ async function updateBatchStatus(batchId: string): Promise<void> {
     { _id: batchId },
     { $set: { status, updatedAt: new Date() } },
   );
+
+  // ─── Dispatch Director Agent when ALL videos are done ──────────
+  // Only runs once (when done count first reaches totalScenes).
+  // Reads pendingDirectorProfileId stored by finalize route.
+  if (done >= batch.totalScenes && batch.projectId) {
+    try {
+      const project = await db.collection('projects').findOne({ projectId: batch.projectId }) as any;
+      if (!project?.pendingDirectorProfileId) {
+        console.log(`[VideoWorker] Batch ${batchId} complete but no pending Director profile — skipping auto-run`);
+        return;
+      }
+
+      const profileId = project.pendingDirectorProfileId;
+      const userId = project.pendingDirectorUserId || project.userId;
+
+      // Clear pending flag so Director doesn't run twice
+      await db.collection('projects').updateOne(
+        { projectId: batch.projectId },
+        { $unset: { pendingDirectorProfileId: '', pendingDirectorUserId: '' } },
+      );
+
+      const directorUrl = (() => {
+        const base = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+        return `${base}/api/services/editron/director/execute`;
+      })();
+
+      if (process.env.QSTASH_TOKEN) {
+        const { Client } = await import('@upstash/qstash');
+        const qstash = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
+        await qstash.publishJSON({
+          url: directorUrl,
+          body: { projectId: batch.projectId, editProfileId: profileId, userId, _internal: true },
+          retries: 1,
+        });
+        console.log(`[VideoWorker] Batch ${batchId} complete (${status}) — Director dispatched (profile: ${profileId})`);
+      } else {
+        fetch(directorUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: batch.projectId, editProfileId: profileId, userId, _internal: true }),
+        }).catch(() => {});
+        console.log(`[VideoWorker] Batch ${batchId} complete — Director dispatched via fetch (profile: ${profileId})`);
+      }
+    } catch (dirErr: any) {
+      console.error(`[VideoWorker] Director dispatch failed after batch ${batchId} complete:`, dirErr.message);
+    }
+  }
 }
 
 // SECURITY: Always verify QStash signature in production.
