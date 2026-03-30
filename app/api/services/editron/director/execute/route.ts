@@ -18,21 +18,42 @@ export const maxDuration = 120; // Director Agent should complete within 2 minut
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
+    // Auth: Clerk (user-initiated) OR QStash internal (auto-run after finalize)
+    let userId: string | null = null;
+
+    const { userId: clerkUserId } = await auth();
+    if (clerkUserId) {
+      userId = clerkUserId;
+    }
+
+    // If Clerk auth failed, check for internal QStash dispatch (from finalize route)
+    const body = await request.json();
+    if (!userId && body._internal && body.userId) {
+      // Verify this is a legitimate internal call (QStash signature verified by middleware,
+      // or in dev mode trust the _internal flag)
+      const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
+      const hasQStashHeaders = request.headers.get('upstash-signature') || request.headers.get('upstash-message-id');
+      if (isDev || hasQStashHeaders) {
+        userId = body.userId;
+        console.log(`[Director] Internal dispatch for user ${userId} (auto-run after finalize)`);
+      }
+    }
+
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Rate limit: 5 per hour per user
-    const rl = await checkExpensiveRateLimit(userId);
-    if (!rl.success) {
-      return NextResponse.json(
-        { success: false, error: 'Rate limit exceeded. Please wait before running another director execution.' },
-        { status: 429, headers: { 'X-RateLimit-Reset': String(rl.reset) } },
-      );
+    // Rate limit: skip for internal auto-run (already rate-limited at finalize)
+    if (!body._internal) {
+      const rl = await checkExpensiveRateLimit(userId);
+      if (!rl.success) {
+        return NextResponse.json(
+          { success: false, error: 'Rate limit exceeded. Please wait before running another director execution.' },
+          { status: 429, headers: { 'X-RateLimit-Reset': String(rl.reset) } },
+        );
+      }
     }
 
-    const body = await request.json();
     const { projectId, editProfileId, brief } = body;
 
     if (!projectId) {

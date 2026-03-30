@@ -488,6 +488,7 @@ async function generateVideoWithFal(
   return {
     videoUrl: uploadResult.signedUrl,
     gcsPath: uploadResult.gcsPath,
+    r2Key: uploadResult.r2Key,
     assetId,
     provider: 'fal-ai',
     durationMs: actualDuration * 1000,
@@ -585,6 +586,7 @@ async function generateVideoWithKie(
       return {
         videoUrl: uploadResult.signedUrl,
         gcsPath: uploadResult.gcsPath,
+        r2Key: uploadResult.r2Key,
         assetId,
         provider: 'kie-ai',
         durationMs: duration * 1000,

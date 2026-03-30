@@ -261,11 +261,12 @@ export async function POST(
               assetId: scene.voiceover.audioAssetId,
               userId,
               type: 'audio',
-              filename: `${scene.voiceover.audioAssetId}.mp3`,
+              filename: `${scene.voiceover.audioAssetId}.wav`,
               source: 'user-upload',
               gcsPath: (scene.voiceover as any).gcsPath || null,
+              r2Key: (scene.voiceover as any).r2Key || scene.voiceover.audioAssetId || null,
               cachedUrl: scene.voiceover.audioUrl,
-              urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              urlExpiresAt: scene.voiceover.audioUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               size: 0,
               uploadedAt: new Date(),
             },
@@ -424,6 +425,60 @@ export async function POST(
       }
     }
 
+    // ─── Dispatch Director Agent via QStash (delayed 15s) ──────────
+    // Director auto-applies: filters, transitions, captions, motion graphics,
+    // audio ducking, quality review. Delayed to let BGM/SFX workers start first.
+    // Uses auto-detected edit profile from script metadata.
+    try {
+      const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
+      const thinkforgeMetadata = {
+        narration: storyboard.scenes.map(s => s.descriptor.narration || '').join(' '),
+        visual: storyboard.scenes.map(s => s.descriptor.visualDescription || '').join(' '),
+        music: storyboard.overallMusicPrompt || '',
+        notes: '',
+        environment: (storyboard as any).environmentNotes || '',
+        character: '',
+        mood: storyboard.scenes.map(s => s.descriptor.mood || '').join(', '),
+        sceneCount: storyboard.scenes.length,
+        totalDurationSec: Math.round(currentFrame / fps),
+        platform: '',
+        format: '',
+      };
+      const { profileId } = getAutoSelectedProfile(thinkforgeMetadata);
+
+      const directorUrl = (() => {
+        const base = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+        return `${base}/api/services/editron/director/execute`;
+      })();
+
+      if (process.env.QSTASH_TOKEN) {
+        const qstash = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
+        const dirResult = await qstash.publishJSON({
+          url: directorUrl,
+          body: { projectId: project.projectId, editProfileId: profileId, userId, _internal: true },
+          retries: 1,
+          delay: 15, // 15 seconds delay — let BGM/SFX workers start
+        });
+        console.log(`[Finalize] Director dispatched (profile: ${profileId}, delay: 15s): ${(dirResult as any)?.messageId || 'ok'}`);
+      } else {
+        // Dev fallback: fire-and-forget after 15s
+        setTimeout(() => {
+          fetch(directorUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId: project.projectId, editProfileId: profileId, userId, _internal: true }),
+          }).catch(() => {});
+        }, 15000);
+        console.log(`[Finalize] Director dispatched via fetch fallback (profile: ${profileId})`);
+      }
+    } catch (dirErr: any) {
+      // Non-fatal — project is already created, Director can be run manually
+      console.warn(`[Finalize] Director auto-dispatch failed: ${dirErr.message}`);
+      warnings.push(`Director auto-run failed: ${dirErr.message}. You can run it manually from the editor.`);
+    }
+
     return NextResponse.json({
       success: true,
       projectId: project.projectId,
@@ -431,6 +486,7 @@ export async function POST(
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
       audioGenerating: true, // Frontend can show "BGM/SFX generating in background"
+      directorQueued: true, // Director Agent will auto-apply edits in ~15s
       ...(warnings.length > 0 && { warnings }),
     });
   } catch (error: any) {

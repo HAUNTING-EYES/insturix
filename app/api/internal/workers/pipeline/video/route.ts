@@ -105,8 +105,10 @@ async function handler(request: NextRequest) {
             $setOnInsert: {
               assetId: result.assetId, userId, type: 'video',
               filename: `${result.assetId}.mp4`, source: 'video-regen',
-              gcsPath: result.gcsPath, cachedUrl: result.videoUrl,
-              urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              gcsPath: result.gcsPath,
+              r2Key: result.r2Key || result.assetId || null,
+              cachedUrl: result.videoUrl,
+              urlExpiresAt: result.videoUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               uploadedAt: new Date(),
             },
           },
