@@ -15,9 +15,10 @@ const CATEGORY_LABELS: Record<TransitionCategory, string> = {
   push: 'Push',
   zoom: 'Zoom',
   editorial: 'Editorial Cuts',
+  sound: 'Sound Transitions',
 };
 
-const CATEGORY_ORDER: TransitionCategory[] = ['blend', 'wipe', 'push', 'zoom', 'editorial'];
+const CATEGORY_ORDER: TransitionCategory[] = ['blend', 'wipe', 'push', 'zoom', 'editorial', 'sound'];
 
 const ICON_MAP: Record<string, React.ReactNode> = {
   Layers: <Layers className="h-4 w-4" />,
@@ -49,7 +50,7 @@ export const TransitionBrowserPanel: React.FC = () => {
     if (!search) return grouped;
     const q = search.toLowerCase();
     const result: Record<TransitionCategory, typeof grouped['blend']> = {
-      blend: [], wipe: [], push: [], zoom: [], editorial: [],
+      blend: [], wipe: [], push: [], zoom: [], editorial: [], sound: [],
     };
     for (const [cat, items] of Object.entries(grouped)) {
       result[cat as TransitionCategory] = items.filter(

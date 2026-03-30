@@ -17,7 +17,7 @@ import type { KeyframeTrack, Keyframe } from '../../editor/version-7.0.0/types';
 
 // ─── Transition Type Definitions ─────────────────────────────────
 
-export type TransitionCategory = 'blend' | 'wipe' | 'push' | 'zoom' | 'editorial';
+export type TransitionCategory = 'blend' | 'wipe' | 'push' | 'zoom' | 'editorial' | 'sound';
 
 export interface TransitionDefinition {
   id: string;
@@ -333,6 +333,49 @@ export const TRANSITIONS: Record<string, TransitionDefinition> = {
     getOutgoingTracks: () => [],
     getIncomingTracks: () => [],
   },
+
+  // ─── SOUND TRANSITIONS ────────────────────────────────────
+  'l-cut': {
+    id: 'l-cut',
+    name: 'L-Cut',
+    category: 'sound',
+    description: 'Audio from scene A continues into scene B — builds continuity. The outgoing audio extends past the visual cut.',
+    defaultDurationFrames: 30, // 1s of audio overlap
+    minFrames: 10,
+    maxFrames: 90,
+    hasVisualOverlap: false, // Visual is a hard cut, only audio overlaps
+    icon: 'ArrowRight',
+    getOutgoingTracks: () => [],
+    getIncomingTracks: () => [],
+  },
+
+  'j-cut': {
+    id: 'j-cut',
+    name: 'J-Cut',
+    category: 'sound',
+    description: 'Audio from scene B starts before the visual cut — creates anticipation. The incoming audio leads the visual transition.',
+    defaultDurationFrames: 30, // 1s of audio lead
+    minFrames: 10,
+    maxFrames: 90,
+    hasVisualOverlap: false, // Visual is a hard cut, only audio overlaps
+    icon: 'ArrowLeft',
+    getOutgoingTracks: () => [],
+    getIncomingTracks: () => [],
+  },
+
+  'audio-crossfade': {
+    id: 'audio-crossfade',
+    name: 'Audio Crossfade',
+    category: 'sound',
+    description: 'Audio from both scenes blend together during transition — smooth and natural.',
+    defaultDurationFrames: 30,
+    minFrames: 10,
+    maxFrames: 90,
+    hasVisualOverlap: false,
+    icon: 'Layers',
+    getOutgoingTracks: () => [],
+    getIncomingTracks: () => [],
+  },
 };
 
 // ─── Transition Application ──────────────────────────────────────
@@ -414,6 +457,7 @@ export function getTransitionsByCategory(): Record<TransitionCategory, Transitio
     push: [],
     zoom: [],
     editorial: [],
+    sound: [],
   };
 
   for (const def of Object.values(TRANSITIONS)) {
