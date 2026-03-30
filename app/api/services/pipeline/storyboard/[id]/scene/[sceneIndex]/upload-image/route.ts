@@ -26,10 +26,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string; sceneIndex: string }> },
 ) {
   try {
-    // Reject oversized payloads early (100 MB limit)
+    // Reject oversized payloads early (50MB — storyboard images shouldn't be huge)
     const contentLength = parseInt(req.headers.get('content-length') || '0');
-    if (contentLength > 100 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File too large. Maximum size is 100MB.' }, { status: 413 });
+    if (contentLength > 50 * 1024 * 1024) {
+      return NextResponse.json({ error: 'Image too large. Maximum size is 50MB.' }, { status: 413 });
     }
 
     const { userId } = await auth();

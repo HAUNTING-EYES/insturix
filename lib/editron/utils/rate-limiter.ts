@@ -30,7 +30,7 @@ let expensiveRatelimit: Ratelimit | null = null;
 if (!isDev && process.env.KV_REST_API_URL) {
   expensiveRatelimit = new Ratelimit({
     redis: kv,
-    limiter: Ratelimit.slidingWindow(5, '1 h'), // 5 requests per hour
+    limiter: Ratelimit.slidingWindow(50, '1 h'), // 50 requests per hour
     analytics: true,
     prefix: 'editron-expensive',
   });
