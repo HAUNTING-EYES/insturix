@@ -1,8 +1,9 @@
 /**
- * Rate Limiter for AI Chat
- * 
+ * Rate Limiter
+ *
  * Uses @upstash/ratelimit with Vercel KV (or skips in development)
- * Limits: 20 requests per minute per user
+ * - Chat: 20 requests per minute per user
+ * - Expensive endpoints: 5 requests per hour per user
  */
 
 import { Ratelimit } from '@upstash/ratelimit';
@@ -20,6 +21,18 @@ if (!isDev && process.env.KV_REST_API_URL) {
     limiter: Ratelimit.slidingWindow(20, '1 m'), // 20 requests per minute
     analytics: true,
     prefix: 'editron-chat',
+  });
+}
+
+// Stricter rate limiter for expensive endpoints (analysis, director, storyboard gen)
+let expensiveRatelimit: Ratelimit | null = null;
+
+if (!isDev && process.env.KV_REST_API_URL) {
+  expensiveRatelimit = new Ratelimit({
+    redis: kv,
+    limiter: Ratelimit.slidingWindow(5, '1 h'), // 5 requests per hour
+    analytics: true,
+    prefix: 'editron-expensive',
   });
 }
 
@@ -58,6 +71,34 @@ export async function checkRateLimit(userId: string): Promise<RateLimitResult> {
   } catch (error) {
     // If rate limiter fails, allow the request (fail open)
     console.error('[RATE-LIMIT] Error checking rate limit:', error);
+    return { success: true, limit: 999, remaining: 999, reset: Date.now() };
+  }
+}
+
+/**
+ * Check rate limit for expensive endpoints (analysis, director, storyboard gen)
+ * Stricter: 5 requests per hour per user
+ */
+export async function checkExpensiveRateLimit(userId: string): Promise<RateLimitResult> {
+  if (isDev) {
+    return { success: true, limit: 999, remaining: 999, reset: Date.now() };
+  }
+
+  if (!expensiveRatelimit) {
+    console.warn('[RATE-LIMIT] KV not configured, skipping expensive rate limit');
+    return { success: true, limit: 999, remaining: 999, reset: Date.now() };
+  }
+
+  try {
+    const result = await expensiveRatelimit.limit(userId);
+    return {
+      success: result.success,
+      limit: result.limit,
+      remaining: result.remaining,
+      reset: result.reset,
+    };
+  } catch (error) {
+    console.error('[RATE-LIMIT] Error checking expensive rate limit:', error);
     return { success: true, limit: 999, remaining: 999, reset: Date.now() };
   }
 }

@@ -30,7 +30,9 @@ export async function GET(
     try {
       const authResult = await auth();
       userId = authResult.userId;
-    } catch {}
+    } catch (authErr) {
+      console.error('[URLProxy] Auth check failed:', authErr);
+    }
 
     // CDN Worker auth: shared secret header
     const cdnSecret = request.headers.get('x-cdn-secret');

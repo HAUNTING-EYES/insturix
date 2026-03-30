@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { executeDirectorPlan } from '@/lib/editron/agent/director-agent';
+import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Director Agent should complete within 2 minutes
@@ -20,6 +21,15 @@ export async function POST(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Rate limit: 5 per hour per user
+    const rl = await checkExpensiveRateLimit(userId);
+    if (!rl.success) {
+      return NextResponse.json(
+        { success: false, error: 'Rate limit exceeded. Please wait before running another director execution.' },
+        { status: 429, headers: { 'X-RateLimit-Reset': String(rl.reset) } },
+      );
     }
 
     const body = await request.json();

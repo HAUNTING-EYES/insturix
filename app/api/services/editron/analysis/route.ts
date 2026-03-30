@@ -18,6 +18,7 @@ import { detectCinematicMoments } from '@/lib/editron/services/cinematic-moment-
 // Content-to-graphic mapping is now handled by Track A (speech semantic classification)
 // in the Reactive Edit Engine. The EDL contains graphic decisions directly.
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Analysis can take time for multiple assets
@@ -26,6 +27,15 @@ export async function POST(req: NextRequest) {
   try {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // Rate limit: 5 per hour per user
+    const rl = await checkExpensiveRateLimit(userId);
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please wait before running another analysis.' },
+        { status: 429, headers: { 'X-RateLimit-Reset': String(rl.reset) } },
+      );
+    }
 
     const { projectId, tracks } = await req.json();
     if (!projectId) return NextResponse.json({ error: 'projectId required' }, { status: 400 });

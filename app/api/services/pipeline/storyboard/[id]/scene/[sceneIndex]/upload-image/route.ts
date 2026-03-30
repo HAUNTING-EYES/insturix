@@ -26,6 +26,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string; sceneIndex: string }> },
 ) {
   try {
+    // Reject oversized payloads early (100 MB limit)
+    const contentLength = parseInt(req.headers.get('content-length') || '0');
+    if (contentLength > 100 * 1024 * 1024) {
+      return NextResponse.json({ error: 'File too large. Maximum size is 100MB.' }, { status: 413 });
+    }
+
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

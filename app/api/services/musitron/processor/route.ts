@@ -369,7 +369,9 @@ async function handler(request: Request) {
           action: "music_generation",
         });
       }
-    } catch (refundError) {}
+    } catch (refundError) {
+      console.error('[Musitron] Failed to refund credits after catastrophic error:', refundError);
+    }
 
     return NextResponse.json(
       { error: "Internal server error" },

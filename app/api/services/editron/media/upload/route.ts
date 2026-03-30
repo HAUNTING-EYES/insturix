@@ -16,6 +16,12 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
+    // Reject oversized payloads early (100 MB limit)
+    const contentLength = parseInt(request.headers.get('content-length') || '0');
+    if (contentLength > 100 * 1024 * 1024) {
+      return NextResponse.json({ error: 'File too large. Maximum size is 100MB.' }, { status: 413 });
+    }
+
     const { userId } = await auth();
 
     if (!userId) {
