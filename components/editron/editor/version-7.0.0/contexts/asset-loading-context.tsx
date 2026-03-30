@@ -71,14 +71,37 @@ export const AssetLoadingProvider: React.FC<AssetLoadingProviderProps> = ({
     []
   );
 
-  // Cleanup timeout on unmount
+  // Safety timeout: if nothing reports loading within 3s of mount,
+  // or if loading has been active for 8s total, force-clear the loading state.
+  // This prevents the "Loading project..." overlay from getting stuck when:
+  // - All assets are already cached (no load events fire)
+  // - An overlay type doesn't report loading (captions, text, transitions)
+  // - An asset load event is lost due to a race condition
   useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      if (isLoadingAssets && loadingAssetsRef.current.size === 0) {
+        // Nothing is actively loading — the initial state was never cleared
+        setIsLoadingAssets(false);
+      }
+    }, 3000);
+
+    const maxTimer = setTimeout(() => {
+      // Hard cap — never show loading for more than 8s regardless
+      setIsLoadingAssets(false);
+      if (isInitialLoad) {
+        hasInitializedRef.current = true;
+        setIsInitialLoad(false);
+      }
+    }, 8000);
+
     return () => {
+      clearTimeout(safetyTimer);
+      clearTimeout(maxTimer);
       if (loadingTimeoutRef.current) {
         clearTimeout(loadingTimeoutRef.current);
       }
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <AssetLoadingContext.Provider
