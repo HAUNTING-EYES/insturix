@@ -31,7 +31,7 @@ import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60; // Only builds prompts + enqueues (no video gen here)
+export const maxDuration = 300; // Builds prompts (LLM refinement ~7s each) + enqueues. With 21 sub-shots × 7s = 147s needed.
 
 const VIDEO_JOBS_COLLECTION = 'pipeline_video_jobs';
 const VIDEO_BATCHES_COLLECTION = 'pipeline_video_batches';
