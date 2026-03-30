@@ -403,6 +403,61 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
     }
   }
 
+  // ─── Post-process: detect montage scenes the LLM missed ─────────
+  // Gemini often skips subShots even when the script clearly describes multiple
+  // distinct subjects/actions in one scene. This post-processor catches those cases
+  // and adds subShots with independentGeneration=true.
+  //
+  // Detection rules:
+  // 1. visualDescription contains listing patterns ("X. Y. Z." or "X, then Y, then Z")
+  // 2. Multiple distinct subjects separated by periods or conjunctions
+  // 3. Script text for this scene has "Quick cuts:" or "Montage:" prefix
+  // Only applies when subShots array is empty (LLM didn't already decompose)
+  if (object.scenes && Array.isArray(object.scenes)) {
+    for (const scene of object.scenes) {
+      // Skip if already has sub-shots
+      if (scene.subShots && scene.subShots.length > 0) continue;
+
+      const visual = scene.visualDescription || '';
+      const narration = scene.narration || '';
+
+      // Detect multi-subject patterns in visual description
+      // Pattern 1: "A child's hand reaching... Kids laughing... A parent wiping..."
+      // Split by periods that are followed by a capital letter (new sentence = new subject)
+      const sentences = visual.split(/\.\s+(?=[A-Z])/).filter(s => s.trim().length > 10);
+
+      // Pattern 2: "then" conjunctions indicating sequence
+      const thenSplits = visual.split(/,?\s+then\s+/i).filter(s => s.trim().length > 10);
+
+      const distinctSubjects = Math.max(sentences.length, thenSplits.length);
+
+      // Only decompose if:
+      // - 3+ distinct visual subjects/actions detected
+      // - Scene duration is short enough for rapid cuts (≤6 seconds)
+      // - NOT a single-subject scene (e.g., "A close-up of a fry" has 1 sentence)
+      if (distinctSubjects >= 3 && (scene.durationSeconds || 5) <= 6) {
+        const parts = sentences.length >= thenSplits.length ? sentences : thenSplits;
+
+        scene.sceneType = 'montage';
+        scene.subShots = parts.map((part: string, idx: number) => {
+          const cleanPart = part.replace(/\.$/, '').trim();
+          const targetDur = Math.max(1.5, (scene.durationSeconds || 5) / parts.length);
+          return {
+            description: cleanPart,
+            startNormalized: idx / parts.length,
+            endNormalized: (idx + 1) / parts.length,
+            targetDurationSeconds: Math.round(targetDur * 10) / 10,
+            independentGeneration: true,
+            visualDescription: cleanPart,
+            videoMotionPrompt: scene.videoMotionPrompt || '',
+          };
+        });
+
+        console.log(`[SceneParser] Post-process: scene ${scene.sceneIndex} decomposed into ${scene.subShots.length} sub-shots (montage detected from visual description)`);
+      }
+    }
+  }
+
   return object;
 }
 
