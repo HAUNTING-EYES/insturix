@@ -13,7 +13,8 @@
 export interface SubShot {
   /** What this sub-shot shows (used for asset analysis matching) */
   description: string;
-  /** Approximate start time within the parent clip (0-1 normalized) */
+  /** Approximate start time within the parent clip (0-1 normalized).
+   *  Used when cutting sub-shots from a SINGLE generated clip (Option 3 grouping). */
   startNormalized: number;
   /** Approximate end time within the parent clip (0-1 normalized) */
   endNormalized: number;
@@ -21,6 +22,33 @@ export interface SubShot {
   targetDurationSeconds: number;
   /** Narration that plays during this sub-shot (empty if narration continues from previous) */
   narration?: string;
+
+  // ─── Per-SubShot Generation Fields (for independent video gen) ─────
+  // When independentGeneration=true, each sub-shot gets its own video clip
+  // instead of cutting from one parent clip. Used for montage sequences
+  // where each shot shows a completely different subject/action.
+
+  /** If true, this sub-shot generates its own independent video clip */
+  independentGeneration?: boolean;
+  /** Distinct visual prompt for image/video generation (required when independentGeneration=true) */
+  visualDescription?: string;
+  /** Motion prompt for AI video gen */
+  videoMotionPrompt?: string;
+  /** Image quality tokens */
+  imageQualityTokens?: string;
+  /** Video quality tokens */
+  videoQualityTokens?: string;
+
+  // ─── Per-SubShot Asset Tracking ─────
+  /** Storyboard image for this sub-shot (set after image gen) */
+  imageUrl?: string;
+  imageAssetId?: string;
+  /** Video clip for this sub-shot (set after video gen) */
+  videoUrl?: string;
+  videoAssetId?: string;
+  videoDurationMs?: number;
+  /** Generation status */
+  status?: 'pending' | 'generating' | 'generated' | 'failed';
 }
 
 export interface SceneDescriptor {

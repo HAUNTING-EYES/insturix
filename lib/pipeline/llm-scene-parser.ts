@@ -34,10 +34,15 @@ const SceneEditDirectionsSchema = z.object({
 
 const SubShotSchema = z.object({
   description: z.string().describe('What this sub-shot shows (e.g. "child reaching for Happy Meal toy")'),
-  startNormalized: z.number().min(0).max(1).describe('Where in the parent clip this sub-shot starts (0.0 = beginning, 1.0 = end)'),
+  startNormalized: z.number().min(0).max(1).describe('Where in the parent clip this sub-shot starts (0.0 = beginning, 1.0 = end). Used when sub-shots share one generated clip.'),
   endNormalized: z.number().min(0).max(1).describe('Where in the parent clip this sub-shot ends'),
-  targetDurationSeconds: z.number().describe('How long this sub-shot appears in the final video (can be shorter than the clip segment)'),
+  targetDurationSeconds: z.number().describe('How long this sub-shot appears in the final video. Minimum 3s for AI video quality.'),
   narration: z.string().optional().describe('Narration during this sub-shot. Empty if narration continues from the scene level.'),
+  independentGeneration: z.boolean().optional().describe('If true, this sub-shot generates its own independent video clip (separate AI call, separate cost). Set true when sub-shots show COMPLETELY DIFFERENT subjects/actions that cannot come from one clip. Set false/omit when sub-shots can be cut from one continuous clip.'),
+  visualDescription: z.string().optional().describe('Distinct visual prompt for this sub-shot (required when independentGeneration=true). Follow the same ONE-subject ONE-moment rules as the parent scene\'s visualDescription.'),
+  videoMotionPrompt: z.string().optional().describe('Motion prompt for this sub-shot\'s video gen (required when independentGeneration=true).'),
+  imageQualityTokens: z.string().optional().describe('Image quality tokens for this sub-shot (inherits parent if not set).'),
+  videoQualityTokens: z.string().optional().describe('Video quality tokens for this sub-shot (inherits parent if not set).'),
 });
 
 const SceneSchema = z.object({
@@ -55,8 +60,8 @@ const SceneSchema = z.object({
   // Generation unit + sub-shots
   generationUnitId: z.string().describe('Group ID for scenes generated from the SAME video clip. Scenes with the same generationUnitId share one AI video generation call. Use a short descriptive ID like "playground", "car-night", "food-closeup". Each unique ID = one $0.35 video gen call.'),
   primaryVisualForUnit: z.boolean().describe('true if this scene is the PRIMARY visual for its generation unit (the one that gets generated). false if this scene reuses/cuts from another scene\'s generated video.'),
-  subShots: z.array(SubShotSchema).optional().describe('If the script describes multiple quick cuts within this scene\'s time window (e.g. "Quick cuts: A, B, C"), define sub-shots here. Each sub-shot becomes a separate timeline segment cut from the same generated video. Leave empty/omit for continuous scenes.'),
-  sceneType: z.enum(['continuous', 'montage', 'logo-reveal', 'text-card', 'talking-head']).describe('Scene type: "continuous" = one unbroken shot, "montage" = rapid cuts from the same clip, "logo-reveal" = brand/logo moment, "text-card" = title/end card, "talking-head" = speaker on camera'),
+  subShots: z.array(SubShotSchema).optional().describe('If the script describes multiple quick cuts within this scene\'s time window (e.g. "Quick cuts: A, B, C"), define sub-shots here.\n\nFor montage of DIFFERENT subjects: set independentGeneration=true on each sub-shot with its own visualDescription. Each generates a separate AI video clip (separate cost). Example: "child reaching" + "parent wiping" = 2 independent clips.\n\nFor montage of SAME subject: leave independentGeneration=false. Sub-shots cut from one generated clip. Example: "shoe sole detail" + "lacing detail" = one shoe clip, cut at sub-shot boundaries.\n\nLeave empty/omit for continuous scenes.'),
+  sceneType: z.enum(['continuous', 'montage', 'logo-reveal', 'text-card', 'talking-head']).describe('Scene type: "continuous" = one unbroken shot, "montage" = rapid cuts (may have sub-shots with independent generation), "logo-reveal" = brand/logo moment, "text-card" = title/end card, "talking-head" = speaker on camera'),
 });
 
 const GlobalEditDirectionsSchema = z.object({
@@ -181,11 +186,22 @@ If DIFFERENT subjects (e.g., "runner's eyes, then basketball hands, then gymnast
 → ALWAYS SPLIT into separate pipeline scenes.
 
 ### Handling montage descriptions:
-"Rapid montage of X details" where X is ONE subject (e.g., "montage of Nike shoe details"):
-→ Pick the most distinctive detail as the frozen frame. Set pacing: "fast"
 
-"Rapid montage of DIFFERENT subjects":
-→ SPLIT into separate pipeline scenes (one per subject)
+"Rapid montage of X details" where X is ONE subject (e.g., "montage of Nike shoe details"):
+→ Keep as ONE scene with sceneType="montage"
+→ Create sub-shots with independentGeneration=FALSE (cut from same clip)
+→ The parent visualDescription shows the subject, sub-shots define cut timings
+
+"Rapid montage of DIFFERENT subjects" (e.g., "child reaching, parent wiping, both laughing"):
+→ Keep as ONE scene with sceneType="montage"
+→ Create sub-shots with independentGeneration=TRUE on each
+→ Each sub-shot gets its own visualDescription and videoMotionPrompt
+→ Each generates a separate AI video clip (additional cost per sub-shot)
+→ The parent scene's visualDescription becomes the FIRST sub-shot's visual
+
+COST NOTE: Each sub-shot with independentGeneration=true costs 3 credits.
+A montage with 3 independent sub-shots = 9 credits instead of 3.
+The user will see this breakdown in the cost preview and can collapse to 1 shot.
 
 ${options.artStyle ? `Art style for ALL scenes: ${options.artStyle}. Adapt every description to this style.` : 'Default art style: photorealistic cinematic with natural lighting. Maintain consistently.'}
 
