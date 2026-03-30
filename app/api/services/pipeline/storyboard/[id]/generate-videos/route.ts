@@ -112,8 +112,16 @@ export async function POST(
 
     // Deduct credits (3 credits per video clip)
     // A1 FIX: Atomic credit deduction — single call for all scenes
+    // Montage scenes with independent sub-shots count as N clips, not 1
     const costPerVideo = 3;
-    const creditCost = targetScenes.length * costPerVideo;
+    let totalVideoClips = 0;
+    for (const scene of targetScenes) {
+      const desc = scene.descriptor as any;
+      const subShots = desc.subShots || [];
+      const independentCount = subShots.filter((s: any) => s.independentGeneration).length;
+      totalVideoClips += independentCount > 1 ? independentCount : 1;
+    }
+    const creditCost = totalVideoClips * costPerVideo;
 
     const preCheck = await CreditsService.getBalance(userId);
     if (!preCheck || preCheck.totalCredits < creditCost) {
@@ -170,6 +178,8 @@ export async function POST(
 
     interface SceneJob {
       sceneIndex: number;
+      /** Sub-shot index within the scene (undefined for continuous scenes) */
+      subShotIndex?: number;
       imageUrl: string;
       motionPrompt: string;
       durationSeconds: number;
@@ -181,53 +191,114 @@ export async function POST(
     for (let i = 0; i < sortedScenes.length; i++) {
       const scene = sortedScenes[i];
       const nextScene = i < sortedScenes.length - 1 ? sortedScenes[i + 1] : null;
+      const descriptor = scene.descriptor as any;
+      const subShots = descriptor.subShots || [];
+      const isMontageWithIndependent = descriptor.sceneType === 'montage'
+        && subShots.length > 1
+        && subShots.some((s: any) => s.independentGeneration);
 
-      let motionPrompt: string;
-      if (useLLMRefinement) {
-        try {
-          const promptContext: VideoPromptContext = {
-            visualDescription: scene.descriptor.visualDescription,
-            videoMotionPrompt: scene.descriptor.videoMotionPrompt,
-            narration: scene.descriptor.narration,
-            mood: scene.descriptor.mood,
-            durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
-            artStyle,
-            aspectRatio,
-            referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
-            videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
-            cameraDirection: scene.descriptor.cameraDirection,
-            transitionHint: (scene.descriptor as any).editDirections?.transition,
-          };
-          motionPrompt = await refineVideoPrompt(promptContext);
-          console.log(`[generate-videos] Scene ${scene.sceneIndex}: prompt refined (${motionPrompt.length} chars)`);
-        } catch {
-          motionPrompt = buildMotionPrompt({
-            visualDescription: scene.descriptor.visualDescription,
-            narration: scene.descriptor.narration,
-            cameraDirection: scene.descriptor.cameraDirection,
-            mood: scene.descriptor.mood,
-            videoMotionPrompt: scene.descriptor.videoMotionPrompt,
-            videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+      if (isMontageWithIndependent) {
+        // ─── Montage with independent sub-shots: one job per sub-shot ───
+        for (let si = 0; si < subShots.length; si++) {
+          const sub = subShots[si];
+          if (!sub.independentGeneration) continue; // Skip non-independent sub-shots
+
+          const subVisual = sub.visualDescription || descriptor.visualDescription;
+          const subMotion = sub.videoMotionPrompt || descriptor.videoMotionPrompt;
+          const subDuration = Math.max(Math.min(sub.targetDurationSeconds, 10), 3); // 3-10s range
+
+          // Use sub-shot's own image if available, otherwise parent scene image
+          const subImageUrl = sub.imageUrl || scene.imageUrl!;
+
+          let motionPrompt: string;
+          if (useLLMRefinement) {
+            try {
+              motionPrompt = await refineVideoPrompt({
+                visualDescription: subVisual,
+                videoMotionPrompt: subMotion,
+                narration: sub.narration || descriptor.narration,
+                mood: descriptor.mood,
+                durationSeconds: subDuration,
+                artStyle,
+                aspectRatio,
+                referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
+                videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
+                cameraDirection: descriptor.cameraDirection,
+                transitionHint: descriptor.editDirections?.transition,
+              });
+            } catch {
+              motionPrompt = buildMotionPrompt({
+                visualDescription: subVisual, narration: sub.narration || descriptor.narration,
+                cameraDirection: descriptor.cameraDirection, mood: descriptor.mood,
+                videoMotionPrompt: subMotion, videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
+              });
+            }
+          } else {
+            motionPrompt = buildMotionPrompt({
+              visualDescription: subVisual, narration: sub.narration || descriptor.narration,
+              cameraDirection: descriptor.cameraDirection, mood: descriptor.mood,
+              videoMotionPrompt: subMotion, videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
+            });
+          }
+
+          sceneJobs.push({
+            sceneIndex: scene.sceneIndex,
+            subShotIndex: si,
+            imageUrl: subImageUrl,
+            motionPrompt,
+            durationSeconds: subDuration,
           });
+          console.log(`[generate-videos] Scene ${scene.sceneIndex} sub-shot ${si}: "${sub.description}" (${subDuration}s, independent)`);
         }
       } else {
-        motionPrompt = buildMotionPrompt({
-          visualDescription: scene.descriptor.visualDescription,
-          narration: scene.descriptor.narration,
-          cameraDirection: scene.descriptor.cameraDirection,
-          mood: scene.descriptor.mood,
-          videoMotionPrompt: scene.descriptor.videoMotionPrompt,
-          videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+        // ─── Continuous scene or montage from same clip: one job ───
+        let motionPrompt: string;
+        if (useLLMRefinement) {
+          try {
+            const promptContext: VideoPromptContext = {
+              visualDescription: descriptor.visualDescription,
+              videoMotionPrompt: descriptor.videoMotionPrompt,
+              narration: descriptor.narration,
+              mood: descriptor.mood,
+              durationSeconds: Math.min(descriptor.durationSeconds, 10),
+              artStyle,
+              aspectRatio,
+              referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
+              videoQualityTokens: descriptor.videoQualityTokens,
+              cameraDirection: descriptor.cameraDirection,
+              transitionHint: descriptor.editDirections?.transition,
+            };
+            motionPrompt = await refineVideoPrompt(promptContext);
+            console.log(`[generate-videos] Scene ${scene.sceneIndex}: prompt refined (${motionPrompt.length} chars)`);
+          } catch {
+            motionPrompt = buildMotionPrompt({
+              visualDescription: descriptor.visualDescription,
+              narration: descriptor.narration,
+              cameraDirection: descriptor.cameraDirection,
+              mood: descriptor.mood,
+              videoMotionPrompt: descriptor.videoMotionPrompt,
+              videoQualityTokens: descriptor.videoQualityTokens,
+            });
+          }
+        } else {
+          motionPrompt = buildMotionPrompt({
+            visualDescription: descriptor.visualDescription,
+            narration: descriptor.narration,
+            cameraDirection: descriptor.cameraDirection,
+            mood: descriptor.mood,
+            videoMotionPrompt: descriptor.videoMotionPrompt,
+            videoQualityTokens: descriptor.videoQualityTokens,
+          });
+        }
+
+        sceneJobs.push({
+          sceneIndex: scene.sceneIndex,
+          imageUrl: scene.imageUrl!,
+          motionPrompt,
+          durationSeconds: Math.min(descriptor.durationSeconds, 10),
+          nextSceneImageUrl: enableChaining ? (nextScene?.imageUrl || undefined) : undefined,
         });
       }
-
-      sceneJobs.push({
-        sceneIndex: scene.sceneIndex,
-        imageUrl: scene.imageUrl!,
-        motionPrompt,
-        durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
-        nextSceneImageUrl: enableChaining ? (nextScene?.imageUrl || undefined) : undefined,
-      });
     }
 
     // ─── Create batch + jobs in MongoDB, then enqueue via QStash ──────
@@ -251,13 +322,16 @@ export async function POST(
       expiresAt,
     } as any);
 
-    // Create job records
+    // Create job records (unique ID includes sub-shot index for montage scenes)
     const jobDocs = sceneJobs.map(s => ({
-      _id: `${batchId}_s${s.sceneIndex}`,
+      _id: s.subShotIndex !== undefined
+        ? `${batchId}_s${s.sceneIndex}_sub${s.subShotIndex}`
+        : `${batchId}_s${s.sceneIndex}`,
       batchId,
       userId,
       storyboardId,
       sceneIndex: s.sceneIndex,
+      subShotIndex: s.subShotIndex,
       status: 'queued',
       createdAt: now,
       expiresAt,
@@ -283,47 +357,40 @@ export async function POST(
 
     let enqueueErrors = 0;
 
+    // Helper to build job payload (same for dev, fetch-fallback, and QStash)
+    const buildPayload = (scene: SceneJob) => ({
+      jobId: scene.subShotIndex !== undefined
+        ? `${batchId}_s${scene.sceneIndex}_sub${scene.subShotIndex}`
+        : `${batchId}_s${scene.sceneIndex}`,
+      batchId,
+      userId,
+      storyboardId,
+      sceneIndex: scene.sceneIndex,
+      subShotIndex: scene.subShotIndex,
+      imageUrl: scene.imageUrl,
+      motionPrompt: scene.motionPrompt,
+      durationSeconds: scene.durationSeconds,
+      aspectRatio,
+      videoModel: resolvedModel,
+      nextSceneImageUrl: scene.nextSceneImageUrl,
+    });
+
     if (isDev) {
       // In dev, call worker directly (fire-and-forget)
       for (const scene of sceneJobs) {
         fetch(workerUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jobId: `${batchId}_s${scene.sceneIndex}`,
-            batchId,
-            userId,
-            storyboardId,
-            sceneIndex: scene.sceneIndex,
-            imageUrl: scene.imageUrl,
-            motionPrompt: scene.motionPrompt,
-            durationSeconds: scene.durationSeconds,
-            aspectRatio,
-            videoModel: resolvedModel,
-            nextSceneImageUrl: scene.nextSceneImageUrl,
-          }),
+          body: JSON.stringify(buildPayload(scene)),
         }).catch(err => console.error(`[generate-videos] Dev dispatch failed for scene ${scene.sceneIndex}:`, err.message));
       }
     } else if (!process.env.QSTASH_TOKEN) {
-      // QStash not configured — fall back to fire-and-forget fetch
       console.warn('[generate-videos] QSTASH_TOKEN not set, using fire-and-forget fetch');
       for (const scene of sceneJobs) {
         fetch(workerUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jobId: `${batchId}_s${scene.sceneIndex}`,
-            batchId,
-            userId,
-            storyboardId,
-            sceneIndex: scene.sceneIndex,
-            imageUrl: scene.imageUrl,
-            motionPrompt: scene.motionPrompt,
-            durationSeconds: scene.durationSeconds,
-            aspectRatio,
-            videoModel: resolvedModel,
-            nextSceneImageUrl: scene.nextSceneImageUrl,
-          }),
+          body: JSON.stringify(buildPayload(scene)),
         }).catch(err => console.error(`[generate-videos] Fetch dispatch failed for scene ${scene.sceneIndex}:`, err.message));
       }
     } else {
@@ -337,19 +404,7 @@ export async function POST(
         sceneJobs.map(scene =>
           qstashClient.publishJSON({
             url: workerUrl,
-            body: {
-              jobId: `${batchId}_s${scene.sceneIndex}`,
-              batchId,
-              userId,
-              storyboardId,
-              sceneIndex: scene.sceneIndex,
-              imageUrl: scene.imageUrl,
-              motionPrompt: scene.motionPrompt,
-              durationSeconds: scene.durationSeconds,
-              aspectRatio,
-              videoModel: resolvedModel,
-              nextSceneImageUrl: scene.nextSceneImageUrl,
-            },
+            body: buildPayload(scene),
             retries: 2,
           }),
         ),
