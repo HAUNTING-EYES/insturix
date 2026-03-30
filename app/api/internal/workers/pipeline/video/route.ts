@@ -283,9 +283,13 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   // ─── Dispatch Director Agent when ALL videos are done ──────────
   // Only runs once (when done count first reaches totalScenes).
   // Reads pendingDirectorProfileId stored by finalize route.
-  if (done >= batch.totalScenes && batch.projectId) {
+  // Gets projectId from storyboard (not batch — batch doesn't always have it).
+  const resolvedProjectId = batch.projectId
+    || (batch.storyboardId ? (await db.collection('storyboards').findOne({ storyboardId: batch.storyboardId }) as any)?.projectId : null);
+
+  if (done >= batch.totalScenes && resolvedProjectId) {
     try {
-      const project = await db.collection('projects').findOne({ projectId: batch.projectId }) as any;
+      const project = await db.collection('projects').findOne({ projectId: resolvedProjectId }) as any;
       if (!project?.pendingDirectorProfileId) {
         console.log(`[VideoWorker] Batch ${batchId} complete but no pending Director profile — skipping auto-run`);
         return;
@@ -296,7 +300,7 @@ async function updateBatchStatus(batchId: string): Promise<void> {
 
       // Clear pending flag so Director doesn't run twice
       await db.collection('projects').updateOne(
-        { projectId: batch.projectId },
+        { projectId: resolvedProjectId },
         { $unset: { pendingDirectorProfileId: '', pendingDirectorUserId: '' } },
       );
 
@@ -312,17 +316,17 @@ async function updateBatchStatus(batchId: string): Promise<void> {
         const qstash = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
         await qstash.publishJSON({
           url: directorUrl,
-          body: { projectId: batch.projectId, editProfileId: profileId, userId, _internal: true },
+          body: { projectId: resolvedProjectId, editProfileId: profileId, userId, _internal: true },
           retries: 1,
         });
-        console.log(`[VideoWorker] Batch ${batchId} complete (${status}) — Director dispatched (profile: ${profileId})`);
+        console.log(`[VideoWorker] Batch ${batchId} complete (${status}) — Director dispatched for ${resolvedProjectId} (profile: ${profileId})`);
       } else {
         fetch(directorUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: batch.projectId, editProfileId: profileId, userId, _internal: true }),
+          body: JSON.stringify({ projectId: resolvedProjectId, editProfileId: profileId, userId, _internal: true }),
         }).catch(() => {});
-        console.log(`[VideoWorker] Batch ${batchId} complete — Director dispatched via fetch (profile: ${profileId})`);
+        console.log(`[VideoWorker] Batch ${batchId} complete — Director dispatched via fetch for ${resolvedProjectId} (profile: ${profileId})`);
       }
     } catch (dirErr: any) {
       console.error(`[VideoWorker] Director dispatch failed after batch ${batchId} complete:`, dirErr.message);
