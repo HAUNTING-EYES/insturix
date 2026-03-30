@@ -26,6 +26,7 @@ import remarkGfm from "remark-gfm";
 import { useEditorContext } from "../../contexts/editor-context";
 import { getUserId } from "../../utils/user-id";
 import { cn } from "@/lib/utils";
+import { EDLSuggestions } from "./edl-suggestions";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -831,6 +832,14 @@ export function AIChatPanel() {
         </div>
       ) : (
         <>
+          {/* EDL Suggestions — auto-loads on project open */}
+          <EDLSuggestions
+            projectId={projectId}
+            onSuggestionClick={(prompt) => {
+              setInputMessage(prompt);
+            }}
+          />
+
           {/* Messages */}
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-6">
