@@ -20,7 +20,7 @@ import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30;
+export const maxDuration = 120;
 
 // Gemini Vision for image analysis
 async function analyzeUploadedImage(

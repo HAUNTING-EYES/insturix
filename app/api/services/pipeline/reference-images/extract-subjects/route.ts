@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { extractSubjectsFromScenes, isLLMParserAvailable } from '@/lib/pipeline/llm-scene-parser';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30;
+export const maxDuration = 120; // Gemini 2.5 Flash structured output can take 40-60s
 
 /**
  * POST /api/services/pipeline/reference-images/extract-subjects
