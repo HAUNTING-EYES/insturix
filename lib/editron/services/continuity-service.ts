@@ -17,6 +17,8 @@ export interface ContinuityScore {
   energyMatch: number;
   /** Pacing consistency */
   pacingMatch: number;
+  /** Visual composition similarity (0-1) — high = match-cut candidate */
+  visualSimilarity: number;
   /** Reasoning for the score */
   notes: string[];
 }
@@ -26,7 +28,7 @@ export interface ScenePairAnalysis {
   sceneB: number;
   score: ContinuityScore;
   /** Recommended transition based on score */
-  recommendedTransition: 'hard-cut' | 'soft-cut' | 'dip-to-black' | 'dissolve';
+  recommendedTransition: 'hard-cut' | 'soft-cut' | 'dip-to-black' | 'dissolve' | 'match-cut';
   /** Should human review this pair? */
   flagForReview: boolean;
 }
@@ -79,6 +81,42 @@ function scorePacingMatch(durA: number, durB: number): number {
   return ratio; // 1.0 if same duration, lower if very different
 }
 
+/**
+ * Score visual composition similarity between two scenes.
+ * Uses keyword overlap from visual descriptions + shot type matching.
+ * High similarity (>0.7) = match-cut candidate (compositions align visually).
+ */
+function scoreVisualSimilarity(descA?: string, descB?: string): number {
+  if (!descA || !descB) return 0.3;
+
+  const wordsA = new Set(descA.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+  const wordsB = new Set(descB.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+
+  // Keyword overlap (Jaccard similarity)
+  const intersection = [...wordsA].filter(w => wordsB.has(w));
+  const union = new Set([...wordsA, ...wordsB]);
+  const keywordSim = union.size > 0 ? intersection.length / union.size : 0;
+
+  // Shot type matching (if both mention similar framing)
+  const shotTypes = ['close-up', 'closeup', 'wide', 'medium', 'extreme', 'aerial', 'overhead', 'eye-level', 'low-angle', 'high-angle'];
+  const shotA = shotTypes.filter(s => descA.toLowerCase().includes(s));
+  const shotB = shotTypes.filter(s => descB.toLowerCase().includes(s));
+  const shotMatch = shotA.length > 0 && shotB.length > 0
+    ? shotA.some(s => shotB.includes(s)) ? 1.0 : 0.3
+    : 0.5;
+
+  // Subject matching (if both mention similar subjects)
+  const subjectWords = ['person', 'hand', 'face', 'product', 'logo', 'food', 'car', 'building', 'landscape', 'crowd'];
+  const subA = subjectWords.filter(s => descA.toLowerCase().includes(s));
+  const subB = subjectWords.filter(s => descB.toLowerCase().includes(s));
+  const subjectMatch = subA.length > 0 && subB.length > 0
+    ? subA.some(s => subB.includes(s)) ? 1.0 : 0.2
+    : 0.4;
+
+  // Weighted: keyword overlap is strongest signal, then subject, then shot type
+  return keywordSim * 0.5 + subjectMatch * 0.3 + shotMatch * 0.2;
+}
+
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
@@ -90,15 +128,17 @@ export function scoreContinuity(sceneA: SceneData, sceneB: SceneData): Continuit
   const colorMatch = scoreColorMatch(sceneA.colorPalette || [], sceneB.colorPalette || []);
   const energyMatch = scoreMoodMatch(sceneA.mood || 'neutral', sceneB.mood || 'neutral');
   const pacingMatch = scorePacingMatch(sceneA.durationSeconds || 5, sceneB.durationSeconds || 5);
+  const visualSimilarity = scoreVisualSimilarity(sceneA.visualDescription, sceneB.visualDescription);
 
   if (colorMatch < 0.3) notes.push('Color palette shift between scenes');
   if (energyMatch < 0.4) notes.push(`Energy level change: ${sceneA.mood} → ${sceneB.mood}`);
   if (pacingMatch < 0.5) notes.push('Significant duration difference between scenes');
+  if (visualSimilarity > 0.7) notes.push('High visual similarity — match-cut candidate');
 
   // Weighted average
-  const overall = colorMatch * 0.35 + energyMatch * 0.40 + pacingMatch * 0.25;
+  const overall = colorMatch * 0.30 + energyMatch * 0.35 + pacingMatch * 0.15 + visualSimilarity * 0.20;
 
-  return { overall, colorMatch, energyMatch, pacingMatch, notes };
+  return { overall, colorMatch, energyMatch, pacingMatch, visualSimilarity, notes };
 }
 
 /**
@@ -114,7 +154,10 @@ export function analyzeAllScenePairs(scenes: SceneData[]): ScenePairAnalysis[] {
     let recommendedTransition: ScenePairAnalysis['recommendedTransition'];
     let flagForReview = false;
 
-    if (score.overall > 0.70) {
+    // Match-cut: high visual similarity + reasonable continuity
+    if (score.visualSimilarity > 0.7 && score.overall > 0.5) {
+      recommendedTransition = 'match-cut';
+    } else if (score.overall > 0.70) {
       recommendedTransition = 'hard-cut';
     } else if (score.overall > 0.40) {
       recommendedTransition = 'soft-cut';
