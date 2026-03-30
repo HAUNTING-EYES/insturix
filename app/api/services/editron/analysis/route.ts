@@ -62,6 +62,8 @@ export async function POST(req: NextRequest) {
       }
       const analysis = await getAnalysis(overlay.assetId);
       if (analysis) {
+        // Attach timeline offset so EDL decisions use absolute frames, not clip-relative
+        (analysis as any)._timelineOffsetFrames = overlay.from || 0;
         analyses.push(analysis);
       } else {
         analysisErrors.push(`Asset ${overlay.assetId}: no cached analysis found (analysis may have failed during generation)`);
@@ -101,12 +103,12 @@ export async function POST(req: NextRequest) {
       // Per-asset analysis summaries
       analysisSummaries: analyses.map(a => ({
         assetId: a.assetId,
-        shots: a.shots.length,
-        motionSegments: a.motionSegments.length,
-        keyframes: a.keyframeAnalyses.length,
-        subjects: a.subjectTracks.length,
-        speechSegments: a.speechSegments.length,
-        musicSections: a.musicStructure?.sections.length || 0,
+        shots: a.shots?.length || 0,
+        motionSegments: a.motionSegments?.length || 0,
+        keyframes: a.keyframeAnalyses?.length || 0,
+        subjects: a.subjectTracks?.length || 0,
+        speechSegments: a.speechSegments?.length || 0,
+        musicSections: a.musicStructure?.sections?.length || 0,
       })),
       // Debug info: why some assets may have failed
       ...(analysisErrors.length > 0 && {
