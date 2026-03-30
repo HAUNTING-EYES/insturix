@@ -112,9 +112,15 @@ export async function POST(
 
     // Deduct credits (3 credits per video clip)
     // A1 FIX: Atomic credit deduction — single call for all scenes
-    // One video per scene (sub-shot montage system reverted — use stock footage for rapid cuts instead)
+    // Montage scenes with independent sub-shots count as N clips, not 1
     const costPerVideo = 3;
-    const totalVideoClips = targetScenes.length;
+    let totalVideoClips = 0;
+    for (const scene of targetScenes) {
+      const desc = scene.descriptor as any;
+      const subShots = desc.subShots || [];
+      const independentCount = subShots.filter((s: any) => s.independentGeneration).length;
+      totalVideoClips += independentCount > 1 ? independentCount : 1;
+    }
     const creditCost = totalVideoClips * costPerVideo;
 
     const preCheck = await CreditsService.getBalance(userId);
@@ -186,9 +192,66 @@ export async function POST(
       const scene = sortedScenes[i];
       const nextScene = i < sortedScenes.length - 1 ? sortedScenes[i + 1] : null;
       const descriptor = scene.descriptor as any;
+      const subShots = descriptor.subShots || [];
+      const isMontageWithIndependent = descriptor.sceneType === 'montage'
+        && subShots.length > 1
+        && subShots.some((s: any) => s.independentGeneration);
 
-      {
-        // ─── One video per scene (sub-shot system reverted) ───
+      if (isMontageWithIndependent) {
+        // ─── Montage with independent sub-shots: one job per sub-shot ───
+        for (let si = 0; si < subShots.length; si++) {
+          const sub = subShots[si];
+          if (!sub.independentGeneration) continue; // Skip non-independent sub-shots
+
+          const subVisual = sub.visualDescription || descriptor.visualDescription;
+          const subMotion = sub.videoMotionPrompt || descriptor.videoMotionPrompt;
+          const subDuration = Math.max(Math.min(sub.targetDurationSeconds, 10), 3); // 3-10s range
+
+          // Use sub-shot's own image if available, otherwise parent scene image
+          const subImageUrl = sub.imageUrl || scene.imageUrl!;
+
+          let motionPrompt: string;
+          if (useLLMRefinement) {
+            try {
+              motionPrompt = await refineVideoPrompt({
+                visualDescription: subVisual,
+                videoMotionPrompt: subMotion,
+                narration: sub.narration || descriptor.narration,
+                mood: descriptor.mood,
+                durationSeconds: subDuration,
+                artStyle,
+                aspectRatio,
+                referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
+                videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
+                cameraDirection: descriptor.cameraDirection,
+                transitionHint: descriptor.editDirections?.transition,
+              });
+            } catch {
+              motionPrompt = buildMotionPrompt({
+                visualDescription: subVisual, narration: sub.narration || descriptor.narration,
+                cameraDirection: descriptor.cameraDirection, mood: descriptor.mood,
+                videoMotionPrompt: subMotion, videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
+              });
+            }
+          } else {
+            motionPrompt = buildMotionPrompt({
+              visualDescription: subVisual, narration: sub.narration || descriptor.narration,
+              cameraDirection: descriptor.cameraDirection, mood: descriptor.mood,
+              videoMotionPrompt: subMotion, videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
+            });
+          }
+
+          sceneJobs.push({
+            sceneIndex: scene.sceneIndex,
+            subShotIndex: si,
+            imageUrl: subImageUrl,
+            motionPrompt,
+            durationSeconds: subDuration,
+          });
+          console.log(`[generate-videos] Scene ${scene.sceneIndex} sub-shot ${si}: "${sub.description}" (${subDuration}s, independent)`);
+        }
+      } else {
+        // ─── Continuous scene or montage from same clip: one job ───
         let motionPrompt: string;
         if (useLLMRefinement) {
           try {
