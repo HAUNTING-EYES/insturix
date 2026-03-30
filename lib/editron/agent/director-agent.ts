@@ -640,15 +640,20 @@ async function invokeAITool(
       for (const vo of videoOverlays) {
         try {
           const captionParams = { videoOverlayId: vo.id, style: captionStyle, position: 'bottom', overwrite: true };
-          console.log(`[Director] add_captions: video ${vo.id} (${captionCount + 1}/${videoOverlays.length})`);
+          console.log(`[Director] add_captions: video ${vo.id} (${captionCount + 1}/${videoOverlays.length}), type=${vo.type}, assetId=${vo.assetId}, from=${vo.from}`);
           const resultStr = await tool.invoke(captionParams);
           const result = JSON.parse(resultStr);
-          if (result.status === 'success') captionCount++;
-          else console.warn(`[Director] add_captions video ${vo.id}: ${result.error?.message}`);
+          if (result.status === 'success') {
+            captionCount++;
+            console.log(`[Director] add_captions: video ${vo.id} SUCCESS — ${result.captionCount || 0} segments, row=${result.row || '?'}`);
+          } else {
+            console.error(`[Director] add_captions: video ${vo.id} FAILED — ${result.message || JSON.stringify(result)}`);
+          }
         } catch (err: any) {
-          console.warn(`[Director] add_captions failed for video ${vo.id}: ${err.message}`);
+          console.error(`[Director] add_captions: video ${vo.id} EXCEPTION — ${err.message}\n${err.stack?.split('\n').slice(0, 3).join('\n')}`);
         }
       }
+      console.log(`[Director] add_captions: ${captionCount}/${videoOverlays.length} videos captioned`);
       return captionCount;
     }
     case 'add_fancy_captions': {
