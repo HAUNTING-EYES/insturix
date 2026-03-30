@@ -107,6 +107,64 @@ export async function GET(request: Request) {
     results.details.push(`Error in Alyzitron cron: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // 4. Handle Editron Video Pipeline Timeouts
+  try {
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const editronDb = await getDatabase();
+    const videoTimeout = new Date(Date.now() - 15 * 60 * 1000); // 15 minutes
+
+    // Find stuck video jobs
+    const stuckVideoJobs = await editronDb.collection('pipeline_video_jobs').find({
+      status: { $in: ['processing', 'queued'] },
+      createdAt: { $lt: videoTimeout },
+    }).toArray();
+
+    for (const job of stuckVideoJobs) {
+      await editronDb.collection('pipeline_video_jobs').updateOne(
+        { _id: job._id },
+        { $set: { status: 'failed', error: 'Timed out after 15 minutes (watchdog)', completedAt: new Date() } },
+      );
+
+      // Update batch counters
+      if (job.batchId) {
+        await editronDb.collection('pipeline_video_batches').updateOne(
+          { _id: job.batchId },
+          { $inc: { failed: 1 }, $set: { updatedAt: new Date() } },
+        );
+      }
+
+      results.processed++;
+      results.details.push(`Editron video job ${job._id} timed out (stuck ${Math.round((Date.now() - new Date(job.createdAt).getTime()) / 60000)}min)`);
+    }
+
+    // Find stuck video batches (all jobs done but batch still "processing")
+    const stuckBatches = await editronDb.collection('pipeline_video_batches').find({
+      status: 'processing',
+      createdAt: { $lt: videoTimeout },
+    }).toArray();
+
+    for (const batch of stuckBatches as any[]) {
+      const done = (batch.completed || 0) + (batch.failed || 0);
+      if (done >= (batch.totalScenes || 0)) {
+        const newStatus = batch.failed === 0 ? 'completed' : batch.completed === 0 ? 'failed' : 'partial';
+        await editronDb.collection('pipeline_video_batches').updateOne(
+          { _id: batch._id },
+          { $set: { status: newStatus, updatedAt: new Date() } },
+        );
+        results.processed++;
+        results.details.push(`Editron video batch ${batch._id} stuck at "processing" → ${newStatus}`);
+      }
+    }
+
+    if (stuckVideoJobs.length > 0 || stuckBatches.length > 0) {
+      console.log(`[Cron] Editron video watchdog: ${stuckVideoJobs.length} stuck jobs, ${stuckBatches.length} stuck batches`);
+    }
+  } catch (e) {
+    console.error('Error processing Editron video timeouts:', e);
+    results.errors++;
+    results.details.push(`Error in Editron video cron: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   logger.info('Cron job for task timeouts completed', results);
   return NextResponse.json(results);
 }
