@@ -100,6 +100,59 @@ export async function POST(
       }
       const durationFrames = Math.round(sceneDurationSec * fps);
 
+      // ─── Montage sub-shots with independent videos ─────────────
+      // If this scene has sub-shots with their own video clips, place each
+      // as a separate overlay on Row 2 (VIDEO), sequentially within the scene.
+      const descriptor = scene.descriptor as any;
+      const subShots = descriptor.subShots || [];
+      const hasIndependentSubShots = subShots.some((s: any) => s.independentGeneration && s.videoUrl);
+
+      if (hasIndependentSubShots) {
+        let subFrame = currentFrame;
+        for (const sub of subShots) {
+          if (!sub.independentGeneration) continue;
+          const subDur = Math.round((sub.videoDurationMs ? sub.videoDurationMs / 1000 : sub.targetDurationSeconds) * fps);
+          if (sub.videoUrl) {
+            overlays.push({
+              id: overlayId++,
+              type: 'video',
+              from: subFrame,
+              durationInFrames: subDur,
+              row: ROW.VIDEO,
+              left: 0, top: 0, width, height,
+              isDragging: false, rotation: 0,
+              content: sub.videoUrl,
+              src: sub.videoUrl,
+              assetId: sub.videoAssetId,
+              posterUrl: sub.imageUrl || scene.imageUrl || undefined,
+              styles: { objectFit: 'cover', opacity: 1 },
+              metadata: {
+                sceneIndex: scene.sceneIndex,
+                subShotDescription: sub.description,
+                isMontageSub: true,
+              },
+            });
+          } else if (sub.imageUrl) {
+            // Sub-shot has image but no video yet — show image as placeholder
+            overlays.push({
+              id: overlayId++,
+              type: 'image',
+              from: subFrame,
+              durationInFrames: subDur,
+              row: ROW.VIDEO,
+              left: 0, top: 0, width, height,
+              isDragging: false, rotation: 0,
+              content: sub.imageUrl,
+              src: sub.imageUrl,
+              assetId: sub.imageAssetId,
+              styles: { objectFit: 'cover', opacity: 1 },
+              metadata: { sceneIndex: scene.sceneIndex, subShotDescription: sub.description, isMontageSub: true },
+            });
+          }
+          subFrame += subDur;
+        }
+        // Skip the normal video/image placement — sub-shots handle it
+      } else
       // Scene background: Only add storyboard image when NO video exists.
       // Storyboard is a stencil for consistency — not needed on the timeline
       // when a real video clip is present.
