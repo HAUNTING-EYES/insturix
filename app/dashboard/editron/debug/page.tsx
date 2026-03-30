@@ -625,10 +625,13 @@ function AssemblySimulatorTab() {
     setError('');
     setResult(null);
     try {
+      // Handle both formats: raw scenes array OR full parser response { success, scenes }
+      const parsed = JSON.parse(scenesJson);
+      const scenes = Array.isArray(parsed) ? parsed : (parsed.scenes || [parsed]);
       const res = await fetch('/api/services/editron/debug/simulate-assembly', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenes: JSON.parse(scenesJson) }),
+        body: JSON.stringify({ scenes }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);

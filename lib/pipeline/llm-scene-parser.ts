@@ -403,10 +403,88 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
     }
   }
 
+  // ─── Post-process: extract transitions from raw script ──────────
+  // The LLM often outputs empty editDirections.transition even when the
+  // script explicitly says "Transition: Hard cut to next scene" or "DISSOLVE TO".
+  // Scan the raw script for transition cues near each scene boundary.
+  if (object.scenes && scriptText) {
+    const transitionPatterns: Array<{ regex: RegExp; type: string; durationMs: number }> = [
+      { regex: /(?:hard\s*cut|cut\s*to|straight\s*cut)/i, type: 'hard-cut', durationMs: 0 },
+      { regex: /(?:dissolve|cross[- ]?dissolve|fast\s*dissolve)/i, type: 'dissolve', durationMs: 500 },
+      { regex: /(?:fade\s*(?:to\s*)?black|dip\s*to\s*black)/i, type: 'dip-to-black', durationMs: 600 },
+      { regex: /(?:fade\s*(?:to\s*)?white|dip\s*to\s*white|flash)/i, type: 'dip-to-white', durationMs: 400 },
+      { regex: /(?:wipe|swipe)/i, type: 'wipe-left', durationMs: 500 },
+      { regex: /(?:zoom\s*(?:in|punch))/i, type: 'zoom-punch', durationMs: 270 },
+      { regex: /(?:whip\s*pan)/i, type: 'whip-pan', durationMs: 300 },
+      { regex: /(?:match\s*cut)/i, type: 'match-cut', durationMs: 0 },
+      { regex: /(?:jump\s*cut)/i, type: 'jump-cut', durationMs: 0 },
+      { regex: /(?:smash\s*cut)/i, type: 'smash-cut', durationMs: 0 },
+    ];
+
+    // Find transition mentions in the raw script near scene boundaries
+    const scriptLower = scriptText.toLowerCase();
+    for (const scene of object.scenes) {
+      if (scene.editDirections?.transition) continue; // Already has transition
+
+      // Search for transition keywords near this scene's narration text
+      const narrationIdx = scene.narration ? scriptLower.indexOf(scene.narration.toLowerCase().substring(0, 30)) : -1;
+      // Search in a window around the narration position (±200 chars)
+      const searchStart = Math.max(0, narrationIdx - 200);
+      const searchEnd = Math.min(scriptText.length, narrationIdx + 200);
+      const searchWindow = narrationIdx >= 0
+        ? scriptText.substring(searchStart, searchEnd)
+        : '';
+
+      // Also check the scene's title in the raw script
+      const titleIdx = scene.title ? scriptLower.indexOf(scene.title.toLowerCase().substring(0, 20)) : -1;
+      const titleWindow = titleIdx >= 0
+        ? scriptText.substring(Math.max(0, titleIdx - 200), Math.min(scriptText.length, titleIdx + 300))
+        : '';
+
+      const combinedWindow = `${searchWindow} ${titleWindow}`;
+
+      for (const pattern of transitionPatterns) {
+        if (pattern.regex.test(combinedWindow)) {
+          if (!scene.editDirections) scene.editDirections = {} as any;
+          scene.editDirections.transition = { type: pattern.type, durationMs: pattern.durationMs };
+          console.log(`[SceneParser] Post-process: scene ${scene.sceneIndex} transition=${pattern.type} (from raw script)`);
+          break; // Use first match
+        }
+      }
+    }
+  }
+
+  // ─── Post-process: correct scene durations for target total ────
+  // The LLM sometimes produces durations that sum to much more than the target.
+  // A 30s reel with 7 scenes should have ~4-5s per scene, not 9-12s.
+  if (object.scenes && object.scenes.length > 0) {
+    const totalDuration = object.scenes.reduce((sum: number, s: any) => sum + (s.durationSeconds || 5), 0);
+    // Extract target duration from script metadata if available
+    const targetMatch = scriptText.match(/(\d+)[- ]?(?:second|sec|s)\s+(?:reel|video|clip|short)/i);
+    const targetDuration = targetMatch ? parseInt(targetMatch[1]) : null;
+
+    if (targetDuration && totalDuration > targetDuration * 1.5) {
+      // Scenes are too long — proportionally shrink to fit target
+      const scaleFactor = targetDuration / totalDuration;
+      console.log(`[SceneParser] Post-process: durations total ${totalDuration}s but target is ${targetDuration}s — scaling by ${scaleFactor.toFixed(2)}`);
+      for (const scene of object.scenes) {
+        const original = scene.durationSeconds || 5;
+        scene.durationSeconds = Math.max(3, Math.round(original * scaleFactor));
+      }
+      // Verify new total
+      const newTotal = object.scenes.reduce((sum: number, s: any) => sum + (s.durationSeconds || 5), 0);
+      object.totalDurationSeconds = newTotal;
+      console.log(`[SceneParser] Post-process: adjusted durations total ${newTotal}s`);
+    }
+  }
+
   // ─── Post-process: detect montage scenes the LLM missed ─────────
   // Gemini often skips subShots even when the script clearly describes multiple
   // distinct subjects/actions in one scene. This post-processor catches those cases
   // and adds subShots with independentGeneration=true.
+  //
+  // IMPROVED: Also checks the RAW SCRIPT for multi-shot descriptions,
+  // not just the LLM's rewritten visualDescription (which may merge shots).
   //
   // Detection rules:
   // 1. visualDescription contains listing patterns ("X. Y. Z." or "X, then Y, then Z")
@@ -419,33 +497,47 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
       if (scene.subShots && scene.subShots.length > 0) continue;
 
       const visual = scene.visualDescription || '';
-      const narration = scene.narration || '';
 
-      // Detect multi-subject patterns in visual description
-      // Pattern 1: "A child's hand reaching... Kids laughing... A parent wiping..."
-      // Split by periods that are followed by a capital letter (new sentence = new subject)
+      // Strategy 1: Check the LLM's visualDescription for multiple sentences
       const sentences = visual.split(/\.\s+(?=[A-Z])/).filter(s => s.trim().length > 10);
-
-      // Pattern 2: "then" conjunctions indicating sequence
       const thenSplits = visual.split(/,?\s+then\s+/i).filter(s => s.trim().length > 10);
+      let distinctSubjects = Math.max(sentences.length, thenSplits.length);
+      let decomposeParts = sentences.length >= thenSplits.length ? sentences : thenSplits;
 
-      const distinctSubjects = Math.max(sentences.length, thenSplits.length);
+      // Strategy 2: Check the RAW SCRIPT for this scene's visual section
+      // The LLM often merges "A child reaching. Kids laughing. Parent wiping" into one sentence.
+      // But the raw script still has them as separate items.
+      if (distinctSubjects < 3 && scriptText && scene.narration) {
+        const narrationSnippet = scene.narration.substring(0, 30).toLowerCase();
+        const narrationIdx = scriptText.toLowerCase().indexOf(narrationSnippet);
+        if (narrationIdx >= 0) {
+          // Find the VISUAL section near this narration (look backwards for "VISUAL:")
+          const searchStart = Math.max(0, narrationIdx - 500);
+          const nearbyScript = scriptText.substring(searchStart, narrationIdx);
+          const visualMatch = nearbyScript.match(/VISUAL[:\s]*\*?\*?\s*([\s\S]*?)(?:VOICEOVER|AUDIO|CAMERA|$)/i);
+          if (visualMatch) {
+            const rawVisual = visualMatch[1].trim();
+            // Split by periods, "." followed by new sentence
+            const rawSentences = rawVisual.split(/\.\s+/).filter(s => s.trim().length > 10);
+            if (rawSentences.length > distinctSubjects) {
+              distinctSubjects = rawSentences.length;
+              decomposeParts = rawSentences;
+              console.log(`[SceneParser] Post-process: scene ${scene.sceneIndex} raw script has ${rawSentences.length} shots (LLM merged into ${sentences.length})`);
+            }
+          }
+        }
+      }
 
-      // Only decompose if:
-      // - 3+ distinct visual subjects/actions detected
-      // - Scene duration is short enough for rapid cuts (≤6 seconds)
-      // - NOT a single-subject scene (e.g., "A close-up of a fry" has 1 sentence)
-      if (distinctSubjects >= 3 && (scene.durationSeconds || 5) <= 6) {
-        const parts = sentences.length >= thenSplits.length ? sentences : thenSplits;
-
+      // Only decompose if 3+ distinct shots detected
+      if (distinctSubjects >= 3) {
         scene.sceneType = 'montage';
-        scene.subShots = parts.map((part: string, idx: number) => {
-          const cleanPart = part.replace(/\.$/, '').trim();
-          const targetDur = Math.max(1.5, (scene.durationSeconds || 5) / parts.length);
+        scene.subShots = decomposeParts.map((part: string, idx: number) => {
+          const cleanPart = part.replace(/\.$/, '').replace(/^\*+/, '').trim();
+          const targetDur = Math.max(1.5, (scene.durationSeconds || 5) / decomposeParts.length);
           return {
             description: cleanPart,
-            startNormalized: idx / parts.length,
-            endNormalized: (idx + 1) / parts.length,
+            startNormalized: idx / decomposeParts.length,
+            endNormalized: (idx + 1) / decomposeParts.length,
             targetDurationSeconds: Math.round(targetDur * 10) / 10,
             independentGeneration: true,
             visualDescription: cleanPart,
@@ -453,7 +545,7 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
           };
         });
 
-        console.log(`[SceneParser] Post-process: scene ${scene.sceneIndex} decomposed into ${scene.subShots.length} sub-shots (montage detected from visual description)`);
+        console.log(`[SceneParser] Post-process: scene ${scene.sceneIndex} decomposed into ${scene.subShots.length} sub-shots (montage detected)`);
       }
     }
   }
