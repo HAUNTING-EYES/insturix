@@ -5065,7 +5065,7 @@ Examples:
                       buffer = Buffer.from(await audioRes.arrayBuffer());
                       break;
                     }
-                  } catch {}
+                  } catch (err) { console.error('[add_sfx] Freesound fetch attempt error:', err); }
                   if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
                 }
                 // Validate audio format before uploading
@@ -5088,7 +5088,7 @@ Examples:
                   }
                 }
               }
-            } catch {}
+            } catch (err) { console.error('[add_sfx] Freesound search/upload error:', err); }
           }
         }
 

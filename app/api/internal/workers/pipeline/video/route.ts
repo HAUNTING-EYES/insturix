@@ -256,7 +256,7 @@ async function handler(request: NextRequest) {
           await updateBatchStatus(payload.batchId);
         }
       }
-    } catch {} // Best-effort
+    } catch (err) { console.error('[VideoWorker] Failed to mark job as failed:', err); } // Best-effort
 
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
