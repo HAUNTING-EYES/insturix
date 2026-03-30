@@ -85,7 +85,13 @@ export async function POST(
       // NEVER use script estimate when video exists — script estimates are based on word count
       // and can be 20-30s while the actual AI clip is only 5-10s.
       let sceneDurationSec: number;
-      if (videoDurationSec) {
+      // For rapid-cut montage shots (script says 1-2s), use script duration
+      // even when video is 5s. We only want the FIRST 1-2s of the clip.
+      // For normal scenes, use video duration (prevents freeze-frame stretching).
+      const isRapidCut = scriptEstimateSec < 3;
+      if (isRapidCut && scriptEstimateSec > 0) {
+        sceneDurationSec = scriptEstimateSec;
+      } else if (videoDurationSec) {
         sceneDurationSec = videoDurationSec;
       } else if (scene.videoUrl) {
         // Video exists but no duration recorded — cap to 5s (typical AI clip length).
