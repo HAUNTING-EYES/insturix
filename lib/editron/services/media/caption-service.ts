@@ -122,12 +122,111 @@ const SUBTITLE_STYLE: CaptionStyles = {
   },
 };
 
+/**
+ * Hormozi-style: Bold white text, yellow keyword highlights, clean centered,
+ * heavy text shadow for contrast. Used in Alex Hormozi's YouTube videos.
+ * Phrase-by-phrase display, high energy, emphasizes key words.
+ */
+const HORMOZI_STYLE: CaptionStyles = {
+  fontFamily: 'font-league-spartan',
+  fontSize: '56px',
+  fontWeight: 900,
+  color: '#ffffff',
+  textAlign: 'center',
+  lineHeight: 1.1,
+  textShadow: '3px 3px 6px rgba(0,0,0,0.9), -2px -2px 4px rgba(0,0,0,0.7), 0 0 20px rgba(0,0,0,0.5)',
+  backgroundColor: 'transparent',
+  highlight: {
+    color: '#FFD700',
+    backgroundColor: 'transparent',
+    scale: 1.2,
+    fontWeight: 900,
+    effect: 'pop',
+    animation: 'bounce',
+  },
+};
+
+/**
+ * MrBeast-style: Large colorful text, bright highlight colors,
+ * energetic pop animation, fun and engaging. High visual impact.
+ */
+const MRBEAST_STYLE: CaptionStyles = {
+  fontFamily: 'font-bungee-inline',
+  fontSize: '52px',
+  fontWeight: 800,
+  color: '#ffffff',
+  textAlign: 'center',
+  lineHeight: 1.2,
+  textShadow: '4px 4px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0 0 15px rgba(255,0,0,0.3)',
+  backgroundColor: 'transparent',
+  highlight: {
+    color: '#FF3333',
+    backgroundColor: 'rgba(255,255,0,0.9)',
+    scale: 1.25,
+    fontWeight: 900,
+    effect: 'box',
+    animation: 'bounce',
+  },
+};
+
+/**
+ * Ali Abdaal-style: Clean, minimal, modern sans-serif.
+ * Subtle and professional, no distracting animations.
+ * Lowercase feel, thin font weight, gentle fade.
+ */
+const ALI_ABDAAL_STYLE: CaptionStyles = {
+  fontFamily: 'font-sans',
+  fontSize: '34px',
+  fontWeight: 400,
+  color: '#f0f0f0',
+  textAlign: 'center',
+  lineHeight: 1.5,
+  textShadow: '1px 1px 3px rgba(0,0,0,0.4)',
+  backgroundColor: 'transparent',
+  highlight: {
+    color: '#ffffff',
+    backgroundColor: 'transparent',
+    scale: 1.02,
+    fontWeight: 500,
+    effect: 'underline',
+    animation: 'none',
+  },
+};
+
+/**
+ * Corporate-style: Professional bottom bar with semi-transparent background.
+ * Clean, readable, formal. Suitable for presentations and brand content.
+ */
+const CORPORATE_STYLE: CaptionStyles = {
+  fontFamily: 'font-sans',
+  fontSize: '30px',
+  fontWeight: 500,
+  color: '#ffffff',
+  textAlign: 'center',
+  lineHeight: 1.4,
+  backgroundColor: 'rgba(0,0,0,0.8)',
+  padding: '10px 24px',
+  borderRadius: '0px',
+  highlight: {
+    color: '#4A90D9',
+    backgroundColor: 'transparent',
+    scale: 1,
+    fontWeight: 600,
+    effect: 'none',
+    animation: 'none',
+  },
+};
+
 const STYLE_MAP: Record<CaptionStylePreset, CaptionStyles> = {
   tiktok: TIKTOK_STYLE,
   minimal: MINIMAL_STYLE,
   bold: BOLD_STYLE,
   karaoke: KARAOKE_STYLE,
   subtitle: SUBTITLE_STYLE,
+  hormozi: HORMOZI_STYLE,
+  mrbeast: MRBEAST_STYLE,
+  'ali-abdaal': ALI_ABDAAL_STYLE,
+  corporate: CORPORATE_STYLE,
 };
 
 const DISPLAY_CONFIG_MAP: Record<CaptionStylePreset, CaptionDisplayConfig> = {
@@ -136,6 +235,10 @@ const DISPLAY_CONFIG_MAP: Record<CaptionStylePreset, CaptionDisplayConfig> = {
   bold: { mode: 'phrase', wordsPerGroup: 3, maxWordsPerLine: 4, showPreviousWords: false, fadeOutPreviousWords: false },
   karaoke: { mode: 'karaoke', wordsPerGroup: 6, maxWordsPerLine: 8, showPreviousWords: true, fadeOutPreviousWords: true },
   subtitle: { mode: 'subtitle', wordsPerGroup: 10, maxWordsPerLine: 12, showPreviousWords: true, fadeOutPreviousWords: false },
+  hormozi: { mode: 'phrase', wordsPerGroup: 3, maxWordsPerLine: 4, showPreviousWords: false, fadeOutPreviousWords: false },
+  mrbeast: { mode: 'phrase', wordsPerGroup: 2, maxWordsPerLine: 3, showPreviousWords: false, fadeOutPreviousWords: false },
+  'ali-abdaal': { mode: 'phrase', wordsPerGroup: 5, maxWordsPerLine: 7, showPreviousWords: false, fadeOutPreviousWords: false },
+  corporate: { mode: 'subtitle', wordsPerGroup: 8, maxWordsPerLine: 10, showPreviousWords: true, fadeOutPreviousWords: false },
 };
 
 // ============================================================================

@@ -65,7 +65,7 @@ export interface EditProfile {
   /** Default transition between scenes */
   defaultTransition: string;
   /** Caption style */
-  captionStyle: 'none' | 'subtitle' | 'word-by-word' | 'karaoke' | 'fancy' | 'keyword-highlight';
+  captionStyle: 'none' | 'subtitle' | 'word-by-word' | 'karaoke' | 'fancy' | 'keyword-highlight' | 'hormozi' | 'mrbeast' | 'ali-abdaal' | 'corporate';
   /** BGM duck level (0-1) */
   bgmDuckLevel: number;
   /** Graphics density */

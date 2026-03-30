@@ -187,7 +187,7 @@ export interface BeatDetectionOptions {
 /**
  * Available caption style presets
  */
-export type CaptionStylePreset = 'tiktok' | 'minimal' | 'bold' | 'karaoke' | 'subtitle';
+export type CaptionStylePreset = 'tiktok' | 'minimal' | 'bold' | 'karaoke' | 'subtitle' | 'hormozi' | 'mrbeast' | 'ali-abdaal' | 'corporate';
 
 /**
  * Caption position presets

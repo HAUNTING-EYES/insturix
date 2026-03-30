@@ -1991,7 +1991,7 @@ Use this to understand what exists. Then decide what to do based on user intent.
   // --- ADD CAPTIONS ---
   const addCaptionsSchema = z.object({
     videoOverlayId: z.coerce.number().describe("ID of the video overlay to add captions for"),
-    style: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle']).optional().default('tiktok').describe("Caption style preset (default: tiktok)"),
+    style: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle', 'hormozi', 'mrbeast', 'ali-abdaal', 'corporate']).optional().default('tiktok').describe("Caption style preset. 'hormozi' = bold white, yellow keywords, high contrast. 'mrbeast' = large colorful, pop animation. 'ali-abdaal' = clean minimal modern. 'corporate' = professional bottom bar."),
     position: z.enum(['bottom', 'top', 'center']).optional().default('bottom').describe("Caption position (default: bottom)"),
     overwrite: z.coerce.boolean().optional().default(false).describe("Set to true to overwrite existing captions"),
     // Custom style overrides (optional - override preset defaults)
@@ -2098,29 +2098,10 @@ Use this to understand what exists. Then decide what to do based on user intent.
           displayOverrides: Object.keys(displayOverrides).length > 0 ? displayOverrides : undefined,
         });
         
-        // Caption should always be at row 0 (topmost layer)
-        // Check if any overlay at row 0 would collide time-wise with the caption
-        const captionFrom = captionOverlay.from;
-        const captionEnd = captionFrom + captionOverlay.durationInFrames;
-        
-        const hasCollisionAtRow0 = project.overlays.some((o: any) => {
-          if (o.row !== 0) return false;
-          const oEnd = o.from + o.durationInFrames;
-          // Check for time overlap
-          return !(captionEnd <= o.from || captionFrom >= oEnd);
-        });
-        
-        if (hasCollisionAtRow0) {
-          // Shift ALL overlays down by 1 row to make room for caption at row 0
-          const { getDatabase, COLLECTIONS } = await import('../db/mongodb');
-          const database = await getDatabase();
-          await database.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId, userId },
-            { $inc: { 'overlays.$[].row': 1 } }
-          );
-        }
-        
-        // Set caption to dedicated caption row (Row 4 in standard layout)
+        // Place caption at ROW.CAPTIONS (4) — the standardized caption row.
+        // NEVER shift other overlays to make room. The row layout is fixed:
+        //   0=SFX, 1=BGM, 2=VIDEO, 3=VOICEOVER, 4=CAPTIONS, 5=TRANSITIONS, 6=GRAPHICS
+        // Previous code shifted ALL overlays +1 which corrupted the entire row layout.
         captionOverlay = { ...captionOverlay, row: 4 };
         
         // Add caption to project
@@ -2161,7 +2142,7 @@ IMPORTANT: If caption exists, pass overwrite: true or it will error.`,
   // --- REFRESH CAPTIONS ---
   const refreshCaptionsSchema = z.object({
     captionOverlayId: z.coerce.number().describe("ID of the caption overlay to refresh"),
-    newStyle: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle']).optional().describe("Optional new style to apply"),
+    newStyle: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle', 'hormozi', 'mrbeast', 'ali-abdaal', 'corporate']).optional().describe("Optional new style to apply"),
   });
 
   const refreshCaptionsAI = tool(
