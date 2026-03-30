@@ -74,15 +74,43 @@ export async function POST(req: NextRequest) {
       console.warn(`[Analysis] 0 analyses for ${videoOverlays.length} videos. Errors: ${analysisErrors.join('; ')}`);
     }
 
-    // Step 3: Generate Edit Decision List
-    const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
-    const edl = generateEditDecisionList(analyses, totalDurationMs, {
-      targetCutsPerMinute: 6,
-      transitionStyle: 'mixed',
-      graphicDensity: 'moderate',
-      pacing: 'medium',
-    });
-    edl.projectId = projectId;
+    // Step 3: Generate Edit Plan — prefer Unified Intelligence, fallback to old EDL
+    let edl: any;
+    try {
+      const { assembleUnifiedContext, generateUnifiedEditPlan } = await import('@/lib/editron/services/unified-edit-intelligence');
+      const context = await assembleUnifiedContext(projectId, userId);
+      const plan = await generateUnifiedEditPlan(context);
+
+      // Convert to EDL format for backward compatibility
+      edl = {
+        projectId,
+        generatedAt: plan.generatedAt,
+        totalDecisions: plan.stats.totalDecisions,
+        decisions: plan.decisions.map(d => ({
+          type: d.type,
+          frame: d.frame,
+          durationFrames: d.durationFrames,
+          priority: d.confidence > 0.8 ? 2 : d.confidence > 0.6 ? 3 : 4,
+          source: d.sources.join('+'),
+          signal: d.type,
+          reason: d.reason,
+          params: d.params,
+          confidence: d.confidence,
+        })),
+        stats: plan.stats,
+      };
+      console.log(`[Analysis] Unified Intelligence: ${plan.stats.totalDecisions} decisions`);
+    } catch (unifiedErr: any) {
+      console.warn(`[Analysis] Unified Intelligence failed (${unifiedErr.message}), falling back to Reactive Engine`);
+      const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
+      edl = generateEditDecisionList(analyses, totalDurationMs, {
+        targetCutsPerMinute: 6,
+        transitionStyle: 'mixed',
+        graphicDensity: 'moderate',
+        pacing: 'medium',
+      });
+      edl.projectId = projectId;
+    }
 
     // Step 4: Detect cinematic moments
     const allMoments = analyses.flatMap(a => detectCinematicMoments(a));

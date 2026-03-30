@@ -233,21 +233,60 @@ export async function executeDirectorPlan(
         }
       }
 
-      // ── Generate + Execute EDL from whatever we got ──
+      // ── Generate Edit Plan — prefer Unified Intelligence, fallback to old EDL ──
       if (analyses.length > 0) {
         try {
-          onProgress?.(0, 0, `Generating edit decisions from ${analyses.length} analyzed assets...`);
-          const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
-          const edl = generateEditDecisionList(analyses, totalDurationMs, {
-            targetCutsPerMinute: effectiveProfile.cutFrequencyTarget
-              ? 60 / effectiveProfile.cutFrequencyTarget
-              : 6,
-            transitionStyle: effectiveProfile.defaultTransition?.type === 'dissolve' ? 'dissolve'
-              : effectiveProfile.defaultTransition?.type === 'hard-cut' ? 'hard-cut'
-              : 'mixed',
-            graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
-            pacing: effectiveProfile.pacing || 'medium',
-          });
+          onProgress?.(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
+
+          // TRY: Unified Intelligence Engine (sees everything — script, video, audio, storyboard)
+          let edl: any;
+          try {
+            const { assembleUnifiedContext, generateUnifiedEditPlan } = await import('@/lib/editron/services/unified-edit-intelligence');
+            const context = await assembleUnifiedContext(projectId, userId);
+            const plan = await generateUnifiedEditPlan(context, {
+              editProfileName: effectiveProfile.name,
+              targetCutsPerMinute: effectiveProfile.cutFrequencyTarget
+                ? 60 / effectiveProfile.cutFrequencyTarget
+                : 6,
+              graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
+            });
+
+            // Convert unified plan to EDL format for backward compatibility with executeEDL
+            edl = {
+              projectId,
+              generatedAt: plan.generatedAt,
+              totalDecisions: plan.stats.totalDecisions,
+              decisions: plan.decisions.map(d => ({
+                type: d.type,
+                frame: d.frame,
+                durationFrames: d.durationFrames,
+                priority: d.confidence > 0.8 ? 2 : d.confidence > 0.6 ? 3 : 4,
+                source: d.sources.join('+'),
+                signal: d.type,
+                reason: d.reason,
+                params: d.params,
+                confidence: d.confidence,
+              })),
+              stats: plan.stats,
+            };
+
+            edlSummary.decisionsGenerated = plan.stats.totalDecisions;
+            console.log(`[Director] Unified Intelligence: ${plan.stats.totalDecisions} decisions (avg confidence ${plan.stats.averageConfidence.toFixed(2)})`);
+          } catch (unifiedErr: any) {
+            // FALLBACK: Old Reactive Edit Engine (video analysis only)
+            console.warn(`[Director] Unified Intelligence failed (${unifiedErr.message}), falling back to Reactive Engine`);
+            const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
+            edl = generateEditDecisionList(analyses, totalDurationMs, {
+              targetCutsPerMinute: effectiveProfile.cutFrequencyTarget
+                ? 60 / effectiveProfile.cutFrequencyTarget
+                : 6,
+              transitionStyle: effectiveProfile.defaultTransition?.type === 'dissolve' ? 'dissolve'
+                : effectiveProfile.defaultTransition?.type === 'hard-cut' ? 'hard-cut'
+                : 'mixed',
+              graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
+              pacing: effectiveProfile.pacing || 'medium',
+            });
+          }
 
           const moments = analyses.flatMap(a => detectCinematicMoments(a));
           const canvas = project.playerDimensions || { width: 1920, height: 1080 };
