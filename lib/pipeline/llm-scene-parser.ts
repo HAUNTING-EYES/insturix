@@ -486,75 +486,74 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
     }
   }
 
-  // ─── Post-process: detect montage scenes the LLM missed ─────────
-  // Gemini often skips subShots even when the script clearly describes multiple
-  // distinct subjects/actions in one scene. This post-processor catches those cases
-  // and adds subShots with independentGeneration=true.
+  // ─── Post-process: detect montage scenes via dedicated Gemini call ─────
+  // The main parser LLM consistently merges multi-shot visual descriptions into
+  // single sentences, making regex-based detection unreliable. Instead, we make a
+  // SEPARATE fast Gemini call that reads the RAW SCRIPT and identifies which scenes
+  // have multiple distinct shots that need independent video generation.
   //
-  // IMPROVED: Also checks the RAW SCRIPT for multi-shot descriptions,
-  // not just the LLM's rewritten visualDescription (which may merge shots).
+  // This is more reliable than regex because the LLM understands context:
+  // "Quick cuts: A child reaching. Kids laughing. Parent wiping." → 3 shots
+  // "A family walking towards McDonald's." → 1 shot (no decomposition)
   //
-  // Detection rules:
-  // 1. visualDescription contains listing patterns ("X. Y. Z." or "X, then Y, then Z")
-  // 2. Multiple distinct subjects separated by periods or conjunctions
-  // 3. Script text for this scene has "Quick cuts:" or "Montage:" prefix
-  // Only applies when subShots array is empty (LLM didn't already decompose)
-  if (object.scenes && Array.isArray(object.scenes)) {
-    for (const scene of object.scenes) {
-      // Skip if already has sub-shots
-      if (scene.subShots && scene.subShots.length > 0) continue;
+  // Cost: ~$0.001 (Gemini Flash-Lite, ~500 tokens)
+  if (object.scenes && scriptText && object.scenes.some((s: any) => !s.subShots || s.subShots.length === 0)) {
+    try {
+      const MontageDetectionSchema = z.object({
+        montageScenes: z.array(z.object({
+          sceneIndex: z.number(),
+          shots: z.array(z.object({
+            description: z.string().describe('ONE distinct visual moment — single subject, single action, single framing'),
+            targetDurationSeconds: z.number().describe('How long this shot should last (1-3 seconds for rapid cuts)'),
+          })),
+        })).describe('Only include scenes that have 3+ DISTINCT shots with DIFFERENT subjects. Do NOT include scenes with one continuous subject.'),
+      });
 
-      const visual = scene.visualDescription || '';
+      const montageModel = google('gemini-2.5-flash-lite');
 
-      // Strategy 1: Check the LLM's visualDescription for multiple sentences
-      const sentences = visual.split(/\.\s+(?=[A-Z])/).filter(s => s.trim().length > 10);
-      const thenSplits = visual.split(/,?\s+then\s+/i).filter(s => s.trim().length > 10);
-      let distinctSubjects = Math.max(sentences.length, thenSplits.length);
-      let decomposeParts = sentences.length >= thenSplits.length ? sentences : thenSplits;
+      const { object: montageResult } = await generateObject({
+        model: montageModel,
+        schema: MontageDetectionSchema,
+        temperature: 0.1,
+        prompt: `Read this script and identify scenes that describe MULTIPLE DISTINCT visual shots (3+) that would each need a SEPARATE AI video clip.
 
-      // Strategy 2: Check the RAW SCRIPT for this scene's visual section
-      // The LLM often merges "A child reaching. Kids laughing. Parent wiping" into one sentence.
-      // But the raw script still has them as separate items.
-      if (distinctSubjects < 3 && scriptText && scene.narration) {
-        const narrationSnippet = scene.narration.substring(0, 30).toLowerCase();
-        const narrationIdx = scriptText.toLowerCase().indexOf(narrationSnippet);
-        if (narrationIdx >= 0) {
-          // Find the VISUAL section near this narration (look backwards for "VISUAL:")
-          const searchStart = Math.max(0, narrationIdx - 500);
-          const nearbyScript = scriptText.substring(searchStart, narrationIdx);
-          const visualMatch = nearbyScript.match(/VISUAL[:\s]*\*?\*?\s*([\s\S]*?)(?:VOICEOVER|AUDIO|CAMERA|$)/i);
-          if (visualMatch) {
-            const rawVisual = visualMatch[1].trim();
-            // Split by periods, "." followed by new sentence
-            const rawSentences = rawVisual.split(/\.\s+/).filter(s => s.trim().length > 10);
-            if (rawSentences.length > distinctSubjects) {
-              distinctSubjects = rawSentences.length;
-              decomposeParts = rawSentences;
-              console.log(`[SceneParser] Post-process: scene ${scene.sceneIndex} raw script has ${rawSentences.length} shots (LLM merged into ${sentences.length})`);
-            }
-          }
-        }
-      }
+RULES:
+- Only flag scenes where the VISUAL section lists 3+ DIFFERENT subjects/actions
+- "Quick cuts: A child reaching. Kids laughing. Parent wiping." → 3 shots (3 different actions)
+- "Teenagers sharing fries in a car at night." → 1 shot (one continuous moment, do NOT decompose)
+- "Close-up on a fry, then a bite of a Big Mac, then arches through window." → 3 shots (3 different subjects)
+- "A family sharing a meal, a grandparent smiling." → 1-2 subjects in same setting, do NOT decompose unless they are truly different scenes
+- Each shot description must be a COMPLETE visual prompt for AI image/video generation
 
-      // Only decompose if 3+ distinct shots detected
-      if (distinctSubjects >= 3) {
+PARSED SCENES (with their narration for context):
+${object.scenes.map((s: any) => `Scene ${s.sceneIndex}: "${s.title}" — Narration: "${s.narration}"`).join('\n')}
+
+RAW SCRIPT:
+${scriptText.substring(0, 8000)}`,
+      });
+
+      // Apply montage decomposition from Gemini result
+      for (const montage of montageResult.montageScenes || []) {
+        const scene = object.scenes.find((s: any) => s.sceneIndex === montage.sceneIndex);
+        if (!scene || (scene.subShots && scene.subShots.length > 0)) continue;
+        if (montage.shots.length < 3) continue; // Safety: only decompose 3+ shots
+
         scene.sceneType = 'montage';
-        scene.subShots = decomposeParts.map((part: string, idx: number) => {
-          const cleanPart = part.replace(/\.$/, '').replace(/^\*+/, '').trim();
-          const targetDur = Math.max(1.5, (scene.durationSeconds || 5) / decomposeParts.length);
-          return {
-            description: cleanPart,
-            startNormalized: idx / decomposeParts.length,
-            endNormalized: (idx + 1) / decomposeParts.length,
-            targetDurationSeconds: Math.round(targetDur * 10) / 10,
-            independentGeneration: true,
-            visualDescription: cleanPart,
-            videoMotionPrompt: scene.videoMotionPrompt || '',
-          };
-        });
+        scene.subShots = montage.shots.map((shot: any, idx: number) => ({
+          description: shot.description,
+          startNormalized: idx / montage.shots.length,
+          endNormalized: (idx + 1) / montage.shots.length,
+          targetDurationSeconds: shot.targetDurationSeconds || Math.max(1.5, (scene.durationSeconds || 5) / montage.shots.length),
+          independentGeneration: true,
+          visualDescription: shot.description,
+          videoMotionPrompt: scene.videoMotionPrompt || '',
+        }));
 
-        console.log(`[SceneParser] Post-process: scene ${scene.sceneIndex} decomposed into ${scene.subShots.length} sub-shots (montage detected)`);
+        console.log(`[SceneParser] Montage Gemini: scene ${scene.sceneIndex} decomposed into ${scene.subShots.length} sub-shots`);
       }
+    } catch (montageErr: any) {
+      console.warn(`[SceneParser] Montage detection Gemini call failed (non-fatal): ${montageErr.message}`);
+      // Non-fatal — scenes will be treated as single continuous shots
     }
   }
 
