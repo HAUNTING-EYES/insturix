@@ -154,11 +154,10 @@ export async function searchAndDownloadSFX(
   let found = await searchFreesound(query, maxDurationSec);
   let source: 'pixabay' | 'freesound' = 'freesound';
 
-  // Fallback to Pixabay (may work if they have audio results for this query)
-  if (!found) {
-    found = await searchPixabay(query, maxDurationSec);
-    source = 'pixabay';
-  }
+  // NOTE: Pixabay fallback REMOVED — their general API (/api/) returns images, not audio.
+  // The image URLs (previewURL, webformatURL) were being downloaded as "audio" files,
+  // resulting in JPEG data stored with audio/mpeg content type. These never play.
+  // Pixabay's actual audio API (/api/music/) requires special access we don't have.
 
   if (!found || !found.url) {
     console.warn(`[SFXLib] No results for "${query}"`);
@@ -176,6 +175,21 @@ export async function searchAndDownloadSFX(
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
+
+    // Validate the downloaded content is actually audio, not an image or HTML error page
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('audio') && !contentType.includes('octet-stream')) {
+      // Check first bytes for common non-audio signatures
+      const header = buffer.slice(0, 4).toString('hex');
+      const isJPEG = header.startsWith('ffd8ff');
+      const isPNG = header === '89504e47';
+      const isHTML = buffer.slice(0, 20).toString('utf-8').trim().startsWith('<');
+      if (isJPEG || isPNG || isHTML) {
+        console.error(`[SFXLib] Downloaded file is NOT audio (${isJPEG ? 'JPEG' : isPNG ? 'PNG' : 'HTML'}). Source returned wrong content. Skipping.`);
+        return null;
+      }
+    }
+
     const assetId = `sfx_lib_${nanoid(8)}`;
     const ext = found.url.includes('.wav') ? 'wav' : 'mp3';
     const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`);
