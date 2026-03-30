@@ -13,10 +13,15 @@ import {
   Video,
   Loader2,
   ChevronRight,
+  ChevronDown,
   Sparkles,
   MessageSquare,
   Image as ImageIcon,
   Volume2,
+  Layers,
+  Scissors,
+  DollarSign,
+  Minimize2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +74,62 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
   const [feedbackText, setFeedbackText] = useState("");
   const [showFinalizeDialog, setShowFinalizeDialog] = useState(false);
   const [voiceoverVoice, setVoiceoverVoice] = useState("aura-asteria-en");
+  const [expandedSubShots, setExpandedSubShots] = useState<Set<number>>(new Set());
+  const [collapsedScenes, setCollapsedScenes] = useState<Set<number>>(new Set());
+
+  // Helper: get sub-shots for a scene
+  const getSubShots = (scene: any) => {
+    const subs = scene?.descriptor?.subShots || [];
+    return subs.filter((s: any) => s.independentGeneration);
+  };
+
+  // Helper: check if scene has montage sub-shots
+  const hasMontageSubShots = (scene: any) => getSubShots(scene).length > 0;
+
+  // Helper: calculate total credits for a scene
+  const getSceneCredits = (scene: any) => {
+    const subs = getSubShots(scene);
+    if (subs.length > 0 && !collapsedScenes.has(scene.sceneIndex)) {
+      return 2 + (subs.length * 3); // 2 for storyboard image + 3 per video
+    }
+    return 2 + 3; // 2 for image + 3 for one video
+  };
+
+  // Toggle sub-shot expansion
+  const toggleSubShots = (sceneIndex: number) => {
+    setExpandedSubShots(prev => {
+      const next = new Set(prev);
+      if (next.has(sceneIndex)) next.delete(sceneIndex);
+      else next.add(sceneIndex);
+      return next;
+    });
+  };
+
+  // Collapse montage to single shot
+  const collapseScene = (sceneIndex: number) => {
+    setCollapsedScenes(prev => {
+      const next = new Set(prev);
+      next.add(sceneIndex);
+      return next;
+    });
+  };
+
+  // Expand montage back to multiple shots
+  const expandScene = (sceneIndex: number) => {
+    setCollapsedScenes(prev => {
+      const next = new Set(prev);
+      next.delete(sceneIndex);
+      return next;
+    });
+  };
+
+  // Calculate total credits for all scenes
+  const totalCredits = scenes.reduce((sum: number, s: any) => sum + getSceneCredits(s), 0);
+  const totalVideoCredits = scenes.reduce((sum: number, s: any) => {
+    const subs = getSubShots(s);
+    if (subs.length > 0 && !collapsedScenes.has(s.sceneIndex)) return sum + (subs.length * 3);
+    return sum + 3;
+  }, 0);
 
   if (isLoading) {
     return (
@@ -277,6 +338,16 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                       <Volume2 className="h-4 w-4 text-white drop-shadow" />
                     </div>
                   )}
+
+                  {/* Multi-shot montage indicator */}
+                  {hasMontageSubShots(scene) && (
+                    <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-amber-500/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                      <Layers className="h-3 w-3" />
+                      {collapsedScenes.has(scene.sceneIndex)
+                        ? '1 shot'
+                        : `${getSubShots(scene).length} shots`}
+                    </div>
+                  )}
                 </div>
 
                 {/* Scene info */}
@@ -389,6 +460,90 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                   </div>
                 )}
 
+                {/* Sub-shot montage review panel */}
+                {selectedScene && hasMontageSubShots(selectedScene) && (
+                  <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Scissors className="h-4 w-4 text-amber-500" />
+                        <span className="text-sm font-medium">Multi-Shot Sequence Detected</span>
+                      </div>
+                      <button
+                        onClick={() => toggleSubShots(selectedScene.sceneIndex)}
+                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                      >
+                        {expandedSubShots.has(selectedScene.sceneIndex) ? 'Hide' : 'Review shots'}
+                        <ChevronDown className={cn(
+                          "h-3 w-3 transition-transform",
+                          expandedSubShots.has(selectedScene.sceneIndex) && "rotate-180"
+                        )} />
+                      </button>
+                    </div>
+
+                    {!collapsedScenes.has(selectedScene.sceneIndex) ? (
+                      <>
+                        <p className="text-xs text-muted-foreground">
+                          This scene has {getSubShots(selectedScene).length} distinct shots that will each generate a separate video clip.
+                        </p>
+
+                        {expandedSubShots.has(selectedScene.sceneIndex) && (
+                          <div className="space-y-2">
+                            {getSubShots(selectedScene).map((sub: any, i: number) => (
+                              <div key={i} className="flex items-start gap-3 bg-background/60 rounded-lg p-2.5 border border-border/50">
+                                <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
+                                  <span className="text-xs font-bold text-amber-500">{i + 1}</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate">
+                                    {sub.description || sub.visualDescription || `Shot ${i + 1}`}
+                                  </p>
+                                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                    <span>{sub.targetDurationSeconds || 2}s</span>
+                                    <span>·</span>
+                                    <span className="flex items-center gap-0.5">
+                                      <DollarSign className="h-3 w-3" />3 credits
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+
+                            <div className="flex items-center justify-between pt-2 border-t border-border/50">
+                              <div className="text-xs text-muted-foreground">
+                                Total: <span className="font-medium text-foreground">{getSubShots(selectedScene).length * 3} credits</span> for {getSubShots(selectedScene).length} video clips
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => collapseScene(selectedScene.sceneIndex)}
+                                className="gap-1 text-xs h-7"
+                              >
+                                <Minimize2 className="h-3 w-3" />
+                                Collapse to 1 shot — {3} credits
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          Collapsed to 1 shot (was {getSubShots(selectedScene).length} shots). Saves {(getSubShots(selectedScene).length - 1) * 3} credits.
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => expandScene(selectedScene.sceneIndex)}
+                          className="gap-1 text-xs h-7"
+                        >
+                          <Layers className="h-3 w-3" />
+                          Expand to {getSubShots(selectedScene).length} shots
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Regeneration with feedback */}
                 {(selectedScene.status === "generated" || selectedScene.status === "rejected") && (
                   <div className="flex gap-2">
@@ -467,6 +622,35 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
               <span>Scenes</span>
               <span className="font-medium">{scenes.length}</span>
             </div>
+
+            {/* Cost breakdown */}
+            <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Estimated Cost</p>
+              {scenes.map((s: any) => {
+                const subs = getSubShots(s);
+                const isCollapsed = collapsedScenes.has(s.sceneIndex);
+                const shotCount = (subs.length > 0 && !isCollapsed) ? subs.length : 1;
+                return (
+                  <div key={s.sceneIndex} className="flex items-center justify-between text-xs">
+                    <span className="truncate max-w-[200px]">
+                      {s.descriptor.title || `Scene ${s.sceneIndex + 1}`}
+                      {subs.length > 0 && !isCollapsed && (
+                        <span className="text-amber-500 ml-1">×{subs.length} shots</span>
+                      )}
+                      {subs.length > 0 && isCollapsed && (
+                        <span className="text-zinc-500 ml-1">(collapsed)</span>
+                      )}
+                    </span>
+                    <span className="font-mono text-muted-foreground">{getSceneCredits(s)} cr</span>
+                  </div>
+                );
+              })}
+              <div className="flex items-center justify-between text-sm font-medium pt-2 border-t border-border/50">
+                <span>Total</span>
+                <span>{totalCredits} credits</span>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between text-sm">
               <span>Voiceover</span>
               <Badge variant={hasVoiceover ? "default" : "secondary"}>
