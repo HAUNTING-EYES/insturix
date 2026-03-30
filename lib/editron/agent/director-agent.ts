@@ -213,9 +213,13 @@ export async function executeDirectorPlan(
           });
 
           if (analysis) {
+            // Attach timeline offset so Reactive Engine places decisions at correct absolute frames.
+            // Without this, all assets' decisions land at frames 0-N (relative to clip start),
+            // causing them to overlap and get deduplicated — only first scene's decisions survive.
+            (analysis as any)._timelineOffsetFrames = videoOverlays[i].from || 0;
             analyses.push(analysis);
             edlSummary.assetsAnalyzed++;
-            console.log(`[Director] Scene ${i} (${assetId}): analysis SUCCESS`);
+            console.log(`[Director] Scene ${i} (${assetId}): analysis SUCCESS (offset: ${videoOverlays[i].from})`);
           } else {
             edlSummary.assetsFailed++;
             edlSummary.failedAssets.push(`${assetId}:null_result`);

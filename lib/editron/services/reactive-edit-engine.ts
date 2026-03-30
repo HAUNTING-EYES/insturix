@@ -93,38 +93,46 @@ export function generateEditDecisionList(
   const decisions: EditDecision[] = [];
 
   for (const analysis of analyses) {
+    // Timeline offset: each analysis reports frames relative to clip start (0-N).
+    // We need to shift all decisions to absolute timeline frames.
+    // Without this, all 7 scenes produce decisions at frames 0-150 and get deduplicated.
+    const offsetFrames = (analysis as any)._timelineOffsetFrames || 0;
+
+    const offsetDecisions = (decs: EditDecision[]): EditDecision[] =>
+      decs.map(d => ({ ...d, frame: d.frame + offsetFrames }));
+
     // ─── Track A: Speech-driven (narration-reactive) ───────────
     if (analysis.speechSegments.length > 0) {
-      decisions.push(...generateSpeechDecisions(analysis.speechSegments, graphicDensity));
+      decisions.push(...offsetDecisions(generateSpeechDecisions(analysis.speechSegments, graphicDensity)));
     }
 
     // ─── Track C: Music-driven (rhythm-reactive) ───────────────
     if (analysis.musicStructure) {
-      decisions.push(...generateMusicDecisions(analysis.musicStructure, mode, pacing));
+      decisions.push(...offsetDecisions(generateMusicDecisions(analysis.musicStructure, mode, pacing)));
     }
 
     // ─── Layer 2: Motion-driven ────────────────────────────────
     if (analysis.motionSegments.length > 0) {
-      decisions.push(...generateMotionDecisions(analysis.motionSegments, analysis.motionPeaks));
+      decisions.push(...offsetDecisions(generateMotionDecisions(analysis.motionSegments, analysis.motionPeaks)));
     }
 
     // ─── Layer 5: Subject-driven ───────────────────────────────
     if (analysis.subjectTracks.length > 0) {
-      decisions.push(...generateSubjectDecisions(analysis.subjectTracks, graphicDensity));
+      decisions.push(...offsetDecisions(generateSubjectDecisions(analysis.subjectTracks, graphicDensity)));
     }
 
     // ─── Layer 4: Visual-driven ────────────────────────────────
     if (analysis.keyframeAnalyses.length > 0) {
-      decisions.push(...generateVisualDecisions(analysis.keyframeAnalyses));
+      decisions.push(...offsetDecisions(generateVisualDecisions(analysis.keyframeAnalyses)));
     }
 
     // ─── Layer 3: Audio sync points ────────────────────────────
     if (analysis.audio) {
-      decisions.push(...generateAudioSyncDecisions(analysis.audio.transients, analysis.audio.beats));
+      decisions.push(...offsetDecisions(generateAudioSyncDecisions(analysis.audio.transients, analysis.audio.beats)));
     }
 
     // ─── Cinematic moments (multi-track peaks) ─────────────────
-    decisions.push(...detectCinematicMoments(analysis));
+    decisions.push(...offsetDecisions(detectCinematicMoments(analysis)));
 
     // ─── Script edit directions (HIGHEST priority — explicit intent) ───
     // These come from ThinkForge script via storyboard enrichment.
