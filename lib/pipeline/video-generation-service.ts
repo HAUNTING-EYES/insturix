@@ -477,7 +477,7 @@ async function generateVideoWithFal(
   const assetId = `video_${nanoid(12)}`;
   const filename = `${assetId}.mp4`;
   // R2 primary (browser) + GCS secondary (Gemini 5-Track analysis needs gs:// URIs)
-  const uploadResult = await uploadMedia(buffer, userId, filename, 'video/mp4', { alsoUploadToGCS: true });
+  const uploadResult = await uploadMedia(buffer, userId, filename, 'video/mp4', { alsoUploadToGCS: true, customAssetId: assetId });
 
   // Use the ACTUAL model output duration, not the requested duration.
   // Models snap to fixed enums (Kling: 5/10s, Veo: 4/6/8s, etc.)

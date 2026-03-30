@@ -331,12 +331,15 @@ async function downloadAndUpload(
   const assetId = `storyboard_${nanoid(12)}`;
   const filename = `${assetId}.png`;
 
-  const uploadResult = await uploadMedia(buffer, userId, filename, 'image/png');
+  // Pass assetId as customAssetId so R2 uses the same key.
+  // This ensures the overlay's assetId matches the R2 object key,
+  // so the Worker URL /asset/{assetId} resolves correctly.
+  const uploadResult = await uploadMedia(buffer, userId, filename, 'image/png', { customAssetId: assetId });
 
   return {
     imageUrl: uploadResult.signedUrl,
     gcsPath: uploadResult.gcsPath,
-    assetId,
+    assetId: uploadResult.assetId, // Use R2's assetId (same as customAssetId)
     modelUsed,
   };
 }

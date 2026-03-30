@@ -129,11 +129,11 @@ export async function generateSFX(
           throw new Error('mirelo returned invalid audio format');
         }
         const filename = `${assetId}.wav`;
-        const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/wav');
+        const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/wav', { customAssetId: assetId });
         return {
           audioUrl: uploadResult.signedUrl,
           gcsPath: uploadResult.gcsPath,
-          audioAssetId: assetId,
+          audioAssetId: uploadResult.assetId,
           durationMs: duration * 1000,
         };
       }
@@ -211,12 +211,12 @@ export async function generateSFX(
 
   // Upload to GCS under the user's path
   const filename = `${assetId}.${ext}`;
-  const uploadResult = await uploadMedia(buffer, userId, filename, mime);
+  const uploadResult = await uploadMedia(buffer, userId, filename, mime, { customAssetId: assetId });
 
   return {
     audioUrl: uploadResult.signedUrl,
     gcsPath: uploadResult.gcsPath,
-    audioAssetId: assetId,
+    audioAssetId: uploadResult.assetId,
     durationMs: duration * 1000,
   };
 }

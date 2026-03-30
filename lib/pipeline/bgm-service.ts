@@ -89,14 +89,14 @@ export async function generateBackgroundMusic(
   const buffer = Buffer.from(await response.arrayBuffer());
 
   const filename = `${assetId}.mp3`;
-  const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/mpeg');
+  const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/mpeg', { customAssetId: assetId });
 
-  console.log(`[BGM] Uploaded to GCS: ${uploadResult.gcsPath} (${buffer.length} bytes)`);
+  console.log(`[BGM] Uploaded: ${uploadResult.assetId} (${buffer.length} bytes)`);
 
   return {
     audioUrl: uploadResult.signedUrl,
     gcsPath: uploadResult.gcsPath,
-    audioAssetId: assetId,
+    audioAssetId: uploadResult.assetId,
     durationMs: durationSec * 1000, // Approximate — actual may differ
   };
 }

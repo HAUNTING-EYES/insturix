@@ -85,12 +85,14 @@ export async function uploadToR2(
   userId: string,
   filename: string,
   contentType: string,
+  customAssetId?: string,
 ): Promise<R2UploadResult> {
   const client = getS3Client();
-  const assetId = `a_${nanoid(8)}`;
+  // Use caller-provided assetId if given (storyboard, video, voiceover services
+  // generate their own meaningful IDs). Otherwise generate a generic one.
+  const assetId = customAssetId || `a_${nanoid(8)}`;
 
   // Use assetId as the R2 key — the Worker routes /asset/{assetId} to this key
-  // Also store under a path for organizational clarity
   const r2Key = assetId;
 
   await client.send(new PutObjectCommand({

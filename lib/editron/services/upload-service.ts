@@ -54,6 +54,12 @@ export interface UploadOptions {
    * Default: false
    */
   alsoUploadToGCS?: boolean;
+  /**
+   * Custom assetId to use as the R2 key and returned assetId.
+   * If provided, the R2 service uses this instead of generating a_xxxxxxxx.
+   * Callers like storyboard/video/TTS services have their own meaningful IDs.
+   */
+  customAssetId?: string;
 }
 
 // ─── Main Upload Function ─────────────────────────────────────────
@@ -75,13 +81,13 @@ export async function uploadMedia(
   contentType: string,
   options: UploadOptions = {},
 ): Promise<UploadResult> {
-  const { alsoUploadToGCS = false } = options;
+  const { alsoUploadToGCS = false, customAssetId } = options;
 
   // ─── R2 Primary Path ─────────────────────────────────────
   if (isR2Available()) {
     let r2Result: R2UploadResult;
     try {
-      r2Result = await uploadToR2(file, userId, filename, contentType);
+      r2Result = await uploadToR2(file, userId, filename, contentType, customAssetId);
     } catch (r2Err: any) {
       // R2 failed — fall back to GCS
       console.error(`[UploadService] R2 upload failed, falling back to GCS: ${r2Err.message}`);

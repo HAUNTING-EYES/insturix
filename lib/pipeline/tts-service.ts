@@ -133,13 +133,13 @@ async function generateWithKokoro(
 
   const assetId = `voiceover_${nanoid(12)}`;
   const filename = `${assetId}.wav`;
-  const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav');
+  const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav', { customAssetId: assetId });
 
   return {
     audioBuffer,
     durationMs,
     audioUrl: uploadResult.signedUrl,
-    audioAssetId: assetId,
+    audioAssetId: uploadResult.assetId,
     gcsPath: uploadResult.gcsPath,
   };
 }
@@ -189,13 +189,13 @@ async function generateWithDeepgram(
 
   const assetId = `voiceover_${nanoid(12)}`;
   const filename = `${assetId}.wav`;
-  const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav');
+  const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav', { customAssetId: assetId });
 
   return {
     audioBuffer,
     durationMs,
     audioUrl: uploadResult.signedUrl,
-    audioAssetId: assetId,
+    audioAssetId: uploadResult.assetId,
     gcsPath: uploadResult.gcsPath,
   };
 }
