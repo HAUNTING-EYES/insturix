@@ -400,26 +400,37 @@ function generateMotionDecisions(
 ): EditDecision[] {
   const decisions: EditDecision[] = [];
 
-  // Motion peaks = natural cut points
-  for (const peak of peaks) {
+  // Filter peaks: skip first and last frames (clip boundaries, not meaningful cuts)
+  // and only use peaks with enough separation (>30 frames = 1s apart)
+  const filteredPeaks = peaks.filter((peak, i) => {
+    if (peak <= 5 || peak >= (segments[segments.length - 1]?.endFrame || 150) - 5) return false; // Skip clip boundaries
+    if (i > 0 && peak - peaks[i - 1] < 30) return false; // Skip if too close to previous peak
+    return true;
+  });
+
+  // Only the top 2-3 motion peaks per clip are meaningful (not every minor peak)
+  const topPeaks = filteredPeaks.slice(0, 3);
+
+  for (const peak of topPeaks) {
     decisions.push({
       type: 'cut',
       frame: peak,
       priority: 3,
       source: 'motion',
       signal: 'motion_peak',
-      reason: 'Motion intensity peak — natural cut point',
+      reason: `Motion intensity peak at ${(peak / 30).toFixed(1)}s — potential cut point`,
       params: {},
-      confidence: 0.7,
+      confidence: 0.75,
     });
   }
 
-  // Static → dynamic transitions = zoom opportunities
+  // Camera motion transitions = rich editing decisions
   for (let i = 1; i < segments.length; i++) {
     const prev = segments[i - 1];
     const curr = segments[i];
 
-    if (prev.cameraMotion === 'static' && curr.motionIntensity > 0.6) {
+    // Static → dynamic = zoom punch opportunity
+    if (prev.cameraMotion === 'static' && curr.motionIntensity > 0.5) {
       decisions.push({
         type: 'zoom',
         frame: curr.startFrame,
@@ -427,10 +438,43 @@ function generateMotionDecisions(
         priority: 3,
         source: 'motion',
         signal: 'motion_onset',
-        reason: `Static → ${curr.cameraMotion} (intensity ${Math.round(curr.motionIntensity * 100)}%)`,
+        reason: `Camera: static → ${curr.cameraMotion} (${Math.round(curr.motionIntensity * 100)}% intensity) — zoom punch`,
         params: { scaleFrom: 1.0, scaleTo: 1.05 + curr.motionIntensity * 0.1 },
         confidence: curr.motionIntensity,
       });
+    }
+
+    // High → low intensity = slow-motion opportunity
+    if (prev.motionIntensity > 0.7 && curr.motionIntensity < 0.3) {
+      decisions.push({
+        type: 'speed-change',
+        frame: curr.startFrame,
+        durationFrames: 30,
+        priority: 4,
+        source: 'motion',
+        signal: 'intensity_drop',
+        reason: `Motion drops from ${Math.round(prev.motionIntensity * 100)}% → ${Math.round(curr.motionIntensity * 100)}% — slow-mo candidate`,
+        params: { speedFrom: 1.0, speedTo: 0.5 },
+        confidence: 0.6,
+      });
+    }
+
+    // Pan/dolly = transition suggestion (dissolve or wipe in motion direction)
+    if (curr.cameraMotion && !['static', 'handheld'].includes(curr.cameraMotion)) {
+      const isHorizontal = ['pan', 'truck', 'dolly'].some(m => curr.cameraMotion.includes(m));
+      if (isHorizontal && curr.motionIntensity > 0.4) {
+        decisions.push({
+          type: 'transition',
+          frame: curr.startFrame,
+          durationFrames: 15,
+          priority: 4,
+          source: 'motion',
+          signal: 'camera_movement',
+          reason: `${curr.cameraMotion} motion — use motion-matched transition`,
+          params: { transitionType: 'wipe-left' },
+          confidence: 0.5,
+        });
+      }
     }
   }
 
@@ -530,18 +574,38 @@ function generateSubjectDecisions(
 function generateVisualDecisions(keyframes: FrameAnalysis[]): EditDecision[] {
   const decisions: EditDecision[] = [];
 
+  // Only use natural cut points that have a specific reason (not generic)
+  // and are not at clip boundaries (frame 0 or last frame)
+  const lastFrame = keyframes.length > 0 ? Math.max(...keyframes.map(k => k.frame)) : 150;
   for (const kf of keyframes) {
-    if (kf.naturalCutPoint) {
+    if (kf.naturalCutPoint && kf.frame > 5 && kf.frame < lastFrame - 5) {
       decisions.push({
         type: 'cut',
         frame: kf.frame,
         priority: 5,
         source: 'visual',
         signal: 'natural_cut',
-        reason: kf.naturalCutReason || 'Visually natural cut point',
+        reason: kf.naturalCutReason || `Visual change at ${(kf.frame / 30).toFixed(1)}s`,
         params: {},
         confidence: 0.6,
       });
+    }
+
+    // Rich keyframe data: use mood/energy for pacing suggestions
+    if (kf.moodScore !== undefined && kf.energyLevel !== undefined) {
+      // High energy + high mood = fast pacing section
+      if (kf.energyLevel > 0.7 && kf.moodScore > 0.6) {
+        decisions.push({
+          type: 'pacing',
+          frame: kf.frame,
+          priority: 5,
+          source: 'visual',
+          signal: 'high_energy',
+          reason: `High energy moment (${Math.round(kf.energyLevel * 100)}%) — accelerate pacing`,
+          params: { pacingMultiplier: 0.85 },
+          confidence: kf.energyLevel,
+        });
+      }
     }
   }
 

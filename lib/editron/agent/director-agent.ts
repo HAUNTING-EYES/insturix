@@ -633,6 +633,29 @@ async function invokeAITool(
         return 0;
       }
       const captionStyle = params.style || profile.captionStyle || 'subtitle';
+
+      // Pre-warm transcription cache for all voiceover assets.
+      // The add_captions tool needs word-level timing from voiceover audio.
+      // If transcription isn't cached, the tool will try to generate it on-demand,
+      // which can fail due to timeouts. Pre-warming ensures it's ready.
+      try {
+        const { getTranscription } = await import('@/lib/editron/services/media/transcription-service');
+        const voiceoverOverlays = overlays.filter(o =>
+          o.type === 'sound' && ((o.assetId || '').startsWith('voiceover_') || o.row === 3)
+        );
+        console.log(`[Director] add_captions: pre-warming transcriptions for ${voiceoverOverlays.length} voiceovers`);
+        for (const vo of voiceoverOverlays) {
+          if (!vo.assetId) continue;
+          try {
+            await getTranscription(vo.assetId, userId);
+            console.log(`[Director] add_captions: transcription ready for ${vo.assetId}`);
+          } catch (tErr: any) {
+            console.warn(`[Director] add_captions: transcription warm-up failed for ${vo.assetId}: ${tErr.message}`);
+          }
+        }
+      } catch (warmErr: any) {
+        console.warn(`[Director] add_captions: transcription warm-up error: ${warmErr.message}`);
+      }
       console.log(`[Director] add_captions: ${videoOverlays.length} videos, style=${captionStyle}`);
 
       // Caption each video sequentially — tool.invoke handles transcription + caption creation
