@@ -436,41 +436,82 @@ function generateSubjectDecisions(
   const decisions: EditDecision[] = [];
   if (density === 'minimal') return decisions;
 
+  // Subject tracks can be in two formats:
+  // 1. Grouped: { subjectId, category, frames: [{ frame, box, confidence }] }
+  // 2. Flat: { frame, subjectId, label, boundingBox, confidence, category? }
+  // Handle both by normalizing to a common structure.
+
+  // Group flat entries by subjectId
+  const groupedSubjects = new Map<string, { label: string; category: string; entries: Array<{ frame: number; box: any; confidence: number }> }>();
+
   for (const subject of subjects) {
-    if (!subject.frames || !subject.frames.length) continue;
-    const firstFrame = subject.frames[0];
+    const sid = (subject as any).subjectId || subject.label || 'unknown';
+    const isFlat = typeof (subject as any).frame === 'number' && !(subject as any).frames;
+
+    if (isFlat) {
+      // Flat format — group by subjectId
+      if (!groupedSubjects.has(sid)) {
+        // Infer category from label
+        const label = ((subject as any).label || '').toLowerCase();
+        let category = (subject as any).category || 'unknown';
+        if (!category || category === 'unknown') {
+          if (label.includes('logo') || label.includes('brand') || label.includes('arches')) category = 'logo';
+          else if (label.includes('product') || label.includes('meal') || label.includes('fry') || label.includes('burger') || label.includes('drink')) category = 'product';
+          else if (label.includes('person') || label.includes('man') || label.includes('woman') || label.includes('child') || label.includes('family')) category = 'person';
+        }
+        groupedSubjects.set(sid, { label: (subject as any).label || sid, category, entries: [] });
+      }
+      groupedSubjects.get(sid)!.entries.push({
+        frame: (subject as any).frame,
+        box: (subject as any).boundingBox,
+        confidence: (subject as any).confidence || 0.5,
+      });
+    } else if ((subject as any).frames?.length > 0) {
+      // Grouped format — use directly
+      const frames = (subject as any).frames;
+      groupedSubjects.set(sid, {
+        label: subject.label || sid,
+        category: (subject as any).category || 'unknown',
+        entries: frames.map((f: any) => ({ frame: f.frame, box: f.box || f.boundingBox, confidence: f.confidence || 0.5 })),
+      });
+    }
+  }
+
+  for (const [sid, group] of groupedSubjects) {
+    if (group.entries.length === 0) continue;
+    const firstEntry = group.entries[0];
 
     // Products/logos = callout
-    if (subject.category === 'product' || subject.category === 'logo') {
+    if (group.category === 'product' || group.category === 'logo') {
       decisions.push({
         type: 'graphic',
-        frame: firstFrame.frame + 15, // 0.5s after appearance
+        frame: firstEntry.frame + 15,
         durationFrames: 90,
         priority: 4,
         source: 'subjects',
-        signal: `${subject.category}_detected`,
-        reason: `${subject.category}: "${subject.label}"`,
+        signal: `${group.category}_detected`,
+        reason: `${group.category}: "${group.label}"`,
         params: {
-          graphicType: subject.category === 'logo' ? 'logo-reveal' : 'callout',
-          text: subject.label,
-          position: firstFrame.box,
+          graphicType: group.category === 'logo' ? 'logo-reveal' : 'callout',
+          text: group.label,
+          position: firstEntry.box,
         },
-        confidence: firstFrame.confidence,
+        confidence: firstEntry.confidence,
       });
     }
 
     // People = lower third (heavy density only)
-    if (subject.category === 'person' && density === 'heavy') {
+    if (group.category === 'person' && density === 'heavy') {
       decisions.push({
         type: 'graphic',
-        frame: firstFrame.frame + 30,
+        frame: firstEntry.frame + 30,
         durationFrames: 120,
         priority: 4,
         source: 'subjects',
         signal: 'person_detected',
-        reason: `Person: "${subject.label}"`,
-        params: { graphicType: 'lower-third', text: subject.label },
-        confidence: firstFrame.confidence * 0.8,
+        reason: `Person: "${group.label}"`,
+        params: { graphicType: 'lower-third', text: group.label },
+        confidence: firstEntry.confidence * 0.8,
       });
     }
   }
