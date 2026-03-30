@@ -5241,6 +5241,82 @@ Examples:
     },
   );
 
+  // ─── Stock Footage Search Tool ────────────────────────────────
+  const searchStockFootageSchema = z.object({
+    query: z.string().describe("Search query for stock footage (e.g., 'happy family eating', 'city timelapse', 'ocean waves')"),
+    type: z.enum(['video', 'image']).optional().default('video').describe("Search for videos or images"),
+    minDuration: z.coerce.number().optional().describe("Minimum video duration in seconds"),
+    maxDuration: z.coerce.number().optional().describe("Maximum video duration in seconds"),
+    limit: z.coerce.number().optional().default(5).describe("Max results to return (1-10)"),
+  });
+
+  const searchStockFootage = tool(
+    async (input: z.infer<typeof searchStockFootageSchema>) => {
+      try {
+        if (input.type === 'video') {
+          const { searchStockVideos } = await import('@/lib/pipeline/pixabay-service');
+          const results = await searchStockVideos(input.query, {
+            minDuration: input.minDuration,
+            maxDuration: input.maxDuration,
+            limit: input.limit,
+          });
+          if (results.length === 0) {
+            return JSON.stringify({ status: 'success', data: { results: [], message: `No stock videos found for "${input.query}". Try different keywords.` } });
+          }
+          return JSON.stringify({
+            status: 'success',
+            data: {
+              results: results.map(r => ({
+                id: r.id,
+                videoUrl: r.videoUrl,
+                videoUrlHD: r.videoUrlHD,
+                duration: r.duration,
+                thumbnailUrl: r.thumbnailUrl,
+                tags: r.tags.slice(0, 5),
+              })),
+              message: `Found ${results.length} stock videos. Use add_overlay to place one on the timeline.`,
+            },
+          });
+        } else {
+          const { searchStockImages } = await import('@/lib/pipeline/pixabay-service');
+          const results = await searchStockImages(input.query, { limit: input.limit });
+          if (results.length === 0) {
+            return JSON.stringify({ status: 'success', data: { results: [], message: `No stock images found for "${input.query}".` } });
+          }
+          return JSON.stringify({
+            status: 'success',
+            data: {
+              results: results.map(r => ({
+                id: r.id,
+                imageUrl: r.imageUrl,
+                previewUrl: r.previewUrl,
+                width: r.width,
+                height: r.height,
+                tags: r.tags.slice(0, 5),
+              })),
+              message: `Found ${results.length} stock images. Use add_overlay to place one on the timeline.`,
+            },
+          });
+        }
+      } catch (e: any) {
+        console.error('[search_stock_footage] Error:', e);
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'search_stock_footage',
+      description: `Search Pixabay for free stock videos or images. Use this when:
+- User asks for B-roll footage ("add some city shots", "find ocean footage")
+- Rapid-cut montage needs real footage instead of AI generation
+- User wants to supplement AI content with stock footage
+- Looking for specific footage that AI can't generate well (real people, specific locations)
+
+Results include URLs that can be added to the timeline via add_overlay.
+All Pixabay content is free for commercial use.`,
+      schema: searchStockFootageSchema,
+    },
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -5286,6 +5362,7 @@ Examples:
     replaceSFX,           // NEW: Replace a sound effect with Freesound search
     addSFX,               // NEW: Add SFX from Freesound (search + download + place)
     batchEditCaptions,    // NEW: Edit all captions at once for consistency
+    searchStockFootage,   // NEW: Search Pixabay for stock videos/images
   ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };
