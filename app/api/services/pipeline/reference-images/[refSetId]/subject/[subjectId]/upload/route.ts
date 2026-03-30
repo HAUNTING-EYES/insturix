@@ -108,12 +108,12 @@ export async function POST(
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const ext = file.type.split('/')[1] === 'jpeg' ? 'jpg' : file.type.split('/')[1];
-    const filename = `ref_upload_${nanoid(8)}.${ext}`;
+    const assetId = `ref_upload_${nanoid(8)}`;
+    const filename = `${assetId}.${ext}`;
 
     console.log(`[upload] Uploading reference image for "${subject.name}" (${file.size} bytes, ${file.type})`);
 
-    // Upload to GCS
-    const uploadResult = await uploadMedia(buffer, userId, filename, file.type);
+    const uploadResult = await uploadMedia(buffer, userId, filename, file.type, { customAssetId: assetId });
 
     // Analyze uploaded image with Gemini Vision to get accurate visual description
     const analyzedDescription = await analyzeUploadedImage(

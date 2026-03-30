@@ -4981,7 +4981,7 @@ Examples:
                     (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
                   );
                   if (!validAudio) throw new Error('mirelo returned invalid audio');
-                  const uploadResult = await uploadMedia(buffer, userId, `${assetId}.wav`, 'audio/wav');
+                  const uploadResult = await uploadMedia(buffer, userId, `${assetId}.wav`, 'audio/wav', { customAssetId: assetId });
                   if (uploadResult?.signedUrl) {
                     audioUrl = uploadResult.signedUrl;
                     gcsPath = uploadResult.gcsPath;
@@ -5025,7 +5025,7 @@ Examples:
                   (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
                 );
                 if (!validAudio) throw new Error('CassetteAI returned invalid audio');
-                const uploadResult = await uploadMedia(buffer, userId, `${assetId}.mp3`, 'audio/mpeg');
+                const uploadResult = await uploadMedia(buffer, userId, `${assetId}.mp3`, 'audio/mpeg', { customAssetId: assetId });
                 if (uploadResult?.signedUrl) {
                   audioUrl = uploadResult.signedUrl;
                   gcsPath = uploadResult.gcsPath;
@@ -5076,7 +5076,7 @@ Examples:
                   (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
                 );
                 if (validFreesound) {
-                  const uploadResult = await uploadMedia(buffer!, userId, `${assetId}.mp3`, 'audio/mpeg');
+                  const uploadResult = await uploadMedia(buffer!, userId, `${assetId}.mp3`, 'audio/mpeg', { customAssetId: assetId });
                   if (uploadResult?.signedUrl) {
                     audioUrl = uploadResult.signedUrl;
                     gcsPath = uploadResult.gcsPath;

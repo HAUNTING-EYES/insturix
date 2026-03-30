@@ -192,12 +192,12 @@ export async function searchAndDownloadSFX(
 
     const assetId = `sfx_lib_${nanoid(8)}`;
     const ext = found.url.includes('.wav') ? 'wav' : 'mp3';
-    const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`);
+    const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`, { customAssetId: assetId });
 
     return {
       audioUrl: uploadResult.signedUrl,
       gcsPath: uploadResult.gcsPath,
-      audioAssetId: assetId,
+      audioAssetId: uploadResult.assetId,
       durationMs: found.duration * 1000,
       source,
       originalTitle: found.title,

@@ -287,11 +287,11 @@ export async function generateReferenceImage(
 
   const assetId = `ref_${nanoid(12)}`;
   const filename = `${assetId}.png`;
-  const uploadResult = await uploadMedia(buffer, userId, filename, 'image/png');
+  const uploadResult = await uploadMedia(buffer, userId, filename, 'image/png', { customAssetId: assetId });
 
   return {
     imageUrl: uploadResult.signedUrl,
-    assetId,
+    assetId: uploadResult.assetId,
     gcsPath: uploadResult.gcsPath,
   };
 }

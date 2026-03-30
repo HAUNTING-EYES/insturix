@@ -63,11 +63,12 @@ export async function POST(
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const ext = file.type.split('/')[1] === 'jpeg' ? 'jpg' : file.type.split('/')[1];
-    const filename = `storyboard_upload_${nanoid(8)}.${ext}`;
+    const assetId = `storyboard_upload_${nanoid(8)}`;
+    const filename = `${assetId}.${ext}`;
 
     console.log(`[scene-upload] Uploading image for scene ${sceneIndex} of ${storyboardId} (${file.size} bytes)`);
 
-    const uploadResult = await uploadMedia(buffer, userId, filename, file.type);
+    const uploadResult = await uploadMedia(buffer, userId, filename, file.type, { customAssetId: assetId });
 
     // Update the scene's storyboard image
     await updateStoryboardScene(storyboardId, sceneIndex, {

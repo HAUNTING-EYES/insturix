@@ -581,13 +581,13 @@ async function generateVideoWithKie(
       const assetId = `video_${nanoid(12)}`;
       const filename = `${assetId}.mp4`;
       // R2 primary (browser) + GCS secondary (Gemini 5-Track analysis needs gs:// URIs)
-  const uploadResult = await uploadMedia(buffer, userId, filename, 'video/mp4', { alsoUploadToGCS: true });
+      const uploadResult = await uploadMedia(buffer, userId, filename, 'video/mp4', { alsoUploadToGCS: true, customAssetId: assetId });
 
       return {
         videoUrl: uploadResult.signedUrl,
         gcsPath: uploadResult.gcsPath,
         r2Key: uploadResult.r2Key,
-        assetId,
+        assetId: uploadResult.assetId,
         provider: 'kie-ai',
         durationMs: duration * 1000,
       };
