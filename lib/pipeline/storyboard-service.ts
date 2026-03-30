@@ -413,8 +413,10 @@ export async function generateFullStoryboard(
   await saveStoryboard(storyboard);
 
   // Determine concurrency: higher when we're NOT using IP-adapter
+  // Increased from 2/3 to 4/6 to handle 15-20 scene storyboards within 300s Vercel timeout.
+  // fal.ai handles parallel requests well — each image gen takes ~25-35s.
   const hasAnyRefs = options.referenceImageMap && Object.keys(options.referenceImageMap).length > 0;
-  const CONCURRENCY = hasAnyRefs ? 2 : 3;
+  const CONCURRENCY = hasAnyRefs ? 4 : 6;
   let completed = 0;
   let errors = 0;
 
