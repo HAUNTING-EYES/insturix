@@ -329,6 +329,64 @@ ${scriptText.substring(0, 24000)}
 ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters. Process only content above. Add final scene with title "SCRIPT_TRUNCATED".]' : ''}`,
   });
 
+  // ─── Post-processing validation ────────────────────────────────
+  // The LLM sometimes breaks rules despite explicit instructions.
+  // These fixes catch the most common violations.
+
+  if (object.scenes) {
+    const globalPacing = object.globalEditDirections?.pacing?.toLowerCase() || '';
+
+    for (const scene of object.scenes) {
+      // FIX: Strip banned words from visualDescription
+      // "montage", "collage", "series", "diptych", "split screen", etc.
+      if (scene.visualDescription) {
+        scene.visualDescription = scene.visualDescription
+          .replace(/\b(a )?montage of /gi, '')
+          .replace(/\b(collage|diptych|triptych|split screen|grid layout|multiple panels|storyboard sequence)\b/gi, '')
+          .replace(/\b(then|next|afterward|transitions to|cuts to|followed by)\b/gi, ',')
+          .replace(/\s{2,}/g, ' ')
+          .replace(/^[,\s]+/, '')
+          .trim();
+      }
+
+      // FIX: Don't propagate global pacing to individual scenes
+      // If every scene has the same pacing as global, the LLM is propagating
+      if (scene.editDirections?.pacing && globalPacing) {
+        const scenePacing = scene.editDirections.pacing.toLowerCase();
+        // If scene pacing matches global pacing, it was probably propagated — remove it
+        // Exception: keep it if the scene's narration/visual explicitly mentions pacing
+        const sceneText = `${scene.narration || ''} ${scene.visualDescription || ''}`.toLowerCase();
+        const hasPacingCue = /quick cut|slow reveal|building|rapid|fast[- ]paced|slow[- ]mo/i.test(sceneText);
+        if (scenePacing === globalPacing.replace(/[- ]paced/g, '').replace('dynamic', 'fast') && !hasPacingCue) {
+          scene.editDirections.pacing = undefined;
+        }
+      }
+
+      // FIX: Extract SFX from audioDescription when sfxCue is missing
+      // The LLM sometimes puts SFX cues in audioDescription without splitting
+      if (!scene.editDirections?.sfxCue && scene.audioDescription) {
+        const sfxMatch = scene.audioDescription.match(/(?:SFX|Sound|sound effect)[:\s]+([^.]+)/i);
+        if (sfxMatch) {
+          if (!scene.editDirections) scene.editDirections = {} as any;
+          scene.editDirections.sfxCue = sfxMatch[1].trim();
+        }
+        // Also check for obvious SFX words even without the label
+        if (!scene.editDirections?.sfxCue) {
+          const sfxWords = scene.audioDescription.match(/\b(whoosh|crash|slam|click|pop|sizzle|crunch|buzz|chime|thud|splash|drip|crackle|rustle|shatter|bang|ring|beep|honk|chirp|roar)\b/gi);
+          if (sfxWords && sfxWords.length >= 1) {
+            if (!scene.editDirections) scene.editDirections = {} as any;
+            // Extract the sentence containing SFX words
+            const sentences = scene.audioDescription.split(/[.!]/);
+            const sfxSentences = sentences.filter(s => sfxWords.some(w => s.toLowerCase().includes(w.toLowerCase())));
+            if (sfxSentences.length > 0) {
+              scene.editDirections.sfxCue = sfxSentences.map(s => s.trim()).join(', ');
+            }
+          }
+        }
+      }
+    }
+  }
+
   return object;
 }
 
