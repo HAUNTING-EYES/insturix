@@ -504,15 +504,61 @@ async function executeAction(
         transType = 'soft-cut';
       }
 
-      const transAction = {
-        ...action,
-        params: {
-          type: transType,
-          durationMs: action.params.durationMs || 500,
-          applyToAll: true,
-        },
-      };
-      modified = await invokeAITool(transAction, userId, projectId, profile, overlays);
+      // ─── Per-scene transition from script editDirections ──────
+      // The storyboard stores per-scene transition types (from script parsing).
+      // Use those where specified, fall back to profile default otherwise.
+      // This respects the script author's intent (e.g., "hard cut" vs "dissolve").
+      const videoOverlaysForTrans = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
+      let transModified = 0;
+
+      for (let i = 0; i < videoOverlaysForTrans.length - 1; i++) {
+        const clipA = videoOverlaysForTrans[i];
+        const clipB = videoOverlaysForTrans[i + 1];
+
+        // Check if a transition already exists near this boundary
+        const boundaryFrame = clipA.from + clipA.durationInFrames;
+        const existingTrans = overlays.find(o =>
+          (o.type === 'transition' || (o as any).metadata?.isTransition) &&
+          Math.abs(o.from - boundaryFrame) < 30
+        );
+        if (existingTrans) continue; // Already has a transition, skip
+
+        // Check storyboard's per-scene transition for the NEXT scene (B)
+        const sceneData = storyboardScenes.find((s: any) => {
+          // Match by approximate frame position (scenes may not align perfectly)
+          return s.sceneIndex === i + 1 || (s.editDirections?.transition);
+        });
+        let sceneTransType = sceneData?.editDirections?.transition?.type;
+        let sceneTransDuration = sceneData?.editDirections?.transition?.durationMs;
+
+        // Skip if script says "hard-cut" — no transition overlay needed
+        if (sceneTransType === 'hard-cut' || sceneTransType === 'none') {
+          console.log(`[Director] add_transition: boundary ${i}→${i+1}: script says ${sceneTransType}, skipping`);
+          continue;
+        }
+
+        // Use script transition, fall back to profile default
+        const effectiveType = sceneTransType || transType;
+        const effectiveDuration = sceneTransDuration || action.params.durationMs || 500;
+
+        try {
+          const singleTransAction = {
+            ...action,
+            params: {
+              type: effectiveType,
+              durationMs: effectiveDuration,
+              clipAId: clipA.id,
+              clipBId: clipB.id,
+            },
+          };
+          const result = await invokeAITool(singleTransAction, userId, projectId, profile, overlays);
+          transModified += result;
+          console.log(`[Director] add_transition: ${i}→${i+1}: ${effectiveType} (${sceneTransType ? 'script' : 'profile default'})`);
+        } catch (err: any) {
+          console.warn(`[Director] add_transition: boundary ${i}→${i+1} failed: ${err.message}`);
+        }
+      }
+      modified = transModified;
       break;
     }
 
