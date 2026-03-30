@@ -270,3 +270,89 @@ export function scenesToOverlays(
 export function scenesToTotalFrames(scenes: SceneDescriptor[], fps: number): number {
   return scenes.reduce((sum, s) => sum + Math.round(s.durationSeconds * fps), 0);
 }
+
+// ─── Beat-Synced Cutting ──────────────────────────────────────────
+
+interface BeatInfo {
+  /** Beat position in frames */
+  frame: number;
+  /** Is this a downbeat (strong beat)? */
+  isDownbeat: boolean;
+}
+
+/**
+ * Align montage sub-shot cut points to the nearest beats in the BGM.
+ *
+ * For each sub-shot boundary, finds the closest beat and snaps the cut
+ * to it. Preserves total scene duration by redistributing time across sub-shots.
+ *
+ * @param overlays - All project overlays (modifies montage overlays in place)
+ * @param beats - Beat positions from beat detection service
+ * @param fps - Frames per second
+ * @returns Number of cuts that were snapped to beats
+ */
+export function alignCutsToBeats(
+  overlays: any[],
+  beats: BeatInfo[],
+  fps: number = 30,
+): number {
+  if (!beats.length) return 0;
+
+  // Find montage sub-shot overlays (grouped by sceneIndex)
+  const montageGroups = new Map<number, any[]>();
+  for (const o of overlays) {
+    if (o.metadata?.isMontageSub && o.type === 'video') {
+      const si = o.metadata.sceneIndex;
+      if (!montageGroups.has(si)) montageGroups.set(si, []);
+      montageGroups.get(si)!.push(o);
+    }
+  }
+
+  let snappedCount = 0;
+  const SNAP_THRESHOLD = Math.round(fps * 0.5); // Max 0.5s snap distance
+
+  for (const [sceneIndex, group] of montageGroups) {
+    if (group.length < 2) continue; // Need at least 2 sub-shots to have a cut point
+
+    // Sort by from frame
+    group.sort((a, b) => a.from - b.from);
+
+    // For each cut point (between sub-shots), find nearest beat
+    for (let i = 1; i < group.length; i++) {
+      const cutFrame = group[i].from;
+
+      // Find nearest beat
+      let nearestBeat: BeatInfo | null = null;
+      let nearestDist = Infinity;
+      for (const beat of beats) {
+        const dist = Math.abs(beat.frame - cutFrame);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestBeat = beat;
+        }
+      }
+
+      // Snap if within threshold
+      if (nearestBeat && nearestDist <= SNAP_THRESHOLD && nearestDist > 0) {
+        const shift = nearestBeat.frame - cutFrame;
+
+        // Adjust: extend previous sub-shot, shrink current (or vice versa)
+        group[i - 1].durationInFrames += shift;
+        group[i].from += shift;
+        group[i].durationInFrames -= shift;
+
+        // Ensure minimum duration (1s = 30 frames)
+        if (group[i].durationInFrames < fps) {
+          // Undo if it would make a sub-shot too short
+          group[i - 1].durationInFrames -= shift;
+          group[i].from -= shift;
+          group[i].durationInFrames += shift;
+        } else {
+          snappedCount++;
+        }
+      }
+    }
+  }
+
+  return snappedCount;
+}
