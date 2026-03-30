@@ -353,8 +353,16 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
     const globalPacing = object.globalEditDirections?.pacing?.toLowerCase() || '';
 
     for (const scene of object.scenes) {
+      // FIX: Clean "null" strings — LLM outputs the STRING "null" instead of actual null
+      if (scene.editDirections) {
+        for (const [key, val] of Object.entries(scene.editDirections)) {
+          if (val === 'null' || val === 'undefined' || val === 'none' || val === 'N/A') {
+            (scene.editDirections as any)[key] = undefined;
+          }
+        }
+      }
+
       // FIX: Strip banned words from visualDescription
-      // "montage", "collage", "series", "diptych", "split screen", etc.
       if (scene.visualDescription) {
         scene.visualDescription = scene.visualDescription
           .replace(/\b(a )?montage of /gi, '')

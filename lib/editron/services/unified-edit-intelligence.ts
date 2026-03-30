@@ -269,15 +269,16 @@ export async function generateUnifiedEditPlan(
 
   console.log(`[UnifiedIntel] Generating edit plan for ${context.projectId} (${context.scenes.length} scenes, ${Math.round(context.totalDurationMs / 1000)}s)`);
 
-  const result = await generateObject({
-    model: google('gemini-2.5-flash', { structuredOutputs: true }),
+  const model = google('gemini-2.5-flash', { structuredOutputs: true });
+
+  const { object } = await generateObject({
+    model,
     schema: EditPlanSchema,
     prompt: contextSummary,
     temperature: 0.3,
-    maxTokens: 4000,
   });
 
-  const decisions: EditPlanDecision[] = result.object.decisions.map(d => ({
+  const decisions: EditPlanDecision[] = object.decisions.map(d => ({
     type: d.type,
     frame: d.frame,
     durationFrames: d.durationFrames,
