@@ -99,6 +99,11 @@ export async function POST(request: NextRequest) {
           imageQualityTokens: s.imageQualityTokens,
           videoQualityTokens: s.videoQualityTokens,
           editDirections: (s as any).editDirections || undefined,
+          // Montage fields — pass through from parser (subShots, sceneType, generationUnitId)
+          ...((s as any).subShots && { subShots: (s as any).subShots }),
+          ...((s as any).sceneType && { sceneType: (s as any).sceneType }),
+          ...((s as any).generationUnitId && { generationUnitId: (s as any).generationUnitId }),
+          ...((s as any).primaryVisualForUnit !== undefined && { primaryVisualForUnit: (s as any).primaryVisualForUnit }),
         }));
         overallMusicPrompt = llmResult.overallMusicPrompt || '';
         characterDescriptions = llmResult.characterDescriptions || {};
