@@ -2098,11 +2098,11 @@ Use this to understand what exists. Then decide what to do based on user intent.
           displayOverrides: Object.keys(displayOverrides).length > 0 ? displayOverrides : undefined,
         });
         
-        // Place caption at ROW.CAPTIONS (4) — the standardized caption row.
-        // NEVER shift other overlays to make room. The row layout is fixed:
-        //   0=SFX, 1=BGM, 2=VIDEO, 3=VOICEOVER, 4=CAPTIONS, 5=TRANSITIONS, 6=GRAPHICS
-        // Previous code shifted ALL overlays +1 which corrupted the entire row layout.
-        captionOverlay = { ...captionOverlay, row: 4 };
+        // Caption row = 0 (topmost z-index layer).
+        // In Remotion, zIndex = 100 - row*10. Row 0 = z-index 100, Row 2 (video) = z-index 80.
+        // Captions MUST be at row 0 to render visibly above video content.
+        // Do NOT use ROW.CAPTIONS (4) — that's the timeline layout, not the rendering order.
+        captionOverlay = { ...captionOverlay, row: 0 };
         
         // Add caption to project
         await projectService.addOverlay(userId, projectId, captionOverlay as any);

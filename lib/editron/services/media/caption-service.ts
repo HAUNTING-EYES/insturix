@@ -372,7 +372,7 @@ export async function createCaptions(params: {
     height,
     rotation: 0,
     isDragging: false,
-    row: Math.max(0, videoOverlay.row - 1), // Place caption above video (lower row = higher z-index)
+    row: 0, // Row 0 = topmost z-index (100 - row*10). Captions must render ABOVE video (row 2, z-index 80).
     styles: finalStyles,
     displayConfig,
     position,
