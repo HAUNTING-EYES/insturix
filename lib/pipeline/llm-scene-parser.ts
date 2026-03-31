@@ -51,7 +51,7 @@ const SceneSchema = z.object({
   visualDescription: z.string().describe('Static image prompt: ONE primary subject, ONE setting, ONE frozen moment. This generates a SINGLE photograph.\n\nBAD: "A family sharing a meal, a grandparent smiling at a grandchild, friends laughing over lunch" — this is 3 different shots, will produce a collage.\nGOOD: "A grandmother smiling warmly at her young grandchild across a McDonald\'s table, warm golden overhead lighting, soft bokeh background" — ONE moment, ONE camera position.\n\nPick the HERO moment from the script. Other visual beats become separate scenes or sub-shots.'),
   videoMotionPrompt: z.string().describe('Video animation prompt: how this still frame comes to life. Camera movement (dolly, pan, orbit), subject micro-motion, atmospheric effects (particles, light shifts, fabric movement). Keep subtle and cinematic.'),
   audioDescription: z.string().describe('Background audio/sound effects for this scene (not voiceover): ambient sounds, music mood, sfx.'),
-  durationSeconds: z.number().describe('Total duration this generation unit occupies in the final video (sum of all sub-shot durations if sub-shots exist). Minimum 3s for AI video quality. For short-form (under 60s): typical scene is 3-8s. For long-form: scenes can be 10-60s+ based on script timestamps or narration length.'),
+  durationSeconds: z.number().describe('Total duration this generation unit occupies in the final video (sum of all sub-shot durations if sub-shots exist). Use the script timestamps or narration length to determine duration. Each scene = one AI video generation call (~$0.35), so group related visual beats as sub-shots within ONE scene rather than creating many tiny separate scenes.'),
   mood: z.enum(['energetic', 'calm', 'serious', 'playful', 'mysterious', 'dramatic', 'inspirational', 'neutral']).describe('Scene mood based on actual content: energetic=action/montage/high-energy, calm=gentle/reflective/slow moments, serious=corporate/formal/grave, playful=fun/light/humorous, mysterious=suspense/unknown/moody, dramatic=emotional-peak/conflict/revelation, inspirational=uplifting/triumph/brand-aspiration, neutral=informational/transitional. Vary based on what happens in each scene — do NOT assign the same mood to every scene.'),
   imageQualityTokens: z.string().describe('Style-appropriate quality descriptors for the image. E.g. for cinematic: "35mm film grain, shallow depth of field, anamorphic lens". For anime: "cel-shaded, clean linework, vibrant saturation". Tailor to the art style.'),
   videoQualityTokens: z.string().describe('Style-appropriate quality descriptors for the video. E.g. for cinematic: "smooth cinematic footage, film grain, professional color grade". For anime: "fluid animation, consistent character model, clean frames". Tailor to the art style.'),
@@ -274,7 +274,7 @@ Example for McDonald's "0:00-0:04 — Quick cuts: child reaching for toy, kids o
 - Same setting, related subjects (family members at same table) → ONE unit
 - Progressive reveal of same scene (wide → close-up) → ONE unit
 
-HARD LIMIT: ${options.targetDuration ? Math.ceil(options.targetDuration / 8) + '-' + Math.ceil(options.targetDuration / 4) : '4-8'} generation units (scenes) for a ${options.targetDuration || '30-60'}-second video. NEVER exceed ${options.targetDuration ? Math.ceil(options.targetDuration / 2) : '15'} scenes — use montage sub-shots instead of creating separate scenes for each visual beat. Each scene = $0.35 AI video cost. 19 scenes for a 30s video = $6.65 = UNACCEPTABLE.
+Target: ${options.targetDuration ? Math.ceil(options.targetDuration / 8) + '-' + Math.ceil(options.targetDuration / 4) : '4-8'} generation units (scenes) for a ${options.targetDuration || '30-60'}-second video. Each scene = one AI video generation call (~$0.35). Use montage sub-shots to group rapid visual beats within one scene rather than making each beat a separate scene. This saves cost AND produces better montage pacing.
 
 ### Scene types:
 - "continuous" — one unbroken shot, no cuts needed
@@ -288,13 +288,8 @@ HARD LIMIT: ${options.targetDuration ? Math.ceil(options.targetDuration / 8) + '
 - Text-on-screen / end cards → own unit, sceneType: "text-card"
 - Talking head with B-roll → split: talking-head unit + separate B-roll units
 
-## ASSET TYPE DECISION
-Set assetRecommendation for each scene. Default is "ai-video" for most scenes.
-- "ai-video": Default. AI generates a video clip.
-- "graphics-only": ONLY for data/chart/infographic/SaaS-UI scenes where motion graphics ARE the visual.
-Do NOT change this from "ai-video" unless the scene is explicitly data/chart content. The post-processor handles the rest.
-
-CRITICAL: This field does NOT affect scene grouping. Still use sub-shots and generation units as described above. A montage with 3 sub-shots is ONE scene with ONE generationUnitId, not 3 separate scenes.
+## ASSET TYPE
+Set assetRecommendation to "ai-video" for all scenes. The only exception: set "graphics-only" if the scene is purely data/charts/infographics with no real-world visuals. The system handles everything else automatically.
 
 ## DURATION
 If the script provides timestamps → calculate durationSeconds for each pipeline scene.
@@ -416,28 +411,6 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
             }
           }
         }
-      }
-    }
-  }
-
-  // ─── Post-process: scene count sanity check ──────────────────────────
-  // If Gemini over-decomposed (e.g., 19 scenes for 30s video), warn.
-  // This happens when the LLM splits every visual beat into its own scene
-  // instead of grouping them as montage sub-shots within a parent scene.
-  // We log the warning but don't auto-merge (would break scene references).
-  if (object.scenes) {
-    const totalDur = object.totalDurationSeconds || object.scenes.reduce((s: number, sc: any) => s + (sc.durationSeconds || 5), 0);
-    const maxReasonableScenes = Math.max(8, Math.ceil(totalDur / 3)); // ~1 scene per 3s minimum
-    if (object.scenes.length > maxReasonableScenes) {
-      console.warn(`[SceneParser] ⚠️ Scene count (${object.scenes.length}) is high for ${totalDur}s video (expected ≤${maxReasonableScenes}). LLM may have over-decomposed instead of using sub-shots.`);
-    }
-    // Enforce minimum scene duration of 3s for AI video quality
-    // Scenes under 3s will produce bad AI video — merge duration up
-    for (const scene of object.scenes) {
-      if (scene.durationSeconds < 3 && (scene as any).sceneType !== 'montage') {
-        const original = scene.durationSeconds;
-        scene.durationSeconds = 3;
-        console.log(`[SceneParser] Duration fix: scene ${scene.sceneIndex} "${scene.title}" ${original}s → 3s (minimum for AI video quality)`);
       }
     }
   }
