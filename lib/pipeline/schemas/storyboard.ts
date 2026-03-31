@@ -91,6 +91,13 @@ export interface SceneDescriptor {
 
   /** Scene type — determines assembly strategy */
   sceneType?: 'continuous' | 'montage' | 'logo-reveal' | 'text-card' | 'talking-head';
+
+  /** Asset source classification for cost optimization (from LLM parser / post-processor).
+   *  - 'ai-video': Hero shots — generate AI video ($0.35/shot)
+   *  - 'stock': Generic shots — search Pixabay/Pexels ($0)
+   *  - 'animated-still': Ken Burns drift-zoom on storyboard image ($0.012)
+   *  - 'graphics-only': Motion graphics template, no video ($0) */
+  assetRecommendation?: 'ai-video' | 'stock' | 'animated-still' | 'graphics-only';
 }
 
 /** Per-scene editing instructions extracted from the script. */
@@ -170,6 +177,12 @@ export interface StoryboardScene {
   videoGcsPath?: string;
   videoProvider?: string;
   videoDurationMs?: number;
+  /** R2 storage key for the video asset */
+  videoR2Key?: string;
+  /** Set to true when scene skips AI video generation (asset type is non-video) */
+  videoSkipped?: boolean;
+  /** Reason scene skipped video generation */
+  videoSkipReason?: 'animated-still' | 'stock' | 'graphics-only';
   status: 'pending' | 'generating' | 'generated' | 'approved' | 'rejected';
   voiceover?: SceneVoiceover;
   generationHistory: Array<{
