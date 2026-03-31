@@ -104,6 +104,11 @@ export async function POST(
       } else {
         sceneDurationSec = scriptEstimateSec;
       }
+      // Guard: ensure duration is valid (not NaN, 0, or negative)
+      if (!sceneDurationSec || isNaN(sceneDurationSec) || sceneDurationSec <= 0) {
+        console.warn(`[Finalize] Scene ${scene.sceneIndex}: invalid duration ${sceneDurationSec}, defaulting to 5s`);
+        sceneDurationSec = 5;
+      }
       const durationFrames = Math.round(sceneDurationSec * fps);
 
       // ─── Montage sub-shots with independent videos ─────────────

@@ -131,7 +131,7 @@ export async function POST(
       );
     }
 
-    const deductResult = await CreditsService.deductCredits(userId, 'pipeline', 'video_generation', { quantity: targetScenes.length });
+    const deductResult = await CreditsService.deductCredits(userId, 'pipeline', 'video_generation', { quantity: totalVideoClips });
     if (!deductResult.success) {
       return NextResponse.json(
         { success: false, error: 'Credit deduction failed', creditCost },
@@ -205,27 +205,32 @@ export async function POST(
 
           const subVisual = sub.visualDescription || descriptor.visualDescription;
           const subMotion = sub.videoMotionPrompt || descriptor.videoMotionPrompt;
-          const subDuration = Math.max(Math.min(sub.targetDurationSeconds, 10), 3); // 3-10s range
+          const rawDur = sub.targetDurationSeconds;
+          const subDuration = (!rawDur || isNaN(rawDur)) ? 5 : Math.max(Math.min(rawDur, 10), 3); // 3-10s, default 5 if NaN
 
           // Use sub-shot's own image if available, otherwise parent scene image
           const subImageUrl = sub.imageUrl || scene.imageUrl!;
 
+          // Build motion prompt with 15s timeout on LLM refinement
           let motionPrompt: string;
           if (useLLMRefinement) {
             try {
-              motionPrompt = await refineVideoPrompt({
-                visualDescription: subVisual,
-                videoMotionPrompt: subMotion,
-                narration: sub.narration || descriptor.narration,
-                mood: descriptor.mood,
-                durationSeconds: subDuration,
-                artStyle,
-                aspectRatio,
-                referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
-                videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
-                cameraDirection: descriptor.cameraDirection,
-                transitionHint: descriptor.editDirections?.transition,
-              });
+              motionPrompt = await Promise.race([
+                refineVideoPrompt({
+                  visualDescription: subVisual,
+                  videoMotionPrompt: subMotion,
+                  narration: sub.narration || descriptor.narration,
+                  mood: descriptor.mood,
+                  durationSeconds: subDuration,
+                  artStyle,
+                  aspectRatio,
+                  referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
+                  videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
+                  cameraDirection: descriptor.cameraDirection,
+                  transitionHint: descriptor.editDirections?.transition,
+                }),
+                new Promise<string>((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 15000)),
+              ]);
             } catch {
               motionPrompt = buildMotionPrompt({
                 visualDescription: subVisual, narration: sub.narration || descriptor.narration,
@@ -268,7 +273,10 @@ export async function POST(
               cameraDirection: descriptor.cameraDirection,
               transitionHint: descriptor.editDirections?.transition,
             };
-            motionPrompt = await refineVideoPrompt(promptContext);
+            motionPrompt = await Promise.race([
+              refineVideoPrompt(promptContext),
+              new Promise<string>((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 15000)),
+            ]);
             console.log(`[generate-videos] Scene ${scene.sceneIndex}: prompt refined (${motionPrompt.length} chars)`);
           } catch {
             motionPrompt = buildMotionPrompt({
