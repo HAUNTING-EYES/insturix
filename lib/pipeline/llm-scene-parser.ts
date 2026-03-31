@@ -62,11 +62,11 @@ const SceneSchema = z.object({
   primaryVisualForUnit: z.boolean().describe('true if this scene is the PRIMARY visual for its generation unit (the one that gets generated). false if this scene reuses/cuts from another scene\'s generated video.'),
   subShots: z.array(SubShotSchema).optional().describe('If the script describes multiple quick cuts within this scene\'s time window (e.g. "Quick cuts: A, B, C"), define sub-shots here.\n\nFor montage of DIFFERENT subjects: set independentGeneration=true on each sub-shot with its own visualDescription. Each generates a separate AI video clip (separate cost). Example: "child reaching" + "parent wiping" = 2 independent clips.\n\nFor montage of SAME subject: leave independentGeneration=false. Sub-shots cut from one generated clip. Example: "shoe sole detail" + "lacing detail" = one shoe clip, cut at sub-shot boundaries.\n\nLeave empty/omit for continuous scenes.'),
   sceneType: z.enum(['continuous', 'montage', 'logo-reveal', 'text-card', 'talking-head']).describe('Scene type: "continuous" = one unbroken shot, "montage" = rapid cuts (may have sub-shots with independent generation), "logo-reveal" = brand/logo moment, "text-card" = title/end card, "talking-head" = speaker on camera'),
-  assetRecommendation: z.enum(['ai-video', 'stock', 'animated-still', 'graphics-only']).describe(`Asset source for this scene based on cost optimization:
-- "ai-video": ONLY for hero shots — the emotional peak, the key product moment, the hook (first shot), the closer (last shot), or shots requiring specific compositions impossible to find in stock. Max 30-40% of total scenes.
-- "stock": Generic establishing shots, common human activities (walking, talking, eating, driving), cityscapes, nature, abstract b-roll. Will search Pixabay/Pexels.
-- "animated-still": Quick montage cuts (<2s), background/ambient shots, flashback moments. Uses Ken Burns drift-zoom on the generated storyboard image instead of AI video ($0.012 vs $0.35).
-- "graphics-only": Data-heavy scenes, SaaS product demos, abstract concepts, "the numbers speak" moments. No video needed — graphics ARE the visual.`),
+  assetRecommendation: z.enum(['ai-video', 'stock', 'animated-still', 'graphics-only']).describe(`Asset source for this scene. DEFAULT is "ai-video" for all main scenes.
+- "ai-video": DEFAULT for all main scenes. AI generates a video clip from the storyboard image.
+- "stock": For montage sub-shots or generic b-roll. Will search free stock video libraries at generation time.
+- "animated-still": LAST RESORT. Only for logo-reveal, text-card, or explicit fallback. Ken Burns drift-zoom on storyboard image.
+- "graphics-only": Data scenes (charts, infographics, SaaS UI). No video needed — motion graphics template.`),
 });
 
 const GlobalEditDirectionsSchema = z.object({
@@ -293,25 +293,14 @@ Target: ${options.targetDuration ? Math.ceil(options.targetDuration / 8) + '-' +
 - Talking head with B-roll → split: talking-head unit + separate B-roll units
 
 ## ASSET TYPE DECISION (CRITICAL — controls cost)
-Classify EVERY scene with assetRecommendation. This decides whether we spend $0.35 on AI video or $0.012 on animated storyboard.
+Classify EVERY scene with assetRecommendation. Hierarchy:
 
-A scene is a "hero shot" (assetRecommendation="ai-video") if it meets ANY 2 of these:
-- Contains the decisive emotional moment of the video
-- Features the product/brand in a specific required composition
-- Is the FIRST shot of the video (the hook)
-- Is the LAST shot of the video (the lasting impression)
-- Requires a specific human action or interaction that stock can't provide
-- Is referenced by the voiceover with specific visual language ("watch as...", "imagine...", "look at...")
+1. "ai-video" — ALL main scenes get AI video generation. This is the DEFAULT.
+2. "stock" — Sub-shots within montage scenes. At generation time, we search free stock libraries (Pixabay/Pexels) for real footage matching the visual description. If no good stock found, falls back to AI video or animated-still.
+3. "animated-still" — LAST RESORT. Only for logo-reveal, text-card, or when both AI video and stock fail. Uses Ken Burns drift-zoom on the storyboard image.
+4. "graphics-only" — Data-heavy scenes (charts, infographics, SaaS UI demos, abstract concepts). No video needed — motion graphics ARE the visual.
 
-Maximum hero shots: 30-40% of total scenes. A 7-scene video = 2-3 hero shots, NOT 7.
-
-Everything else:
-- Generic establishing/ambient/b-roll → "stock" (will search free stock libraries)
-- Quick montage cuts <2s, flashback, background → "animated-still" (Ken Burns on storyboard image)
-- Data/stats scenes, abstract concepts, SaaS demos → "graphics-only" (motion graphics template)
-- logo-reveal / text-card scenes → "animated-still" (no video gen needed)
-
-COST IMPACT: One stunning AI hero shot + animated storyboard for the rest = professional result at 70% less cost.
+IMPORTANT: Do NOT aggressively downgrade scenes to animated-still. Real video (AI or stock) almost always looks better than a zooming photo. animated-still is a fallback, not a strategy.
 
 ## DURATION
 If the script provides timestamps → calculate durationSeconds for each pipeline scene.
@@ -438,55 +427,54 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
   }
 
   // ─── Post-process: auto-fill assetRecommendation if missing ──────────
-  // Gemini sometimes ignores new schema fields. Apply the KB's AS-001/AS-002 rules
-  // deterministically: hero shots (first, last, emotional peak) get ai-video,
-  // montage sub-shots <2s get animated-still, logo/text-card get animated-still.
+  // KB Part 15 (AS-001/AS-002) asset hierarchy:
+  //   1. ALL main scenes → ai-video (hero shots). These are the primary visual moments.
+  //   2. Sub-shots within montage scenes → stock (search Pixabay/Pexels for real footage).
+  //      If stock search fails at runtime → fall back to animated-still (Ken Burns).
+  //   3. Logo-reveal / text-card → animated-still (Ken Burns on generated image).
+  //   4. Graphics-only (data, stats, SaaS demo) → graphics-only (no video needed).
+  //
+  // RULE: animated-still (Ken Burns) is LAST RESORT, not the default for non-hero scenes.
+  // RULE: This must work for ALL content types — not just montage ads.
   if (object.scenes) {
-    const totalScenes = object.scenes.length;
-    const maxHeroShots = Math.max(2, Math.ceil(totalScenes * 0.35)); // 30-35% hero shots
-    let heroCount = 0;
-
     for (const scene of object.scenes) {
       if ((scene as any).assetRecommendation) continue; // LLM already classified it
 
       const sceneType = (scene as any).sceneType || 'continuous';
-      const idx = scene.sceneIndex;
-      const narration = (scene.narration || '').toLowerCase();
+      const visual = (scene.visualDescription || '').toLowerCase();
 
-      // Rule: logo-reveal and text-card never need AI video
+      // Logo-reveal and text-card → animated-still (just image + subtle motion)
       if (sceneType === 'logo-reveal' || sceneType === 'text-card') {
         (scene as any).assetRecommendation = 'animated-still';
+        console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → animated-still (${sceneType})`);
         continue;
       }
 
-      // Rule: first scene (hook) and last non-logo scene are hero shots
-      const isFirst = idx === 0;
-      const isLast = idx === totalScenes - 1 || (idx === totalScenes - 2 && (object.scenes[totalScenes - 1] as any).sceneType === 'logo-reveal');
-
-      // Rule: voiceover with specific visual language = hero
-      const hasVisualLanguage = /watch as|imagine|look at|see how|picture this/i.test(narration);
-
-      // Rule: emotional peak (dramatic/inspirational mood) = hero candidate
-      const isEmotionalPeak = scene.mood === 'dramatic' || scene.mood === 'inspirational';
-
-      // Montage scenes with short sub-shots → animated-still (Ken Burns)
-      const subShots = (scene as any).subShots || [];
-      const hasShortSubShots = subShots.length > 0 && subShots.every((s: any) => s.targetDurationSeconds <= 2);
-
-      if (hasShortSubShots && !isFirst && !isLast) {
-        (scene as any).assetRecommendation = 'animated-still';
-      } else if ((isFirst || isLast || hasVisualLanguage || isEmotionalPeak) && heroCount < maxHeroShots) {
-        (scene as any).assetRecommendation = 'ai-video';
-        heroCount++;
-      } else if (heroCount < maxHeroShots && sceneType === 'continuous') {
-        // Continuous scenes are good hero candidates
-        (scene as any).assetRecommendation = 'ai-video';
-        heroCount++;
-      } else {
-        (scene as any).assetRecommendation = 'animated-still';
+      // Graphics-only detection: data, charts, stats, SaaS UI, abstract concepts
+      const isGraphicsContent = /\b(chart|graph|diagram|infographic|data visual|stat|dashboard|ui screenshot|screen recording|abstract concept|numbers speak)\b/i.test(visual);
+      if (isGraphicsContent) {
+        (scene as any).assetRecommendation = 'graphics-only';
+        console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → graphics-only (data/chart content)`);
+        continue;
       }
 
-      console.log(`[SceneParser] Asset classification: scene ${idx} "${scene.title}" → ${(scene as any).assetRecommendation} (hero=${heroCount}/${maxHeroShots})`);
+      // ALL main scenes get ai-video. Sub-shots within montage get stock.
+      // The sub-shot asset type is handled at the sub-shot level in generate-videos,
+      // not here. Here we classify the SCENE (parent) level.
+      (scene as any).assetRecommendation = 'ai-video';
+
+      // Mark montage sub-shots for stock footage search
+      const subShots = (scene as any).subShots || [];
+      if (subShots.length > 0) {
+        for (const sub of subShots) {
+          // independentGeneration sub-shots should try stock video first
+          if (sub.independentGeneration) {
+            sub.assetRecommendation = 'stock'; // stock video search at generation time
+          }
+        }
+      }
+
+      console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → ai-video${subShots.length > 0 ? ` (${subShots.filter((s: any) => s.independentGeneration).length} sub-shots → stock)` : ''}`);
     }
   }
 
