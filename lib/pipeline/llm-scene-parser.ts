@@ -65,7 +65,7 @@ const SceneSchema = z.object({
   assetRecommendation: z.enum(['ai-video', 'stock', 'animated-still', 'graphics-only']).describe(`Asset source for this scene. DEFAULT is "ai-video" for all main scenes.
 - "ai-video": DEFAULT for all main scenes. AI generates a video clip from the storyboard image.
 - "stock": For montage sub-shots or generic b-roll. Will search free stock video libraries at generation time.
-- "animated-still": LAST RESORT. Only for logo-reveal, text-card, or explicit fallback. Ken Burns drift-zoom on storyboard image.
+- "animated-still": LAST RESORT. Only when both AI video and stock fail. Ken Burns drift-zoom on storyboard image.
 - "graphics-only": Data scenes (charts, infographics, SaaS UI). No video needed — motion graphics template.`),
 });
 
@@ -297,7 +297,7 @@ Classify EVERY scene with assetRecommendation. Hierarchy:
 
 1. "ai-video" — ALL main scenes get AI video generation. This is the DEFAULT.
 2. "stock" — Sub-shots within montage scenes. At generation time, we search free stock libraries (Pixabay/Pexels) for real footage matching the visual description. If no good stock found, falls back to AI video or animated-still.
-3. "animated-still" — LAST RESORT. Only for logo-reveal, text-card, or when both AI video and stock fail. Uses Ken Burns drift-zoom on the storyboard image.
+3. "animated-still" — LAST RESORT. Only when both AI video and stock fail. Uses Ken Burns drift-zoom on the storyboard image.
 4. "graphics-only" — Data-heavy scenes (charts, infographics, SaaS UI demos, abstract concepts). No video needed — motion graphics ARE the visual.
 
 IMPORTANT: Do NOT aggressively downgrade scenes to animated-still. Real video (AI or stock) almost always looks better than a zooming photo. animated-still is a fallback, not a strategy.
@@ -431,50 +431,44 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
   //   1. ALL main scenes → ai-video (hero shots). These are the primary visual moments.
   //   2. Sub-shots within montage scenes → stock (search Pixabay/Pexels for real footage).
   //      If stock search fails at runtime → fall back to animated-still (Ken Burns).
-  //   3. Logo-reveal / text-card → animated-still (Ken Burns on generated image).
+  //   3. animated-still (Ken Burns) → LAST RESORT only when AI video and stock both fail.
   //   4. Graphics-only (data, stats, SaaS demo) → graphics-only (no video needed).
   //
   // RULE: animated-still (Ken Burns) is LAST RESORT, not the default for non-hero scenes.
   // RULE: This must work for ALL content types — not just montage ads.
   if (object.scenes) {
     for (const scene of object.scenes) {
-      if ((scene as any).assetRecommendation) continue; // LLM already classified it
-
       const sceneType = (scene as any).sceneType || 'continuous';
       const visual = (scene.visualDescription || '').toLowerCase();
 
-      // Logo-reveal and text-card → animated-still (just image + subtle motion)
-      if (sceneType === 'logo-reveal' || sceneType === 'text-card') {
-        (scene as any).assetRecommendation = 'animated-still';
-        console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → animated-still (${sceneType})`);
-        continue;
-      }
-
       // Graphics-only detection: data, charts, stats, SaaS UI, abstract concepts
-      const isGraphicsContent = /\b(chart|graph|diagram|infographic|data visual|stat|dashboard|ui screenshot|screen recording|abstract concept|numbers speak)\b/i.test(visual);
-      if (isGraphicsContent) {
+      if (/\b(chart|graph|diagram|infographic|data visual|stat|dashboard|ui screenshot|screen recording|abstract concept|numbers speak)\b/i.test(visual)) {
         (scene as any).assetRecommendation = 'graphics-only';
         console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → graphics-only (data/chart content)`);
-        continue;
       }
 
-      // ALL main scenes get ai-video. Sub-shots within montage get stock.
-      // The sub-shot asset type is handled at the sub-shot level in generate-videos,
-      // not here. Here we classify the SCENE (parent) level.
-      (scene as any).assetRecommendation = 'ai-video';
+      // Default: all main scenes → ai-video
+      else if (!(scene as any).assetRecommendation) {
+        (scene as any).assetRecommendation = 'ai-video';
+      }
 
-      // Mark montage sub-shots for stock footage search
+      // ALWAYS mark montage sub-shots for stock footage search (even if LLM set scene-level field)
       const subShots = (scene as any).subShots || [];
       if (subShots.length > 0) {
         for (const sub of subShots) {
-          // independentGeneration sub-shots should try stock video first
-          if (sub.independentGeneration) {
-            sub.assetRecommendation = 'stock'; // stock video search at generation time
+          if (sub.independentGeneration && !sub.assetRecommendation) {
+            sub.assetRecommendation = 'stock';
           }
         }
+        const stockCount = subShots.filter((s: any) => s.assetRecommendation === 'stock').length;
+        if (stockCount > 0) {
+          console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → ${(scene as any).assetRecommendation} (${stockCount} sub-shots → stock)`);
+        } else {
+          console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → ${(scene as any).assetRecommendation}`);
+        }
+      } else {
+        console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → ${(scene as any).assetRecommendation}`);
       }
-
-      console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → ai-video${subShots.length > 0 ? ` (${subShots.filter((s: any) => s.independentGeneration).length} sub-shots → stock)` : ''}`);
     }
   }
 
