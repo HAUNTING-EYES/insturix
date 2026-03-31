@@ -437,6 +437,59 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
     }
   }
 
+  // ─── Post-process: auto-fill assetRecommendation if missing ──────────
+  // Gemini sometimes ignores new schema fields. Apply the KB's AS-001/AS-002 rules
+  // deterministically: hero shots (first, last, emotional peak) get ai-video,
+  // montage sub-shots <2s get animated-still, logo/text-card get animated-still.
+  if (object.scenes) {
+    const totalScenes = object.scenes.length;
+    const maxHeroShots = Math.max(2, Math.ceil(totalScenes * 0.35)); // 30-35% hero shots
+    let heroCount = 0;
+
+    for (const scene of object.scenes) {
+      if ((scene as any).assetRecommendation) continue; // LLM already classified it
+
+      const sceneType = (scene as any).sceneType || 'continuous';
+      const idx = scene.sceneIndex;
+      const narration = (scene.narration || '').toLowerCase();
+
+      // Rule: logo-reveal and text-card never need AI video
+      if (sceneType === 'logo-reveal' || sceneType === 'text-card') {
+        (scene as any).assetRecommendation = 'animated-still';
+        continue;
+      }
+
+      // Rule: first scene (hook) and last non-logo scene are hero shots
+      const isFirst = idx === 0;
+      const isLast = idx === totalScenes - 1 || (idx === totalScenes - 2 && (object.scenes[totalScenes - 1] as any).sceneType === 'logo-reveal');
+
+      // Rule: voiceover with specific visual language = hero
+      const hasVisualLanguage = /watch as|imagine|look at|see how|picture this/i.test(narration);
+
+      // Rule: emotional peak (dramatic/inspirational mood) = hero candidate
+      const isEmotionalPeak = scene.mood === 'dramatic' || scene.mood === 'inspirational';
+
+      // Montage scenes with short sub-shots → animated-still (Ken Burns)
+      const subShots = (scene as any).subShots || [];
+      const hasShortSubShots = subShots.length > 0 && subShots.every((s: any) => s.targetDurationSeconds <= 2);
+
+      if (hasShortSubShots && !isFirst && !isLast) {
+        (scene as any).assetRecommendation = 'animated-still';
+      } else if ((isFirst || isLast || hasVisualLanguage || isEmotionalPeak) && heroCount < maxHeroShots) {
+        (scene as any).assetRecommendation = 'ai-video';
+        heroCount++;
+      } else if (heroCount < maxHeroShots && sceneType === 'continuous') {
+        // Continuous scenes are good hero candidates
+        (scene as any).assetRecommendation = 'ai-video';
+        heroCount++;
+      } else {
+        (scene as any).assetRecommendation = 'animated-still';
+      }
+
+      console.log(`[SceneParser] Asset classification: scene ${idx} "${scene.title}" → ${(scene as any).assetRecommendation} (hero=${heroCount}/${maxHeroShots})`);
+    }
+  }
+
   // ─── Post-process: extract transitions from raw script ──────────
   // The LLM often outputs empty editDirections.transition even when the
   // script explicitly says "Transition: Hard cut to next scene" or "DISSOLVE TO".
