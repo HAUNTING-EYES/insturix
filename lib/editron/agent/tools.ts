@@ -3929,6 +3929,24 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           });
         }
 
+        // Validate storyboard exists and has the requested scene
+        try {
+          const { getStoryboard: getSb } = await import('@/lib/pipeline/storyboard-db');
+          const sb = await getSb(storyboardId, userId);
+          if (!sb) {
+            return JSON.stringify({ status: 'error', message: `Storyboard ${storyboardId} not found or unauthorized.` });
+          }
+          const sceneExists = sb.scenes?.some((s: any) => s.sceneIndex === input.sceneIndex);
+          if (!sceneExists) {
+            return JSON.stringify({
+              status: 'error',
+              message: `Scene ${input.sceneIndex} not found in storyboard (has ${sb.scenes?.length || 0} scenes, indices 0-${(sb.scenes?.length || 1) - 1}).`,
+            });
+          }
+        } catch (valErr: any) {
+          return JSON.stringify({ status: 'error', message: `Storyboard validation failed: ${valErr.message}` });
+        }
+
         const results: string[] = [];
 
         // Use deployment-specific URL (VERCEL_URL) to hit the correct preview deployment
