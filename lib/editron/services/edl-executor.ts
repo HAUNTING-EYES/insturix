@@ -403,6 +403,28 @@ function applyGraphic(
       break;
     }
 
+    case 'logo-reveal': {
+      // Centered brand logo text with cinematic reveal — for final scenes
+      left = canvas.width * 0.15;
+      top = canvas.height * 0.35;
+      width = canvas.width * 0.7;
+      height = canvas.height * 0.3;
+      html = `
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;">
+  <div style="animation:logoReveal 1.2s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
+    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:64px;font-weight:900;text-align:center;letter-spacing:-0.03em;text-shadow:0 4px 20px rgba(0,0,0,0.5);">
+      ${safeText}
+    </div>
+    <div style="width:80px;height:4px;background:linear-gradient(90deg,#FFD700,#FFA500);border-radius:2px;margin:16px auto 0;animation:barExpand 0.6s ease-out 0.4s both;"></div>
+  </div>
+</div>
+<style>
+@keyframes logoReveal { 0% { opacity:0; transform:scale(0.8) translateY(20px); } 50% { opacity:1; } 100% { opacity:1; transform:scale(1) translateY(0); } }
+@keyframes barExpand { 0% { width:0; } 100% { width:80px; } }
+</style>`;
+      break;
+    }
+
     case 'keyword-highlight':
     default: {
       // Compact pop-up keyword — for emphasis words, topic labels, highlights
