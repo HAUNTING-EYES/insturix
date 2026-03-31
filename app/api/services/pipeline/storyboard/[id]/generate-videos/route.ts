@@ -110,18 +110,57 @@ export async function POST(
       );
     }
 
-    // Deduct credits (3 credits per video clip)
+    // ─── Asset Type Classification: only generate AI video for hero shots ───
+    // Scenes with assetRecommendation != 'ai-video' skip video gen entirely.
+    // 'animated-still' scenes use Ken Burns on storyboard image (handled in finalize).
+    // 'stock' scenes will eventually search Pixabay/Pexels; for now treated as animated-still.
+    // 'graphics-only' scenes get motion graphics templates only (no video).
+    const aiVideoScenes = targetScenes.filter(s => {
+      const rec = (s.descriptor as any).assetRecommendation;
+      return !rec || rec === 'ai-video'; // default to ai-video if field missing (backward compat)
+    });
+    const skippedScenes = targetScenes.filter(s => {
+      const rec = (s.descriptor as any).assetRecommendation;
+      return rec && rec !== 'ai-video';
+    });
+    if (skippedScenes.length > 0) {
+      console.log(`[generate-videos] Asset strategy: ${aiVideoScenes.length} hero (ai-video) + ${skippedScenes.length} non-video (${skippedScenes.map(s => `scene ${s.sceneIndex}=${(s.descriptor as any).assetRecommendation}`).join(', ')})`);
+      // Mark skipped scenes in storyboard so finalize knows to use Ken Burns / graphics
+      for (const scene of skippedScenes) {
+        await updateStoryboardScene(storyboardId, scene.sceneIndex, {
+          videoSkipped: true,
+          videoSkipReason: (scene.descriptor as any).assetRecommendation,
+        });
+      }
+    }
+
+    // Deduct credits (3 credits per video clip) — only for ai-video scenes
     // A1 FIX: Atomic credit deduction — single call for all scenes
     // Montage scenes with independent sub-shots count as N clips, not 1
     const costPerVideo = 3;
     let totalVideoClips = 0;
-    for (const scene of targetScenes) {
+    for (const scene of aiVideoScenes) {
       const desc = scene.descriptor as any;
       const subShots = desc.subShots || [];
       const independentCount = subShots.filter((s: any) => s.independentGeneration).length;
       totalVideoClips += independentCount > 1 ? independentCount : 1;
     }
     const creditCost = totalVideoClips * costPerVideo;
+
+    // If ALL scenes are non-video (animated-still / stock / graphics-only), skip video gen entirely
+    // but still return success so finalize can proceed with Ken Burns / graphics
+    if (totalVideoClips === 0) {
+      console.log(`[generate-videos] All ${targetScenes.length} scenes are non-video assets — skipping video generation entirely`);
+      return NextResponse.json({
+        success: true,
+        batchId: `skip_${nanoid(8)}`,
+        totalScenes: targetScenes.length,
+        videoScenes: 0,
+        skippedScenes: skippedScenes.length,
+        message: 'All scenes use animated storyboard or graphics — no AI video generation needed',
+        creditCost: 0,
+      });
+    }
 
     const preCheck = await CreditsService.getBalance(userId);
     if (!preCheck || preCheck.totalCredits < creditCost) {
@@ -174,7 +213,7 @@ export async function POST(
     console.log(`[generate-videos] Building prompts for ${targetScenes.length} scenes (LLM=${useLLMRefinement}, model=${resolvedModel})`);
 
     // ─── Build ALL motion prompts upfront (fast: ~1-2s per scene with LLM) ────
-    const sortedScenes = [...targetScenes].sort((a, b) => a.sceneIndex - b.sceneIndex);
+    const sortedScenes = [...aiVideoScenes].sort((a, b) => a.sceneIndex - b.sceneIndex);
 
     interface SceneJob {
       sceneIndex: number;
@@ -479,10 +518,11 @@ export async function POST(
       batchId,
       storyboardId,
       totalScenes: sceneJobs.length,
+      skippedScenes: skippedScenes.length,
       videoModel: resolvedModel,
       creditsDeducted: creditCost,
       enqueueErrors,
-      message: `${sceneJobs.length} video scenes queued for parallel generation.`,
+      message: `${sceneJobs.length} hero video scenes queued for generation.${skippedScenes.length > 0 ? ` ${skippedScenes.length} scenes use animated storyboard/graphics (no AI video).` : ''}`,
     });
   } catch (error: any) {
     const errMsg = error?.message || 'Failed to generate videos';

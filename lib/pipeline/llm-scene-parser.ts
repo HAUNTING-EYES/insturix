@@ -62,6 +62,11 @@ const SceneSchema = z.object({
   primaryVisualForUnit: z.boolean().describe('true if this scene is the PRIMARY visual for its generation unit (the one that gets generated). false if this scene reuses/cuts from another scene\'s generated video.'),
   subShots: z.array(SubShotSchema).optional().describe('If the script describes multiple quick cuts within this scene\'s time window (e.g. "Quick cuts: A, B, C"), define sub-shots here.\n\nFor montage of DIFFERENT subjects: set independentGeneration=true on each sub-shot with its own visualDescription. Each generates a separate AI video clip (separate cost). Example: "child reaching" + "parent wiping" = 2 independent clips.\n\nFor montage of SAME subject: leave independentGeneration=false. Sub-shots cut from one generated clip. Example: "shoe sole detail" + "lacing detail" = one shoe clip, cut at sub-shot boundaries.\n\nLeave empty/omit for continuous scenes.'),
   sceneType: z.enum(['continuous', 'montage', 'logo-reveal', 'text-card', 'talking-head']).describe('Scene type: "continuous" = one unbroken shot, "montage" = rapid cuts (may have sub-shots with independent generation), "logo-reveal" = brand/logo moment, "text-card" = title/end card, "talking-head" = speaker on camera'),
+  assetRecommendation: z.enum(['ai-video', 'stock', 'animated-still', 'graphics-only']).describe(`Asset source for this scene based on cost optimization:
+- "ai-video": ONLY for hero shots — the emotional peak, the key product moment, the hook (first shot), the closer (last shot), or shots requiring specific compositions impossible to find in stock. Max 30-40% of total scenes.
+- "stock": Generic establishing shots, common human activities (walking, talking, eating, driving), cityscapes, nature, abstract b-roll. Will search Pixabay/Pexels.
+- "animated-still": Quick montage cuts (<2s), background/ambient shots, flashback moments. Uses Ken Burns drift-zoom on the generated storyboard image instead of AI video ($0.012 vs $0.35).
+- "graphics-only": Data-heavy scenes, SaaS product demos, abstract concepts, "the numbers speak" moments. No video needed — graphics ARE the visual.`),
 });
 
 const GlobalEditDirectionsSchema = z.object({
@@ -286,6 +291,27 @@ Target: ${options.targetDuration ? Math.ceil(options.targetDuration / 8) + '-' +
 - Title cards / logo reveals → own generation unit, sceneType: "logo-reveal", narration: ""
 - Text-on-screen / end cards → own unit, sceneType: "text-card"
 - Talking head with B-roll → split: talking-head unit + separate B-roll units
+
+## ASSET TYPE DECISION (CRITICAL — controls cost)
+Classify EVERY scene with assetRecommendation. This decides whether we spend $0.35 on AI video or $0.012 on animated storyboard.
+
+A scene is a "hero shot" (assetRecommendation="ai-video") if it meets ANY 2 of these:
+- Contains the decisive emotional moment of the video
+- Features the product/brand in a specific required composition
+- Is the FIRST shot of the video (the hook)
+- Is the LAST shot of the video (the lasting impression)
+- Requires a specific human action or interaction that stock can't provide
+- Is referenced by the voiceover with specific visual language ("watch as...", "imagine...", "look at...")
+
+Maximum hero shots: 30-40% of total scenes. A 7-scene video = 2-3 hero shots, NOT 7.
+
+Everything else:
+- Generic establishing/ambient/b-roll → "stock" (will search free stock libraries)
+- Quick montage cuts <2s, flashback, background → "animated-still" (Ken Burns on storyboard image)
+- Data/stats scenes, abstract concepts, SaaS demos → "graphics-only" (motion graphics template)
+- logo-reveal / text-card scenes → "animated-still" (no video gen needed)
+
+COST IMPACT: One stunning AI hero shot + animated storyboard for the rest = professional result at 70% less cost.
 
 ## DURATION
 If the script provides timestamps → calculate durationSeconds for each pipeline scene.

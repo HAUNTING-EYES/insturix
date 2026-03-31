@@ -86,13 +86,28 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
   // Helper: check if scene has montage sub-shots
   const hasMontageSubShots = (scene: any) => getSubShots(scene).length > 0;
 
-  // Helper: calculate total credits for a scene
+  // Helper: calculate total credits for a scene (asset-type aware)
   const getSceneCredits = (scene: any) => {
+    const assetRec = scene.descriptor?.assetRecommendation;
+    const imageCost = 2; // storyboard image gen
+    // animated-still / stock / graphics-only = no video gen cost
+    if (assetRec === 'animated-still' || assetRec === 'stock' || assetRec === 'graphics-only') {
+      return imageCost; // just image, no video
+    }
     const subs = getSubShots(scene);
     if (subs.length > 0 && !collapsedScenes.has(scene.sceneIndex)) {
-      return 2 + (subs.length * 3); // 2 for storyboard image + 3 per video
+      return imageCost + (subs.length * 3); // 2 for storyboard image + 3 per video
     }
-    return 2 + 3; // 2 for image + 3 for one video
+    return imageCost + 3; // 2 for image + 3 for one video
+  };
+
+  // Helper: get asset type label for display
+  const getAssetLabel = (scene: any): string | null => {
+    const rec = scene.descriptor?.assetRecommendation;
+    if (rec === 'animated-still') return 'Ken Burns';
+    if (rec === 'stock') return 'Stock';
+    if (rec === 'graphics-only') return 'Graphics';
+    return null; // ai-video is the default, no label needed
   };
 
   // Toggle sub-shot expansion
@@ -126,6 +141,8 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
   // Calculate total credits for all scenes
   const totalCredits = scenes.reduce((sum: number, s: any) => sum + getSceneCredits(s), 0);
   const totalVideoCredits = scenes.reduce((sum: number, s: any) => {
+    const assetRec = s.descriptor?.assetRecommendation;
+    if (assetRec === 'animated-still' || assetRec === 'stock' || assetRec === 'graphics-only') return sum;
     const subs = getSubShots(s);
     if (subs.length > 0 && !collapsedScenes.has(s.sceneIndex)) return sum + (subs.length * 3);
     return sum + 3;
@@ -634,6 +651,9 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                   <div key={s.sceneIndex} className="flex items-center justify-between text-xs">
                     <span className="truncate max-w-[200px]">
                       {s.descriptor.title || `Scene ${s.sceneIndex + 1}`}
+                      {getAssetLabel(s) && (
+                        <span className="text-blue-400 ml-1 text-[10px] font-medium">[{getAssetLabel(s)}]</span>
+                      )}
                       {subs.length > 0 && !isCollapsed && (
                         <span className="text-amber-500 ml-1">×{subs.length} shots</span>
                       )}

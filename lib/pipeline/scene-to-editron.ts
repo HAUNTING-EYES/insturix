@@ -258,7 +258,16 @@ export function scenesToOverlays(
       });
     }
 
-    currentFrame += sceneDurationFrames;
+    // Advance timeline cursor.
+    // For montage sub-shots: use the ACTUAL total sub-shot duration, not the scene's durationSeconds.
+    // Scene durationSeconds can be shorter than the sum of sub-shot durations (e.g., scene=5s but 3 sub-shots × 3s = 9s).
+    // Using the shorter value causes the NEXT scene to overlap the last sub-shots → interleaving bug.
+    if (sceneType === 'montage' && subShots.length > 0) {
+      const totalSubDur = subShots.reduce((sum: number, s: SubShot) => sum + Math.round(s.targetDurationSeconds * fps), 0);
+      currentFrame += Math.max(totalSubDur, sceneDurationFrames);
+    } else {
+      currentFrame += sceneDurationFrames;
+    }
   }
 
   return overlays;
@@ -268,7 +277,15 @@ export function scenesToOverlays(
  * Calculate total duration in frames from a scenes array.
  */
 export function scenesToTotalFrames(scenes: SceneDescriptor[], fps: number): number {
-  return scenes.reduce((sum, s) => sum + Math.round(s.durationSeconds * fps), 0);
+  return scenes.reduce((sum, s) => {
+    const subShots = (s as any).subShots || [];
+    const sceneType = (s as any).sceneType || 'continuous';
+    if (sceneType === 'montage' && subShots.length > 0) {
+      const totalSubDur = subShots.reduce((subSum: number, sub: any) => subSum + Math.round(sub.targetDurationSeconds * fps), 0);
+      return sum + Math.max(totalSubDur, Math.round(s.durationSeconds * fps));
+    }
+    return sum + Math.round(s.durationSeconds * fps);
+  }, 0);
 }
 
 // ─── Beat-Synced Cutting ──────────────────────────────────────────

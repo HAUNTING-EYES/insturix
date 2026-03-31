@@ -649,6 +649,13 @@ export function ExportToEditronDialog({
             throw new Error(errorDetail);
           }
 
+          // ─── Handle all-skip mode (all scenes use animated storyboard / graphics) ──────
+          if (enqueueData.videoScenes === 0 && enqueueData.skippedScenes > 0) {
+            console.log(`[ExportToEditron] All ${enqueueData.skippedScenes} scenes use animated storyboard/graphics — no video gen needed`);
+            setVideoProgress({ done: enqueueData.skippedScenes, total: enqueueData.skippedScenes });
+            setVideosGenerated(true); // allow finalize to proceed
+            // Skip polling — go straight to voiceover
+          } else
           // ─── Handle direct fallback mode (Redis unavailable) ──────
           if (enqueueData.async === false && enqueueData.isComplete) {
             // Direct generation completed — no polling needed

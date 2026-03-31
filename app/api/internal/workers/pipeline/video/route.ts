@@ -83,6 +83,7 @@ async function handler(request: NextRequest) {
       videoUrl: result.videoUrl,
       videoAssetId: result.assetId,
       videoGcsPath: result.gcsPath,
+      videoR2Key: result.r2Key || result.assetId || null,
       videoProvider: result.provider || 'fal-ai',
       videoDurationMs: result.durationMs || (durationSeconds * 1000),
     });

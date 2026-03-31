@@ -172,26 +172,101 @@ export async function POST(
       // Scene background: Only add storyboard image when NO video exists.
       // Storyboard is a stencil for consistency — not needed on the timeline
       // when a real video clip is present.
-      if (scene.imageUrl && !scene.videoUrl) {
+      // ─── Asset Type Routing ─────────────────────────────────
+      // Scenes classified as animated-still/stock/graphics-only skip AI video.
+      // They use Ken Burns (drift-zoom) on the storyboard image for a cinematic feel.
+      const assetRec = descriptor.assetRecommendation || 'ai-video';
+      const isAnimatedStill = assetRec === 'animated-still' || assetRec === 'stock' || (scene as any).videoSkipped;
+      const isGraphicsOnly = assetRec === 'graphics-only';
+
+      if (isAnimatedStill && scene.imageUrl && !scene.videoUrl) {
+        // Ken Burns drift-zoom: 1.0x → 1.06x scale over scene duration (RULE Z-030)
+        // Adds gentle directional drift for cinematic motion
+        const kenBurnsId = overlayId++;
+        const zoomStart = 1.0;
+        const zoomEnd = 1.06;
+        // Randomize drift direction per scene for visual variety
+        const driftDirections = [
+          { xStart: 0, yStart: 0, xEnd: -8, yEnd: -5 },   // drift top-left
+          { xStart: 0, yStart: 0, xEnd: 8, yEnd: -5 },    // drift top-right
+          { xStart: -5, yStart: -3, xEnd: 5, yEnd: 3 },   // drift center-right
+          { xStart: 5, yStart: -3, xEnd: -5, yEnd: 3 },   // drift center-left
+        ];
+        const drift = driftDirections[scene.sceneIndex % driftDirections.length];
+
+        overlays.push({
+          id: kenBurnsId,
+          type: 'image',
+          from: currentFrame,
+          durationInFrames: durationFrames,
+          row: ROW.VIDEO,
+          left: 0, top: 0, width, height,
+          isDragging: false, rotation: 0,
+          content: scene.imageUrl,
+          src: scene.imageUrl,
+          assetId: scene.imageAssetId,
+          styles: { objectFit: 'cover', opacity: 1 },
+          metadata: {
+            sceneIndex: scene.sceneIndex,
+            assetType: assetRec,
+            kenBurns: true,
+          },
+          // Ken Burns keyframes: scale + position drift over the scene duration
+          keyframeTracks: [
+            {
+              property: 'scale' as any,
+              keyframes: [
+                { frame: 0, value: zoomStart, easing: 'linear' as const },
+                { frame: durationFrames, value: zoomEnd, easing: 'linear' as const },
+              ],
+            },
+            {
+              property: 'x' as any,
+              keyframes: [
+                { frame: 0, value: drift.xStart, easing: 'linear' as const },
+                { frame: durationFrames, value: drift.xEnd, easing: 'linear' as const },
+              ],
+            },
+            {
+              property: 'y' as any,
+              keyframes: [
+                { frame: 0, value: drift.yStart, easing: 'linear' as const },
+                { frame: durationFrames, value: drift.yEnd, easing: 'linear' as const },
+              ],
+            },
+          ],
+        });
+      } else if (isGraphicsOnly && !scene.videoUrl) {
+        // Graphics-only scenes: no video/image, just motion graphics.
+        // Director will add graphics templates. Place minimal transparent placeholder.
         overlays.push({
           id: overlayId++,
           type: 'image',
           from: currentFrame,
           durationInFrames: durationFrames,
-          row: ROW.VIDEO, // Image on video row (no video exists for this scene)
-          left: 0,
-          top: 0,
-          width,
-          height,
-          isDragging: false,
-          rotation: 0,
+          row: ROW.VIDEO,
+          left: 0, top: 0, width, height,
+          isDragging: false, rotation: 0,
+          content: scene.imageUrl || '', // storyboard image as fallback background
+          src: scene.imageUrl || '',
+          assetId: scene.imageAssetId,
+          styles: { objectFit: 'cover', opacity: scene.imageUrl ? 1 : 0 },
+          metadata: { sceneIndex: scene.sceneIndex, assetType: 'graphics-only' },
+        });
+      } else if (scene.imageUrl && !scene.videoUrl) {
+        // Standard image fallback (no asset classification, backward compat)
+        overlays.push({
+          id: overlayId++,
+          type: 'image',
+          from: currentFrame,
+          durationInFrames: durationFrames,
+          row: ROW.VIDEO,
+          left: 0, top: 0, width, height,
+          isDragging: false, rotation: 0,
           content: scene.imageUrl,
           src: scene.imageUrl,
           assetId: scene.imageAssetId,
-          styles: {
-            objectFit: 'cover',
-            opacity: 1,
-          },
+          styles: { objectFit: 'cover', opacity: 1 },
         });
       }
 
@@ -271,7 +346,20 @@ export async function POST(
         durationSec: sceneDurationSec,
       });
 
-      currentFrame += durationFrames;
+      // Advance timeline cursor.
+      // For montage sub-shots: use the ACTUAL total sub-shot duration if it exceeds
+      // the scene duration. Otherwise the next scene overlaps the last sub-shots.
+      if (hasIndependentSubShots && subShots.length > 0) {
+        const totalSubFrames = subShots
+          .filter((s: any) => s.independentGeneration)
+          .reduce((sum: number, s: any) => {
+            const dur = Math.round((s.videoDurationMs ? s.videoDurationMs / 1000 : s.targetDurationSeconds) * fps);
+            return sum + (dur > 0 ? dur : 150);
+          }, 0);
+        currentFrame += Math.max(totalSubFrames, durationFrames);
+      } else {
+        currentFrame += durationFrames;
+      }
     }
 
     // Register all media assets in the mediaAssets collection so the

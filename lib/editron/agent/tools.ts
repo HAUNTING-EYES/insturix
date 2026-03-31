@@ -4966,9 +4966,57 @@ Examples:
         const falKey = process.env.FAL_AI_API_KEY;
         if (falKey) fal.config({ credentials: falKey });
 
-        // ─── Priority 1: mirelo video-to-audio (if scene has video) ─
+        // ─── Priority 1: Freesound library search (real recorded SFX, free, CC-licensed) ─
+        // Best quality: professional recorded sounds. Always try first.
+        if (!audioUrl) {
+          const baseUrl = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+
+          const queries = [input.query];
+          if (input.query.includes(' ')) {
+            queries.push(...input.query.split(' ').filter(w => w.length > 2));
+          }
+
+          for (const q of queries) {
+            if (audioUrl) break;
+            try {
+              const searchRes = await fetch(`${baseUrl}/api/services/editron/sfx-library/search?q=${encodeURIComponent(q)}&limit=3`);
+              const searchData = await searchRes.json().catch(() => ({ results: [] }));
+              if (searchData.results?.length > 0) {
+                const sfx = searchData.results[0];
+                let buffer: Buffer | null = null;
+                for (let attempt = 0; attempt < 2; attempt++) {
+                  try {
+                    const audioRes = await fetch(sfx.url);
+                    if (audioRes.ok) {
+                      buffer = Buffer.from(await audioRes.arrayBuffer());
+                      break;
+                    }
+                  } catch (err) { console.warn('[add_sfx] Freesound fetch attempt:', err); }
+                }
+                if (buffer && buffer.length >= 100) {
+                  const ext = sfx.url.includes('.wav') ? 'wav' : 'mp3';
+                  const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`, { customAssetId: assetId });
+                  if (uploadResult?.signedUrl) {
+                    audioUrl = uploadResult.signedUrl;
+                    gcsPath = uploadResult.gcsPath;
+                    sfxTitle = sfx.title || input.query;
+                    sfxDuration = sfx.duration || durationSec;
+                    sfxSource = 'freesound';
+                    console.log(`[add_sfx] Freesound success: ${assetId} — "${sfxTitle}"`);
+                  }
+                }
+              }
+            } catch (fsErr: any) {
+              console.warn(`[add_sfx] Freesound search failed for "${q}": ${fsErr.message}`);
+            }
+          }
+        }
+
+        // ─── Priority 2: mirelo video-to-audio (if scene has video) ─
         // Uses the actual video clip + text prompt for context-aware SFX.
-        // Best quality: understands what's happening visually.
+        // Good for scene-specific atmosphere but lower quality than recorded SFX.
         if (!audioUrl && falKey && targetSceneVideo) {
           const videoSrc = targetSceneVideo.src || targetSceneVideo.content;
           if (videoSrc) {
@@ -5015,7 +5063,7 @@ Examples:
           }
         }
 
-        // ─── Priority 2: CassetteAI text-to-SFX (always available) ─
+        // ─── Priority 3: CassetteAI text-to-SFX (always available) ─
         // Text-only generation. Works for any query, $0.02/min.
         if (!audioUrl && falKey) {
           try {
@@ -5057,61 +5105,10 @@ Examples:
           }
         }
 
-        // ─── Priority 2: Freesound library search (free, CC-licensed) ─
+        // Old Freesound block removed — now runs as Priority 1 above mirelo.
+
         if (!audioUrl) {
-          const baseUrl = process.env.VERCEL_URL
-            ? `https://${process.env.VERCEL_URL}`
-            : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-
-          const queries = [input.query];
-          if (input.query.includes(' ')) {
-            queries.push(...input.query.split(' ').filter(w => w.length > 2));
-          }
-
-          for (const q of queries) {
-            try {
-              const searchRes = await fetch(`${baseUrl}/api/services/editron/sfx-library/search?q=${encodeURIComponent(q)}&limit=3`);
-              const searchData = await searchRes.json().catch(() => ({ results: [] }));
-              if (searchData.results?.length > 0) {
-                const sfx = searchData.results[0];
-                // Download with retry
-                let buffer: Buffer | null = null;
-                for (let attempt = 0; attempt < 3; attempt++) {
-                  try {
-                    const audioRes = await fetch(sfx.url);
-                    if (audioRes.ok) {
-                      buffer = Buffer.from(await audioRes.arrayBuffer());
-                      break;
-                    }
-                  } catch (err) { console.error('[add_sfx] Freesound fetch attempt error:', err); }
-                  if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
-                }
-                // Validate audio format before uploading
-                const validFreesound = buffer && buffer.length >= 100 && (
-                  (buffer[0] === 0x52 && buffer[1] === 0x49) || // WAV
-                  (buffer[0] === 0x49 && buffer[1] === 0x44) || // MP3 ID3
-                  (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG
-                  (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
-                );
-                if (validFreesound) {
-                  const uploadResult = await uploadMedia(buffer!, userId, `${assetId}.mp3`, 'audio/mpeg', { customAssetId: assetId });
-                  if (uploadResult?.signedUrl) {
-                    audioUrl = uploadResult.signedUrl;
-                    gcsPath = uploadResult.gcsPath;
-                    sfxTitle = sfx.title;
-                    sfxDuration = sfx.duration || durationSec;
-                    sfxSource = 'freesound';
-                    console.log(`[add_sfx] Freesound hit: "${sfx.title}"`);
-                    break;
-                  }
-                }
-              }
-            } catch (err) { console.error('[add_sfx] Freesound search/upload error:', err); }
-          }
-        }
-
-        if (!audioUrl || !gcsPath) {
-          return JSON.stringify({ status: 'error', message: `Could not generate or find SFX for "${input.query}". mirelo AI generation and Freesound search both failed. Try a different description.` });
+          return JSON.stringify({ status: 'error', message: `Could not find or generate SFX for "${input.query}". Freesound search, mirelo AI, and CassetteAI all failed. Try a different description.` });
         }
 
         // Register as media asset for URL resolution
@@ -5164,9 +5161,11 @@ Examples:
       name: 'add_sfx',
       description: `Add a sound effect to the timeline using AI generation.
 
-PRIORITY: If user mentions a scene, ALWAYS pass sceneIndex — this enables mirelo video-to-audio
-which analyzes the actual video clip and generates perfectly synced SFX.
-Fallback: CassetteAI text-to-audio, then Freesound library search.
+PRIORITY ORDER:
+1. Freesound library search (real recorded SFX, professional quality, CC-licensed)
+2. mirelo video-to-audio (if sceneIndex provided — analyzes actual video for context-aware SFX)
+3. CassetteAI text-to-audio (AI-generated fallback)
+If user mentions a scene, ALWAYS pass sceneIndex — this enables mirelo as a secondary option.
 
 ALWAYS use this tool when the user asks to "add sound effect", "add SFX", "add audio clip", etc.
 NEVER use addOverlay for sound effects — it creates fake assets that can't play.
