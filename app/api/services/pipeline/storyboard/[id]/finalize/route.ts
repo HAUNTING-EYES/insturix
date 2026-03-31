@@ -126,11 +126,14 @@ export async function POST(
         let subFrame = currentFrame;
         for (const sub of subShots) {
           if (!sub.independentGeneration) continue;
-          // C5 FIX: Validate subDur is not NaN or <= 0, default to 150 frames (5s at 30fps)
-          let subDur = Math.round((sub.videoDurationMs ? sub.videoDurationMs / 1000 : sub.targetDurationSeconds) * fps);
+          // Sub-shot duration = targetDurationSeconds (how long to SHOW this cut),
+          // NOT videoDurationMs (how long the AI clip is). A 5s AI clip shown for 1.3s
+          // means we play only the first 1.3s. Using videoDurationMs here caused
+          // sub-shots to play the FULL 5s clip → video "repeating" + timeline bloat (75s instead of 30s).
+          let subDur = Math.round((sub.targetDurationSeconds || 3) * fps);
           if (!subDur || isNaN(subDur) || subDur <= 0) {
-            console.warn(`[Finalize] Scene ${scene.sceneIndex} sub-shot: invalid duration (videoDurationMs=${sub.videoDurationMs}, targetDurationSeconds=${sub.targetDurationSeconds}), defaulting to 5s (150 frames)`);
-            subDur = 150; // 5s at 30fps
+            console.warn(`[Finalize] Scene ${scene.sceneIndex} sub-shot: invalid duration (targetDurationSeconds=${sub.targetDurationSeconds}), defaulting to 3s (90 frames)`);
+            subDur = 90; // 3s at 30fps
           }
           // Asset priority: AI video → cached stock video → storyboard image (Ken Burns last resort)
           const stockVideo = sub.cachedStockVideo;

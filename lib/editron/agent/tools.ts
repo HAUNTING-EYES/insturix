@@ -2053,7 +2053,7 @@ Use this to understand what exists. Then decide what to do based on user intent.
         const voiceoverOverlay = project.overlays.find((o: any) => {
           if (o.type !== 'sound') return false;
           // Match by: same time range (within 30 frames tolerance) AND on voiceover row (4) or has voiceover_ assetId
-          const isVoiceover = o.row === 4 || (o.assetId || '').startsWith('voiceover_');
+          const isVoiceover = o.row === 3 || (o.assetId || '').startsWith('voiceover_');
           if (!isVoiceover) return false;
           const oEnd = o.from + o.durationInFrames;
           // Check time overlap (not exact match — overlays may differ by a few frames)
@@ -3571,7 +3571,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
 
         // Find voiceover/caption overlays for narration context
         const voOverlays = project.overlays.filter((o: any) =>
-          o.type === 'sound' && (o.row === 4 || (o.assetId || '').startsWith('voiceover_')),
+          o.type === 'sound' && (o.row === 3 || (o.assetId || '').startsWith('voiceover_')),
         );
         const captionOverlays = project.overlays.filter((o: any) => o.type === 'caption');
 
