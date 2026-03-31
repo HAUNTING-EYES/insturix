@@ -51,7 +51,7 @@ const SceneSchema = z.object({
   visualDescription: z.string().describe('Static image prompt: ONE primary subject, ONE setting, ONE frozen moment. This generates a SINGLE photograph.\n\nBAD: "A family sharing a meal, a grandparent smiling at a grandchild, friends laughing over lunch" — this is 3 different shots, will produce a collage.\nGOOD: "A grandmother smiling warmly at her young grandchild across a McDonald\'s table, warm golden overhead lighting, soft bokeh background" — ONE moment, ONE camera position.\n\nPick the HERO moment from the script. Other visual beats become separate scenes or sub-shots.'),
   videoMotionPrompt: z.string().describe('Video animation prompt: how this still frame comes to life. Camera movement (dolly, pan, orbit), subject micro-motion, atmospheric effects (particles, light shifts, fabric movement). Keep subtle and cinematic.'),
   audioDescription: z.string().describe('Background audio/sound effects for this scene (not voiceover): ambient sounds, music mood, sfx.'),
-  durationSeconds: z.number().describe('Total duration this generation unit occupies in the final video (sum of all sub-shot durations if sub-shots exist). Minimum 3s. No maximum — use the script timestamps or narration length to determine duration. A tutorial step might be 30s, an interview segment 60s+.'),
+  durationSeconds: z.number().describe('Total duration this generation unit occupies in the final video (sum of all sub-shot durations if sub-shots exist). Minimum 3s for AI video quality. For short-form (under 60s): typical scene is 3-8s. For long-form: scenes can be 10-60s+ based on script timestamps or narration length.'),
   mood: z.enum(['energetic', 'calm', 'serious', 'playful', 'mysterious', 'dramatic', 'inspirational', 'neutral']).describe('Scene mood based on actual content: energetic=action/montage/high-energy, calm=gentle/reflective/slow moments, serious=corporate/formal/grave, playful=fun/light/humorous, mysterious=suspense/unknown/moody, dramatic=emotional-peak/conflict/revelation, inspirational=uplifting/triumph/brand-aspiration, neutral=informational/transitional. Vary based on what happens in each scene — do NOT assign the same mood to every scene.'),
   imageQualityTokens: z.string().describe('Style-appropriate quality descriptors for the image. E.g. for cinematic: "35mm film grain, shallow depth of field, anamorphic lens". For anime: "cel-shaded, clean linework, vibrant saturation". Tailor to the art style.'),
   videoQualityTokens: z.string().describe('Style-appropriate quality descriptors for the video. E.g. for cinematic: "smooth cinematic footage, film grain, professional color grade". For anime: "fluid animation, consistent character model, clean frames". Tailor to the art style.'),
@@ -62,11 +62,7 @@ const SceneSchema = z.object({
   primaryVisualForUnit: z.boolean().describe('true if this scene is the PRIMARY visual for its generation unit (the one that gets generated). false if this scene reuses/cuts from another scene\'s generated video.'),
   subShots: z.array(SubShotSchema).optional().describe('If the script describes multiple quick cuts within this scene\'s time window (e.g. "Quick cuts: A, B, C"), define sub-shots here.\n\nFor montage of DIFFERENT subjects: set independentGeneration=true on each sub-shot with its own visualDescription. Each generates a separate AI video clip (separate cost). Example: "child reaching" + "parent wiping" = 2 independent clips.\n\nFor montage of SAME subject: leave independentGeneration=false. Sub-shots cut from one generated clip. Example: "shoe sole detail" + "lacing detail" = one shoe clip, cut at sub-shot boundaries.\n\nLeave empty/omit for continuous scenes.'),
   sceneType: z.enum(['continuous', 'montage', 'logo-reveal', 'text-card', 'talking-head']).describe('Scene type: "continuous" = one unbroken shot, "montage" = rapid cuts (may have sub-shots with independent generation), "logo-reveal" = brand/logo moment, "text-card" = title/end card, "talking-head" = speaker on camera'),
-  assetRecommendation: z.enum(['ai-video', 'stock', 'animated-still', 'graphics-only']).describe(`Asset source for this scene. DEFAULT is "ai-video" for all main scenes.
-- "ai-video": DEFAULT for all main scenes. AI generates a video clip from the storyboard image.
-- "stock": For montage sub-shots or generic b-roll. Will search free stock video libraries at generation time.
-- "animated-still": LAST RESORT. Only when both AI video and stock fail. Ken Burns drift-zoom on storyboard image.
-- "graphics-only": Data scenes (charts, infographics, SaaS UI). No video needed — motion graphics template.`),
+  assetRecommendation: z.enum(['ai-video', 'stock', 'animated-still', 'graphics-only']).describe(`Almost always "ai-video". Only use "graphics-only" for data/chart/infographic scenes. The system handles stock and animated-still automatically — you should not set those.`),
 });
 
 const GlobalEditDirectionsSchema = z.object({
@@ -278,7 +274,7 @@ Example for McDonald's "0:00-0:04 — Quick cuts: child reaching for toy, kids o
 - Same setting, related subjects (family members at same table) → ONE unit
 - Progressive reveal of same scene (wide → close-up) → ONE unit
 
-Target: ${options.targetDuration ? Math.ceil(options.targetDuration / 8) + '-' + Math.ceil(options.targetDuration / 4) : '4-8'} generation units for a ${options.targetDuration || '30-60'}-second video.
+HARD LIMIT: ${options.targetDuration ? Math.ceil(options.targetDuration / 8) + '-' + Math.ceil(options.targetDuration / 4) : '4-8'} generation units (scenes) for a ${options.targetDuration || '30-60'}-second video. NEVER exceed ${options.targetDuration ? Math.ceil(options.targetDuration / 2) : '15'} scenes — use montage sub-shots instead of creating separate scenes for each visual beat. Each scene = $0.35 AI video cost. 19 scenes for a 30s video = $6.65 = UNACCEPTABLE.
 
 ### Scene types:
 - "continuous" — one unbroken shot, no cuts needed
@@ -292,15 +288,13 @@ Target: ${options.targetDuration ? Math.ceil(options.targetDuration / 8) + '-' +
 - Text-on-screen / end cards → own unit, sceneType: "text-card"
 - Talking head with B-roll → split: talking-head unit + separate B-roll units
 
-## ASSET TYPE DECISION (CRITICAL — controls cost)
-Classify EVERY scene with assetRecommendation. Hierarchy:
+## ASSET TYPE DECISION
+Set assetRecommendation for each scene. Default is "ai-video" for most scenes.
+- "ai-video": Default. AI generates a video clip.
+- "graphics-only": ONLY for data/chart/infographic/SaaS-UI scenes where motion graphics ARE the visual.
+Do NOT change this from "ai-video" unless the scene is explicitly data/chart content. The post-processor handles the rest.
 
-1. "ai-video" — ALL main scenes get AI video generation. This is the DEFAULT.
-2. "stock" — Sub-shots within montage scenes. At generation time, we search free stock libraries (Pixabay/Pexels) for real footage matching the visual description. If no good stock found, falls back to AI video or animated-still.
-3. "animated-still" — LAST RESORT. Only when both AI video and stock fail. Uses Ken Burns drift-zoom on the storyboard image.
-4. "graphics-only" — Data-heavy scenes (charts, infographics, SaaS UI demos, abstract concepts). No video needed — motion graphics ARE the visual.
-
-IMPORTANT: Do NOT aggressively downgrade scenes to animated-still. Real video (AI or stock) almost always looks better than a zooming photo. animated-still is a fallback, not a strategy.
+CRITICAL: This field does NOT affect scene grouping. Still use sub-shots and generation units as described above. A montage with 3 sub-shots is ONE scene with ONE generationUnitId, not 3 separate scenes.
 
 ## DURATION
 If the script provides timestamps → calculate durationSeconds for each pipeline scene.
@@ -422,6 +416,28 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
             }
           }
         }
+      }
+    }
+  }
+
+  // ─── Post-process: scene count sanity check ──────────────────────────
+  // If Gemini over-decomposed (e.g., 19 scenes for 30s video), warn.
+  // This happens when the LLM splits every visual beat into its own scene
+  // instead of grouping them as montage sub-shots within a parent scene.
+  // We log the warning but don't auto-merge (would break scene references).
+  if (object.scenes) {
+    const totalDur = object.totalDurationSeconds || object.scenes.reduce((s: number, sc: any) => s + (sc.durationSeconds || 5), 0);
+    const maxReasonableScenes = Math.max(8, Math.ceil(totalDur / 3)); // ~1 scene per 3s minimum
+    if (object.scenes.length > maxReasonableScenes) {
+      console.warn(`[SceneParser] ⚠️ Scene count (${object.scenes.length}) is high for ${totalDur}s video (expected ≤${maxReasonableScenes}). LLM may have over-decomposed instead of using sub-shots.`);
+    }
+    // Enforce minimum scene duration of 3s for AI video quality
+    // Scenes under 3s will produce bad AI video — merge duration up
+    for (const scene of object.scenes) {
+      if (scene.durationSeconds < 3 && (scene as any).sceneType !== 'montage') {
+        const original = scene.durationSeconds;
+        scene.durationSeconds = 3;
+        console.log(`[SceneParser] Duration fix: scene ${scene.sceneIndex} "${scene.title}" ${original}s → 3s (minimum for AI video quality)`);
       }
     }
   }
