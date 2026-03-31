@@ -107,6 +107,7 @@ export async function POST(request: NextRequest) {
           ...((s as any).sceneType && { sceneType: (s as any).sceneType }),
           ...((s as any).generationUnitId && { generationUnitId: (s as any).generationUnitId }),
           ...((s as any).primaryVisualForUnit !== undefined && { primaryVisualForUnit: (s as any).primaryVisualForUnit }),
+          ...((s as any).assetRecommendation && { assetRecommendation: (s as any).assetRecommendation }),
         }));
         overallMusicPrompt = llmResult.overallMusicPrompt || '';
         characterDescriptions = llmResult.characterDescriptions || {};
