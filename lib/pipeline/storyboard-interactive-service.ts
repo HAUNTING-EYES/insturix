@@ -361,8 +361,10 @@ export async function regenerateWithContext(
 
       const descriptor = { ...scene.descriptor };
       if (feedback) {
-        // Put the feedback FIRST so the model prioritizes it over the original description
-        descriptor.visualDescription = `[APPLY THESE CHANGES: ${feedback}] — Original scene: ${descriptor.visualDescription}`;
+        // Rewrite the visual description to incorporate feedback directly.
+        // Text-to-image models don't understand instruction formats like "[APPLY CHANGES: ...]"
+        // They need the FINAL desired visual description, not editing instructions.
+        descriptor.visualDescription = `${descriptor.visualDescription}. Important: ${feedback}.`;
       }
 
       prompt = buildStoryboardPrompt(
@@ -372,9 +374,18 @@ export async function regenerateWithContext(
         storyboard.scenes.length,
       );
 
-      // Use the current scene image as reference for editing
-      referenceUrl = options.referenceImageUrl || scene.imageUrl;
-      useReference = !!referenceUrl;
+      // Check if feedback changes composition (people count, subject, layout).
+      // If so, DON'T use original image as reference — it has the WRONG composition
+      // and IP-adapter will reproduce it regardless of text prompt.
+      const changesComposition = feedback ? /\b(\d+\s+people|\d+\s+person|fewer|more|less|remove|add|only\s+\d+|just\s+\d+|single|alone|group|crowd)\b/i.test(feedback) : false;
+      if (changesComposition) {
+        console.log(`[StoryboardRegen] Scene ${sceneIndex}: EDIT mode, composition change detected — NOT using original as reference`);
+        referenceUrl = undefined;
+        useReference = false;
+      } else {
+        referenceUrl = options.referenceImageUrl || scene.imageUrl;
+        useReference = !!referenceUrl;
+      }
     }
 
     let result: any;
