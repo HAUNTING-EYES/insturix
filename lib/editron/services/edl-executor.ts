@@ -162,7 +162,7 @@ async function applyDecision(
       return null;
 
     case 'camera-shake':
-      return applyCameraShake(decision, overlays);
+      return applyCameraShake(decision, overlays, canvas);
 
     default:
       return null;
@@ -172,6 +172,7 @@ async function applyDecision(
 function applyCameraShake(
   decision: EditDecision,
   overlays: Overlay[],
+  canvas: { width: number; height: number } = { width: 1920, height: 1080 },
 ): { created: number; modified: number } | null {
   const intensity = decision.params?.intensity || 0.3;
   const durationFrames = decision.durationFrames || 10;
@@ -189,7 +190,7 @@ function applyCameraShake(
   const xKeyframes: any[] = [{ frame: relativeStart, value: 0, easing: 'linear' }];
   const yKeyframes: any[] = [{ frame: relativeStart, value: 0, easing: 'linear' }];
 
-  const maxOffset = intensity * 15; // pixels
+  const maxOffset = intensity * canvas.width * 0.01; // 1% of canvas width (scales with resolution)
   for (let i = 1; i <= shakeFrames; i++) {
     const decay = 1 - (i / shakeFrames); // decay over time
     const xOff = (Math.random() - 0.5) * 2 * maxOffset * decay;
@@ -340,11 +341,25 @@ function applyGraphic(
   const { graphicType, text, position } = decision.params;
   if (!text) return null;
 
-  const duration = decision.durationFrames || 90;
+  // Type-specific durations (not one-size-fits-all)
+  const GRAPHIC_DURATIONS: Record<string, number> = {
+    'stat-counter': 120,      // 4s — needs counting animation + read time
+    'keyword-highlight': 60,  // 2s — brief pop
+    'lower-third': 90,        // 3s — name/title read time
+    'quote-card': 120,        // 4s — full sentence read time
+    'logo-reveal': 120,       // 4s — brand moment
+    'callout': 75,            // 2.5s — brief label
+  };
+  const duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
   const safeText = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  // Position + dimensions per graphic type
-  let left = canvas.width * 0.05;
+  // Aspect-ratio-aware positioning
+  const isPortrait = canvas.height > canvas.width;
+  const isSquare = Math.abs(canvas.width - canvas.height) < 100;
+  const safeMargin = canvas.width * 0.05;
+
+  // Position + dimensions per graphic type (responsive)
+  let left = safeMargin;
   let top = canvas.height * 0.8;
   let width = canvas.width * 0.4;
   let height = 80;
@@ -355,10 +370,10 @@ function applyGraphic(
   switch (graphicType) {
     case 'stat-counter': {
       // Big number center-screen with accent bar — for statistics, percentages
-      left = canvas.width * 0.2;
-      top = canvas.height * 0.3;
-      width = canvas.width * 0.6;
-      height = canvas.height * 0.35;
+      left = isPortrait ? canvas.width * 0.08 : canvas.width * 0.2;
+      top = isPortrait ? canvas.height * 0.35 : canvas.height * 0.3;
+      width = isPortrait ? canvas.width * 0.84 : canvas.width * 0.6;
+      height = isPortrait ? canvas.height * 0.2 : canvas.height * 0.35;
       html = `
 <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;">
   <div style="background:linear-gradient(135deg,rgba(0,0,0,0.85),rgba(20,20,40,0.9));backdrop-filter:blur(16px);border-radius:16px;padding:32px 48px;border:1px solid rgba(255,255,255,0.08);box-shadow:0 20px 60px rgba(0,0,0,0.5);animation:statIn 0.5s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
@@ -381,7 +396,7 @@ function applyGraphic(
         left = Math.min(Math.max((position.x || 0.5) * canvas.width - 150, 20), canvas.width - 340);
         top = Math.max(20, ((position.y || 0.5) * canvas.height) - 60);
       }
-      width = 320;
+      width = Math.round(canvas.width * 0.18); // 18% of canvas, not fixed 320px
       height = 70;
       html = `
 <div style="display:flex;align-items:center;gap:10px;width:100%;height:100%;padding:8px;">
@@ -401,9 +416,9 @@ function applyGraphic(
 
     case 'lower-third': {
       // Bottom-left name/title bar — for person introductions
-      left = canvas.width * 0.04;
+      left = isPortrait ? canvas.width * 0.05 : canvas.width * 0.04;
       top = canvas.height * 0.78;
-      width = canvas.width * 0.45;
+      width = isPortrait ? canvas.width * 0.9 : canvas.width * 0.45;
       height = 80;
       html = `
 <div style="display:flex;align-items:flex-end;width:100%;height:100%;padding:8px 0;">
@@ -469,8 +484,13 @@ function applyGraphic(
     case 'keyword-highlight':
     default: {
       // Compact pop-up keyword — for emphasis words, topic labels, highlights
-      left = canvas.width * 0.05;
-      top = canvas.height * 0.82;
+      // Position above captions if they exist, otherwise near bottom
+      const hasCaptionsAtFrame = overlays.some((o: any) =>
+        o.type === 'caption' && o.from <= decision.frame &&
+        (o.from + o.durationInFrames) > decision.frame
+      );
+      left = isPortrait ? canvas.width * 0.08 : canvas.width * 0.05;
+      top = hasCaptionsAtFrame ? canvas.height * 0.68 : canvas.height * 0.82;
       width = Math.min(canvas.width * 0.5, Math.max(200, safeText.length * 14 + 60));
       height = 56;
       html = `

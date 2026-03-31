@@ -213,9 +213,12 @@ export function validateScreenZones(
   const violations: string[] = [];
   let fixed = 0;
 
-  const safeMarginX = canvas.width * 0.05;
-  const safeMarginY = canvas.height * 0.05;
-  const zone3Top = canvas.height * 0.80; // Bottom 20%
+  const isPortrait = canvas.height > canvas.width;
+  // Portrait videos need wider safe margins (content closer to edges on phones)
+  const safeMarginX = canvas.width * (isPortrait ? 0.06 : 0.05);
+  const safeMarginY = canvas.height * (isPortrait ? 0.04 : 0.05);
+  // Caption zone adjusts for portrait (captions are higher on vertical screens)
+  const zone3Top = canvas.height * (isPortrait ? 0.82 : 0.80);
 
   for (const overlay of overlays) {
     if (overlay.type !== 'html-scene') continue;

@@ -48,6 +48,22 @@ export interface BudgetEvaluation {
   alternative?: Partial<BudgetDecision>;
 }
 
+/** Profile-configurable budget limits. Each value can be overridden per EditProfile. */
+export interface BudgetLimits {
+  PUNCH_ZOOM_PER_30S: number;
+  SHAKE_PER_30S: number;
+  IMPACT_SHAKE_PER_30S: number;
+  KEYWORD_GRAPHIC_PER_30S: number;
+  KEYWORD_MIN_GAP_FRAMES: number;
+  MAX_SIMULTANEOUS_GRAPHICS: number;
+  GRAPHIC_BREATHING_FRAMES: number;
+  CAPTION_EMPHASIS_PER_30S: number;
+  SFX_PER_30S: number;
+  PROMINENT_SFX_PER_30S: number;
+  FILTER_PRESETS_PER_60S: number;
+  AI_SLOWMO_MIN: number;
+}
+
 export class DecisionBudget {
   private totalDurationMs: number;
   private fps: number;
@@ -73,7 +89,11 @@ export class DecisionBudget {
   private committedDecisions: BudgetDecision[] = [];
 
   // Budgets (per 30 seconds, scaled by duration)
-  private readonly BUDGETS = {
+  // These are KB defaults — profiles can override via constructor options.
+  private readonly BUDGETS: BudgetLimits;
+
+  // KB baseline defaults
+  private static readonly KB_DEFAULTS: BudgetLimits = {
     PUNCH_ZOOM_PER_30S: 3,           // Z-011
     SHAKE_PER_30S: 4,                // CS-020
     IMPACT_SHAKE_PER_30S: 2,         // CS-020
@@ -93,11 +113,19 @@ export class DecisionBudget {
     'zoom-punch', 'flash', 'glitch', 'spin', 'swish-pan',
   ]);
 
-  constructor(totalDurationMs: number, fps: number = 30) {
+  /**
+   * @param totalDurationMs - Video total duration in milliseconds
+   * @param fps - Frames per second (default 30)
+   * @param profileOverrides - Partial budget overrides from EditProfile.
+   *   Example: { PUNCH_ZOOM_PER_30S: 5 } for TikTok profiles that need more zooms.
+   *   Unspecified values use KB defaults.
+   */
+  constructor(totalDurationMs: number, fps: number = 30, profileOverrides?: Partial<BudgetLimits>) {
     this.totalDurationMs = totalDurationMs;
     this.fps = fps;
     this.totalFrames = Math.round((totalDurationMs / 1000) * fps);
-    this.durationScale = Math.max(1, totalDurationMs / 30000); // 1.0 for 30s, 2.0 for 60s
+    this.durationScale = Math.max(1, totalDurationMs / 30000);
+    this.BUDGETS = { ...DecisionBudget.KB_DEFAULTS, ...profileOverrides };
   }
 
   /**
