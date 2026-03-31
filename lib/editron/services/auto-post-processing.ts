@@ -262,6 +262,91 @@ export function validateScreenZones(
 }
 
 /**
+ * S-020: Apply freeze-frame under graphic overlays
+ *
+ * When a graphic (stat-counter, keyword-highlight, etc.) is placed on a video,
+ * freeze the video frame for the graphic's duration so the viewer can read both.
+ * This is the Hormozi signature: freeze → graphic animates → hold → unfreeze.
+ *
+ * Only applies to graphics on top of video overlays, NOT on static images.
+ */
+export function applyFreezeFrameUnderGraphics(
+  overlays: any[],
+): { modified: number } {
+  let modified = 0;
+
+  const graphicOverlays = overlays.filter(o =>
+    o.type === 'html-scene' && o.metadata?.sourceType?.includes('edl')
+  );
+  const videoOverlays = overlays.filter(o => o.type === 'video');
+
+  for (const graphic of graphicOverlays) {
+    const graphicType = graphic.metadata?.graphicType;
+    // Only freeze for types that need readability (stat-counter, keyword-highlight, quote-card)
+    if (!['stat-counter', 'keyword-highlight', 'quote-card', 'bullet-list'].includes(graphicType)) continue;
+
+    // Find the video overlay under this graphic
+    const video = videoOverlays.find((v: any) =>
+      v.from <= graphic.from && (v.from + v.durationInFrames) > graphic.from
+    );
+    if (!video) continue;
+
+    // Check if video already has a speed curve (don't override existing speed ramps)
+    if (video.speedCurve && video.speedCurve.length > 0) continue;
+
+    // Apply freeze: speed 0 during graphic, normal speed before/after
+    const relStart = graphic.from - video.from;
+    const relEnd = relStart + (graphic.durationInFrames || 60);
+
+    video.speedCurve = [
+      { frame: Math.max(0, relStart - 5), value: 1.0, easing: 'ease-in' },
+      { frame: relStart, value: 0.05, easing: 'ease-in' }, // Near-freeze (0.05x, not 0x to avoid Remotion issues)
+      { frame: relEnd, value: 0.05, easing: 'ease-out' },
+      { frame: Math.min(video.durationInFrames, relEnd + 5), value: 1.0, easing: 'ease-out' },
+    ];
+
+    modified++;
+  }
+
+  return { modified };
+}
+
+/**
+ * P-010: Validate scene duration variety
+ *
+ * Never have 3 consecutive scenes of the same duration (±0.5s).
+ * Adjust the third scene to be at least 1.0s different.
+ */
+export function validateDurationVariety(
+  overlays: any[],
+  fps: number = 30,
+): { adjusted: number } {
+  let adjusted = 0;
+  const videoOverlays = overlays
+    .filter(o => o.type === 'video')
+    .sort((a, b) => a.from - b.from);
+
+  for (let i = 2; i < videoOverlays.length; i++) {
+    const durA = videoOverlays[i - 2].durationInFrames / fps;
+    const durB = videoOverlays[i - 1].durationInFrames / fps;
+    const durC = videoOverlays[i].durationInFrames / fps;
+
+    // Check if all three are within 0.5s of each other
+    if (Math.abs(durA - durB) < 0.5 && Math.abs(durB - durC) < 0.5) {
+      // Adjust C to be at least 1.0s different
+      const targetDur = durB > 3 ? durB - 1.5 : durB + 1.5;
+      const newFrames = Math.round(targetDur * fps);
+      if (newFrames > 30 && newFrames < 300) { // 1s-10s bounds
+        videoOverlays[i].durationInFrames = newFrames;
+        adjusted++;
+      }
+    }
+  }
+
+  return { adjusted };
+}
+
+/**
  * Run ALL post-processing passes on a project's overlays.
  * Call this AFTER the EDL executor finishes.
  */
@@ -272,18 +357,26 @@ export function runPostProcessing(
 ): {
   driftZoomApplied: number;
   zoneViolationsFixed: number;
+  freezeFramesApplied: number;
+  durationAdjusted: number;
   totalModified: number;
 } {
-  // Z-030 + Z-031: Drift zoom
+  // Z-030 + Z-031: Drift zoom on static images
   const driftResult = applyDriftZoom(overlays, analyses);
 
-  // G-100: Screen zones
+  // G-100: Screen zone validation
   const zoneResult = validateScreenZones(overlays, canvas);
 
-  const totalModified = driftResult.modified + zoneResult.fixed;
+  // S-020: Freeze-frame under graphic overlays (Hormozi signature)
+  const freezeResult = applyFreezeFrameUnderGraphics(overlays);
+
+  // P-010: Duration variety (no 3 consecutive same-duration scenes)
+  const durationResult = validateDurationVariety(overlays);
+
+  const totalModified = driftResult.modified + zoneResult.fixed + freezeResult.modified + durationResult.adjusted;
 
   if (totalModified > 0) {
-    console.log(`[PostProcess] Applied: ${driftResult.modified} drift-zooms, ${zoneResult.fixed} zone fixes`);
+    console.log(`[PostProcess] Applied: ${driftResult.modified} drift-zooms, ${zoneResult.fixed} zone fixes, ${freezeResult.modified} freeze-frames, ${durationResult.adjusted} duration adjustments`);
     if (zoneResult.violations.length > 0) {
       console.log(`[PostProcess] Zone violations: ${zoneResult.violations.join('; ')}`);
     }
@@ -292,6 +385,8 @@ export function runPostProcessing(
   return {
     driftZoomApplied: driftResult.modified,
     zoneViolationsFixed: zoneResult.fixed,
+    freezeFramesApplied: freezeResult.modified,
+    durationAdjusted: durationResult.adjusted,
     totalModified,
   };
 }

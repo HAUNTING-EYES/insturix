@@ -408,6 +408,93 @@ Track your previous decision intensity. After a high-intensity decision (zoom-pu
     }
   }
 
+  // ─── Part 13: Narrative Arc Rules ─────────────────────────────
+  const narrativeArc = context.globalEditDirections?.narrativeArc || '';
+  if (narrativeArc) {
+    prompt += `\n## NARRATIVE ARC: ${narrativeArc}\n`;
+    switch (narrativeArc.toLowerCase()) {
+      case 'before-after':
+      case 'problem-solution':
+        prompt += `Rule N-002: Create STARK contrast between halves:
+- First half (problem/before): Cool/desaturated filter, slower pace, tighter framing, subtle handheld shake, risers building tension
+- TRANSITION MOMENT: dip-to-black OR dip-to-white + silence-beat (0.8-1.0s)
+- Second half (solution/after): Warm/vibrant filter, faster pace, wider framing, stable camera, resolving SFX
+Every visual and audio element must reinforce which "world" we're in.\n`;
+        break;
+      case 'three-act':
+      case '3-act':
+        prompt += `Rule N-003: Place emphasis at structural beats:
+- Inciting incident (10-15%): Flash or zoom-punch, camera-shake, SFX hit
+- Rising action (15-60%): Gradually increasing pace, escalating zoom intensity
+- Climax (60-75%): Maximum intensity — slow-mo on peak, biggest graphic, strongest SFX
+- Resolution (75-100%): Rapid de-escalation — wider shots, pull-back, dissolves, softer music\n`;
+        break;
+      case 'aida':
+        prompt += `Rule N-001: Per-section treatment:
+- Attention (0-15%): Fast cuts, zoom-punches, flash transition. FIRST FRAME must hook.
+- Interest (15-45%): Moderate pace, dissolves, stat-counters for proof. Push-in zooms.
+- Desire (45-75%): Emotional pace, slow-mo on testimonial/result, warm filter, kinetic typography.
+- Action (75-100%): Energy ramp-up, zoom-punch to CTA, logo-reveal, strong closing SFX.\n`;
+        break;
+      default:
+        // Check if this is a nostalgia/memory progression
+        if (/nostalg|memory|childhood|remember|past.*present/i.test(
+          context.scenes.map(s => s.narration).join(' ') + ' ' + (context.environmentNotes || '')
+        )) {
+          prompt += `Rule N-010: NOSTALGIA TEMPORAL PROGRESSION detected:
+- Early memories: Vintage-film filter (warm, grain, soft), slow dissolves, drift-zoom on stills, gentle music, voiceover pacing 0.85x
+- Middle years: Filter gradually sharpens + saturates, cut pace increases, dissolves shift to cuts, music gains energy
+- Present day: Crisp/vibrant filter, normal-to-fast cuts, zoom-punches allowed, full-energy music
+- Future/CTA: Brightest filter, cleanest visuals, most confident pacing, resolving music
+The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
+        }
+    }
+  }
+
+  // ─── Part 14: Platform Overrides ──────────────────────────────
+  const profileName = (options.editProfileName || context.editProfileName || '').toLowerCase();
+  if (profileName.includes('tiktok') || profileName.includes('reel') || profileName.includes('short')) {
+    prompt += `\n## PLATFORM: Short-Form (TikTok/Reels/Shorts) — Rule PL-001 OVERRIDES:
+- Maximum scene duration: 4.0s (override all base durations)
+- Hook within 1.0s — stricter than standard
+- Captions MANDATORY, position center-screen (not bottom)
+- Zoom-punch budget INCREASED to 5 per 30s
+- Keyword graphic density INCREASED: 1 per 2.5s allowed
+- Transitions must be fast: dissolves < 0.5s, wipes < 0.3s
+- NO dip-to-black longer than 0.5s (kills retention)
+- BGM must have clear beat for first 5 seconds\n`;
+  } else if (profileName.includes('youtube') && profileName.includes('long')) {
+    prompt += `\n## PLATFORM: YouTube Long Form — Rule PL-010:
+- Scene durations can extend to 6-8s
+- Graphics LESS frequent (1 per 5-6s max)
+- Transitions can be longer (dissolves up to 1.0s)
+- Allow establishing shots and slower openings (but hook in first 10s)\n`;
+  } else if (profileName.includes('linkedin')) {
+    prompt += `\n## PLATFORM: LinkedIn — Rule PL-020 OVERRIDES:
+- Captions MANDATORY (autoplay is muted)
+- NO aggressive camera shake, NO snap zoom, NO glitch transitions
+- Maximum 1 zoom-punch per 30s
+- Graphic style: clean, data-focused (stat-counters, charts, lower-thirds)
+- Filter: neutral to slightly warm
+- Close with professional CTA (lower-third with link)\n`;
+  }
+
+  // ─── Part 5: Speed Change Rules ───────────────────────────────
+  prompt += `\n## SPEED CHANGE RULES:
+- S-001: Slow-mo (0.5x-0.7x) for THE emotional peak moment only. Use ONCE per video, max twice.
+- S-010: Speed-ramp-up (1.5x-2.0x) during approach, then normal/slow at impact.
+- S-020: FREEZE-FRAME when placing a graphic overlay — freeze video behind graphic for readability.
+  This is the Hormozi signature: freeze → stat-counter animates → hold → unfreeze.
+- S-002: AI-generated video: NEVER below 0.5x speed (artifacts become obvious).\n`;
+
+  // ─── Part 9: SFX Pairing Rules ────────────────────────────────
+  prompt += `\n## SFX PAIRING RULES:
+- A-002: Zoom-punch and flash transitions MUST have impact-hit SFX (bass thud)
+- A-010: Before major reveals, add a riser SFX (1.5-2.0s ascending tone)
+- A-020: Graphic entrances get a subtle pop/notification SFX
+- A-021: Stat-counter completion gets a click SFX when landing on final number
+- A-032: Dramatic pause in voiceover → silence-beat (drop ALL audio for 0.5-0.8s)\n`;
+
   prompt += `\n## SCENES (with ALL available context):\n\n`;
 
   for (const scene of context.scenes) {
