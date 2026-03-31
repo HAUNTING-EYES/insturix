@@ -410,19 +410,74 @@ function buildContextSummary(
     prompt += '\n';
   }
 
-  prompt += `## RULES:
-1. Use ABSOLUTE frame numbers (relative to full timeline start, not scene start).
-2. Every decision MUST reference specific context: "zoom at frame 45 because voiceover emphasis on 'anticipation' coincides with subject motion peak"
-3. Don't create decisions at frame 0 or the last frame — those are clip boundaries.
-4. For transitions between scenes: use the script's transition type if specified, otherwise choose based on mood shift.
-5. Products/brands detected in video → callout graphic with bounding box position.
-6. Statistics or numbers in narration → stat-counter graphic.
-7. Emphasis words in voiceover → zoom punch or caption-emphasis.
-8. If the script says "Quick cuts" → place cuts at every subject change or voiceover phrase boundary.
-9. Target: ${options.targetCutsPerMinute || 6} cuts per minute, ${options.graphicDensity || 'moderate'} graphic density.
-10. confidence > 0.8 when multiple sources agree, 0.5-0.7 for single-source decisions.
+  prompt += `## AVAILABLE DECISION TYPES (use these — the executor handles all of them):
 
-Generate 15-30 decisions for this ${totalSec}s video.`;
+### TRANSITIONS (type: 'transition')
+- transitionType options: 'dissolve', 'dip-to-black', 'dip-to-white', 'wipe-left', 'wipe-right',
+  'zoom-punch', 'slide-up', 'slide-down', 'blur-transition', 'flash', 'hard-cut'
+- Use dissolve for mood shifts, dip-to-black for scene breaks, zoom-punch for energy spikes
+- durationFrames: 15-30 typical (0.5-1s)
+
+### ZOOMS (type: 'zoom')
+- PUNCH ZOOM: scaleTo 1.10-1.20, duration 10-15 frames, for emphasis moments
+- SLOW PUSH: scaleTo 1.05-1.08, duration 45-90 frames, for emotional beats
+- PULL BACK: scaleTo 0.85-0.95, duration 30-60 frames, for reveals
+- Always pair zoomScale with a reason tied to voiceover or visual content
+
+### SPEED CHANGES (type: 'speed-change')
+- SLOW-MO: speedMultiplier 0.3-0.5, duration 30-60 frames, for dramatic moments
+- SPEED RAMP: speedMultiplier 1.5-2.0, duration 20-40 frames, for energy/montage
+- Use at transitions between calm→intense or after beat drops
+
+### CAMERA SHAKE (type: 'camera-shake')
+- For emphasis, impact moments, bass drops
+- Subtle: intensity 0.1-0.3, 10-15 frames
+- Aggressive: intensity 0.5-0.8, 5-10 frames (Hormozi/Iman style)
+- ALWAYS pair with a voiceover emphasis word or visual impact
+
+### GRAPHICS (type: 'graphic')
+- KEYWORD TEXT: graphicType 'keyword-highlight', graphicText = the emphasized word/phrase.
+  Appears as bold animated text on screen synced to voiceover. Hormozi-style kinetic typography.
+- STAT COUNTER: graphicType 'stat-counter', graphicText = number + label (e.g., "50% OFF").
+  Animated counting number. Use when narration mentions statistics or numbers.
+- LOWER THIRD: graphicType 'lower-third', graphicText = name/title.
+  For speaker introductions or location labels.
+- LOGO REVEAL: graphicType 'logo-reveal', graphicText = brand name.
+  Animated brand reveal for final scenes.
+- DO NOT use graphicType 'callout' — it creates ugly text boxes. Use keyword-highlight instead.
+
+### SFX TRIGGERS (type: 'sfx-trigger')
+- Triggers a sound effect at the exact frame
+- Use for: whoosh on transitions, pop on text appearance, ding on emphasis, ambient enhancement
+- The system will search for appropriate SFX based on the reason text
+
+### CAPTION EMPHASIS (type: 'caption-emphasis')
+- Highlights a specific word in the voiceover captions with bold/color/animation
+- Use on: key emotional words, brand names, action verbs, statistics
+- Creates Hormozi-style keyword highlighting in the subtitle text
+
+### FILTER CHANGES (type: 'filter-change')
+- Apply visual filter at a specific frame (brightness, saturation, contrast, blur)
+- Use for: mood transitions (warm→cool), memory→present shifts, dramatic moments
+
+### CUTS (type: 'cut')
+- Scene boundary marker — informational only, no visual overlay created
+- Use to mark hard cuts between scenes
+
+## STYLE GUIDE:
+- Think like Alex Hormozi / Iman Gadzhi editor: aggressive pacing, zoom punches on every emphasis word,
+  kinetic text popping on screen, camera shake on impact moments, speed ramps between scenes
+- Every 2-3 seconds should have SOMETHING happening: a zoom, a text pop, a transition, a shake
+- Don't be conservative — this is social media content, it needs to GRAB attention
+- Keyword highlights > callout boxes. Animated text > static overlays.
+
+## RULES:
+1. Use ABSOLUTE frame numbers (relative to full timeline start, not scene start).
+2. Every decision MUST cite specific context from the data above.
+3. Don't create decisions at frame 0 or the last frame.
+4. Target: ${options.targetCutsPerMinute || 8} events per minute, ${options.graphicDensity || 'heavy'} visual density.
+5. confidence > 0.8 when multiple sources agree, 0.5-0.7 for single-source.
+6. Generate 25-40 decisions for this ${totalSec}s video. More is better for social media.`;
 
   return prompt;
 }

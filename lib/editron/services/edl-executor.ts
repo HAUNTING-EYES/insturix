@@ -112,12 +112,59 @@ async function applyDecision(
       return applyFilterChange(decision, overlays);
 
     case 'caption-emphasis':
-      // Caption emphasis requires the caption system — handled by Director's add_captions
+      // Caption emphasis is handled by Director's add_captions step with word-level timing
       return null;
+
+    case 'sfx-trigger':
+      // SFX triggers are informational — the SFX worker already placed sounds during finalize.
+      // Future: could adjust volume/timing of existing SFX overlays at this frame.
+      return null;
+
+    case 'camera-shake':
+      return applyCameraShake(decision, overlays);
 
     default:
       return null;
   }
+}
+
+function applyCameraShake(
+  decision: EditDecision,
+  overlays: Overlay[],
+): { created: number; modified: number } | null {
+  const intensity = decision.params?.intensity || 0.3;
+  const durationFrames = decision.durationFrames || 10;
+  const frame = decision.frame;
+
+  // Find the video overlay at this frame
+  const video = overlays.find(o =>
+    o.type === 'video' && o.from <= frame && (o.from + o.durationInFrames) > frame
+  ) as any;
+  if (!video) return null;
+
+  // Create rapid position jitter keyframes (alternating X/Y offsets)
+  const shakeFrames = Math.min(durationFrames, 15);
+  const relativeStart = frame - video.from;
+  const xKeyframes: any[] = [{ frame: relativeStart, value: 0, easing: 'linear' }];
+  const yKeyframes: any[] = [{ frame: relativeStart, value: 0, easing: 'linear' }];
+
+  const maxOffset = intensity * 15; // pixels
+  for (let i = 1; i <= shakeFrames; i++) {
+    const decay = 1 - (i / shakeFrames); // decay over time
+    const xOff = (Math.random() - 0.5) * 2 * maxOffset * decay;
+    const yOff = (Math.random() - 0.5) * 2 * maxOffset * decay;
+    xKeyframes.push({ frame: relativeStart + i, value: xOff, easing: 'linear' });
+    yKeyframes.push({ frame: relativeStart + i, value: yOff, easing: 'linear' });
+  }
+  // Return to center
+  xKeyframes.push({ frame: relativeStart + shakeFrames + 1, value: 0, easing: 'ease-out' });
+  yKeyframes.push({ frame: relativeStart + shakeFrames + 1, value: 0, easing: 'ease-out' });
+
+  if (!video.keyframeTracks) video.keyframeTracks = [];
+  video.keyframeTracks.push({ property: 'x', keyframes: xKeyframes });
+  video.keyframeTracks.push({ property: 'y', keyframes: yKeyframes });
+
+  return { created: 0, modified: 1 };
 }
 
 function applyTransition(

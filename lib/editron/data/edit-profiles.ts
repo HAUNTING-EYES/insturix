@@ -251,9 +251,9 @@ const B03: EditProfile = {
 const B04: EditProfile = {
   profileId: 'B-04', name: 'Food & Beverage', description: 'Recipe tutorials, restaurant brand films',
   category: 'industry-vertical', filterPresetId: 'golden-hour-pro', pacing: 'medium', pacingMultiplier: 1.1,
-  cutsPerMinRange: [8, 16], defaultTransition: 'soft-cut', captionStyle: 'subtitle', bgmDuckLevel: 0.20,
+  cutsPerMinRange: [8, 16], defaultTransition: 'soft-cut', captionStyle: 'hormozi', bgmDuckLevel: 0.20,
   graphicsDensity: 'moderate',
-  actions: [applyFilter('golden-hour-pro'), addTransition('soft-cut'), addCaptions('subtitle'), audioDuck(0.20), qualityReview()],
+  actions: [applyFilter('golden-hour-pro'), addTransition('soft-cut'), addCaptions('hormozi'), audioDuck(0.20), qualityReview()],
   signalKeywords: [
     { term: 'food', field: 'visual', weight: 0.5 }, { term: 'ingredient', field: 'visual', weight: 0.4 },
     { term: 'cooking', field: 'visual', weight: 0.4 }, { term: 'recipe', field: 'visual', weight: 0.5 },
