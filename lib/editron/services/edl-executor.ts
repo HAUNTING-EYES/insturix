@@ -50,14 +50,53 @@ export async function executeEDL(
     errors: [],
   };
 
+  // ─── Budget enforcement (Director Knowledge Base) ──────────────
+  // Prevents "amateur AI editing" where the engine goes overboard with
+  // zoom-punches, shakes, and graphics on every frame.
+  const { DecisionBudget } = await import('./decision-budget');
+  const totalDurationMs = overlays
+    .filter(o => o.type === 'video' || o.type === 'image')
+    .reduce((max, o) => Math.max(max, (o.from + o.durationInFrames) / 30 * 1000), 0);
+  const budget = new DecisionBudget(totalDurationMs || 30000, 30);
+
   // Only execute high-confidence decisions (>0.5)
   const actionable = edl.decisions.filter(d => d.confidence > 0.5);
-  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > 0.5)`);
+  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > 0.5) with budget enforcement`);
+
+  let budgetRejected = 0;
 
   for (const decision of actionable) {
+    // Check budget BEFORE applying
+    const budgetResult = budget.evaluate(decision as any);
+    if (!budgetResult.allowed) {
+      result.decisionsSkipped++;
+      budgetRejected++;
+      console.log(`[EDL-Exec] BUDGET REJECTED: ${decision.type} at frame ${decision.frame} — ${budgetResult.reason} (${budgetResult.ruleId})`);
+
+      // If budget suggests an alternative, try that instead
+      if (budgetResult.alternative) {
+        const altDecision = { ...decision, ...budgetResult.alternative };
+        const altBudgetResult = budget.evaluate(altDecision as any);
+        if (altBudgetResult.allowed) {
+          try {
+            const applied = await applyDecision(altDecision, overlays, projectId, userId, canvasDimensions);
+            if (applied) {
+              budget.commit(altDecision as any);
+              result.decisionsExecuted++;
+              if (applied.created) result.overlaysCreated += applied.created;
+              if (applied.modified) result.overlaysModified += applied.modified;
+              console.log(`[EDL-Exec] BUDGET ALTERNATIVE: ${altDecision.type} at frame ${altDecision.frame} (replaced ${decision.type})`);
+            }
+          } catch {}
+        }
+      }
+      continue;
+    }
+
     try {
       const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions);
       if (applied) {
+        budget.commit(decision as any);
         result.decisionsExecuted++;
         if (applied.created) result.overlaysCreated += applied.created;
         if (applied.modified) result.overlaysModified += applied.modified;
@@ -70,7 +109,9 @@ export async function executeEDL(
     }
   }
 
-  console.log(`[EDL-Exec] Complete: ${result.decisionsExecuted} executed, ${result.decisionsSkipped} skipped, ${result.overlaysCreated} created, ${result.overlaysModified} modified`);
+  const budgetSummary = budget.getSummary();
+  console.log(`[EDL-Exec] Complete: ${result.decisionsExecuted} executed, ${result.decisionsSkipped} skipped (${budgetRejected} budget-rejected), ${result.overlaysCreated} created, ${result.overlaysModified} modified`);
+  console.log(`[EDL-Exec] Budget: ${JSON.stringify(budgetSummary)}`);
   return result;
 }
 
