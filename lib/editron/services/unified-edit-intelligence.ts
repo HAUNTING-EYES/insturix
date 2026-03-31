@@ -330,7 +330,57 @@ function buildContextSummary(
   const fps = context.fps;
   const totalSec = Math.round(context.totalDurationMs / 1000);
 
-  let prompt = `You are an expert video editor. Analyze this project and produce SPECIFIC, ACTIONABLE edit decisions.
+  let prompt = `You are an expert video editor operating under the Director Knowledge Base — a professional film editing intelligence system.
+
+## CORE PHILOSOPHY (Murch's Rule of Six)
+Every decision must serve this hierarchy. When rules conflict, higher criteria win:
+1. EMOTION (51%) — Does this make the viewer FEEL something?
+2. STORY (23%) — Does this advance the narrative?
+3. RHYTHM (10%) — Does this maintain or intentionally break the pacing pattern?
+4. EYE-TRACE (7%) — Does this respect where the viewer's eye is?
+5. 2D PLANE (5%) — Does the composition work?
+6. 3D CONTINUITY (4%) — Does spatial continuity make sense?
+CRITICAL: A technically perfect decision that kills emotion is a BAD decision.
+
+## DECISIVE MOMENT PRINCIPLE
+Each scene has ONE peak moment (emotional, informational, or visual climax). ALL decisions in that scene serve that peak:
+- Before peak: build anticipation (slower pace, tighter framing, rising energy)
+- AT peak: maximum emphasis (zoom-punch, camera-shake, graphic, SFX)
+- After peak: release (wider framing, dissolve, speed normalization)
+
+## CONTRAST CREATES IMPACT
+Fast only feels fast after slow. A zoom-punch only hits if the previous shot was static.
+Track your previous decision intensity. After a high-intensity decision (zoom-punch, shake, flash), the NEXT decision MUST be low-intensity (clean cut, subtle push, gentle dissolve).
+
+## HARD BUDGETS (NEVER exceed these)
+- Punch-zooms (scale ≥1.10x): MAX ${Math.round(3 * totalSec / 30)} per video
+- Camera shakes: MAX ${Math.round(4 * totalSec / 30)} total, MAX ${Math.round(2 * totalSec / 30)} aggressive
+- Keyword graphics: MAX ${Math.round(7 * totalSec / 30)}, minimum 3s apart
+- Caption emphases: MAX ${Math.round(10 * totalSec / 30)}
+- Simultaneous overlays: MAX 2 (excluding captions)
+- Flashy transitions (zoom-punch, flash, glitch): NEVER two consecutive
+- Filter presets: MAX 2 distinct presets per 60s
+- Slow-mo on AI video: NEVER below 0.5x speed
+- In a ${totalSec}s video: 2-3 "loud" decisions maximum. Everything else "quiet."
+
+## ANTI-PATTERNS (NEVER do these)
+- AP-001: Zoom-punch on every cut → max 3 per 30s
+- AP-002: Camera shake throughout → specific impact moments only
+- AP-003: Every caption word highlighted → max 1 per sentence
+- AP-004: Dissolve between high-energy scenes → use hard-cut
+- AP-005: Dip-to-black in fast montage → kills momentum
+- AP-006: Graphics overlapping captions → respect screen zones
+- AP-011: Same scene duration throughout → vary durations
+- AP-013: Graphic appearing during transition → graphics on stable frames only
+
+## MOOD-TO-DECISION DEFAULTS
+| Mood | Zoom | Transition | Shake | Filter |
+|------|------|-----------|-------|--------|
+| Happy/Playful | Push-in | Hard-cut, fast | None | Warm-vibrant |
+| Sad/Reflective | Slow push | Dissolve | None | Cool-desat |
+| Energetic | Punch-in | Zoom-punch, flash | Impact | High-contrast |
+| Nostalgic/Warm | Drift zoom | Dissolve, film-burn | None | Vintage-film |
+| Professional | Minimal push | Hard-cut, dissolve | None | Minimal-grade |
 
 ## PROJECT: ${totalSec}s video, ${fps}fps, ${context.scenes.length} scenes
 
@@ -464,20 +514,24 @@ function buildContextSummary(
 - Scene boundary marker — informational only, no visual overlay created
 - Use to mark hard cuts between scenes
 
-## STYLE GUIDE:
-- Think like Alex Hormozi / Iman Gadzhi editor: aggressive pacing, zoom punches on every emphasis word,
-  kinetic text popping on screen, camera shake on impact moments, speed ramps between scenes
-- Every 2-3 seconds should have SOMETHING happening: a zoom, a text pop, a transition, a shake
-- Don't be conservative — this is social media content, it needs to GRAB attention
-- Keyword highlights > callout boxes. Animated text > static overlays.
+## EDITING APPROACH:
+- Identify the DECISIVE MOMENT in each scene first, then build all decisions around it
+- 60-70% of transitions should be hard-cuts (Rule T-001). Dissolves/flashy transitions are RARE.
+- Every zoom-punch MUST be synced to a voiceover emphasis word or visual impact (Rule Z-010)
+- Keyword-highlight graphics on power words only: numbers, brand names, emotional triggers (Rule G-001)
+- Slow push (1.03x-1.06x) is the DEFAULT camera move for any static scene (Rule Z-001)
+- EVERY static image/storyboard scene MUST get drift-zoom (Rule Z-030)
+- Contrast is king: after a "loud" decision, the next MUST be "quiet" (Section 1.4)
 
-## RULES:
+## OUTPUT RULES:
 1. Use ABSOLUTE frame numbers (relative to full timeline start, not scene start).
-2. Every decision MUST cite specific context from the data above.
+2. Every decision MUST cite which Knowledge Base rule applies (e.g., "Rule Z-010: punch-in on emphasis word").
 3. Don't create decisions at frame 0 or the last frame.
-4. Target: ${options.targetCutsPerMinute || 8} events per minute, ${options.graphicDensity || 'heavy'} visual density.
-5. confidence > 0.8 when multiple sources agree, 0.5-0.7 for single-source.
-6. Generate 25-40 decisions for this ${totalSec}s video. More is better for social media.`;
+4. Respect ALL hard budgets listed above — the executor WILL reject decisions that exceed them.
+5. confidence > 0.8 when multiple Murch criteria agree, 0.5-0.7 for single-source.
+6. Generate ${Math.round(totalSec * 0.6)}-${Math.round(totalSec * 1.0)} decisions for this ${totalSec}s video.
+7. First scene: hook within 1.0s, NO fade-in, NO logo (Rule P-002).
+8. Last scene: logo-reveal graphic, pull-back zoom, resolving transition (Rule Z-021, G-020).`;
 
   return prompt;
 }
