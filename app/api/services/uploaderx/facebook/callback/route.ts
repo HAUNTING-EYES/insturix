@@ -22,7 +22,7 @@ export async function GET(req: Request) {
 
         if (error || !code) {
             console.error("❌ Facebook OAuth error:", error || "No code received");
-            return NextResponse.redirect(new URL("/dashboard?fb_error=denied", req.url));
+            return NextResponse.redirect(new URL("/dashboard/uploaderx?fb_error=denied", req.url));
         }
 
         const appId = process.env.FACEBOOK_APP_ID!;
@@ -42,7 +42,7 @@ export async function GET(req: Request) {
 
         if (tokenData.error) {
             console.error("❌ Facebook token exchange error:", tokenData.error);
-            return NextResponse.redirect(new URL("/dashboard?fb_error=token_exchange", req.url));
+            return NextResponse.redirect(new URL("/dashboard/uploaderx?fb_error=token_exchange", req.url));
         }
 
         const shortLivedToken = tokenData.access_token;
@@ -71,7 +71,7 @@ export async function GET(req: Request) {
 
         if (pagesData.error) {
             console.error("❌ Failed to fetch Pages:", pagesData.error);
-            return NextResponse.redirect(new URL("/dashboard?fb_error=pages_fetch", req.url));
+            return NextResponse.redirect(new URL("/dashboard/uploaderx?fb_error=pages_fetch", req.url));
         }
 
         const pages = (pagesData.data || []).map((page: any) => ({
@@ -109,9 +109,9 @@ export async function GET(req: Request) {
 
         console.log("💾 Facebook tokens saved to database");
 
-        return NextResponse.redirect(new URL("/dashboard?fb_connected=true", req.url));
+        return NextResponse.redirect(new URL("/dashboard/uploaderx?fb_connected=true", req.url));
     } catch (err) {
         console.error("❌ Facebook callback error:", err);
-        return NextResponse.redirect(new URL("/dashboard?fb_error=unknown", req.url));
+        return NextResponse.redirect(new URL("/dashboard/uploaderx?fb_error=unknown", req.url));
     }
 }

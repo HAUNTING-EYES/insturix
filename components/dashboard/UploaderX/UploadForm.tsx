@@ -13,8 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
 import { UploadCloud, Image as ImageIcon, Youtube, Instagram, Facebook, CheckCircle, AlertCircle } from "lucide-react";
-import { YouTubeConnectionStatus } from "./YouTubeConnectionStatus";
-import { FacebookConnectionStatus } from "./FacebookConnectionStatus";
+import { PlatformConnectionStatus } from "./PlatformConnectionStatus";
 
 type Platform = { key: string; label: string };
 
@@ -335,17 +334,10 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
               })}
             </div>
 
-            {/* 🔗 Connection Status Cards */}
-            {selectedPlatforms.youtube && (
-              <div className="mt-4">
-                <YouTubeConnectionStatus />
-              </div>
-            )}
-            {selectedPlatforms.facebook && (
-              <div className="mt-4">
-                <FacebookConnectionStatus />
-              </div>
-            )}
+            {/* 🔗 Platform Connection Status */}
+            <div className="mt-4">
+              <PlatformConnectionStatus />
+            </div>
           </div>
 
           <Separator className="bg-zinc-800" />

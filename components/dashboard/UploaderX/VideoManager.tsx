@@ -310,6 +310,39 @@ export function VideoManager({
   // ================== 🔵 Upload to Facebook ===================
   const handleFacebookUpload = async (video: VideoItem) => {
     try {
+      // 1. Check Facebook connection status first
+      const statusRes = await fetch('/api/services/uploaderx/facebook/pages');
+      const statusData = await statusRes.json();
+
+      if (!statusData.connected) {
+        toast({
+          title: "Facebook Not Connected",
+          description: "Please connect your Facebook account to upload videos.",
+        });
+        // Open Facebook OAuth in new tab
+        window.open('/api/services/uploaderx/facebook/auth', '_blank');
+        return;
+      }
+
+      // 2. Show page selection if multiple pages
+      let selectedPageId = null;
+      if (statusData.pages.length > 1) {
+        const pageNames = statusData.pages.map((p: any) => p.pageName).join('\n');
+        const input = prompt(`Select a Facebook Page:\n${pageNames}`);
+        if (!input) return; // User cancelled
+        const selectedPage = statusData.pages.find((p: any) => p.pageName === input);
+        if (!selectedPage) {
+          toast({
+            title: "Invalid Page",
+            description: "Please select a valid page name.",
+            variant: "destructive",
+          });
+          return;
+        }
+        selectedPageId = selectedPage.pageId;
+      }
+
+      // 3. Upload to Facebook
       toast({
         title: "Uploading to Facebook...",
         description: `Sending ${video.filename} to your Facebook Page.`,
@@ -321,6 +354,7 @@ export function VideoManager({
         body: JSON.stringify({
           gcsPath: video.gcsPath,
           videoUuid: video.videoUuid,
+          pageId: selectedPageId,
         }),
       });
 
