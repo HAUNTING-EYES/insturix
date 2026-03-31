@@ -34,6 +34,8 @@ interface VideoWorkerPayload {
   aspectRatio?: string;
   videoModel: string;
   nextSceneImageUrl?: string;
+  /** Sub-shot index within a montage scene (undefined for continuous scenes) */
+  subShotIndex?: number;
 }
 
 async function handler(request: NextRequest) {
@@ -52,6 +54,7 @@ async function handler(request: NextRequest) {
       aspectRatio,
       videoModel,
       nextSceneImageUrl,
+      subShotIndex,
     } = payload;
 
     console.log(`[VideoWorker] Processing job ${jobId}: scene ${sceneIndex}, model=${videoModel}`);
@@ -79,14 +82,45 @@ async function handler(request: NextRequest) {
 
     // Update storyboard scene — include videoDurationMs so finalize
     // uses the actual clip length (not the script's word-count estimate)
-    await updateStoryboardScene(storyboardId, sceneIndex, {
-      videoUrl: result.videoUrl,
-      videoAssetId: result.assetId,
-      videoGcsPath: result.gcsPath,
-      videoR2Key: result.r2Key || result.assetId || null,
-      videoProvider: result.provider || 'fal-ai',
-      videoDurationMs: result.durationMs || (durationSeconds * 1000),
-    });
+    if (subShotIndex !== undefined && subShotIndex !== null) {
+      // Sub-shot video: update the specific sub-shot within the scene's subShots array
+      // This allows finalize to find individual sub-shot videos
+      const db2 = await getDatabase();
+      await db2.collection('storyboards').updateOne(
+        { storyboardId },
+        { $set: {
+          [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoUrl`]: result.videoUrl,
+          [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoAssetId`]: result.assetId,
+          [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoR2Key`]: result.r2Key || result.assetId || null,
+          [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoDurationMs`]: result.durationMs || (durationSeconds * 1000),
+          updatedAt: new Date(),
+        }},
+        { arrayFilters: [{ 'elem.sceneIndex': sceneIndex }] },
+      );
+      console.log(`[VideoWorker] Sub-shot ${subShotIndex} of scene ${sceneIndex}: stored videoUrl on storyboard`);
+
+      // Also update scene-level videoUrl if this is the FIRST sub-shot (for thumbnail/fallback)
+      if (subShotIndex === 0) {
+        await updateStoryboardScene(storyboardId, sceneIndex, {
+          videoUrl: result.videoUrl,
+          videoAssetId: result.assetId,
+          videoGcsPath: result.gcsPath,
+          videoR2Key: result.r2Key || result.assetId || null,
+          videoProvider: result.provider || 'fal-ai',
+          videoDurationMs: result.durationMs || (durationSeconds * 1000),
+        });
+      }
+    } else {
+      // Normal scene: update scene-level video
+      await updateStoryboardScene(storyboardId, sceneIndex, {
+        videoUrl: result.videoUrl,
+        videoAssetId: result.assetId,
+        videoGcsPath: result.gcsPath,
+        videoR2Key: result.r2Key || result.assetId || null,
+        videoProvider: result.provider || 'fal-ai',
+        videoDurationMs: result.durationMs || (durationSeconds * 1000),
+      });
+    }
 
     // Also update the Editron project overlay if this storyboard is linked to a project.
     // Without this, video regen updates the storyboard but the editor still shows the old clip.

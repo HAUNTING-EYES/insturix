@@ -467,6 +467,9 @@ async function executeAction(
 ): Promise<number> {
   let modified = 0;
 
+  // Explicit logging to confirm storyboardScenes is received
+  console.log(`[Director] executeAction: "${action.tool}" — storyboardScenes=${Array.isArray(storyboardScenes) ? storyboardScenes.length : 'NOT_ARRAY'}, overlays=${overlays.length}`);
+
   switch (action.tool) {
     case 'batch_update_overlays': {
       // Apply filter to all visual overlays
