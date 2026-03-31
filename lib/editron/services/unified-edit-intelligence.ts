@@ -455,8 +455,8 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
   const profileName = (options.editProfileName || context.editProfileName || '').toLowerCase();
   if (profileName.includes('tiktok') || profileName.includes('reel') || profileName.includes('short')) {
     prompt += `\n## PLATFORM: Short-Form (TikTok/Reels/Shorts) — Rule PL-001 OVERRIDES:
-- Maximum scene duration: 4.0s (override all base durations)
-- Hook within 1.0s — stricter than standard
+- PREFER shorter scene durations (2-5s) but DO NOT force a hard cap. Script durations take priority.
+- Hook in first 2-3s recommended but respect the script's pacing — tutorials and educational shorts may need longer setups.
 - Captions MANDATORY, position center-screen (not bottom)
 - Zoom-punch budget INCREASED to 5 per 30s
 - Keyword graphic density INCREASED: 1 per 2.5s allowed
@@ -465,10 +465,10 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
 - BGM must have clear beat for first 5 seconds\n`;
   } else if (profileName.includes('youtube') && profileName.includes('long')) {
     prompt += `\n## PLATFORM: YouTube Long Form — Rule PL-010:
-- Scene durations can extend to 6-8s
+- Scene durations follow the script — can be 5s to 60s+ depending on content
 - Graphics LESS frequent (1 per 5-6s max)
 - Transitions can be longer (dissolves up to 1.0s)
-- Allow establishing shots and slower openings (but hook in first 10s)\n`;
+- Allow establishing shots and slower openings (hook within first 10s)\n`;
   } else if (profileName.includes('linkedin')) {
     prompt += `\n## PLATFORM: LinkedIn — Rule PL-020 OVERRIDES:
 - Captions MANDATORY (autoplay is muted)
@@ -617,7 +617,7 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
 4. Respect ALL hard budgets listed above — the executor WILL reject decisions that exceed them.
 5. confidence > 0.8 when multiple Murch criteria agree, 0.5-0.7 for single-source.
 6. Generate ${Math.round(totalSec * 0.6)}-${Math.round(totalSec * 1.0)} decisions for this ${totalSec}s video.
-7. First scene: hook within 1.0s, NO fade-in, NO logo (Rule P-002).
+7. First scene: establish visual interest early. For short-form social (TikTok/Reels/Shorts): hook within 2-3s. For long-form/tutorial/documentary: can take 5-10s for context. Adapt to the content, don't force a 1s hook on a lecture (Rule P-002).
 8. Last scene: logo-reveal graphic, pull-back zoom, resolving transition (Rule Z-021, G-020).`;
 
   return prompt;

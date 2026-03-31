@@ -627,15 +627,22 @@ export function ExportToEditronDialog({
 
           const enqueueData = await enqueueRes.json().catch(() => ({}));
 
-          // Fire-and-forget: Pre-fetch SFX from library PARALLEL to video generation.
-          // Uses scene audioDescriptions as search keywords. Results cached on storyboard
-          // so finalize can use them instead of slow AI generation.
+          // Fire-and-forget: Pre-fetch SFX + stock video PARALLEL to AI video generation.
+          // Results cached on storyboard so finalize can use them.
           if (sbId) {
+            // SFX: uses scene audioDescriptions as search keywords
             fetch(`/api/services/pipeline/storyboard/${sbId}/prefetch-sfx`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ storyboardId: sbId }),
-            }).catch(() => {}); // Fire-and-forget — doesn't block video gen
+            }).catch(() => {}); // Fire-and-forget
+
+            // Stock video: searches Pixabay/Pexels for montage sub-shots marked 'stock'
+            fetch(`/api/services/pipeline/storyboard/${sbId}/prefetch-stock-video`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ storyboardId: sbId }),
+            }).catch(() => {}); // Fire-and-forget
           }
 
           if (!enqueueData.success) {

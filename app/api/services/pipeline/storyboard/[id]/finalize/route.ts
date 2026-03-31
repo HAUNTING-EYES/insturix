@@ -77,7 +77,11 @@ export async function POST(
       const voiceoverDurationSec = scene.voiceover?.audioDurationMs
         ? scene.voiceover.audioDurationMs / 1000
         : null;
-      const scriptEstimateSec = Math.min(scene.descriptor.durationSeconds, 15);
+      // No hard cap — let script duration be the source of truth.
+      // AI video clips are naturally 5-10s; for scenes without video (talking head,
+      // interview, Ken Burns), voiceover or script duration drives the scene length.
+      // The old 15s cap broke documentaries, tutorials, and long-form content.
+      const scriptEstimateSec = scene.descriptor.durationSeconds || 5;
 
       // VIDEO duration is king — scene duration matches the actual video clip.
       // If videoDurationMs isn't set but video URL exists, cap to 10s (max AI clip length).
@@ -94,11 +98,11 @@ export async function POST(
       } else if (videoDurationSec) {
         sceneDurationSec = videoDurationSec;
       } else if (scene.videoUrl) {
-        // Video exists but no duration recorded — cap to 5s (typical AI clip length).
-        // AI models like Kling/Wan/LTX produce 5-10s clips. Using 5s prevents freeze-frame
-        // stretching where Remotion shows a frozen last frame for the extra seconds.
-        // If the actual clip is longer, users can manually extend on the timeline.
-        sceneDurationSec = Math.min(scriptEstimateSec, 5);
+        // Video exists but no duration recorded — cap to 10s (max typical AI clip length).
+        // AI models like Kling/Wan produce 5-10s clips. Using 10s instead of 5s avoids
+        // cutting off the tail of longer clips. If the actual clip is shorter, Remotion
+        // will show a freeze-frame for the remainder (user can trim on timeline).
+        sceneDurationSec = Math.min(scriptEstimateSec, 10);
       } else if (voiceoverDurationSec) {
         sceneDurationSec = voiceoverDurationSec;
       } else {
@@ -116,7 +120,7 @@ export async function POST(
       // as a separate overlay on Row 2 (VIDEO), sequentially within the scene.
       const descriptor = scene.descriptor as any;
       const subShots = descriptor.subShots || [];
-      const hasIndependentSubShots = subShots.some((s: any) => s.independentGeneration && s.videoUrl);
+      const hasIndependentSubShots = subShots.some((s: any) => s.independentGeneration && (s.videoUrl || s.cachedStockVideo?.videoUrl || s.imageUrl));
 
       if (hasIndependentSubShots) {
         let subFrame = currentFrame;
@@ -128,7 +132,11 @@ export async function POST(
             console.warn(`[Finalize] Scene ${scene.sceneIndex} sub-shot: invalid duration (videoDurationMs=${sub.videoDurationMs}, targetDurationSeconds=${sub.targetDurationSeconds}), defaulting to 5s (150 frames)`);
             subDur = 150; // 5s at 30fps
           }
+          // Asset priority: AI video → cached stock video → storyboard image (Ken Burns last resort)
+          const stockVideo = sub.cachedStockVideo;
+
           if (sub.videoUrl) {
+            // Priority 1: AI-generated video clip
             overlays.push({
               id: overlayId++,
               type: 'video',
@@ -146,10 +154,34 @@ export async function POST(
                 sceneIndex: scene.sceneIndex,
                 subShotDescription: sub.description,
                 isMontageSub: true,
+                assetSource: 'ai-video',
+              },
+            });
+          } else if (stockVideo?.videoUrl) {
+            // Priority 2: Stock video from Pixabay/Pexels (prefetched)
+            overlays.push({
+              id: overlayId++,
+              type: 'video',
+              from: subFrame,
+              durationInFrames: subDur,
+              row: ROW.VIDEO,
+              left: 0, top: 0, width, height,
+              isDragging: false, rotation: 0,
+              content: stockVideo.videoUrl,
+              src: stockVideo.videoUrl,
+              assetId: stockVideo.videoAssetId,
+              posterUrl: stockVideo.thumbnailUrl || sub.imageUrl || scene.imageUrl || undefined,
+              styles: { objectFit: 'cover', opacity: 1 },
+              metadata: {
+                sceneIndex: scene.sceneIndex,
+                subShotDescription: sub.description,
+                isMontageSub: true,
+                assetSource: `stock-${stockVideo.source}`,
+                stockQuery: stockVideo.query,
               },
             });
           } else if (sub.imageUrl) {
-            // Sub-shot has image but no video yet — show image as placeholder
+            // Priority 3 (LAST RESORT): Storyboard image as placeholder
             overlays.push({
               id: overlayId++,
               type: 'image',
@@ -162,7 +194,7 @@ export async function POST(
               src: sub.imageUrl,
               assetId: sub.imageAssetId,
               styles: { objectFit: 'cover', opacity: 1 },
-              metadata: { sceneIndex: scene.sceneIndex, subShotDescription: sub.description, isMontageSub: true },
+              metadata: { sceneIndex: scene.sceneIndex, subShotDescription: sub.description, isMontageSub: true, assetSource: 'animated-still' },
             });
           }
           subFrame += subDur;

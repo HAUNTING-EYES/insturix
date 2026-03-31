@@ -356,8 +356,17 @@ export class DecisionBudget {
     }
   }
 
+  /**
+   * Scale budget with diminishing returns (sqrt curve instead of linear).
+   * This prevents absurd numbers for long-form content:
+   *   30s → 3 punch-zooms (baseline, unchanged)
+   *   60s → 4 punch-zooms (was 6 with linear)
+   *   5min → 10 punch-zooms (was 30 with linear)
+   *   10min → 14 punch-zooms (was 60 with linear)
+   * Editing effects are meant to be SPECIAL — more video doesn't mean more effects.
+   */
   private scaled(budgetPer30s: number, baseDuration: number = 30): number {
     const scale = this.totalDurationMs / (baseDuration * 1000);
-    return Math.max(budgetPer30s, Math.round(budgetPer30s * scale));
+    return Math.max(budgetPer30s, Math.ceil(budgetPer30s * Math.sqrt(scale)));
   }
 }

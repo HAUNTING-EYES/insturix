@@ -167,6 +167,12 @@ export function applyDriftZoom(
       }
     }
 
+    // Skip drift-zoom for content types where motion is noise, not cinematic:
+    // screenshots, charts, infographics, data visuals, UI recordings, diagrams
+    const visualDesc = (overlay.metadata?.visualDescription || overlay.metadata?.subShotDescription || '').toLowerCase();
+    const skipKeywords = /\b(screenshot|screen recording|screencast|chart|graph|diagram|infographic|data visual|dashboard|ui |code editor|terminal|spreadsheet|table of|flowchart)\b/i;
+    if (skipKeywords.test(visualDesc)) continue;
+
     // Apply drift-zoom
     if (!overlay.keyframeTracks) overlay.keyframeTracks = [];
 
