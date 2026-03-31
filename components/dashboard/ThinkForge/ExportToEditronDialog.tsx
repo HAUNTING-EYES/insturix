@@ -597,6 +597,9 @@ export function ExportToEditronDialog({
     const sbImages = storyboardScenes.filter((s: any) => s.imageUrl);
     let createdProjectId = '';
 
+    // C2/C3 FIX: Track video generation failure to block finalize
+    let videoGenFailed = false;
+
     try {
       // ─── Step 5: Generate AI video clips (optional) ────────
       // ─── Step 5: Enqueue video generation (async, parallel) ────
@@ -636,7 +639,14 @@ export function ExportToEditronDialog({
           }
 
           if (!enqueueData.success) {
-            throw new Error(enqueueData.error || 'Failed to start video generation');
+            // C4 FIX: Include actual backend error context (status, partialFailure, batchId)
+            const errorDetail = [
+              enqueueData.error || 'Failed to start video generation',
+              enqueueData.partialFailure ? `(partial failure — some scenes queued)` : '',
+              enqueueData.batchId ? `[batch: ${enqueueData.batchId}]` : '',
+              enqueueRes.status !== 200 ? `(HTTP ${enqueueRes.status})` : '',
+            ].filter(Boolean).join(' ');
+            throw new Error(errorDetail);
           }
 
           // ─── Handle direct fallback mode (Redis unavailable) ──────
@@ -698,15 +708,19 @@ export function ExportToEditronDialog({
               }
             }
 
+            // C3 FIX: Polling timeout should block finalize — don't create a project with 0 videos
             if (!videosCompleted) {
               console.warn('[ExportToEditron] Video generation polling timed out after 15 minutes');
-              setError('Video generation is still processing in the background. Your videos will appear in Editron when ready.');
+              setError('Video generation timed out after 15 minutes. Please try again or reduce scene count.');
               setVideosGenerated(false);
+              videoGenFailed = true; // Block finalize
             }
           }
         } catch (videoErr: any) {
+          // C2 FIX: Video error should block pipeline — don't finalize with 0 videos
           console.error(`[ExportToEditron] Video generation exception:`, videoErr);
-          setError(`Videos: ${videoErr.message}. Continuing with storyboard images.`);
+          setError(`Videos: ${videoErr.message}`);
+          videoGenFailed = true; // Block finalize
         }
       }
 
@@ -734,6 +748,13 @@ export function ExportToEditronDialog({
       }
 
       // ─── Step 7: Create Editron project ────────────────────
+      // C2/C3 FIX: Don't create a project with 0 videos if video gen was requested and failed
+      if (videoGenFailed && generateVideos) {
+        setStep('error');
+        // Don't continue to finalize — user needs to retry video generation
+        return;
+      }
+
       setStep('finalizing');
 
       if (sbId) {

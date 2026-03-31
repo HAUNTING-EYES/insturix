@@ -133,8 +133,36 @@ async function handler(request: NextRequest) {
         }
       }
     } catch (projErr: any) {
-      // Non-fatal — user can still re-finalize
-      console.warn(`[VideoWorker] Project overlay update failed (non-fatal): ${projErr.message}`);
+      // H4 FIX: Retry once on project overlay update failure before giving up
+      console.warn(`[VideoWorker] Project overlay update failed (attempt 1): ${projErr.message}`);
+      try {
+        await new Promise(r => setTimeout(r, 1000)); // Brief delay before retry
+        const { getStoryboard: getStoryboard2 } = await import('@/lib/pipeline/storyboard-db');
+        const sb2 = await getStoryboard2(storyboardId, userId);
+        const linkedProjectId2 = sb2?.projectId;
+        if (linkedProjectId2) {
+          const scene2 = sb2.scenes?.find((s: any) => s.sceneIndex === sceneIndex);
+          const oldAssetId2 = scene2?.videoAssetId;
+          if (oldAssetId2) {
+            await db.collection('projects').updateOne(
+              { projectId: linkedProjectId2, 'overlays.assetId': oldAssetId2 },
+              {
+                $set: {
+                  'overlays.$.src': result.videoUrl,
+                  'overlays.$.content': result.videoUrl,
+                  'overlays.$.assetId': result.assetId,
+                  'overlays.$.videoDurationMs': result.durationMs || (durationSeconds * 1000),
+                  updatedAt: new Date(),
+                },
+              },
+            );
+            console.log(`[VideoWorker] Project overlay update succeeded on retry`);
+          }
+        }
+      } catch (retryErr: any) {
+        // Non-fatal after retry — user can still re-finalize
+        console.warn(`[VideoWorker] Project overlay update failed on retry (non-fatal): ${retryErr.message}`);
+      }
     }
 
     // Run 5-Track analysis on the generated video immediately.
@@ -203,6 +231,27 @@ async function handler(request: NextRequest) {
             { _id: jobId },
             { $set: { qualityFlag: 'low', qualityShouldRegenerate: true } },
           );
+          // H5 FIX: Add warning to project document so user can see quality issues in the editor
+          try {
+            const { getStoryboard: getSb } = await import('@/lib/pipeline/storyboard-db');
+            const sbForQuality = await getSb(storyboardId, userId);
+            const qualityProjectId = sbForQuality?.projectId;
+            if (qualityProjectId) {
+              await db.collection('projects').updateOne(
+                { projectId: qualityProjectId },
+                {
+                  $push: {
+                    'qualityWarnings': {
+                      sceneIndex,
+                      qualityScore,
+                      message: `Scene ${sceneIndex}: Low quality video (${qualityScore}/100). Consider regenerating this scene.`,
+                      createdAt: new Date(),
+                    } as any,
+                  },
+                },
+              );
+            }
+          } catch { /* non-fatal */ }
         } else {
           console.log(`[VideoWorker] Quality OK (${qualityScore}/100) for scene ${sceneIndex} (5-Track derived)`);
         }
@@ -290,13 +339,37 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   if (done >= batch.totalScenes && resolvedProjectId) {
     try {
       const project = await db.collection('projects').findOne({ projectId: resolvedProjectId }) as any;
-      if (!project?.pendingDirectorProfileId) {
-        console.log(`[VideoWorker] Batch ${batchId} complete but no pending Director profile — skipping auto-run`);
-        return;
-      }
+      let profileId = project?.pendingDirectorProfileId;
+      const userId = project?.pendingDirectorUserId || project?.userId;
 
-      const profileId = project.pendingDirectorProfileId;
-      const userId = project.pendingDirectorUserId || project.userId;
+      // H6 FIX: If pendingDirectorProfileId is missing, try auto-detection instead of skipping entirely
+      if (!profileId) {
+        try {
+          const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
+          // Gather metadata from storyboard for profile detection
+          const sbDoc = batch.storyboardId
+            ? await db.collection('storyboards').findOne({ storyboardId: batch.storyboardId }) as any
+            : null;
+          if (sbDoc) {
+            const thinkforgeMetadata = {
+              narration: (sbDoc.scenes || []).map((s: any) => s.descriptor?.narration || '').join(' '),
+              visual: (sbDoc.scenes || []).map((s: any) => s.descriptor?.visualDescription || '').join(' '),
+              music: sbDoc.overallMusicPrompt || '',
+              mood: (sbDoc.scenes || []).map((s: any) => s.descriptor?.mood || '').join(', '),
+              sceneCount: (sbDoc.scenes || []).length,
+            };
+            const detected = getAutoSelectedProfile(thinkforgeMetadata);
+            profileId = detected.profileId;
+            console.log(`[VideoWorker] Auto-detected Director profile: ${profileId} (was missing from project)`);
+          } else {
+            console.log(`[VideoWorker] Batch ${batchId} complete but no pending Director profile and no storyboard for auto-detection — skipping`);
+            return;
+          }
+        } catch (detectErr: any) {
+          console.log(`[VideoWorker] Batch ${batchId} complete but Director profile detection failed: ${detectErr.message} — skipping`);
+          return;
+        }
+      }
 
       // Clear pending flag so Director doesn't run twice
       await db.collection('projects').updateOne(

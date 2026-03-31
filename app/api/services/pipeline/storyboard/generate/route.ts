@@ -92,9 +92,20 @@ export async function POST(request: NextRequest) {
       globalEditDirections?: any;
     } = body;
 
+    // H2 FIX: Track warnings to surface in response
+    const warnings: string[] = [];
+
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
       return NextResponse.json(
         { success: false, error: 'scenes array is required' },
+        { status: 400 },
+      );
+    }
+
+    // H7 FIX: Cap scene count to prevent timeout — 40+ scenes will exceed 300s
+    if (scenes.length > 40) {
+      return NextResponse.json(
+        { success: false, error: `Too many scenes (${scenes.length}). Maximum 40 scenes per storyboard to prevent timeout. Please reduce scene count or split into multiple storyboards.` },
         { status: 400 },
       );
     }
@@ -153,7 +164,10 @@ export async function POST(request: NextRequest) {
             const cdnUrl = await ensureFalCdnUrl(ref.imageUrl);
             uniqueUrls.set(ref.imageUrl, cdnUrl);
           } catch (err: any) {
-            console.warn(`[storyboard/generate] CDN pre-upload failed for ${ref.subjectId}: ${err.message}`);
+            // H2 FIX: Add to warnings (not just console.warn) — stale URL risk for users
+            const cdnWarn = `CDN pre-upload failed for reference "${ref.subjectId}": ${err.message}. Using original URL (may expire or be slow).`;
+            console.warn(`[storyboard/generate] ${cdnWarn}`);
+            warnings.push(cdnWarn);
             uniqueUrls.set(ref.imageUrl, ref.imageUrl); // fallback to original
           }
         }
@@ -190,10 +204,17 @@ export async function POST(request: NextRequest) {
       console.log(`[storyboard/generate] Reference image map built for ${Object.keys(referenceImageMap).length} scenes from ${approvedReferences.length} subjects`);
     }
 
-    // Resolve model key (e.g. 'flux-dev') to fal.ai model ID (e.g. 'fal-ai/flux/dev')
+    // H3 FIX: Validate model resolution — reject unknown model IDs that aren't full fal-ai paths
     const resolvedModelId = modelId && (modelId in IMAGE_MODELS)
       ? IMAGE_MODELS[modelId as ImageModelKey]
       : modelId; // pass through if already a full model ID or undefined
+
+    if (modelId && !(modelId in IMAGE_MODELS) && !modelId.startsWith('fal-ai/')) {
+      return NextResponse.json(
+        { success: false, error: `Unknown image model "${modelId}". Use a valid model key (${Object.keys(IMAGE_MODELS).join(', ')}) or a full fal-ai model ID (e.g., "fal-ai/flux/dev").` },
+        { status: 400 },
+      );
+    }
 
     const storyboard = await generateFullStoryboard(scenes, {
       userId,
@@ -236,6 +257,7 @@ export async function POST(request: NextRequest) {
       summary: { total: storyboard.scenes.length, succeeded, failed, ipAdapterUsed, ipAdapterFellBack },
       creditsDeducted: totalCost,
       consistencyReport: storyboard.consistencyReport ?? null,
+      ...(warnings.length > 0 && { warnings }),
     });
   } catch (error: any) {
     console.error('[storyboard/generate] Error:', error);

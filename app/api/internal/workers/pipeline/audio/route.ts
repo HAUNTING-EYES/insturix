@@ -143,6 +143,11 @@ async function handler(request: NextRequest) {
       const sfxOverlays: any[] = [];
 
       for (const [sceneIndex, sfx] of sfxResults) {
+        // H8 FIX: Null check on sfx object before accessing sfx.audioUrl
+        if (!sfx || !sfx.audioUrl) {
+          console.warn(`[AudioWorker] SFX scene ${sceneIndex}: null or missing audioUrl, skipping`);
+          continue;
+        }
         const frameInfo = sceneFrameMap.find(f => f.sceneIndex === sceneIndex);
         if (!frameInfo) continue;
 

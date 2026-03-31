@@ -331,19 +331,20 @@ export async function executeDirectorPlan(
           result.warnings.push(`EDL: ${edlErr.message}`);
         }
       } else {
-        // CRITICAL: Zero assets analyzed — Director is running without intelligence.
-        // This produces worse output. Surface this prominently.
-        const failMsg = `⚠️ Intelligence SKIPPED: 0/${videoOverlays.length} video assets analyzed (${edlSummary.failedAssets.join(', ')}). Editing decisions are rule-based only, not content-aware.`;
-        console.error(`[Director] ${failMsg}`);
+        // C6 FIX: Zero assets analyzed — skip EDL but STILL run profile-based steps
+        // (filters, transitions, captions, motion graphics). Don't skip the entire
+        // intelligence block — profile actions are rule-based and don't need analyses.
+        const failMsg = `Intelligence: 0/${videoOverlays.length} video assets analyzed (${edlSummary.failedAssets.join(', ')}). EDL skipped — profile-based steps (filters, transitions, captions) will still run.`;
+        console.warn(`[Director] ${failMsg}`);
         result.warnings.push(failMsg);
 
-        // Store failure state on project for UI to display
+        // Store partial state on project for UI to display
         try {
           const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
           await db.collection('projects').updateOne(
             { projectId },
             { $set: {
-              'intelligence.status': 'failed',
+              'intelligence.status': 'skipped_edl',
               'intelligence.failedAssets': edlSummary.failedAssets,
               'intelligence.lastAttempt': new Date(),
               'intelligence.message': failMsg,

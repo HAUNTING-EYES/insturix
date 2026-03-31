@@ -197,7 +197,16 @@ export async function POST(
         && subShots.length > 1
         && subShots.some((s: any) => s.independentGeneration);
 
-      if (isMontageWithIndependent) {
+      // C7 FIX: Validate that montage actually has independent sub-shots after filtering.
+      // If independentGeneration count is 0, fall through to normal scene path.
+      const independentSubShots = isMontageWithIndependent
+        ? subShots.filter((s: any) => s.independentGeneration)
+        : [];
+      if (isMontageWithIndependent && independentSubShots.length === 0) {
+        console.warn(`[generate-videos] Scene ${scene.sceneIndex}: montage has subShots but 0 independent — falling through to normal path`);
+      }
+
+      if (isMontageWithIndependent && independentSubShots.length > 0) {
         // ─── Montage with independent sub-shots: one job per sub-shot ───
         for (let si = 0; si < subShots.length; si++) {
           const sub = subShots[si];
@@ -435,7 +444,22 @@ export async function POST(
 
     console.log(`[generate-videos] Batch ${batchId}: ${sceneJobs.length} scenes dispatched (${enqueueErrors} failures)`);
 
-    // F4.3: If ALL enqueues failed, return failure — don't pretend everything is fine
+    // C1 FIX: Fail if ANY enqueues failed (not just all).
+    // Partial failure = some scenes won't generate = broken output.
+    if (enqueueErrors > 0 && enqueueErrors < sceneJobs.length) {
+      // Mark batch as partial failure
+      await db.collection(VIDEO_BATCHES_COLLECTION).updateOne(
+        { _id: batchId } as any,
+        { $set: { status: 'partial_enqueue_failure', updatedAt: new Date() } },
+      );
+      return NextResponse.json({
+        success: false,
+        error: `${enqueueErrors} of ${sceneJobs.length} video jobs failed to enqueue. Some scenes will not generate.`,
+        partialFailure: true,
+        batchId,
+      }, { status: 503 });
+    }
+
     if (enqueueErrors >= sceneJobs.length && sceneJobs.length > 0) {
       // Mark batch as failed
       await db.collection(VIDEO_BATCHES_COLLECTION).updateOne(

@@ -183,16 +183,23 @@ export function useStoryboard(storyboardId: string) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ provider }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (data.success) {
           await fetchStoryboard();
           return data.summary;
         } else {
-          setError(data.error);
+          // H9 FIX: Include HTTP status and response details in error for debugging
+          const errorDetail = [
+            data.error || 'Video generation failed',
+            res.status !== 200 ? `(HTTP ${res.status})` : '',
+            data.batchId ? `[batch: ${data.batchId}]` : '',
+            data.partialFailure ? '(partial failure)' : '',
+          ].filter(Boolean).join(' ');
+          setError(errorDetail);
           return null;
         }
       } catch (e: any) {
-        setError(e.message);
+        setError(`Video generation request failed: ${e.message}`);
         return null;
       } finally {
         setIsVideoGenerating(false);

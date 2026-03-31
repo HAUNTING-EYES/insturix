@@ -41,6 +41,9 @@ export async function POST(request: NextRequest) {
     let colorPalette: string[] = [];
     let environmentNotes = '';
     let globalEditDirections: any = undefined;
+    // H1 FIX: Track parser fallback for frontend warning
+    let parserFallback = false;
+    let parserFallbackReason = '';
 
     // ─── Reconstruct script text from input ────────────────────
     if (blocks && Array.isArray(blocks) && blocks.length > 0) {
@@ -114,6 +117,9 @@ export async function POST(request: NextRequest) {
         console.log(`[export-for-editron] LLM parsed ${scenes.length} scenes`);
       } catch (llmError: any) {
         console.warn('[export-for-editron] LLM parsing failed, falling back to regex:', llmError.message);
+        // H1 FIX: Track that we fell back to regex so frontend can warn user
+        parserFallback = true;
+        parserFallbackReason = llmError.message;
         // Fall through to regex parsing below
       }
     }
@@ -121,6 +127,7 @@ export async function POST(request: NextRequest) {
     // ─── Fallback: regex-based parsing ─────────────────────────
     if (!scenes || scenes.length === 0) {
       console.log('[export-for-editron] Using regex parser (fallback)');
+      parserFallback = true;
 
       if (blocks && Array.isArray(blocks) && blocks.length > 0) {
         if (hasTimestampedScenes(rawContent)) {
@@ -154,6 +161,8 @@ export async function POST(request: NextRequest) {
       environmentNotes,
       globalEditDirections,
       rawContent: rawContent.substring(0, 5000),
+      // H1 FIX: Notify frontend when LLM parser failed and regex fallback was used
+      ...(parserFallback && { parserFallback: true, parserFallbackReason }),
     });
   } catch (error: any) {
     console.error('[export-for-editron] Error:', error);

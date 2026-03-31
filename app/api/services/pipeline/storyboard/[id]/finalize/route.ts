@@ -122,7 +122,12 @@ export async function POST(
         let subFrame = currentFrame;
         for (const sub of subShots) {
           if (!sub.independentGeneration) continue;
-          const subDur = Math.round((sub.videoDurationMs ? sub.videoDurationMs / 1000 : sub.targetDurationSeconds) * fps);
+          // C5 FIX: Validate subDur is not NaN or <= 0, default to 150 frames (5s at 30fps)
+          let subDur = Math.round((sub.videoDurationMs ? sub.videoDurationMs / 1000 : sub.targetDurationSeconds) * fps);
+          if (!subDur || isNaN(subDur) || subDur <= 0) {
+            console.warn(`[Finalize] Scene ${scene.sceneIndex} sub-shot: invalid duration (videoDurationMs=${sub.videoDurationMs}, targetDurationSeconds=${sub.targetDurationSeconds}), defaulting to 5s (150 frames)`);
+            subDur = 150; // 5s at 30fps
+          }
           if (sub.videoUrl) {
             overlays.push({
               id: overlayId++,
