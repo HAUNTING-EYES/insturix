@@ -371,7 +371,7 @@ export async function executeDirectorPlan(
       onProgress?.(i + 1, totalSteps, action.description);
 
       try {
-        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile);
+        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes);
         result.overlaysModified += modified;
         result.actionsExecuted++;
 
@@ -447,6 +447,7 @@ async function executeAction(
   userId: string,
   projectId: string,
   profile: EditProfile,
+  storyboardScenes: any[] = [],
 ): Promise<number> {
   let modified = 0;
 
@@ -810,13 +811,15 @@ function checkCondition(condition: string | undefined, overlays: any[]): boolean
     case 'hasVideoOverlays':
       return overlays.some(o => o.type === 'video');
     case 'hasSpeech':
-      return overlays.some(o => o.type === 'sound' && o.row === 4);
+      return overlays.some(o => o.type === 'sound' && (o.row === 3 || (o.assetId || '').startsWith('voiceover_')));
     case 'hasVoiceover':
-      return overlays.some(o => o.type === 'sound' && o.row === 4);
+      // ROW.VOICEOVER = 3 (not 4). Also check by assetId prefix as fallback.
+      return overlays.some(o => o.type === 'sound' && (o.row === 3 || (o.assetId || '').startsWith('voiceover_')));
     case 'hasMultipleScenes':
       return overlays.filter(o => o.type === 'image' || o.type === 'video').length > 1;
     case 'hasBGM':
-      return overlays.some(o => o.type === 'sound' && o.row === 5);
+      // ROW.BGM = 1. Also check by assetId prefix.
+      return overlays.some(o => o.type === 'sound' && (o.row === 1 || (o.assetId || '').startsWith('bgm_')));
     default:
       return true;
   }
