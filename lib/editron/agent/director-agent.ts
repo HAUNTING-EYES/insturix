@@ -307,6 +307,22 @@ export async function executeDirectorPlan(
             result.warnings.push(...edlResult.errors.slice(0, 3));
           }
 
+          // ── Post-processing: auto-behaviors from Knowledge Base ──
+          try {
+            const { runPostProcessing } = await import('@/lib/editron/services/auto-post-processing');
+            const analysisMap = new Map<string, any>();
+            for (const a of analyses) {
+              analysisMap.set(a.assetId, a);
+            }
+            const ppResult = runPostProcessing(overlays, canvas, analysisMap);
+            result.overlaysModified += ppResult.totalModified;
+            if (ppResult.driftZoomApplied > 0) {
+              console.log(`[Director] Post-process: ${ppResult.driftZoomApplied} drift-zooms applied (Z-030)`);
+            }
+          } catch (ppErr: any) {
+            console.warn(`[Director] Post-processing failed (non-fatal): ${ppErr.message}`);
+          }
+
           console.log(`[Director] 5-Track complete: ${edlSummary.assetsAnalyzed}/${videoOverlays.length} analyzed, ${edlSummary.totalDecisions} decisions (${edlSummary.executed} executed), ${moments.length} cinematic moments`);
 
           // Store intelligence status on project for UI
