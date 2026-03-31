@@ -168,10 +168,7 @@ export async function POST(
           subFrame += subDur;
         }
         // Skip the normal video/image placement — sub-shots handle it
-      } else
-      // Scene background: Only add storyboard image when NO video exists.
-      // Storyboard is a stencil for consistency — not needed on the timeline
-      // when a real video clip is present.
+      } else {
       // ─── Asset Type Routing ─────────────────────────────────
       // Scenes classified as animated-still/stock/graphics-only skip AI video.
       // They use Ken Burns (drift-zoom) on the storyboard image for a cinematic feel.
@@ -294,6 +291,7 @@ export async function POST(
           },
         });
       }
+      } // end else (non-montage asset routing)
 
       // Narration text overlay REMOVED — Director Agent adds proper captions
       // via add_captions/add_fancy_captions tool using word-level timing from
