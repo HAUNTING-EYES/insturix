@@ -250,8 +250,8 @@ Final rule: Every output must feel like a professional deliverable someone could
     const contract = (input as ScriptAuthorInput).contract;
     const outlineSummary = outline
       ? outline.sections
-          .map((s) => `- ${s.title}: ${s.goal}`)
-          .join('\n')
+        .map((s) => `- ${s.title}: ${s.goal}`)
+        .join('\n')
       : 'None';
 
     const roleProfile = inferRoleFromContext(
@@ -291,6 +291,10 @@ ${outlineSummary}
 ## Output Requirements
 - Return Markdown only. No JSON. No block IDs. No schema objects.
 - Documents must be modular and scannable. Prefer short sections over long narrative blocks.
+- Use ## for major section headings (e.g., ## Scene 1: The Hook).
+- Use ### for sub-sections only when needed.
+- Use **bold** (double asterisks) for labels like **Visual:**, **Audio:**, **Shot 1:**, **On-Screen Text:**.
+- Put each element (visual, audio, camera, etc.) on its own line — never cram multiple elements into one paragraph.
 - Headings are structural anchors, not literary chapter titles.
 - Content must be written for reuse, clarity, and execution.
 - Use this as the H1 title when possible: ${outline?.title || 'Use a clear, professional title'}

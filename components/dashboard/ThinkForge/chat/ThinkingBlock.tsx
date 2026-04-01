@@ -8,7 +8,7 @@ interface ThinkingBlockProps {
   defaultCollapsed?: boolean;
 }
 
-export function ThinkingBlock({ thinking, defaultCollapsed = false }: ThinkingBlockProps) {
+export function ThinkingBlock({ thinking, defaultCollapsed = true }: ThinkingBlockProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   if (!thinking || !thinking.trim()) return null;

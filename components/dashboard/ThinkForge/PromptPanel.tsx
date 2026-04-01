@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, RefreshCw, Send, CornerDownLeft, Settings, Link2, ExternalLink } from "lucide-react";
+import { Loader2, RefreshCw, Send, CornerDownLeft, Settings, Link2, ExternalLink, Lightbulb } from "lucide-react";
 import clsx from "clsx";
 import { CreditCostBadge } from "@/components/shared/CreditCostBadge";
 
@@ -152,12 +152,11 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
                 value={prompt}
                 onChange={handleChange}
                 onKeyDown={handleKeyDown}
-                placeholder="Describe the content vision, problem, or opportunity — or paste a URL..."
+                placeholder="Describe your content idea, paste a URL, or just type your niche (e.g. Fitness)..."
                 rows={hasSubmitted ? 2 : 4}
                 className={clsx(
                   "w-full resize-none rounded-2xl border bg-white/5 px-4 py-4 text-sm/relaxed text-white placeholder:text-white/30 shadow-inner",
                   "focus:outline-none focus:ring-2 focus:border-red-300/40",
-                  "backdrop-blur-md",
                   hasSubmitted && "transition-[height] duration-300",
                   briefLoading
                     ? "border-blue-500/40 focus:ring-blue-500/30"
@@ -257,6 +256,71 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
           )}
         </AnimatePresence>
 
+        {/* Brainstorm / Enhance Niche Button */}
+        {!hasSubmitted && (
+          <motion.button
+            type="button"
+            disabled={briefLoading || loading}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            onClick={async () => {
+              const niche = prompt.trim();
+              if (!niche) {
+                // Focus the textarea and show a hint
+                formRef.current?.querySelector('textarea')?.focus();
+                return;
+              }
+
+              // New Functionality: "Enhance Idea" (Magic Wand)
+              // Streams a rich, detailed prompt back into the textarea
+              try {
+                const res = await fetch('/api/services/thinkforge/enhance', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ prompt: niche }),
+                });
+
+                if (!res.ok) throw new Error('Failed to enhance prompt');
+
+                const reader = res.body?.getReader();
+                const decoder = new TextDecoder();
+                if (!reader) return;
+
+                setPrompt(''); // Clear before streaming new content
+                let enhancedPrompt = '';
+
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+
+                  // Decode the raw text chunk
+                  const chunkStr = decoder.decode(value, { stream: true });
+                  enhancedPrompt += chunkStr;
+                  setPrompt(enhancedPrompt);
+                }
+              } catch (error) {
+                console.error('Enhance error:', error);
+                setPrompt(niche); // Restore if failed
+              }
+            }}
+            className={clsx(
+              "w-full flex items-center justify-center gap-2 py-3 px-4 -mt-1",
+              "rounded-2xl border border-dashed",
+              "text-sm font-medium transition-all duration-200",
+              prompt.trim()
+                ? "border-amber-500/30 bg-amber-500/5 text-amber-300 hover:bg-amber-500/10 hover:border-amber-500/50 hover:text-amber-200"
+                : "border-white/10 bg-white/[0.02] text-white/30 hover:bg-white/[0.04]"
+            )}
+          >
+            <Lightbulb className={clsx("h-4 w-4", prompt.trim() && "text-amber-400")} />
+            {prompt.trim()
+              ? `Enhance with AI: "${prompt.trim().slice(0, 30)}${prompt.trim().length > 30 ? '…' : ''}"`
+              : "Type a short idea above, then click here to enhance it with AI"
+            }
+          </motion.button>
+        )}
+
         {/* Manual Setup Link */}
         {!hasSubmitted && onManualSetup && (
           <div className="flex justify-between items-center -mt-2">
@@ -304,7 +368,7 @@ const Header = ({ hasSubmitted, briefLoading, briefResults }: { hasSubmitted: bo
           ? "Briefs extracted — generating ideas from this content"
           : hasSubmitted
             ? "Adjust the prompt or regenerate"
-            : "Your creative sandbox"}
+            : "Describe your idea, or type your niche to brainstorm"}
     </motion.p>
   </div>
 );

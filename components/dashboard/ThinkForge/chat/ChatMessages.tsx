@@ -33,7 +33,7 @@ export function ChatMessages({
   }, [messages.length, isStreaming, messages]);
 
   return (
-    <ScrollArea className="flex-1 p-4">
+    <ScrollArea className="flex-1 px-5 py-4">
       <div ref={containerRef} className="space-y-6">
         {messages.map((msg) => (
           <MessageBubble
