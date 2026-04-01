@@ -102,7 +102,7 @@ export async function executeDirectorPlan(
       const { detectCinematicMoments } = await import('@/lib/editron/services/cinematic-moment-detector');
 
       const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
-      const voiceoverOverlays = overlays.filter(o => o.type === 'sound' && o.row === 4).sort((a, b) => a.from - b.from);
+      const voiceoverOverlays = overlays.filter(o => o.type === 'sound' && o.row === 3).sort((a, b) => a.from - b.from);
       const analyses: any[] = [];
 
       // ── Load storyboard metadata (non-fatal) ──
@@ -488,9 +488,9 @@ async function executeAction(
     }
 
     case 'audio_ducking': {
-      // Configure ducking on BGM overlays (row 5)
+      // Configure ducking on BGM overlays (row 1)
       for (const overlay of overlays) {
-        if (overlay.type === 'sound' && overlay.row === 5) {
+        if (overlay.type === 'sound' && overlay.row === 1) {
           overlay.styles = {
             ...overlay.styles,
             duckingConfig: {
@@ -762,7 +762,7 @@ async function invokeAITool(
     }
     case 'sync_cuts_to_beats': {
       // Find audio (BGM) and video overlays
-      const bgmOverlay = overlays.find(o => o.type === 'sound' && o.row === 5);
+      const bgmOverlay = overlays.find(o => o.type === 'sound' && o.row === 1);
       const videoOverlay = overlays.find(o => o.type === 'video');
       if (!bgmOverlay || !videoOverlay) {
         console.log(`[Director] sync_cuts_to_beats: missing BGM or video overlay`);

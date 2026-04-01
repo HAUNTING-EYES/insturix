@@ -542,8 +542,8 @@ function applyAudioDuck(
   decision: EditDecision,
   overlays: Overlay[],
 ): { created: number; modified: number } | null {
-  // Find BGM overlay (row 5 sound)
-  const bgm = overlays.find(o => o.type === 'sound' && o.row === 5) as any;
+  // Find BGM overlay (row 1 sound)
+  const bgm = overlays.find(o => o.type === 'sound' && o.row === 1) as any;
   if (!bgm) return null;
 
   // Already has ducking? Skip.

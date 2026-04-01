@@ -4802,8 +4802,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         const totalFrames = (project as any).durationInFrames || overlays.reduce((max: number, o: any) => Math.max(max, (o.from || 0) + (o.durationInFrames || 0)), 0);
         const totalDurationSec = Math.round(totalFrames / fps);
 
-        // Remove existing BGM (row 5 sound overlays)
-        const bgmOverlays = overlays.filter((o: any) => o.type === 'sound' && o.row === 5);
+        // Remove existing BGM (row 1 sound overlays)
+        const bgmOverlays = overlays.filter((o: any) => o.type === 'sound' && o.row === 1);
         for (const bgm of bgmOverlays) {
           await projectService.deleteOverlay(userId, projectId, bgm.id);
         }

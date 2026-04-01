@@ -92,7 +92,7 @@ function checkTimelineGaps(overlays: AnalyzableOverlay[], fps: number): QualityI
 }
 
 function checkMissingBGM(overlays: AnalyzableOverlay[]): QualityIssue[] {
-  const hasBGM = overlays.some(o => o.type === 'sound' && o.row === 5);
+  const hasBGM = overlays.some(o => o.type === 'sound' && o.row === 1);
   if (!hasBGM) {
     return [{
       type: 'missing_bgm',
@@ -106,7 +106,7 @@ function checkMissingBGM(overlays: AnalyzableOverlay[]): QualityIssue[] {
 }
 
 function checkBGMFadeOut(overlays: AnalyzableOverlay[], projectDuration: number): QualityIssue[] {
-  const bgm = overlays.find(o => o.type === 'sound' && o.row === 5);
+  const bgm = overlays.find(o => o.type === 'sound' && o.row === 1);
   if (!bgm) return [];
 
   const bgmEnd = bgm.from + bgm.durationInFrames;
@@ -130,7 +130,7 @@ function checkBGMFadeOut(overlays: AnalyzableOverlay[], projectDuration: number)
 }
 
 function checkMissingCaptions(overlays: AnalyzableOverlay[]): QualityIssue[] {
-  const hasVO = overlays.some(o => o.type === 'sound' && o.row === 4);
+  const hasVO = overlays.some(o => o.type === 'sound' && o.row === 3);
   const hasCaptions = overlays.some(o => o.type === 'caption' || (o.type === 'text' && o.row === 0));
   if (hasVO && !hasCaptions) {
     return [{
@@ -145,8 +145,8 @@ function checkMissingCaptions(overlays: AnalyzableOverlay[]): QualityIssue[] {
 }
 
 function checkBGMDucking(overlays: AnalyzableOverlay[]): QualityIssue[] {
-  const bgm = overlays.find(o => o.type === 'sound' && o.row === 5);
-  const hasVO = overlays.some(o => o.type === 'sound' && o.row === 4);
+  const bgm = overlays.find(o => o.type === 'sound' && o.row === 1);
+  const hasVO = overlays.some(o => o.type === 'sound' && o.row === 3);
   if (!bgm || !hasVO) return [];
 
   const duckingConfig = bgm.styles?.duckingConfig;
