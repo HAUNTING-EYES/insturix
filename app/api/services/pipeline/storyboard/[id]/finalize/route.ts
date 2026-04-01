@@ -77,36 +77,27 @@ export async function POST(
       const voiceoverDurationSec = scene.voiceover?.audioDurationMs
         ? scene.voiceover.audioDurationMs / 1000
         : null;
-      // No hard cap — let script duration be the source of truth.
-      // AI video clips are naturally 5-10s; for scenes without video (talking head,
-      // interview, Ken Burns), voiceover or script duration drives the scene length.
-      // The old 15s cap broke documentaries, tutorials, and long-form content.
-      const scriptEstimateSec = scene.descriptor.durationSeconds || 5;
+      const scriptDurationSec = scene.descriptor.durationSeconds || 0;
 
-      // VIDEO duration is king — scene duration matches the actual video clip.
-      // If videoDurationMs isn't set but video URL exists, cap to 10s (max AI clip length).
-      // Voiceover is capped to fit within the scene (no extending for long narration).
-      // NEVER use script estimate when video exists — script estimates are based on word count
-      // and can be 20-30s while the actual AI clip is only 5-10s.
+      // SCRIPT DURATION IS KING.
+      // The script says how long each scene should be (from timestamps, narration length, etc.)
+      // AI video clips are typically 5-10s but the scene might only need 2-4s of that.
+      // We show only the FIRST N seconds of the video clip, matching the script's intent.
+      //
+      // Priority:
+      // 1. Script duration (if > 0) — this is the creative intent from the script
+      // 2. Voiceover duration — matches the spoken narration length
+      // 3. Video clip duration — only when no script/voiceover data exists (e.g., user uploads)
+      // 4. Default 5s
       let sceneDurationSec: number;
-      // For rapid-cut montage shots (script says 1-2s), use script duration
-      // even when video is 5s. We only want the FIRST 1-2s of the clip.
-      // For normal scenes, use video duration (prevents freeze-frame stretching).
-      const isRapidCut = scriptEstimateSec < 3;
-      if (isRapidCut && scriptEstimateSec > 0) {
-        sceneDurationSec = scriptEstimateSec;
-      } else if (videoDurationSec) {
-        sceneDurationSec = videoDurationSec;
-      } else if (scene.videoUrl) {
-        // Video exists but no duration recorded — cap to 10s (max typical AI clip length).
-        // AI models like Kling/Wan produce 5-10s clips. Using 10s instead of 5s avoids
-        // cutting off the tail of longer clips. If the actual clip is shorter, Remotion
-        // will show a freeze-frame for the remainder (user can trim on timeline).
-        sceneDurationSec = Math.min(scriptEstimateSec, 10);
+      if (scriptDurationSec > 0) {
+        sceneDurationSec = scriptDurationSec;
       } else if (voiceoverDurationSec) {
         sceneDurationSec = voiceoverDurationSec;
+      } else if (videoDurationSec) {
+        sceneDurationSec = videoDurationSec;
       } else {
-        sceneDurationSec = scriptEstimateSec;
+        sceneDurationSec = 5;
       }
       // Guard: ensure duration is valid (not NaN, 0, or negative)
       if (!sceneDurationSec || isNaN(sceneDurationSec) || sceneDurationSec <= 0) {
