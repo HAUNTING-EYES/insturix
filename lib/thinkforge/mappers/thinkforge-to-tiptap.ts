@@ -40,16 +40,16 @@ import { createEmptyDoc } from '../schemas/tiptap-schema';
  */
 function stylesToMarks(styles: Record<string, boolean> | undefined): TiptapMark[] {
   if (!styles) return [];
-  
+
   const marks: TiptapMark[] = [];
-  
+
   if (styles.bold) marks.push({ type: 'bold' });
   if (styles.italic) marks.push({ type: 'italic' });
   if (styles.underline) marks.push({ type: 'underline' });
   if (styles.strike || styles.strikethrough) marks.push({ type: 'strike' });
   if (styles.code) marks.push({ type: 'code' });
   if (styles.highlight) marks.push({ type: 'highlight' });
-  
+
   return marks;
 }
 
@@ -58,27 +58,96 @@ function stylesToMarks(styles: Record<string, boolean> | undefined): TiptapMark[
 // =============================================================================
 
 /**
+ * Parse inline markdown from a text string and return Tiptap text nodes
+ * Handles **bold**, *italic*, and ***bold+italic***
+ */
+function parseInlineMarkdown(text: string, existingMarks: TiptapMark[] = []): TiptapTextNode[] {
+  const nodes: TiptapTextNode[] = [];
+  // Match **bold**, *italic* — nested bold+italic handled by double pass
+  const regex = /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before the match
+    if (match.index > lastIndex) {
+      const beforeText = text.slice(lastIndex, match.index);
+      if (beforeText) {
+        const node: TiptapTextNode = { type: 'text', text: beforeText };
+        if (existingMarks.length > 0) node.marks = [...existingMarks];
+        nodes.push(node);
+      }
+    }
+
+    if (match[2]) {
+      // ***bold+italic***
+      const node: TiptapTextNode = { type: 'text', text: match[2] };
+      node.marks = [...existingMarks, { type: 'bold' }, { type: 'italic' }];
+      nodes.push(node);
+    } else if (match[3]) {
+      // **bold**
+      const node: TiptapTextNode = { type: 'text', text: match[3] };
+      node.marks = [...existingMarks, { type: 'bold' }];
+      nodes.push(node);
+    } else if (match[4]) {
+      // *italic*
+      const node: TiptapTextNode = { type: 'text', text: match[4] };
+      node.marks = [...existingMarks, { type: 'italic' }];
+      nodes.push(node);
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text after last match
+  if (lastIndex < text.length) {
+    const remaining = text.slice(lastIndex);
+    if (remaining) {
+      const node: TiptapTextNode = { type: 'text', text: remaining };
+      if (existingMarks.length > 0) node.marks = [...existingMarks];
+      nodes.push(node);
+    }
+  }
+
+  // No matches found — return original text
+  if (nodes.length === 0 && text.length > 0) {
+    const node: TiptapTextNode = { type: 'text', text };
+    if (existingMarks.length > 0) node.marks = [...existingMarks];
+    nodes.push(node);
+  }
+
+  return nodes;
+}
+
+/**
  * Convert ThinkForge RichTextAST to Tiptap text nodes
  */
 function richTextToTiptapContent(content: RichTextAST): TiptapTextNode[] {
   const result: TiptapTextNode[] = [];
-  
+
   for (const node of content) {
     if (node.type === 'text') {
       const text = node.text || '';
       if (text.length === 0) continue;
-      
+
       const marks = stylesToMarks(node.styles);
-      const textNode: TiptapTextNode = { type: 'text', text };
-      if (marks.length > 0) {
-        textNode.marks = marks;
+
+      // Check for inline markdown patterns (**bold**, *italic*)
+      if (/\*{1,3}[^*]+\*{1,3}/.test(text)) {
+        const parsedNodes = parseInlineMarkdown(text, marks);
+        result.push(...parsedNodes);
+      } else {
+        const textNode: TiptapTextNode = { type: 'text', text };
+        if (marks.length > 0) {
+          textNode.marks = marks;
+        }
+        result.push(textNode);
       }
-      result.push(textNode);
     } else if (node.type === 'link') {
       // Convert link to text with link mark
       const href = node.href || '#';
       const linkContent = node.content || [];
-      
+
       for (const linkChild of linkContent) {
         if (linkChild.type === 'text' && linkChild.text) {
           const marks: TiptapMark[] = [
@@ -94,7 +163,7 @@ function richTextToTiptapContent(content: RichTextAST): TiptapTextNode[] {
       }
     }
   }
-  
+
   return result;
 }
 
@@ -108,7 +177,7 @@ function richTextToTiptapContent(content: RichTextAST): TiptapTextNode[] {
 function isBulletList(text: string): boolean {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   if (lines.length < 2) return false;
-  
+
   // Check if most lines start with bullet markers
   const bulletPattern = /^[•\-\*]\s+/;
   const bulletCount = lines.filter(l => bulletPattern.test(l)).length;
@@ -121,7 +190,7 @@ function isBulletList(text: string): boolean {
 function isNumberedList(text: string): boolean {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   if (lines.length < 2) return false;
-  
+
   // Check if lines start with numbers
   const numberedPattern = /^\d+[\.\)]\s+/;
   const numberedCount = lines.filter(l => numberedPattern.test(l)).length;
@@ -134,24 +203,27 @@ function isNumberedList(text: string): boolean {
 function convertBulletListToTiptap(text: string): TiptapBulletList {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const items: TiptapListItem[] = [];
-  
+
   for (const line of lines) {
     // Remove bullet marker (•, -, *, etc.)
     const cleanLine = line.replace(/^[•\-\*]\s+/, '').trim();
     if (!cleanLine) continue;
-    
-    // Create paragraph with text content
+
+    // Create paragraph with text content (parse inline markdown)
+    const textContent = /\*{1,3}[^*]+\*{1,3}/.test(cleanLine)
+      ? parseInlineMarkdown(cleanLine)
+      : cleanLine ? [{ type: 'text' as const, text: cleanLine }] : [];
     const paragraph: TiptapParagraph = {
       type: 'paragraph',
-      content: cleanLine ? [{ type: 'text', text: cleanLine }] : [],
+      content: textContent,
     };
-    
+
     items.push({
       type: 'listItem',
       content: [paragraph],
     });
   }
-  
+
   return {
     type: 'bulletList',
     content: items.length > 0 ? items : undefined,
@@ -164,24 +236,27 @@ function convertBulletListToTiptap(text: string): TiptapBulletList {
 function convertNumberedListToTiptap(text: string): TiptapOrderedList {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const items: TiptapListItem[] = [];
-  
+
   for (const line of lines) {
     // Remove number marker (1., 2), etc.)
     const cleanLine = line.replace(/^\d+[\.\)]\s+/, '').trim();
     if (!cleanLine) continue;
-    
-    // Create paragraph with text content
+
+    // Create paragraph with text content (parse inline markdown)
+    const textContent = /\*{1,3}[^*]+\*{1,3}/.test(cleanLine)
+      ? parseInlineMarkdown(cleanLine)
+      : cleanLine ? [{ type: 'text' as const, text: cleanLine }] : [];
     const paragraph: TiptapParagraph = {
       type: 'paragraph',
-      content: cleanLine ? [{ type: 'text', text: cleanLine }] : [],
+      content: textContent,
     };
-    
+
     items.push({
       type: 'listItem',
       content: [paragraph],
     });
   }
-  
+
   return {
     type: 'orderedList',
     content: items.length > 0 ? items : undefined,
@@ -197,7 +272,7 @@ function isHorizontalRule(block: ThinkForgeBlock): boolean {
     .map(node => (node as any).text || '')
     .join(' ')
     .trim();
-  
+
   return text === '---' || text === '—' || text === '___' || text.length === 0;
 }
 
@@ -231,14 +306,14 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
   const { id, kind, content, meta } = block;
   const tiptapContent = richTextToTiptapContent(content);
   const plainText = extractPlainTextFromTiptapContent(tiptapContent);
-  
+
   // Check for horizontal rule first
   if (isHorizontalRule(block)) {
     return [{
       type: 'horizontalRule',
     } as TiptapHorizontalRule];
   }
-  
+
   switch (kind) {
     case 'header': {
       // Convert to heading node with level from meta (default to 2)
@@ -250,7 +325,7 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
       };
       return [heading];
     }
-    
+
     case 'action': {
       // Check if this is a list pattern
       if (isBulletList(plainText)) {
@@ -259,7 +334,7 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
       if (isNumberedList(plainText)) {
         return [convertNumberedListToTiptap(plainText)];
       }
-      
+
       // Otherwise, convert to actionBlock with paragraph content
       const paragraph: TiptapParagraph = {
         type: 'paragraph',
@@ -276,7 +351,7 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
       };
       return [actionBlock];
     }
-    
+
     case 'why': {
       // Check if this is a list pattern (for callout lists)
       if (isBulletList(plainText)) {
@@ -305,7 +380,7 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
         };
         return [whyBlock];
       }
-      
+
       // Convert to whyBlock (like blockquote) with paragraph content
       const paragraph: TiptapParagraph = {
         type: 'paragraph',
@@ -322,7 +397,7 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
       };
       return [whyBlock];
     }
-    
+
     case 'example': {
       // Convert to exampleBlock with code block content
       const codeBlock: TiptapCodeBlock = {
@@ -341,7 +416,7 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
       };
       return [exampleBlock];
     }
-    
+
     case 'paragraph':
     default: {
       // Check if this is a list pattern
@@ -351,7 +426,7 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
       if (isNumberedList(plainText)) {
         return [convertNumberedListToTiptap(plainText)];
       }
-      
+
       // Convert to paragraph node
       const paragraph: TiptapParagraph = {
         type: 'paragraph',
@@ -390,15 +465,15 @@ export function thinkForgeBlocksToTiptapJSON(blocks: ThinkForgeBlock[]): TiptapJ
   if (!blocks || blocks.length === 0) {
     return createEmptyDoc();
   }
-  
+
   const content: TiptapBlockContent[] = [];
-  
+
   for (const block of blocks) {
     // blockToTiptapNodes can return multiple nodes (for lists, horizontal rules, etc.)
     const nodes = blockToTiptapNodes(block);
     content.push(...nodes);
   }
-  
+
   // Ensure at least one paragraph if conversion resulted in empty content
   if (content.length === 0) {
     content.push({
@@ -406,7 +481,7 @@ export function thinkForgeBlocksToTiptapJSON(blocks: ThinkForgeBlock[]): TiptapJ
       content: [],
     });
   }
-  
+
   return {
     type: 'doc',
     content,

@@ -102,6 +102,13 @@ export async function POST(
       return NextResponse.json({ error: 'Parent variation not found' }, { status: 404 });
     }
 
+    // Validate that parent variation has an image
+    if (!parentVariation.imageRef) {
+      return NextResponse.json({ 
+        error: 'Something went wrong. The parent variation has no image.' 
+      }, { status: 400 });
+    }
+
     // Upload mask to GCS
     const maskArrayBuffer = await maskFile.arrayBuffer();
     const maskBuffer = Buffer.from(maskArrayBuffer);

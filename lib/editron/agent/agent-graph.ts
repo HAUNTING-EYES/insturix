@@ -35,6 +35,22 @@ import { StateGraph, MessagesAnnotation } from '@langchain/langgraph';
 import { createTools } from './tools';
 import { TokenTracker } from '../utils/token-tracker';
 
+// PERF FIX: Hoist Google SDK imports to module level.
+// Previously these were `await import(...)` inside callModel, which re-resolved
+// the module on EVERY agent invocation (adds ~10-30ms cold overhead each call).
+// Moving them here means the module is loaded once at startup.
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+
+// PERF FIX: Singleton GenAI client — reuse across all requests instead of
+// instantiating `new GoogleGenerativeAI(...)` on every callModel call.
+let _genAIInstance: GoogleGenerativeAI | null = null;
+function getGenAI(): GoogleGenerativeAI {
+  if (!_genAIInstance) {
+    _genAIInstance = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+  }
+  return _genAIInstance;
+}
+
 // Define the agent state
 // We use the default MessagesAnnotation which just has 'messages'
 
@@ -85,6 +101,24 @@ export const createAgent = (userId: string, projectContext?: string) => {
   // The projectId comes from the config when agent is invoked
   const createToolsWithProject = (projectId: string) => createTools(userId, projectId);
 
+  // PERF FIX: Cache tools and their Gemini function declarations per projectId
+  // within a single agent instance lifetime. Previously, both callModel AND
+  // sequentialToolNode called createToolsWithProject independently — doubling
+  // tool construction work on every round-trip. Now both nodes share one set.
+  //
+  // OLD: callModel → createToolsWithProject(projectId)  [duplicate]
+  //      sequentialToolNode → createToolsWithProject(projectId)  [duplicate]
+  // NEW: both nodes read from _toolsCache[projectId]
+  const _toolsCache: Record<string, ReturnType<typeof createToolsWithProject>> = {};
+  const _functionDeclarationsCache: Record<string, any[]> = {};
+
+  function getOrCreateTools(projectId: string) {
+    if (!_toolsCache[projectId]) {
+      _toolsCache[projectId] = createToolsWithProject(projectId);
+    }
+    return _toolsCache[projectId];
+  }
+
   // Define the function that calls the model
   async function callModel(state: typeof MessagesAnnotation.State, config: any) {
     const projectId = config.configurable?.projectId;
@@ -92,8 +126,9 @@ export const createAgent = (userId: string, projectContext?: string) => {
     const tokenTracker: TokenTracker | undefined = config.configurable?.tokenTracker;
     if (!projectId) throw new Error("Project ID is required");
     
-    // Bind tools with projectId for this specific request
-    const tools = createToolsWithProject(projectId);
+    // PERF FIX: Use cached tools instead of creating a new set every call.
+    // Previously: const tools = createToolsWithProject(projectId);  [every call]
+    const tools = getOrCreateTools(projectId);
     debugLog('Tools bound:', tools.map(t => t.name));
     
     let messages = state.messages || [];
@@ -432,8 +467,12 @@ export const createAgent = (userId: string, projectContext?: string) => {
 
     // Use direct Google SDK instead of LangChain due to LangChain's broken response parser
     try {
-      const { GoogleGenerativeAI, SchemaType } = await import('@google/generative-ai');
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+      // PERF FIX: Previously this was:
+      // const { GoogleGenerativeAI, SchemaType } = await import('@google/generative-ai');
+      // const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+      // Both operations ran on EVERY callModel invocation.
+      // Now we use the module-level singleton `getGenAI()` which reuses one client instance.
+      const genAI = getGenAI();
       
       // Recursive helper to convert Zod schema to Gemini schema format
       // Handles: ZodNumber, ZodString, ZodBoolean, ZodEnum, ZodArray, ZodObject,
@@ -529,40 +568,48 @@ export const createAgent = (userId: string, projectContext?: string) => {
         return { type: 'string', description };
       };
       
-      // Convert tools to Gemini function declarations format
-      const functionDeclarations = tools.map(tool => {
-        const zodSchema = (tool as any).schema;
-        let properties: any = {};
-        let required: string[] = [];
-        
-        if (zodSchema && zodSchema._def && zodSchema._def.shape) {
-          const shape = typeof zodSchema._def.shape === 'function' 
-            ? zodSchema._def.shape() 
-            : zodSchema._def.shape;
+      // PERF FIX: Cache the converted function declarations per projectId.
+      // The Zod→Gemini schema conversion loop ran on EVERY LLM call (even mid-conversation).
+      // Tools don't change between calls for the same project, so we only build this once.
+      //
+      // OLD: functionDeclarations = tools.map(tool => { convertZodToGemini(...) }) [every call]
+      // NEW: build once per projectId, reuse from _functionDeclarationsCache
+      if (!_functionDeclarationsCache[projectId]) {
+        _functionDeclarationsCache[projectId] = tools.map(tool => {
+          const zodSchema = (tool as any).schema;
+          let properties: any = {};
+          let required: string[] = [];
           
-          for (const [key, value] of Object.entries(shape)) {
-            const fieldDef = (value as any)._def;
-            const converted = convertZodToGemini(fieldDef, 0);
-            properties[key] = converted;
+          if (zodSchema && zodSchema._def && zodSchema._def.shape) {
+            const shape = typeof zodSchema._def.shape === 'function' 
+              ? zodSchema._def.shape() 
+              : zodSchema._def.shape;
             
-            // Check if required
-            const typeName = fieldDef?.typeName;
-            if (typeName !== 'ZodOptional' && typeName !== 'ZodDefault') {
-              required.push(key);
+            for (const [key, value] of Object.entries(shape)) {
+              const fieldDef = (value as any)._def;
+              const converted = convertZodToGemini(fieldDef, 0);
+              properties[key] = converted;
+              
+              // Check if required
+              const typeName = fieldDef?.typeName;
+              if (typeName !== 'ZodOptional' && typeName !== 'ZodDefault') {
+                required.push(key);
+              }
             }
           }
-        }
-        
-        return {
-          name: tool.name,
-          description: tool.description,
-          parameters: {
-            type: SchemaType.OBJECT,
-            properties,
-            required: required.length > 0 ? required : undefined,
-          }
-        };
-      });
+          
+          return {
+            name: tool.name,
+            description: tool.description,
+            parameters: {
+              type: SchemaType.OBJECT,
+              properties,
+              required: required.length > 0 ? required : undefined,
+            }
+          };
+        });
+      }
+      const functionDeclarations = _functionDeclarationsCache[projectId];
       
       const directModel = genAI.getGenerativeModel({
         model: 'gemini-2.5-flash',
@@ -885,8 +932,13 @@ export const createAgent = (userId: string, projectContext?: string) => {
     const streamCallback: StreamCallback | undefined = config.configurable?.streamCallback;
     if (!projectId) throw new Error("Project ID is required");
     
-    // Create tools with the projectId baked in
-    const tools = createToolsWithProject(projectId);
+    // PERF FIX: Use cached tools instead of calling createToolsWithProject again.
+    // Previously this was a second independent call to createToolsWithProject(projectId),
+    // meaning ALL tool instances were constructed twice per agent round-trip.
+    // Now we share the same cached set used by callModel.
+    //
+    // OLD: const tools = createToolsWithProject(projectId);  [duplicate construction]
+    const tools = getOrCreateTools(projectId);
     
     const lastMessage = state.messages[state.messages.length - 1] as any;
     const toolCalls = lastMessage.tool_calls;

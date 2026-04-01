@@ -7,7 +7,7 @@ import { useLocalMedia } from "../../contexts/local-media-context";
 import { formatBytes, formatDuration } from "../../utils/format-utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Upload, Trash2, Image, Video, Music, Search, Tag } from "lucide-react";
+import { Loader2, Upload, Trash2, Image, Video, Music, Search, Tag, ImageIcon, Plus } from "lucide-react";
 import {
   Dialog,
   DialogContent,

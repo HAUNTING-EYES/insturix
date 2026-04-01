@@ -323,7 +323,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         const total = artifacts.length;
         const projectDesc = session?.projectMeta?.idea || session?.projectMeta?.title || prompt;
 
-        if (!(await emitEvent('token', { content: `Initializing blueprint — ${total} document${total > 1 ? 's' : ''} to create...\n` }))) return;
+        if (!(await emitEvent('token', { content: `Creating ${total} document${total > 1 ? 's' : ''} for your project...\n` }))) return;
 
         const createdDocs: Array<{ scriptId: string; title: string; documentType: string }> = [];
 
@@ -334,7 +334,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           const newScriptId = crypto.randomUUID();
           const artifactPrompt = `Create a professional "${title}" (${docType.replace(/_/g, ' ')}) document for this project: ${projectDesc}. ${artifact.description || ''}`;
 
-          if (!(await emitEvent('token', { content: `\n**[${i + 1}/${total}]** Creating "${title}"...\n` }))) return;
+          // Progress is shown via the progress bar, not verbose chat messages
 
           // Thinking Agent for this artifact
           try {
@@ -399,7 +399,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
             createdDocs.push({ scriptId: newScriptId, title: draft.title || title, documentType: docType });
             await emitEvent('script_created', { scriptId: newScriptId, title: draft.title || title, documentType: docType });
-            if (!(await emitEvent('token', { content: `Created "${draft.title || title}"\n` }))) return;
+            if (!(await emitEvent('token', { content: `\n✓ ${draft.title || title}\n` }))) return;
 
             // Deduct credits per document
             try {
@@ -416,8 +416,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
         // Summary
         const summaryMsg = createdDocs.length === total
-          ? `\nBlueprint complete — all ${total} documents created and ready to edit.`
-          : `\nBlueprint partially complete — ${createdDocs.length}/${total} documents created.`;
+          ? `\nAll ${total} documents are ready. Switch between them using the tabs.`
+          : `\n${createdDocs.length} of ${total} documents created.`;
         if (!(await emitEvent('token', { content: summaryMsg }))) return;
 
         if (session) {
