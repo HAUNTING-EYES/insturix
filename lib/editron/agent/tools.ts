@@ -2113,8 +2113,7 @@ Use this to understand what exists. Then decide what to do based on user intent.
           style: input.style,
           position: input.position,
           captionCount: captionOverlay.captions.length,
-          rowsShifted: hasCollisionAtRow0,
-          message: `Added ${input.style} captions (${captionOverlay.captions.length} segments) at row 0${hasCollisionAtRow0 ? ' (shifted other overlays down)' : ''}`,
+          message: `Added ${input.style} captions (${captionOverlay.captions.length} segments) at row 0`,
         });
         
       } catch (e: any) {
