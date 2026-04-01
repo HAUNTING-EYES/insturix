@@ -10,6 +10,7 @@ import { buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
 import { isSFXAvailable } from '@/lib/pipeline/sfx-service';
 import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+import { getAnalysis, selectBestSegment } from '@/lib/editron/services/five-track-analysis';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -101,7 +102,7 @@ export async function POST(
       }
       // Guard: ensure duration is valid (not NaN, 0, or negative)
       if (!sceneDurationSec || isNaN(sceneDurationSec) || sceneDurationSec <= 0) {
-        console.warn(`[Finalize] Scene ${scene.sceneIndex}: invalid duration ${sceneDurationSec}, defaulting to 5s`);
+        warnings.push(`Scene ${scene.sceneIndex}: invalid duration ${sceneDurationSec}, defaulting to 5s (script=${scriptDurationSec}, vo=${voiceoverDurationSec}, video=${videoDurationSec})`);
         sceneDurationSec = 5;
       }
       const durationFrames = Math.round(sceneDurationSec * fps);
@@ -123,15 +124,21 @@ export async function POST(
           // sub-shots to play the FULL 5s clip → video "repeating" + timeline bloat (75s instead of 30s).
           let subDur = Math.round((sub.targetDurationSeconds || 3) * fps);
           if (!subDur || isNaN(subDur) || subDur <= 0) {
-            console.warn(`[Finalize] Scene ${scene.sceneIndex} sub-shot: invalid duration (targetDurationSeconds=${sub.targetDurationSeconds}), defaulting to 3s (90 frames)`);
+            warnings.push(`Scene ${scene.sceneIndex} sub-shot: invalid duration (targetDurationSeconds=${sub.targetDurationSeconds}), defaulting to 3s`);
             subDur = 90; // 3s at 30fps
+          }
+          // Enforce montage pacing bounds: min 1.5s, max 3s per sub-shot
+          const isMontageScene = descriptor.sceneType === 'montage';
+          subDur = Math.max(subDur, 45); // Min 1.5s — shorter looks like a glitch
+          if (isMontageScene) {
+            subDur = Math.min(subDur, 90); // Max 3s for montage — longer defeats rapid-cut purpose
           }
           // Asset priority: AI video → cached stock video → storyboard image (Ken Burns last resort)
           const stockVideo = sub.cachedStockVideo;
 
           if (sub.videoUrl) {
             // Priority 1: AI-generated video clip
-            overlays.push({
+            const subOverlay: any = {
               id: overlayId++,
               type: 'video',
               from: subFrame,
@@ -150,7 +157,21 @@ export async function POST(
                 isMontageSub: true,
                 assetSource: 'ai-video',
               },
-            });
+            };
+            // Smart clip selection: pick best segment of the AI clip for the target duration
+            if (sub.videoAssetId) {
+              try {
+                const analysis = await getAnalysis(sub.videoAssetId);
+                if (analysis?.status === 'complete') {
+                  const bestStart = selectBestSegment(analysis, subDur, fps);
+                  if (bestStart > 0) {
+                    subOverlay.videoStartTime = bestStart; // Remotion seeks to this frame
+                    subOverlay.metadata.smartClipStart = bestStart;
+                  }
+                }
+              } catch { /* analysis not available — use clip from start */ }
+            }
+            overlays.push(subOverlay);
           } else if (stockVideo?.videoUrl) {
             // Priority 2: Stock video from Pixabay/Pexels (prefetched)
             overlays.push({
@@ -295,7 +316,7 @@ export async function POST(
 
       if (scene.videoUrl) {
         // AI-generated video clip on top of the image
-        overlays.push({
+        const mainVideoOverlay: any = {
           id: overlayId++,
           type: 'video',
           from: currentFrame,
@@ -315,7 +336,20 @@ export async function POST(
             objectFit: 'cover',
             opacity: 1,
           },
-        });
+        };
+        // Smart clip selection: if clip is longer than scene, pick best segment
+        if (scene.videoAssetId && videoDurationSec && durationFrames < Math.round(videoDurationSec * fps)) {
+          try {
+            const analysis = await getAnalysis(scene.videoAssetId);
+            if (analysis?.status === 'complete') {
+              const bestStart = selectBestSegment(analysis, durationFrames, fps);
+              if (bestStart > 0) {
+                mainVideoOverlay.videoStartTime = bestStart;
+              }
+            }
+          } catch { /* analysis not available — use clip from start */ }
+        }
+        overlays.push(mainVideoOverlay);
       }
       } // end else (non-montage asset routing)
 
@@ -374,11 +408,18 @@ export async function POST(
       // For montage sub-shots: use the ACTUAL total sub-shot duration if it exceeds
       // the scene duration. Otherwise the next scene overlaps the last sub-shots.
       if (hasIndependentSubShots && subShots.length > 0) {
+        // Use targetDurationSeconds consistently (same as sub-shot placement logic above).
+        // Previously used videoDurationMs here, which caused gaps when AI clips (5-10s) are
+        // longer than the target display duration (1-3s).
+        const isMontage = descriptor.sceneType === 'montage';
         const totalSubFrames = subShots
           .filter((s: any) => s.independentGeneration)
           .reduce((sum: number, s: any) => {
-            const dur = Math.round((s.videoDurationMs ? s.videoDurationMs / 1000 : s.targetDurationSeconds) * fps);
-            return sum + (dur > 0 ? dur : 150);
+            let dur = Math.round((s.targetDurationSeconds || 3) * fps);
+            if (dur <= 0 || isNaN(dur)) dur = 90; // 3s default, matching placement
+            dur = Math.max(dur, 45); // Min 1.5s, matching placement
+            if (isMontage) dur = Math.min(dur, 90); // Max 3s for montage, matching placement
+            return sum + dur;
           }, 0);
         currentFrame += Math.max(totalSubFrames, durationFrames);
       } else {
@@ -448,6 +489,10 @@ export async function POST(
               r2Key: (scene.voiceover as any).r2Key || scene.voiceover.audioAssetId || null,
               cachedUrl: scene.voiceover.audioUrl,
               urlExpiresAt: scene.voiceover.audioUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              // Store duration so transcription-service can generate accurate synthetic timings
+              // without needing to download the audio file
+              durationMs: scene.voiceover.audioDurationMs || null,
+              audioDurationMs: scene.voiceover.audioDurationMs || null,
               size: 0,
               uploadedAt: new Date(),
             },

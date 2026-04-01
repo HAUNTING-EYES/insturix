@@ -41,6 +41,8 @@ export async function executeEDL(
   userId: string,
   overlays: Overlay[],
   canvasDimensions: { width: number; height: number },
+  /** Optional 5-Track analyses keyed by assetId — used to validate zoom placement */
+  analyses?: Map<string, any>,
 ): Promise<ExecutionResult> {
   const result: ExecutionResult = {
     decisionsExecuted: 0,
@@ -79,7 +81,7 @@ export async function executeEDL(
         const altBudgetResult = budget.evaluate(altDecision as any);
         if (altBudgetResult.allowed) {
           try {
-            const applied = await applyDecision(altDecision, overlays, projectId, userId, canvasDimensions);
+            const applied = await applyDecision(altDecision, overlays, projectId, userId, canvasDimensions, analyses);
             if (applied) {
               budget.commit(altDecision as any);
               result.decisionsExecuted++;
@@ -94,7 +96,7 @@ export async function executeEDL(
     }
 
     try {
-      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions);
+      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses);
       if (applied) {
         budget.commit(decision as any);
         result.decisionsExecuted++;
@@ -123,6 +125,7 @@ async function applyDecision(
   projectId: string,
   userId: string,
   canvas: { width: number; height: number },
+  analyses?: Map<string, any>,
 ): Promise<{ created: number; modified: number } | null> {
 
   switch (decision.type) {
@@ -130,7 +133,7 @@ async function applyDecision(
       return applyTransition(decision, overlays, projectId, userId, canvas);
 
     case 'zoom':
-      return applyZoom(decision, overlays);
+      return applyZoom(decision, overlays, analyses);
 
     case 'speed-change':
       return applySpeedChange(decision, overlays);
@@ -242,6 +245,7 @@ function applyTransition(
 function applyZoom(
   decision: EditDecision,
   overlays: Overlay[],
+  analyses?: Map<string, any>,
 ): { created: number; modified: number } | null {
   // Find the video overlay active at this frame
   const videoOverlay = overlays.find(o =>
@@ -251,7 +255,31 @@ function applyZoom(
   );
   if (!videoOverlay) return null;
 
+  // Validate zoom placement against 5-Track motion data when available.
+  // Reject zoom decisions not near a motion peak or natural cut point (±10 frames).
+  // This enforces Rule Z-010: "zoom-punch MUST be synced to emphasis word or visual impact."
+  // If no analysis data, allow the zoom (trust Gemini's judgment from prompt context).
+  if (analyses && videoOverlay.assetId) {
+    const analysis = analyses.get(videoOverlay.assetId);
+    if (analysis) {
+      const localDecisionFrame = decision.frame - videoOverlay.from;
+      const peaks = analysis.motionPeaks || [];
+      const cuts = analysis.naturalCutPoints || [];
+      const allSignificantFrames = [...peaks, ...cuts];
+      const nearSignificantFrame = allSignificantFrames.some(
+        (f: number) => Math.abs(f - localDecisionFrame) <= 10,
+      );
+      if (!nearSignificantFrame && allSignificantFrames.length > 0) {
+        // Zoom is at an arbitrary frame — downgrade to slow-push instead of rejecting
+        decision.params.zoomType = 'slow-push';
+        decision.params.scaleTo = Math.min(decision.params.scaleTo || 1.1, 1.05);
+        console.log(`[EDL-Exec] Zoom at frame ${decision.frame} not near motion peak — downgraded to slow-push`);
+      }
+    }
+  }
+
   const localFrame = decision.frame - videoOverlay.from;
+  const sceneEnd = videoOverlay.durationInFrames;
   const duration = decision.durationFrames || 20;
   const scaleFrom = decision.params.scaleFrom || 1.0;
   const scaleTo = decision.params.scaleTo || 1.1;
@@ -264,13 +292,47 @@ function applyZoom(
     (t: KeyframeTrack) => t.property !== 'scale',
   );
 
+  // Determine zoom subtype from params or infer from scale values
+  // punch-in: quick zoom to target, HOLD for rest of scene (Z-010)
+  // slow-push: gradual zoom over full scene duration (Z-001)
+  // pull-back: zoom out from close to wide (Z-020)
+  const zoomType = decision.params.zoomType
+    || (scaleTo < scaleFrom ? 'pull-back' : (duration >= sceneEnd * 0.5 ? 'slow-push' : 'punch-in'));
+
+  let keyframes: Array<{ frame: number; value: number; easing: string }>;
+
+  switch (zoomType) {
+    case 'punch-in':
+      // Quick zoom to target at decision frame, then HOLD at that scale
+      // 3 keyframes: before → punch → hold at scene end
+      keyframes = [
+        { frame: Math.max(0, localFrame - 5), value: scaleFrom, easing: 'ease-in' },
+        { frame: localFrame + Math.min(duration, 15), value: scaleTo, easing: 'ease-out' },
+        { frame: sceneEnd, value: scaleTo, easing: 'linear' }, // HOLD — don't bounce back
+      ];
+      break;
+
+    case 'pull-back':
+      // Start zoomed in, gradually pull back to normal
+      keyframes = [
+        { frame: Math.max(0, localFrame), value: scaleTo, easing: 'ease-in-out' },
+        { frame: Math.min(localFrame + duration, sceneEnd), value: scaleFrom, easing: 'ease-out' },
+      ];
+      break;
+
+    case 'slow-push':
+    default:
+      // Gentle zoom over the full scene duration (cinematic push)
+      keyframes = [
+        { frame: 0, value: scaleFrom, easing: 'ease-in-out' },
+        { frame: sceneEnd, value: scaleTo, easing: 'ease-in-out' },
+      ];
+      break;
+  }
+
   videoOverlay.keyframeTracks.push({
     property: 'scale',
-    keyframes: [
-      { frame: Math.max(0, localFrame - 5), value: scaleFrom, easing: 'ease-in-out' },
-      { frame: localFrame + Math.floor(duration / 2), value: scaleTo, easing: 'ease-in-out' },
-      { frame: localFrame + duration, value: scaleFrom, easing: 'ease-out' },
-    ],
+    keyframes,
   });
 
   return { created: 0, modified: 1 };

@@ -1228,3 +1228,122 @@ export async function analyzeProjectAssets(
 
   return { analyzed, cached, failed, timedOut };
 }
+
+// ─── Smart Clip Selection ──────────────────────────────────────────
+
+/**
+ * Select the best segment of a video clip to show for a given target duration.
+ *
+ * Instead of always showing the FIRST N seconds of a 10s clip, this analyzes
+ * the 5-Track data to find the segment with the most appropriate content.
+ *
+ * Content-type aware selection:
+ * - Action/energetic/montage → highest motion density (where things happen)
+ * - Beauty/product/food → lowest motion density (smoothest, most stable)
+ * - Talking head → most centered subject with stable framing
+ * - Default → motion peaks biased toward first half (natural video structure)
+ *
+ * @param analysis - 5-Track analysis result for the video clip
+ * @param targetDurationFrames - How long to SHOW this clip (in frames)
+ * @param fps - Frames per second
+ * @param contentHint - Optional hint about what content type this is
+ * @returns startFrame (in frames) — where in the source clip to begin playback
+ */
+export function selectBestSegment(
+  analysis: AssetAnalysis,
+  targetDurationFrames: number,
+  fps: number = 30,
+  contentHint?: 'action' | 'beauty' | 'talking-head' | 'default',
+): number {
+  const totalFrames = Math.round(analysis.durationMs / 1000 * fps);
+
+  // If the target is longer than or equal to the clip, start from the beginning
+  if (targetDurationFrames >= totalFrames) return 0;
+
+  // If no motion data, fall back to start
+  const segments = analysis.motionSegments || [];
+  const peaks = analysis.motionPeaks || [];
+  if (segments.length === 0 && peaks.length === 0) return 0;
+
+  // Determine selection strategy from content hint or analysis
+  const strategy = contentHint || inferContentStrategy(analysis);
+
+  // Score each possible starting frame (step by 5 frames for efficiency)
+  const step = 5;
+  const maxStart = totalFrames - targetDurationFrames;
+  let bestStart = 0;
+  let bestScore = -Infinity;
+
+  for (let start = 0; start <= maxStart; start += step) {
+    const end = start + targetDurationFrames;
+    const score = scoreSegment(start, end, segments, peaks, strategy, totalFrames);
+    if (score > bestScore) {
+      bestScore = score;
+      bestStart = start;
+    }
+  }
+
+  return bestStart;
+}
+
+/**
+ * Infer content strategy from analysis data.
+ */
+function inferContentStrategy(
+  analysis: AssetAnalysis,
+): 'action' | 'beauty' | 'talking-head' | 'default' {
+  const subjects = analysis.subjectTracks || [];
+  const personSubject = subjects.find(s => s.category === 'person' && s.totalScreenTimeMs > analysis.durationMs * 0.5);
+  if (personSubject) return 'talking-head';
+
+  const avgMotion = (analysis.motionSegments || []).reduce((sum, s) => sum + s.motionIntensity, 0) / Math.max(1, analysis.motionSegments?.length || 1);
+  if (avgMotion > 0.5) return 'action';
+  if (avgMotion < 0.15) return 'beauty';
+
+  return 'default';
+}
+
+/**
+ * Score a candidate segment based on content strategy.
+ */
+function scoreSegment(
+  startFrame: number,
+  endFrame: number,
+  segments: MotionSegment[],
+  peaks: number[],
+  strategy: 'action' | 'beauty' | 'talking-head' | 'default',
+  totalFrames: number,
+): number {
+  const peaksInSegment = peaks.filter(p => p >= startFrame && p < endFrame).length;
+
+  let motionSum = 0;
+  let motionCount = 0;
+  for (const seg of segments) {
+    const overlapStart = Math.max(startFrame, seg.startFrame);
+    const overlapEnd = Math.min(endFrame, seg.endFrame);
+    if (overlapStart < overlapEnd) {
+      const overlapFraction = (overlapEnd - overlapStart) / (seg.endFrame - seg.startFrame);
+      motionSum += seg.motionIntensity * overlapFraction;
+      motionCount++;
+    }
+  }
+  const avgMotion = motionCount > 0 ? motionSum / motionCount : 0;
+
+  // Bias toward earlier segments (natural video structure)
+  const positionBias = 1 - (startFrame / totalFrames) * 0.3;
+
+  switch (strategy) {
+    case 'action':
+      return peaksInSegment * 10 + avgMotion * 5 + positionBias;
+
+    case 'beauty':
+      return -avgMotion * 10 - peaksInSegment * 5 + positionBias;
+
+    case 'talking-head':
+      const centerBias = 1 - Math.abs(((startFrame + endFrame) / 2) / totalFrames - 0.5) * 2;
+      return -avgMotion * 5 + centerBias * 3 + positionBias;
+
+    default:
+      return peaksInSegment * 3 + avgMotion * 2 + positionBias * 2;
+  }
+}

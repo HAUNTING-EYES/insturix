@@ -237,6 +237,7 @@ const EditDecisionSchema = z.object({
   graphicType: z.string().optional().describe('For type=graphic: callout, stat-counter, lower-third, logo-reveal, emphasis-text'),
   graphicText: z.string().optional().describe('Text content for the graphic'),
   zoomScale: z.number().optional().describe('For type=zoom: target scale (1.0 = normal, 1.15 = 15% zoom in)'),
+  zoomType: z.enum(['punch-in', 'slow-push', 'pull-back']).optional().describe('For type=zoom: punch-in (quick zoom + hold), slow-push (gradual over scene), pull-back (zoom out)'),
   speedMultiplier: z.number().optional().describe('For type=speed-change: 0.5 = slow-mo, 1.5 = speed up'),
   confidence: z.number().min(0).max(1).describe('How confident this decision is (0-1). Higher when multiple sources agree.'),
   sources: z.array(z.string()).describe('Which context sources informed this: "script", "video-analysis", "voiceover", "bgm", "subjects"'),
@@ -288,6 +289,7 @@ export async function generateUnifiedEditPlan(
       ...(d.graphicType && { graphicType: d.graphicType }),
       ...(d.graphicText && { text: d.graphicText }),
       ...(d.zoomScale && { scaleFrom: 1.0, scaleTo: d.zoomScale }),
+      ...(d.zoomType && { zoomType: d.zoomType }),
       ...(d.speedMultiplier && { speedMultiplier: d.speedMultiplier }),
     },
     confidence: d.confidence,
@@ -556,9 +558,11 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
 - durationFrames: 15-30 typical (0.5-1s)
 
 ### ZOOMS (type: 'zoom')
-- PUNCH ZOOM: scaleTo 1.10-1.20, duration 10-15 frames, for emphasis moments
-- SLOW PUSH: scaleTo 1.05-1.08, duration 45-90 frames, for emotional beats
-- PULL BACK: scaleTo 0.85-0.95, duration 30-60 frames, for reveals
+- PUNCH ZOOM: scaleTo 1.10-1.20, duration 10-15 frames, for emphasis moments. Set zoomType: 'punch-in'
+- SLOW PUSH: scaleTo 1.05-1.08, duration = full scene, for emotional beats. Set zoomType: 'slow-push'
+- PULL BACK: scaleTo 0.85-0.95, duration 30-60 frames, for reveals. Set zoomType: 'pull-back'
+- CRITICAL: zoom frame MUST correspond to a naturalCutPoint, motionPeak, or voiceover emphasis word listed in the scene's data. Do NOT place zooms at arbitrary frames.
+- Do NOT zoom on EVERY scene. Only zoom where the content demands it. Static scenes get drift-zoom automatically by post-processing — you do NOT need to add it.
 - Always pair zoomScale with a reason tied to voiceover or visual content
 
 ### SPEED CHANGES (type: 'speed-change')

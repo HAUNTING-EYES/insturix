@@ -290,7 +290,12 @@ export async function executeDirectorPlan(
 
           const moments = analyses.flatMap(a => detectCinematicMoments(a));
           const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-          const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas);
+          // Build analyses map for EDL executor zoom validation
+          const analysesMap = new Map<string, any>();
+          for (const a of analyses) {
+            if (a.assetId) analysesMap.set(a.assetId, a);
+          }
+          const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas, analysesMap);
 
           // Build summary by decision type
           for (const d of edl.decisions) {
