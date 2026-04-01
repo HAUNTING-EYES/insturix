@@ -48,6 +48,7 @@ export async function POST(
       sceneIndex: number;
       subShotIndex: number;
       query: string;
+      minDurationSec: number;
       maxDurationSec: number;
     }
     const jobs: StockJob[] = [];
@@ -60,11 +61,13 @@ export async function POST(
         const sub = subShots[si];
         // Only process sub-shots explicitly marked for stock
         if (sub.assetRecommendation === 'stock' && sub.independentGeneration) {
+          const targetSec = sub.targetDurationSeconds || 3;
           jobs.push({
             sceneIndex: scene.sceneIndex,
             subShotIndex: si,
             query: sub.visualDescription || sub.description || '',
-            maxDurationSec: Math.max(3, Math.ceil(sub.targetDurationSeconds || 5)),
+            minDurationSec: targetSec, // Stock clip must be at least this long (trim, never stretch)
+            maxDurationSec: Math.max(targetSec + 5, 10), // Allow longer clips to trim from
           });
         }
       }
@@ -86,6 +89,7 @@ export async function POST(
       const results = await Promise.allSettled(
         batch.map(async (job) => {
           const result = await searchAndDownloadStockVideo(job.query, userId!, {
+            minDurationSec: job.minDurationSec,
             maxDurationSec: job.maxDurationSec,
             orientation,
           });
@@ -113,7 +117,19 @@ export async function POST(
               }
             }
             cached++;
-            console.log(`[prefetch-stock-video] Scene ${job.sceneIndex} sub ${job.subShotIndex}: "${result.query}" → ${result.source} (${result.assetId})`);
+            // Structured log for future quality gate tuning
+            console.log(JSON.stringify({
+              event: 'stock-video-placed',
+              sceneIndex: job.sceneIndex,
+              subShotIndex: job.subShotIndex,
+              query: result.query,
+              visualDescription: job.query.substring(0, 100),
+              resultUrl: result.videoUrl,
+              source: result.source,
+              assetId: result.assetId,
+              durationMs: result.durationMs,
+              matchConfidence: 'unverified', // Will be set by quality gate when built
+            }));
           } else {
             failed++;
             console.log(`[prefetch-stock-video] Scene ${job.sceneIndex} sub ${job.subShotIndex}: no stock found for "${job.query.substring(0, 40)}"`);

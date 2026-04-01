@@ -49,6 +49,23 @@ export interface SubShot {
   videoDurationMs?: number;
   /** Generation status */
   status?: 'pending' | 'generating' | 'generated' | 'failed';
+
+  /** Asset source classification (set by parser post-processor).
+   *  'stock' = search Pixabay/Pexels first, 'ai-video' = generate AI clip */
+  assetRecommendation?: 'ai-video' | 'stock' | 'animated-still' | 'graphics-only';
+  /** R2 key for AI-generated video asset */
+  videoR2Key?: string;
+  /** Cached stock video from Pixabay/Pexels prefetch.
+   *  Populated by prefetch-stock-video route during video generation. */
+  cachedStockVideo?: {
+    videoUrl: string;
+    videoAssetId: string;
+    r2Key: string;
+    durationMs: number;
+    source: 'pixabay' | 'pexels';
+    thumbnailUrl?: string;
+    query: string;
+  };
 }
 
 export interface SceneDescriptor {

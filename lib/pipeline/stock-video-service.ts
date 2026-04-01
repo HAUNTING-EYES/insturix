@@ -133,6 +133,7 @@ export async function searchAndDownloadStockVideo(
   query: string,
   userId: string,
   options: {
+    minDurationSec?: number;
     maxDurationSec?: number;
     orientation?: 'landscape' | 'portrait' | 'square';
   } = {},
@@ -143,7 +144,7 @@ export async function searchAndDownloadStockVideo(
     return null;
   }
 
-  const { maxDurationSec = 15, orientation = 'landscape' } = options;
+  const { minDurationSec, maxDurationSec = 15, orientation = 'landscape' } = options;
   const assetId = `stock_${nanoid(12)}`;
 
   console.log(`[StockVideo] Searching: "${searchQuery}" (max ${maxDurationSec}s, ${orientation})`);
@@ -164,8 +165,12 @@ export async function searchAndDownloadStockVideo(
         orientation: orientation === 'landscape' ? 'horizontal' : orientation === 'portrait' ? 'vertical' : undefined,
         limit: 5,
       });
-      if (results.length > 0) {
-        const best = results[0]; // Already sorted by popularity
+      // Filter out clips shorter than minimum (we need enough footage to trim FROM, never stretch)
+      const filtered = minDurationSec
+        ? results.filter(r => r.duration >= minDurationSec)
+        : results;
+      if (filtered.length > 0) {
+        const best = filtered[0]; // Already sorted by popularity
         videoUrl = best.videoUrlHD || best.videoUrl;
         thumbnailUrl = best.thumbnailUrl;
         duration = best.duration;
@@ -186,8 +191,11 @@ export async function searchAndDownloadStockVideo(
         orientation,
         limit: 5,
       });
-      if (results.length > 0) {
-        const best = results[0];
+      const pexFiltered = minDurationSec
+        ? results.filter(r => r.duration >= minDurationSec)
+        : results;
+      if (pexFiltered.length > 0) {
+        const best = pexFiltered[0];
         videoUrl = best.videoUrlHD || best.videoUrl;
         thumbnailUrl = best.thumbnailUrl;
         duration = best.duration;
