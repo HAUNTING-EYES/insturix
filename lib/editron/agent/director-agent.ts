@@ -91,6 +91,12 @@ export async function executeDirectorPlan(
     // ─── Step 1.5: Run 5-Track Analysis → EDL → Execute ──────
     // Intelligence layer with PER-ASSET error isolation.
     // If one asset fails analysis, others still contribute to the EDL.
+    // storyboardScenes MUST be in function scope (not block scope) because
+    // executeAction at step 3 references it for captions, filters, transitions, quality review.
+    // Previously declared inside the { } block below → caused "storyboardScenes is not defined"
+    // which silently killed captions, filters, transitions, and quality review.
+    let storyboardScenes: any[] = [];
+
     const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
       assetsAnalyzed: 0, assetsFailed: 0, failedAssets: [],
@@ -104,9 +110,6 @@ export async function executeDirectorPlan(
       const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
       const voiceoverOverlays = overlays.filter(o => o.type === 'sound' && o.row === 3).sort((a, b) => a.from - b.from);
       const analyses: any[] = [];
-
-      // ── Load storyboard metadata (non-fatal) ──
-      let storyboardScenes: any[] = [];
       try {
         const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
         const projectDoc = await db.collection('projects').findOne({ projectId }) as any;
