@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { CanvasActions } from "../canvas/CanvasActions";
@@ -12,8 +12,6 @@ import { Grid, Sliders, X, Loader2, Square, Pencil } from "lucide-react";
 import useClickatronStore from "@/stores/useCanvasStore";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
-import { SelectionTool } from "../canvas/SelectionTool";
-import { GenerativeFillPanel } from "../canvas/GenerativeFillPanel";
 import { useDebounce } from "use-debounce";
 import { produce } from "immer";
 import { CanvasControls } from "../canvas/CanvasControls";
@@ -24,7 +22,6 @@ import {
   getImageUrl,
 } from "@/lib/frontend/services/clickatron-download";
 import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
-import { GENERATIVE_FILL_SYSTEM_PROMPT } from "@/lib/config/clickatron-models";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -48,7 +45,7 @@ const getAspectRatioDimensions = (
   const ratio = widthRatio / heightRatio;
 
   let width = maxWidth;
-  let height = width / ratio;
+ let height = width / ratio;
 
   if (height > maxHeight) {
     height = maxHeight;
@@ -184,12 +181,6 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     useState(activeVariationId);
   const [referenceImageCount, setReferenceImageCount] = useState<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const [isGenerativeFillMode, setIsGenerativeFillMode] = useState(false);
-  const [selectionBounds, setSelectionBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
-  const [isFillGenerating, setIsFillGenerating] = useState(false);
-  const [isFillPanelOpen, setIsFillPanelOpen] = useState(false);
-  const [imageNaturalDimensions, setImageNaturalDimensions] = useState<{ width: number; height: number } | null>(null);
 
   // Debug: Track re-renders (only warn if excessive)
   renderCount.current += 1;
@@ -298,44 +289,16 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   }, []);
 
   // Update active variation if none is selected
-  useEffect(() => {
+ useEffect(() => {
     if (!localActiveVariation && variations.length > 0) {
       setLocalActiveVariation(variations[0].id);
+      setActiveVariationId(variations[0].id);
     }
   }, [variations, localActiveVariation]);
 
-  // Measure container dimensions for precise alignment
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const updateDimensions = () => {
-      if (!containerRef.current) return;
-      setContainerDimensions({
-        width: containerRef.current.clientWidth,
-        height: containerRef.current.clientHeight
-      });
-    };
-
-    updateDimensions();
-    const observer = new ResizeObserver(updateDimensions);
-    observer.observe(containerRef.current);
-
-    return () => observer.disconnect();
-  }, []);
-
-  // Calculate synchronized image dimensions
-  const imageDisplayDimensions = useMemo(() => {
-    if (!containerDimensions.width || !containerDimensions.height) return null;
-    // Use 0.95 factor to leave a small margin (similar to previous max-w-[90%])
-    return getAspectRatioDimensions(aspectRatio, containerDimensions.width * 0.95, containerDimensions.height * 0.95);
-  }, [aspectRatio, containerDimensions]);
-
-
-  // Autosave canvas - simplified approach
-  useEffect(() => {
+ // Autosave canvas - simplified approach
+ useEffect(() => {
     // Skip on initial mount to prevent immediate sync
     if (isInitialMount.current) {
       isInitialMount.current = false;
@@ -776,81 +739,6 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   };
 
-  // Handle Generative Fill generate action
-  const handleGenerativeFillGenerate = async (prompt: string, modelId: string) => {
-    // Use localActiveVariation as fallback if global activeVariationId is missing
-    const effectiveVariationId = activeVariationId || localActiveVariation;
-
-    if (!task?._id || !effectiveVariationId || !selectionBounds || !maskDataUrl) {
-      const errorMsg = `Missing data: Task=${!!task?._id}, Var=${!!effectiveVariationId}, Sel=${!!selectionBounds}, MaskLength=${maskDataUrl?.length || 0}`;
-      console.error(errorMsg);
-      alert("Error: " + errorMsg + ". Please try refreshing the page or re-selecting the area.");
-      return;
-    }
-    setIsFillGenerating(true);
-    try {
-      const idempotencyKey = `fill_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-      const formData = new FormData();
-      const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${prompt}`;
-      formData.append('prompt', fullPrompt);
-      formData.append('modelId', modelId);
-      formData.append('variationId', effectiveVariationId);
-      formData.append('selectionBounds', JSON.stringify(selectionBounds));
-      formData.append('fineTuning', JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
-      formData.append('metadata', JSON.stringify({ aspectRatio }));
-
-      // Convert data URL to Blob
-      const res = await fetch(maskDataUrl);
-      const maskBlob = await res.blob();
-      formData.append('mask', new File([maskBlob], 'mask.png', { type: 'image/png' }));
-
-      const response = await fetch(`/api/services/clickatron/session/${task._id}/generative-fill`, {
-        method: 'POST',
-        headers: { 'Idempotency-Key': idempotencyKey },
-        body: formData,
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const errorMessage = errorData.error || errorData.message || 'Failed to queue generative fill';
-        const errorDetails = errorData.details ? JSON.stringify(errorData.details) : '';
-        console.error('Server error details:', errorData);
-        throw new Error(`${errorMessage} ${errorDetails}`);
-      }
-      const data = await response.json();
-
-      // Optimistically set new variation active
-      if (data.variationId) {
-        setLocalActiveVariation(data.variationId);
-        setActiveVariationId(data.variationId);
-      }
-
-      // Start polling for completion
-      await pollVariationCompletion(
-        task._id,
-        data.variationId,
-        loadSession,
-        () => useClickatronStore.getState().task,
-        () => window.dispatchEvent(new CustomEvent('clickatron-usage-updated')),
-        2000,
-        abortControllerRef.current?.signal
-      ).catch(err => {
-        if (err.message !== 'Polling aborted') {
-          console.error('Polling error in handleGenerativeFillGenerate:', err);
-        }
-      });
-    } catch (err) {
-      console.error('Generative fill failed:', err);
-      // Show error to user (especially for Limit Exceeded or Validation errors)
-      alert(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsFillGenerating(false);
-      setIsFillPanelOpen(false);
-      setIsGenerativeFillMode(false);
-      setSelectionBounds(null);
-      setMaskDataUrl(null);
-    }
-  };
-
   const handleNewVariation = useCallback(() => {
     if (!canvas) return;
     const now = new Date();
@@ -1128,7 +1016,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           variations={variations}
           activeVariationId={localActiveVariation}
           onVariationSelect={handleVariationSelect}
-          onAddToCompare={() => { }}
+          onAddToCompare={() => {}}
           onNewVariation={handleNewVariation}
           onDuplicateVariation={handleDuplicateVariation}
           onDeleteVariation={handleDeleteVariation}
@@ -1138,76 +1026,77 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
       {/* Main Canvas Area */}
       <div className="flex-1 flex flex-col h-full min-w-0 relative w-full">
-        {/* Top Header */}
-        <div className="p-4 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-sm relative z-10 flex flex-col items-center gap-2">
-          <div className="flex flex-col items-center pb-6 md:pb-0">
-            {isEditingTitle ? (
-              <Input
-                type="text"
-                value={editedTitle}
-                onChange={(e) => setEditedTitle(e.target.value)}
-                onBlur={() => {
-                  saveTitle(editedTitle);
-                  setIsEditingTitle(false);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+          {/* Top Header */}
+          <div className="p-4 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-sm relative z-10 flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center pb-6 md:pb-0">
+              {isEditingTitle ? (
+                <Input
+                  type="text"
+                  value={editedTitle}
+                  onChange={(e) => setEditedTitle(e.target.value)}
+                  onBlur={() => {
                     saveTitle(editedTitle);
                     setIsEditingTitle(false);
-                  } else if (e.key === 'Escape') {
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      saveTitle(editedTitle);
+                      setIsEditingTitle(false);
+                    } else if (e.key === 'Escape') {
+                      setEditedTitle(task?.title || videoIdea);
+                      setIsEditingTitle(false);
+                    }
+                  }}
+                  className="text-lg font-semibold text-zinc-100 text-center"
+                  autoFocus
+                />
+              ) : (
+                <h2
+                  className="text-lg font-semibold text-zinc-100 cursor-pointer hover:bg-zinc-800/50 rounded px-2 py-1 text-center"
+                  onClick={() => {
                     setEditedTitle(task?.title || videoIdea);
-                    setIsEditingTitle(false);
-                  }
-                }}
-                className="text-lg font-semibold text-zinc-100 text-center"
-                autoFocus
+                    setIsEditingTitle(true);
+                  }}
+                >
+                  {task?.title || videoIdea}
+                </h2>
+              )}
+              <SaveStatusIndicator
+                isSaving={isSaving}
+                saveError={saveError}
+                lastSaved={lastSaved}
               />
-            ) : (
-              <h2
-                className="text-lg font-semibold text-zinc-100 cursor-pointer hover:bg-zinc-800/50 rounded px-2 py-1 text-center"
-                onClick={() => {
-                  setEditedTitle(task?.title || videoIdea);
-                  setIsEditingTitle(true);
-                }}
+            </div>
+            {process.env.NODE_ENV === 'development' && (
+              <button
+                onClick={handleManualSync}
+                className="text-xs bg-blue-60 text-white px-2 py-1 rounded mt-1"
               >
-                {task?.title || videoIdea}
-              </h2>
+                Manual Sync (Debug)
+              </button>
             )}
-            <SaveStatusIndicator
-              isSaving={isSaving}
-              saveError={saveError}
-              lastSaved={lastSaved}
-            />
-          </div>
-          {process.env.NODE_ENV === 'development' && (
-            <button
-              onClick={handleManualSync}
-              className="text-xs bg-blue-600 text-white px-2 py-1 rounded mt-1"
-            >
-              Manual Sync (Debug)
-            </button>
-          )}
-          {/* Mobile Bottom Navigation */}
-          <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800/80 p-3 flex justify-between items-center h-16 gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMobilePanel('gallery')}
-              className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'gallery' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
-            >
-              <Grid className="h-5 w-5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMobilePanel('fine-tune')}
-              className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'fine-tune' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
-            >
-              <Sliders className="h-5 w-5" />
-            </Button>
-          </div>
+        {/* Mobile Bottom Navigation */}
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800/80 p-3 flex justify-between items-center h-16 gap-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMobilePanel('gallery')}
+            className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'gallery' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
+          >
+            <Grid className="h-5 w-5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMobilePanel('fine-tune')}
+            className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'fine-tune' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
+          >
+            <Sliders className="h-5 w-5" />
+          </Button>
         </div>
-
+  
+        </div>
+  
         {/* Canvas Display Area */}
         <div className="flex flex-1 overflow-hidden relative bg-zinc-900/20 h-full">
           {/* Main Canvas Container */}
@@ -1226,16 +1115,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   onZoomOut={() => imageRef.current?.zoomOut(0.3)}
                   onResetZoom={() => imageRef.current?.resetTransform()}
                   onDownload={handleDownload}
-                // onShare={() => console.log("Share")}
+                  // onShare={() => console.log("Share")}
                 />
               </div>
             )}
 
             {/* Image Display with proper sizing */}
-            <div
-              ref={containerRef}
-              className="relative w-full h-full flex items-center justify-center"
-            >
+            <div className="relative w-full h-full flex items-center justify-center">
               {!activeVariation ? (
                 // No variation selected
                 <NoVariationSelected aspectRatio={currentAspectRatio} />
@@ -1269,8 +1155,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                         <div className="text-red-300 text-xl font-semibold">
                           Generation Failed
                         </div>
-                        <div className="text-red-400/70 text-sm max-w-md mx-auto">
-                          {activeVariation.error || "Something went wrong while generating this variation. This could be due to content policy restrictions or technical issues."}
+                        <div className="text-red-40/70 text-sm max-w-md mx-auto">
+                          Something went wrong while generating this variation. This could be due to content policy restrictions or technical issues.
                         </div>
 
                         {/* Retry button */}
@@ -1292,75 +1178,16 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   </div>
                 </div>
               ) : (
-                <div className="relative">
-                  {/* Generative Fill toggle */}
-                  {activeVariation.status === 'completed' && (
-                    <div className="absolute top-4 right-4 z-10">
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => {
-                          setIsGenerativeFillMode((prev) => !prev);
-                          setSelectionBounds(null);
-                          setMaskDataUrl(null);
-                        }}
-                        className={`${isGenerativeFillMode
-                          ? 'bg-green-600 hover:bg-green-700'
-                          : 'bg-purple-600 hover:bg-purple-700'
-                          } shadow-lg`}
-                      >
-                        {isGenerativeFillMode ? '✓ Fill Active' : '✨ Generative Fill'}
-                      </Button>
-                    </div>
-                  )}
-
-                  <ImageDisplay
-                    key={localActiveVariation}
-                    ref={imageRef}
-                    imageRef={activeVariation.imageRef}
-                    prompt={activeVariation.prompt}
-                    status={activeVariation.status}
-                    variationId={localActiveVariation!}
-                    fineTuning={activeVariation.fineTuning}
-                    aspectRatio={aspectRatio}
-                    className="object-contain rounded-lg shadow-2xl"
-                    width={imageDisplayDimensions?.width}
-                    height={imageDisplayDimensions?.height}
-                    interactive={!isGenerativeFillMode}
-                    onImageLoad={setImageNaturalDimensions}
-                  />
-
-                  {/* Selection overlay */}
-                  {isGenerativeFillMode && activeVariation.status === 'completed' && imageDisplayDimensions && (
-                    <div className="absolute inset-0 pointer-events-none">
-                      <div className="absolute pointer-events-auto" style={{
-                        width: `${imageDisplayDimensions.width}px`,
-                        height: `${imageDisplayDimensions.height}px`,
-                        left: '50%',
-                        top: '50%',
-                        transform: 'translate(-50%, -50%)'
-                      }}>
-                        <SelectionTool
-                          imageWidth={imageDisplayDimensions.width}
-                          imageHeight={imageDisplayDimensions.height}
-                          originalWidth={imageNaturalDimensions?.width}
-                          originalHeight={imageNaturalDimensions?.height}
-                          isActive={true}
-                          onSelectionComplete={(sel, maskUrl) => {
-                            setSelectionBounds(sel);
-                            setMaskDataUrl(maskUrl);
-                            setIsFillPanelOpen(true);
-                          }}
-                          onCancel={() => {
-                            setIsGenerativeFillMode(false);
-                            setSelectionBounds(null);
-                            setMaskDataUrl(null);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <ImageDisplay
+                  key={localActiveVariation}
+                  ref={imageRef}
+                  imageRef={activeVariation.imageRef}
+                  status={activeVariation.status}
+                  variationId={localActiveVariation!}
+                  fineTuning={activeVariation.fineTuning}
+                  aspectRatio={aspectRatio}
+                  className="max-w-[90%] max-h-[90%] object-contain rounded-lg shadow-2xl"
+                />
               )}
             </div>
           </div>
@@ -1373,7 +1200,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               variations={variations}
               activeVariationId={localActiveVariation}
               onVariationSelect={handleVariationSelect}
-              onAddToCompare={() => { }}
+              onAddToCompare={() => {}}
               onNewVariation={handleNewVariation}
               onDuplicateVariation={handleDuplicateVariation}
               onDeleteVariation={handleDeleteVariation}
@@ -1454,18 +1281,11 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         {/* Bottom AI Command Console - Hide for generating and failed variations */}
         {activeVariation?.status !== "generating" && activeVariation?.status !== "failed" && (
           <div className="relative z-20 w-full flex-shrink-0">
-            {/* Generative Fill Panel */}
-            <GenerativeFillPanel
-              isOpen={isFillPanelOpen}
-              onClose={() => setIsFillPanelOpen(false)}
-              onGenerate={handleGenerativeFillGenerate}
-              isGenerating={isFillGenerating}
-            />
             {activeVariation?.status === "blank" ? (
               <NewVariationConsole
                 onGenerate={handleAIGenerate}
                 isGenerating={false}
-                className="border-t border-zinc-800/80 mr-0 max-w-4xl mx-auto"
+                className="border-t border-zinc-800/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
               />
@@ -1473,7 +1293,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               <AICommandConsole
                 onGenerate={handleAIGenerate}
                 isGenerating={false}
-                className="border-t border-zinc-800/80 mr-0 max-w-4xl mx-auto"
+                className="border-t border-zinc-800/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
                 currentImageUrl={activeVariation?.imageRef || ''}

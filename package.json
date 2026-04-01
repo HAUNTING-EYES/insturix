@@ -30,6 +30,15 @@
   "dependencies": {
     "@ai-sdk/google": "^2.0.39",
     "@aws-sdk/client-ses": "^3.934.0",
+<<<<<<< HEAD
+=======
+    "@blocknote/core": "^0.42.3",
+    "@blocknote/mantine": "^0.42.3",
+    "@blocknote/react": "^0.42.3",
+    "@mantine/core": "^8.3.4",
+    "@mantine/hooks": "^8.3.4",
+    "@mantine/utils": "^6.0.22",
+>>>>>>> 0273bf02 (fix build error)
     "@clerk/elements": "^0.23.83",
     "@clerk/nextjs": "^6.35.2",
     "@deepgram/sdk": "^4.11.3",
