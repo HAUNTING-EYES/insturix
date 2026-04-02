@@ -419,7 +419,7 @@ async function analyzeVideoComprehensive(
   ]
 }
 
-Analyze 1 keyframe per second of video (for a ${Math.round(durationMs / 1000)}s video, that's ${Math.max(3, Math.ceil(durationMs / 1000))} keyframes at timestamps: ${Array.from({ length: Math.max(3, Math.ceil(durationMs / 1000)) }, (_, i) => `${i}s`).join(', ')}). For each keyframe provide frame number (at 30fps), timestamp, description, subjects, shot type, camera angle, colors, brightness, mood, energy, and whether it's a natural cut point with a brief reason WHY. Identify all visible subjects with bounding boxes. Detect camera motion type and intensity per segment. Mark motion intensity peaks (frames where motion changes significantly). Return ONLY valid JSON, no markdown.`;
+Analyze 1 keyframe per second of video (for a ${Math.round(durationMs / 1000)}s video at ${fps}fps, that's ${Math.max(3, Math.ceil(durationMs / 1000))} keyframes at timestamps: ${Array.from({ length: Math.max(3, Math.ceil(durationMs / 1000)) }, (_, i) => `${i}s`).join(', ')}). For each keyframe provide frame number (at ${fps}fps), timestamp in milliseconds, description of what's visible, subjects with bounding boxes and confidence, shot type, camera angle, dominant colors, brightness (0-1), mood score (-1 to 1), energy level (0-1), and whether it's a natural cut point with a brief reason WHY it would be a good cut point. Also identify all visible subjects with normalized bounding boxes (0-1 range). Detect camera motion type and intensity per segment. Mark motion intensity peaks (frames where motion changes significantly). Return ONLY valid JSON, no markdown.`;
 
     const result = await model.generateContent([
       { fileData: { fileUri, mimeType: 'video/mp4' } },
@@ -940,20 +940,16 @@ export async function runFullAnalysis(
   const isOverBudget = () => Date.now() - analysisStartMs > TIME_BUDGET_MS;
   console.log(`[Analysis] Starting ${isAIVideo ? 'AI-video' : 'real-footage'} analysis for ${assetId} (${Math.round(durationMs / 1000)}s, budget: ${TIME_BUDGET_MS / 1000}s)`);
 
-  // Check cache — with quality-aware TTL (Phase 1C)
-  // High/medium quality → cache 7 days. Fallback/low quality → cache 1 hour (retry soon).
+  // Check cache — 7 day TTL for all quality levels.
+  // Analysis runs ONCE during pipeline (Director invocation). There's no automatic re-trigger,
+  // so short TTLs are pointless — the data is what the project has until next export.
+  // Quality is tracked via analysisQuality field so consumers know if data is real vs fallback.
   const cached = await getAnalysis(assetId);
-  if (cached && cached.status === 'complete') {
-    const age = Date.now() - new Date(cached.analyzedAt).getTime();
-    const quality = (cached as any).analysisQuality || 'medium'; // legacy data without quality field
-    const maxAge = (quality === 'fallback' || quality === 'low')
-      ? 3600 * 1000        // 1 hour — retry soon for degraded data
-      : 7 * 24 * 3600 * 1000; // 7 days — good data, keep it
-    if (age < maxAge) {
-      console.log(`[Analysis] Using cached analysis for ${assetId} (quality=${quality}, age=${Math.round(age / 60000)}min)`);
-      return cached;
-    }
-    console.log(`[Analysis] Cache expired for ${assetId} (quality=${quality}, age=${Math.round(age / 3600000)}h > TTL=${Math.round(maxAge / 3600000)}h), re-analyzing`);
+  if (cached && cached.status === 'complete' &&
+      Date.now() - new Date(cached.analyzedAt).getTime() < 7 * 24 * 3600 * 1000) {
+    const quality = (cached as any).analysisQuality || 'unknown';
+    console.log(`[Analysis] Using cached analysis for ${assetId} (quality=${quality})`);
+    return cached;
   }
 
   // Layer 1: Shot detection
