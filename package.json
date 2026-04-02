@@ -30,15 +30,6 @@
   "dependencies": {
     "@ai-sdk/google": "^2.0.39",
     "@aws-sdk/client-ses": "^3.934.0",
-<<<<<<< HEAD
-=======
-    "@blocknote/core": "^0.42.3",
-    "@blocknote/mantine": "^0.42.3",
-    "@blocknote/react": "^0.42.3",
-    "@mantine/core": "^8.3.4",
-    "@mantine/hooks": "^8.3.4",
-    "@mantine/utils": "^6.0.22",
->>>>>>> 0273bf02 (fix build error)
     "@clerk/elements": "^0.23.83",
     "@clerk/nextjs": "^6.35.2",
     "@deepgram/sdk": "^4.11.3",
@@ -102,7 +93,6 @@
     "@tailwindcss/line-clamp": "^0.4.4",
     "@tanstack/react-query": "^5.90.10",
     "@tanstack/react-table": "^8.21.3",
-<<<<<<< HEAD
     "@tiptap/core": "^3.11.0",
     "@tiptap/extension-highlight": "^3.11.0",
     "@tiptap/extension-link": "^3.11.0",
@@ -120,9 +110,7 @@
     "@upstash/ratelimit": "^2.0.7",
     "@upstash/redis": "^1.35.6",
     "@upstash/vector": "^1.2.2",
-=======
     "@types/uuid": "^10.0.0",
->>>>>>> c108fe45 (Added UploaderX)
     "@vercel/analytics": "^1.5.0",
     "@vercel/edge": "^1.2.2",
     "@vercel/kv": "^3.0.0",
@@ -138,19 +126,12 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "file-type": "^21.1.1",
-<<<<<<< HEAD
-=======
-    "firebase": "^12.6.0",
-    "firebase-admin": "^13.6.0",
-    "form-data": "^4.0.5",
->>>>>>> 49e43fcb (feat(uploaderx): implement facebook video upload, ui refinements, and database fix)
     "formik": "^2.4.9",
     "framer-motion": "^12.23.24",
     "google-auth-library": "^10.5.0",
     "googleapis": "^166.0.0",
     "gray-matter": "^4.0.3",
     "gsap": "^3.13.0",
-<<<<<<< HEAD
     "html-react-parser": "^5.2.10",
     "html2canvas": "^1.4.1",
     "idb": "^8.0.3",
@@ -164,36 +145,16 @@
     "motion": "^12.23.24",
     "nanoid": "^5.1.6",
     "next": "15.3.6",
-=======
-    "html-react-parser": "^5.2.5",
-    "lucide-react": "^0.525.0",
-    "mongodb": "^6.20.0",
-    "mongoose": "^8.16.1",
-    "motion": "^12.20.2",
-    "next": "15.3.4",
->>>>>>> fb81a299 (video upload and other necessary backend is done)
     "next-sitemap": "^4.2.3",
     "next-themes": "^0.4.6",
     "ogl": "^1.0.11",
     "pnpm": "^10.22.0",
     "razorpay": "^2.9.6",
-<<<<<<< HEAD
     "react": "^19.1.2",
-    "react-best-gradient-color-picker": "^3.0.14",
-    "react-colorful": "^5.6.1",
-    "react-country-state-city": "^1.1.12",
     "react-dom": "^19.1.2",
     "react-dropzone": "^14.3.8",
     "react-hook-form": "^7.66.1",
     "react-hot-toast": "^2.6.0",
-    "react-hotkeys-hook": "^5.2.1",
-=======
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "react-dropzone": "^14.3.8",
-    "react-hook-form": "^7.59.0",
-    "react-hot-toast": "^2.5.2",
->>>>>>> c108fe45 (Added UploaderX)
     "react-icons": "^5.5.0",
     "react-markdown": "^10.1.0",
     "react-phone-number-input": "^3.4.14",
@@ -244,9 +205,7 @@
     "vitest": "^1.0.0"
   },
   "eslintConfig": {
-    "extends": [
-      "next/core-web-vitals"
-    ],
+    "extends": ["next/core-web-vitals"],
     "rules": {
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": [
