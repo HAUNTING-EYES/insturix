@@ -758,7 +758,7 @@ export function ExportToEditronDialog({
       // ─── Step 7: Create Editron project ────────────────────
       // C2/C3 FIX: Don't create a project with 0 videos if video gen was requested and failed
       if (videoGenFailed && generateVideos) {
-        setStep('error');
+        setStep('done' as any); // Error state — user sees the error message above
         // Don't continue to finalize — user needs to retry video generation
         return;
       }
@@ -1543,7 +1543,7 @@ export function ExportToEditronDialog({
                 <StepIndicator label="Generate AI voiceover" active={step === 'generating-voiceover'} done={['finalizing', 'directing', 'done'].includes(step)} />
                 <StepIndicator label="Create Editron project" active={step === 'finalizing'} done={['directing', 'done'].includes(step)} />
                 {selectedProfileId && (
-                  <StepIndicator label="Apply edit profile" active={step === 'directing'} done={(step as string) === 'done'} />
+                  <StepIndicator label="Apply edit profile" active={(step as string) === 'directing'} done={(step as string) === 'done'} />
                 )}
               </div>
 
@@ -1555,7 +1555,7 @@ export function ExportToEditronDialog({
                 {step === 'generating-videos' && 'Animating storyboard images into video clips — this takes a few minutes...'}
                 {step === 'generating-voiceover' && 'Generating AI voiceover narration...'}
                 {step === 'finalizing' && 'Assembling your video project with music & voiceover...'}
-                {step === 'directing' && `Applying edit profile: ${detectedProfile?.name || 'auto'}...`}
+                {(step as string) === 'directing' && `Applying edit profile: ${detectedProfile?.name || 'auto'}...`}
               </p>
               {error && (
                 <p className="text-xs text-amber-400 text-center mt-1">{error}</p>

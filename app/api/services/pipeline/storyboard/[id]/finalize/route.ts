@@ -645,7 +645,8 @@ export async function POST(
         platform: '',
         format: '',
       };
-      const { profileId } = getAutoSelectedProfile(thinkforgeMetadata);
+      const { profile: detectedProfile } = getAutoSelectedProfile(thinkforgeMetadata);
+      const profileId = detectedProfile.profileId;
       // Store on project so video worker can dispatch Director with correct profile
       await db.collection(COLLECTIONS.PROJECTS).updateOne(
         { projectId: project.projectId },

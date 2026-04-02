@@ -111,7 +111,7 @@ export async function parseScriptWithLLM(
   } = {},
 ): Promise<LLMParseResult> {
   const google = getGeminiProvider();
-  const model = google('gemini-2.5-flash', { structuredOutputs: true });
+  const model = (google as any)('gemini-2.5-flash', { structuredOutputs: true });
 
   const { object } = await generateObject({
     model,
@@ -354,6 +354,11 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
   // These fixes catch the most common violations.
 
   if (object.scenes) {
+    // Assign sceneIndex (not in Zod schema — LLM doesn't output it, we derive from array position)
+    for (let i = 0; i < object.scenes.length; i++) {
+      (object.scenes[i] as any).sceneIndex = i;
+    }
+
     const globalPacing = object.globalEditDirections?.pacing?.toLowerCase() || '';
 
     for (const scene of object.scenes) {
@@ -395,19 +400,19 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
       if (!scene.editDirections?.sfxCue && scene.audioDescription) {
         const sfxMatch = scene.audioDescription.match(/(?:SFX|Sound|sound effect)[:\s]+([^.]+)/i);
         if (sfxMatch) {
-          if (!scene.editDirections) scene.editDirections = {} as any;
-          scene.editDirections.sfxCue = sfxMatch[1].trim();
+          if (!scene.editDirections) (scene as any).editDirections = {};
+          (scene.editDirections as any).sfxCue = sfxMatch[1].trim();
         }
         // Also check for obvious SFX words even without the label
         if (!scene.editDirections?.sfxCue) {
           const sfxWords = scene.audioDescription.match(/\b(whoosh|crash|slam|click|pop|sizzle|crunch|buzz|chime|thud|splash|drip|crackle|rustle|shatter|bang|ring|beep|honk|chirp|roar)\b/gi);
           if (sfxWords && sfxWords.length >= 1) {
-            if (!scene.editDirections) scene.editDirections = {} as any;
+            if (!scene.editDirections) (scene as any).editDirections = {};
             // Extract the sentence containing SFX words
             const sentences = scene.audioDescription.split(/[.!]/);
             const sfxSentences = sentences.filter(s => sfxWords.some(w => s.toLowerCase().includes(w.toLowerCase())));
             if (sfxSentences.length > 0) {
-              scene.editDirections.sfxCue = sfxSentences.map(s => s.trim()).join(', ');
+              (scene.editDirections as any).sfxCue = sfxSentences.map(s => s.trim()).join(', ');
             }
           }
         }
@@ -430,7 +435,7 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
       // Graphics-only detection: data, charts, stats, SaaS UI, abstract concepts
       if (/\b(chart|graph|diagram|infographic|data visual|stat|dashboard|ui screenshot|screen recording|abstract concept|numbers speak)\b/i.test(visual)) {
         (scene as any).assetRecommendation = 'graphics-only';
-        console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → graphics-only (data/chart content)`);
+        console.log(`[SceneParser] Asset: scene ${(scene as any).sceneIndex} "${scene.title}" → graphics-only (data/chart content)`);
       }
 
       // Default: all scenes → ai-video
@@ -448,7 +453,7 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
         }
       }
 
-      console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → ${(scene as any).assetRecommendation}${subShots.length > 0 ? ` (${subShots.length} sub-shots → ai-video)` : ''}`);
+      console.log(`[SceneParser] Asset: scene ${(scene as any).sceneIndex} "${scene.title}" → ${(scene as any).assetRecommendation}${subShots.length > 0 ? ` (${subShots.length} sub-shots → ai-video)` : ''}`);
     }
   }
 
@@ -494,9 +499,9 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
 
       for (const pattern of transitionPatterns) {
         if (pattern.regex.test(combinedWindow)) {
-          if (!scene.editDirections) scene.editDirections = {} as any;
-          scene.editDirections.transition = { type: pattern.type, durationMs: pattern.durationMs };
-          console.log(`[SceneParser] Post-process: scene ${scene.sceneIndex} transition=${pattern.type} (from raw script)`);
+          if (!scene.editDirections) (scene as any).editDirections = {};
+          (scene as any).editDirections.transition = { type: pattern.type, durationMs: pattern.durationMs };
+          console.log(`[SceneParser] Post-process: scene ${(scene as any).sceneIndex} transition=${pattern.type} (from raw script)`);
           break; // Use first match
         }
       }
@@ -522,7 +527,7 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
       }
       // Verify new total
       const newTotal = object.scenes.reduce((sum: number, s: any) => sum + (s.durationSeconds || 5), 0);
-      object.totalDurationSeconds = newTotal;
+      (object as any).totalDurationSeconds = newTotal;
       console.log(`[SceneParser] Post-process: adjusted durations total ${newTotal}s`);
     }
   }
@@ -590,7 +595,7 @@ ${scriptText.substring(0, 8000)}`,
           videoMotionPrompt: scene.videoMotionPrompt || '',
         }));
 
-        console.log(`[SceneParser] Montage Gemini: scene ${scene.sceneIndex} decomposed into ${scene.subShots.length} sub-shots`);
+        console.log(`[SceneParser] Montage Gemini: scene ${(scene as any).sceneIndex} decomposed into ${scene.subShots.length} sub-shots`);
       }
     } catch (montageErr: any) {
       console.warn(`[SceneParser] Montage detection Gemini call failed (non-fatal): ${montageErr.message}`);
