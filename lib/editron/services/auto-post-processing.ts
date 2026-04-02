@@ -158,12 +158,19 @@ export function applyDriftZoom(
     if (hasScaleTrack) continue;
 
     // Z-031: If video, check for existing camera motion
+    // BUT: only trust motion data if analysis quality is real (not fallback).
+    // Fallback data has hardcoded motionIntensity=0.3 which would wrongly skip drift-zoom.
     if (overlay.type === 'video' && analyses) {
       const analysis = analyses.get(overlay.assetId);
       if (analysis) {
-        const motion = analysis.motionSegments?.[0];
-        if (motion && motion.cameraMotion !== 'static') continue; // Has camera motion, skip
-        if (motion && motion.motionIntensity > 0.1) continue; // Detectable movement, skip
+        const quality = (analysis as any).analysisQuality || 'unknown';
+        // Only skip drift-zoom based on motion if we have REAL analysis data
+        if (quality === 'high' || quality === 'medium') {
+          const motion = analysis.motionSegments?.[0];
+          if (motion && motion.cameraMotion !== 'static') continue;
+          if (motion && motion.motionIntensity > 0.1) continue;
+        }
+        // For fallback/low quality: always apply drift-zoom (safe default for unanalyzed clips)
       }
     }
 
@@ -291,8 +298,9 @@ export function applyFreezeFrameUnderGraphics(
 
   for (const graphic of graphicOverlays) {
     const graphicType = graphic.metadata?.graphicType;
-    // Only freeze for types that need readability (stat-counter, keyword-highlight, quote-card)
-    if (!['stat-counter', 'keyword-highlight', 'quote-card', 'bullet-list'].includes(graphicType)) continue;
+    // Freeze for graphic types that need readability — viewer must read text while video pauses.
+    // Previously only 4 types, missed logo-reveal and emphasis-text.
+    if (!['stat-counter', 'keyword-highlight', 'quote-card', 'bullet-list', 'logo-reveal', 'emphasis-text'].includes(graphicType)) continue;
 
     // Find the video overlay under this graphic
     const video = videoOverlays.find((v: any) =>
@@ -336,6 +344,13 @@ export function validateDurationVariety(
     .sort((a, b) => a.from - b.from);
 
   for (let i = 2; i < videoOverlays.length; i++) {
+    // Skip montage sub-shots — they have intentionally uniform duration (Eisenstein's metric montage).
+    // Forced variety on a montage breaks the rhythmic pattern the editor intended.
+    const isMontage = videoOverlays[i].metadata?.isMontageSub
+      || videoOverlays[i - 1].metadata?.isMontageSub
+      || videoOverlays[i - 2].metadata?.isMontageSub;
+    if (isMontage) continue;
+
     const durA = videoOverlays[i - 2].durationInFrames / fps;
     const durB = videoOverlays[i - 1].durationInFrames / fps;
     const durC = videoOverlays[i].durationInFrames / fps;

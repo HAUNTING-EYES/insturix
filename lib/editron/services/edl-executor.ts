@@ -263,18 +263,26 @@ function applyZoom(
   if (analyses && videoOverlay.assetId) {
     const analysis = analyses.get(videoOverlay.assetId);
     if (analysis) {
-      const localDecisionFrame = decision.frame - videoOverlay.from;
-      const peaks = analysis.motionPeaks || [];
-      const cuts = analysis.naturalCutPoints || [];
-      const allSignificantFrames = [...peaks, ...cuts];
-      const nearSignificantFrame = allSignificantFrames.some(
-        (f: number) => Math.abs(f - localDecisionFrame) <= 10,
-      );
-      if (!nearSignificantFrame && allSignificantFrames.length > 0) {
-        // Zoom is at an arbitrary frame — downgrade to slow-push instead of rejecting
-        decision.params.zoomType = 'slow-push';
-        decision.params.scaleTo = Math.min(decision.params.scaleTo || 1.1, 1.05);
-        console.log(`[EDL-Exec] Zoom at frame ${decision.frame} not near motion peak — downgraded to slow-push`);
+      const quality = (analysis as any).analysisQuality || 'unknown';
+
+      // Only validate against motion peaks if analysis quality is real.
+      // Fallback data has no peaks — validation would pass vacuously.
+      if (quality === 'high' || quality === 'medium') {
+        const localDecisionFrame = decision.frame - videoOverlay.from;
+        const peaks = analysis.motionPeaks || [];
+        const cuts = analysis.naturalCutPoints || [];
+        const allSignificantFrames = [...peaks, ...cuts];
+        const nearSignificantFrame = allSignificantFrames.some(
+          (f: number) => Math.abs(f - localDecisionFrame) <= 10,
+        );
+        if (!nearSignificantFrame && allSignificantFrames.length > 0) {
+          decision.params.zoomType = 'slow-push';
+          decision.params.scaleTo = Math.min(decision.params.scaleTo || 1.1, 1.05);
+          console.log(`[EDL-Exec] Zoom at frame ${decision.frame} not near motion peak — downgraded to slow-push (analysis quality: ${quality})`);
+        }
+      } else {
+        // Low/fallback quality — trust Gemini's anchor-based placement, don't validate against fake peaks
+        console.log(`[EDL-Exec] Zoom at frame ${decision.frame} — skipping motion peak validation (analysis quality: ${quality})`);
       }
     }
   }
