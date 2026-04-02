@@ -284,6 +284,12 @@ const B05: EditProfile = {
     { term: 'workout', field: 'visual', weight: 0.5 }, { term: 'exercise', field: 'visual', weight: 0.4 },
     { term: 'gym', field: 'visual', weight: 0.4 }, { term: 'yoga', field: 'visual', weight: 0.4 },
     { term: 'trainer', field: 'character', weight: 0.3 }, { term: 'motivational', field: 'music', weight: 0.2 },
+    // Athletic brand content (Nike, Adidas, Under Armour, etc.)
+    { term: 'athlete', field: 'visual', weight: 0.5 }, { term: 'runner', field: 'visual', weight: 0.4 },
+    { term: 'basketball', field: 'visual', weight: 0.4 }, { term: 'sprint', field: 'visual', weight: 0.4 },
+    { term: 'sport', field: 'visual', weight: 0.3 }, { term: 'athletic', field: 'visual', weight: 0.3 },
+    { term: 'sneaker', field: 'visual', weight: 0.3 }, { term: 'shoe', field: 'visual', weight: 0.2 },
+    { term: 'gymnast', field: 'visual', weight: 0.3 }, { term: 'dunk', field: 'visual', weight: 0.3 },
   ],
 };
 

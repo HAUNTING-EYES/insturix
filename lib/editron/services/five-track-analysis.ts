@@ -940,16 +940,20 @@ export async function runFullAnalysis(
   const isOverBudget = () => Date.now() - analysisStartMs > TIME_BUDGET_MS;
   console.log(`[Analysis] Starting ${isAIVideo ? 'AI-video' : 'real-footage'} analysis for ${assetId} (${Math.round(durationMs / 1000)}s, budget: ${TIME_BUDGET_MS / 1000}s)`);
 
-  // Check cache — 7 day TTL for all quality levels.
-  // Analysis runs ONCE during pipeline (Director invocation). There's no automatic re-trigger,
-  // so short TTLs are pointless — the data is what the project has until next export.
-  // Quality is tracked via analysisQuality field so consumers know if data is real vs fallback.
+  // Check cache — 7 day TTL. Also version-check: if analysis code updated, re-analyze.
+  // ANALYSIS_VERSION should be bumped whenever the analysis logic changes significantly
+  // (e.g., dense frame sampling, new prompt, new fields) so old cached data gets refreshed.
+  const ANALYSIS_VERSION = 2; // v1=original 3-keyframe, v2=dense 1-per-second + confidence
   const cached = await getAnalysis(assetId);
   if (cached && cached.status === 'complete' &&
       Date.now() - new Date(cached.analyzedAt).getTime() < 7 * 24 * 3600 * 1000) {
-    const quality = (cached as any).analysisQuality || 'unknown';
-    console.log(`[Analysis] Using cached analysis for ${assetId} (quality=${quality})`);
-    return cached;
+    const cachedVersion = (cached as any).analysisVersion || 1;
+    if (cachedVersion >= ANALYSIS_VERSION) {
+      const quality = (cached as any).analysisQuality || 'unknown';
+      console.log(`[Analysis] Using cached analysis v${cachedVersion} for ${assetId} (quality=${quality})`);
+      return cached;
+    }
+    console.log(`[Analysis] Cache STALE for ${assetId}: v${cachedVersion} < v${ANALYSIS_VERSION}, re-analyzing with updated logic`);
   }
 
   // Layer 1: Shot detection
@@ -1209,7 +1213,8 @@ export async function runFullAnalysis(
     },
   };
 
-  // Store diagnostic trace for debugging (accessible via debug panel)
+  // Store version + diagnostic trace
+  (analysis as any).analysisVersion = ANALYSIS_VERSION;
   (analysis as any)._diagnosticTrace = trace;
 
   await saveAnalysis(analysis);

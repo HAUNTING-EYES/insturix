@@ -475,6 +475,34 @@ export async function POST(
           { upsert: true },
         );
       }
+
+      // Register sub-shot video assets in media_assets collection.
+      // Without this, the asset resolver can't map sub-shot assetIds → URLs
+      // after saveProject strips URLs → src becomes '' → video player breaks.
+      const descriptor = scene.descriptor as any;
+      const subShots = descriptor?.subShots || [];
+      for (const sub of subShots) {
+        if (sub.videoUrl && sub.videoAssetId) {
+          await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+            { assetId: sub.videoAssetId },
+            {
+              $setOnInsert: {
+                assetId: sub.videoAssetId,
+                userId,
+                type: 'video',
+                filename: `${sub.videoAssetId}.mp4`,
+                source: 'user-upload',
+                r2Key: sub.videoAssetId || null,
+                cachedUrl: sub.videoUrl,
+                urlExpiresAt: sub.videoUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                size: 0,
+                uploadedAt: new Date(),
+              },
+            },
+            { upsert: true },
+          );
+        }
+      }
     }
 
     // ─── Apply edit directions (filters, transitions, pacing) ─────
