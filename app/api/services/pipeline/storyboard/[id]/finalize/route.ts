@@ -112,7 +112,7 @@ export async function POST(
       // as a separate overlay on Row 2 (VIDEO), sequentially within the scene.
       const descriptor = scene.descriptor as any;
       const subShots = descriptor.subShots || [];
-      const hasIndependentSubShots = subShots.some((s: any) => s.independentGeneration && (s.videoUrl || s.cachedStockVideo?.videoUrl || s.imageUrl));
+      const hasIndependentSubShots = subShots.some((s: any) => s.independentGeneration && (s.videoUrl || s.imageUrl));
 
       if (hasIndependentSubShots) {
         let subFrame = currentFrame;
@@ -132,9 +132,9 @@ export async function POST(
           // (parser may set sceneType='continuous' but still produce sub-shots).
           subDur = Math.max(subDur, 45); // Min 1.5s — shorter looks like a glitch
           subDur = Math.min(subDur, 90); // Max 3s for sub-shots — longer defeats rapid-cut purpose
-          // Asset priority: AI video → cached stock video → storyboard image (Ken Burns last resort)
-          const stockVideo = sub.cachedStockVideo;
-
+          // Asset priority: AI video → storyboard image (Ken Burns last resort)
+          // Stock video REMOVED from pipeline default (2026-04-02 strategy pivot).
+          // Users can still add stock manually via editor's searchStockFootage tool.
           if (sub.videoUrl) {
             // Priority 1: AI-generated video clip
             const subOverlay: any = {
@@ -171,29 +171,6 @@ export async function POST(
               } catch { /* analysis not available — use clip from start */ }
             }
             overlays.push(subOverlay);
-          } else if (stockVideo?.videoUrl) {
-            // Priority 2: Stock video from Pixabay/Pexels (prefetched)
-            overlays.push({
-              id: overlayId++,
-              type: 'video',
-              from: subFrame,
-              durationInFrames: subDur,
-              row: ROW.VIDEO,
-              left: 0, top: 0, width, height,
-              isDragging: false, rotation: 0,
-              content: stockVideo.videoUrl,
-              src: stockVideo.videoUrl,
-              assetId: stockVideo.videoAssetId,
-              posterUrl: stockVideo.thumbnailUrl || sub.imageUrl || scene.imageUrl || undefined,
-              styles: { objectFit: 'cover', opacity: 1 },
-              metadata: {
-                sceneIndex: scene.sceneIndex,
-                subShotDescription: sub.description,
-                isMontageSub: true,
-                assetSource: `stock-${stockVideo.source}`,
-                stockQuery: stockVideo.query,
-              },
-            });
           } else if (sub.imageUrl) {
             // Priority 3 (LAST RESORT): Storyboard image as placeholder
             overlays.push({
@@ -216,10 +193,10 @@ export async function POST(
         // Skip the normal video/image placement — sub-shots handle it
       } else {
       // ─── Asset Type Routing ─────────────────────────────────
-      // Scenes classified as animated-still/stock/graphics-only skip AI video.
+      // Scenes classified as animated-still/graphics-only skip AI video.
       // They use Ken Burns (drift-zoom) on the storyboard image for a cinematic feel.
       const assetRec = descriptor.assetRecommendation || 'ai-video';
-      const isAnimatedStill = assetRec === 'animated-still' || assetRec === 'stock' || (scene as any).videoSkipped;
+      const isAnimatedStill = assetRec === 'animated-still' || (scene as any).videoSkipped;
       const isGraphicsOnly = assetRec === 'graphics-only';
 
       if (isAnimatedStill && scene.imageUrl && !scene.videoUrl) {

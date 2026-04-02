@@ -416,18 +416,15 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
   }
 
   // ─── Post-process: auto-fill assetRecommendation if missing ──────────
-  // KB Part 15 (AS-001/AS-002) asset hierarchy:
-  //   1. ALL main scenes → ai-video (hero shots). These are the primary visual moments.
-  //   2. Sub-shots within montage scenes → stock (search Pixabay/Pexels for real footage).
-  //      If stock search fails at runtime → fall back to animated-still (Ken Burns).
-  //   3. animated-still (Ken Burns) → LAST RESORT only when AI video and stock both fail.
-  //   4. Graphics-only (data, stats, SaaS demo) → graphics-only (no video needed).
+  // Asset hierarchy (updated 2026-04-02 — stock REMOVED from pipeline default):
+  //   1. ALL scenes (main + sub-shots) → ai-video. Businesses pay for quality.
+  //   2. Graphics-only (data, stats, SaaS demo) → graphics-only (no video needed).
+  //   3. animated-still (Ken Burns) → LAST RESORT only when AI video fails.
   //
-  // RULE: animated-still (Ken Burns) is LAST RESORT, not the default for non-hero scenes.
-  // RULE: This must work for ALL content types — not just montage ads.
+  // Stock video is available as a MANUAL option in the editor (searchStockFootage tool)
+  // but is NOT auto-inserted by the pipeline.
   if (object.scenes) {
     for (const scene of object.scenes) {
-      const sceneType = (scene as any).sceneType || 'continuous';
       const visual = (scene.visualDescription || '').toLowerCase();
 
       // Graphics-only detection: data, charts, stats, SaaS UI, abstract concepts
@@ -436,28 +433,22 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
         console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → graphics-only (data/chart content)`);
       }
 
-      // Default: all main scenes → ai-video
+      // Default: all scenes → ai-video
       else if (!(scene as any).assetRecommendation) {
         (scene as any).assetRecommendation = 'ai-video';
       }
 
-      // ALWAYS mark montage sub-shots for stock footage search (even if LLM set scene-level field)
+      // Sub-shots also default to ai-video (each gets its own AI generation)
       const subShots = (scene as any).subShots || [];
       if (subShots.length > 0) {
         for (const sub of subShots) {
           if (sub.independentGeneration && !sub.assetRecommendation) {
-            sub.assetRecommendation = 'stock';
+            sub.assetRecommendation = 'ai-video';
           }
         }
-        const stockCount = subShots.filter((s: any) => s.assetRecommendation === 'stock').length;
-        if (stockCount > 0) {
-          console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → ${(scene as any).assetRecommendation} (${stockCount} sub-shots → stock)`);
-        } else {
-          console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → ${(scene as any).assetRecommendation}`);
-        }
-      } else {
-        console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → ${(scene as any).assetRecommendation}`);
       }
+
+      console.log(`[SceneParser] Asset: scene ${scene.sceneIndex} "${scene.title}" → ${(scene as any).assetRecommendation}${subShots.length > 0 ? ` (${subShots.length} sub-shots → ai-video)` : ''}`);
     }
   }
 
