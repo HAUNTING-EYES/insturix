@@ -34,18 +34,21 @@ export async function getTranscription(
   const asset = await db
     .collection(COLLECTIONS.MEDIA_ASSETS)
     .findOne({ assetId, userId }) as unknown as MediaAsset | null;
-  
+
+  console.log(`[Transcription] Lookup: assetId=${assetId}, userId=${userId}, found=${!!asset}, type=${asset?.type || 'N/A'}, hasCached=${!!(asset as any)?.transcription}, durationMs=${(asset as any)?.durationMs || (asset as any)?.audioDurationMs || 'N/A'}`);
+
   if (!asset) {
-    throw new Error(`Asset ${assetId} not found`);
+    throw new Error(`Asset ${assetId} not found for userId=${userId}`);
   }
-  
+
   // Check for video/audio type
   if (asset.type !== 'video' && asset.type !== 'audio') {
-    throw new Error(`Asset ${assetId} is not a video or audio file`);
+    throw new Error(`Asset ${assetId} is type '${asset.type}', not video or audio`);
   }
-  
+
   // Return cached if exists and not forcing refresh
   if (asset.transcription && !options.forceRefresh) {
+    console.log(`[Transcription] Using cached transcription for ${assetId}: ${asset.transcription.words?.length || 0} words`);
     return asset.transcription;
   }
   
@@ -252,7 +255,13 @@ async function getNarrationTextForAsset(assetId: string): Promise<string | null>
     const scene = storyboard.scenes.find(
       (s: any) => s.voiceover?.audioAssetId === assetId,
     );
-    if (scene?.descriptor?.narration) return scene.descriptor.narration;
+    if (scene?.descriptor?.narration) {
+      console.log(`[Transcription] Narration found via Strategy 1 (direct storyboard lookup) for ${assetId}: ${scene.descriptor.narration.length} chars`);
+      return scene.descriptor.narration;
+    }
+    console.log(`[Transcription] Strategy 1: storyboard found but no narration for ${assetId}`);
+  } else {
+    console.log(`[Transcription] Strategy 1: no storyboard found with voiceover.audioAssetId=${assetId}`);
   }
 
   // Strategy 2: Find via project → sourceStoryboardId → match by time position

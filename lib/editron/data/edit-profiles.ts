@@ -88,6 +88,19 @@ const beatSync = (filter: string, threshold: number, order = 3) => ({
   failBehavior: 'skip' as const,
 });
 
+/** Split long video clips at analysis-informed anchor points.
+ * Allows the Director to restructure the timeline after video generation.
+ * Split points are determined by the Unified Intelligence EDL — clips that span
+ * multiple anchor points get split so each segment can have different treatment. */
+const splitClips = (order = 2) => ({
+  tool: 'split_clips',
+  params: {},
+  condition: 'hasVideoOverlays' as const,
+  description: 'Split clips at anchor points for independent editing',
+  order,
+  failBehavior: 'skip' as const,
+});
+
 // ═══════════════════════════════════════════════════════════════════
 // CATEGORY A — PLATFORM NATIVE (8 profiles)
 // ═══════════════════════════════════════════════════════════════════

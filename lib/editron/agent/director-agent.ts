@@ -542,6 +542,57 @@ async function executeAction(
       break;
     }
 
+    case 'split_clips': {
+      // Split video clips at anchor points (analysis-informed sub-cuts).
+      // This allows the Director to restructure the timeline AFTER video generation.
+      // Example: A single 5s clip can be split into 2x 2.5s clips with different treatments.
+      const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
+      const splitPoints = action.params.splitPoints as Array<{ overlayId: number; atFrame: number; reason: string }> | undefined;
+
+      if (!splitPoints || splitPoints.length === 0) {
+        console.log(`[Director] split_clips: no split points provided, skipping`);
+        break;
+      }
+
+      // Use the existing split_overlay tool
+      const { createTools } = await import('@/lib/editron/agent/tools');
+      const tools = createTools(userId, projectId);
+      const splitTool: any = tools.find((t: any) => t.name === 'split_overlay');
+      if (!splitTool) {
+        console.warn(`[Director] split_clips: split_overlay tool not found`);
+        break;
+      }
+
+      // Sort split points by frame DESCENDING so later splits don't invalidate earlier frame positions
+      const sortedSplits = [...splitPoints].sort((a, b) => b.atFrame - a.atFrame);
+      let splitCount = 0;
+
+      for (const sp of sortedSplits) {
+        try {
+          const resultStr = await splitTool.invoke({ id: sp.overlayId, atFrame: sp.atFrame });
+          const result = JSON.parse(resultStr);
+          if (result.status === 'success') {
+            splitCount++;
+            console.log(`[Director] split_clips: overlay ${sp.overlayId} split at frame ${sp.atFrame} — ${sp.reason}`);
+            // Refresh overlays from project since split_overlay modifies DB directly
+            const refreshed = await projectService.loadProject(userId, projectId);
+            if (refreshed) {
+              overlays.length = 0;
+              overlays.push(...(refreshed.overlays || []));
+            }
+          } else {
+            console.warn(`[Director] split_clips: failed to split overlay ${sp.overlayId}: ${result.message}`);
+          }
+        } catch (err: any) {
+          console.error(`[Director] split_clips: exception splitting overlay ${sp.overlayId}: ${err.message}`);
+        }
+      }
+
+      console.log(`[Director] split_clips: ${splitCount}/${splitPoints.length} splits applied`);
+      modified = splitCount;
+      break;
+    }
+
     case 'add_captions':
     case 'add_fancy_captions':
     case 'sync_cuts_to_beats': {
