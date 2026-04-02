@@ -37,7 +37,7 @@ async function connectToDatabase() {
 // PUT - Update a content card
 export async function PUT(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { userId } = await auth();
@@ -96,7 +96,7 @@ export async function PUT(
 // DELETE - Delete a content card
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { userId } = await auth();

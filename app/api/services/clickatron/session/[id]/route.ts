@@ -9,7 +9,7 @@ import { SyncCanvasRequestSchema } from '@/types/clickatron';
 // GET /api/services/clickatron/session/:id - Fetch a single session
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { userId } = await auth();
@@ -40,7 +40,7 @@ export async function GET(
 // PATCH /api/services/clickatron/session/:id - Sync canvas data with intelligent merging
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { userId } = await auth();

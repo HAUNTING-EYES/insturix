@@ -2,9 +2,9 @@ import { ClickatronLabClient } from '@/components/dashboard/Clickatron/Clickatro
 import { notFound } from 'next/navigation';
 
 interface LabPageProps {
-  params: {
+  params: Promise<{
     sessionId: string;
-  };
+  }>;
 }
 
 // This is a server component responsible for fetching initial data
