@@ -546,6 +546,20 @@ async function executeAction(
       // Split video clips at anchor points (analysis-informed sub-cuts).
       // This allows the Director to restructure the timeline AFTER video generation.
       // Example: A single 5s clip can be split into 2x 2.5s clips with different treatments.
+      //
+      // GUARDRAILS (prevent going rogue like the zoom bounce incident):
+      // - Max 3 splits per clip (no clip gets shredded into 10 micro-fragments)
+      // - Max 8 total splits per project (not 50)
+      // - Minimum resulting segment: 1.5s (45 frames at 30fps) — shorter = flicker
+      // - Only split clips > 3s (90 frames) — short clips don't benefit from splitting
+      // - Each split MUST have a reason string — no blind splitting
+
+      const fps = 30;
+      const MIN_SEGMENT_FRAMES = 45;  // 1.5s minimum
+      const MIN_CLIP_TO_SPLIT_FRAMES = 90;  // Only split clips > 3s
+      const MAX_SPLITS_PER_CLIP = 3;
+      const MAX_TOTAL_SPLITS = 8;
+
       const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
       const splitPoints = action.params.splitPoints as Array<{ overlayId: number; atFrame: number; reason: string }> | undefined;
 
@@ -553,6 +567,59 @@ async function executeAction(
         console.log(`[Director] split_clips: no split points provided, skipping`);
         break;
       }
+
+      // GUARDRAIL: Cap total splits
+      if (splitPoints.length > MAX_TOTAL_SPLITS) {
+        console.warn(`[Director] split_clips: ${splitPoints.length} splits requested, capping at ${MAX_TOTAL_SPLITS}`);
+      }
+
+      // GUARDRAIL: Filter out invalid split points BEFORE executing
+      const splitsPerClip = new Map<number, number>();
+      const validSplits = splitPoints
+        .slice(0, MAX_TOTAL_SPLITS) // Hard cap
+        .filter(sp => {
+          // Must have a reason
+          if (!sp.reason) {
+            console.warn(`[Director] split_clips: rejected split at frame ${sp.atFrame} — no reason provided`);
+            return false;
+          }
+
+          // Find the target overlay
+          const overlay = videoOverlays.find(o => o.id === sp.overlayId);
+          if (!overlay) return false;
+
+          // Only split clips > 3s
+          if (overlay.durationInFrames < MIN_CLIP_TO_SPLIT_FRAMES) {
+            console.warn(`[Director] split_clips: rejected split on overlay ${sp.overlayId} — too short (${overlay.durationInFrames} frames < ${MIN_CLIP_TO_SPLIT_FRAMES})`);
+            return false;
+          }
+
+          // Check resulting segments would be >= 1.5s each
+          const localFrame = sp.atFrame - overlay.from;
+          const firstSegment = localFrame;
+          const secondSegment = overlay.durationInFrames - localFrame;
+          if (firstSegment < MIN_SEGMENT_FRAMES || secondSegment < MIN_SEGMENT_FRAMES) {
+            console.warn(`[Director] split_clips: rejected split on overlay ${sp.overlayId} at frame ${sp.atFrame} — would create segment < 1.5s (${firstSegment}f + ${secondSegment}f)`);
+            return false;
+          }
+
+          // Max 3 splits per clip
+          const count = splitsPerClip.get(sp.overlayId) || 0;
+          if (count >= MAX_SPLITS_PER_CLIP) {
+            console.warn(`[Director] split_clips: rejected split on overlay ${sp.overlayId} — already split ${MAX_SPLITS_PER_CLIP} times`);
+            return false;
+          }
+          splitsPerClip.set(sp.overlayId, count + 1);
+
+          return true;
+        });
+
+      if (validSplits.length === 0) {
+        console.log(`[Director] split_clips: no valid split points after guardrails, skipping`);
+        break;
+      }
+
+      console.log(`[Director] split_clips: ${validSplits.length} valid splits (from ${splitPoints.length} requested)`);
 
       // Use the existing split_overlay tool
       const { createTools } = await import('@/lib/editron/agent/tools');
@@ -563,8 +630,8 @@ async function executeAction(
         break;
       }
 
-      // Sort split points by frame DESCENDING so later splits don't invalidate earlier frame positions
-      const sortedSplits = [...splitPoints].sort((a, b) => b.atFrame - a.atFrame);
+      // Sort by frame DESCENDING so later splits don't invalidate earlier frame positions
+      const sortedSplits = [...validSplits].sort((a, b) => b.atFrame - a.atFrame);
       let splitCount = 0;
 
       for (const sp of sortedSplits) {
@@ -574,7 +641,7 @@ async function executeAction(
           if (result.status === 'success') {
             splitCount++;
             console.log(`[Director] split_clips: overlay ${sp.overlayId} split at frame ${sp.atFrame} — ${sp.reason}`);
-            // Refresh overlays from project since split_overlay modifies DB directly
+            // Refresh overlays since split_overlay modifies DB directly
             const refreshed = await projectService.loadProject(userId, projectId);
             if (refreshed) {
               overlays.length = 0;
@@ -588,7 +655,7 @@ async function executeAction(
         }
       }
 
-      console.log(`[Director] split_clips: ${splitCount}/${splitPoints.length} splits applied`);
+      console.log(`[Director] split_clips: ${splitCount}/${validSplits.length} splits applied`);
       modified = splitCount;
       break;
     }
