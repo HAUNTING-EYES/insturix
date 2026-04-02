@@ -38,8 +38,8 @@ import type {
 
 export type EditDecisionType =
   | 'cut' | 'transition' | 'zoom' | 'pan' | 'graphic'
-  | 'sfx' | 'speed-change' | 'filter-change' | 'caption-emphasis'
-  | 'audio-duck' | 'fade' | 'slow-motion' | 'filter' | 'pacing';
+  | 'sfx' | 'sfx-trigger' | 'speed-change' | 'filter-change' | 'caption-emphasis'
+  | 'audio-duck' | 'fade' | 'slow-motion' | 'filter' | 'pacing' | 'camera-shake';
 
 export interface EditDecision {
   type: EditDecisionType;
@@ -47,6 +47,7 @@ export interface EditDecision {
   durationFrames?: number;
   priority: number;         // 1=highest, 5=lowest
   source: string;           // Which track generated this
+  sources?: string[];       // Multiple sources (from Unified Intelligence)
   signal: string;           // What triggered it (e.g., 'drop_hit', 'statistic_detected')
   reason: string;           // Human-readable
   params: Record<string, any>;

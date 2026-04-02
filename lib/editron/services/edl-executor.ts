@@ -13,6 +13,7 @@
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
 import { buildTransitionOverlay, type TransitionType, DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
 import { projectService } from '@/lib/editron/services/project-service';
+import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -81,7 +82,7 @@ export async function executeEDL(
         const altBudgetResult = budget.evaluate(altDecision as any);
         if (altBudgetResult.allowed) {
           try {
-            const applied = await applyDecision(altDecision, overlays, projectId, userId, canvasDimensions, analyses);
+            const applied = await applyDecision(altDecision as EditDecision, overlays, projectId, userId, canvasDimensions, analyses);
             if (applied) {
               budget.commit(altDecision as any);
               result.decisionsExecuted++;
@@ -299,7 +300,8 @@ function applyZoom(
   const zoomType = decision.params.zoomType
     || (scaleTo < scaleFrom ? 'pull-back' : (duration >= sceneEnd * 0.5 ? 'slow-push' : 'punch-in'));
 
-  let keyframes: Array<{ frame: number; value: number; easing: string }>;
+  type Easing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+  let keyframes: Array<{ frame: number; value: number; easing: Easing }>;
 
   switch (zoomType) {
     case 'punch-in':
