@@ -382,7 +382,28 @@ export async function executeDirectorPlan(
     (result as any).edlSummary = edlSummary;
 
     // ─── Step 2: Check conditions and filter actions ──────────
-    const actions = effectiveProfile.actions
+    // SAFETY NET: If the profile doesn't include add_captions, inject it.
+    // Every video should have captions for accessibility (Rule 0: universal content).
+    // Some profiles (Automotive B-07, Real Estate B-06, Music Video B-04) intentionally
+    // omit captions, but that's wrong — quality review even flags the missing captions.
+    const profileActions = [...effectiveProfile.actions];
+    const hasCaptionAction = profileActions.some(a => a.tool === 'add_captions' || a.tool === 'add_fancy_captions');
+    if (!hasCaptionAction) {
+      const captionStyle = effectiveProfile.captionStyle && effectiveProfile.captionStyle !== 'none'
+        ? effectiveProfile.captionStyle
+        : 'subtitle'; // Fallback: least intrusive caption style
+      profileActions.push({
+        tool: 'add_captions',
+        params: { style: captionStyle },
+        condition: 'hasVoiceover' as any,
+        description: `Add ${captionStyle} captions (auto-injected)`,
+        order: 5, // After pacing, before motion graphics
+        failBehavior: 'warn' as any,
+      });
+      console.log(`[Director] Profile ${effectiveProfile.profileId} missing captions — auto-injecting ${captionStyle} captions`);
+    }
+
+    const actions = profileActions
       .filter(action => checkCondition(action.condition, overlays))
       .sort((a, b) => a.order - b.order);
 
