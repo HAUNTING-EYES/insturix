@@ -185,6 +185,18 @@ export interface AssetAnalysis {
   // Derived: Natural edit points
   naturalCutPoints: number[];      // Frame numbers
   audioSyncPoints: number[];       // Transients + beats combined
+
+  // Confidence tracking (Phase 1B — added 2026-04-03)
+  // Distinguishes real Gemini analysis from storyboard fallback defaults.
+  // Consumers should check analysisQuality before making aggressive edit decisions.
+  analysisQuality?: 'high' | 'medium' | 'low' | 'fallback';
+  confidenceBreakdown?: {
+    vision: number;   // 0.0-1.0 — keyframe analysis confidence
+    motion: number;   // 0.0-1.0 — motion segment confidence
+    audio: number;    // 0.0-1.0 — beat/transient detection confidence
+    speech: number;   // 0.0-1.0 — speech classification confidence
+    music: number;    // 0.0-1.0 — music structure confidence
+  };
 }
 
 // ─── MongoDB ─────────────────────────────────────────────────────
@@ -407,7 +419,7 @@ async function analyzeVideoComprehensive(
   ]
 }
 
-Analyze at least 3 keyframes spread across the video. Identify all visible subjects. Detect camera motion type and intensity. Mark natural cut points. Return ONLY valid JSON, no markdown.`;
+Analyze 1 keyframe per second of video (for a ${Math.round(durationMs / 1000)}s video, that's ${Math.max(3, Math.ceil(durationMs / 1000))} keyframes at timestamps: ${Array.from({ length: Math.max(3, Math.ceil(durationMs / 1000)) }, (_, i) => `${i}s`).join(', ')}). For each keyframe provide frame number (at 30fps), timestamp, description, subjects, shot type, camera angle, colors, brightness, mood, energy, and whether it's a natural cut point with a brief reason WHY. Identify all visible subjects with bounding boxes. Detect camera motion type and intensity per segment. Mark motion intensity peaks (frames where motion changes significantly). Return ONLY valid JSON, no markdown.`;
 
     const result = await model.generateContent([
       { fileData: { fileUri, mimeType: 'video/mp4' } },
@@ -928,12 +940,20 @@ export async function runFullAnalysis(
   const isOverBudget = () => Date.now() - analysisStartMs > TIME_BUDGET_MS;
   console.log(`[Analysis] Starting ${isAIVideo ? 'AI-video' : 'real-footage'} analysis for ${assetId} (${Math.round(durationMs / 1000)}s, budget: ${TIME_BUDGET_MS / 1000}s)`);
 
-  // Check cache
+  // Check cache — with quality-aware TTL (Phase 1C)
+  // High/medium quality → cache 7 days. Fallback/low quality → cache 1 hour (retry soon).
   const cached = await getAnalysis(assetId);
-  if (cached && cached.status === 'complete' &&
-      Date.now() - new Date(cached.analyzedAt).getTime() < 7 * 24 * 60 * 60 * 1000) {
-    console.log(`[Analysis] Using cached analysis for ${assetId}`);
-    return cached;
+  if (cached && cached.status === 'complete') {
+    const age = Date.now() - new Date(cached.analyzedAt).getTime();
+    const quality = (cached as any).analysisQuality || 'medium'; // legacy data without quality field
+    const maxAge = (quality === 'fallback' || quality === 'low')
+      ? 3600 * 1000        // 1 hour — retry soon for degraded data
+      : 7 * 24 * 3600 * 1000; // 7 days — good data, keep it
+    if (age < maxAge) {
+      console.log(`[Analysis] Using cached analysis for ${assetId} (quality=${quality}, age=${Math.round(age / 60000)}min)`);
+      return cached;
+    }
+    console.log(`[Analysis] Cache expired for ${assetId} (quality=${quality}, age=${Math.round(age / 3600000)}h > TTL=${Math.round(maxAge / 3600000)}h), re-analyzing`);
   }
 
   // Layer 1: Shot detection
@@ -1147,6 +1167,26 @@ export async function runFullAnalysis(
     ...(musicStructure?.stingers || []),
   ].sort((a, b) => a - b);
 
+  // Phase 1B: Determine analysis quality and confidence breakdown
+  // This tells downstream consumers how much to trust each data layer.
+  // Gemini data → high confidence. Storyboard fallback → 0 confidence.
+  const visionConfidence = keyframeData.length >= 3 ? 0.9 : keyframeData.length > 0 ? 0.5 : 0.0;
+  const motionConfidence = motion.segments.length > 0 && motion.peaks.length > 0 ? 0.8
+    : motion.segments.length > 0 ? 0.4 : 0.0;
+  const audioConfidence = audioData && audioData.beats.length > 0 ? 0.85 : 0.0;
+  const speechConfidence = speechSegments.length > 0 ? 0.85 : 0.0;
+  const musicConfidence = musicStructure ? 0.7 : 0.0;
+
+  const avgConfidence = [visionConfidence, motionConfidence, audioConfidence, speechConfidence, musicConfidence]
+    .reduce((sum, c) => sum + c, 0) / 5;
+  const analysisQuality: AssetAnalysis['analysisQuality'] =
+    avgConfidence >= 0.6 ? 'high'
+    : avgConfidence >= 0.3 ? 'medium'
+    : avgConfidence > 0 ? 'low'
+    : 'fallback';
+
+  console.log(`[Analysis] Quality for ${assetId}: ${analysisQuality} (avg=${avgConfidence.toFixed(2)}, vision=${visionConfidence}, motion=${motionConfidence}, audio=${audioConfidence}, speech=${speechConfidence}, music=${musicConfidence})`);
+
   const analysis: AssetAnalysis = {
     assetId,
     userId,
@@ -1163,6 +1203,14 @@ export async function runFullAnalysis(
     musicStructure,
     naturalCutPoints,
     audioSyncPoints,
+    analysisQuality,
+    confidenceBreakdown: {
+      vision: visionConfidence,
+      motion: motionConfidence,
+      audio: audioConfidence,
+      speech: speechConfidence,
+      music: musicConfidence,
+    },
   };
 
   // Store diagnostic trace for debugging (accessible via debug panel)

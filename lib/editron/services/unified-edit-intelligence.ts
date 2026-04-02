@@ -22,6 +22,21 @@ import type { AssetAnalysis } from './five-track-analysis';
 
 // ─── Types ───────────────────────────────────────────────────────
 
+/** An anchor is a moment in the video where an edit decision SHOULD happen.
+ * Multiple sources can produce anchors (motion, voiceover, beats, narrative).
+ * When sources converge (motion peak + voiceover emphasis at same frame), the
+ * anchor gets boosted confidence — that's the most important moment. */
+export interface AnchorPoint {
+  type: 'motion-peak' | 'voiceover-word' | 'bgm-beat' | 'narrative-beat' | 'storyboard-intent';
+  frame: number;          // Absolute timeline frame
+  timestampMs: number;
+  confidence: number;     // 0.0-1.0
+  description: string;
+  suggestedDecisions: string[];
+  isCompound?: boolean;   // True when multiple sources converge at this frame
+  sources?: string[];     // Which source types contributed (for compound anchors)
+}
+
 export interface UnifiedContext {
   projectId: string;
   fps: number;
@@ -30,6 +45,9 @@ export interface UnifiedContext {
 
   // Per-scene merged context (script + video + audio)
   scenes: SceneContext[];
+
+  // Anchor timeline — edit decision points ranked by confidence (Phase 1D)
+  anchors?: AnchorPoint[];
 
   // Global context
   globalEditDirections?: any;
@@ -213,12 +231,108 @@ export async function assembleUnifiedContext(
     });
   }
 
+  // Phase 1D: Build anchor timeline from all available sources
+  const anchors: AnchorPoint[] = [];
+
+  for (const scene of scenes) {
+    const sceneStartMs = (scene.fromFrame / fps) * 1000;
+
+    // Anchor source 1: Motion peaks (from 5-Track)
+    for (const cutFrame of scene.naturalCutPoints) {
+      const absFrame = scene.fromFrame + cutFrame;
+      anchors.push({
+        type: 'motion-peak',
+        frame: absFrame,
+        timestampMs: (absFrame / fps) * 1000,
+        confidence: scene.motionIntensity > 0.3 ? 0.8 : 0.4,
+        description: `Motion peak in "${scene.title}"`,
+        suggestedDecisions: ['zoom', 'speed-change', 'sfx-trigger', 'camera-shake'],
+      });
+    }
+
+    // Anchor source 2: Voiceover emphasis words
+    for (const word of scene.voiceoverWords) {
+      // Detect emphasis: numbers, short power words, ALL CAPS
+      const isEmphasis = /^\d/.test(word.word) || /^[A-Z]{2,}$/.test(word.word)
+        || ['never', 'always', 'every', 'only', 'first', 'best', 'worst', 'new', 'free', 'now'].includes(word.word.toLowerCase());
+      if (isEmphasis) {
+        const wordFrame = scene.fromFrame + Math.round((word.startMs / 1000) * fps);
+        anchors.push({
+          type: 'voiceover-word',
+          frame: wordFrame,
+          timestampMs: sceneStartMs + word.startMs,
+          confidence: 0.85,
+          description: `Emphasis word: "${word.word}"`,
+          suggestedDecisions: ['graphic', 'caption-emphasis', 'zoom'],
+        });
+      }
+    }
+
+    // Anchor source 3: BGM beats (if available in scene)
+    if (scene.bgmBeatsInScene) {
+      for (const beatFrame of scene.bgmBeatsInScene) {
+        anchors.push({
+          type: 'bgm-beat',
+          frame: beatFrame,
+          timestampMs: (beatFrame / fps) * 1000,
+          confidence: 0.7,
+          description: `Beat in "${scene.title}"`,
+          suggestedDecisions: ['cut', 'transition', 'sfx-trigger'],
+        });
+      }
+    }
+
+    // Anchor source 4: Narrative beat (scene boundary — always available)
+    anchors.push({
+      type: 'narrative-beat',
+      frame: scene.fromFrame,
+      timestampMs: sceneStartMs,
+      confidence: 0.55,
+      description: `Scene start: "${scene.title}" (${scene.mood})`,
+      suggestedDecisions: ['transition', 'filter-change'],
+    });
+  }
+
+  // Merge compound anchors: when multiple sources converge within ±5 frames (167ms)
+  anchors.sort((a, b) => a.frame - b.frame);
+  const mergedAnchors: AnchorPoint[] = [];
+  let i = 0;
+  while (i < anchors.length) {
+    const group = [anchors[i]];
+    let j = i + 1;
+    while (j < anchors.length && anchors[j].frame - anchors[i].frame <= 5) {
+      group.push(anchors[j]);
+      j++;
+    }
+    if (group.length === 1) {
+      mergedAnchors.push(group[0]);
+    } else {
+      // Compound anchor — boost confidence, merge descriptions
+      const best = group.reduce((a, b) => a.confidence > b.confidence ? a : b);
+      const avgFrame = Math.round(group.reduce((s, a) => s + a.frame, 0) / group.length);
+      mergedAnchors.push({
+        type: best.type,
+        frame: avgFrame,
+        timestampMs: (avgFrame / fps) * 1000,
+        confidence: Math.min(1.0, group.reduce((s, a) => s + a.confidence, 0) / group.length + 0.15),
+        description: `[COMPOUND] ${group.map(a => a.description).join(' + ')}`,
+        suggestedDecisions: [...new Set(group.flatMap(a => a.suggestedDecisions))],
+        isCompound: true,
+        sources: group.map(a => a.type),
+      });
+    }
+    i = j;
+  }
+
+  console.log(`[UnifiedIntel] Anchors: ${mergedAnchors.length} total (${mergedAnchors.filter(a => a.isCompound).length} compound), from ${anchors.length} raw sources`);
+
   return {
     projectId,
     fps,
     totalFrames,
     totalDurationMs: (totalFrames / fps) * 1000,
     scenes,
+    anchors: mergedAnchors,
     globalEditDirections,
     overallMusicPrompt,
     colorPalette,
@@ -546,6 +660,26 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
       prompt += `- **Natural cut points in video:** frames ${scene.naturalCutPoints.join(', ')} (relative to scene start)\n`;
     }
 
+    prompt += '\n';
+  }
+
+  // Phase 1D: Add anchor timeline to prompt
+  if (context.anchors && context.anchors.length > 0) {
+    prompt += `## ANCHOR POINTS (ranked edit decision moments)\n\n`;
+    prompt += `These are the moments where edit decisions SHOULD be placed, ranked by confidence.\n`;
+    prompt += `COMPOUND anchors (multiple sources converging) are the MOST important moments — use maximum emphasis.\n`;
+    prompt += `Place decisions AT these frames. Do NOT place decisions at frames not listed here unless you have strong justification.\n\n`;
+
+    // Show top anchors (cap at 30 to keep prompt manageable)
+    const topAnchors = context.anchors
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 30);
+
+    for (const anchor of topAnchors.sort((a, b) => a.frame - b.frame)) {
+      const sec = (anchor.timestampMs / 1000).toFixed(1);
+      const compound = anchor.isCompound ? ' ★COMPOUND★' : '';
+      prompt += `- Frame ${anchor.frame} (${sec}s): ${anchor.description} [confidence: ${anchor.confidence.toFixed(2)}] [suggested: ${anchor.suggestedDecisions.join(', ')}]${compound}\n`;
+    }
     prompt += '\n';
   }
 
