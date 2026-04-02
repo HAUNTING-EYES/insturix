@@ -314,6 +314,8 @@ export function VideoManager({
       const statusRes = await fetch('/api/services/uploaderx/facebook/pages');
       const statusData = await statusRes.json();
 
+      console.log("🔵 Facebook connection status:", statusData);
+
       if (!statusData.connected) {
         toast({
           title: "Facebook Not Connected",
@@ -324,7 +326,28 @@ export function VideoManager({
         return;
       }
 
-      // 2. Show page selection if multiple pages
+      // 2. Check if user has any pages
+      if (!statusData.pages || statusData.pages.length === 0) {
+        toast({
+          title: "No Facebook Pages",
+          description: "You don't have any Facebook Pages connected. Please reconnect Facebook.",
+          variant: "destructive",
+        });
+        
+        // Clear old tokens and reconnect
+        try {
+          await fetch('/api/services/uploaderx/facebook/reset', { method: 'POST' });
+          console.log("✅ Cleared old Facebook tokens");
+        } catch (e) {
+          console.warn("Failed to clear old tokens:", e);
+        }
+        
+        // Open Facebook OAuth in new tab
+        window.open('/api/services/uploaderx/facebook/auth', '_blank');
+        return;
+      }
+
+      // 3. Show page selection if multiple pages
       let selectedPageId = null;
       if (statusData.pages.length > 1) {
         const pageNames = statusData.pages.map((p: any) => p.pageName).join('\n');
@@ -342,10 +365,10 @@ export function VideoManager({
         selectedPageId = selectedPage.pageId;
       }
 
-      // 3. Upload to Facebook
+      // 4. Upload to Facebook
       toast({
         title: "Uploading to Facebook...",
-        description: `Sending ${video.filename} to your Facebook Page.`,
+        description: `Sending ${video.filename} to ${statusData.pages[0]?.pageName || 'your Facebook Page'}.`,
       });
 
       const res = await fetch("/api/services/uploaderx/facebook", {
@@ -359,6 +382,8 @@ export function VideoManager({
       });
 
       const data = await res.json();
+      console.log("🔵 Facebook upload response:", data);
+
       if (!data.success && res.status === 403) {
         throw new Error("Please connect your Facebook account first.");
       }

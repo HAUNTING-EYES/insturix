@@ -286,6 +286,8 @@ export function useUploaderXUpload() {
     privacyStatus?: string
   ) => {
     try {
+      console.log("🎬 Starting YouTube upload:", { videoUuid, gcsPath, title });
+      
       const res = await fetch("/api/services/uploaderx/youtube", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -300,12 +302,19 @@ export function useUploaderXUpload() {
       });
 
       const data = await res.json();
+      console.log("🎬 YouTube response:", data);
+      
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to YouTube`);
+      }
+      
       if (!data.success) {
         throw new Error(data.error || "Failed to upload to YouTube");
       }
 
       return { success: true, youtubeUrl: data.youtubeUrl };
     } catch (error) {
+      console.error("❌ YouTube upload error:", error);
       const errorMessage = error instanceof Error ? error.message : 'YouTube upload failed';
       return { success: false, error: errorMessage };
     }
@@ -319,6 +328,8 @@ export function useUploaderXUpload() {
     pageId?: string
   ) => {
     try {
+      console.log("🔵 Starting Facebook upload:", { videoUuid, gcsPath, title, pageId });
+      
       const res = await fetch("/api/services/uploaderx/facebook", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -332,12 +343,19 @@ export function useUploaderXUpload() {
       });
 
       const data = await res.json();
+      console.log("🔵 Facebook response:", data);
+      
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Facebook`);
+      }
+      
       if (!data.success) {
         throw new Error(data.error || "Failed to upload to Facebook");
       }
 
       return { success: true, facebookUrl: data.facebookUrl, pageName: data.pageName };
     } catch (error) {
+      console.error("❌ Facebook upload error:", error);
       const errorMessage = error instanceof Error ? error.message : 'Facebook upload failed';
       return { success: false, error: errorMessage };
     }

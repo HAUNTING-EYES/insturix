@@ -73,65 +73,123 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
           description: `Processing platform uploads...`
         });
 
-        // 🚀 Auto-upload to YouTube if selected
+        // Track which platforms succeeded
+        let youtubeSuccess = false;
+        let facebookSuccess = false;
+
+        // 🚀 Run platform uploads in parallel for better performance
+        const uploadPromises = [];
+
+        // 🎬 YouTube Upload
         if (selectedPlatforms.youtube) {
-          toast({ title: "Uploading to YouTube...", description: "Sending video to your channel." });
+          const youtubeUpload = (async () => {
+            try {
+              toast({ title: "Uploading to YouTube...", description: "Sending video to your channel." });
 
-          // Auto-append #Shorts if type is shorts/reels
-          let finalTitle = defaultTitle || videoFile.name;
-          let finalDescription = defaultDescription;
+              // Auto-append #Shorts if type is shorts/reels
+              let finalTitle = defaultTitle || videoFile.name;
+              let finalDescription = defaultDescription;
 
-          if (activeType === 'short') {
-            if (!finalTitle.toLowerCase().includes('#shorts')) finalTitle += ' #Shorts';
-            if (!finalDescription.toLowerCase().includes('#shorts')) finalDescription += ' #Shorts';
-          }
+              if (activeType === 'short') {
+                if (!finalTitle.toLowerCase().includes('#shorts')) finalTitle += ' #Shorts';
+                if (!finalDescription.toLowerCase().includes('#shorts')) finalDescription += ' #Shorts';
+              }
 
-          const ytResult = await uploadToYouTube(
-            result.videoUuid,
-            result.gcsPath,
-            videoFile.name,
-            finalTitle,
-            finalDescription,
-            privacyStatus
-          );
+              const ytResult = await uploadToYouTube(
+                result.videoUuid,
+                result.gcsPath,
+                videoFile.name,
+                finalTitle,
+                finalDescription,
+                privacyStatus
+              );
 
-          if (ytResult.success) {
-            toast({
-              title: "✅ YouTube Upload Complete",
-              description: "Your video is now live on YouTube."
-            });
-          } else {
-            toast({
-              title: "⚠️ YouTube Upload Failed",
-              description: ytResult.error,
-              variant: "destructive"
-            });
-          }
+              if (ytResult.success) {
+                youtubeSuccess = true;
+                toast({
+                  title: "✅ YouTube Upload Complete",
+                  description: "Your video is now live on YouTube."
+                });
+              } else {
+                toast({
+                  title: "⚠️ YouTube Upload Failed",
+                  description: ytResult.error,
+                  variant: "destructive"
+                });
+              }
+              return { platform: 'youtube', success: youtubeSuccess, error: ytResult.error };
+            } catch (ytError) {
+              console.error("YouTube upload error:", ytError);
+              const errorMsg = ytError instanceof Error ? ytError.message : "Unknown error";
+              toast({
+                title: "⚠️ YouTube Upload Failed",
+                description: errorMsg,
+                variant: "destructive"
+              });
+              return { platform: 'youtube', success: false, error: errorMsg };
+            }
+          })();
+          uploadPromises.push(youtubeUpload);
         }
 
-        // 🔵 Auto-upload to Facebook if selected
+        // 🔵 Facebook Upload
         if (selectedPlatforms.facebook) {
-          toast({ title: "Uploading to Facebook...", description: "Sending video to your Page." });
+          const facebookUpload = (async () => {
+            try {
+              toast({ title: "Uploading to Facebook...", description: "Sending video to your Page." });
 
-          const fbResult = await uploadToFacebook(
-            result.videoUuid,
-            result.gcsPath,
-            defaultTitle || videoFile.name,
-            defaultDescription
-          );
+              const fbResult = await uploadToFacebook(
+                result.videoUuid,
+                result.gcsPath,
+                defaultTitle || videoFile.name,
+                defaultDescription
+              );
 
-          if (fbResult.success) {
-            toast({
-              title: "✅ Facebook Upload Complete",
-              description: `Video posted to ${fbResult.pageName || 'your Page'}.`
-            });
-          } else {
-            toast({
-              title: "⚠️ Facebook Upload Failed",
-              description: fbResult.error,
-              variant: "destructive"
-            });
-          }
+              if (fbResult.success) {
+                facebookSuccess = true;
+                toast({
+                  title: "✅ Facebook Upload Complete",
+                  description: `Video posted to ${fbResult.pageName || 'your Page'}.`
+                });
+              } else {
+                toast({
+                  title: "⚠️ Facebook Upload Failed",
+                  description: fbResult.error,
+                  variant: "destructive"
+                });
+              }
+              return { platform: 'facebook', success: facebookSuccess, error: fbResult.error };
+            } catch (fbError) {
+              console.error("Facebook upload error:", fbError);
+              const errorMsg = fbError instanceof Error ? fbError.message : "Unknown error";
+              toast({
+                title: "⚠️ Facebook Upload Failed",
+                description: errorMsg,
+                variant: "destructive"
+              });
+              return { platform: 'facebook', success: false, error: errorMsg };
+            }
+          })();
+          uploadPromises.push(facebookUpload);
+        }
+
+        // Wait for all selected platform uploads to complete
+        if (uploadPromises.length > 0) {
+          const results = await Promise.all(uploadPromises);
+          console.log("📊 Platform upload results:", results);
+          
+          // Show summary toast
+          const summary = [];
+          if (youtubeSuccess) summary.push("✅ YouTube");
+          if (facebookSuccess) summary.push("✅ Facebook");
+          if (!youtubeSuccess && selectedPlatforms.youtube) summary.push("❌ YouTube");
+          if (!facebookSuccess && selectedPlatforms.facebook) summary.push("❌ Facebook");
+          
+          toast({
+            title: "Platform Upload Summary",
+            description: summary.join(" | "),
+            duration: 5000,
+          });
         }
 
         // Call success callback if provided

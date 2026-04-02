@@ -64,10 +64,13 @@ export async function GET(req: Request) {
 
         // Step 3: Fetch user's Facebook Pages
         console.log("📄 Fetching user's Pages...");
-        const pagesRes = await fetch(
-            `https://graph.facebook.com/v21.0/me/accounts?access_token=${userAccessToken}&fields=id,name,access_token`
-        );
+        const pagesUrl = `https://graph.facebook.com/v21.0/me/accounts?access_token=${userAccessToken}&fields=id,name,access_token,permissions`;
+        console.log("📄 Pages API URL:", pagesUrl);
+        
+        const pagesRes = await fetch(pagesUrl);
         const pagesData = await pagesRes.json();
+
+        console.log("📄 Raw Pages API Response:", JSON.stringify(pagesData, null, 2));
 
         if (pagesData.error) {
             console.error("❌ Failed to fetch Pages:", pagesData.error);
@@ -81,6 +84,7 @@ export async function GET(req: Request) {
         }));
 
         console.log(`✅ Found ${pages.length} Pages:`, pages.map((p: any) => p.pageName));
+        console.log("✅ Pages data:", JSON.stringify(pages, null, 2));
 
         // Also fetch user profile info
         const meRes = await fetch(
@@ -88,11 +92,13 @@ export async function GET(req: Request) {
         );
         const meData = await meRes.json();
 
+        console.log("👤 User profile:", meData);
+
         // Step 4: Store tokens in MongoDB
         await connectToDatabase();
         const { User } = await import("@/schemas/user");
 
-        await User.findOneAndUpdate(
+        const updateResult = await User.findOneAndUpdate(
             { clerkUserId: session.userId },
             {
                 $set: {
@@ -104,10 +110,12 @@ export async function GET(req: Request) {
                         connectedAt: new Date(),
                     },
                 },
-            }
+            },
+            { upsert: true, new: true }
         );
 
         console.log("💾 Facebook tokens saved to database");
+        console.log("💾 Saved pages:", updateResult?.facebookTokens?.pages?.length || 0);
 
         return NextResponse.redirect(new URL("/dashboard/uploaderx?fb_connected=true", req.url));
     } catch (err) {

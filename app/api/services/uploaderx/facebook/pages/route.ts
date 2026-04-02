@@ -23,6 +23,14 @@ export async function GET() {
             facebookTokens: { $exists: true, $ne: null },
         });
 
+        console.log("📄 Facebook Pages API - User lookup:", {
+            userFound: !!user,
+            hasTokens: !!user?.facebookTokens,
+            pagesCount: user?.facebookTokens?.pages?.length || 0,
+            clerkUserId: session.userId,
+            pages: user?.facebookTokens?.pages?.map((p: any) => ({ pageId: p.pageId, pageName: p.pageName })) || []
+        });
+
         if (!user || !user.facebookTokens) {
             return NextResponse.json({
                 connected: false,
