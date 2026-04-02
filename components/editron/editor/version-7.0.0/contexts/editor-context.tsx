@@ -81,6 +81,7 @@ interface EditorContextProps {
   // AI Processing State
   isAIProcessing: boolean;
   setIsAIProcessing: (isProcessing: boolean) => void;
+  aiActions: Array<{ id: string; toolName: string; status: 'running' | 'done' }>;
 }
 
 // Create the context with undefined as default value

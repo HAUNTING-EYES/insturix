@@ -6,7 +6,7 @@ import { toAbsoluteUrl } from "../utils/url-helper";
 
 interface UseKeyframesProps {
   overlay: ClipOverlay | ImageOverlay;
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   currentFrame: number;
   zoomScale: number;
   baseUrl?: string;

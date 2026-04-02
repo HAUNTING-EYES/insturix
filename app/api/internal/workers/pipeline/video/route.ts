@@ -63,7 +63,7 @@ async function handler(request: NextRequest) {
 
     // Mark as processing
     await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-      { _id: jobId },
+      { _id: jobId } as any,
       { $set: { status: 'processing', startedAt: new Date() } },
     );
 
@@ -91,7 +91,7 @@ async function handler(request: NextRequest) {
         { $set: {
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoUrl`]: result.videoUrl,
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoAssetId`]: result.assetId,
-          [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoR2Key`]: result.r2Key || result.assetId || null,
+          [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoR2Key`]: (result as any).r2Key || result.assetId || null,
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoDurationMs`]: result.durationMs || (durationSeconds * 1000),
           updatedAt: new Date(),
         }},
@@ -105,7 +105,7 @@ async function handler(request: NextRequest) {
           videoUrl: result.videoUrl,
           videoAssetId: result.assetId,
           videoGcsPath: result.gcsPath,
-          videoR2Key: result.r2Key || result.assetId || null,
+          videoR2Key: (result as any).r2Key || result.assetId || null,
           videoProvider: result.provider || 'fal-ai',
           videoDurationMs: result.durationMs || (durationSeconds * 1000),
         });
@@ -116,7 +116,7 @@ async function handler(request: NextRequest) {
         videoUrl: result.videoUrl,
         videoAssetId: result.assetId,
         videoGcsPath: result.gcsPath,
-        videoR2Key: result.r2Key || result.assetId || null,
+        videoR2Key: (result as any).r2Key || result.assetId || null,
         videoProvider: result.provider || 'fal-ai',
         videoDurationMs: result.durationMs || (durationSeconds * 1000),
       });
@@ -141,7 +141,7 @@ async function handler(request: NextRequest) {
               assetId: result.assetId, userId, type: 'video',
               filename: `${result.assetId}.mp4`, source: 'video-regen',
               gcsPath: result.gcsPath,
-              r2Key: result.r2Key || result.assetId || null,
+              r2Key: (result as any).r2Key || result.assetId || null,
               cachedUrl: result.videoUrl,
               urlExpiresAt: result.videoUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               uploadedAt: new Date(),
@@ -256,14 +256,14 @@ async function handler(request: NextRequest) {
         const qualityScore = Math.round((subjectScore * 0.4 + coherenceScore * 0.35 + brightnessScore * 0.25) * 10);
 
         await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-          { _id: jobId },
+          { _id: jobId } as any,
           { $set: { qualityScore, qualitySource: '5-track-derived' } },
         );
 
         if (qualityScore < 40) {
           console.warn(`[VideoWorker] LOW QUALITY (${qualityScore}/100) for scene ${sceneIndex} (derived from 5-Track)`);
           await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-            { _id: jobId },
+            { _id: jobId } as any,
             { $set: { qualityFlag: 'low', qualityShouldRegenerate: true } },
           );
           // H5 FIX: Add warning to project document so user can see quality issues in the editor
@@ -298,14 +298,14 @@ async function handler(request: NextRequest) {
 
     // Mark job complete
     await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-      { _id: jobId },
+      { _id: jobId } as any,
       {
         $set: {
           status: 'completed',
           videoUrl: result.videoUrl,
           videoAssetId: result.assetId,
           videoGcsPath: result.gcsPath,
-          modelUsed: result.modelUsed || videoModel,
+          modelUsed: (result as any).modelUsed || videoModel,
           completedAt: new Date(),
         },
       },
@@ -313,7 +313,7 @@ async function handler(request: NextRequest) {
 
     // Update batch counters
     await db.collection('pipeline_video_batches').updateOne(
-      { _id: batchId },
+      { _id: batchId } as any,
       { $inc: { completed: 1 }, $set: { updatedAt: new Date() } },
     );
     await updateBatchStatus(batchId);
@@ -329,12 +329,12 @@ async function handler(request: NextRequest) {
       if (payload.jobId) {
         const db = await getDatabase();
         await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-          { _id: payload.jobId },
+          { _id: payload.jobId } as any,
           { $set: { status: 'failed', error: error.message, completedAt: new Date() } },
         );
         if (payload.batchId) {
           await db.collection('pipeline_video_batches').updateOne(
-            { _id: payload.batchId },
+            { _id: payload.batchId } as any,
             { $inc: { failed: 1 }, $set: { updatedAt: new Date() } },
           );
           await updateBatchStatus(payload.batchId);
@@ -348,7 +348,7 @@ async function handler(request: NextRequest) {
 
 async function updateBatchStatus(batchId: string): Promise<void> {
   const db = await getDatabase();
-  const batch = await db.collection('pipeline_video_batches').findOne({ _id: batchId }) as any;
+  const batch = await db.collection('pipeline_video_batches').findOne({ _id: batchId } as any) as any;
   if (!batch) return;
 
   const done = (batch.completed || 0) + (batch.failed || 0);
@@ -360,7 +360,7 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   }
 
   await db.collection('pipeline_video_batches').updateOne(
-    { _id: batchId },
+    { _id: batchId } as any,
     { $set: { status, updatedAt: new Date() } },
   );
 
@@ -387,14 +387,15 @@ async function updateBatchStatus(batchId: string): Promise<void> {
             : null;
           if (sbDoc) {
             const thinkforgeMetadata = {
-              narration: (sbDoc.scenes || []).map((s: any) => s.descriptor?.narration || '').join(' '),
-              visual: (sbDoc.scenes || []).map((s: any) => s.descriptor?.visualDescription || '').join(' '),
-              music: sbDoc.overallMusicPrompt || '',
-              mood: (sbDoc.scenes || []).map((s: any) => s.descriptor?.mood || '').join(', '),
-              sceneCount: (sbDoc.scenes || []).length,
+              scenes: (sbDoc.scenes || []).map((s: any) => ({
+                narration: s.descriptor?.narration || '',
+                visualDescription: s.descriptor?.visualDescription || '',
+                mood: s.descriptor?.mood || '',
+              })),
+              overallMusicPrompt: sbDoc.overallMusicPrompt || '',
             };
             const detected = getAutoSelectedProfile(thinkforgeMetadata);
-            profileId = detected.profileId;
+            profileId = detected.profile.profileId;
             console.log(`[VideoWorker] Auto-detected Director profile: ${profileId} (was missing from project)`);
           } else {
             console.log(`[VideoWorker] Batch ${batchId} complete but no pending Director profile and no storyboard for auto-detection — skipping`);

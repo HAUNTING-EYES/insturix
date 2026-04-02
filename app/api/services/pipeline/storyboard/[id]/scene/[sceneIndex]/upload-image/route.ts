@@ -74,7 +74,7 @@ export async function POST(
     await updateStoryboardScene(storyboardId, sceneIndex, {
       imageAssetId: uploadResult.assetId,
       imageUrl: uploadResult.signedUrl,
-      imageGcsPath: uploadResult.gcsPath,
+      imageGcsPath: uploadResult.gcsPath ?? undefined,
       status: 'generated', // Mark as ready (skips AI generation for this scene)
       generationHistory: [
         ...(scene.generationHistory || []),

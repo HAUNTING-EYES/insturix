@@ -49,6 +49,8 @@ export interface EditDecision {
   source: string;           // Which track generated this
   sources?: string[];       // Multiple sources (from Unified Intelligence)
   signal: string;           // What triggered it (e.g., 'drop_hit', 'statistic_detected')
+  trigger?: string | { track: string; signal: string; confidence: number };
+  action?: { tool: string; params: Record<string, any> };
   reason: string;           // Human-readable
   params: Record<string, any>;
   confidence: number;       // 0-1
@@ -150,9 +152,9 @@ export function generateEditDecisionList(
             type: 'transition',
             trigger: { track: 'speech', signal: 'script_transition', confidence: 1.0 },
             action: { tool: 'add_transition', params: { type: ed.transition.type, durationMs: ed.transition.durationMs || 500, afterOverlayId: undefined } },
-            priority: 100, // HIGHEST — script intent overrides everything
+            priority: 100, source: 'speech', signal: 'script_transition', reason: `Script transition: ${ed.transition.type}`, params: {},
             confidence: 1.0,
-          });
+          } as EditDecision);
         }
 
         // Camera movement from script: "SLOW PUSH IN", "DOLLY", "WHIP PAN"
@@ -165,44 +167,33 @@ export function generateEditDecisionList(
               frame: seg.startFrame,
               type: 'zoom',
               trigger: { track: 'speech', signal: 'script_camera', confidence: 0.95 },
-              action: {
-                tool: 'set_keyframes',
-                params: {
-                  property: 'scale',
-                  keyframes: [
-                    { frame: 0, value: zoomIn ? 1.0 : 1.08, easing: 'ease-in-out' },
-                    { frame: seg.endFrame - seg.startFrame, value: zoomIn ? 1.08 : 1.0, easing: 'ease-in-out' },
-                  ],
-                },
-              },
-              priority: 90,
+              action: { tool: 'set_keyframes', params: { property: 'scale', keyframes: [{ frame: 0, value: zoomIn ? 1.0 : 1.08, easing: 'ease-in-out' }, { frame: seg.endFrame - seg.startFrame, value: zoomIn ? 1.08 : 1.0, easing: 'ease-in-out' }] } },
+              priority: 90, source: 'speech', signal: 'script_camera', reason: `Script camera: ${ed.cameraRig}`, params: { scaleFrom: zoomIn ? 1.0 : 1.08, scaleTo: zoomIn ? 1.08 : 1.0 },
               confidence: 0.95,
-            });
+            } as EditDecision);
           }
         }
 
         // Filter from script: "cool sophisticated palette", "warm cinematic"
         if (ed.filterPresetId) {
           decisions.push({
-            frame: seg.startFrame,
-            type: 'filter',
+            frame: seg.startFrame, type: 'filter',
             trigger: { track: 'speech', signal: 'script_filter', confidence: 1.0 },
             action: { tool: 'apply_filter', params: { filterPresetId: ed.filterPresetId } },
-            priority: 85,
+            priority: 85, source: 'speech', signal: 'script_filter', reason: `Script filter: ${ed.filterPresetId}`, params: { filterPresetId: ed.filterPresetId },
             confidence: 1.0,
-          });
+          } as EditDecision);
         }
 
         // Pacing from script: "quick cuts", "slow reveal", "building"
         if (ed.pacing) {
           decisions.push({
-            frame: seg.startFrame,
-            type: 'pacing',
+            frame: seg.startFrame, type: 'pacing',
             trigger: { track: 'speech', signal: 'script_pacing', confidence: 0.9 },
             action: { tool: 'adjust_pacing', params: { pacing: ed.pacing } },
-            priority: 80,
+            priority: 80, source: 'speech', signal: 'script_pacing', reason: `Script pacing: ${ed.pacing}`, params: { pacing: ed.pacing },
             confidence: 0.9,
-          });
+          } as EditDecision);
         }
       }
     }
@@ -288,7 +279,7 @@ function generateSpeechDecisions(
     }
 
     // Transition phrases = cut/transition opportunity
-    if (seg.contentType === 'transition_phrase') {
+    if ((seg.contentType as string) === 'transition_phrase') {
       decisions.push({
         type: 'transition',
         frame: seg.startFrame,

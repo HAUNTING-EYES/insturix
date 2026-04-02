@@ -308,7 +308,7 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
   outputUrl?: string;
 } | null> {
   const db = await getDatabase();
-  const job = await db.collection(CHAPTERS_COLLECTION).findOne({ _id: jobId }) as any;
+  const job = await db.collection(CHAPTERS_COLLECTION).findOne({ _id: jobId as any }) as any;
   if (!job) return null;
 
   let totalProgress = 0;

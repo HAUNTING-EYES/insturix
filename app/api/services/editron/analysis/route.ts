@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
     const topMoments = allMoments.slice(0, 10); // Top 10
 
     // Step 5: Extract graphic suggestions from EDL (Track A generates them directly)
-    const graphicDecisions = edl.decisions.filter(d => d.type === 'graphic');
+    const graphicDecisions = edl.decisions.filter((d: any) => d.type === 'graphic');
 
     console.log(`[Analysis] Complete: ${edl.totalDecisions} edit decisions, ${topMoments.length} cinematic moments, ${graphicDecisions.length} graphic suggestions`);
 

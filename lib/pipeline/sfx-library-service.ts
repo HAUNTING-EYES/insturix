@@ -196,7 +196,7 @@ export async function searchAndDownloadSFX(
 
     return {
       audioUrl: uploadResult.signedUrl,
-      gcsPath: uploadResult.gcsPath,
+      gcsPath: uploadResult.gcsPath!,
       audioAssetId: uploadResult.assetId,
       durationMs: found.duration * 1000,
       source,

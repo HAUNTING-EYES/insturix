@@ -270,7 +270,7 @@ export async function generateUnifiedEditPlan(
 
   console.log(`[UnifiedIntel] Generating edit plan for ${context.projectId} (${context.scenes.length} scenes, ${Math.round(context.totalDurationMs / 1000)}s)`);
 
-  const model = google('gemini-2.5-flash', { structuredOutputs: true });
+  const model = google('gemini-2.5-flash');
 
   const { object } = await generateObject({
     model,
@@ -327,7 +327,7 @@ export async function generateUnifiedEditPlan(
 
 function buildContextSummary(
   context: UnifiedContext,
-  options: { targetCutsPerMinute?: number; graphicDensity?: string; style?: string },
+  options: { editProfileName?: string; targetCutsPerMinute?: number; graphicDensity?: string; style?: string },
 ): string {
   const fps = context.fps;
   const totalSec = Math.round(context.totalDurationMs / 1000);

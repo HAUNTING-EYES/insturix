@@ -132,7 +132,7 @@ export async function generateSFX(
         const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/wav', { customAssetId: assetId });
         return {
           audioUrl: uploadResult.signedUrl,
-          gcsPath: uploadResult.gcsPath,
+          gcsPath: uploadResult.gcsPath!,
           audioAssetId: uploadResult.assetId,
           durationMs: duration * 1000,
         };
@@ -215,7 +215,7 @@ export async function generateSFX(
 
   return {
     audioUrl: uploadResult.signedUrl,
-    gcsPath: uploadResult.gcsPath,
+    gcsPath: uploadResult.gcsPath!,
     audioAssetId: uploadResult.assetId,
     durationMs: duration * 1000,
   };

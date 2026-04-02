@@ -77,7 +77,7 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
     e.preventDefault();
 
     const startX = e.clientX;
-    const startFrame = tracks[trackIndex].keyframes[keyframeIndex].frame;
+    const startFrame = tracks![trackIndex].keyframes[keyframeIndex].frame;
     dragRef.current = { trackIndex, keyframeIndex, startX, startFrame };
 
     const parentEl = (e.target as HTMLElement).closest('.absolute.bottom-0');
@@ -124,7 +124,7 @@ export const TimelineKeyframeDiamonds: React.FC<TimelineKeyframeDiamondsProps> =
     if (!changeOverlay) return;
 
     // Don't delete if only 2 keyframes left (minimum for a track)
-    const track = tracks[trackIndex];
+    const track = tracks![trackIndex];
     if (track.keyframes.length <= 2) return;
 
     changeOverlay(overlay.id, (ov) => {

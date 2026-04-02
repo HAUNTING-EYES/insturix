@@ -517,8 +517,10 @@ Return ONLY JSON:
 async function analyzeAudio(audioUrl: string, durationMs: number): Promise<AudioAnalysis | null> {
   try {
     // Use existing beat detection
-    const { detectBeats } = await import('./media/beat-detection-service');
-    const beatResult = await detectBeats(audioUrl);
+    // analyzeBeatsFull expects a decoded AudioBuffer, so we pass through as any.
+    // If it fails (e.g. URL string instead of buffer), the catch returns null.
+    const { analyzeBeatsFull } = await import('./media/beat-detection-service');
+    const beatResult = await analyzeBeatsFull(audioUrl as any);
 
     const beats = beatResult?.beats || [];
     const bpm = beatResult?.bpm || 120;
@@ -527,7 +529,10 @@ async function analyzeAudio(audioUrl: string, durationMs: number): Promise<Audio
     const windowMs = 1000;
     const energyCurve: AudioAnalysis['energyCurve'] = [];
     for (let t = 0; t < durationMs; t += windowMs) {
-      const beatsInWindow = beats.filter((b: number) => b >= t && b < t + windowMs).length;
+      const beatsInWindow = beats.filter((b: any) => {
+        const timeMs = typeof b === 'number' ? b : b.timeMs;
+        return timeMs >= t && timeMs < t + windowMs;
+      }).length;
       const maxBeats = bpm / 60;
       energyCurve.push({
         timestampMs: t,
@@ -549,7 +554,7 @@ async function analyzeAudio(audioUrl: string, durationMs: number): Promise<Audio
     console.log(`[Layer3] ${beats.length} beats, ${transients.length} transients, ${energyCurve.length} energy samples`);
 
     return {
-      beats: beats.map((b: number) => Math.round(b / 1000 * 30)), // Convert ms to frames
+      beats: beats.map((b: any) => Math.round((typeof b === 'number' ? b : b.timeMs) / 1000 * 30)), // Convert ms to frames
       transients,
       speechSegments: [], // Filled by Track A
       silences: [],       // Filled by Track A

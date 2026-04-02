@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const { projectId } = await req.json();
     if (!projectId) return NextResponse.json({ error: 'projectId required' }, { status: 400 });
 
-    const project = await projectService.getProject(userId, projectId);
+    const project = await projectService.loadProject(userId, projectId);
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
 
     const report = runQualityReview(project.overlays, project.durationInFrames, project.fps || 30);

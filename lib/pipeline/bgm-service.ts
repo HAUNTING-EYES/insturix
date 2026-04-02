@@ -95,7 +95,7 @@ export async function generateBackgroundMusic(
 
   return {
     audioUrl: uploadResult.signedUrl,
-    gcsPath: uploadResult.gcsPath,
+    gcsPath: uploadResult.gcsPath!,
     audioAssetId: uploadResult.assetId,
     durationMs: durationSec * 1000, // Approximate — actual may differ
   };

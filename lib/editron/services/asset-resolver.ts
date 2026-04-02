@@ -29,6 +29,8 @@ export interface MediaAsset {
     height: number;
   };
   uploadedAt: Date;
+  /** R2 key for CDN-cached assets */
+  r2Key?: string;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
 }

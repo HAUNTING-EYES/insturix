@@ -105,7 +105,7 @@ async function generateWithKokoro(
   const result: any = await fal.subscribe('fal-ai/kokoro/american-english', {
     input: {
       prompt: processedText,
-      voice: kokoroVoice,
+      voice: kokoroVoice as any,
       speed: ttsSpeed,
     },
     logs: false,
@@ -140,7 +140,7 @@ async function generateWithKokoro(
     durationMs,
     audioUrl: uploadResult.signedUrl,
     audioAssetId: uploadResult.assetId,
-    gcsPath: uploadResult.gcsPath,
+    gcsPath: uploadResult.gcsPath!,
   };
 }
 
@@ -196,7 +196,7 @@ async function generateWithDeepgram(
     durationMs,
     audioUrl: uploadResult.signedUrl,
     audioAssetId: uploadResult.assetId,
-    gcsPath: uploadResult.gcsPath,
+    gcsPath: uploadResult.gcsPath!,
   };
 }
 
@@ -215,7 +215,7 @@ export async function generateVoicePreview(
     fal.config({ credentials: key });
 
     const result: any = await fal.subscribe('fal-ai/kokoro/american-english', {
-      input: { prompt: text, voice: voice?.providerVoiceId || 'af_heart', speed: 1.0 },
+      input: { prompt: text, voice: (voice?.providerVoiceId || 'af_heart') as any, speed: 1.0 },
       logs: false,
     });
 

@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Invoke the tool directly
-    const resultStr = await targetTool.invoke(params || {});
+    const resultStr = await (targetTool as any).invoke(params || {});
     let result: any;
     try {
       result = JSON.parse(resultStr);

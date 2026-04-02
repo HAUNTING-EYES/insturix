@@ -4436,7 +4436,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             'social': 'social media animation',
           };
 
-          let searchQuery = input.category || 'text animation';
+          let searchQuery = (input as any).category || 'text animation';
           for (const [keyword, query] of Object.entries(categoryKeywords)) {
             if (desc.includes(keyword)) {
               searchQuery = query;
@@ -4535,11 +4535,11 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         return successEnvelope({
           id,
-          templateUsed: match.template.templateId,
-          templateName: match.template.name,
-          score: Math.round(match.score * 100) / 100,
+          templateUsed: match!.template.templateId,
+          templateName: match!.template.name,
+          score: Math.round(match!.score * 100) / 100,
           metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
-          message: `Added motion graphic "${match.template.name}" for "${input.description}". Duration: ${duration} frames. (Code hidden from chat log)`,
+          message: `Added motion graphic "${match!.template.name}" for "${input.description}". Duration: ${duration} frames. (Code hidden from chat log)`,
         });
       } catch (e: any) {
         console.error('[MOTION-GRAPHIC] Error:', e);
@@ -4738,7 +4738,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             id: newId,
             from: cut.frame,
             durationInFrames: secondDuration,
-            videoStartTime: (currentOverlay.videoStartTime || 0) + firstDuration,
+            videoStartTime: ((currentOverlay as any).videoStartTime || 0) + firstDuration,
           };
 
           await projectService.addOverlay(userId, projectId, secondOverlay as any);

@@ -40,6 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useTimelineShortcuts } from "../../hooks/use-timeline-shortcuts";
+import { Overlay } from "../../types";
 import { useAssetLoading } from "../../contexts/asset-loading-context";
 import { useKeyframeContext } from "../../contexts/keyframe-context";
 import { Separator } from "@/components/ui/separator";
@@ -143,10 +144,10 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
       if (selectedOverlayId == null) return null;
       return overlays.find((o) => o.id === selectedOverlayId) ?? null;
     },
-    onPaste: (overlay) => {
-      const { id, ...rest } = overlay;
+    onPaste: (overlay: Overlay) => {
       addOverlay({
-        ...rest,
+        ...overlay,
+        id: Date.now(),
         from: currentFrame,
       });
     },

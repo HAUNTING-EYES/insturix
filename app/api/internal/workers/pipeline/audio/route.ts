@@ -187,7 +187,7 @@ async function handler(request: NextRequest) {
         await db.collection(COLLECTIONS.PROJECTS).updateOne(
           { projectId },
           {
-            $push: { 'overlays': { $each: markedSfx } },
+            $push: { 'overlays': { $each: markedSfx } } as any,
             $set: { updatedAt: new Date() },
           },
         );

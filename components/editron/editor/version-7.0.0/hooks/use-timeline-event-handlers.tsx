@@ -8,7 +8,7 @@ interface UseTimelineEventHandlersProps {
   // Boolean flag indicating if currently dragging
   isDragging: boolean;
   // Reference to the timeline DOM element
-  timelineRef: React.RefObject<HTMLDivElement>;
+  timelineRef: React.RefObject<HTMLDivElement | null>;
   // Function to update the position of the ghost marker (preview)
   setGhostMarkerPosition: (position: number | null) => void;
 }

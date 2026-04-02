@@ -36,7 +36,7 @@ interface UseTimelineDragAndDropProps {
     pushedItems: Map<number, number> // Expect pushedItems again
   ) => void;
   resetDragState: () => void;
-  timelineRef: React.RefObject<HTMLDivElement>;
+  timelineRef: React.RefObject<HTMLDivElement | null>;
   dragInfo: React.MutableRefObject<DragInfo | null>;
   maxRows: number;
 }

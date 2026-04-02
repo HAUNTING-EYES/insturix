@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { Client } from '@upstash/qstash';
-import { getStoryboard } from '@/lib/pipeline/storyboard-db';
+import { getStoryboard, updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
 import { CreditsService } from '@/lib/services/creditsService';
 import {
   buildMotionPrompt,

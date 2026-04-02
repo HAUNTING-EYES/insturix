@@ -40,7 +40,7 @@ export async function applyEditDirections(
   width: number,
   height: number,
   fps: number = 30,
-): { overlays: any[]; totalFrameShift: number } {
+): Promise<{ overlays: any[]; totalFrameShift: number }> {
   let nextOverlayId = Math.max(...overlays.map(o => o.id || 0), 0) + 1;
   let totalFrameShift = 0;
 
@@ -93,7 +93,7 @@ export async function applyEditDirections(
     'beat-synced': 1.0,
     'medium': 1.0,
   };
-  const globalPacingMult = globalDirections?.pacingMultiplier || 1.0;
+  const globalPacingMult = (globalDirections?.pacing ? (pacingMultiplierMap[globalDirections.pacing] ?? 1.0) : 1.0);
 
   {
     let frameShift = 0;

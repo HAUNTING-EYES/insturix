@@ -292,7 +292,7 @@ export async function generateReferenceImage(
   return {
     imageUrl: uploadResult.signedUrl,
     assetId: uploadResult.assetId,
-    gcsPath: uploadResult.gcsPath,
+    gcsPath: uploadResult.gcsPath!,
   };
 }
 

@@ -338,7 +338,7 @@ async function downloadAndUpload(
 
   return {
     imageUrl: uploadResult.signedUrl,
-    gcsPath: uploadResult.gcsPath,
+    gcsPath: uploadResult.gcsPath!,
     assetId: uploadResult.assetId, // Use R2's assetId (same as customAssetId)
     modelUsed,
   };

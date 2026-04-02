@@ -48,8 +48,7 @@ export async function POST(request: NextRequest) {
       userId,
       'pipeline',
       'script_import',
-      1,
-      { sceneCount: scenes.length, sourceScriptId },
+      { quantity: 1 },
     );
     if (!deductResult.success) {
       return NextResponse.json(

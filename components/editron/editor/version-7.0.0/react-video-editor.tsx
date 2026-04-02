@@ -276,6 +276,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
     // AI Processing State
     isAIProcessing,
     setIsAIProcessing,
+    aiActions: [],
   };
 
   return (

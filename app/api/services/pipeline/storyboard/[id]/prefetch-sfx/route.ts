@@ -46,7 +46,7 @@ export async function POST(
         const query = scene.descriptor.audioDescription!;
         const durationSec = Math.min(scene.descriptor.durationSeconds, 10);
 
-        const sfx = await searchAndDownloadSFX(query, userId, { maxDuration: durationSec });
+        const sfx = await searchAndDownloadSFX(query, userId!, durationSec);
         if (sfx) {
           // Cache on the storyboard scene for finalize to use
           await updateStoryboardScene(id, scene.sceneIndex, {

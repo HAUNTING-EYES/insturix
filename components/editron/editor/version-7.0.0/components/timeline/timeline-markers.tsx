@@ -22,9 +22,9 @@ const TimeMarkers = ({
   durationInFrames,
   handleTimelineClick,
   zoomScale,
-}: TimeMarkersProps): JSX.Element => {
-  const generateMarkers = (): JSX.Element[] => {
-    const markers: JSX.Element[] = [];
+}: TimeMarkersProps): React.JSX.Element => {
+  const generateMarkers = (): React.JSX.Element[] => {
+    const markers: React.JSX.Element[] = [];
     // Calculate total seconds more precisely using frames
     const totalSeconds = durationInFrames / FPS;
 
@@ -60,7 +60,7 @@ const TimeMarkers = ({
     // Safeguard against division by zero or excessively small microInterval
     if (microInterval < 1e-6) {
       if (totalSeconds > 1e-9) {
-        const zeroMarker: JSX.Element = (
+        const zeroMarker: React.JSX.Element = (
           <div
             key="0s-marker-guard"
             className="absolute top-0 flex flex-col items-center"
@@ -125,7 +125,7 @@ const TimeMarkers = ({
           ? (currentTime / effectiveTotalSeconds) * 100
           : 0;
 
-      const markerElement: JSX.Element = (
+      const markerElement: React.JSX.Element = (
         <div
           key={i}
           className="absolute top-0 flex flex-col items-center"

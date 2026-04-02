@@ -32,7 +32,7 @@ interface DragInfo {
 export const useTimelineState = (
   totalDuration: number,
   maxRows: number,
-  timelineRef: React.RefObject<HTMLDivElement>
+  timelineRef: React.RefObject<HTMLDivElement | null>
 ) => {
   // Consolidated state object
   const [dragState, setDragState] = useState<TimelineDragState>({

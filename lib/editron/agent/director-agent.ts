@@ -21,7 +21,7 @@
  * 11. quality review (AI vision, if profile requires)
  */
 
-import type { EditProfile, EditProfileAction, DirectorResult, ProjectBrief } from '@/lib/editron/data/edit-profile-types';
+import type { EditProfile, EditProfileAction, DirectorResult, ProjectBrief, ProfileId } from '@/lib/editron/data/edit-profile-types';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import { projectService } from '@/lib/editron/services/project-service';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
@@ -48,7 +48,7 @@ export async function executeDirectorPlan(
   // C6 FIX: Validate profile exists before proceeding
   if (!profile) {
     return {
-      success: false, profileId,
+      success: false, profileId: profileId as ProfileId,
       actionsExecuted: 0, actionsSkipped: [{ action: 'all', reason: `Profile "${profileId}" not found` }],
       overlaysModified: 0, checkpointId: '', executionMs: 0,
       warnings: [`Edit profile "${profileId}" not found. Available profiles can be seen in the export dialog.`],
@@ -192,9 +192,9 @@ export async function executeDirectorPlan(
             // Fallback: proportional estimate with variable word-length weighting
             if (!words) {
               const rawWords = narrationText.split(/\s+/).filter(Boolean);
-              const totalChars = rawWords.reduce((sum, w) => sum + w.length, 0);
+              const totalChars = rawWords.reduce((sum: number, w: string) => sum + w.length, 0);
               let cursor = 0;
-              words = rawWords.map((w) => {
+              words = rawWords.map((w: string) => {
                 // Weight by character count — longer words take more time
                 const wordPortion = (w.length / totalChars) * durationMs;
                 const startMs = cursor;
@@ -248,8 +248,8 @@ export async function executeDirectorPlan(
             const context = await assembleUnifiedContext(projectId, userId);
             const plan = await generateUnifiedEditPlan(context, {
               editProfileName: effectiveProfile.name,
-              targetCutsPerMinute: effectiveProfile.cutFrequencyTarget
-                ? 60 / effectiveProfile.cutFrequencyTarget
+              targetCutsPerMinute: effectiveProfile.cutsPerMinRange
+                ? (effectiveProfile.cutsPerMinRange[0] + effectiveProfile.cutsPerMinRange[1]) / 2
                 : 6,
               graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
             });
@@ -273,21 +273,21 @@ export async function executeDirectorPlan(
               stats: plan.stats,
             };
 
-            edlSummary.decisionsGenerated = plan.stats.totalDecisions;
+            edlSummary.totalDecisions = plan.stats.totalDecisions;
             console.log(`[Director] Unified Intelligence: ${plan.stats.totalDecisions} decisions (avg confidence ${plan.stats.averageConfidence.toFixed(2)})`);
           } catch (unifiedErr: any) {
             // FALLBACK: Old Reactive Edit Engine (video analysis only)
             console.warn(`[Director] Unified Intelligence failed (${unifiedErr.message}), falling back to Reactive Engine`);
             const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
             edl = generateEditDecisionList(analyses, totalDurationMs, {
-              targetCutsPerMinute: effectiveProfile.cutFrequencyTarget
-                ? 60 / effectiveProfile.cutFrequencyTarget
+              targetCutsPerMinute: effectiveProfile.cutsPerMinRange
+                ? (effectiveProfile.cutsPerMinRange[0] + effectiveProfile.cutsPerMinRange[1]) / 2
                 : 6,
-              transitionStyle: effectiveProfile.defaultTransition?.type === 'dissolve' ? 'dissolve'
-                : effectiveProfile.defaultTransition?.type === 'hard-cut' ? 'hard-cut'
+              transitionStyle: effectiveProfile.defaultTransition?.includes('dissolve') ? 'dissolve'
+                : effectiveProfile.defaultTransition?.includes('hard-cut') ? 'hard-cut'
                 : 'mixed',
               graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
-              pacing: effectiveProfile.pacing || 'medium',
+              pacing: (effectiveProfile.pacing === 'variable' || effectiveProfile.pacing === 'beat-synced' ? 'medium' : effectiveProfile.pacing) || 'medium',
             });
           }
 
@@ -581,8 +581,7 @@ async function executeAction(
       }
 
       // Get transition type from params or profile default
-      let transType = action.params.type || profile.defaultTransition?.type || profile.defaultTransition || 'soft-cut';
-      if (typeof transType === 'object') transType = transType.type || 'soft-cut';
+      let transType: string = action.params.type || profile.defaultTransition || 'soft-cut';
 
       // 'hard-cut' means no transition overlay — skip entirely
       if (transType === 'hard-cut' || transType === 'none') {
@@ -709,7 +708,7 @@ async function invokeAITool(
 
   // Find the matching tool by name
   const toolName = action.tool;
-  const tool = tools.find((t: any) => t.name === toolName);
+  const tool: any = tools.find((t: any) => t.name === toolName);
   if (!tool) {
     console.warn(`[Director] Tool not found: ${toolName}`);
     return 0;

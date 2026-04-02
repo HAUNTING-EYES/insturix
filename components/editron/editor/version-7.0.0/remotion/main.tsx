@@ -127,7 +127,7 @@ export const Main: React.FC<MainProps> = ({
 
         // Cache miss — use Remotion's media-tag prefetch (no CORS issues)
         try {
-          const handle = prefetch(url, { method: 'media-tag' });
+          const handle = prefetch(url, { method: 'blob-url' });
           handles.set(url, handle);
 
           // Background: fetch blob and cache in IndexedDB for next time

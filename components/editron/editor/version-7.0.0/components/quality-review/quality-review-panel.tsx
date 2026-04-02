@@ -33,7 +33,7 @@ export function QualityReviewPanel() {
     } finally {
       setIsRunning(false);
     }
-  }, [state?.overlays, state?.fps, state?.durationInFrames]);
+  }, [overlays, fps, totalFrames]);
 
   // Auto-run on mount and when overlays change
   useEffect(() => {

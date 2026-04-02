@@ -160,7 +160,7 @@ export function AIActivityOverlay() {
                   <AnimatePresence mode="popLayout">
                     {runningActions.map((action) => {
                       const meta = TOOL_META[action.toolName] || DEFAULT_META;
-                      const Icon = meta.icon;
+                      const Icon = meta.icon as any;
                       return (
                         <motion.div
                           key={action.id}
@@ -187,7 +187,7 @@ export function AIActivityOverlay() {
                   <AnimatePresence mode="popLayout">
                     {doneActions.slice(-5).map((action) => {
                       const meta = TOOL_META[action.toolName] || DEFAULT_META;
-                      const Icon = meta.icon;
+                      const Icon = meta.icon as any;
                       return (
                         <motion.div
                           key={action.id}

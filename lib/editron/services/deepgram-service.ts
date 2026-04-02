@@ -121,16 +121,16 @@ export async function transcribeMedia(
       response = await deepgram.listen.prerecorded.transcribeFile(
         buffer,
         { ...transcriptionOptions, mimetype: mimeType },
-      ) as SyncPrerecordedResponse;
+      ) as unknown as SyncPrerecordedResponse;
     } else {
       response = await deepgram.listen.prerecorded.transcribeUrl(
         { url: mediaUrl },
         transcriptionOptions,
-      );
+      ) as unknown as SyncPrerecordedResponse;
     }
 
     // Extract word-level data from response
-    const result = response.result;
+    const result = response.results ? response : (response as any).result;
     
     if (!result?.results?.channels?.[0]?.alternatives?.[0]) {
       throw new Error('No transcription results returned from Deepgram');
@@ -140,7 +140,7 @@ export async function transcribeMedia(
     const deepgramWords = alternative.words || [];
     
     // Convert Deepgram words to our CaptionWord format
-    const words: CaptionWord[] = deepgramWords.map((w) => ({
+    const words: CaptionWord[] = deepgramWords.map((w: any) => ({
       word: w.punctuated_word || w.word,
       startMs: Math.round(w.start * 1000),
       endMs: Math.round(w.end * 1000),

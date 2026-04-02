@@ -21,7 +21,7 @@ interface TimelineContextType {
   /** Delete a specific row */
   deleteRow: (rowIndex: number) => void;
   /** Reference to the timeline DOM element */
-  timelineRef: React.RefObject<HTMLDivElement>;
+  timelineRef: React.RefObject<HTMLDivElement | null>;
   /** Current zoom level of the timeline */
   zoomScale: number;
   /** Update the zoom scale */

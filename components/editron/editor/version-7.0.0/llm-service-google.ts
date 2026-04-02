@@ -16,8 +16,17 @@
 
 import 'dotenv/config';
 import { GoogleGenAI, FunctionDeclaration, Type, FunctionCallingConfigMode } from '@google/genai';
-import type { ProjectSummary, NewTrackInput, TrackPatch } from './ai-tools';
-import { systemPrompt } from './ai-tool-schemas-v2';
+// TODO: These modules were removed/renamed — inline stubs until migrated
+// import type { ProjectSummary, NewTrackInput, TrackPatch } from './ai-tools';
+// import { systemPrompt } from './ai-tool-schemas-v2';
+
+/** Inline type stubs for ai-tools (module not found) */
+type ProjectSummary = Record<string, any>;
+type NewTrackInput = Record<string, any>;
+type TrackPatch = Record<string, any>;
+
+/** Fallback system prompt — replace with proper import when module exists */
+const systemPrompt = 'You are Editron AI, an intelligent video editing assistant.';
 
 // ============================================================================
 // Configuration

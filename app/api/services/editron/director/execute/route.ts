@@ -73,8 +73,8 @@ export async function POST(request: NextRequest) {
     );
 
     return NextResponse.json({
-      success: result.success,
       ...result,
+      success: result.success,
     });
   } catch (error: any) {
     console.error('[Director] Route error:', error);

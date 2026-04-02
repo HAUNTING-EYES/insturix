@@ -13,7 +13,7 @@
  * This is how DaVinci Resolve, Premiere, and Final Cut do transitions.
  */
 
-import type { KeyframeTrack, Keyframe } from '../../editor/version-7.0.0/types';
+import type { KeyframeTrack, Keyframe } from '@/components/editron/editor/version-7.0.0/types';
 
 // ─── Transition Type Definitions ─────────────────────────────────
 
@@ -423,7 +423,7 @@ export function calculateTransition(
   // Offset keyframes to be relative to the END of the outgoing clip
   const outTracksOffset = outTracks.map(t => ({
     ...t,
-    keyframes: t.keyframes.map(k => ({
+    keyframes: t.keyframes.map((k: Keyframe) => ({
       ...k,
       frame: (outgoingOverlay.durationInFrames - halfOverlap) + k.frame,
     })),

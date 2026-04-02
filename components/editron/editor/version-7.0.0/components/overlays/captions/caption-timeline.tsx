@@ -141,10 +141,9 @@ export const CaptionTimeline: React.FC<CaptionTimelineProps> = ({
         const isPast = currentMs >= caption.endMs;
 
         return (
+          <div key={index} ref={isActive ? activeCaptionRef : undefined}>
           <Card
-            key={index}
-            ref={isActive ? activeCaptionRef : undefined}
-            className={`group transition-all duration-200 rounded-sm 
+            className={`group transition-all duration-200 rounded-sm
               ${
                 isActive
                   ? "border-2 dark:bg-accent/20 dark:border-primary dark:ring-primary/20 bg-accent border-primary ring-2 ring-primary/30"
@@ -189,6 +188,7 @@ export const CaptionTimeline: React.FC<CaptionTimelineProps> = ({
               />
             </CardContent>
           </Card>
+          </div>
         );
       })}
     </div>

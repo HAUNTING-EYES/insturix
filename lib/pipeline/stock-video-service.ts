@@ -217,7 +217,7 @@ export async function searchAndDownloadStockVideo(
 
   // ─── Download + Upload to R2 ───
   try {
-    const { uploadMedia } = await import('./upload-service');
+    const { uploadMedia } = await import('@/lib/editron/services/upload-service');
 
     const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(30000) });
     if (!videoRes.ok) {

@@ -89,7 +89,7 @@ async function comparePair(
   const google = getGeminiProvider();
   if (!google) {
     console.warn('[ConsistencyScoring] No Gemini API key — returning perfect scores');
-    return { subject: 10, lighting: 10, color: 10, style: 10, issues: [] };
+    return { subject: 'pass', lighting: 'pass', color: 'pass', style: 'pass', worst_issue: null, regenerate_recommendation: 'none', subject_num: 10, lighting_num: 10, color_num: 10, style_num: 10, issues: [] };
   }
 
   try {
@@ -119,7 +119,7 @@ async function comparePair(
           ],
         },
       ],
-      maxTokens: 512,
+      maxOutputTokens: 512,
       temperature: 0.1,
     });
 
@@ -395,7 +395,8 @@ export async function checkVideoQuality(
       score: 70,
       issues: [],
       shouldRegenerate: false,
-      details: { morphingArtifacts: 7, textClarity: 7, subjectStability: 7, motionNaturalness: 7, lightingStability: 7, overallCoherence: 7 },
+      verdict: 'accept',
+      details: { temporal_coherence: 'pass', identity_preservation: 'pass', physics_plausibility: 'pass', artifact_presence: 'pass', lighting_stability: 'pass', worst_artifact: null, artifact_location: null, morphingArtifacts: 7, textClarity: 7, subjectStability: 7, motionNaturalness: 7, lightingStability: 7, overallCoherence: 7 },
     };
   }
 

@@ -20,7 +20,7 @@ type ZoomState = {
  *   - handleZoom: Function to handle programmatic zooming
  *   - handleWheelZoom: Event handler for wheel-based zooming
  */
-export const useTimelineZoom = (timelineRef: RefObject<HTMLDivElement>) => {
+export const useTimelineZoom = (timelineRef: RefObject<HTMLDivElement | null>) => {
   const [zoomState, setZoomState] = useState<ZoomState>({
     scale: ZOOM_CONSTRAINTS.default,
     scroll: 0,

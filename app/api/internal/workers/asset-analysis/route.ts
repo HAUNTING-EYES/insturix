@@ -68,13 +68,12 @@ async function handler(request: NextRequest) {
         if (analysis) {
           // Extract tags from analysis
           // Layer 4 (keyframes): shot types, subjects, moods
-          if (analysis.keyframes) {
-            for (const kf of analysis.keyframes) {
-              if (kf.shotType && !tags.includes(kf.shotType)) tags.push(kf.shotType);
-              if (kf.mood && !tags.includes(kf.mood)) tags.push(kf.mood);
+          if (analysis.keyframeAnalyses) {
+            for (const kf of analysis.keyframeAnalyses) {
+              if (kf.shotType && kf.shotType !== 'unknown' && !tags.includes(kf.shotType)) tags.push(kf.shotType);
               if (kf.subjects) {
                 for (const s of kf.subjects) {
-                  const tag = typeof s === 'string' ? s : s.label || s.category;
+                  const tag = s.label;
                   if (tag && !tags.includes(tag)) tags.push(tag);
                 }
               }
@@ -82,21 +81,21 @@ async function handler(request: NextRequest) {
           }
 
           // Layer 2 (motion): dominant motion type
-          if (analysis.motion?.segments) {
-            const motionTypes = analysis.motion.segments.map((s: any) => s.type).filter(Boolean);
+          if (analysis.motionSegments?.length) {
+            const motionTypes = analysis.motionSegments.map(s => s.cameraMotion).filter(Boolean);
             const dominant = mostFrequent(motionTypes);
             if (dominant && !tags.includes(dominant)) tags.push(dominant);
           }
 
-          // Energy level tag
-          if (analysis.motion?.averageIntensity != null) {
-            const intensity = analysis.motion.averageIntensity;
-            tags.push(intensity > 0.7 ? 'high-energy' : intensity > 0.3 ? 'medium-energy' : 'calm');
+          // Energy level tag from motion segments
+          if (analysis.motionSegments?.length) {
+            const avgIntensity = analysis.motionSegments.reduce((sum, s) => sum + (s.motionIntensity || 0), 0) / analysis.motionSegments.length;
+            tags.push(avgIntensity > 0.7 ? 'high-energy' : avgIntensity > 0.3 ? 'medium-energy' : 'calm');
           }
 
           // Layer 5 (subjects): subject categories
-          if (analysis.subjects) {
-            for (const subj of analysis.subjects) {
+          if (analysis.subjectTracks) {
+            for (const subj of analysis.subjectTracks) {
               const cat = subj.category || subj.label;
               if (cat && !tags.includes(cat)) tags.push(cat);
             }
