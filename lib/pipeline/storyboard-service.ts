@@ -241,7 +241,18 @@ export async function generateStoryboardImage(
   // ─── Attempt 1: IP-adapter if we have reference images ──────────
   // Single attempt with circuit breaker — if IP-adapter keeps failing,
   // skip it entirely rather than wasting 30-90s per scene on timeouts.
-  if (hasReferences && _ipAdapterConsecutiveFailures < IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD) {
+  //
+  // IMPORTANT: IP-adapter ONLY works on fal-ai/flux-general. If user selected
+  // a non-Flux model (Imagen 4, Seedream, Recraft, Nano Banana), skip IP-adapter
+  // entirely and use their selected model. Don't silently override their choice.
+  const isFluxModel = !fallbackModelId || fallbackModelId.includes('flux');
+  const canUseIPAdapter = isFluxModel && hasReferences && _ipAdapterConsecutiveFailures < IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD;
+
+  if (!isFluxModel && hasReferences) {
+    console.log(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter SKIPPED — user selected non-Flux model (${fallbackModelId}). Reference images will be described in prompt text instead.`);
+  }
+
+  if (canUseIPAdapter) {
     // Build IP-adapter entries for ALL references in this scene (not just the first).
     // Each reference gets its own adapter with appropriate weight.
     // Primary ref (first) gets higher weight, additional refs get lower weight.
