@@ -382,25 +382,31 @@ export async function executeDirectorPlan(
     (result as any).edlSummary = edlSummary;
 
     // ─── Step 2: Check conditions and filter actions ──────────
-    // SAFETY NET: If the profile doesn't include add_captions, inject it.
-    // Every video should have captions for accessibility (Rule 0: universal content).
-    // Some profiles (Automotive B-07, Real Estate B-06, Music Video B-04) intentionally
-    // omit captions, but that's wrong — quality review even flags the missing captions.
+    // Caption injection: The user picks caption style in the export dialog.
+    // That choice flows through brief.overrides.captionStyle → effectiveProfile.captionStyle.
+    // But some profiles (B-07 Automotive, B-06 Real Estate, etc.) don't include
+    // addCaptions() in their actions array, so the user's choice gets ignored.
+    // Fix: If the user chose a caption style AND the profile lacks a caption action, inject one.
+    // If the user chose "none" or profile says "none" with no user override, respect that.
     const profileActions = [...effectiveProfile.actions];
     const hasCaptionAction = profileActions.some(a => a.tool === 'add_captions' || a.tool === 'add_fancy_captions');
-    if (!hasCaptionAction) {
-      const captionStyle = effectiveProfile.captionStyle && effectiveProfile.captionStyle !== 'none'
-        ? effectiveProfile.captionStyle
-        : 'subtitle'; // Fallback: least intrusive caption style
+    const resolvedCaptionStyle = effectiveProfile.captionStyle; // Already merged with user override by applyBriefOverrides
+
+    if (!hasCaptionAction && resolvedCaptionStyle && resolvedCaptionStyle !== 'none') {
+      // User chose a caption style (or profile default is not 'none') but profile has no caption action
+      const style = resolvedCaptionStyle === 'fancy' ? 'kinetic' : resolvedCaptionStyle;
+      const tool = resolvedCaptionStyle === 'fancy' ? 'add_fancy_captions' : 'add_captions';
       profileActions.push({
-        tool: 'add_captions',
-        params: { style: captionStyle },
+        tool,
+        params: { style },
         condition: 'hasVoiceover' as any,
-        description: `Add ${captionStyle} captions (auto-injected)`,
-        order: 5, // After pacing, before motion graphics
+        description: `Add ${style} captions (from user selection)`,
+        order: 5,
         failBehavior: 'warn' as any,
       });
-      console.log(`[Director] Profile ${effectiveProfile.profileId} missing captions — auto-injecting ${captionStyle} captions`);
+      console.log(`[Director] Profile ${effectiveProfile.profileId} missing caption action — injecting ${tool}(${style}) from user/profile captionStyle`);
+    } else if (!hasCaptionAction) {
+      console.log(`[Director] Profile ${effectiveProfile.profileId}: no captions (captionStyle=${resolvedCaptionStyle || 'unset'})`);
     }
 
     const actions = profileActions
