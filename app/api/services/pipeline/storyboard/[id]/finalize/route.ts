@@ -127,12 +127,11 @@ export async function POST(
             warnings.push(`Scene ${scene.sceneIndex} sub-shot: invalid duration (targetDurationSeconds=${sub.targetDurationSeconds}), defaulting to 3s`);
             subDur = 90; // 3s at 30fps
           }
-          // Enforce montage pacing bounds: min 1.5s, max 3s per sub-shot
-          const isMontageScene = descriptor.sceneType === 'montage';
+          // Enforce montage pacing bounds: min 1.5s, max 3s per sub-shot.
+          // A scene with independent sub-shots IS a montage regardless of sceneType field
+          // (parser may set sceneType='continuous' but still produce sub-shots).
           subDur = Math.max(subDur, 45); // Min 1.5s — shorter looks like a glitch
-          if (isMontageScene) {
-            subDur = Math.min(subDur, 90); // Max 3s for montage — longer defeats rapid-cut purpose
-          }
+          subDur = Math.min(subDur, 90); // Max 3s for sub-shots — longer defeats rapid-cut purpose
           // Asset priority: AI video → cached stock video → storyboard image (Ken Burns last resort)
           const stockVideo = sub.cachedStockVideo;
 
@@ -411,14 +410,13 @@ export async function POST(
         // Use targetDurationSeconds consistently (same as sub-shot placement logic above).
         // Previously used videoDurationMs here, which caused gaps when AI clips (5-10s) are
         // longer than the target display duration (1-3s).
-        const isMontage = descriptor.sceneType === 'montage';
         const totalSubFrames = subShots
           .filter((s: any) => s.independentGeneration)
           .reduce((sum: number, s: any) => {
             let dur = Math.round((s.targetDurationSeconds || 3) * fps);
             if (dur <= 0 || isNaN(dur)) dur = 90; // 3s default, matching placement
             dur = Math.max(dur, 45); // Min 1.5s, matching placement
-            if (isMontage) dur = Math.min(dur, 90); // Max 3s for montage, matching placement
+            dur = Math.min(dur, 90); // Max 3s for sub-shots, matching placement
             return sum + dur;
           }, 0);
         currentFrame += Math.max(totalSubFrames, durationFrames);
