@@ -86,6 +86,102 @@ const FAL_CALL_TIMEOUT_MS = 60_000; // 60 seconds
 let _ipAdapterConsecutiveFailures = 0;
 const IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD = 2; // After 2 consecutive fails, stop trying
 
+// ─── Reference Image Strategy ─────────────────────────────────────
+// Each model has a different mechanism for accepting reference images.
+// This determines which approach to use based on the user's selected model.
+
+type ReferenceStrategy = 'ip-adapter' | 'image-to-image' | 'reference-to-image' | 'subject-reference' | 'kontext' | 'text-only';
+
+function getReferenceStrategy(modelId: string): ReferenceStrategy {
+  if (modelId.includes('flux-general')) return 'ip-adapter';
+  if (modelId.includes('flux-kontext') || modelId.includes('flux-pro/kontext')) return 'kontext';
+  if (modelId.includes('nano-banana')) return 'image-to-image';
+  if (modelId.includes('vidu') && modelId.includes('reference')) return 'reference-to-image';
+  if (modelId.includes('minimax') && modelId.includes('subject-reference')) return 'subject-reference';
+  // Text-only models: Imagen, Seedream, Recraft, Flux Schnell/Dev/Pro
+  return 'text-only';
+}
+
+/**
+ * Generate an image using model-native reference image support.
+ * Returns the generated image URL or null if it fails.
+ */
+async function generateWithNativeReference(
+  modelId: string,
+  strategy: ReferenceStrategy,
+  prompt: string,
+  refs: Array<{ imageUrl: string; name?: string; weight?: number }>,
+  width: number,
+  height: number,
+): Promise<string | null> {
+  const timeout = 45_000;
+
+  switch (strategy) {
+    case 'image-to-image': {
+      // Nano Banana 2/Pro: use image-to-image endpoint with image_urls
+      const editEndpoint = modelId.replace(/\/text-to-image$/, '').replace(/\/?$/, '/image-to-image');
+      const result = await falSubscribeWithTimeout(editEndpoint, {
+        input: {
+          prompt: `${prompt}. Maintain visual consistency with reference subjects.`,
+          image_urls: refs.map(r => r.imageUrl),
+          num_images: 1,
+          resolution: '1K',
+        },
+        logs: false,
+      }, timeout);
+      const data = result.data as any;
+      return data?.images?.[0]?.url || data?.image?.url || null;
+    }
+
+    case 'reference-to-image': {
+      // Vidu Q2: use reference_image_urls
+      const result = await falSubscribeWithTimeout(modelId, {
+        input: {
+          prompt,
+          reference_image_urls: refs.map(r => r.imageUrl).slice(0, 3),
+          aspect_ratio: width > height ? '16:9' : height > width ? '9:16' : '1:1',
+        },
+        logs: false,
+      }, timeout);
+      const data = result.data as any;
+      return data?.images?.[0]?.url || data?.image?.url || null;
+    }
+
+    case 'subject-reference': {
+      // MiniMax: use image_url for face reference (single image only)
+      const result = await falSubscribeWithTimeout(modelId, {
+        input: {
+          prompt,
+          image_url: refs[0].imageUrl,
+          aspect_ratio: width > height ? '16:9' : height > width ? '9:16' : '1:1',
+          num_images: 1,
+        },
+        logs: false,
+      }, timeout);
+      const data = result.data as any;
+      return data?.images?.[0]?.url || data?.image?.url || null;
+    }
+
+    case 'kontext': {
+      // Flux Kontext: use image_url for context editing
+      const result = await falSubscribeWithTimeout(modelId, {
+        input: {
+          prompt: `${prompt}. Maintain exact visual consistency with the reference image.`,
+          image_url: refs[0].imageUrl,
+          num_images: 1,
+          guidance_scale: 3.5,
+        },
+        logs: false,
+      }, timeout);
+      const data = result.data as any;
+      return data?.images?.[0]?.url || data?.image?.url || null;
+    }
+
+    default:
+      return null;
+  }
+}
+
 /**
  * Build model-specific input parameters.
  * Different fal.ai models accept different input schemas.
@@ -238,19 +334,45 @@ export async function generateStoryboardImage(
   const prompt = refDescriptionSuffix ? `${basePrompt}${refDescriptionSuffix}` : basePrompt;
   console.log(`[Storyboard] Scene ${options.sceneIndex} prompt (${prompt.length} chars): "${prompt.substring(0, 200)}..."`);
 
-  // ─── Attempt 1: IP-adapter if we have reference images ──────────
-  // Single attempt with circuit breaker — if IP-adapter keeps failing,
-  // skip it entirely rather than wasting 30-90s per scene on timeouts.
+  // ─── Attempt 1: Reference image strategy (model-specific) ──────────
+  // Different models have different mechanisms for reference image consistency:
+  //   - Flux General: IP-adapter LoRA (ip_adapters param)
+  //   - Nano Banana 2/Pro: image-to-image endpoint (image_urls param)
+  //   - Vidu Q2: reference-to-image (reference_image_urls param)
+  //   - MiniMax: subject-reference (image_url for faces)
+  //   - Flux Kontext: context editing (image_url param)
+  //   - Imagen 4, Seedream, Recraft, Flux Schnell/Dev/Pro: text description only
   //
-  // IMPORTANT: IP-adapter ONLY works on fal-ai/flux-general. If user selected
-  // a non-Flux model (Imagen 4, Seedream, Recraft, Nano Banana), skip IP-adapter
-  // entirely and use their selected model. Don't silently override their choice.
-  const isFluxModel = !fallbackModelId || fallbackModelId.includes('flux');
-  const canUseIPAdapter = isFluxModel && hasReferences && _ipAdapterConsecutiveFailures < IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD;
+  // Strategy determined by the user's selected model.
+  const referenceStrategy = getReferenceStrategy(fallbackModelId || DEFAULT_MODEL);
 
-  if (!isFluxModel && hasReferences) {
-    console.log(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter SKIPPED — user selected non-Flux model (${fallbackModelId}). Reference images will be described in prompt text instead.`);
+  if (hasReferences && referenceStrategy !== 'ip-adapter' && referenceStrategy !== 'text-only') {
+    // Model supports native reference images — use model-specific approach
+    const refs = options.referenceImages!;
+    console.log(`[Storyboard] Scene ${options.sceneIndex}: Using ${referenceStrategy} strategy with ${refs.length} ref(s) on ${fallbackModelId}`);
+
+    try {
+      const refResult = await generateWithNativeReference(
+        fallbackModelId || DEFAULT_MODEL,
+        referenceStrategy,
+        prompt,
+        refs,
+        width, height,
+      );
+      if (refResult) {
+        const uploaded = await downloadAndUpload(refResult, userId, fallbackModelId || DEFAULT_MODEL);
+        return { ...uploaded, usedReference: true, referenceStrategy } as any;
+      }
+    } catch (refErr: any) {
+      console.warn(`[Storyboard] Scene ${options.sceneIndex}: ${referenceStrategy} FAILED (${refErr.message}), falling through to standard generation`);
+    }
   }
+
+  if (hasReferences && referenceStrategy === 'text-only') {
+    console.log(`[Storyboard] Scene ${options.sceneIndex}: Model ${fallbackModelId} doesn't support reference images — using text descriptions in prompt`);
+  }
+
+  const canUseIPAdapter = referenceStrategy === 'ip-adapter' && hasReferences && _ipAdapterConsecutiveFailures < IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD;
 
   if (canUseIPAdapter) {
     // Build IP-adapter entries for ALL references in this scene (not just the first).
