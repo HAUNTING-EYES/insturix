@@ -167,20 +167,35 @@ export async function assembleUnifiedContext(
 
   for (let i = 0; i < videoOverlays.length; i++) {
     const vo = videoOverlays[i];
-    const sbScene = storyboardScenes[i];
+
+    // FIX Problem 1: Match storyboard scene by metadata.sceneIndex, not array position.
+    // Sub-shots create multiple video overlays from one storyboard scene.
+    // Old: storyboardScenes[i] → wrong when i=1 is scene 0's 2nd sub-shot
+    // New: find by sceneIndex → correct regardless of sub-shot count
+    const overlaySceneIndex = (vo as any).metadata?.sceneIndex ?? i;
+    const sbScene = storyboardScenes.find((s: any) => s.sceneIndex === overlaySceneIndex)
+      || storyboardScenes[Math.min(i, storyboardScenes.length - 1)]; // fallback to prevent undefined
     const descriptor = sbScene?.descriptor || {};
 
-    // Get 5-Track analysis
+    // Get 5-Track analysis (with error handling — one bad asset shouldn't crash context assembly)
     let analysis: AssetAnalysis | null = null;
     if (vo.assetId) {
-      analysis = await getAnalysis(vo.assetId);
+      try {
+        analysis = await getAnalysis(vo.assetId);
+      } catch (err: any) {
+        console.warn(`[UnifiedIntel] Analysis lookup failed for ${vo.assetId}: ${err.message}`);
+      }
     }
 
-    // Get voiceover transcription
+    // FIX Problem 2: Match voiceover by TIME OVERLAP, not start-frame proximity.
+    // Old: v.from >= vo.from - 15 → misses J-cuts where VO starts 20+ frames before video
+    // New: check if voiceover and video share ANY time range
     let voWords: Array<{ word: string; startMs: number; endMs: number }> = [];
-    const matchingVo = voiceoverOverlays.find((v: any) =>
-      v.from >= vo.from - 15 && v.from <= vo.from + vo.durationInFrames
-    );
+    const videoEnd = vo.from + vo.durationInFrames;
+    const matchingVo = voiceoverOverlays.find((v: any) => {
+      const voEnd = v.from + v.durationInFrames;
+      return v.from < videoEnd && voEnd > vo.from; // time overlap check
+    });
     if (matchingVo?.assetId) {
       const voAsset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({ assetId: matchingVo.assetId }) as any;
       if (voAsset?.transcription?.words) {
@@ -196,12 +211,19 @@ export async function assembleUnifiedContext(
       position: s.boundingBox,
     }));
 
-    // Extract motion info
-    const motionSeg = analysis?.motionSegments?.[0];
-    const motionType = motionSeg?.cameraMotion || 'static';
-    const motionIntensity = motionSeg?.motionIntensity || 0.1;
+    // FIX Problem 3: Report ALL motion segments, not just the first.
+    // Old: analysis?.motionSegments?.[0] → only sees first segment
+    // New: report peak segment + full summary for Gemini
+    const allMotion = analysis?.motionSegments || [];
+    const peakSegment = allMotion.length > 0
+      ? allMotion.reduce((max, seg) => seg.motionIntensity > max.motionIntensity ? seg : max, allMotion[0])
+      : null;
+    const motionType = peakSegment?.cameraMotion || 'static';
+    const motionIntensity = peakSegment?.motionIntensity || 0.1;
 
-    // Extract keyframe descriptions
+    // FIX Problem 4: Include ALL keyframe descriptions, not just the first.
+    // Old: only keyframeDescriptions[0] shown in prompt (truncated to 120 chars)
+    // New: all descriptions passed, prompt builder decides how to present
     const kfDescs = (analysis?.keyframeAnalyses || []).map((kf: any) =>
       kf.description || `Frame ${kf.frame}: ${kf.shotType || 'unknown'} shot`
     );
@@ -620,7 +642,7 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
     prompt += `### Scene ${scene.sceneIndex + 1}: "${scene.title}" [${startSec}s - ${endSec}s] (frames ${scene.fromFrame}-${scene.fromFrame + scene.durationFrames})\n`;
     prompt += `- **Narration:** "${scene.narration}"\n`;
     prompt += `- **Mood:** ${scene.mood}\n`;
-    prompt += `- **Visual:** ${scene.visualDescription.substring(0, 150)}\n`;
+    prompt += `- **Visual:** ${scene.visualDescription.substring(0, 300)}\n`;
     prompt += `- **Camera:** ${scene.cameraDirection || scene.motionType} (${Math.round(scene.motionIntensity * 100)}% intensity)\n`;
 
     if (scene.scriptTransition) {
@@ -642,17 +664,31 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
       prompt += `- **Detected in video:** ${subjectList}\n`;
     }
 
-    // Keyframe descriptions (what Gemini Vision saw)
+    // FIX Problem 4: Show ALL keyframe descriptions, not just the first truncated one.
+    // Old: only keyframeDescriptions[0].substring(0, 120) — missed 5/6 keyframes
+    // New: show up to 6 keyframes with 200-char descriptions
     if (scene.keyframeDescriptions.length > 0) {
-      prompt += `- **Video content:** ${scene.keyframeDescriptions[0].substring(0, 120)}\n`;
+      const kfSummary = scene.keyframeDescriptions
+        .slice(0, 6) // cap at 6 to keep prompt manageable
+        .map((desc, idx) => `  ${idx + 1}. ${desc.substring(0, 200)}`)
+        .join('\n');
+      prompt += `- **Video content (${scene.keyframeDescriptions.length} keyframes):**\n${kfSummary}\n`;
     }
 
-    // Voiceover word timing
+    // Voiceover word timing — only emphasis words, not every word
+    // Old: listed ALL words (200+ for long scenes → prompt bloat)
+    // New: filter to emphasis-worthy words only
     if (scene.voiceoverWords.length > 0) {
-      const wordTimeline = scene.voiceoverWords.map(w =>
+      const emphasisWords = scene.voiceoverWords.filter(w => {
+        const word = w.word.toLowerCase();
+        return /^\d/.test(w.word) || /^[A-Z]{2,}$/.test(w.word)
+          || w.word.length >= 6; // longer words tend to be more important
+      });
+      const wordsToShow = emphasisWords.length > 0 ? emphasisWords : scene.voiceoverWords.slice(0, 10);
+      const wordTimeline = wordsToShow.map(w =>
         `"${w.word}" @${(w.startMs / 1000).toFixed(1)}s`
       ).join(', ');
-      prompt += `- **Voiceover timing:** ${wordTimeline}\n`;
+      prompt += `- **Voiceover timing (${scene.voiceoverWords.length} words, ${emphasisWords.length} emphasis):** ${wordTimeline}\n`;
     }
 
     // Natural cut points
