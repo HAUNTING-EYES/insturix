@@ -322,7 +322,7 @@ export async function executeDirectorPlan(
             for (const a of analyses) {
               analysisMap.set(a.assetId, a);
             }
-            const ppResult = runPostProcessing(overlays, canvas, analysisMap);
+            const ppResult = runPostProcessing(overlays, canvas, analysisMap, edlResult.budgetRejectedZoomAssetIds);
             result.overlaysModified += ppResult.totalModified;
             if (ppResult.driftZoomApplied > 0) {
               console.log(`[Director] Post-process: ${ppResult.driftZoomApplied} drift-zooms applied (Z-030)`);

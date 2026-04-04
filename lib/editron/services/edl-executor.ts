@@ -15,6 +15,20 @@ import { buildTransitionOverlay, type TransitionType, DEFAULT_TRANSITION_FRAMES 
 import { projectService } from '@/lib/editron/services/project-service';
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 
+// ─── Seeded PRNG (deterministic random) ─────────────────────────
+// OLD: Math.random() produced different shake patterns every render.
+// NEW: mulberry32 seeded with frame + overlay position → identical output per render.
+
+function mulberry32(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 // ─── Types ───────────────────────────────────────────────────────
 
 export interface ExecutionResult {
@@ -23,6 +37,8 @@ export interface ExecutionResult {
   overlaysCreated: number;
   overlaysModified: number;
   errors: string[];
+  /** AssetIds of overlays whose zoom decisions were rejected by budget — drift-zoom should skip these */
+  budgetRejectedZoomAssetIds: Set<string>;
 }
 
 // ─── Executor ────────────────────────────────────────────────────
@@ -51,6 +67,7 @@ export async function executeEDL(
     overlaysCreated: 0,
     overlaysModified: 0,
     errors: [],
+    budgetRejectedZoomAssetIds: new Set<string>(),
   };
 
   // ─── Budget enforcement (Director Knowledge Base) ──────────────
@@ -75,6 +92,16 @@ export async function executeEDL(
       result.decisionsSkipped++;
       budgetRejected++;
       console.log(`[EDL-Exec] BUDGET REJECTED: ${decision.type} at frame ${decision.frame} — ${budgetResult.reason} (${budgetResult.ruleId})`);
+
+      // Track budget-rejected zooms so post-processing drift-zoom doesn't re-add them
+      if (decision.type === 'zoom') {
+        const video = overlays.find(o =>
+          o.type === 'video' && o.from <= decision.frame && o.from + o.durationInFrames > decision.frame
+        );
+        if (video?.assetId) {
+          result.budgetRejectedZoomAssetIds.add(video.assetId);
+        }
+      }
 
       // If budget suggests an alternative, try that instead
       if (budgetResult.alternative) {
@@ -194,11 +221,15 @@ function applyCameraShake(
   const xKeyframes: any[] = [{ frame: relativeStart, value: 0, easing: 'linear' }];
   const yKeyframes: any[] = [{ frame: relativeStart, value: 0, easing: 'linear' }];
 
+  // Seed PRNG with frame + overlay position for deterministic shake across renders
+  const seed = frame * 31 + video.from * 17 + (video.durationInFrames || 0) * 7;
+  const rand = mulberry32(seed);
+
   const maxOffset = intensity * canvas.width * 0.01; // 1% of canvas width (scales with resolution)
   for (let i = 1; i <= shakeFrames; i++) {
     const decay = 1 - (i / shakeFrames); // decay over time
-    const xOff = (Math.random() - 0.5) * 2 * maxOffset * decay;
-    const yOff = (Math.random() - 0.5) * 2 * maxOffset * decay;
+    const xOff = (rand() - 0.5) * 2 * maxOffset * decay;
+    const yOff = (rand() - 0.5) * 2 * maxOffset * decay;
     xKeyframes.push({ frame: relativeStart + i, value: xOff, easing: 'linear' });
     yKeyframes.push({ frame: relativeStart + i, value: yOff, easing: 'linear' });
   }
@@ -229,8 +260,31 @@ function applyTransition(
   );
   if (existingTransition) return null; // Don't double-insert
 
+  // OLD: Anchored transition to decision.frame (EDL frame), which floats mid-clip.
+  // NEW: Find the nearest actual clip boundary and anchor the transition there.
+  // A clip boundary is where one video/image overlay ends and another begins.
+  const visualOverlays = overlays
+    .filter(o => o.type === 'video' || o.type === 'image')
+    .sort((a, b) => a.from - b.from);
+  const clipBoundaries: number[] = [];
+  for (const o of visualOverlays) {
+    const endFrame = o.from + o.durationInFrames;
+    // A boundary is the end of one clip (which should be near the start of the next)
+    clipBoundaries.push(o.from, endFrame);
+  }
+  // Find the closest boundary to the decision frame (within ±30 frames tolerance)
+  let anchorFrame = decision.frame;
+  let closestDist = Infinity;
+  for (const boundary of clipBoundaries) {
+    const dist = Math.abs(boundary - decision.frame);
+    if (dist < closestDist && dist <= 30) {
+      closestDist = dist;
+      anchorFrame = boundary;
+    }
+  }
+
   const transOverlay = buildTransitionOverlay(transType, {
-    startFrame: decision.frame - Math.floor(durationFrames / 2),
+    startFrame: anchorFrame - Math.floor(durationFrames / 2),
     durationFrames,
     width: canvas.width,
     height: canvas.height,
