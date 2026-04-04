@@ -95,6 +95,7 @@ export async function POST(request: Request) {
         url: `${baseUrl}/api/services/alyzitron/processor`,
         body: { taskId: taskId.toString(), userId, videoUrl: finalVideoUrl, context, metadata },
         retries: 3,
+        timeout: 120, // 120s — prevent retry loops during Apify Actor waits
         headers: { "Content-Type": "application/json" },
       });
 

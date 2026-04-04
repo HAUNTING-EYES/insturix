@@ -1,3 +1,15 @@
+// ---------------------------------------------------------------------------
+// ⚠️ DEPRECATED: yt-dlp Downloader
+//
+// This module has been replaced by the Apify extraction service:
+//   → lib/alyzitron/extraction/apify.ts      (headless URI extraction)
+//   → lib/alyzitron/extraction/streamToGCS.ts (GCS stream bridge)
+//
+// The yt-dlp approach is kept commented for reference / emergency rollback.
+// Migration date: 2026-04-05
+// ---------------------------------------------------------------------------
+
+/*
 import { create } from "yt-dlp-exec";
 import fs from "fs";
 import path from "path";
@@ -24,14 +36,12 @@ export async function ingestMediaToGCS(url: string): Promise<IngestionResult> {
     };
 
     if (isYouTube) {
-        // 🔥 Reverted to your ORIGINAL working config for YouTube
         ytdlOptions.output = path.join(tmpDir, `${tempId}.mp3`);
         ytdlOptions.extractAudio = true;
         ytdlOptions.audioFormat = 'mp3';
         ytdlOptions.jsRuntimes = 'node';
         ytdlOptions.extractorArgs = 'youtube:player_client=android';
     } else {
-        // Smart Media Mode for Insta/X
         ytdlOptions.output = path.join(tmpDir, `${tempId}.%(ext)s`);
     }
 
@@ -69,3 +79,8 @@ export async function ingestMediaToGCS(url: string): Promise<IngestionResult> {
         type: mediaType
     };
 }
+*/
+
+// Re-export the new extraction service for convenience
+export { extractMediaUri, ExtractionError } from "@/lib/alyzitron/extraction/apify";
+export { streamUrlToGCS } from "@/lib/alyzitron/extraction/streamToGCS";

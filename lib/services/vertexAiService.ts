@@ -38,13 +38,16 @@ function initVertexAI(): VertexAI {
   }
 }
 
-const model = "gemini-2.5-flash";
+const PRIMARY_MODEL = "gemini-2.5-flash";
+const FALLBACK_MODEL = "gemini-1.5-pro";
 
 export async function analyzeVideoWithGemini(
   videoUrl: string,
   context: any,
-  metadata: any
+  metadata: any,
+  modelOverride?: string
 ) {
+  const model = modelOverride || PRIMARY_MODEL;
   // Initialize VertexAI lazily
 
   const client = initVertexAI();
@@ -423,6 +426,11 @@ Be specific and reference actual content from the video with precise timestamps.
       };
     }
   } catch (error) {
+    // --- Fallback to Gemini Pro if Flash fails ---
+    if (modelOverride !== FALLBACK_MODEL) {
+      console.warn(`[VertexAI] ${modelOverride || PRIMARY_MODEL} failed, falling back to ${FALLBACK_MODEL}...`);
+      return analyzeVideoWithGemini(videoUrl, context, metadata, FALLBACK_MODEL);
+    }
     throw error;
   }
 }

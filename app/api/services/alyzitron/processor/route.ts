@@ -6,9 +6,12 @@ import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
 import { GCSManager } from "../utils/gcs";
-import { ingestMediaToGCS } from "@/lib/alyzitron/transcription/downloader";
 import { transcribeAudio } from "@/lib/alyzitron/transcription/deepgram";
 import { upsertTranscriptionProcessing, upsertTranscriptionCompleted } from "@/lib/alyzitron";
+
+// ✅ NEW: Apify extraction + GCS stream bridge
+import { extractMediaUri, ExtractionError } from "@/lib/alyzitron/extraction/apify";
+import { streamUrlToGCS } from "@/lib/alyzitron/extraction/streamToGCS";
 
 async function handler(request: NextRequest) {
   try {
@@ -27,23 +30,23 @@ async function handler(request: NextRequest) {
     await analyses.updateOne({ _id: task._id }, { $set: { status: "processing", processingStartTime: new Date(), updatedAt: new Date() } });
 
     try {
-      logger.info("Starting Omni-Media Pipeline 🚀", { data: { taskId, url: task.videoUrl } });
+      logger.info("Starting Omni-Media Pipeline v2 (Apify) 🚀", { data: { taskId, url: task.videoUrl } });
 
       await upsertTranscriptionProcessing(taskId, task.videoUrl).catch(() => { });
 
       const isGCSPath = task.videoUrl.startsWith("gs://");
-      const isYouTube = !isGCSPath && (task.videoUrl.includes("youtube.com") || task.videoUrl.includes("youtu.be"));
       const isDirectImageUpload = task.metadata?.mimeType?.startsWith('image/') || task.videoUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i) !== null;
 
       let analysisResults;
       let transcriptResult = null;
 
-      // 🚀 FIX: Create variables to update DB if media format/URL changes
+      // Track URLs for MongoDB persistence (protects against expiring Apify URIs)
       let updatedVideoUrl = task.videoUrl;
       let updatedMimeType = task.metadata?.mimeType || 'video/mp4';
+      const originalSourceUrl = task.videoUrl; // Always preserve the user's original input
 
       // ==========================================
-      // ROUTE 1: DIRECT UPLOADED IMAGE
+      // ROUTE 1: DIRECT UPLOADED IMAGE (Unchanged)
       // ==========================================
       if (isDirectImageUpload) {
         logger.info("Direct Image Upload detected. Bypassing Deepgram.", { data: { taskId } });
@@ -52,19 +55,13 @@ async function handler(request: NextRequest) {
         analysisResults = await analyzeVideoWithGemini(task.videoUrl, task.context || {}, task.metadata || {});
       }
       // ==========================================
-      // ROUTE 2: YOUTUBE OR GCS VIDEO
+      // ROUTE 2: DIRECT GCS UPLOAD (Unchanged)
+      // Files already in GCS from frontend signed-URL upload.
       // ==========================================
-      else if (isYouTube || isGCSPath) {
-        logger.info("YouTube/GCS Video detected. Running parallel pipeline.", { data: { taskId } });
-
-        let deepgramUrl = "";
-        if (isGCSPath) {
-          const objectPath = task.videoUrl.replace(`gs://${process.env.GCS_BUCKET_NAME}/`, "");
-          deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
-        } else {
-          const ingested = await ingestMediaToGCS(task.videoUrl);
-          deepgramUrl = typeof ingested === 'string' ? ingested : ingested.signedUrl;
-        }
+      else if (isGCSPath) {
+        logger.info("GCS Video detected. Running parallel pipeline.", { data: { taskId } });
+        const objectPath = task.videoUrl.replace(`gs://${process.env.GCS_BUCKET_NAME}/`, "");
+        const deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
 
         const [deepgramRes, geminiRes] = await Promise.all([
           transcribeAudio(deepgramUrl),
@@ -75,29 +72,54 @@ async function handler(request: NextRequest) {
         analysisResults = geminiRes;
       }
       // ==========================================
-      // ROUTE 3: EXTERNAL LINKS (Instagram/X) - Must download first
+      // ROUTE 3: EXTERNAL LINKS (YouTube/Insta/X)
+      // ✅ NEW: Apify extraction → parallel Deepgram + GCS stream → Gemini
       // ==========================================
       else {
-        logger.info("External Link detected. Downloading first to identify media...", { data: { taskId } });
-        const ingested = await ingestMediaToGCS(task.videoUrl);
+        logger.info("External Link detected. Extracting via Apify...", { data: { taskId } });
 
-        // 🚀 THE MAGIC FIX: Update the URL to the GCS path so the Frontend can play it!
-        updatedVideoUrl = ingested.gcsUri;
+        // Step 1: Extract the direct download URL via Apify (target: < 5s)
+        const extracted = await extractMediaUri(task.videoUrl);
+        logger.info(`[Apify] Got ${extracted.mediaType} from ${extracted.platform}`, {
+          data: { taskId, downloadUrl: extracted.downloadUrl.substring(0, 80) },
+        });
 
-        if (ingested.type === 'image') {
-          logger.info("Downloaded media is an Image. Bypassing Deepgram.", { data: { taskId } });
-          updatedMimeType = 'image/jpeg';
+        if (extracted.mediaType === "image") {
+          // Image path — no transcription needed
+          logger.info("Extracted media is an Image. Bypassing Deepgram.", { data: { taskId } });
+          updatedMimeType = "image/jpeg";
+
+          // Stream image to GCS for Gemini
+          const gcsPath = `alyzitron/image/${taskId}.jpg`;
+          const gcsResult = await streamUrlToGCS(extracted.downloadUrl, gcsPath, "image/jpeg");
+          updatedVideoUrl = gcsResult.gcsUri;
+
           await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image Analysis - No Audio]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
-          analysisResults = await analyzeVideoWithGemini(ingested.gcsUri, task.context || {}, task.metadata || {});
+          analysisResults = await analyzeVideoWithGemini(gcsResult.gcsUri, task.context || {}, task.metadata || {});
+
         } else {
-          logger.info("Downloaded media is a Video. Running Deepgram & Gemini.", { data: { taskId } });
-          updatedMimeType = 'video/mp4';
-          const [deepgramRes, geminiRes] = await Promise.all([
-            transcribeAudio(ingested.signedUrl),
-            analyzeVideoWithGemini(ingested.gcsUri, { ...(task.context || {}), transcript: "Relying on native video audio." }, task.metadata || {})
+          // Video/Audio path — parallel Deepgram + GCS stream
+          logger.info("Running parallel: Deepgram (HTTPS) + GCS Stream → Gemini", { data: { taskId } });
+          updatedMimeType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
+
+          const gcsPath = `alyzitron/media/${taskId}.${extracted.mediaType === "audio" ? "mp3" : "mp4"}`;
+          const contentType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
+
+          // Step 2: Deepgram eats HTTPS directly + stream to GCS in PARALLEL
+          const [deepgramRes, gcsResult] = await Promise.all([
+            transcribeAudio(extracted.downloadUrl),
+            streamUrlToGCS(extracted.downloadUrl, gcsPath, contentType),
           ]);
+
           transcriptResult = deepgramRes;
-          analysisResults = geminiRes;
+          updatedVideoUrl = gcsResult.gcsUri;
+
+          // Step 3: Gemini needs gs:// URI — trigger AFTER GCS upload completes
+          analysisResults = await analyzeVideoWithGemini(
+            gcsResult.gcsUri,
+            { ...(task.context || {}), transcript: "Relying on native video audio." },
+            task.metadata || {}
+          );
         }
       }
 
@@ -115,7 +137,7 @@ async function handler(request: NextRequest) {
         } catch (e) { }
       }
 
-      // 🚀 FIX: Save the `updatedVideoUrl` back to the database!
+      // Save results + persist both original and processed URLs
       await analyses.updateOne(
         { _id: task._id },
         {
@@ -123,7 +145,8 @@ async function handler(request: NextRequest) {
             status: "completed",
             results: analysisResults,
             transcription: transcriptResult,
-            videoUrl: updatedVideoUrl, // This stops the crash on the frontend!
+            videoUrl: updatedVideoUrl,
+            originalSourceUrl, // Preserve for re-processing if Apify URIs expire
             "metadata.mimeType": updatedMimeType,
             completedAt: new Date(),
             updatedAt: new Date()
@@ -135,10 +158,31 @@ async function handler(request: NextRequest) {
 
     } catch (processingError) {
       const msg = processingError instanceof Error ? processingError.message : String(processingError);
-      logger.error("Pipeline failed", { data: { taskId, error: msg } });
+      const isExtractionError = processingError instanceof ExtractionError;
+
+      logger.error("Pipeline failed", {
+        data: {
+          taskId,
+          error: msg,
+          errorCode: isExtractionError ? (processingError as ExtractionError).code : "PIPELINE_ERROR",
+        },
+      });
+
       const minutes = task.usageMinutes || 1;
 
-      await analyses.updateOne({ _id: task._id, refunded: { $ne: true } }, { $set: { status: "failed", error: { message: msg }, refunded: true } });
+      await analyses.updateOne(
+        { _id: task._id, refunded: { $ne: true } },
+        {
+          $set: {
+            status: "failed",
+            error: {
+              message: msg,
+              code: isExtractionError ? (processingError as ExtractionError).code : "PIPELINE_ERROR",
+            },
+            refunded: true,
+          },
+        }
+      );
       try { await CreditsService.refundCredits(userId, minutes * 2, `Analysis failed: ${msg}`, { service: "alyzitron", action: "video_analysis" }); } catch (e) { }
 
       return NextResponse.json({ success: false, error: msg }, { status: 500 });
