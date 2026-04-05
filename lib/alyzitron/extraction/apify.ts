@@ -56,10 +56,10 @@ function detectPlatform(url: string): ExtractionResult["platform"] {
 // Actor selection — lightweight downloaders, NOT full scrapers.
 // ---------------------------------------------------------------------------
 const ACTOR_MAP: Record<string, string> = {
-  youtube: "bernardo/youtube-download",
+  youtube: "epctex/youtube-video-downloader",
   instagram: "apify/instagram-reel-scraper",
   twitter: "quacker/twitter-url-scraper",
-  other: "apify/video-downloader",
+  other: "streamers/youtube-scraper",
 };
 
 // ---------------------------------------------------------------------------
@@ -222,13 +222,13 @@ export async function extractMediaUri(url: string): Promise<ExtractionResult> {
 function buildActorInput(platform: string, url: string): Record<string, unknown> {
   switch (platform) {
     case "youtube":
-      return { urls: [url], downloadVideo: true, quality: "highest" };
+      return { startUrls: [{ url }] };
     case "instagram":
       return { directUrls: [url] };
     case "twitter":
-      return { urls: [url], includeMedia: true };
-    default:
       return { urls: [url] };
+    default:
+      return { startUrls: [url] };
   }
 }
 
@@ -240,6 +240,7 @@ function extractDownloadUrl(items: Record<string, any>[], platform: string): str
 
   const candidates = [
     item?.downloadUrl,
+    item?.downloadedVideo,
     item?.videoUrl,
     item?.video_url,
     item?.mediaUrl,
