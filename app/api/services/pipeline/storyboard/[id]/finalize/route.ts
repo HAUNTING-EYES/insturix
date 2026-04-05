@@ -105,6 +105,13 @@ export async function POST(
         warnings.push(`Scene ${scene.sceneIndex}: invalid duration ${sceneDurationSec}, defaulting to 5s (script=${scriptDurationSec}, vo=${voiceoverDurationSec}, video=${videoDurationSec})`);
         sceneDurationSec = 5;
       }
+      // Cap scene duration to actual video length to prevent freeze frames.
+      // If script says 5.7s but Kling only generated 5s, use 5s.
+      // Without this cap, Remotion freezes on the last frame for the extra 0.7s.
+      if (videoDurationSec && videoDurationSec > 0 && sceneDurationSec > videoDurationSec) {
+        console.log(`[Finalize] Scene ${scene.sceneIndex}: capping duration from ${sceneDurationSec.toFixed(1)}s to ${videoDurationSec.toFixed(1)}s (video shorter than script)`);
+        sceneDurationSec = videoDurationSec;
+      }
       const durationFrames = Math.round(sceneDurationSec * fps);
 
       // ─── Montage sub-shots with independent videos ─────────────

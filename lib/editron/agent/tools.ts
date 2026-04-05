@@ -2129,11 +2129,11 @@ Use this to understand what exists. Then decide what to do based on user intent.
           displayOverrides: Object.keys(displayOverrides).length > 0 ? displayOverrides : undefined,
         });
         
-        // Caption row = 0 (topmost z-index layer).
-        // In Remotion, zIndex = 100 - row*10. Row 0 = z-index 100, Row 2 (video) = z-index 80.
-        // Captions MUST be at row 0 to render visibly above video content.
-        // Do NOT use ROW.CAPTIONS (4) — that's the timeline layout, not the rendering order.
-        captionOverlay = { ...captionOverlay, row: 0 };
+        // OLD: row 0 (shared with SFX, caused timeline overlap).
+        // NEW: row 4 (ROW.CAPTIONS) for clean timeline separation.
+        // Rendering z-index is handled in layer.tsx — captions get z-index 95
+        // regardless of row, so they always render above video (z-index 80).
+        captionOverlay = { ...captionOverlay, row: 4 };
         
         // Add caption to project
         await projectService.addOverlay(userId, projectId, captionOverlay as any);
@@ -2634,21 +2634,8 @@ Linked captions are automatically moved with their videos.`,
         const id = Date.now() + Math.floor(Math.random() * 10000);
         const segmentDuration = segmentEndFrame - segmentStartFrame;
         
-        // Fancy captions go on top (row 0)
-        const existingOverlays = toExistingOverlays(project.overlays || []);
-        const hasCollisionAtRow0 = existingOverlays.some(o => 
-          o.row === 0 && 
-          !(segmentEndFrame <= o.from || segmentStartFrame >= o.from + o.durationInFrames)
-        );
-        
-        if (hasCollisionAtRow0) {
-          const { getDatabase, COLLECTIONS } = await import('../db/mongodb');
-          const database = await getDatabase();
-          await database.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId, userId },
-            { $inc: { 'overlays.$[].row': 1 } }
-          );
-        }
+        // Fancy captions on row 4 (same as regular captions).
+        // z-index handled in layer.tsx — captions always render above video.
 
         // Position the caption overlay exactly on top of the video overlay's box
         const newOverlay = {
@@ -2710,7 +2697,7 @@ Linked captions are automatically moved with their videos.`,
             colors: metadata.colors,
             backgroundColor: metadata.backgroundColor,
           },
-          rowsShifted: hasCollisionAtRow0,
+          rowsShifted: false,
           message: `Added fancy ${input.style || 'bento'}-style captions (${input.intensity || 'medium'} intensity) with ${classifiedWords.length} words. Fonts: ${metadata.fonts.join(', ') || 'system'}. Colors: ${metadata.colors.slice(0, 3).join(', ')}.`,
         });
         

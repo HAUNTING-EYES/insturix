@@ -21,7 +21,7 @@ import {
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120; // Gemini 2.5 Flash (thinking model) needs 30-90s for structured output
+export const maxDuration = 300; // gemini-3.1-pro-preview needs more time for complex multi-scene scripts
 
 export async function POST(request: NextRequest) {
   try {

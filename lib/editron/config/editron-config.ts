@@ -327,12 +327,12 @@ export const DEFAULT_CONFIG: EditronConfig = {
     //   gemini-3.1-pro-preview         — Edit decisions / Unified Intelligence (best reasoning, 300s budget)
     //   gemma-4-31b-it                 — Vision analysis (FREE, native video/image understanding)
     //   gemini-2.5-flash               — Chat + universal fallback ONLY
-    // 3.1 flash-lite for parsing (fast + higher accuracy than 2.5 flash).
-    // 3.1 pro for edit decisions (best reasoning, runs in Director with 300s budget).
+    // 3.1 pro for parsing + decisions (best reasoning, 1M context, 300s budget).
+    // 3.1 flash-lite for lightweight tasks (montage detection).
     // 2.5 flash ONLY for chat and fallback.
-    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
     montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
-    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
     referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
     analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemma-4-31b-it', 'gemini-2.5-flash'),
