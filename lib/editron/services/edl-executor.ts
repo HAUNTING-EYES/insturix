@@ -132,10 +132,12 @@ export async function executeEDL(
         if (applied.modified) result.overlaysModified += applied.modified;
       } else {
         result.decisionsSkipped++;
+        console.log(`[EDL-Exec] SKIPPED (returned null): ${decision.type} at frame ${decision.frame} — ${decision.reason?.substring(0, 80) || 'no reason'}`);
       }
     } catch (err: any) {
       result.decisionsSkipped++;
       result.errors.push(`${decision.type} at frame ${decision.frame}: ${err.message}`);
+      console.error(`[EDL-Exec] ERROR: ${decision.type} at frame ${decision.frame} — ${err.message}`);
     }
   }
 
@@ -258,7 +260,10 @@ function applyTransition(
   const existingTransition = overlays.find(o =>
     o.type === 'html-scene' && Math.abs(o.from - decision.frame) < 15,
   );
-  if (existingTransition) return null; // Don't double-insert
+  if (existingTransition) {
+    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — existing transition within 15 frames (at frame ${existingTransition.from})`);
+    return null;
+  }
 
   // OLD: Anchored transition to decision.frame (EDL frame), which floats mid-clip.
   // NEW: Find the nearest actual clip boundary and anchor the transition there.
@@ -292,8 +297,10 @@ function applyTransition(
 
   if (transOverlay) {
     overlays.push({ ...transOverlay, id: Date.now() + Math.floor(Math.random() * 10000) } as any);
+    console.log(`[EDL-Exec] Transition APPLIED: ${transType} at anchor frame ${anchorFrame} (decision frame ${decision.frame}, dist=${closestDist})`);
     return { created: 1, modified: 0 };
   }
+  console.log(`[EDL-Exec] Transition at frame ${decision.frame}: FAILED — buildTransitionOverlay returned null for type "${transType}"`);
   return null;
 }
 
@@ -694,7 +701,10 @@ function applyFilterChange(
   overlays: Overlay[],
 ): { created: number; modified: number } | null {
   const { filterId, filterCss } = decision.params;
-  if (!filterId && !filterCss) return null;
+  if (!filterId && !filterCss) {
+    console.log(`[EDL-Exec] Filter-change at frame ${decision.frame}: SKIPPED — no filterId or filterCss in params (Unified Intelligence didn't specify which filter)`);
+    return null;
+  }
 
   let modified = 0;
   const videoOverlays = overlays.filter(o =>
