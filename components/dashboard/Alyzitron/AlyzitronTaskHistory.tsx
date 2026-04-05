@@ -206,6 +206,7 @@ export function AlyzitronTaskHistory({
                 expectedDurationSeconds={analysis.expectedDurationSeconds}
                 processingStartTime={analysis.processingStartTime}
                 createdByName={analysis.createdByName}
+                results={analysis.results}
                 onClick={() => handleAnalysisClick(analysis)}
               />
             ))}
@@ -251,6 +252,7 @@ export function AlyzitronTaskHistory({
                 metadata={analysis.metadata}
                 videoUrl={analysis.videoUrl}
                 createdByName={analysis.createdByName}
+                results={analysis.results}
                 onClick={() => handleAnalysisClick(analysis)}
               />
             ))}
