@@ -87,39 +87,22 @@ const DEEPGRAM_OPTIONS = {
 // Now purely expects a direct media URL (like a GCS signed URL) generated
 // by the ingestion pipeline. 
 // ---------------------------------------------------------------------------
+// lib/alyzitron/transcription/deepgram.ts
+
 export async function transcribeAudio(mediaUrl: string): Promise<TranscriptionResult> {
   const deepgram = getClient();
 
   try {
-    logger.info("Deepgram: Fetching file from GCS for buffer transcription...", { data: { mediaUrl } });
+    logger.info("Deepgram: Starting transcription via URL...", { data: { mediaUrl: mediaUrl.substring(0, 50) + "..." } });
 
-    // 1. URL se file fetch karo (Buffer nikaalne ke liye)
-    const response = await fetch(mediaUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch media from GCS: ${response.statusText}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    // 2. Transcribe using 'transcribeFile' instead of 'transcribeUrl'
-    const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
-      buffer, // 👈 Passing the actual data
-      {
-        ...DEEPGRAM_OPTIONS,
-        // Optional: Force mimetype if you know it's always audio/mpeg or video/mp4
-        // mimetype: "audio/mpeg" 
-      }
+    // URL approach use karo - ye SLOW_UPLOAD ko fix karega
+    const { result, error } = await deepgram.listen.prerecorded.transcribeUrl(
+      { url: mediaUrl },
+      DEEPGRAM_OPTIONS
     );
 
-    if (error) {
-      console.error("🔥 Deepgram FULL ERROR OBJECT:", error);
-      throw new Error(`Deepgram transcription failed: ${(error as any)?.message || "Unknown error"}`);
-    }
-
-    if (!result) {
-      throw new Error("Deepgram returned an empty result");
-    }
+    if (error) throw error;
+    if (!result) throw new Error("Deepgram returned an empty result");
 
     return parseDeepgramResult(result);
 
@@ -128,7 +111,6 @@ export async function transcribeAudio(mediaUrl: string): Promise<TranscriptionRe
     throw err;
   }
 }
-
 // ---------------------------------------------------------------------------
 // parseDeepgramResult
 // ---------------------------------------------------------------------------
