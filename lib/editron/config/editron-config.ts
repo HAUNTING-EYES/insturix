@@ -330,9 +330,12 @@ export const DEFAULT_CONFIG: EditronConfig = {
     // 3.1 Pro for structured parsing (5-scene scripts need strong reasoning).
     // Gemma 4 for vision/analysis (what it's built for — image + video understanding).
     // 2.5 Flash as universal fallback and for chat/tools.
-    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
-    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
-    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
+    // Parsing must be FAST — runs inside export-for-editron route with 120s Vercel timeout.
+    // gemini-3.1-pro-preview is too slow (120s+ for complex scripts). Use 2.5 Flash for parsing.
+    // 3.1 Pro reserved for intelligence decisions (Director has 300s budget).
+    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
+    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
+    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
     analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemma-4-31b-it', 'gemini-2.5-flash'),
