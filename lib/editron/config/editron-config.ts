@@ -323,20 +323,17 @@ export const DEFAULT_CONFIG: EditronConfig = {
     // Analysis model uses withAnalysisFallback() in gemini-model-factory.ts:
     // tries Gemma 4 first, falls back to gemini-2.5-flash ONLY on model-incompatibility errors.
     // Model hierarchy:
-    //   gemini-3.1-pro-preview  — Parsing + edit decisions (1M context, best reasoning)
-    //   gemma-4-31b-it          — Vision analysis (FREE, native video/image understanding)
-    //   gemini-2.5-flash        — Fallback for everything, chat (speed-critical)
-    //
-    // 3.1 Pro for structured parsing (5-scene scripts need strong reasoning).
-    // Gemma 4 for vision/analysis (what it's built for — image + video understanding).
-    // 2.5 Flash as universal fallback and for chat/tools.
-    // Parsing must be FAST — runs inside export-for-editron route with 120s Vercel timeout.
-    // gemini-3.1-pro-preview is too slow (120s+ for complex scripts). Use 2.5 Flash for parsing.
-    // 3.1 Pro reserved for intelligence decisions (Director has 300s budget).
-    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
-    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
-    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
-    referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
+    //   gemini-3.1-flash-lite-preview  — Parsing, subjects, montage, reference prompts (fast + accurate)
+    //   gemini-3.1-pro-preview         — Edit decisions / Unified Intelligence (best reasoning, 300s budget)
+    //   gemma-4-31b-it                 — Vision analysis (FREE, native video/image understanding)
+    //   gemini-2.5-flash               — Chat + universal fallback ONLY
+    // 3.1 flash-lite for parsing (fast + higher accuracy than 2.5 flash).
+    // 3.1 pro for edit decisions (best reasoning, runs in Director with 300s budget).
+    // 2.5 flash ONLY for chat and fallback.
+    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
     analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemma-4-31b-it', 'gemini-2.5-flash'),
     editingTemperature: 0.3,
