@@ -168,10 +168,11 @@ export interface MusicConfig {
 
 // Models known to work with the Google generativelanguage.googleapis.com API.
 // Models verified to work with Google generativelanguage.googleapis.com API.
-// REMOVED: gemini-3.1-flash, gemini-3.1-flash-lite, gemini-3.1-pro — DONT EXIST (404 from Google API).
+// NOTE: 3.1 models use -preview suffix (e.g., gemini-3.1-pro-preview, NOT gemini-3.1-pro).
 const VALID_GOOGLE_AI_MODELS = [
   'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
   'gemini-2.0-flash', 'gemini-2.0-flash-exp',
+  'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview',
   'gemma-4-31b-it', 'gemma-4-26b-a4b-it',
 ];
 
@@ -321,13 +322,19 @@ export const DEFAULT_CONFIG: EditronConfig = {
     //
     // Analysis model uses withAnalysisFallback() in gemini-model-factory.ts:
     // tries Gemma 4 first, falls back to gemini-2.5-flash ONLY on model-incompatibility errors.
-    // FIXED: gemini-3.1-flash DOES NOT EXIST. Google API rejects it with "model not found".
-    // Gemma 4 for parsing (confirmed working in test). Gemini 2.5 Flash for everything else.
-    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemma-4-31b-it', 'gemini-2.5-flash'),
-    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemma-4-26b-a4b-it', 'gemini-2.5-flash'),
-    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemma-4-31b-it', 'gemini-2.5-flash'),
+    // Model hierarchy:
+    //   gemini-3.1-pro-preview  — Parsing + edit decisions (1M context, best reasoning)
+    //   gemma-4-31b-it          — Vision analysis (FREE, native video/image understanding)
+    //   gemini-2.5-flash        — Fallback for everything, chat (speed-critical)
+    //
+    // 3.1 Pro for structured parsing (5-scene scripts need strong reasoning).
+    // Gemma 4 for vision/analysis (what it's built for — image + video understanding).
+    // 2.5 Flash as universal fallback and for chat/tools.
+    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
+    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
     referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
-    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
+    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
     analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemma-4-31b-it', 'gemini-2.5-flash'),
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
