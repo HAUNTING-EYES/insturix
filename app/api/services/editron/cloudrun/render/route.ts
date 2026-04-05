@@ -41,22 +41,15 @@ export async function POST(request: Request) {
     console.log('Composition:', compositionId || 'TestComponent');
     console.log('Region:', region);
 
-    // Resolve asset URLs before sending to Lambda.
-    // CRITICAL: Lambda needs GCS signed URLs, NOT CDN proxy URLs.
-    // The Cloudflare Worker proxy doesn't support Content-Length or Range headers,
-    // which Remotion's FFmpeg requires to seek into video files.
-    // GCS signed URLs support both → Lambda can render properly.
-    //
-    // We temporarily unset CDN_WORKER_URL so the resolver falls through to GCS signed URLs.
+    // Resolve asset URLs for Lambda rendering.
+    // forceGCS=true → always use GCS signed URLs (support Content-Length + Range headers).
+    // The CDN proxy doesn't support Range requests which Remotion's FFmpeg needs for seeking.
     let resolvedProps = inputProps || {};
     if (resolvedProps.overlays?.length > 0) {
       try {
-        const savedCdnUrl = process.env.CDN_WORKER_URL;
-        process.env.CDN_WORKER_URL = ''; // Force GCS signed URL path
-        const resolvedOverlays = await assetResolver.resolveProjectAssets(resolvedProps.overlays);
-        process.env.CDN_WORKER_URL = savedCdnUrl; // Restore for other requests
+        const resolvedOverlays = await assetResolver.resolveProjectAssets(resolvedProps.overlays, true);
         resolvedProps = { ...resolvedProps, overlays: resolvedOverlays };
-        console.log(`[Render] Resolved ${resolvedOverlays.length} overlay URLs for Lambda (GCS signed, not CDN proxy)`);
+        console.log(`[Render] Resolved ${resolvedOverlays.length} overlay URLs for Lambda (forceGCS=true)`);
       } catch (err: any) {
         console.warn('[Render] Asset URL resolution failed, using raw props:', err.message);
       }

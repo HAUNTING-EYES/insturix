@@ -101,7 +101,12 @@ export class AssetResolver {
    * Resolve assetIds to URLs for editor
    * This adds the 'src' property based on assetId
    */
-  async resolveProjectAssets(overlays: Overlay[]): Promise<Overlay[]> {
+  /**
+   * @param forceGCS - When true, always use GCS signed URLs (skip CDN proxy).
+   *   Lambda rendering REQUIRES this because the CDN proxy doesn't support
+   *   Content-Length or Range headers needed by FFmpeg for video seeking.
+   */
+  async resolveProjectAssets(overlays: Overlay[], forceGCS: boolean = false): Promise<Overlay[]> {
     // Extract unique assetIds from overlays
     const assetIds = new Set<string>();
     
@@ -135,27 +140,34 @@ export class AssetResolver {
     // Build assetId → URL map
     // Phase D W1: Use CDN URLs when available (never expire, edge-cached).
     // Falls back to GCS signed URL refresh for assets not yet in CDN.
-    const cdnBaseUrl = process.env.CDN_WORKER_URL; // e.g., https://editron-asset-proxy.aged-shape-8752.workers.dev
+    // forceGCS=true skips CDN entirely (Lambda rendering needs Range headers that CDN proxy doesn't support).
+    const cdnBaseUrl = forceGCS ? '' : (process.env.CDN_WORKER_URL || '');
     const assetMap = new Map<string, string>();
+
+    if (forceGCS) {
+      console.log(`[AssetResolver] forceGCS=true — resolving all ${assets.length} assets via GCS signed URLs (Lambda render)`);
+    }
 
     for (const asset of assets) {
       try {
         if (cdnBaseUrl && (asset.gcsPath || asset.r2Key || asset.cachedUrl?.includes(cdnBaseUrl))) {
-          // CDN URL — never expires, edge-cached.
-          // Works for both R2-primary assets (r2Key) and GCS assets (gcsPath → Worker fetches from GCS on miss)
           assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${asset.assetId}`);
+          console.log(`[AssetResolver] ${asset.assetId}: CDN proxy URL`);
         } else if (cdnBaseUrl && asset.cachedUrl && !asset.cachedUrl.includes('storage.googleapis.com')) {
-          // Asset already has a non-GCS URL (e.g., R2 public URL) — use directly
           assetMap.set(asset.assetId, asset.cachedUrl);
+          console.log(`[AssetResolver] ${asset.assetId}: existing non-GCS URL`);
         } else {
-          // No CDN configured or no gcsPath — use traditional GCS URL refresh
+          // GCS signed URL path (used for forceGCS=true AND when CDN not configured)
+          const hasGCS = !!asset.gcsPath;
           const url = await this.getOrRefreshUrl(asset);
           assetMap.set(asset.assetId, url);
+          console.log(`[AssetResolver] ${asset.assetId}: GCS signed URL (hasGcsPath=${hasGCS}, urlLength=${url?.length || 0}, starts=${url?.substring(0, 50) || 'EMPTY'})`);
         }
       } catch (err: any) {
-        console.error(`[AssetResolver] Failed to resolve URL for ${asset.assetId}:`, err.message);
+        console.error(`[AssetResolver] FAILED ${asset.assetId}: ${err.message} (gcsPath=${asset.gcsPath || 'NONE'}, r2Key=${(asset as any).r2Key || 'NONE'}, cachedUrl=${asset.cachedUrl?.substring(0, 50) || 'NONE'})`);
         if (asset.cachedUrl) {
           assetMap.set(asset.assetId, asset.cachedUrl);
+          console.log(`[AssetResolver] ${asset.assetId}: using cachedUrl as fallback`);
         }
       }
     }
