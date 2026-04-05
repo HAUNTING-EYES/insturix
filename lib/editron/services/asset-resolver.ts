@@ -160,19 +160,31 @@ export class AssetResolver {
       }
     }
 
-    // Inject URLs into overlays
+    // Inject URLs into overlays — but NEVER replace a working URL with empty string.
+    // If the resolver can't find a fresh URL, keep the existing src/content.
+    // OLD: Empty resolvedUrl overwrote working proxy URLs → Lambda got src:'' → hung forever.
+    // NEW: Only replace if we actually have a valid resolved URL.
     return overlays.map(overlay => {
       if ('assetId' in overlay && overlay.assetId) {
         const resolvedUrl = assetMap.get(overlay.assetId as string) || '';
-        if (!resolvedUrl) {
-          console.warn(`[AssetResolver] Empty URL for overlay assetId=${overlay.assetId}, type=${overlay.type}`);
+        const existingSrc = (overlay as any).src || (overlay as any).content || '';
+
+        if (resolvedUrl) {
+          // Resolver found a fresh URL — use it
+          const result: any = { ...overlay, src: resolvedUrl };
+          if ((overlay.type === 'sound' || overlay.type === 'video') && resolvedUrl) {
+            result.content = resolvedUrl;
+          }
+          return result as typeof overlay;
+        } else if (existingSrc) {
+          // No resolved URL, but overlay already has a working URL (e.g., R2 proxy) — keep it
+          console.warn(`[AssetResolver] No resolved URL for ${overlay.assetId}, keeping existing: ${existingSrc.substring(0, 80)}`);
+          return overlay;
+        } else {
+          // No URL anywhere — genuinely broken
+          console.error(`[AssetResolver] No URL available for ${overlay.assetId}, type=${overlay.type} — render will fail for this asset`);
+          return overlay;
         }
-        const result: any = { ...overlay, src: resolvedUrl };
-        // For sound AND video overlays, also populate content field as fallback
-        if ((overlay.type === 'sound' || overlay.type === 'video') && resolvedUrl) {
-          result.content = resolvedUrl;
-        }
-        return result as typeof overlay;
       }
       return overlay;
     });
