@@ -1,18 +1,16 @@
-import { ApifyClient } from "apify-client";
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
 
 // ---------------------------------------------------------------------------
-// Apify Client — lazily instantiated, reused across calls.
+// Apify REST API Client — uses fetch() directly to avoid apify-client's
+// dynamic import() calls that break Turbopack/Next.js bundling.
 // ---------------------------------------------------------------------------
-let _client: ApifyClient | null = null;
 
-function getClient(): ApifyClient {
-  if (!_client) {
-    const token = process.env.APIFY_API_KEY;
-    if (!token) throw new Error("APIFY_API_KEY is not set");
-    _client = new ApifyClient({ token });
-  }
-  return _client;
+const APIFY_BASE_URL = "https://api.apify.com/v2";
+
+function getToken(): string {
+  const token = process.env.APIFY_API_KEY;
+  if (!token) throw new Error("APIFY_API_KEY is not set");
+  return token.trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -56,7 +54,6 @@ function detectPlatform(url: string): ExtractionResult["platform"] {
 
 // ---------------------------------------------------------------------------
 // Actor selection — lightweight downloaders, NOT full scrapers.
-// These use internal APIs / yt-dlp cloud, no DOM rendering → fast.
 // ---------------------------------------------------------------------------
 const ACTOR_MAP: Record<string, string> = {
   youtube: "bernardo/youtube-download",
@@ -84,7 +81,7 @@ async function withRetry<T>(
       const isRateLimited =
         err?.statusCode === 429 ||
         err?.message?.includes("rate-limit") ||
-        err?.type === "rate-limit-exceeded";
+        err?.code === "RATE_LIMITED";
 
       if (!isRateLimited || attempt === maxRetries) throw err;
 
@@ -99,13 +96,65 @@ async function withRetry<T>(
 }
 
 // ---------------------------------------------------------------------------
+// Apify REST API helpers
+// ---------------------------------------------------------------------------
+
+/** Run an Actor synchronously and return the run object */
+async function runActorSync(
+  actorId: string,
+  input: Record<string, unknown>,
+  waitSecs = 120
+): Promise<any> {
+  const token = getToken();
+  const url = `${APIFY_BASE_URL}/acts/${encodeURIComponent(actorId)}/runs?waitForFinish=${waitSecs}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (res.status === 429) {
+    throw new ExtractionError("RATE_LIMITED", "Apify rate limit exceeded");
+  }
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    throw new ExtractionError(
+      "ACTOR_FAILED",
+      `Actor ${actorId} call failed: ${res.status} ${res.statusText} - ${errBody.substring(0, 200)}`
+    );
+  }
+
+  return res.json();
+}
+
+/** Fetch dataset items from a completed run */
+async function getDatasetItems(datasetId: string): Promise<any[]> {
+  const token = getToken();
+  const url = `${APIFY_BASE_URL}/datasets/${datasetId}/items?format=json`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    throw new ExtractionError(
+      "ACTOR_FAILED",
+      `Failed to fetch dataset items: ${res.status} ${res.statusText}`
+    );
+  }
+
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
 // extractMediaUri
-//
-// Triggers a lightweight Apify Actor to extract a direct download URL.
-// Uses synchronous Actor runs (waitForFinish) to hit < 5s for simple links.
 // ---------------------------------------------------------------------------
 export async function extractMediaUri(url: string): Promise<ExtractionResult> {
-  const client = getClient();
   const platform = detectPlatform(url);
   const actorId = ACTOR_MAP[platform];
 
@@ -114,35 +163,32 @@ export async function extractMediaUri(url: string): Promise<ExtractionResult> {
   const startTime = Date.now();
 
   try {
-    const result = await withRetry(async () => {
-      // Run the Actor synchronously — waits up to 120s for completion.
-      const run = await client.actor(actorId).call(
-        buildActorInput(platform, url),
-        {
-          waitSecs: 120,
-          memory: 256, // Lightweight — no browser needed
-        }
-      );
+    const items = await withRetry(async () => {
+      // Run Actor synchronously via REST API
+      const run = await runActorSync(actorId, buildActorInput(platform, url));
 
-      if (!run || run.status !== "SUCCEEDED") {
+      if (!run?.data?.status || run.data.status !== "SUCCEEDED") {
+        const status = run?.data?.status || "unknown";
         throw new ExtractionError(
           "ACTOR_FAILED",
-          `Actor ${actorId} finished with status: ${run?.status || "unknown"}`
+          `Actor ${actorId} finished with status: ${status}`
         );
       }
 
-      // Fetch dataset items
-      const { items } = await client.dataset(run.defaultDatasetId).listItems();
+      const datasetId = run.data.defaultDatasetId;
+      if (!datasetId) {
+        throw new ExtractionError("NO_MEDIA_FOUND", "Actor run has no dataset ID.");
+      }
 
-      if (!items || items.length === 0) {
+      const datasetItems = await getDatasetItems(datasetId);
+      if (!datasetItems || datasetItems.length === 0) {
         throw new ExtractionError("NO_MEDIA_FOUND", "Actor returned no dataset items.");
       }
 
-      return items;
+      return datasetItems;
     });
 
-    // Extract the download URL from dataset items
-    const downloadUrl = extractDownloadUrl(result, platform);
+    const downloadUrl = extractDownloadUrl(items, platform);
     const mediaType = inferMediaType(downloadUrl, platform);
     const elapsed = Date.now() - startTime;
 
@@ -157,16 +203,12 @@ export async function extractMediaUri(url: string): Promise<ExtractionResult> {
       data: { platform, error: err.message },
     });
 
-    // Map known Apify error types to our custom errors
     if (err instanceof ExtractionError) throw err;
 
-    if (err?.type === "record-not-found" || err?.message?.includes("private")) {
+    if (err?.message?.includes("private") || err?.message?.includes("not found")) {
       throw new ExtractionError("PRIVATE_CONTENT", `Content is private or unavailable: ${url}`);
     }
-    if (err?.type === "invalid-value") {
-      throw new ExtractionError("UNSUPPORTED_PLATFORM", `Invalid or unsupported URL: ${url}`);
-    }
-    if (err?.statusCode === 408 || err?.message?.includes("timeout")) {
+    if (err?.message?.includes("timeout")) {
       throw new ExtractionError("EXTRACTION_TIMEOUT", `Extraction timed out for: ${url}`);
     }
 
@@ -175,40 +217,27 @@ export async function extractMediaUri(url: string): Promise<ExtractionResult> {
 }
 
 // ---------------------------------------------------------------------------
-// Actor input builders — each actor expects different input shapes.
+// Actor input builders
 // ---------------------------------------------------------------------------
 function buildActorInput(platform: string, url: string): Record<string, unknown> {
   switch (platform) {
     case "youtube":
-      return {
-        urls: [url],
-        downloadVideo: true,
-        quality: "highest",
-      };
+      return { urls: [url], downloadVideo: true, quality: "highest" };
     case "instagram":
-      return {
-        directUrls: [url],
-      };
+      return { directUrls: [url] };
     case "twitter":
-      return {
-        urls: [url],
-        includeMedia: true,
-      };
+      return { urls: [url], includeMedia: true };
     default:
-      return {
-        urls: [url],
-      };
+      return { urls: [url] };
   }
 }
 
 // ---------------------------------------------------------------------------
 // Extract the download URL from dataset items.
-// Each Actor returns data in slightly different shapes.
 // ---------------------------------------------------------------------------
 function extractDownloadUrl(items: Record<string, any>[], platform: string): string {
   const item = items[0];
 
-  // Try common field names across Actors
   const candidates = [
     item?.downloadUrl,
     item?.videoUrl,
@@ -217,7 +246,6 @@ function extractDownloadUrl(items: Record<string, any>[], platform: string): str
     item?.media_url,
     item?.url,
     item?.directUrl,
-    // Nested media arrays (common in social media actors)
     item?.media?.[0]?.url,
     item?.media?.[0]?.videoUrl,
     item?.videos?.[0]?.url,
@@ -238,7 +266,7 @@ function extractDownloadUrl(items: Record<string, any>[], platform: string): str
 }
 
 // ---------------------------------------------------------------------------
-// Infer media type from the URL and platform context.
+// Infer media type
 // ---------------------------------------------------------------------------
 function inferMediaType(
   url: string,
@@ -250,8 +278,6 @@ function inferMediaType(
   if (imageExts.some((ext) => lowered.includes(ext))) return "image";
   if (lowered.includes(".m4a") || lowered.includes(".mp3") || lowered.includes(".wav"))
     return "audio";
-
-  // YouTube extraction in audio mode
   if (platform === "youtube" && (lowered.includes("audio") || lowered.includes(".m4a")))
     return "audio";
 

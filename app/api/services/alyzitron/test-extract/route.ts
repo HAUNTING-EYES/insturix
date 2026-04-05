@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { extractMediaUri } from "@/lib/alyzitron/extraction/apify";
 
 /**
- * POST /api/editron/test-extract
+ * POST /api/services/alyzitron/test-extract
  *
  * Sandbox route for testing Apify extraction speed and reliability.
  * Protected by x-development-bypass header.
@@ -11,7 +11,6 @@ import { extractMediaUri } from "@/lib/alyzitron/extraction/apify";
  * Returns: { success, uri, mediaType, platform, timeTaken }
  */
 export async function POST(request: NextRequest) {
-  // Dev-only guard
   const bypass = request.headers.get("x-development-bypass");
   if (bypass !== "true") {
     return NextResponse.json(
@@ -47,7 +46,6 @@ export async function POST(request: NextRequest) {
         success: false,
         error: err.message || "Extraction failed",
         code: err.code || "UNKNOWN",
-        timeTaken: "N/A",
       },
       { status: 500 }
     );
