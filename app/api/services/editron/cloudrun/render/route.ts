@@ -41,15 +41,15 @@ export async function POST(request: Request) {
     console.log('Composition:', compositionId || 'TestComponent');
     console.log('Region:', region);
 
-    // Resolve asset URLs for Lambda rendering.
-    // forceGCS=true → always use GCS signed URLs (support Content-Length + Range headers).
-    // The CDN proxy doesn't support Range requests which Remotion's FFmpeg needs for seeking.
+    // Resolve asset URLs before sending to Lambda — ensure all overlays have valid URLs.
+    // Uses CDN proxy URLs (default) which Lambda was successfully using before.
+    // forceGCS is NOT used — many assets lack gcsPath and would get empty URLs.
     let resolvedProps = inputProps || {};
     if (resolvedProps.overlays?.length > 0) {
       try {
-        const resolvedOverlays = await assetResolver.resolveProjectAssets(resolvedProps.overlays, true);
+        const resolvedOverlays = await assetResolver.resolveProjectAssets(resolvedProps.overlays);
         resolvedProps = { ...resolvedProps, overlays: resolvedOverlays };
-        console.log(`[Render] Resolved ${resolvedOverlays.length} overlay URLs for Lambda (forceGCS=true)`);
+        console.log(`[Render] Resolved ${resolvedOverlays.length} overlay asset URLs`);
       } catch (err: any) {
         console.warn('[Render] Asset URL resolution failed, using raw props:', err.message);
       }
