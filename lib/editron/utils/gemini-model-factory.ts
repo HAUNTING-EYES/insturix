@@ -58,7 +58,7 @@ export async function getChatModel() {
  */
 export async function getGeneralModel() {
   const genAI = await getGenAI();
-  const modelName = process.env.LLM_GENERAL_MODEL || 'gemini-3.1-flash';
+  const modelName = process.env.LLM_GENERAL_MODEL || 'gemini-2.5-flash';
   return genAI.getGenerativeModel({ model: modelName });
 }
 

@@ -101,7 +101,7 @@ async function comparePair(
 
     const result = await generateText({
       // OLD: hardcoded gemini-2.5-flash. NEW: Gemini 3.1 Flash (general tasks).
-      model: google(process.env.LLM_GENERAL_MODEL || 'gemini-3.1-flash'),
+      model: google(process.env.LLM_GENERAL_MODEL || 'gemini-2.5-flash'),
       messages: [
         {
           role: 'user',
