@@ -1,5 +1,6 @@
 import { GCSManager } from "@/app/api/services/alyzitron/utils/gcs";
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
+import { Readable } from "stream";
 
 // ---------------------------------------------------------------------------
 // StreamToGCS Result
@@ -58,7 +59,6 @@ export async function streamUrlToGCS(
 
   // 3. Pipe fetch body → GCS using Node.js streams
   //    We convert the Web ReadableStream to a Node.js Readable
-  const { Readable } = await import("stream");
   const nodeReadable = Readable.fromWeb(response.body as any);
 
   let bytesWritten = 0;
