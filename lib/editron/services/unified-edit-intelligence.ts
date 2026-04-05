@@ -19,6 +19,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import type { AssetAnalysis } from './five-track-analysis';
+import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -406,7 +407,8 @@ export async function generateUnifiedEditPlan(
 
   console.log(`[UnifiedIntel] Generating edit plan for ${context.projectId} (${context.scenes.length} scenes, ${Math.round(context.totalDurationMs / 1000)}s)`);
 
-  const model = google('gemini-2.5-flash');
+  // OLD: hardcoded 'gemini-2.5-flash'. NEW: configurable via LLM_INTELLIGENCE_MODEL env var.
+  const model = google(DEFAULT_CONFIG.aiModels.unifiedIntelligenceModel);
 
   const { object } = await generateObject({
     model,

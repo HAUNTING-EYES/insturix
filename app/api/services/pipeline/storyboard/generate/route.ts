@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
       ? IMAGE_MODELS[modelId as ImageModelKey]
       : modelId; // pass through if already a full model ID or undefined
 
-    if (modelId && !(modelId in IMAGE_MODELS) && !modelId.startsWith('fal-ai/')) {
+    if (modelId && !(modelId in IMAGE_MODELS) && !modelId.startsWith('fal-ai/') && !modelId.startsWith('photon')) {
       return NextResponse.json(
         { success: false, error: `Unknown image model "${modelId}". Use a valid model key (${Object.keys(IMAGE_MODELS).join(', ')}) or a full fal-ai model ID (e.g., "fal-ai/flux/dev").` },
         { status: 400 },

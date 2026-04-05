@@ -93,6 +93,7 @@ async function handler(request: NextRequest) {
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoAssetId`]: result.assetId,
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoR2Key`]: (result as any).r2Key || result.assetId || null,
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoDurationMs`]: result.durationMs || (durationSeconds * 1000),
+          [`scenes.$[elem].descriptor.subShots.${subShotIndex}.hasNativeAudio`]: result.hasNativeAudio || false,
           updatedAt: new Date(),
         }},
         { arrayFilters: [{ 'elem.sceneIndex': sceneIndex }] },
@@ -108,6 +109,7 @@ async function handler(request: NextRequest) {
           videoR2Key: (result as any).r2Key || result.assetId || null,
           videoProvider: result.provider || 'fal-ai',
           videoDurationMs: result.durationMs || (durationSeconds * 1000),
+          hasNativeAudio: result.hasNativeAudio || false,
         });
       }
     } else {
@@ -119,6 +121,7 @@ async function handler(request: NextRequest) {
         videoR2Key: (result as any).r2Key || result.assetId || null,
         videoProvider: result.provider || 'fal-ai',
         videoDurationMs: result.durationMs || (durationSeconds * 1000),
+        hasNativeAudio: result.hasNativeAudio || false,
       });
     }
 

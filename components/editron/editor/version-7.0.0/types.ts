@@ -129,6 +129,11 @@ export type ClipOverlay = BaseOverlay & {
   posterUrl?: string; // Storyboard image used as thumbnail fallback (avoids CORS)
   videoStartTime?: number;
   speed?: number;
+  /** True if the video file contains embedded audio (e.g., Seedance 1.5 Pro).
+   *  When true: Remotion's <Video> auto-plays the audio track.
+   *  SFX generation is skipped for this scene. Audio ducking should duck
+   *  native video audio under voiceover (same as BGM ducking). */
+  hasNativeAudio?: boolean;
   /** Variable speed curve — overrides constant `speed` when present.
    *  Each keyframe specifies a playback rate at a local frame offset.
    *  Video is split into segments, each with its own constant rate. */

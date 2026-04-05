@@ -24,6 +24,7 @@ import { saveReferenceImageSet, updateSubjectReference } from './reference-image
 import type { ReferenceImageSet, SubjectReference } from './schemas/reference-image';
 import type { ExtractedSubject } from './llm-scene-parser';
 import { IMAGE_MODELS, type ImageModelKey } from './storyboard-service';
+import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 // Configure fal.ai
 let _falConfigured = false;
@@ -67,7 +68,7 @@ async function refineReferencePrompt(
   }
 
   try {
-    const model = google('gemini-2.5-flash');
+    const model = google(DEFAULT_CONFIG.aiModels.referencePromptModel);
 
     const { text } = await generateText({
       model,

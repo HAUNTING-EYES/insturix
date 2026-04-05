@@ -196,6 +196,9 @@ export interface StoryboardScene {
   videoDurationMs?: number;
   /** R2 storage key for the video asset */
   videoR2Key?: string;
+  /** True if the video model generated native audio with the video (e.g., Seedance 1.5 Pro).
+   *  When true, SFX generation is skipped — audio is baked into the video file. */
+  hasNativeAudio?: boolean;
   /** Set to true when scene skips AI video generation (asset type is non-video) */
   videoSkipped?: boolean;
   /** Reason scene skipped video generation */

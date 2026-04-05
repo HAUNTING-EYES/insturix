@@ -1360,6 +1360,7 @@ export function ExportToEditronDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="uni-1">UNI-1 by Luma (Best Quality)</SelectItem>
                       <SelectItem value="flux-schnell">FLUX Schnell (Fast)</SelectItem>
                       <SelectItem value="flux-dev">FLUX Dev (Quality)</SelectItem>
                       <SelectItem value="flux-pro">FLUX Pro 1.1</SelectItem>
@@ -1415,6 +1416,7 @@ export function ExportToEditronDialog({
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-800 border-zinc-700">
                       <SelectItem value="auto">Auto (best per scene) — Default</SelectItem>
+                      <SelectItem value="seedance-1.5">Seedance 1.5 Pro (Native Audio)</SelectItem>
                       <SelectItem value="kling-2.1">Kling 2.1 Pro</SelectItem>
                       <SelectItem value="kling-2.6">Kling 2.6 Pro (High Motion)</SelectItem>
                       <SelectItem value="wan-2.2">Wan 2.2 (Fast & Cheap)</SelectItem>

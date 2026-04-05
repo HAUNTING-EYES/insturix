@@ -35,6 +35,8 @@ export const IMAGE_MODELS = {
   'nano-banana': 'fal-ai/nano-banana',
   'nano-banana-2': 'fal-ai/nano-banana-2',
   'nano-banana-pro': 'fal-ai/nano-banana-pro',
+  // UNI-1 uses Luma REST API (not fal.ai). Value is the Luma model ID.
+  'uni-1': 'photon-1',
 } as const;
 
 export type ImageModelKey = keyof typeof IMAGE_MODELS;
@@ -50,142 +52,39 @@ export const IMAGE_MODEL_LABELS: Record<ImageModelKey, string> = {
   'nano-banana': 'Nano Banana (Fast)',
   'nano-banana-2': 'Nano Banana 2 (Quality)',
   'nano-banana-pro': 'Nano Banana Pro (Best)',
+  'uni-1': 'UNI-1 by Luma (Best Quality)',
 };
 
 // Default model for storyboard generation
 const DEFAULT_MODEL = 'fal-ai/flux/schnell';
 
-// Models that support negative_prompt
-const SUPPORTS_NEGATIVE_PROMPT = new Set([
-  'fal-ai/flux/schnell',
-  'fal-ai/flux/dev',
-  'fal-ai/flux-pro/v1.1',
-  'fal-ai/flux-general',
-]);
-
-// Models that use { width, height } object for image_size
-const USES_IMAGE_SIZE_OBJECT = new Set([
-  'fal-ai/flux/schnell',
-  'fal-ai/flux/dev',
-  'fal-ai/flux-pro/v1.1',
-  'fal-ai/flux-general',
-  'fal-ai/recraft-v3',
-]);
-
-// Nano Banana models use aspect_ratio + resolution (not image_size)
-const USES_ASPECT_RATIO_ONLY = new Set([
-  'fal-ai/nano-banana',
-  'fal-ai/nano-banana-2',
-  'fal-ai/nano-banana-pro',
-]);
+// OLD: Three separate Set objects encoding model capabilities.
+// NEW: All capabilities captured in ImageModelConfig registry.
+import {
+  getImageModelConfig,
+  buildImageInputFromConfig,
+  generateWithLuma,
+  isLumaAvailable,
+  IMAGE_MODEL_REGISTRY,
+  type ImageModelConfig,
+} from './adapters/image-model-configs';
 
 // Per-call timeout (ms) to prevent a single slow call from blocking everything
 const FAL_CALL_TIMEOUT_MS = 60_000; // 60 seconds
 
-// IP-adapter circuit breaker — if consecutive failures exceed this, skip IP-adapter for remaining scenes
+// OLD: IP-adapter circuit breaker with module-level mutable state + 6 reference strategies.
+// NEW: Reference capability is a config property. IP-adapter kept for flux-general only.
+//      Circuit breaker removed — simple per-call error handling is sufficient.
 let _ipAdapterConsecutiveFailures = 0;
-const IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD = 2; // After 2 consecutive fails, stop trying
+const IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD = 2;
 
-// ─── Reference Image Strategy ─────────────────────────────────────
-// Each model has a different mechanism for accepting reference images.
-// This determines which approach to use based on the user's selected model.
+// OLD: generateWithNativeReference() with 4 strategy cases.
+// REMOVED: Logic now inline in generateSceneImage() using config-driven approach.
+// Kept Nano Banana image-to-image and IP-adapter inline, added Luma character_ref.
 
-type ReferenceStrategy = 'ip-adapter' | 'image-to-image' | 'reference-to-image' | 'subject-reference' | 'kontext' | 'text-only';
-
-function getReferenceStrategy(modelId: string): ReferenceStrategy {
-  if (modelId.includes('flux-general')) return 'ip-adapter';
-  if (modelId.includes('flux-kontext') || modelId.includes('flux-pro/kontext')) return 'kontext';
-  if (modelId.includes('nano-banana')) return 'image-to-image';
-  if (modelId.includes('vidu') && modelId.includes('reference')) return 'reference-to-image';
-  if (modelId.includes('minimax') && modelId.includes('subject-reference')) return 'subject-reference';
-  // Text-only models: Imagen, Seedream, Recraft, Flux Schnell/Dev/Pro
-  return 'text-only';
-}
-
-/**
- * Generate an image using model-native reference image support.
- * Returns the generated image URL or null if it fails.
- */
-async function generateWithNativeReference(
-  modelId: string,
-  strategy: ReferenceStrategy,
-  prompt: string,
-  refs: Array<{ imageUrl: string; name?: string; weight?: number }>,
-  width: number,
-  height: number,
-): Promise<string | null> {
-  const timeout = 45_000;
-
-  switch (strategy) {
-    case 'image-to-image': {
-      // Nano Banana 2/Pro: use image-to-image endpoint with image_urls
-      const editEndpoint = modelId.replace(/\/text-to-image$/, '').replace(/\/?$/, '/image-to-image');
-      const result = await falSubscribeWithTimeout(editEndpoint, {
-        input: {
-          prompt: `${prompt}. Maintain visual consistency with reference subjects.`,
-          image_urls: refs.map(r => r.imageUrl),
-          num_images: 1,
-          resolution: '1K',
-        },
-        logs: false,
-      }, timeout);
-      const data = result.data as any;
-      return data?.images?.[0]?.url || data?.image?.url || null;
-    }
-
-    case 'reference-to-image': {
-      // Vidu Q2: use reference_image_urls
-      const result = await falSubscribeWithTimeout(modelId, {
-        input: {
-          prompt,
-          reference_image_urls: refs.map(r => r.imageUrl).slice(0, 3),
-          aspect_ratio: width > height ? '16:9' : height > width ? '9:16' : '1:1',
-        },
-        logs: false,
-      }, timeout);
-      const data = result.data as any;
-      return data?.images?.[0]?.url || data?.image?.url || null;
-    }
-
-    case 'subject-reference': {
-      // MiniMax: use image_url for face reference (single image only)
-      const result = await falSubscribeWithTimeout(modelId, {
-        input: {
-          prompt,
-          image_url: refs[0].imageUrl,
-          aspect_ratio: width > height ? '16:9' : height > width ? '9:16' : '1:1',
-          num_images: 1,
-        },
-        logs: false,
-      }, timeout);
-      const data = result.data as any;
-      return data?.images?.[0]?.url || data?.image?.url || null;
-    }
-
-    case 'kontext': {
-      // Flux Kontext: use image_url for context editing
-      const result = await falSubscribeWithTimeout(modelId, {
-        input: {
-          prompt: `${prompt}. Maintain exact visual consistency with the reference image.`,
-          image_url: refs[0].imageUrl,
-          num_images: 1,
-          guidance_scale: 3.5,
-        },
-        logs: false,
-      }, timeout);
-      const data = result.data as any;
-      return data?.images?.[0]?.url || data?.image?.url || null;
-    }
-
-    default:
-      return null;
-  }
-}
-
-/**
- * Build model-specific input parameters.
- * Different fal.ai models accept different input schemas.
- */
+// OLD: buildModelInput() with 3 branches checking Set membership.
+// NEW: Config-driven builder from adapters/image-model-configs.ts.
+// Kept as a wrapper for backward compatibility with callers.
 function buildModelInput(
   modelId: string,
   prompt: string,
@@ -193,38 +92,13 @@ function buildModelInput(
   width: number,
   height: number,
 ): Record<string, any> {
-  const input: Record<string, any> = {
-    prompt,
-    num_images: 1,
-    enable_safety_checker: false,
-  };
-
-  // negative_prompt — only for models that support it
-  if (SUPPORTS_NEGATIVE_PROMPT.has(modelId)) {
-    input.negative_prompt = negativePrompt;
+  // Look up config by matching the fal.ai endpoint to a registry key
+  const configEntry = Object.values(IMAGE_MODEL_REGISTRY).find(c => c.endpoint === modelId);
+  if (configEntry) {
+    return buildImageInputFromConfig(configEntry, prompt, negativePrompt, width, height);
   }
-
-  // image_size — varies by model family
-  if (USES_ASPECT_RATIO_ONLY.has(modelId)) {
-    // Nano Banana models: aspect_ratio + resolution, no image_size
-    if (width > height) input.aspect_ratio = '16:9';
-    else if (height > width) input.aspect_ratio = '9:16';
-    else input.aspect_ratio = '1:1';
-    input.resolution = '1K';
-    // Nano Banana doesn't use negative_prompt or enable_safety_checker
-    delete input.enable_safety_checker;
-  } else if (USES_IMAGE_SIZE_OBJECT.has(modelId)) {
-    input.image_size = { width, height };
-  } else {
-    // Models like Imagen4, Seedream use aspect ratio strings or width/height directly
-    input.image_size = { width, height };
-    // Also send aspect_ratio as some models prefer it
-    if (width > height) input.aspect_ratio = '16:9';
-    else if (height > width) input.aspect_ratio = '9:16';
-    else input.aspect_ratio = '1:1';
-  }
-
-  return input;
+  // Fallback for unknown models: use flux-schnell format
+  return buildImageInputFromConfig(getImageModelConfig('flux-schnell'), prompt, negativePrompt, width, height);
 }
 
 /**
@@ -334,101 +208,116 @@ export async function generateStoryboardImage(
   const prompt = refDescriptionSuffix ? `${basePrompt}${refDescriptionSuffix}` : basePrompt;
   console.log(`[Storyboard] Scene ${options.sceneIndex} prompt (${prompt.length} chars): "${prompt.substring(0, 200)}..."`);
 
-  // ─── Attempt 1: Reference image strategy (model-specific) ──────────
-  // Different models have different mechanisms for reference image consistency:
-  //   - Flux General: IP-adapter LoRA (ip_adapters param)
-  //   - Nano Banana 2/Pro: image-to-image endpoint (image_urls param)
-  //   - Vidu Q2: reference-to-image (reference_image_urls param)
-  //   - MiniMax: subject-reference (image_url for faces)
-  //   - Flux Kontext: context editing (image_url param)
-  //   - Imagen 4, Seedream, Recraft, Flux Schnell/Dev/Pro: text description only
-  //
-  // Strategy determined by the user's selected model.
-  const referenceStrategy = getReferenceStrategy(fallbackModelId || DEFAULT_MODEL);
+  // ─── Attempt 1: Config-driven reference image strategy ──────────
+  // OLD: 6-strategy system (ip-adapter, image-to-image, reference-to-image, subject-reference, kontext, text-only)
+  //      with 3-layer fallback chain and IP-adapter circuit breaker.
+  // NEW: Look up model config → use its referenceCapability.
+  //      UNI-1 (Luma): character_ref for face consistency (better than IP-adapter).
+  //      Flux General: IP-adapter (kept, it works).
+  //      Others: text descriptions in prompt.
+  const modelConfig = Object.values(IMAGE_MODEL_REGISTRY).find(c => c.endpoint === (fallbackModelId || DEFAULT_MODEL))
+    || getImageModelConfig('flux-schnell');
 
-  if (hasReferences && referenceStrategy !== 'ip-adapter' && referenceStrategy !== 'text-only') {
-    // Model supports native reference images — use model-specific approach
+  if (hasReferences && modelConfig.referenceCapability !== 'text-only') {
     const refs = options.referenceImages!;
-    console.log(`[Storyboard] Scene ${options.sceneIndex}: Using ${referenceStrategy} strategy with ${refs.length} ref(s) on ${fallbackModelId}`);
+    console.log(`[Storyboard] Scene ${options.sceneIndex}: Using ${modelConfig.referenceCapability} with ${refs.length} ref(s) on ${modelConfig.key}`);
 
     try {
-      const refResult = await generateWithNativeReference(
-        fallbackModelId || DEFAULT_MODEL,
-        referenceStrategy,
-        prompt,
-        refs,
-        width, height,
-      );
-      if (refResult) {
-        const uploaded = await downloadAndUpload(refResult, userId, fallbackModelId || DEFAULT_MODEL);
-        return { ...uploaded, usedReference: true, referenceStrategy } as any;
+      // ── Luma provider: UNI-1 with character_ref ──
+      if (modelConfig.provider === 'luma' && isLumaAvailable()) {
+        const aspectRatio = width > height ? '16:9' : height > width ? '9:16' : '1:1';
+        const lumaResult = await generateWithLuma(prompt, {
+          model: modelConfig.endpoint,
+          aspectRatio,
+          characterRefs: refs.map((r, i) => ({
+            identity: r.name || r.subjectId || `identity${i}`,
+            images: [r.imageUrl],
+          })),
+        });
+        if (lumaResult.imageUrl) {
+          const uploaded = await downloadAndUpload(lumaResult.imageUrl, userId, `luma-${modelConfig.endpoint}`);
+          return { ...uploaded, usedReference: true, referenceCapability: modelConfig.referenceCapability } as any;
+        }
+      }
+
+      // ── fal.ai IP-adapter: Flux General only ──
+      if (modelConfig.referenceCapability === 'ip-adapter' && _ipAdapterConsecutiveFailures < IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD) {
+        const ipAdapterModelId = 'fal-ai/flux-general';
+        const ipAdapters = refs.slice(0, 3).map((ref, idx) => ({
+          path: 'XLabs-AI/flux-ip-adapter',
+          image_encoder_path: 'openai/clip-vit-large-patch14',
+          image_url: ref.imageUrl,
+          scale: idx === 0 ? Math.min((ref.weight ?? 0.65) + 0.15, 1.0) : Math.min((ref.weight ?? 0.4), 0.6),
+        }));
+
+        const result = await falSubscribeWithTimeout(ipAdapterModelId, {
+          input: {
+            prompt: `${prompt}. Maintain exact visual consistency with all reference subjects.`,
+            ip_adapters: ipAdapters,
+            image_size: { width, height },
+            num_images: 1,
+            enable_safety_checker: false,
+            guidance_scale: 4.0,
+            num_inference_steps: 28,
+          },
+          logs: false,
+        }, 45_000);
+
+        const data = result.data as any;
+        const imageUrl = data?.images?.[0]?.url || data?.image?.url || data?.output?.url;
+        if (imageUrl) {
+          _ipAdapterConsecutiveFailures = 0;
+          const uploaded = await downloadAndUpload(imageUrl, userId, ipAdapterModelId);
+          return { ...uploaded, usedIpAdapter: true };
+        }
+        _ipAdapterConsecutiveFailures++;
+      }
+
+      // ── fal.ai image-to-image: Nano Banana models ──
+      if (modelConfig.referenceCapability === 'image-to-image' && modelConfig.referenceConfig) {
+        const editEndpoint = modelConfig.endpoint.replace(/\/?$/, '/image-to-image');
+        const result = await falSubscribeWithTimeout(editEndpoint, {
+          input: {
+            prompt: `${prompt}. Maintain visual consistency with reference subjects.`,
+            [modelConfig.referenceConfig.paramName]: refs.map(r => r.imageUrl).slice(0, modelConfig.referenceConfig.maxRefs),
+            num_images: 1,
+            resolution: '1K',
+          },
+          logs: false,
+        }, 45_000);
+        const data = result.data as any;
+        const imageUrl = data?.images?.[0]?.url || data?.image?.url || null;
+        if (imageUrl) {
+          const uploaded = await downloadAndUpload(imageUrl, userId, modelConfig.endpoint);
+          return { ...uploaded, usedReference: true } as any;
+        }
       }
     } catch (refErr: any) {
-      console.warn(`[Storyboard] Scene ${options.sceneIndex}: ${referenceStrategy} FAILED (${refErr.message}), falling through to standard generation`);
+      if (modelConfig.referenceCapability === 'ip-adapter') _ipAdapterConsecutiveFailures++;
+      console.warn(`[Storyboard] Scene ${options.sceneIndex}: ${modelConfig.referenceCapability} FAILED (${refErr.message}), falling through to standard generation`);
     }
+  } else if (hasReferences) {
+    console.log(`[Storyboard] Scene ${options.sceneIndex}: Model ${modelConfig.key} uses text-only references — descriptions in prompt`);
   }
 
-  if (hasReferences && referenceStrategy === 'text-only') {
-    console.log(`[Storyboard] Scene ${options.sceneIndex}: Model ${fallbackModelId} doesn't support reference images — using text descriptions in prompt`);
-  }
-
-  const canUseIPAdapter = referenceStrategy === 'ip-adapter' && hasReferences && _ipAdapterConsecutiveFailures < IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD;
-
-  if (canUseIPAdapter) {
-    // Build IP-adapter entries for ALL references in this scene (not just the first).
-    // Each reference gets its own adapter with appropriate weight.
-    // Primary ref (first) gets higher weight, additional refs get lower weight.
-    const refs = options.referenceImages!;
-    const primaryRef = refs[0];
-    console.log(`[Storyboard] Scene ${options.sceneIndex}: Trying IP-adapter with ${refs.length} ref(s): ${refs.map(r => r.name || r.subjectId).join(', ')} (failures=${_ipAdapterConsecutiveFailures}/${IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD})`);
-
-    const ipAdapterModelId = 'fal-ai/flux-general';
-    const ipAdapterTimeout = 45_000;
-
-    // Build IP-adapter array — primary gets higher scale, secondary refs get lower
-    const ipAdapters = refs.slice(0, 3).map((ref, idx) => ({
-      path: 'XLabs-AI/flux-ip-adapter',
-      image_encoder_path: 'openai/clip-vit-large-patch14',
-      image_url: ref.imageUrl,
-      scale: idx === 0
-        ? Math.min((ref.weight ?? 0.65) + 0.15, 1.0)  // Primary: stronger
-        : Math.min((ref.weight ?? 0.4), 0.6),           // Secondary: weaker to avoid conflict
-    }));
-
+  // ─── Attempt 2: Standard generation (user's model or default) ───────
+  // For Luma provider without references, generate without character_ref
+  if (modelConfig.provider === 'luma' && isLumaAvailable()) {
     try {
-      const result = await falSubscribeWithTimeout(ipAdapterModelId, {
-        input: {
-          prompt: `${prompt}. Maintain exact visual consistency with all reference subjects.`,
-          ip_adapters: ipAdapters,
-          image_size: { width, height },
-          num_images: 1,
-          enable_safety_checker: false,
-          guidance_scale: 4.0,
-          num_inference_steps: 28,
-        },
-        logs: false,
-      }, ipAdapterTimeout);
-
-      const data = result.data as any;
-      const imageUrl = data?.images?.[0]?.url || data?.image?.url || data?.output?.url;
-      if (imageUrl) {
-        console.log(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter SUCCESS`);
-        _ipAdapterConsecutiveFailures = 0; // Reset circuit breaker on success
-        const uploaded = await downloadAndUpload(imageUrl, userId, ipAdapterModelId);
-        return { ...uploaded, usedIpAdapter: true };
+      const aspectRatio = width > height ? '16:9' : height > width ? '9:16' : '1:1';
+      const lumaResult = await generateWithLuma(prompt, {
+        model: modelConfig.endpoint,
+        aspectRatio,
+      });
+      if (lumaResult.imageUrl) {
+        const uploaded = await downloadAndUpload(lumaResult.imageUrl, userId, `luma-${modelConfig.endpoint}`);
+        return { ...uploaded, usedIpAdapter: false };
       }
-      console.warn(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter returned no image, falling back to ${fallbackModelId}`);
-      _ipAdapterConsecutiveFailures++;
-    } catch (ipErr: any) {
-      _ipAdapterConsecutiveFailures++;
-      const circuitOpen = _ipAdapterConsecutiveFailures >= IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD;
-      console.warn(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter FAILED (${ipErr.message}), falling back to ${fallbackModelId}${circuitOpen ? ' — CIRCUIT BREAKER OPEN, skipping IP-adapter for remaining scenes' : ''}`);
+    } catch (lumaErr: any) {
+      console.warn(`[Storyboard] Scene ${options.sceneIndex}: Luma generation FAILED (${lumaErr.message}), falling back to fal.ai`);
     }
-  } else if (hasReferences && _ipAdapterConsecutiveFailures >= IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD) {
-    console.log(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter circuit breaker OPEN (${_ipAdapterConsecutiveFailures} consecutive failures), using ${fallbackModelId} directly`);
   }
 
-  // ─── Attempt 2: Standard model (user's choice or default) ───────
   const modelId = fallbackModelId;
   console.log(`[Storyboard] Scene ${options.sceneIndex}: model=${modelId}, ${width}x${height}`);
 

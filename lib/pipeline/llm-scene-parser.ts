@@ -11,6 +11,7 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateObject } from 'ai';
 import { z } from 'zod';
+import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 // ─── Schema ──────────────────────────────────────────────────────
 
@@ -111,7 +112,8 @@ export async function parseScriptWithLLM(
   } = {},
 ): Promise<LLMParseResult> {
   const google = getGeminiProvider();
-  const model = (google as any)('gemini-2.5-flash', { structuredOutputs: true });
+  // OLD: hardcoded 'gemini-2.5-flash'. NEW: configurable via env var LLM_PARSER_MODEL.
+  const model = (google as any)(DEFAULT_CONFIG.aiModels.sceneParserModel, { structuredOutputs: true });
 
   const { object } = await generateObject({
     model,
@@ -555,7 +557,7 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
         })).describe('Only include scenes that have 3+ DISTINCT shots with DIFFERENT subjects. Do NOT include scenes with one continuous subject.'),
       });
 
-      const montageModel = google('gemini-2.5-flash-lite');
+      const montageModel = google(DEFAULT_CONFIG.aiModels.montageDetectionModel);
 
       const { object: montageResult } = await generateObject({
         model: montageModel,
@@ -640,7 +642,7 @@ export async function extractSubjectsFromScenes(
   options: { artStyle?: string } = {},
 ): Promise<SubjectExtractionResult> {
   const google = getGeminiProvider();
-  const model = google('gemini-2.5-flash');
+  const model = google(DEFAULT_CONFIG.aiModels.subjectExtractionModel);
 
   // Give the LLM the FULL visual description + narration — not truncated.
   // The narration often contains key subject details the visual desc misses.
@@ -759,7 +761,7 @@ export async function refineVideoPrompt(
   context: VideoPromptContext,
 ): Promise<string> {
   const google = getGeminiProvider();
-  const model = google('gemini-2.5-flash');
+  const model = google(DEFAULT_CONFIG.aiModels.sceneParserModel);
 
   // Build reference subject context
   const subjectContext = context.referenceSubjects && context.referenceSubjects.length > 0

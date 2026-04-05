@@ -312,6 +312,7 @@ export async function POST(
             objectFit: 'cover',
             opacity: 1,
           },
+          hasNativeAudio: (scene as any).hasNativeAudio || false,
         };
         // Smart clip selection: if clip is longer than scene, pick best segment
         if (scene.videoAssetId && videoDurationSec && durationFrames < Math.round(videoDurationSec * fps)) {
@@ -629,8 +630,11 @@ export async function POST(
     }
 
     if (isSFXAvailable() && currentFrame > 0) {
+      // Skip SFX for scenes with native video audio (e.g., Seedance 1.5 Pro).
+      // Those videos already have embedded foley/ambient sounds.
       const sfxInputs = storyboard.scenes
         .filter(s => s.descriptor.audioDescription?.trim())
+        .filter(s => !(s as any).hasNativeAudio)
         .map(s => {
           const frameInfo = sceneFrameMap.find(f => f.sceneIndex === s.sceneIndex);
           return {

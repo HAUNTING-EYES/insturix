@@ -166,16 +166,38 @@ export interface MusicConfig {
 
 // ─── AI Models ─────────────────────────────────────────────────────
 
+// Models known to work with the Google generativelanguage.googleapis.com API.
+// Both Gemini and Gemma 4 models use the same endpoint + SDK.
+const VALID_GOOGLE_AI_MODELS = [
+  'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
+  'gemini-3.1-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro',
+  'gemma-4-31b-it', 'gemma-4-26b-a4b-it',
+];
+
+/** Validate a model ID and fallback to default if invalid.
+ *  Prevents cryptic SDK errors from typos in env vars. */
+function validateModel(model: string, fallback: string): string {
+  if (VALID_GOOGLE_AI_MODELS.includes(model)) return model;
+  console.warn(`[EditronConfig] Invalid model "${model}". Falling back to "${fallback}". Valid: ${VALID_GOOGLE_AI_MODELS.join(', ')}`);
+  return fallback;
+}
+
 export interface AIModelConfig {
-  /** Gemini model for scene parsing. Was: hardcoded 'gemini-2.5-flash' in llm-scene-parser.ts */
+  /** Model for scene parsing (env: LLM_PARSER_MODEL) */
   sceneParserModel: string;
-  /** Gemini model for unified intelligence. Was: hardcoded 'gemini-2.5-flash' */
+  /** Model for montage detection (env: LLM_MONTAGE_MODEL) */
+  montageDetectionModel: string;
+  /** Model for subject extraction (env: LLM_SUBJECT_MODEL) */
+  subjectExtractionModel: string;
+  /** Model for reference prompt refinement (env: LLM_REFERENCE_MODEL) */
+  referencePromptModel: string;
+  /** Model for unified intelligence (env: LLM_INTELLIGENCE_MODEL) */
   unifiedIntelligenceModel: string;
-  /** Gemini model for 5-Track analysis. Was: hardcoded 'gemini-2.5-flash' */
+  /** Model for 5-Track analysis — LOCKED to gemini-2.5-flash (uses Files API) */
   analysisModel: string;
-  /** Temperature for editing decisions. Was: `0.3` in unified-edit-intelligence.ts */
+  /** Temperature for editing decisions */
   editingTemperature: number;
-  /** Temperature for scene parsing. Was: `0.3` in llm-scene-parser.ts */
+  /** Temperature for scene parsing */
   parsingTemperature: number;
 }
 
@@ -290,9 +312,15 @@ export const DEFAULT_CONFIG: EditronConfig = {
     },
   },
   aiModels: {
-    sceneParserModel: 'gemini-2.5-flash',
-    unifiedIntelligenceModel: 'gemini-2.5-flash',
-    analysisModel: 'gemini-2.5-flash',
+    // Env var overrides validated against VALID_GOOGLE_AI_MODELS.
+    // Default: gemini-3.1-flash (latest). Gemma 4 testable via env vars.
+    // Analysis model LOCKED — uses Gemini Files API for video upload, unverified with Gemma.
+    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
+    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite', 'gemini-3.1-flash-lite'),
+    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
+    referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
+    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
+    analysisModel: 'gemini-2.5-flash', // LOCKED — Files API dependency
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
   },
