@@ -263,9 +263,9 @@ export async function extractEditDNA(params: {
     throw new Error("projectId is required when using videoOverlayId");
   }
 
-  // Call Gemini 2.0 Flash with the video
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.
+  const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+  const model = await getAnalysisModel();
 
   console.log("[STYLE-TRANSFER] Sending video to Gemini for Edit DNA extraction...");
 

@@ -100,7 +100,8 @@ async function comparePair(
     ]);
 
     const result = await generateText({
-      model: google('gemini-2.5-flash'),
+      // OLD: hardcoded gemini-2.5-flash. NEW: Gemini 3.1 Flash (general tasks).
+      model: google(process.env.LLM_GENERAL_MODEL || 'gemini-3.1-flash'),
       messages: [
         {
           role: 'user',
@@ -403,10 +404,9 @@ export async function checkVideoQuality(
   try {
     // Use Gemini's native video understanding — upload the video URL directly.
     // Gemini 2.0 Flash can process video URLs natively without frame extraction.
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // OLD: hardcoded gemini-2.5-flash. NEW: Gemini 3.1 Flash via factory (general tasks).
+    const { getGeneralModel } = await import('@/lib/editron/utils/gemini-model-factory');
+    const model = await getGeneralModel();
 
     const parts: any[] = [
       { text: VIDEO_QUALITY_PROMPT },

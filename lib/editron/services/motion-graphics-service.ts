@@ -278,9 +278,9 @@ RULES:
 Output JSON:`;
 
   try {
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.
+    const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+    const model = await getAnalysisModel();
 
     const result = await model.generateContent(prompt);
     const text = result.response.text().trim();

@@ -185,9 +185,9 @@ async function transcribeWithGemini(
   const buffer = Buffer.from(await response.arrayBuffer());
   const mimeType = response.headers.get('content-type') || (asset.type === 'video' ? 'video/mp4' : 'audio/wav');
 
-  const { GoogleGenerativeAI } = await import('@google/generative-ai');
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.
+  const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+  const model = await getAnalysisModel();
 
   const result = await model.generateContent([
     {

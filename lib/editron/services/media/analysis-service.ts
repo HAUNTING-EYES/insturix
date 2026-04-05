@@ -371,9 +371,11 @@ async function sendAudioToGemini(params: {
   fillers: Array<{ word: string; time: number }>;
   summary: string;
 }> {
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+  // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.
+  const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
+  const genAI = await getGenAI();
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
+    model: process.env.LLM_ANALYSIS_MODEL || 'gemma-4-31b-it',
     generationConfig: {
       temperature: 0.2,
       maxOutputTokens: 2048,
@@ -494,9 +496,11 @@ export async function sendVideoToGemini(params: {
   summary: string;
   theme: string;
 }> {
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+  // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.
+  const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
+  const genAI = await getGenAI();
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
+    model: process.env.LLM_ANALYSIS_MODEL || 'gemma-4-31b-it',
     generationConfig: {
       temperature: 0.2,
       maxOutputTokens: 2048,

@@ -320,9 +320,9 @@ async function detectShots(videoUrl: string, durationMs: number, fps: number): P
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) return [{ startFrame: 0, endFrame: Math.round(durationMs / 1000 * fps), durationMs }];
 
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory (with model-specific fallback).
+    const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+    const model = await getAnalysisModel();
 
     const result = await model.generateContent([
       {
@@ -372,9 +372,9 @@ async function analyzeVideoComprehensive(
   if (!apiKey) return null;
 
   try {
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory (with model-specific fallback).
+    const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+    const model = await getAnalysisModel();
 
     const fps = 30;
     const totalFrames = Math.round((durationMs / 1000) * fps);
@@ -489,9 +489,9 @@ async function analyzeMotion(videoUrl: string, shots: Shot[], durationMs: number
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) return { segments: [], peaks: [] };
 
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory (with model-specific fallback).
+    const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+    const model = await getAnalysisModel();
 
     const result = await model.generateContent([
       {
@@ -589,9 +589,9 @@ async function analyzeKeyframes(
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) return [];
 
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory (with model-specific fallback).
+    const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+    const model = await getAnalysisModel();
 
     // Strategic frame selection: first + middle of each shot (max 30 frames)
     const targetFrames: number[] = [];
@@ -648,9 +648,9 @@ async function trackSubjects(
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) return [];
 
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory (with model-specific fallback).
+    const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+    const model = await getAnalysisModel();
 
     // Extract unique subjects from keyframe analyses
     const knownSubjects = new Set<string>();
@@ -705,9 +705,9 @@ export async function classifySpeech(
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey || !transcript.trim()) return [];
 
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory (with model-specific fallback).
+    const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+    const model = await getAnalysisModel();
 
     const result = await model.generateContent(`Classify this video transcript into segments. Each segment is a continuous stretch of speech with the same content type.
 

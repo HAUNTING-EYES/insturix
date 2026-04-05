@@ -313,14 +313,20 @@ export const DEFAULT_CONFIG: EditronConfig = {
   },
   aiModels: {
     // Env var overrides validated against VALID_GOOGLE_AI_MODELS.
-    // Default: gemini-3.1-flash (latest). Gemma 4 testable via env vars.
-    // Analysis model LOCKED — uses Gemini Files API for video upload, unverified with Gemma.
-    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
-    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite', 'gemini-3.1-flash-lite'),
-    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
+    //
+    // Model hierarchy:
+    //   Gemma 4 (31B)       — Parsing + analysis (FREE on AI Studio, 256K context, native vision)
+    //   Gemini 3.1 Flash    — Intelligence + scoring (complex structured output)
+    //   Gemini 2.5 Flash    — Chat + backup fallback (speed-critical)
+    //
+    // Analysis model uses withAnalysisFallback() in gemini-model-factory.ts:
+    // tries Gemma 4 first, falls back to gemini-2.5-flash ONLY on model-incompatibility errors.
+    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemma-4-31b-it', 'gemini-3.1-flash'),
+    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemma-4-26b-a4b-it', 'gemini-3.1-flash-lite'),
+    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemma-4-31b-it', 'gemini-3.1-flash'),
     referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
     unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
-    analysisModel: 'gemini-2.5-flash', // LOCKED — Files API dependency
+    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemma-4-31b-it', 'gemini-2.5-flash'),
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
   },
