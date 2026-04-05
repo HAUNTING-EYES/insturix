@@ -9,6 +9,7 @@ import { QueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
 
 import type { AnalysisStatus, AnalysisResults } from '@/app/api/services/alyzitron/types'
+import type { PaginatedResponse } from './AnalysisList';
 
 interface AnalysisError {
   code?: string;
@@ -83,6 +84,27 @@ export function AnalysisProgress({
   const youtubeVideoId = isYouTubeUrl ? extractYouTubeVideoId(videoUrl) : null;
   const isInstagramUrl = videoUrl && videoUrl.includes('instagram.com');
   const isTwitterUrl = videoUrl && (videoUrl.includes('twitter.com') || videoUrl.includes('x.com'));
+
+  let authorInfo = createdByName && createdByName.toLowerCase() !== 'unknown' ? createdByName : null;
+  if (!authorInfo && videoUrl) {
+    if (isInstagramUrl) {
+        const match = videoUrl.match(/instagram\.com\/([a-zA-Z0-9._]+)/);
+        if (match && match[1] && !['p', 'reel', 'tv'].includes(match[1])) {
+            authorInfo = `@${match[1]}`;
+        } else {
+            authorInfo = 'Instagram';
+        }
+    } else if (isTwitterUrl) {
+        const match = videoUrl.match(/(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]+)/);
+        if (match && match[1] && !['status'].includes(match[1])) {
+            authorInfo = `@${match[1]}`;
+        } else {
+            authorInfo = 'X (Twitter)';
+        }
+    } else if (isYouTubeUrl) {
+        authorInfo = 'YouTube';
+    }
+  }
 
   // Helper function to calculate remaining time
   const calculateRemainingTime = (startTime: number | Date | undefined | string, duration: number): number => {
@@ -255,11 +277,13 @@ export function AnalysisProgress({
               {metadata?.videoDuration && (
                 <p className="text-[10px] text-zinc-500">{formatDuration(metadata.videoDuration)}</p>
               )}
-              {createdByName && (
+              {authorInfo && (
                 <div className="flex items-center gap-1 ml-1 pl-2 border-l border-zinc-800">
-                  <span className="text-[9px] text-zinc-600 font-medium uppercase tracking-tighter">BY</span>
+                  {(authorInfo.startsWith('@') || (createdByName && createdByName.toLowerCase() !== 'unknown')) && (
+                    <span className="text-[9px] text-zinc-600 font-medium uppercase tracking-tighter">BY</span>
+                  )}
                   <span className="text-[10px] text-zinc-400 font-bold truncate max-w-[80px]">
-                    {createdByName}
+                    {authorInfo}
                   </span>
                 </div>
               )}
