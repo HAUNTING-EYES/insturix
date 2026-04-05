@@ -86,8 +86,9 @@ export async function hasTranscription(
 /**
  * Generate transcription.
  * Priority: 1) Synthetic from narration text (ThinkForge projects — instant, free, always accurate)
- *           2) Gemini 2.0 Flash (uploaded videos — fast, cheap, excellent quality)
- *           3) Deepgram Nova-2 (fallback)
+ *           2) Whisper Large V3 on fal.ai (best ASR — word timestamps, ~$0.006/min)
+ *           3) Gemma 4 (free fallback — less accurate for speech)
+ *           4) Deepgram Nova-2 (final fallback)
  */
 async function generateTranscription(
   asset: MediaAsset,
@@ -127,20 +128,57 @@ async function generateTranscription(
     throw new Error(`Empty URL for asset ${asset.assetId} — gcsPath: ${asset.gcsPath || 'none'}, source: ${asset.source}`);
   }
 
-  // ─── Strategy 2: Gemini 2.0 Flash transcription ─────────────────
-  // Excellent quality, fast, already in our stack (free within quota).
+  // ─── Strategy 2: Whisper Large V3 on fal.ai ─────────────────────
+  // Industry-standard ASR. Accurate word timestamps. ~$0.006/min.
+  // Better than Gemma/Gemini for transcription (dedicated speech model).
+  try {
+    const { fal } = await import('@fal-ai/client');
+    const whisperResult = await fal.subscribe('fal-ai/whisper', {
+      input: {
+        audio_url: mediaUrl,
+        task: 'transcribe',
+        language: (language || undefined) as any,
+        chunk_level: 'word' as const, // word-level timestamps for captions
+      },
+      logs: false,
+    });
+    const data = whisperResult.data as any;
+    if (data?.chunks && data.chunks.length > 0) {
+      const words: TranscriptionWord[] = data.chunks.map((chunk: any) => ({
+        word: chunk.text?.trim() || '',
+        startMs: Math.round((chunk.timestamp?.[0] || 0) * 1000),
+        endMs: Math.round((chunk.timestamp?.[1] || 0) * 1000),
+        confidence: 0.95, // Whisper doesn't return per-word confidence
+      })).filter((w: any) => w.word);
+
+      console.log(`[Transcription] Whisper: ${words.length} words for ${asset.assetId}`);
+      return {
+        words,
+        transcript: data.text || words.map((w: any) => w.word).join(' '),
+        language: data.inferred_languages?.[0] || language || 'en',
+        confidence: 0.95,
+        generatedAt: new Date(),
+      };
+    }
+    console.warn(`[Transcription] Whisper returned 0 chunks for ${asset.assetId}, trying Gemini`);
+  } catch (whisperErr: any) {
+    console.warn(`[Transcription] Whisper failed for ${asset.assetId}: ${whisperErr.message}, trying Gemini`);
+  }
+
+  // ─── Strategy 3: Gemma 4 transcription (fallback) ──────────────
+  // Free but less accurate for speech-to-text than Whisper.
   try {
     const result = await transcribeWithGemini(mediaUrl, asset, language);
     if (result.words.length > 0) {
-      console.log(`[Transcription] Gemini Flash: ${result.words.length} words for ${asset.assetId}`);
+      console.log(`[Transcription] Gemma/Gemini: ${result.words.length} words for ${asset.assetId}`);
       return result;
     }
-    console.warn(`[Transcription] Gemini returned 0 words for ${asset.assetId}, trying Deepgram`);
+    console.warn(`[Transcription] Gemma/Gemini returned 0 words for ${asset.assetId}, trying Deepgram`);
   } catch (geminiErr: any) {
-    console.warn(`[Transcription] Gemini failed for ${asset.assetId}: ${geminiErr.message}, trying Deepgram`);
+    console.warn(`[Transcription] Gemma/Gemini failed for ${asset.assetId}: ${geminiErr.message}, trying Deepgram`);
   }
 
-  // ─── Strategy 3: Deepgram Nova-2 (fallback) ─────────────────────
+  // ─── Strategy 4: Deepgram Nova-2 (final fallback) ──────────────
   try {
     const { transcribeMedia } = await import('../deepgram-service');
     const result = await transcribeMedia(mediaUrl, {
