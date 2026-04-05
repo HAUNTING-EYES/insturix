@@ -36,6 +36,20 @@ interface VideoWorkerPayload {
   nextSceneImageUrl?: string;
   /** Sub-shot index within a montage scene (undefined for continuous scenes) */
   subShotIndex?: number;
+  /** Scene context for LLM prompt refinement (moved from route to worker for quality).
+   *  If present, worker refines motionPrompt via LLM before generating video.
+   *  If absent, motionPrompt is used as-is (backward compat). */
+  refinementContext?: {
+    visualDescription?: string;
+    narration?: string;
+    mood?: string;
+    artStyle?: string;
+    videoQualityTokens?: string;
+    cameraDirection?: string;
+    videoMotionPrompt?: string;
+    referenceSubjects?: string[];
+    transitionHint?: { type?: string };
+  };
 }
 
 async function handler(request: NextRequest) {
@@ -67,11 +81,52 @@ async function handler(request: NextRequest) {
       { $set: { status: 'processing', startedAt: new Date() } },
     );
 
+    // ── LLM Prompt Refinement (moved from route → worker for quality) ──
+    // Each worker has its own 300s budget, so refinement (~15s) doesn't
+    // compete with other scenes. Quality stays identical — just runs in
+    // the right place instead of blocking the route.
+    let refinedPrompt = motionPrompt;
+    const ctx = payload.refinementContext;
+    if (ctx) {
+      try {
+        const { refineVideoPrompt } = await import('@/lib/pipeline/llm-scene-parser');
+        refinedPrompt = await Promise.race([
+          refineVideoPrompt({
+            visualDescription: ctx.visualDescription || '',
+            videoMotionPrompt: ctx.videoMotionPrompt || motionPrompt,
+            narration: ctx.narration,
+            mood: ctx.mood,
+            durationSeconds,
+            artStyle: ctx.artStyle,
+            aspectRatio,
+            referenceSubjects: ctx.referenceSubjects as any,
+            videoQualityTokens: ctx.videoQualityTokens,
+            cameraDirection: ctx.cameraDirection,
+            transitionHint: ctx.transitionHint as any,
+          }),
+          new Promise<string>((_, reject) => setTimeout(() => reject(new Error('LLM refinement timeout')), 30000)),
+        ]);
+        console.log(`[VideoWorker] Scene ${sceneIndex}: prompt refined (${refinedPrompt.length} chars)`);
+      } catch (refineErr: any) {
+        // Refinement failed — use the basic prompt. Still generates video, just less polished prompt.
+        console.warn(`[VideoWorker] Scene ${sceneIndex}: refinement failed (${refineErr.message}), using basic prompt`);
+        const { buildMotionPrompt } = await import('@/lib/pipeline/video-generation-service');
+        refinedPrompt = buildMotionPrompt({
+          visualDescription: ctx.visualDescription || '',
+          narration: ctx.narration,
+          cameraDirection: ctx.cameraDirection,
+          mood: ctx.mood,
+          videoMotionPrompt: ctx.videoMotionPrompt || motionPrompt,
+          videoQualityTokens: ctx.videoQualityTokens,
+        });
+      }
+    }
+
     // Generate the video clip
     const result = await generateVideoClip(
       {
         imageUrl,
-        motionPrompt,
+        motionPrompt: refinedPrompt,
         durationSeconds,
         aspectRatio: aspectRatio as any,
         falVideoModel: videoModel as any,

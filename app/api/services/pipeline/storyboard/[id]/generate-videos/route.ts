@@ -223,6 +223,10 @@ export async function POST(
       motionPrompt: string;
       durationSeconds: number;
       nextSceneImageUrl?: string;
+      /** Scene context passed to worker for LLM prompt refinement.
+       *  OLD: Route refined prompts sequentially (~15s each, caused 504 timeout on 14+ scenes).
+       *  NEW: Worker refines in its own 300s budget. Quality identical, no timeout. */
+      refinementContext?: Record<string, any>;
     }
 
     const sceneJobs: SceneJob[] = [];
@@ -259,40 +263,13 @@ export async function POST(
           // Use sub-shot's own image if available, otherwise parent scene image
           const subImageUrl = sub.imageUrl || scene.imageUrl!;
 
-          // Build motion prompt with 15s timeout on LLM refinement
-          let motionPrompt: string;
-          if (useLLMRefinement) {
-            try {
-              motionPrompt = await Promise.race([
-                refineVideoPrompt({
-                  visualDescription: subVisual,
-                  videoMotionPrompt: subMotion,
-                  narration: sub.narration || descriptor.narration,
-                  mood: descriptor.mood,
-                  durationSeconds: subDuration,
-                  artStyle,
-                  aspectRatio,
-                  referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
-                  videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
-                  cameraDirection: descriptor.cameraDirection,
-                  transitionHint: descriptor.editDirections?.transition,
-                }),
-                new Promise<string>((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 15000)),
-              ]);
-            } catch {
-              motionPrompt = buildMotionPrompt({
-                visualDescription: subVisual, narration: sub.narration || descriptor.narration,
-                cameraDirection: descriptor.cameraDirection, mood: descriptor.mood,
-                videoMotionPrompt: subMotion, videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
-              });
-            }
-          } else {
-            motionPrompt = buildMotionPrompt({
-              visualDescription: subVisual, narration: sub.narration || descriptor.narration,
-              cameraDirection: descriptor.cameraDirection, mood: descriptor.mood,
-              videoMotionPrompt: subMotion, videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
-            });
-          }
+          // OLD: LLM refinement here (sequential, ~15s each, caused 504 on 14+ scenes).
+          // NEW: Send basic prompt + refinement context to worker. Worker refines in its own 300s budget.
+          const motionPrompt = buildMotionPrompt({
+            visualDescription: subVisual, narration: sub.narration || descriptor.narration,
+            cameraDirection: descriptor.cameraDirection, mood: descriptor.mood,
+            videoMotionPrompt: subMotion, videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
+          });
 
           sceneJobs.push({
             sceneIndex: scene.sceneIndex,
@@ -300,52 +277,32 @@ export async function POST(
             imageUrl: subImageUrl,
             motionPrompt,
             durationSeconds: subDuration,
+            refinementContext: useLLMRefinement ? {
+              visualDescription: subVisual,
+              narration: sub.narration || descriptor.narration,
+              mood: descriptor.mood,
+              artStyle,
+              videoQualityTokens: sub.videoQualityTokens || descriptor.videoQualityTokens,
+              cameraDirection: descriptor.cameraDirection,
+              videoMotionPrompt: subMotion,
+              referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
+              transitionHint: descriptor.editDirections?.transition,
+            } : undefined,
           });
           console.log(`[generate-videos] Scene ${scene.sceneIndex} sub-shot ${si}: "${sub.description}" (${subDuration}s, independent)`);
         }
       } else {
         // ─── Continuous scene or montage from same clip: one job ───
-        let motionPrompt: string;
-        if (useLLMRefinement) {
-          try {
-            const promptContext: VideoPromptContext = {
-              visualDescription: descriptor.visualDescription,
-              videoMotionPrompt: descriptor.videoMotionPrompt,
-              narration: descriptor.narration,
-              mood: descriptor.mood,
-              durationSeconds: Math.min(descriptor.durationSeconds, 10),
-              artStyle,
-              aspectRatio,
-              referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
-              videoQualityTokens: descriptor.videoQualityTokens,
-              cameraDirection: descriptor.cameraDirection,
-              transitionHint: descriptor.editDirections?.transition,
-            };
-            motionPrompt = await Promise.race([
-              refineVideoPrompt(promptContext),
-              new Promise<string>((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 15000)),
-            ]);
-            console.log(`[generate-videos] Scene ${scene.sceneIndex}: prompt refined (${motionPrompt.length} chars)`);
-          } catch {
-            motionPrompt = buildMotionPrompt({
-              visualDescription: descriptor.visualDescription,
-              narration: descriptor.narration,
-              cameraDirection: descriptor.cameraDirection,
-              mood: descriptor.mood,
-              videoMotionPrompt: descriptor.videoMotionPrompt,
-              videoQualityTokens: descriptor.videoQualityTokens,
-            });
-          }
-        } else {
-          motionPrompt = buildMotionPrompt({
-            visualDescription: descriptor.visualDescription,
-            narration: descriptor.narration,
-            cameraDirection: descriptor.cameraDirection,
-            mood: descriptor.mood,
-            videoMotionPrompt: descriptor.videoMotionPrompt,
-            videoQualityTokens: descriptor.videoQualityTokens,
-          });
-        }
+        // OLD: LLM refinement here (sequential, ~15s each, caused 504 on 14+ scenes).
+        // NEW: Basic prompt + refinement context sent to worker.
+        const motionPrompt = buildMotionPrompt({
+          visualDescription: descriptor.visualDescription,
+          narration: descriptor.narration,
+          cameraDirection: descriptor.cameraDirection,
+          mood: descriptor.mood,
+          videoMotionPrompt: descriptor.videoMotionPrompt,
+          videoQualityTokens: descriptor.videoQualityTokens,
+        });
 
         sceneJobs.push({
           sceneIndex: scene.sceneIndex,
@@ -353,6 +310,17 @@ export async function POST(
           motionPrompt,
           durationSeconds: Math.min(descriptor.durationSeconds, 10),
           nextSceneImageUrl: enableChaining ? (nextScene?.imageUrl || undefined) : undefined,
+          refinementContext: useLLMRefinement ? {
+            visualDescription: descriptor.visualDescription,
+            narration: descriptor.narration,
+            mood: descriptor.mood,
+            artStyle,
+            videoQualityTokens: descriptor.videoQualityTokens,
+            cameraDirection: descriptor.cameraDirection,
+            videoMotionPrompt: descriptor.videoMotionPrompt,
+            referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
+            transitionHint: descriptor.editDirections?.transition,
+          } : undefined,
         });
       }
     }
@@ -429,6 +397,7 @@ export async function POST(
       aspectRatio,
       videoModel: resolvedModel,
       nextSceneImageUrl: scene.nextSceneImageUrl,
+      refinementContext: scene.refinementContext,
     });
 
     if (isDev) {
