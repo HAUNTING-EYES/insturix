@@ -11,7 +11,7 @@
  */
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
-import { buildTransitionOverlay, type TransitionType, DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
+import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
 import { projectService } from '@/lib/editron/services/project-service';
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 
@@ -246,6 +246,9 @@ function applyCameraShake(
   return { created: 0, modified: 1 };
 }
 
+// OLD: Created HTML overlays (System B) that the editor couldn't display as timeline tiles.
+// NEW: Creates proper TransitionOverlay tiles (System A) with clipAId/clipBId that the
+// editor renders both as timeline tiles AND as visual transitions in the video.
 function applyTransition(
   decision: EditDecision,
   overlays: Overlay[],
@@ -253,55 +256,83 @@ function applyTransition(
   userId: string,
   canvas: { width: number; height: number },
 ): { created: number; modified: number } | null {
-  const transType = (decision.params.transitionType || 'soft-cut') as TransitionType;
-  const durationFrames = decision.durationFrames || DEFAULT_TRANSITION_FRAMES[transType] || 15;
+  const transType = (decision.params.transitionType || 'soft-cut') as string;
+  const durationFrames = decision.durationFrames || (DEFAULT_TRANSITION_FRAMES as any)[transType] || 15;
 
-  // Check if a transition already exists near this frame
-  const existingTransition = overlays.find(o =>
-    o.type === 'html-scene' && Math.abs(o.from - decision.frame) < 15,
-  );
-  if (existingTransition) {
-    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — existing transition within 15 frames (at frame ${existingTransition.from})`);
+  // hard-cut and editorial cuts don't produce visual transitions
+  if (['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
     return null;
   }
 
-  // OLD: Anchored transition to decision.frame (EDL frame), which floats mid-clip.
-  // NEW: Find the nearest actual clip boundary and anchor the transition there.
-  // A clip boundary is where one video/image overlay ends and another begins.
+  // Check if a transition already exists near this frame
+  const existingTransition = overlays.find(o =>
+    (o.type === 'transition' || (o as any).metadata?.isTransition) &&
+    Math.abs(o.from - decision.frame) < 15,
+  );
+  if (existingTransition) {
+    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — existing transition within 15 frames`);
+    return null;
+  }
+
+  // Find the two clips at this boundary (clip A ends, clip B starts)
   const visualOverlays = overlays
     .filter(o => o.type === 'video' || o.type === 'image')
     .sort((a, b) => a.from - b.from);
-  const clipBoundaries: number[] = [];
-  for (const o of visualOverlays) {
-    const endFrame = o.from + o.durationInFrames;
-    // A boundary is the end of one clip (which should be near the start of the next)
-    clipBoundaries.push(o.from, endFrame);
-  }
-  // Find the closest boundary to the decision frame (within ±30 frames tolerance)
-  let anchorFrame = decision.frame;
-  let closestDist = Infinity;
-  for (const boundary of clipBoundaries) {
+
+  // Find clip A (ends near decision.frame) and clip B (starts near decision.frame)
+  let clipA: any = null;
+  let clipB: any = null;
+  let bestDist = Infinity;
+
+  for (let i = 0; i < visualOverlays.length - 1; i++) {
+    const a = visualOverlays[i];
+    const b = visualOverlays[i + 1];
+    const boundary = a.from + a.durationInFrames;
     const dist = Math.abs(boundary - decision.frame);
-    if (dist < closestDist && dist <= 30) {
-      closestDist = dist;
-      anchorFrame = boundary;
+    if (dist < bestDist && dist <= 30) {
+      bestDist = dist;
+      clipA = a;
+      clipB = b;
     }
   }
 
-  const transOverlay = buildTransitionOverlay(transType, {
-    startFrame: anchorFrame - Math.floor(durationFrames / 2),
-    durationFrames,
+  if (!clipA || !clipB) {
+    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — no clip boundary found within 30 frames`);
+    return null;
+  }
+
+  const anchorFrame = clipA.from + clipA.durationInFrames;
+
+  // Create proper TransitionOverlay tile (System A — editor renders these)
+  const transitionOverlay = {
+    id: Date.now() + Math.floor(Math.random() * 10000),
+    type: 'transition' as const,
+    from: anchorFrame - Math.floor(durationFrames / 2),
+    durationInFrames: durationFrames,
+    row: 5, // ROW.TRANSITIONS
+    left: 0,
+    top: 0,
     width: canvas.width,
     height: canvas.height,
-  }, Date.now() + Math.random() * 10000);
+    isDragging: false,
+    rotation: 0,
+    transitionStyle: transType,
+    clipAId: clipA.id,
+    clipBId: clipB.id,
+    easing: 'ease-in-out' as const,
+    content: transType, // Display name for timeline tile
+    styles: { opacity: 1 },
+    metadata: {
+      isTransition: true,
+      transitionType: transType,
+      source: 'edl',
+      edlReason: decision.reason,
+    },
+  };
 
-  if (transOverlay) {
-    overlays.push({ ...transOverlay, id: Date.now() + Math.floor(Math.random() * 10000) } as any);
-    console.log(`[EDL-Exec] Transition APPLIED: ${transType} at anchor frame ${anchorFrame} (decision frame ${decision.frame}, dist=${closestDist})`);
-    return { created: 1, modified: 0 };
-  }
-  console.log(`[EDL-Exec] Transition at frame ${decision.frame}: FAILED — buildTransitionOverlay returned null for type "${transType}"`);
-  return null;
+  overlays.push(transitionOverlay as any);
+  console.log(`[EDL-Exec] Transition APPLIED: ${transType} tile at frame ${anchorFrame} (clipA=${clipA.id}, clipB=${clipB.id}, dist=${bestDist})`);
+  return { created: 1, modified: 0 };
 }
 
 function applyZoom(

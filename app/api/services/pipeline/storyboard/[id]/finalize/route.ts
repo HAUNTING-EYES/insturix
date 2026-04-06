@@ -404,10 +404,7 @@ export async function POST(
             dur = Math.min(dur, 90); // Max 3s for sub-shots, matching placement
             return sum + dur;
           }, 0);
-        // OLD: Math.max(totalSubFrames, durationFrames) — caused black gaps when sub-shots
-        // don't fill the full scene duration (e.g., script says 10s but sub-shots total 8.7s).
-        // NEW: Use actual content placed. No black gaps between scenes.
-        currentFrame += totalSubFrames;
+        currentFrame += Math.max(totalSubFrames, durationFrames);
       } else {
         currentFrame += durationFrames;
       }
@@ -544,6 +541,40 @@ export async function POST(
       // F6.3: Surface the error in response, not just logs
       console.warn('[Finalize] Edit direction application failed, continuing without:', editErr.message);
       warnings.push(`Edit directions partially failed: ${editErr.message}`);
+    }
+
+    // ─── Close gaps ONCE after initial assembly ──────────────────
+    // Eliminate black frames between scenes caused by sub-shot duration
+    // mismatches or duration capping. This runs ONLY here during finalize —
+    // never again automatically, so user-introduced gaps are preserved.
+    const videoOverlaysSorted = overlays
+      .filter(o => o.type === 'video' || o.type === 'image')
+      .sort((a, b) => a.from - b.from);
+    let gapsClosed = 0;
+    for (let i = 1; i < videoOverlaysSorted.length; i++) {
+      const prev = videoOverlaysSorted[i - 1];
+      const prevEnd = prev.from + prev.durationInFrames;
+      const curr = videoOverlaysSorted[i];
+      const gap = curr.from - prevEnd;
+      if (gap > 0) {
+        // Shift this overlay and all overlays starting at or after it
+        const shiftFrom = curr.from;
+        for (const o of overlays) {
+          if (o.from >= shiftFrom) {
+            o.from -= gap;
+          }
+        }
+        gapsClosed++;
+        // Re-sort after shifting
+        videoOverlaysSorted.sort((a, b) => a.from - b.from);
+        i--; // Re-check this index since positions changed
+      }
+    }
+    if (gapsClosed > 0) {
+      // Update total duration after closing gaps
+      const maxEnd = overlays.reduce((max, o) => Math.max(max, o.from + o.durationInFrames), 0);
+      currentFrame = maxEnd;
+      console.log(`[Finalize] Closed ${gapsClosed} gaps between scenes. New duration: ${(currentFrame / fps).toFixed(1)}s`);
     }
 
     // ─── Create Editron project FIRST, then dispatch audio workers ─────
