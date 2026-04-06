@@ -60,6 +60,9 @@ export async function POST(
     const fps = DEFAULT_CONFIG.timing.fps;
     const overlays: any[] = [];
     const warnings: string[] = [];
+    // Pipeline warning collector — structured error visibility
+    const { createPipelineWarnings } = await import('@/lib/editron/services/pipeline-warnings');
+    const pipelineWarnings = createPipelineWarnings();
     let currentFrame = 0;
     let overlayId = Date.now() + Math.floor(Math.random() * 10000); // F6.4: random offset for ID uniqueness
 
@@ -104,6 +107,7 @@ export async function POST(
       // Guard: ensure duration is valid (not NaN, 0, or negative)
       if (!sceneDurationSec || isNaN(sceneDurationSec) || sceneDurationSec <= 0) {
         warnings.push(`Scene ${scene.sceneIndex}: invalid duration ${sceneDurationSec}, defaulting to 5s (script=${scriptDurationSec}, vo=${voiceoverDurationSec}, video=${videoDurationSec})`);
+        pipelineWarnings.fallbackUsed('finalize', `scene ${scene.sceneIndex} duration`, 5);
         sceneDurationSec = 5;
       }
       // Cap scene duration to actual video length to prevent freeze frames.
@@ -542,6 +546,7 @@ export async function POST(
       // F6.3: Surface the error in response, not just logs
       console.warn('[Finalize] Edit direction application failed, continuing without:', editErr.message);
       warnings.push(`Edit directions partially failed: ${editErr.message}`);
+      pipelineWarnings.errorSwallowed('finalize', editErr, 'edit direction application');
     }
 
     // ─── Close gaps ONCE after initial assembly ──────────────────
@@ -732,6 +737,11 @@ export async function POST(
       warnings.push(`Edit profile auto-detection failed: ${dirErr.message}`);
     }
 
+    // Log pipeline warning summary
+    if (pipelineWarnings.hasErrors() || pipelineWarnings.count().warnings > 0) {
+      console.log(`[Finalize] ${pipelineWarnings.getSummary()}`);
+    }
+
     return NextResponse.json({
       success: true,
       projectId: project.projectId,
@@ -739,8 +749,9 @@ export async function POST(
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
       audioGenerating: true,
-      directorQueued: true, // Director runs after video gen, not immediately
+      directorQueued: true,
       ...(warnings.length > 0 && { warnings }),
+      pipelineHealth: pipelineWarnings.count(),
     });
   } catch (error: any) {
     console.error('[Finalize]', error);

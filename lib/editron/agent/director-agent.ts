@@ -58,6 +58,10 @@ export async function executeDirectorPlan(
   // Apply brief overrides
   const effectiveProfile = applyBriefOverrides(profile, brief);
 
+  // Pipeline warning collector for structured error visibility
+  const { createPipelineWarnings } = await import('@/lib/editron/services/pipeline-warnings');
+  const pipelineWarnings = createPipelineWarnings();
+
   const result: DirectorResult = {
     success: false,
     profileId: effectiveProfile.profileId,
@@ -359,6 +363,7 @@ export async function executeDirectorPlan(
         } catch (edlErr: any) {
           console.error(`[Director] EDL generation/execution failed: ${edlErr.message}`);
           result.warnings.push(`EDL: ${edlErr.message}`);
+          pipelineWarnings.errorSwallowed('director', edlErr, 'EDL generation/execution');
         }
       } else {
         // C6 FIX: Zero assets analyzed — skip EDL but STILL run profile-based steps

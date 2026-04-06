@@ -228,6 +228,8 @@ export function runQualityReview(
   overlays: AnalyzableOverlay[],
   fps: number = 30,
   projectDuration?: number,
+  /** Optional: analysis quality map (assetId → quality). If most are fallback, deduct score. */
+  analysisQualities?: Map<string, string>,
 ): QualityReport {
   const totalDuration = projectDuration || Math.max(...overlays.map(o => o.from + o.durationInFrames), 0);
 
@@ -240,6 +242,21 @@ export function runQualityReview(
     ...checkSceneTooShort(overlays, fps),
     ...checkGraphicTooCloseTocut(overlays),
   ];
+
+  // Check analysis quality — if most assets used fallback data, editing decisions are unreliable
+  if (analysisQualities && analysisQualities.size > 0) {
+    const fallbackCount = [...analysisQualities.values()].filter(q => q === 'fallback' || q === 'low').length;
+    const total = analysisQualities.size;
+    if (fallbackCount > total * 0.5) {
+      allIssues.push({
+        type: 'low_analysis' as any,
+        severity: 'warning',
+        description: `${fallbackCount}/${total} assets used fallback analysis data. Editing decisions may be less accurate.`,
+        autoFixable: false,
+        suggestedFix: 'Re-run 5-Track analysis with better video quality or longer timeout',
+      });
+    }
+  }
 
   // Calculate score: start at 100, deduct per issue
   let score = 100;
