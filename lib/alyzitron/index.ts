@@ -4,7 +4,7 @@
  */
 
 // Transcription
-export * from "./transcription/deepgram";
+export * from "./transcription/transcriptionService";
 
 // Chat
 export * from "./chat/chatEngine";

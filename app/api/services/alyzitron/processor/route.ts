@@ -6,7 +6,7 @@ import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
 import { GCSManager } from "../utils/gcs";
-import { transcribeAudio } from "@/lib/alyzitron/transcription/deepgram";
+import { transcribeAudio } from "@/lib/alyzitron/transcription/transcriptionService";
 import { upsertTranscriptionProcessing, upsertTranscriptionCompleted } from "@/lib/alyzitron";
 import { extractMediaUri, ExtractionError } from "@/lib/alyzitron/extraction/apify";
 import { streamUrlToGCS } from "@/lib/alyzitron/extraction/streamToGCS";

@@ -8,9 +8,9 @@ import {
   upsertTranscriptionCompleted,
   upsertTranscriptionError,
 } from "@/lib/alyzitron";
-import { transcribeAudio } from "@/lib/alyzitron/transcription/deepgram";
-import { GCSManager } from "../utils/gcs"; // Updated to use your GCSManager
-import { ingestMediaToGCS } from "@/lib/alyzitron/transcription/downloader"; // Import the downloader
+import { transcribeAudio } from "@/lib/alyzitron/transcription/transcriptionService";
+import { GCSManager } from "../utils/gcs";
+import { extractMediaUri, streamUrlToGCS } from "@/lib/alyzitron/transcription/downloader";
 
 /**
  * POST /api/alyzitron/chat-session
@@ -82,14 +82,20 @@ async function triggerTranscription(
       const objectPath = videoUrl.replace(`gs://${bucketName}/`, "");
       deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
     } else {
-      // Case B: YouTube URL - MUST download audio first
-      console.log("[ChatSession] Ingesting YouTube audio for Deepgram...");
-      const ingestionResult = await ingestMediaToGCS(videoUrl);
-
-      // Safety check for return type
-      deepgramUrl = typeof ingestionResult === 'string'
-        ? ingestionResult
-        : ingestionResult.signedUrl;
+      // Case B: External URL (YouTube, Instagram, etc) - Use Apify + Stream to GCS
+      console.log(`[ChatSession] Extracting and streaming media: ${videoUrl}`);
+      
+      // 1. Extract direct URI
+      const extracted = await extractMediaUri(videoUrl);
+      
+      // 2. Stream to GCS (consistent with main processor)
+      const gcsPath = `alyzitron/media/${taskId}.${extracted.mediaType === "audio" ? "mp3" : "mp4"}`;
+      const mimeType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
+      
+      const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, mimeType);
+      
+      // 3. Get signed URL for transcription service
+      deepgramUrl = await GCSManager.getSignedReadUrl(gcsPath);
     }
 
     // Now call transcribeAudio with the resolved .mp3 URL

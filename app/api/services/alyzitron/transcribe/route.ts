@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { transcribeAudio } from "@/lib/alyzitron/transcription/deepgram";
+import { transcribeAudio } from "@/lib/alyzitron/transcription/transcriptionService";
 import {
   findTranscription,
   upsertTranscriptionProcessing,
