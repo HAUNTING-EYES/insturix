@@ -11,6 +11,7 @@ import { isSFXAvailable } from '@/lib/pipeline/sfx-service';
 import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getAnalysis, selectBestSegment } from '@/lib/editron/services/five-track-analysis';
+import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -56,7 +57,7 @@ export async function POST(
     else if (aspectRatio === '1:1') { width = 1080; height = 1080; }
     else if (aspectRatio === '4:5') { width = 1080; height = 1350; }
 
-    const fps = 30;
+    const fps = DEFAULT_CONFIG.timing.fps;
     const overlays: any[] = [];
     const warnings: string[] = [];
     let currentFrame = 0;

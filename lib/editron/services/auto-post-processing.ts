@@ -14,6 +14,7 @@
  */
 
 import type { AssetAnalysis } from './five-track-analysis';
+import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 // ─── Transition SFX Map ──────────────────────────────────────────
 // 3 SFX options per transition type, contextually appropriate.
@@ -159,7 +160,7 @@ export function applyDriftZoom(
     }
 
     // Skip very short overlays (< 1s at 30fps)
-    if (overlay.durationInFrames < 30) continue;
+    if (overlay.durationInFrames < DEFAULT_CONFIG.timing.fps) continue; // < 1s at configured fps
 
     // Check if already has scale keyframes
     const hasScaleTrack = (overlay.keyframeTracks || []).some(
@@ -368,7 +369,7 @@ export function applyFreezeFrameUnderGraphics(
  */
 export function validateDurationVariety(
   overlays: any[],
-  fps: number = 30,
+  fps: number = DEFAULT_CONFIG.timing.fps,
 ): { adjusted: number } {
   let adjusted = 0;
   const videoOverlays = overlays

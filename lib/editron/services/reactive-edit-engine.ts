@@ -33,6 +33,7 @@ import type {
   FrameAnalysis,
   SubjectTrackEntry,
 } from './five-track-analysis';
+import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -73,7 +74,7 @@ export interface EditDecisionList {
 
 // ─── Engine ──────────────────────────────────────────────────────
 
-const FPS = 30;
+const FPS = DEFAULT_CONFIG.timing.fps;
 const msToFrame = (ms: number) => Math.round((ms / 1000) * FPS);
 
 export function generateEditDecisionList(

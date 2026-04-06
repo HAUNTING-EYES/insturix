@@ -14,6 +14,7 @@ import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
 import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
 import { projectService } from '@/lib/editron/services/project-service';
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
+import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 // ─── Seeded PRNG (deterministic random) ─────────────────────────
 // OLD: Math.random() produced different shake patterns every render.
@@ -79,12 +80,13 @@ export async function executeEDL(
   const { DecisionBudget } = await import('./decision-budget');
   const totalDurationMs = overlays
     .filter(o => o.type === 'video' || o.type === 'image')
-    .reduce((max, o) => Math.max(max, (o.from + o.durationInFrames) / 30 * 1000), 0);
+    .reduce((max, o) => Math.max(max, (o.from + o.durationInFrames) / DEFAULT_CONFIG.timing.fps * 1000), 0);
   const budget = new DecisionBudget(totalDurationMs || 30000, 30);
 
   // Only execute high-confidence decisions (>0.5)
-  const actionable = edl.decisions.filter(d => d.confidence > 0.5);
-  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > 0.5) with budget enforcement`);
+  const minConfidence = DEFAULT_CONFIG.analysis.minConfidenceForDecisions;
+  const actionable = edl.decisions.filter(d => d.confidence > minConfidence);
+  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement`);
 
   let budgetRejected = 0;
 

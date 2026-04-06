@@ -414,7 +414,7 @@ export async function generateUnifiedEditPlan(
     model,
     schema: EditPlanSchema,
     prompt: contextSummary,
-    temperature: 0.3,
+    temperature: DEFAULT_CONFIG.aiModels.editingTemperature,
   });
 
   const decisions: EditPlanDecision[] = object.decisions.map(d => ({

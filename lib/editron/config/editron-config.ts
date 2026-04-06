@@ -122,6 +122,12 @@ export interface VisualConfig {
     sideZoneWidth: number;      // Was: 0.15
     safeMarginFraction: number; // Was: 0.05
     safeMarginPortrait: number; // Was: 0.06
+    /** Caption zone top position (landscape). Below this = caption zone. */
+    captionZoneTopLandscape: number;
+    /** Caption zone top position (portrait). */
+    captionZoneTopPortrait: number;
+    /** Minimum graphic area as fraction of canvas to justify freeze-frame */
+    minGraphicAreaRatio: number;
   };
 }
 
@@ -240,10 +246,11 @@ export const DEFAULT_CONFIG: EditronConfig = {
     analysisVersion: 2,
   },
   budgets: {
-    maxPunchZooms: 5,
+    // Values aligned to production code (decision-budget.ts) — code is tested, these are correct.
+    maxPunchZooms: 3,        // Was 5 in config, 3 in production code
     maxCameraShakes: 4,
-    maxKeywordGraphics: 8,
-    maxCaptionEmphases: 12,
+    maxKeywordGraphics: 7,   // Was 8 in config, 7 in production code
+    maxCaptionEmphases: 10,  // Was 12 in config, 10 in production code
     maxDecisionsPerSecond: 0.8,
     minGraphicGapFrames: 90,
     minDecisionGapFrames: 10,
@@ -288,6 +295,9 @@ export const DEFAULT_CONFIG: EditronConfig = {
       sideZoneWidth: 0.15,
       safeMarginFraction: 0.05,
       safeMarginPortrait: 0.06,
+      captionZoneTopLandscape: 0.80,
+      captionZoneTopPortrait: 0.82,
+      minGraphicAreaRatio: 0.05,
     },
   },
   audio: {
