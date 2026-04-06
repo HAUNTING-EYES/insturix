@@ -24,7 +24,7 @@ interface UploadFormProps {
 
 export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const { toast } = useToast();
-  const { uploadWithProgress, uploadToYouTube, uploadToFacebook, isUploading, uploadProgress } = useUploaderXUpload();
+  const { uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, isUploading, uploadProgress } = useUploaderXUpload();
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, boolean>>({
     youtube: true,
@@ -76,6 +76,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
         // Track which platforms succeeded
         let youtubeSuccess = false;
         let facebookSuccess = false;
+        let instagramSuccess = false;
 
         // 🚀 Run platform uploads in parallel for better performance
         const uploadPromises = [];
@@ -173,18 +174,70 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
           uploadPromises.push(facebookUpload);
         }
 
+        // 🟣 Instagram Upload
+        if (selectedPlatforms.instagram) {
+          const instagramUpload = (async () => {
+            try {
+              toast({ title: "Uploading to Instagram...", description: "Publishing as Reel to your account." });
+
+              // Auto-append #Reels if type is shorts/reels
+              let finalTitle = defaultTitle || videoFile.name;
+              let finalDescription = defaultDescription;
+
+              if (activeType === 'short') {
+                if (!finalTitle.toLowerCase().includes('#reels')) finalTitle += ' #Reels';
+                if (!finalDescription.toLowerCase().includes('#reels')) finalDescription += ' #Reels';
+              }
+
+              const igResult = await uploadToInstagram(
+                result.videoUuid,
+                result.gcsPath,
+                finalTitle,
+                finalDescription
+              );
+
+              if (igResult.success) {
+                instagramSuccess = true;
+                toast({
+                  title: "✅ Instagram Upload Complete",
+                  description: `Reel posted to @${igResult.accountUsername || 'your account'}.`
+                });
+              } else {
+                toast({
+                  title: "⚠️ Instagram Upload Failed",
+                  description: igResult.error,
+                  variant: "destructive"
+                });
+              }
+              return { platform: 'instagram', success: instagramSuccess, error: igResult.error };
+            } catch (igError) {
+              console.error("Instagram upload error:", igError);
+              const errorMsg = igError instanceof Error ? igError.message : "Unknown error";
+              toast({
+                title: "⚠️ Instagram Upload Failed",
+                description: errorMsg,
+                variant: "destructive"
+              });
+              return { platform: 'instagram', success: false, error: errorMsg };
+            }
+          })();
+          uploadPromises.push(instagramUpload);
+        }
+
         // Wait for all selected platform uploads to complete
         if (uploadPromises.length > 0) {
           const results = await Promise.all(uploadPromises);
           console.log("📊 Platform upload results:", results);
-          
+
           // Show summary toast
           const summary = [];
           if (youtubeSuccess) summary.push("✅ YouTube");
           if (facebookSuccess) summary.push("✅ Facebook");
+          if (instagramSuccess) summary.push("✅ Instagram");
           if (!youtubeSuccess && selectedPlatforms.youtube) summary.push("❌ YouTube");
           if (!facebookSuccess && selectedPlatforms.facebook) summary.push("❌ Facebook");
-          
+          if (!instagramSuccess && selectedPlatforms.instagram) summary.push("❌ Instagram");
+
           toast({
             title: "Platform Upload Summary",
             description: summary.join(" | "),

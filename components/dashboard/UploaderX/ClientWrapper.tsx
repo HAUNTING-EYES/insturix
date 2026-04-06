@@ -123,6 +123,7 @@ const UploadForm = dynamic(() => import("@/components/dashboard/UploaderX/Upload
 const PlatformEditor = dynamic(() => import("@/components/dashboard/UploaderX/PlatformEditor").then(m => m.PlatformEditor), { ssr: false });
 const VideoManager = dynamic(() => import("@/components/dashboard/UploaderX/VideoManager").then(m => m.VideoManager), { ssr: false });
 const YouTubeConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/YouTubeConnectionStatus").then(m => m.YouTubeConnectionStatus), { ssr: false });
+const InstagramConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/InstagramConnectionStatus").then(m => m.InstagramConnectionStatus), { ssr: false });
 
 export function UploaderXClientWrapper() {
   const { toast } = useToast();
@@ -140,6 +141,59 @@ export function UploaderXClientWrapper() {
       });
 
       // 🧹 Clean up token from the URL
+      window.history.replaceState({}, document.title, "/dashboard/uploaderx");
+    }
+  }, [toast]);
+
+  // ✅ Handle Facebook connection feedback from callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fbConnected = params.get("fb_connected");
+    const fbError = params.get("fb_error");
+
+    if (fbConnected === "true") {
+      toast({
+        title: "Facebook connected!",
+        description: "You can now upload videos to your Facebook Pages.",
+      });
+      window.history.replaceState({}, document.title, "/dashboard/uploaderx");
+    } else if (fbError) {
+      let errorMsg = "Failed to connect Facebook.";
+      if (fbError === "denied") errorMsg = "Facebook connection was denied. Please try again.";
+      if (fbError === "token_exchange") errorMsg = "Facebook token exchange failed. Please try again.";
+      if (fbError === "pages_fetch") errorMsg = "Could not fetch your Facebook Pages. Please ensure you have admin access.";
+      toast({
+        title: "Facebook Connection Error",
+        description: errorMsg,
+        variant: "destructive",
+      });
+      window.history.replaceState({}, document.title, "/dashboard/uploaderx");
+    }
+  }, [toast]);
+
+  // ✅ Handle Instagram connection feedback from callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const igConnected = params.get("ig_connected");
+    const igError = params.get("ig_error");
+
+    if (igConnected === "true") {
+      toast({
+        title: "Instagram connected!",
+        description: "You can now publish Reels to your Instagram Business account.",
+      });
+      window.history.replaceState({}, document.title, "/dashboard/uploaderx");
+    } else if (igError) {
+      let errorMsg = "Failed to connect Instagram.";
+      if (igError === "denied") errorMsg = "Instagram connection was denied. Please try again.";
+      if (igError === "token_exchange") errorMsg = "Instagram token exchange failed. Please try again.";
+      if (igError === "pages_fetch") errorMsg = "Could not fetch your Facebook Pages. Please ensure you have admin access.";
+      if (igError === "no_accounts") errorMsg = "No Instagram Business accounts found connected to your Facebook Pages.";
+      toast({
+        title: "Instagram Connection Error",
+        description: errorMsg,
+        variant: "destructive",
+      });
       window.history.replaceState({}, document.title, "/dashboard/uploaderx");
     }
   }, [toast]);

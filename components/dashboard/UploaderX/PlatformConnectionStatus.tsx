@@ -32,13 +32,13 @@ export function PlatformConnectionStatus() {
         const fbRes = await fetch('/api/services/uploaderx/facebook/pages');
         const fbData = await fbRes.json();
 
-        // Check Instagram (will work after implementation)
+        // Check Instagram via API
         let igData = { connected: false };
         try {
           const igRes = await fetch('/api/services/uploaderx/instagram/status');
           igData = await igRes.json();
         } catch (e) {
-          // Instagram not implemented yet
+          // Instagram not connected or API error
         }
 
         setConnections(prev => ({
@@ -133,6 +133,18 @@ export function PlatformConnectionStatus() {
         >
           <Link2 className="h-3 w-3" />
           Connect Facebook
+        </a>
+      )}
+
+      {!connections.instagram && (
+        <a
+          href="/api/services/uploaderx/instagram/auth"
+          className="text-xs text-pink-400 hover:underline flex items-center gap-1"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Link2 className="h-3 w-3" />
+          Connect Instagram
         </a>
       )}
     </div>

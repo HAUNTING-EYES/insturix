@@ -110,6 +110,20 @@ interface IUser extends Document {
     }>;
     connectedAt: Date;
   };
+  instagramTokens?: {
+    userAccessToken: string;
+    userId: string;
+    userName: string;
+    accounts: Array<{
+      instagramAccountId: string;
+      instagramUsername: string;
+      profilePictureUrl: string | null;
+      facebookPageId: string;
+      facebookPageName: string;
+      facebookPageAccessToken: string;
+    }>;
+    connectedAt: Date;
+  };
 }
 
 const serviceLimitSchema = new Schema<IServiceLimit>({
@@ -358,6 +372,21 @@ const userSchema = new Schema<IUser>({
       pageId: String,
       pageName: String,
       pageAccessToken: String,
+      _id: false
+    }],
+    connectedAt: Date,
+  },
+  instagramTokens: {
+    userAccessToken: String,
+    userId: String,
+    userName: String,
+    accounts: [{
+      instagramAccountId: String,
+      instagramUsername: String,
+      profilePictureUrl: String,
+      facebookPageId: String,
+      facebookPageName: String,
+      facebookPageAccessToken: String,
       _id: false
     }],
     connectedAt: Date,

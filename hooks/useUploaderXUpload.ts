@@ -329,7 +329,7 @@ export function useUploaderXUpload() {
   ) => {
     try {
       console.log("🔵 Starting Facebook upload:", { videoUuid, gcsPath, title, pageId });
-      
+
       const res = await fetch("/api/services/uploaderx/facebook", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -344,11 +344,11 @@ export function useUploaderXUpload() {
 
       const data = await res.json();
       console.log("🔵 Facebook response:", data);
-      
+
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Facebook`);
       }
-      
+
       if (!data.success) {
         throw new Error(data.error || "Failed to upload to Facebook");
       }
@@ -361,11 +361,53 @@ export function useUploaderXUpload() {
     }
   }, []);
 
+  const uploadToInstagram = useCallback(async (
+    videoUuid: string,
+    gcsPath: string,
+    title?: string,
+    description?: string,
+    accountId?: string
+  ) => {
+    try {
+      console.log("🟣 Starting Instagram upload:", { videoUuid, gcsPath, title, accountId });
+
+      const res = await fetch("/api/services/uploaderx/instagram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gcsPath,
+          videoUuid,
+          title,
+          description,
+          accountId,
+        }),
+      });
+
+      const data = await res.json();
+      console.log("🟣 Instagram response:", data);
+
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Instagram`);
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || "Failed to upload to Instagram");
+      }
+
+      return { success: true, instagramUrl: data.instagramUrl, accountUsername: data.accountUsername, mediaType: data.mediaType };
+    } catch (error) {
+      console.error("❌ Instagram upload error:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Instagram upload failed';
+      return { success: false, error: errorMessage };
+    }
+  }, []);
+
   return {
     uploadVideo,
     uploadWithProgress,
     uploadToYouTube,
     uploadToFacebook,
+    uploadToInstagram,
     isUploading,
     uploadProgress,
   };
