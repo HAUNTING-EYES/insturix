@@ -244,8 +244,9 @@ export function validateScreenZones(
   const zone3Top = canvas.height * (isPortrait ? 0.82 : 0.80);
 
   for (const overlay of overlays) {
-    if (overlay.type !== 'html-scene') continue;
-    if (!overlay.metadata?.sourceType?.includes('edl')) continue; // Only check EDL-generated graphics
+    // OLD: Only checked EDL-generated graphics. User-placed graphics could overlap captions.
+    // NEW: Check ALL graphics regardless of source (EDL, Director, user, chat).
+    if (overlay.type !== 'html-scene' && overlay.type !== 'sticker') continue;
 
     const graphicType = overlay.metadata?.graphicType;
 

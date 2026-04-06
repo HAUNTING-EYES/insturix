@@ -539,7 +539,13 @@ function applyGraphic(
     'callout': 75,            // 2.5s — brief label
   };
   const duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
-  const safeText = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Full HTML entity escaping — prevents XSS if Gemini outputs malicious text
+  const safeText = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
 
   // Aspect-ratio-aware positioning
   const isPortrait = canvas.height > canvas.width;
@@ -731,7 +737,8 @@ function applyAudioDuck(
   overlays: Overlay[],
 ): { created: number; modified: number } | null {
   // Find BGM overlay (row 1 sound)
-  const bgm = overlays.find(o => o.type === 'sound' && o.row === 1) as any;
+  // ROW.BGM = 1 (from scene-to-editron.ts). Also match by assetId prefix for robustness.
+  const bgm = overlays.find(o => o.type === 'sound' && (o.row === 1 || (o.assetId || '').startsWith('bgm_'))) as any;
   if (!bgm) return null;
 
   // Already has ducking? Skip.

@@ -231,7 +231,7 @@ export async function executeDirectorPlan(
         } catch (assetErr: any) {
           edlSummary.assetsFailed++;
           edlSummary.failedAssets.push(`${assetId}:${assetErr.message?.slice(0, 60)}`);
-          console.warn(`[Director] Scene ${i} (${assetId}): analysis FAILED: ${assetErr.message}`);
+          console.error(`[Director] Scene ${i} (${assetId}): analysis FAILED: ${assetErr.message}`);
           // Continue to next asset — don't abort the whole intelligence layer
         }
       }
@@ -357,7 +357,7 @@ export async function executeDirectorPlan(
             );
           } catch { /* non-fatal */ }
         } catch (edlErr: any) {
-          console.warn(`[Director] EDL generation/execution failed: ${edlErr.message}`);
+          console.error(`[Director] EDL generation/execution failed: ${edlErr.message}`);
           result.warnings.push(`EDL: ${edlErr.message}`);
         }
       } else {
@@ -815,7 +815,7 @@ async function executeAction(
           report.suggestions.forEach(s => console.log(`[Director] Suggestion: ${s}`));
         }
       } catch (qrErr: any) {
-        console.warn(`[Director] Quality review failed: ${qrErr.message}`);
+        console.error(`[Director] Quality review failed: ${qrErr.message}`);
       }
       break;
     }
@@ -991,7 +991,7 @@ async function invokeAITool(
       console.log(`[Director] Tool ${toolName} succeeded`);
       return result.data?.overlaysModified || result.data?.overlaysCreated || 1;
     } else {
-      console.warn(`[Director] Tool ${toolName} failed: ${result.error?.message}`);
+      console.error(`[Director] Tool ${toolName} failed: ${result.error?.message}`);
       return 0;
     }
   } catch (err: any) {
