@@ -802,18 +802,37 @@ ${context.previousSceneLastFrame ? 'Continues from previous scene — maintain v
 ## KEY SUBJECTS
 ${subjectContext}
 
-## RULES
-1. Open with 5-10 word subject anchor using identity details from subject sheet
-2. Primary: ONE camera movement + ONE subject action. Slow, deliberate.
-3. Secondary: ONE atmospheric detail (wind, light shift, particles)
-4. Include physics: weight, momentum, reflections where natural
-5. Reference ONLY elements from visual description and subject sheets
+## PROMPT STRUCTURE (follow this order)
+1. ENVIRONMENT + LIGHTING first (e.g., "warm golden-hour light fills a cozy restaurant interior")
+2. SUBJECT + ACTION (e.g., "a grandmother gently hands a french fry to her grandchild")
+3. CAMERA MOVEMENT — be PRECISE (e.g., "slow steady push-in" NOT "camera moves")
+4. ATMOSPHERIC DETAIL — ONE only (e.g., "steam rises gently from the coffee cup")
+
+## ARTIFACT AVOIDANCE (CRITICAL — these cause visual failures)
+- NEVER describe hands interacting with small objects (holding fries, opening packets). Instead frame the RESULT: "enjoying food together" not "fingers gripping a fry"
+- NEVER describe eating mechanics (biting, chewing). Instead: "savoring the moment, warm smile, food at chest level"
+- NEVER include readable text in the scene. Text overlays are added separately in post.
+- ALWAYS specify: "consistent lighting throughout, no exposure changes"
+- ALWAYS specify: "temporally consistent, smooth motion, no flickering"
+- For people: "natural relaxed posture, hands at sides or resting on table" unless gesture is essential
+- For products/food: "hero product positioned at rule-of-thirds intersection, shallow depth of field"
+
+## COMPOSITION (from cinematography principles)
+- Use rule of thirds for subject placement
+- Include foreground/background separation (depth)
+- Specify lighting direction: "soft diffused light from left" or "warm backlight with rim highlights"
+- Appropriate headroom and looking room for people shots
+
+## PHYSICS & REALISM
+- Include weight: "heavy door swings slowly" not "door opens"
+- Include momentum: "hair settles after turning" not "turns head"
+- Natural environmental motion: wind on fabric, steam, reflections in glass
 
 ## MODEL-SPECIFIC TUNING
 ${modelGuide}
 
 ## OUTPUT
-Return ONLY the refined prompt text. No JSON wrapper needed — put it in the prompt field.`,
+80-150 words. ONE paragraph. No bullet points. Return in the prompt field.`,
   });
 
   return object.prompt;

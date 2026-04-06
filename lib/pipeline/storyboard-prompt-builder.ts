@@ -131,6 +131,13 @@ export function buildStoryboardPrompt(
     parts.push(styleGuide.colorPalette.join(', '));
   }
 
+  // Composition + quality tokens (from creative production knowledge)
+  // These enforce professional framing without adding too many tokens.
+  parts.push('rule of thirds composition, professional framing');
+  parts.push('consistent lighting, no exposure variation');
+  // Prevent AI from generating text in the image — text is added as overlays in post
+  parts.push('no visible text, no signs with legible writing, no watermarks');
+
   // Consistency hint for multi-scene storyboards (kept short)
   if (totalScenes && totalScenes > 1) {
     parts.push(

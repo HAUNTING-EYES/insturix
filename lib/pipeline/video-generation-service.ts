@@ -161,10 +161,15 @@ function buildVideoNegativePrompt(scene?: { editDirections?: { pacing?: string }
     'depth-of-field collapse, background replacement artifacts',
   ];
 
-  // Only add text negatives if the scene doesn't intentionally have text
-  if (!scene?.hasTextOverlay) {
-    base.push('text overlay, watermark, logo, subtitles, UI elements');
-  }
+  // Text — ALWAYS suppress AI-generated text. Readable text is added as graphic overlays in post.
+  base.push('text overlay, watermark, logo, subtitles, UI elements, readable text, legible writing');
+
+  // Hands/anatomy — the #1 AI video artifact. Always suppress.
+  base.push('melted hands, fused fingers, extra fingers, broken fingers, deformed hands');
+  base.push('food phasing through face, objects passing through body, impossible physics');
+
+  // Temporal consistency — critical for professional output
+  base.push('face morphing, identity drift between frames, inconsistent facial features');
 
   // Don't suppress rapid movement if the scene is fast-paced
   if (scene?.editDirections?.pacing !== 'fast') {
