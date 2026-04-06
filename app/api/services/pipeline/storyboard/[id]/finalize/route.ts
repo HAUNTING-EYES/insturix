@@ -404,7 +404,10 @@ export async function POST(
             dur = Math.min(dur, 90); // Max 3s for sub-shots, matching placement
             return sum + dur;
           }, 0);
-        currentFrame += Math.max(totalSubFrames, durationFrames);
+        // OLD: Math.max(totalSubFrames, durationFrames) — caused black gaps when sub-shots
+        // don't fill the full scene duration (e.g., script says 10s but sub-shots total 8.7s).
+        // NEW: Use actual content placed. No black gaps between scenes.
+        currentFrame += totalSubFrames;
       } else {
         currentFrame += durationFrames;
       }
