@@ -382,6 +382,12 @@ export function validateDurationVariety(
       || videoOverlays[i - 2].metadata?.isMontageSub;
     if (isMontage) continue;
 
+    // Skip clips with script-set pacing — edit-direction-applier already adjusted these.
+    // Overriding script intent with auto-variety breaks the user's creative direction.
+    const hasScriptPacing = videoOverlays[i].metadata?.scriptPacing
+      || videoOverlays[i].metadata?.editDirectionApplied;
+    if (hasScriptPacing) continue;
+
     const durA = videoOverlays[i - 2].durationInFrames / fps;
     const durB = videoOverlays[i - 1].durationInFrames / fps;
     const durC = videoOverlays[i].durationInFrames / fps;

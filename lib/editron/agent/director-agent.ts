@@ -322,7 +322,13 @@ export async function executeDirectorPlan(
             for (const a of analyses) {
               analysisMap.set(a.assetId, a);
             }
-            const ppResult = runPostProcessing(overlays, canvas, analysisMap, edlResult.budgetRejectedZoomAssetIds);
+            // Pass both budget-rejected AND already-zoomed assetIds to prevent drift-zoom conflicts.
+            // If EDL already applied a zoom to an asset, drift-zoom should NOT add another.
+            const allSkipZoomIds = new Set([
+              ...edlResult.budgetRejectedZoomAssetIds,
+              ...edlResult.zoomedAssetIds,
+            ]);
+            const ppResult = runPostProcessing(overlays, canvas, analysisMap, allSkipZoomIds);
             result.overlaysModified += ppResult.totalModified;
             if (ppResult.driftZoomApplied > 0) {
               console.log(`[Director] Post-process: ${ppResult.driftZoomApplied} drift-zooms applied (Z-030)`);
@@ -507,17 +513,29 @@ async function executeAction(
 
   switch (action.tool) {
     case 'batch_update_overlays': {
-      // Apply filter to all visual overlays
+      // Apply filter to visual overlays.
+      // GUARD: If edit-direction-applier (finalize) already set a filter from the script,
+      // DON'T overwrite it — script intent > profile default.
+      // Only apply profile filter to overlays that have NO filter set.
       const filterPresetId = action.params.filterPresetId || profile.filterPresetId;
       const preset = getFilterPresetById(filterPresetId);
       if (preset.id === 'none') break;
 
       const targetTypes = action.params.targetTypes || ['image', 'video'];
+      let skippedScriptFilter = 0;
       for (const overlay of overlays) {
         if (targetTypes.includes(overlay.type)) {
+          if ((overlay as any).styles?.filter) {
+            // Script already set a filter via edit-direction-applier — respect it
+            skippedScriptFilter++;
+            continue;
+          }
           overlay.styles = { ...overlay.styles, filter: preset.filter };
           modified++;
         }
+      }
+      if (skippedScriptFilter > 0) {
+        console.log(`[Director] batch_update_overlays: applied filter to ${modified}, skipped ${skippedScriptFilter} (script-set filter preserved)`);
       }
       break;
     }
@@ -838,6 +856,15 @@ async function invokeAITool(
   // Tool-specific param mapping from profile
   switch (toolName) {
     case 'add_captions': {
+      // GUARD: If finalize already created captions, don't duplicate them.
+      // Finalize creates basic captions from narration text. Director's job is to
+      // ENHANCE existing captions (styling, emphasis), not create duplicates.
+      const existingCaptions = overlays.filter(o => o.type === 'caption');
+      if (existingCaptions.length > 0) {
+        console.log(`[Director] add_captions: ${existingCaptions.length} captions already exist (from finalize). Skipping to avoid duplicates.`);
+        return 0;
+      }
+
       // Caption ALL video overlays sequentially
       const videoOverlays = overlays.filter(o => o.type === 'video');
       if (videoOverlays.length === 0) {

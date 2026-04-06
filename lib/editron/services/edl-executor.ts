@@ -39,6 +39,8 @@ export interface ExecutionResult {
   errors: string[];
   /** AssetIds of overlays whose zoom decisions were rejected by budget — drift-zoom should skip these */
   budgetRejectedZoomAssetIds: Set<string>;
+  /** AssetIds that already received a zoom from EDL — drift-zoom should skip these too */
+  zoomedAssetIds: Set<string>;
 }
 
 // ─── Executor ────────────────────────────────────────────────────
@@ -68,6 +70,7 @@ export async function executeEDL(
     overlaysModified: 0,
     errors: [],
     budgetRejectedZoomAssetIds: new Set<string>(),
+    zoomedAssetIds: new Set<string>(),
   };
 
   // ─── Budget enforcement (Director Knowledge Base) ──────────────
@@ -130,6 +133,13 @@ export async function executeEDL(
         result.decisionsExecuted++;
         if (applied.created) result.overlaysCreated += applied.created;
         if (applied.modified) result.overlaysModified += applied.modified;
+        // Track zoomed assets so drift-zoom post-processing skips them
+        if (decision.type === 'zoom') {
+          const video = overlays.find(o =>
+            o.type === 'video' && o.from <= decision.frame && o.from + o.durationInFrames > decision.frame
+          );
+          if (video?.assetId) result.zoomedAssetIds.add(video.assetId);
+        }
       } else {
         result.decisionsSkipped++;
         console.log(`[EDL-Exec] SKIPPED (returned null): ${decision.type} at frame ${decision.frame} — ${decision.reason?.substring(0, 80) || 'no reason'}`);
@@ -505,6 +515,20 @@ function applyGraphic(
   const { graphicType, text, position } = decision.params;
   if (!text) return null;
 
+  // DEDUP: Don't create graphic if one already exists at this frame range.
+  // Multiple systems (finalize, EDL, Director, chat) can create graphics.
+  // First one wins — no visual clutter from overlapping graphics.
+  const graphicCheckDur = decision.durationFrames || 90;
+  const existingGraphic = overlays.find(o =>
+    (o.type === 'html-scene' || (o as any).type === 'sticker') &&
+    o.from <= decision.frame + 15 &&
+    (o.from + o.durationInFrames) >= decision.frame - 15
+  );
+  if (existingGraphic) {
+    console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: SKIPPED — existing graphic at frame ${existingGraphic.from} (dedup)`);
+    return null;
+  }
+
   // Type-specific durations (not one-size-fits-all)
   const GRAPHIC_DURATIONS: Record<string, number> = {
     'stat-counter': 120,      // 4s — needs counting animation + read time
@@ -731,9 +755,33 @@ function applyFilterChange(
   decision: EditDecision,
   overlays: Overlay[],
 ): { created: number; modified: number } | null {
-  const { filterId, filterCss } = decision.params;
+  let { filterId, filterCss } = decision.params;
+
+  // If Unified Intelligence didn't specify which filter, try to infer from the decision reason.
+  // Reasons often contain filter keywords like "vintage-film", "warm", "golden-hour", "crisp-vibrant".
+  if (!filterId && !filterCss && decision.reason) {
+    const reason = decision.reason.toLowerCase();
+    const filterKeywords: Record<string, string> = {
+      'vintage': 'sepia(30%) contrast(110%) brightness(95%)',
+      'golden-hour': 'contrast(108%) brightness(108%) saturate(140%) sepia(18%) hue-rotate(348deg)',
+      'warm': 'contrast(108%) brightness(105%) saturate(120%) sepia(10%)',
+      'cool': 'contrast(110%) brightness(100%) saturate(90%) hue-rotate(180deg)',
+      'cinematic': 'contrast(115%) brightness(95%) saturate(110%)',
+      'crisp': 'contrast(120%) brightness(105%) saturate(130%)',
+      'noir': 'grayscale(100%) contrast(130%) brightness(90%)',
+      'vibrant': 'contrast(110%) brightness(105%) saturate(150%)',
+    };
+    for (const [keyword, css] of Object.entries(filterKeywords)) {
+      if (reason.includes(keyword)) {
+        filterCss = css;
+        console.log(`[EDL-Exec] Filter-change at frame ${decision.frame}: inferred "${keyword}" from reason`);
+        break;
+      }
+    }
+  }
+
   if (!filterId && !filterCss) {
-    console.log(`[EDL-Exec] Filter-change at frame ${decision.frame}: SKIPPED — no filterId or filterCss in params (Unified Intelligence didn't specify which filter)`);
+    console.log(`[EDL-Exec] Filter-change at frame ${decision.frame}: SKIPPED — no filterId, filterCss, or inferable keyword in reason`);
     return null;
   }
 
