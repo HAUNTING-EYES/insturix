@@ -115,10 +115,14 @@ export async function parseScriptWithLLM(
   // OLD: hardcoded 'gemini-2.5-flash'. NEW: configurable via env var LLM_PARSER_MODEL.
   const model = (google as any)(DEFAULT_CONFIG.aiModels.sceneParserModel, { structuredOutputs: true });
 
+  // HOTFIX 2026-04-08: hard 90s cap so a stuck Gemini call fails fast and the
+  // regex fallback in /export-for-editron/route.ts:119 kicks in, instead of
+  // hanging the whole function until Vercel kills it at 300s (504 timeout).
   const { object } = await generateObject({
     model,
     schema: ParseResultSchema,
     temperature: 0.3,
+    abortSignal: AbortSignal.timeout(90_000),
     prompt: `You are a senior video production director. Decompose a client script into discrete scenes, each representing ONE AI video generation call.
 
 ## INPUT CONTRACT
@@ -559,10 +563,13 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
 
       const montageModel = google(DEFAULT_CONFIG.aiModels.montageDetectionModel);
 
+      // HOTFIX 2026-04-08: 45s hard cap — montage detection is an optional
+      // enhancement; if it hangs we continue with single-shot scenes.
       const { object: montageResult } = await generateObject({
         model: montageModel,
         schema: MontageDetectionSchema,
         temperature: 0.1,
+        abortSignal: AbortSignal.timeout(45_000),
         prompt: `Read this script and identify scenes that describe MULTIPLE DISTINCT visual shots (3+) that would each need a SEPARATE AI video clip.
 
 RULES:
@@ -655,10 +662,14 @@ export async function extractSubjectsFromScenes(
     })
     .join('\n\n');
 
+  // HOTFIX 2026-04-08: 60s hard cap — runs in the reference-images/extract-subjects
+  // route which has a 60s practical budget. If Gemini hangs, caller should surface
+  // the timeout error rather than sitting at the spinner for 5 minutes.
   const { object } = await generateObject({
     model,
     schema: SubjectExtractionSchema,
     temperature: 0.2,
+    abortSignal: AbortSignal.timeout(60_000),
     prompt: `You are a senior concept artist doing pre-production for a video. Read EVERY scene carefully and extract ALL visual subjects that could benefit from a reference image.
 
 === SCENES ===
@@ -781,10 +792,14 @@ export async function refineVideoPrompt(
   };
   const modelGuide = modelTuning[context.targetModel || ''] || 'Default: slow push-in, minimal motion, one atmospheric detail. 80-120 words.';
 
+  // HOTFIX 2026-04-08: 60s hard cap — called per-scene from video worker
+  // (300s total budget). If refinement hangs, worker falls back to buildMotionPrompt()
+  // heuristic, which is what the video worker's catch block at line ~113 already expects.
   const { object } = await generateObject({
     model,
     schema: RefinedVideoPromptSchema,
     temperature: 0.7,
+    abortSignal: AbortSignal.timeout(60_000),
     prompt: `You are VideoPromptMaster — a prompt engineer for image-to-video AI models.
 
 ## TASK

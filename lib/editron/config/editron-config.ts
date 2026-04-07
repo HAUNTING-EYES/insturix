@@ -337,12 +337,16 @@ export const DEFAULT_CONFIG: EditronConfig = {
     //   gemini-3.1-pro-preview         — Edit decisions / Unified Intelligence (best reasoning, 300s budget)
     //   gemma-4-31b-it                 — Vision analysis (FREE, native video/image understanding)
     //   gemini-2.5-flash               — Chat + universal fallback ONLY
-    // 3.1 pro for parsing + decisions (best reasoning, 1M context, 300s budget).
-    // 3.1 flash-lite for lightweight tasks (montage detection).
-    // 2.5 flash ONLY for chat and fallback.
-    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
+    // 3.1 flash-lite for parser/subject/montage (fast, matches 90s hard cap in llm-scene-parser).
+    // 3.1 pro ONLY for Unified Intelligence decisions (runs in Director worker with its own budget).
+    // 2.5 flash ONLY for chat and universal fallback.
+    //
+    // HOTFIX 2026-04-08: sceneParserModel + subjectExtractionModel were on 'gemini-3.1-pro-preview'
+    // which hung past 300s on export-for-editron → 504 timeout. Both dropped to flash-lite-preview.
+    // See commit e4943987 (prior revert for the same reason) and f0318616 (prior switch to flash-lite).
+    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
-    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
+    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
     analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemma-4-31b-it', 'gemini-2.5-flash'),
