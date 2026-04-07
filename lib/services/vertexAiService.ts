@@ -136,6 +136,23 @@ export async function analyzeVideoWithGemini(
             required: ["name", "score", "description"],
           },
         },
+        full_transcript: {
+          type: SchemaType.STRING,
+          description: "A word-for-word string containing the entire transcription. Strictly do not summarize the dialogue, provide everything spoken.",
+        },
+        speaker_segments: {
+          type: SchemaType.ARRAY,
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              speaker: { type: SchemaType.STRING, description: "Speaker identifier (e.g., Speaker A)" },
+              text: { type: SchemaType.STRING, description: "The exact words spoken by the speaker" },
+              start_time: { type: SchemaType.STRING, description: "Start time in HH:MM:SS format" }
+            },
+            required: ["speaker", "text", "start_time"]
+          },
+          description: "A word-for-word transcript divided by speaker. Strictly do not summarize, provide everything spoken.",
+        },
       },
       required: [
         "category",
@@ -144,6 +161,8 @@ export async function analyzeVideoWithGemini(
         "strengths",
         "weaknesses",
         "analysis",
+        "full_transcript",
+        "speaker_segments",
       ],
     };
 
@@ -241,11 +260,17 @@ ANALYSIS REQUIREMENTS:
 5. Include timestamps [HH:MM:SS] naturally in descriptions ONLY when referring to specific moments
 6. Give specific suggestions and remarks for improvement that are strategically aligned with the user's context (${context.platform}, ${context.location}). For example, if location is India, suggest optimizations for Indian viewers or compliance with Indian ad standards.
 7. List any content warnings if applicable
+8. Provide a word-for-word full transcript and speaker segments. Strictly do not summarize the dialogue, provide EVERYTHING spoken verbatim.
 
 CRITICAL: Return ONLY raw JSON without any markdown formatting, backticks, or explanatory text.
 
 JSON STRUCTURE EXAMPLE:
 {
+  "full_transcript": "Wait, let's keep going. Yes, I think so...",
+  "speaker_segments": [
+    {"speaker": "Speaker A", "text": "Wait, let's keep going.", "start_time": "00:00:00"},
+    {"speaker": "Speaker B", "text": "Yes, I think so...", "start_time": "00:00:03"}
+  ],
   "summary": "Detailed summary here",
   "keyMoments": [
     {"timestamp": "00:00:00", "description": "Video starts with intro"},
@@ -335,6 +360,8 @@ Be specific and reference actual content from the video with precise timestamps.
       // Ensure all required fields exist with defaults
       const finalResult = {
         ...parsed, // Include all original fields from the model (analysis, strengths, titles, etc.)
+        full_transcript: parsed.full_transcript || "",
+        speaker_segments: parsed.speaker_segments || [],
         summary: parsed.summary || parsed.overview || `Analysis of "${metadata.originalFilename}"`,
         keyMoments: Array.isArray(parsed.keyMoments) ? parsed.keyMoments : [],
         qualityAssessment: parsed.qualityAssessment || {

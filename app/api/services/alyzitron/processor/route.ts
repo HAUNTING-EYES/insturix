@@ -59,12 +59,23 @@ async function handler(request: NextRequest) {
         logger.info("Route 2: GCS Path");
         const objectPath = task.videoUrl.replace(`gs://${process.env.GCS_BUCKET_NAME}/`, "");
         const deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
-        const [dg, gem] = await Promise.all([
-          transcribeAudio(deepgramUrl),
-          analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {})
-        ]);
-        transcriptResult = dg;
+        // const [dg, gem] = await Promise.all([
+        //   transcribeAudio(deepgramUrl),
+        //   analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {})
+        // ]);
+        // transcriptResult = dg;
+        const gem = await analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
         analysisResults = gem;
+        transcriptResult = {
+          id: "gemini-" + Date.now().toString(),
+          text: gem.full_transcript || "",
+          detectedLanguage: "en",
+          confidence: 1.0,
+          speakerSegments: gem.speaker_segments || [],
+          formattedTranscript: gem.full_transcript || "",
+          durationMs: 0,
+          wordCount: gem.full_transcript?.trim() ? gem.full_transcript.trim().split(/\s+/).length : 0
+        };
       }
       // ROUTE 3: EXTERNAL LINKS (YouTube/Insta)
       else {
@@ -81,23 +92,52 @@ async function handler(request: NextRequest) {
         } else {
           // VIDEO/AUDIO LOGIC
           updatedMimeType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
-          const gcsPath = `alyzitron/media/${taskId}.${extracted.mediaType === "audio" ? "mp3" : "mp4"}`;
+          // Use temp directory for video meant only for analysis
+          const isVideo = extracted.mediaType === "video" || extracted.mediaType === "unknown";
+          
+          const audioGcsPath = `alyzitron/media/${taskId}.mp3`;
+          const tempVideoGcsPath = `alyzitron/temp/${taskId}.mp4`;
+          
+          const gcsPath = isVideo ? tempVideoGcsPath : audioGcsPath;
 
           // 1. Stream to GCS
           const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, updatedMimeType);
-          updatedVideoUrl = gcsRes.gcsUri;
+          
+          // DO NOT UPDATE updatedVideoUrl if it is a video (keep the YT/Insta URL for embeds). 
+          // If it's pure audio, we can keep the GCS URL, but generally we want to keep original so embeds work. 
+          // We'll keep updatedVideoUrl as the originalSourceUrl for external links, 
+          // but for audio-only extraction we might need the GCS link. Let's keep the original for all external links 
+          // so the frontend knows what it is. Wait, originalSourceUrl is already preserved. We should ensure 'videoUrl' 
+          // stays as the original YT/Insta url.
+          // Wait, 'task.videoUrl' is the original YT/Insta link. So we simply don't overwrite updatedVideoUrl here, except for audio if needed.
+          // Actually, let's keep updatedVideoUrl as original for videos, but for audio maybe update. Let's just keep it as original so embed works if possible.
+          // The frontend checks if it's a youtube/insta link.
+          if (!isVideo) {
+            updatedVideoUrl = gcsRes.gcsUri;
+          }
 
           // 2. Secure URL for Deepgram
           const objectPath = gcsPath;
           const deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
 
           // 3. Parallel AI
-          const [dg, gem] = await Promise.all([
-            transcribeAudio(deepgramUrl),
-            analyzeVideoWithGemini(gcsRes.gcsUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {})
-          ]);
-          transcriptResult = dg;
+          // const [dg, gem] = await Promise.all([
+          //   transcribeAudio(deepgramUrl),
+          //   analyzeVideoWithGemini(gcsRes.gcsUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {})
+          // ]);
+          // transcriptResult = dg;
+          const gem = await analyzeVideoWithGemini(gcsRes.gcsUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
           analysisResults = gem;
+          transcriptResult = {
+            id: "gemini-" + Date.now().toString(),
+            text: gem.full_transcript || "",
+            detectedLanguage: "en",
+            confidence: 1.0,
+            speakerSegments: gem.speaker_segments || [],
+            formattedTranscript: gem.full_transcript || "",
+            durationMs: 0,
+            wordCount: gem.full_transcript?.trim() ? gem.full_transcript.trim().split(/\s+/).length : 0
+          };
         }
       }
 
