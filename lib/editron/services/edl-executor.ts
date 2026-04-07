@@ -15,6 +15,25 @@ import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templat
 import { projectService } from '@/lib/editron/services/project-service';
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
+import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
+
+// Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
+// produced different IDs per render → broke Lambda caching and A/B comparisons.
+// NEW: hash the decision's anchor fields (frame + type + index) + a Director-run epoch.
+// The epoch is per-executeEDL call so IDs are still unique within a project but stable
+// for a single render pass. See Phase A3 notes in editron_master_remaining.md.
+function deterministicOverlayId(epoch: number, decisionType: string, frame: number, index: number): number {
+  // FNV-1a–ish fold into 53-bit integer safe for JS Number
+  let h = 2166136261 >>> 0;
+  const str = `${epoch}|${decisionType}|${frame}|${index}`;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  // Combine with epoch to guarantee project-level uniqueness across multiple EDL runs
+  return epoch * 1_000_000 + (h % 1_000_000);
+}
 
 // ─── Seeded PRNG (deterministic random) ─────────────────────────
 // OLD: Math.random() produced different shake patterns every render.
@@ -88,9 +107,15 @@ export async function executeEDL(
   const actionable = edl.decisions.filter(d => d.confidence > minConfidence);
   console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement`);
 
+  // Deterministic epoch for overlay IDs — stable within this Director run, unique across runs.
+  // Derived from projectId hash so the same EDL on the same project always produces the same IDs.
+  const idEpoch = Math.floor(Date.now() / 1000);
+
   let budgetRejected = 0;
+  let decisionIndex = 0;
 
   for (const decision of actionable) {
+    const currentDecisionIndex = decisionIndex++;
     // Check budget BEFORE applying
     const budgetResult = budget.evaluate(decision as any);
     if (!budgetResult.allowed) {
@@ -114,7 +139,7 @@ export async function executeEDL(
         const altBudgetResult = budget.evaluate(altDecision as any);
         if (altBudgetResult.allowed) {
           try {
-            const applied = await applyDecision(altDecision as EditDecision, overlays, projectId, userId, canvasDimensions, analyses);
+            const applied = await applyDecision(altDecision as EditDecision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex + 100000);
             if (applied) {
               budget.commit(altDecision as any);
               result.decisionsExecuted++;
@@ -129,7 +154,7 @@ export async function executeEDL(
     }
 
     try {
-      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses);
+      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex);
       if (applied) {
         budget.commit(decision as any);
         result.decisionsExecuted++;
@@ -168,11 +193,13 @@ async function applyDecision(
   userId: string,
   canvas: { width: number; height: number },
   analyses?: Map<string, any>,
+  idEpoch: number = 0,
+  decisionIndex: number = 0,
 ): Promise<{ created: number; modified: number } | null> {
 
   switch (decision.type) {
     case 'transition':
-      return applyTransition(decision, overlays, projectId, userId, canvas);
+      return applyTransition(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
 
     case 'zoom':
       return applyZoom(decision, overlays, analyses);
@@ -184,7 +211,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return applyGraphic(decision, overlays, projectId, userId, canvas);
+      return applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -267,6 +294,8 @@ function applyTransition(
   projectId: string,
   userId: string,
   canvas: { width: number; height: number },
+  idEpoch: number = 0,
+  decisionIndex: number = 0,
 ): { created: number; modified: number } | null {
   const transType = (decision.params.transitionType || 'soft-cut') as string;
   const durationFrames = decision.durationFrames || (DEFAULT_TRANSITION_FRAMES as any)[transType] || 15;
@@ -317,11 +346,12 @@ function applyTransition(
 
   // Create proper TransitionOverlay tile (System A — editor renders these)
   const transitionOverlay = {
-    id: Date.now() + Math.floor(Math.random() * 10000),
+    // Deterministic ID: stable across render passes, unique per decision index
+    id: deterministicOverlayId(idEpoch, 'transition', decision.frame, decisionIndex),
     type: 'transition' as const,
     from: anchorFrame - Math.floor(durationFrames / 2),
     durationInFrames: durationFrames,
-    row: 5, // ROW.TRANSITIONS
+    row: ROW.TRANSITIONS,
     left: 0,
     top: 0,
     width: canvas.width,
@@ -465,14 +495,37 @@ function applySpeedChange(
 
   const localFrame = decision.frame - videoOverlay.from;
   const duration = decision.durationFrames || 30;
+  const clipDuration = videoOverlay.durationInFrames;
   const { speedFrom = 1.0, speedTo = 0.5, speedBack = 1.0 } = decision.params;
 
-  videoOverlay.speedCurve = [
-    { frame: Math.max(0, localFrame - 5), value: speedFrom, easing: 'ease-in' },
-    { frame: localFrame + Math.floor(duration / 3), value: speedTo, easing: 'ease-in-out' },
-    { frame: localFrame + duration, value: speedBack, easing: 'ease-out' },
+  // Phase A3.5.6 fix: build keyframes then validate them — clamp frames to clip bounds,
+  // dedupe same-frame entries (last wins), enforce monotonic order. Previous version
+  // produced invalid curves like [{frame:0}, {frame:0}, {frame:120 on 60-frame clip}, {frame:60}].
+  const rawKeyframes = [
+    { frame: Math.max(0, localFrame - 5), value: speedFrom, easing: 'ease-in' as const },
+    { frame: localFrame + Math.floor(duration / 3), value: speedTo, easing: 'ease-in-out' as const },
+    { frame: localFrame + duration, value: speedBack, easing: 'ease-out' as const },
   ];
 
+  // Clamp each frame to [0, clipDuration - 1]
+  const clamped = rawKeyframes.map(kf => ({
+    ...kf,
+    frame: Math.max(0, Math.min(clipDuration - 1, kf.frame)),
+  }));
+
+  // Dedupe by frame (last occurrence wins)
+  const byFrame = new Map<number, typeof clamped[number]>();
+  for (const kf of clamped) byFrame.set(kf.frame, kf);
+
+  // Sort ascending by frame — guarantees monotonic order
+  const validated = Array.from(byFrame.values()).sort((a, b) => a.frame - b.frame);
+
+  if (validated.length < 2) {
+    console.log(`[EDL-Exec] Speed-change at frame ${decision.frame}: SKIPPED — after clamping, <2 distinct keyframes for clipDuration=${clipDuration}`);
+    return null;
+  }
+
+  videoOverlay.speedCurve = validated;
   return { created: 0, modified: 1 };
 }
 
@@ -513,6 +566,8 @@ function applyGraphic(
   projectId: string,
   userId: string,
   canvas: { width: number; height: number },
+  idEpoch: number = 0,
+  decisionIndex: number = 0,
 ): { created: number; modified: number } | null {
   const { graphicType, text, position } = decision.params;
   if (!text) return null;
@@ -706,11 +761,17 @@ function applyGraphic(
   }
 
   const graphicOverlay = {
-    id: Date.now() + Math.floor(Math.random() * 10000),
+    // Deterministic ID: stable across render passes, unique per decision index
+    id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
     type: 'html-scene' as const,
     from: decision.frame,
     durationInFrames: duration,
-    row: 1, // Row 1 (above video on row 2, below captions on row 0)
+    // Row 1 (above video on row 2, below captions-exception at z-index 95).
+    // NOTE: row 1 is canonically BGM but BGM is audio-only (no visual collision).
+    // Graphics need z-index above video (row 2 = z-idx 80) and z-idx formula is 100-row*10,
+    // so row 1 = z-idx 90. Moving to canonical ROW.MOTION_GRAPHICS (6) would yield z-idx 40
+    // which is BELOW video — graphics would be invisible. This is an intentional exception.
+    row: ROW.BGM, // = 1, see comment above
     left,
     top,
     width,
@@ -738,9 +799,8 @@ function applyAudioDuck(
   decision: EditDecision,
   overlays: Overlay[],
 ): { created: number; modified: number } | null {
-  // Find BGM overlay (row 1 sound)
-  // ROW.BGM = 1 (from scene-to-editron.ts). Also match by assetId prefix for robustness.
-  const bgm = overlays.find(o => o.type === 'sound' && (o.row === 1 || (o.assetId || '').startsWith('bgm_'))) as any;
+  // Find BGM overlay (row 1 sound). Match by ROW.BGM constant + assetId prefix fallback.
+  const bgm = overlays.find(o => o.type === 'sound' && (o.row === ROW.BGM || (o.assetId || '').startsWith('bgm_'))) as any;
   if (!bgm) return null;
 
   // Already has ducking? Skip.
@@ -765,6 +825,16 @@ function applyFilterChange(
   overlays: Overlay[],
 ): { created: number; modified: number } | null {
   let { filterId, filterCss } = decision.params;
+
+  // Phase A3.5.4 fix: previously `filterId` was read but never resolved to CSS — only
+  // `filterCss` was applied. Now if filterId is set, resolve it via getFilterPresetById
+  // so server-safe preset names ("golden-hour-pro", "film-portra", etc.) actually work.
+  if (filterId && !filterCss) {
+    const preset = getFilterPresetById(filterId);
+    if (preset && preset.id !== 'none') {
+      filterCss = preset.filter;
+    }
+  }
 
   // If Unified Intelligence didn't specify which filter, try to infer from the decision reason.
   // Reasons often contain filter keywords like "vintage-film", "warm", "golden-hour", "crisp-vibrant".

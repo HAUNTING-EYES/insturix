@@ -48,14 +48,27 @@ export function getFilterPresetById(presetId: string): FilterPresetEntry {
   return FILTER_PRESETS.find(p => p.id === presetId) || FILTER_PRESETS[0];
 }
 
-/** Semantic mapping from natural language color descriptions to preset IDs. */
+/** Semantic mapping from natural language color descriptions to preset IDs.
+ *
+ * NOTE: Stylistic presets that use large hue-rotate values (teal-orange, blade-runner,
+ * neon-nights, cool, noir) are NOT mapped from generic mood words here. They must be
+ * explicitly requested by the user or profile — otherwise a nostalgia ad gets
+ * hue-rotate(160deg) which turns skin tones blue/green. Only map moods to presets
+ * that preserve natural color balance. See `creative_production_knowledge.md` §6
+ * (Color Grading Psychology): warm = nostalgia/comfort, cool = tension/tech, etc.
+ */
 const GRADE_SEMANTIC_MAP: Record<string, string> = {
   'cool sophisticated': 'cinematic',
   'warm cinematic': 'golden-hour-pro',
   'gritty realistic': 'muted-doc',
   'high energy': 'vivid',
-  'luxury premium': 'teal-orange',
-  'tech modern': 'blade-runner',
+  // 'luxury premium' previously mapped to 'teal-orange' which has hue-rotate(160deg).
+  // Disaster on nostalgia content (see Phase A3.5.4). Use film-portra — a true luxury
+  // grade with warm skin tones and no hue shift.
+  'luxury premium': 'film-portra',
+  // 'tech modern' previously mapped to 'blade-runner' (hue-rotate 175). Same problem
+  // if any content describes itself as "modern tech" and accidentally gets skin shift.
+  'tech modern': 'clean-corporate',
   'emotional human': 'film-portra',
   'professional clean': 'clean-corporate',
   'dark thriller': 'desaturated-drama',
@@ -66,7 +79,7 @@ const GRADE_SEMANTIC_MAP: Record<string, string> = {
   'retro nostalgic': 'retro',
   'bold vibrant': 'vivid',
   'soft warm': 'warm',
-  'cold clinical': 'cool',
+  'cold clinical': 'clean-corporate',
 };
 
 /** Find the best matching filter preset for a natural language color description. */
@@ -75,9 +88,12 @@ export function resolveFilterFromDescription(description: string): string | unde
   for (const [phrase, presetId] of Object.entries(GRADE_SEMANTIC_MAP)) {
     if (lower.includes(phrase)) return presetId;
   }
+  if (lower.includes('nostalgi') || lower.includes('memory') || lower.includes('childhood')) return 'golden-hour-pro';
   if (lower.includes('cinematic')) return 'cinematic';
-  if (lower.includes('warm')) return 'golden-hour-pro';
-  if (lower.includes('cool') || lower.includes('cold')) return 'cool';
+  if (lower.includes('warm') || lower.includes('golden')) return 'golden-hour-pro';
+  // 'cool'/'cold' previously mapped to 'cool' preset which has hue-rotate(180deg) — full inverted color.
+  // That's only appropriate for surreal/horror content. For generic "cool tone" use clean-corporate.
+  if (lower.includes('cool') || lower.includes('cold')) return 'clean-corporate';
   if (lower.includes('dark') || lower.includes('noir')) return 'desaturated-drama';
   if (lower.includes('clean') || lower.includes('corporate')) return 'clean-corporate';
   if (lower.includes('vivid') || lower.includes('bold') || lower.includes('punchy')) return 'vivid';

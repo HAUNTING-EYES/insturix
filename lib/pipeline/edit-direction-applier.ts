@@ -45,10 +45,14 @@ export async function applyEditDirections(
   let totalFrameShift = 0;
 
   // ─── Mood → filter fallback mapping ─────────────────────────
+  // IMPORTANT: Only map to presets that preserve natural skin tones. Any preset using
+  // hue-rotate >30deg (teal-orange, blade-runner, neon-nights, cool) is stylistic and
+  // must NOT be selected by generic mood inference — it shifts skin color disastrously
+  // on nostalgia/commercial content. See Phase A3.5.4 and creative_production_knowledge.md §6.
   const moodFilterMap: Record<string, string> = {
     'dramatic': 'desaturated-drama',
     'serious': 'muted-doc',
-    'mysterious': 'noir',
+    'mysterious': 'desaturated-drama', // was 'noir' (full grayscale) — too heavy for most emotional moods
     'calm': 'golden-hour-pro',
     'inspirational': 'golden-hour-pro',
     'energetic': 'vivid',

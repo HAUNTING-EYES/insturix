@@ -695,9 +695,19 @@ async function executeAction(
       // RULE: Script transitions ALWAYS win over profile transitions.
       // Finalize applies script transitions (from editDirections) BEFORE Director runs.
       // Director should only add transitions where none exist yet (gaps between scenes).
-      // Detect transitions by: metadata tag OR html-scene on row 1 (transition layer)
+      //
+      // Phase A3.5.1/A3.5.2 fix: previous check was
+      //   `o.type === 'html-scene' && (o.row === 1 || metadata.isTransition)`
+      // which missed real TransitionOverlay tiles (type === 'transition' on row 5)
+      // that the EDL executor had already placed. Result: Director thought the timeline
+      // had no transitions and spammed profile-default dip-to-black between every clip pair
+      // (10 redundant overlays on top of the EDL's 4). See editron_master_remaining.md
+      // Phase A3 for full disaster inventory from the 2026-04-08 McDonald's test.
+      //
+      // NEW check: any overlay of type 'transition' OR any overlay whose metadata flags it as
+      // a transition (covers legacy html-scene transitions + EDL TransitionOverlays + tool transitions).
       const existingTransitions = overlays.filter(
-        o => o.type === 'html-scene' && (o.row === 1 || (o as any).metadata?.isTransition),
+        o => o.type === 'transition' || (o as any).metadata?.isTransition,
       );
 
       if (existingTransitions.length > 0) {

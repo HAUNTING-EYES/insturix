@@ -15,6 +15,7 @@
 
 import type { AssetAnalysis } from './five-track-analysis';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 // ─── Transition SFX Map ──────────────────────────────────────────
 // 3 SFX options per transition type, contextually appropriate.
@@ -403,7 +404,7 @@ export function validateDurationVariety(
       const clipStart = videoOverlays[i].from;
       const clipEnd = clipStart + videoOverlays[i].durationInFrames;
       const voiceover = overlays.find((o: any) =>
-        (o.type === 'sound' && o.row === 3) &&
+        (o.type === 'sound' && o.row === ROW.VOICEOVER) &&
         o.from >= clipStart && o.from < clipEnd
       );
 

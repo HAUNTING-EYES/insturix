@@ -149,6 +149,14 @@ export async function POST(
           // Users can still add stock manually via editor's searchStockFootage tool.
           if (sub.videoUrl) {
             // Priority 1: AI-generated video clip
+            // Phase A3.5.13 fix: inherit `hasNativeAudio` from parent scene. If the scene
+            // was generated with Seedance 1.5 (or any model with nativeAudio:true in
+            // video-model-configs.ts), the scene-level video has the flag set. All
+            // sub-shots of that scene used the same model, so they should too.
+            // Without this, SFX worker filter `!hasNativeAudio` lets sub-shot SFX through
+            // even though the video already has embedded foley → audio collision + wasted credits.
+            // Proper fix (per-sub-shot model detection) belongs in the video worker — Phase 2.
+            const parentHasNativeAudio = (scene as any).hasNativeAudio || (sub as any).hasNativeAudio || false;
             const subOverlay: any = {
               id: overlayId++,
               type: 'video',
@@ -162,6 +170,7 @@ export async function POST(
               assetId: sub.videoAssetId,
               posterUrl: sub.imageUrl || scene.imageUrl || undefined,
               styles: { objectFit: 'cover', opacity: 1 },
+              hasNativeAudio: parentHasNativeAudio,
               metadata: {
                 sceneIndex: scene.sceneIndex,
                 subShotDescription: sub.description,

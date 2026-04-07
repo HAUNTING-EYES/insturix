@@ -16,6 +16,33 @@ import { generateBackgroundMusic, buildMusicPrompt } from '@/lib/pipeline/bgm-se
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { generateSFXForScenes } from '@/lib/pipeline/sfx-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { createPipelineWarnings } from '@/lib/editron/services/pipeline-warnings';
+
+/**
+ * Persist pipeline warnings from this worker run to the project doc.
+ * Merges with any existing warnings (from finalize, director, etc.) rather than replacing.
+ * Phase A3.5.14 fix: previously the audio worker failed silently — no SFX in the final
+ * project but zero warnings surfaced. Now every failure leaves a trail.
+ */
+async function persistWarnings(
+  db: any,
+  projectId: string,
+  warnings: ReturnType<typeof createPipelineWarnings>,
+): Promise<void> {
+  const all = warnings.getAll();
+  if (all.length === 0) return;
+  try {
+    await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId },
+      {
+        $push: { pipelineWarnings: { $each: all } as any },
+        $set: { updatedAt: new Date() },
+      },
+    );
+  } catch (err: any) {
+    console.error('[AudioWorker] Failed to persist pipeline warnings:', err.message);
+  }
+}
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -47,9 +74,12 @@ interface AudioWorkerPayload {
 
 async function handler(request: NextRequest) {
   const startMs = Date.now();
+  const warnings = createPipelineWarnings();
+  let projectIdForWarnings: string | null = null;
   try {
     const payload: AudioWorkerPayload = await request.json();
     const { type, projectId, userId, storyboardId } = payload;
+    projectIdForWarnings = projectId;
 
     console.log(`[AudioWorker] Processing ${type} for project ${projectId}`);
 
@@ -69,10 +99,19 @@ async function handler(request: NextRequest) {
       const { musicPrompt, totalDurationSec, totalFrames, fps } = payload;
       if (!musicPrompt || !totalDurationSec || !totalFrames || !fps) {
         console.error('[AudioWorker] BGM: missing required fields');
+        warnings.add({ severity: 'error', phase: 'bgm', message: 'Missing required fields for BGM generation', details: { hasPrompt: !!musicPrompt, totalDurationSec, totalFrames, fps } });
+        await persistWarnings(db, projectId, warnings);
         return NextResponse.json({ success: false, error: 'Missing BGM fields' }, { status: 400 });
       }
 
-      const bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec);
+      let bgm;
+      try {
+        bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec);
+      } catch (bgmErr: any) {
+        warnings.errorSwallowed('bgm', bgmErr, `CassetteAI BGM generation for "${musicPrompt.substring(0, 60)}"`);
+        await persistWarnings(db, projectId, warnings);
+        return NextResponse.json({ success: false, error: `BGM generation failed: ${bgmErr.message}` }, { status: 500 });
+      }
 
       // A5 FIX: Use timestamp + crypto random for guaranteed unique IDs across concurrent workers
       const overlayId = Date.now() * 1000 + Math.floor(Math.random() * 999999);
@@ -128,16 +167,33 @@ async function handler(request: NextRequest) {
       );
 
       console.log(`[AudioWorker] BGM complete: ${bgm.audioAssetId} (${Date.now() - startMs}ms)`);
-      return NextResponse.json({ success: true, type: 'bgm', assetId: bgm.audioAssetId });
+      await persistWarnings(db, projectId, warnings);
+      return NextResponse.json({ success: true, type: 'bgm', assetId: bgm.audioAssetId, warnings: warnings.getAll() });
 
     } else if (type === 'sfx') {
       const { sfxInputs, sceneFrameMap } = payload;
       if (!sfxInputs || !sceneFrameMap || sfxInputs.length === 0) {
         console.error('[AudioWorker] SFX: missing required fields');
+        warnings.add({ severity: 'error', phase: 'sfx', message: 'Missing required fields for SFX generation', details: { hasInputs: !!sfxInputs, hasFrameMap: !!sceneFrameMap, inputCount: sfxInputs?.length ?? 0 } });
+        await persistWarnings(db, projectId, warnings);
         return NextResponse.json({ success: false, error: 'Missing SFX fields' }, { status: 400 });
       }
 
-      const sfxResults = await generateSFXForScenes(sfxInputs, userId);
+      let sfxResults;
+      try {
+        sfxResults = await generateSFXForScenes(sfxInputs, userId);
+      } catch (sfxErr: any) {
+        warnings.errorSwallowed('sfx', sfxErr, `SFX batch generation for ${sfxInputs.length} scenes`);
+        await persistWarnings(db, projectId, warnings);
+        return NextResponse.json({ success: false, error: `SFX batch failed: ${sfxErr.message}` }, { status: 500 });
+      }
+
+      // Report per-scene SFX failures (scene requested but nothing generated)
+      for (const input of sfxInputs) {
+        if (!sfxResults.has(input.sceneIndex)) {
+          warnings.degraded('sfx', `Scene ${input.sceneIndex}`, `No SFX generated (library miss + mirelo/CassetteAI fallback failed) — requested: "${input.audioDescription.substring(0, 60)}"`);
+        }
+      }
 
       let overlayId = Date.now() * 1000 + 500000 + Math.floor(Math.random() * 499999);
       const sfxOverlays: any[] = [];
@@ -146,6 +202,7 @@ async function handler(request: NextRequest) {
         // H8 FIX: Null check on sfx object before accessing sfx.audioUrl
         if (!sfx || !sfx.audioUrl) {
           console.warn(`[AudioWorker] SFX scene ${sceneIndex}: null or missing audioUrl, skipping`);
+          warnings.degraded('sfx', `Scene ${sceneIndex}`, 'SFX returned null/empty audioUrl — skipped');
           continue;
         }
         const frameInfo = sceneFrameMap.find(f => f.sceneIndex === sceneIndex);
@@ -194,14 +251,31 @@ async function handler(request: NextRequest) {
       }
 
       console.log(`[AudioWorker] SFX complete: ${sfxResults.size} clips (${Date.now() - startMs}ms)`);
-      return NextResponse.json({ success: true, type: 'sfx', clips: sfxResults.size });
+      await persistWarnings(db, projectId, warnings);
+      return NextResponse.json({ success: true, type: 'sfx', clips: sfxResults.size, warnings: warnings.getAll() });
     }
 
     return NextResponse.json({ success: false, error: `Unknown type: ${type}` }, { status: 400 });
   } catch (error: any) {
     console.error(`[AudioWorker] Error:`, error.message);
+    // Best-effort: persist the top-level error so the user sees SOMETHING instead of a silent empty project.
+    if (projectIdForWarnings) {
+      try {
+        const db = await getDatabase();
+        warnings.errorSwallowed(payloadPhaseFallback(warnings), error, 'audio worker top-level handler');
+        await persistWarnings(db, projectIdForWarnings, warnings);
+      } catch { /* don't mask the original error */ }
+    }
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
+}
+
+/** Pick a reasonable phase for the top-level error — prefer whatever phase the
+ * collector already has entries for, default to 'sfx' (most common failure site). */
+function payloadPhaseFallback(warnings: ReturnType<typeof createPipelineWarnings>): 'bgm' | 'sfx' {
+  const all = warnings.getAll();
+  if (all.some(w => w.phase === 'bgm')) return 'bgm';
+  return 'sfx';
 }
 
 const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
