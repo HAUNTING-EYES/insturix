@@ -72,6 +72,10 @@ export interface SceneContext {
   scriptPacing?: string;
   sfxCue?: string;
   motionGraphicCue?: string;
+  /** Phase A3.4 — exact verbatim on-screen text strings extracted from the script.
+   *  When present, the EDL MUST use these exact strings for graphic text instead of
+   *  inventing/paraphrasing copy. See parser SceneEditDirectionsSchema.onScreenText. */
+  onScreenText?: string[];
   cameraDirection?: string;
 
   // From video analysis (5-Track)
@@ -244,6 +248,7 @@ export async function assembleUnifiedContext(
       scriptPacing: descriptor.editDirections?.pacing,
       sfxCue: descriptor.editDirections?.sfxCue,
       motionGraphicCue: descriptor.editDirections?.motionGraphicCue,
+      onScreenText: (descriptor.editDirections as any)?.onScreenText,
       cameraDirection: descriptor.cameraDirection,
       detectedSubjects: subjects,
       motionType,
@@ -657,7 +662,17 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
       prompt += `- **SFX cue:** ${scene.sfxCue}\n`;
     }
     if (scene.motionGraphicCue) {
-      prompt += `- **Motion graphic:** ${scene.motionGraphicCue}\n`;
+      prompt += `- **Motion graphic (free-form hint):** ${scene.motionGraphicCue}\n`;
+    }
+    // Phase A3.4 — exact verbatim on-screen text from the script. The EDL MUST
+    // produce one graphic decision per entry, with graphicText set to the EXACT string.
+    // No paraphrasing, no truncation, no merging — these are the script author's intent.
+    if (scene.onScreenText && scene.onScreenText.length > 0) {
+      prompt += `- **EXACT on-screen text (use VERBATIM as graphicText, do NOT rewrite):**\n`;
+      scene.onScreenText.forEach((t, i) => {
+        prompt += `    ${i + 1}. "${t}"\n`;
+      });
+      prompt += `  → Produce exactly ${scene.onScreenText.length} graphic decision(s) for this scene, one per entry, in order. Use the exact string as graphicText. Use graphicType "keyword-highlight" by default, unless the entry is the brand/product name (then "logo-reveal") or a numeric statistic (then "stat-counter").\n`;
     }
 
     // Detected subjects

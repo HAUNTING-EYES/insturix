@@ -9,7 +9,7 @@ import { nanoid } from 'nanoid';
 import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { buildStoryboardPrompt, buildNegativePrompt } from './storyboard-prompt-builder';
-import { saveStoryboard, updateStoryboardScene, getStoryboard } from './storyboard-db';
+import { saveStoryboard, updateStoryboardScene, updateSubShot, getStoryboard } from './storyboard-db';
 import { scoreStoryboardConsistency } from './consistency-scoring-service';
 import type {
   SceneDescriptor,
@@ -524,6 +524,68 @@ export async function generateFullStoryboard(
         completed++;
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: SUCCESS in ${elapsed}s (model: ${result.modelUsed}, ipAdapter: ${result.usedIpAdapter})`);
+
+        // ─── Phase A3.2: Per-sub-shot image generation ────────────────────
+        // If this scene has sub-shots with `independentGeneration: true`, each
+        // needs its OWN storyboard image from its OWN visualDescription. Without
+        // this the video worker falls back to the parent scene image for all
+        // sub-shots, producing N Seedance clips from the same starting frame
+        // → viewer perceives it as repeated footage ("3 videos stitched to 11 shots").
+        //
+        // NOTE: No reference images passed — we WANT visual variety here (different
+        // era/subject/setting per sub-shot). IP-adapter would defeat the point.
+        // Failure is non-fatal: video worker already has fallback to parent image.
+        const indepSubShots = (sbScene.descriptor.subShots || [])
+          .map((sub, idx) => ({ sub, idx }))
+          .filter(({ sub }) => sub.independentGeneration && !sub.imageUrl && sub.visualDescription);
+
+        if (indepSubShots.length > 0) {
+          console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: generating ${indepSubShots.length} per-sub-shot images (A3.2)`);
+          for (const { sub, idx } of indepSubShots) {
+            const subStart = Date.now();
+            try {
+              const subDescriptor: SceneDescriptor = {
+                ...sbScene.descriptor,
+                visualDescription: sub.visualDescription!,
+                imageQualityTokens: sub.imageQualityTokens || sbScene.descriptor.imageQualityTokens,
+                videoQualityTokens: sub.videoQualityTokens || sbScene.descriptor.videoQualityTokens,
+                videoMotionPrompt: sub.videoMotionPrompt || sbScene.descriptor.videoMotionPrompt,
+              };
+
+              const subResult = await generateStoryboardImage(
+                subDescriptor,
+                options.userId,
+                {
+                  styleGuide: options.styleGuide,
+                  modelId: options.modelId,
+                  aspectRatio: options.aspectRatio,
+                  sceneIndex: sbScene.sceneIndex,
+                  totalScenes,
+                  // Intentionally NO referenceImages — sub-shots must look DIFFERENT
+                  // from each other (that's the point of the montage).
+                  referenceImages: undefined,
+                },
+              );
+
+              // Persist to storyboard doc via dedicated sub-shot updater
+              await updateSubShot(storyboardId, sbScene.sceneIndex, idx, {
+                imageUrl: subResult.imageUrl,
+                imageAssetId: subResult.assetId,
+              });
+
+              // Update in-memory mirror so later logic (consistency scoring, etc.) sees it
+              sub.imageUrl = subResult.imageUrl;
+              sub.imageAssetId = subResult.assetId;
+
+              const subElapsed = ((Date.now() - subStart) / 1000).toFixed(1);
+              console.log(`[Storyboard] Scene ${sbScene.sceneIndex} sub ${idx}: image OK in ${subElapsed}s (${subResult.assetId})`);
+            } catch (subErr: any) {
+              console.warn(`[Storyboard] Scene ${sbScene.sceneIndex} sub ${idx}: per-sub-shot image gen FAILED (non-fatal, video worker will fall back to parent image): ${subErr.message}`);
+              // Don't throw — parent image is already persisted, scene counts as generated
+            }
+          }
+        }
+
         return; // Success — exit retry loop
       } catch (err: any) {
         lastError = err;

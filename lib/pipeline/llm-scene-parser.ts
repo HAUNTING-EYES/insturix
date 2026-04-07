@@ -29,7 +29,8 @@ const SceneEditDirectionsSchema = z.object({
   filterPresetId: z.string().optional().describe('Color grade for this scene, mapped to preset ID. Only set if the script explicitly describes a color mood for this specific scene. Options: cinematic, teal-orange, blade-runner, neon-nights, muted-doc, golden-hour-pro, desaturated-drama, film-portra, clean-corporate, vivid, warm-neutral, noir, retro, warm, cool. null if not mentioned.'),
   pacing: z.enum(['fast', 'medium', 'slow', 'building', 'beat-synced']).optional().describe('Pacing for THIS specific scene. ONLY set if the script explicitly describes pacing for this scene (e.g. "quick cuts", "slow reveal", "building tension"). Do NOT propagate global pacing to individual scenes — the global pacing field handles that. null if this scene has no explicit pacing instruction.'),
   sfxCue: z.string().optional().describe('Specific sound effect cue beyond general audio. Only set if the script explicitly describes an SFX moment (e.g. "whoosh", "heartbeat", "glass shatter"). null if not mentioned.'),
-  motionGraphicCue: z.string().optional().describe('Motion graphic to overlay. Only set if the script mentions a callout, lower third, stat display, or graphic overlay. null if not mentioned.'),
+  motionGraphicCue: z.string().optional().describe('Legacy free-form motion graphic description. For exact on-screen text, use onScreenText instead. null if not mentioned.'),
+  onScreenText: z.array(z.string()).optional().describe('Structured array of on-screen text strings extracted VERBATIM from the script\'s "On-Screen Text:" / "Text:" / "(Appears briefly:)" sections. Each entry is ONE distinct visible text line. Preserve EXACT wording including punctuation, hashtags, emoji, and quotes.\n\nExamples:\n- Script says "On-Screen Text: Remember this feeling?" → ["Remember this feeling?"]\n- Script says "On-Screen Text: Through the years. Your story. Our place." → ["Through the years.", "Your story.", "Our place."] (3 entries — each sentence is a separate on-screen graphic)\n- Script says "On-Screen Text: A taste of childhood, always fresh." and a separate line "On-Screen Text: Share your memories. #GoldenArchesOfMemory" → ["A taste of childhood, always fresh.", "Share your memories. #GoldenArchesOfMemory"]\n\nCRITICAL: Do NOT re-word, shorten, or merge these. They become caption/graphic overlays using the exact strings. Return empty array [] or omit if the script has no on-screen text for this scene.'),
   cameraRig: z.string().optional().describe('Camera movement/rig notes from the script (e.g. "steadicam", "dolly", "crane shot"). Preserved for reference. null if not mentioned.'),
 }).describe('Editing directions for this scene. Return null for any field NOT explicitly present in the script — do NOT invent directions.');
 
@@ -254,21 +255,61 @@ RULE: Group shots by SUBJECT + LOCATION + VISUAL STYLE. One generation unit = on
 5. Mark primaryVisualForUnit=true on the BEST scene in each unit (most visually rich)
 6. Other scenes in the same unit get primaryVisualForUnit=false (they reuse the generated video)
 
-### Sub-shots for montage sections:
-When a script section says "Quick cuts: A, B, C" and A/B/C share the same subject/location:
-- Create ONE scene with subShots array
-- Each sub-shot defines a cut point within the generated clip
-- The assembly step will cut the 5s clip into 1-2s segments
+### Sub-shots for montage sections — TWO distinct modes:
 
-Example for McDonald's "0:00-0:04 — Quick cuts: child reaching for toy, kids on playground, parent wiping ketchup":
-→ All share subject "children at McDonald's" → ONE generation unit "childhood-mcdonalds"
-→ visualDescription: "A young child reaching excitedly for a Happy Meal toy at a colorful McDonald's table, warm golden lighting, soft film grain"
-→ subShots: [
-    { description: "child's hand reaching for toy", startNormalized: 0, endNormalized: 0.33, targetDurationSeconds: 1.3 },
-    { description: "kids laughing on playground", startNormalized: 0.33, endNormalized: 0.66, targetDurationSeconds: 1.3 },
-    { description: "parent wiping ketchup", startNormalized: 0.66, endNormalized: 1.0, targetDurationSeconds: 1.4 }
-  ]
-→ sceneType: "montage"
+**Mode A — Sub-shots CUT from ONE generated clip** (cheap, 1 video gen cost)
+When all sub-shots share the SAME subject in the SAME location with continuous action:
+- ONE scene, ONE visualDescription, ONE video gen
+- Sub-shots have \`independentGeneration: false\` (or omitted)
+- Each sub-shot is just a cut-point marker inside the single generated clip
+
+Example: "close-up of shoe sole → laces tightening → heel lift" (same shoe, same set)
+→ ONE scene, ONE clip, 3 sub-shots that reference time ranges in that one clip.
+
+**Mode B — Sub-shots generated INDEPENDENTLY** (expensive, N video gen cost)
+When sub-shots show DIFFERENT subjects, DIFFERENT locations, DIFFERENT eras, or DIFFERENT actors:
+- ONE scene, but EACH sub-shot has its OWN distinct visualDescription + videoMotionPrompt
+- Set \`independentGeneration: true\` on EVERY sub-shot in this mode
+- The pipeline will generate a separate storyboard image AND a separate video clip per sub-shot
+- Cost = (N × $0.02 image) + (N × $0.35 video). The user pre-approves this in the cost preview.
+
+Example: "1980s child at McDonald's car seat → 1990s teens in booth → 2000s drive-thru → modern family"
+→ 4 DIFFERENT subjects, 4 DIFFERENT eras, 4 DIFFERENT sets.
+→ 4 sub-shots ALL with independentGeneration: true, each with its OWN visualDescription describing its own era/subject.
+→ Do NOT collapse into one visualDescription — each needs its own reference image or they all look identical.
+
+### LITERAL SHOT COUNTS (MANDATORY — honor the script's explicit shot numbering)
+
+If the script uses explicit "Shot 1: / Shot 2: / Shot 3:" markers, produce EXACTLY that many sub-shots.
+Do NOT collapse Shot 1-3 into one visualDescription. Do NOT add extra sub-shots the script didn't ask for.
+
+Example: Script says:
+  Scene 1: The Hook
+    Shot 1: Extreme close-up: Child's hand unwrapping a vintage Happy Meal toy.
+    Shot 2: Close-up: Steaming McDonald's fries in a classic red carton.
+    Shot 3: Quick cut: Retro McDonald's sign, sun-drenched and slightly faded.
+
+→ ONE scene with EXACTLY 3 sub-shots.
+→ These are 3 VISUALLY DISTINCT subjects (toy / fries / sign) in 3 DIFFERENT framings → MODE B.
+→ ALL 3 sub-shots get independentGeneration: true + their own visualDescription.
+→ WRONG: collapsing into "A nostalgic McDonald's toy unwrapping scene" as a single visualDescription with no independent sub-shots — this loses 2/3 of the visuals.
+→ WRONG: producing 4+ sub-shots — the script said 3.
+
+### ANTI-PATTERN — do NOT duplicate previous scenes' montage content into later scenes
+
+Scripts often follow "Hook → Montage → Resolution" structure. The RESOLUTION scene is usually a UNIFIED present-day scene (one subject, one setting, emotional payoff), NOT another montage.
+
+WRONG example (what the parser has done before):
+  Script Scene 3: "Diverse group gathered around a table at McDonald's, all smiling and sharing food."
+  Parser output: 5 sub-shots describing "1980s child / 1990s teens / 2000s drive-thru / modern family / diverse friends"
+  → This DUPLICATES Scene 2's era montage into Scene 3. Scene 3 is supposed to be ONE unified present-day beat.
+
+CORRECT output for that Scene 3:
+  ONE scene (or 1-3 sub-shots of the same table scene: wide shot → close-up of hands → reaction), ALL showing the SAME unified present-day group.
+  NO era shifts. NO repeat of Scene 2's shot list.
+  sceneType: "continuous" (or "montage" ONLY if the script explicitly lists sub-shots within Scene 3).
+
+Rule: each scene's subShots MUST describe DIFFERENT content from OTHER scenes' subShots. If you find yourself writing "1980s child reaching for fry" in BOTH Scene 2's subShots AND Scene 3's subShots, STOP — Scene 3 is a different scene and needs its own shot list from the script.
 
 ### When to SPLIT into separate generation units:
 - DIFFERENT subjects in DIFFERENT locations (runner vs basketball player vs gymnast)
@@ -276,7 +317,7 @@ Example for McDonald's "0:00-0:04 — Quick cuts: child reaching for toy, kids o
 - Logo/brand reveals (always their own unit)
 
 ### When to MERGE into one generation unit:
-- Same subject, same location, different camera angles → ONE unit, use sub-shots
+- Same subject, same location, different camera angles → ONE unit, use Mode A sub-shots
 - Same setting, related subjects (family members at same table) → ONE unit
 - Progressive reveal of same scene (wide → close-up) → ONE unit
 
@@ -309,9 +350,44 @@ If no music direction but ambient audio → audioDescription: "gym ambiance, rhy
 If nothing → audioDescription: ""
 
 ## MOTION GRAPHIC CUE EXTRACTION
-If the script implies text overlays, statistics, branded elements:
+If the script implies branded / stat / callout elements without giving exact copy:
 → Extract into editDirections.motionGraphicCue: "stat counter: 50% off", "lower third: LIMITLESS FLOW", "brand logo reveal: Nike swoosh"
 If nothing → motionGraphicCue: ""
+
+## ON-SCREEN TEXT EXTRACTION (CRITICAL — preserve exact script copy)
+Scripts frequently specify EXACT text that must appear visually on screen. Look for these patterns:
+  - "On-Screen Text: <text>" / "Text: <text>"
+  - "(Appears briefly: <text>)" / "(Brief flash: <text>)"
+  - Lines inside a scene that are explicitly quoted as visible copy (NOT narration)
+  - Final "On-Screen Text: @BrandHandle #Hashtag" lines in resolution scenes
+  - Multiple on-screen text lines in one scene (e.g. nostalgia ads often have 3+ short text beats in Scene 2)
+
+Extract EACH DISTINCT text line VERBATIM into editDirections.onScreenText as an array of strings.
+- Preserve exact wording, punctuation, hashtags, emoji, and capitalization.
+- One array entry = one visible text block = one graphic overlay.
+- Do NOT merge multi-line text blocks unless they genuinely appear as one visible text element.
+- Do NOT rewrite, shorten, or paraphrase. The downstream system will use these strings as literal text on the graphic overlay.
+
+Examples:
+Script: \`On-Screen Text: "Remember this feeling?"\`
+→ onScreenText: ["Remember this feeling?"]
+
+Script says (between Scene 2 cuts):
+  (Appears briefly: "Through the years.")
+  (Appears briefly: "Your story.")
+  (Appears briefly: "Our place.")
+→ onScreenText: ["Through the years.", "Your story.", "Our place."]
+
+Script's Scene 3 ends with:
+  On-Screen Text: "A taste of childhood, always fresh."
+  On-Screen Text: "Share your McDonald's memories. #GoldenArchesOfMemory"
+→ onScreenText: ["A taste of childhood, always fresh.", "Share your McDonald's memories. #GoldenArchesOfMemory"]
+
+If the script has NO explicit on-screen text for this scene → omit onScreenText (or return empty array).
+Do NOT invent text. The field is for EXACT copy extraction only.
+
+ALSO set motionGraphicCue as a brief free-form description (backward compat with older consumers),
+but onScreenText is the authoritative source.
 
 ## SFX EXTRACTION (CRITICAL — must split from audioDescription)
 The Audio section often mixes music, narration, and SFX. You MUST split them:

@@ -462,7 +462,57 @@ const E02: EditProfile = { profileId: 'E-02', name: 'Before → After Transforma
 
 const E03: EditProfile = { profileId: 'E-03', name: 'Data-Driven / Evidence', description: 'Numbers tell the story, charts build live', category: 'narrative-mode', filterPresetId: 'clean-corporate', pacing: 'medium', pacingMultiplier: 1.0, cutsPerMinRange: [8, 14], defaultTransition: 'hard-cut', captionStyle: 'subtitle', bgmDuckLevel: 0.20, graphicsDensity: 'heavy', actions: [applyFilter('clean-corporate'), addTransition('hard-cut'), addCaptions('subtitle'), audioDuck(0.20), qualityReview()], signalKeywords: [{ term: 'data', field: 'narration', weight: 0.3 }, { term: 'statistics', field: 'narration', weight: 0.3 }, { term: 'percentage', field: 'narration', weight: 0.2 }, { term: 'chart', field: 'visual', weight: 0.3 }] };
 
-const E04: EditProfile = { profileId: 'E-04', name: 'Origin Story / Brand Narrative', description: 'The founding moment, the why, the mission', category: 'narrative-mode', filterPresetId: 'film-portra', pacing: 'slow', pacingMultiplier: 1.2, cutsPerMinRange: [5, 10], defaultTransition: 'dissolve', captionStyle: 'subtitle', bgmDuckLevel: 0.22, graphicsDensity: 'minimal', actions: [applyFilter('film-portra'), addTransition('dissolve'), addCaptions('subtitle'), audioDuck(0.22), qualityReview()], signalKeywords: [{ term: 'founded', field: 'narration', weight: 0.3 }, { term: 'mission', field: 'narration', weight: 0.3 }, { term: 'story', field: 'narration', weight: 0.2 }, { term: 'brand film', field: 'contentType', weight: 0.4 }] };
+// Phase A3.5.17: expanded signalKeywords to recognize nostalgia / memory / generational brand ads.
+// Previously the McDonald's "Golden Arches of Memory" nostalgia script fell through to G-01 Universal
+// Clean because nostalgia-specific vocabulary wasn't in any profile's keyword list. E-04 already has
+// the ideal defaults for this content type (film-portra warm grade, slow 5-10 cuts/min, dissolve
+// transitions matching creative_production_knowledge.md §6) — we just needed detection to find it.
+const E04: EditProfile = {
+  profileId: 'E-04',
+  name: 'Origin Story / Brand Narrative',
+  description: 'The founding moment, the why, the mission, nostalgic brand films',
+  category: 'narrative-mode',
+  filterPresetId: 'film-portra',
+  pacing: 'slow',
+  pacingMultiplier: 1.2,
+  cutsPerMinRange: [5, 10],
+  defaultTransition: 'dissolve',
+  captionStyle: 'subtitle',
+  bgmDuckLevel: 0.22,
+  graphicsDensity: 'minimal',
+  actions: [applyFilter('film-portra'), addTransition('dissolve'), addCaptions('subtitle'), audioDuck(0.22), qualityReview()],
+  signalKeywords: [
+    // Original origin-story signals
+    { term: 'founded', field: 'narration', weight: 0.3 },
+    { term: 'mission', field: 'narration', weight: 0.3 },
+    { term: 'story', field: 'narration', weight: 0.2 },
+    { term: 'brand film', field: 'contentType', weight: 0.4 },
+    // Phase A3.5.17 — nostalgia / memory / childhood / generational signals
+    { term: 'nostalgi', field: 'notes', weight: 0.45 },
+    { term: 'nostalgi', field: 'mood', weight: 0.35 },
+    { term: 'nostalgic', field: 'notes', weight: 0.45 },
+    { term: 'memory', field: 'narration', weight: 0.25 },
+    { term: 'memory', field: 'notes', weight: 0.35 },
+    { term: 'memories', field: 'narration', weight: 0.25 },
+    { term: 'memories', field: 'notes', weight: 0.35 },
+    { term: 'childhood', field: 'narration', weight: 0.35 },
+    { term: 'childhood', field: 'notes', weight: 0.4 },
+    { term: 'childhood', field: 'visual', weight: 0.3 },
+    { term: 'generation', field: 'narration', weight: 0.3 },
+    { term: 'generation', field: 'notes', weight: 0.3 },
+    { term: 'generational', field: 'visual', weight: 0.35 },
+    { term: 'vintage', field: 'visual', weight: 0.3 },
+    { term: 'retro', field: 'visual', weight: 0.25 },
+    { term: 'heritage', field: 'notes', weight: 0.3 },
+    { term: 'comforting', field: 'notes', weight: 0.25 },
+    { term: 'through the years', field: 'narration', weight: 0.4 },
+    { term: 'through the years', field: 'visual', weight: 0.3 },
+    { term: 'remember', field: 'narration', weight: 0.2 },
+    { term: 'brand film', field: 'notes', weight: 0.35 },
+    { term: 'emotional', field: 'mood', weight: 0.2 },
+    { term: 'inspirational', field: 'mood', weight: 0.2 },
+  ],
+};
 
 const E05: EditProfile = { profileId: 'E-05', name: 'Expert Authority Build', description: 'Credentials → evidence → demonstration → social proof', category: 'narrative-mode', filterPresetId: 'clean-corporate', pacing: 'medium', pacingMultiplier: 1.0, cutsPerMinRange: [8, 14], defaultTransition: 'hard-cut', captionStyle: 'subtitle', bgmDuckLevel: 0.20, graphicsDensity: 'moderate', actions: [applyFilter('clean-corporate'), addTransition('hard-cut'), addCaptions('subtitle'), lowerThird(), audioDuck(0.20), qualityReview()], signalKeywords: [{ term: 'expert', field: 'character', weight: 0.3 }, { term: 'results show', field: 'narration', weight: 0.3 }, { term: 'data proves', field: 'narration', weight: 0.3 }] };
 

@@ -348,6 +348,16 @@ export function ExportToEditronDialog({
       const projectTitle = title || exportData.title || 'Untitled Script';
       setTitle(projectTitle);
 
+      // Phase A3.3 — Detect zero-narration scripts (commercials with only on-screen text).
+      // Logged here for visibility; the actual voiceover-skip logic lives in handlePhase3
+      // because it reads `scenes` state, which is what handlePhase3 also uses.
+      const _hasNarrationAtParseTime = (exportData.scenes || []).some(
+        (s: any) => typeof s.narration === 'string' && s.narration.trim().length > 0,
+      );
+      if (!_hasNarrationAtParseTime && exportData.scenes?.length > 0) {
+        console.log('[ExportToEditron] Script has zero narration across all scenes — voiceover will be skipped, captions will be generated from on-screen text instead (Phase A3.3)');
+      }
+
       // ─── Profile Auto-Detection ─────────────────────────────────
       // Detect the best edit profile from the parsed script metadata.
       // This is a pure client-side function (no API call).
@@ -600,6 +610,20 @@ export function ExportToEditronDialog({
     // C2/C3 FIX: Track video generation failure to block finalize
     let videoGenFailed = false;
 
+    // Phase A3.3 — Detect zero-narration scripts (commercials with only on-screen text).
+    // For these scripts:
+    //   - Skip the voiceover gen step entirely (TTS would produce nothing for empty narration)
+    //   - Pass includeVoiceover: false to finalize so it doesn't try to place voiceover overlays
+    //   - The finalize route's caption fallback (A3.4) will generate captions from
+    //     editDirections.onScreenText (extracted by the parser) instead of from transcription
+    // We read from `scenes` state which was populated by handleExport at parse time.
+    const scriptHasNarration = (scenes || []).some(
+      (s: any) => typeof s.narration === 'string' && s.narration.trim().length > 0,
+    );
+    if (!scriptHasNarration && (scenes || []).length > 0) {
+      console.log(`[ExportToEditron] handlePhase3: zero narration detected across ${scenes.length} scenes — voiceover step will be skipped, caption fallback will run in finalize`);
+    }
+
     try {
       // ─── Step 5: Generate AI video clips (optional) ────────
       // ─── Step 5: Enqueue video generation (async, parallel) ────
@@ -733,7 +757,9 @@ export function ExportToEditronDialog({
       }
 
       // ─── Step 6: Generate AI voiceover ─────────────────────
-      if (sbId) {
+      // Phase A3.3: skip voiceover entirely for zero-narration scripts (commercials).
+      // The finalize route's caption fallback (A3.4) will use script onScreenText instead.
+      if (sbId && scriptHasNarration) {
         setStep('generating-voiceover');
         try {
           const voRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/voiceover`, {
@@ -753,6 +779,8 @@ export function ExportToEditronDialog({
           console.error('[ExportToEditron] Voiceover error:', voErr.message);
           setError((prev) => prev ? `${prev} | Voiceover error: ${voErr.message}` : `Voiceover error: ${voErr.message}`);
         }
+      } else if (sbId && !scriptHasNarration) {
+        console.log('[ExportToEditron] Skipping voiceover step — script has no narration. Captions will come from script on-screen text via finalize fallback.');
       }
 
       // ─── Step 7: Create Editron project ────────────────────
@@ -771,7 +799,10 @@ export function ExportToEditronDialog({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             aspectRatio,
-            includeVoiceover: true,
+            // Phase A3.3: only enable voiceover overlay placement when the script
+            // actually has narration. Zero-narration commercials skip the voiceover
+            // pipeline entirely; finalize will run script-text caption fallback (A3.4).
+            includeVoiceover: scriptHasNarration,
             includeCaptions: true,
           }),
         });

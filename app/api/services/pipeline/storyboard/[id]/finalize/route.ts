@@ -388,6 +388,51 @@ export async function POST(
         });
       }
 
+      // ─── Phase A3.4 — Script-text caption fallback ─────────────────────
+      // For commercial/visual-only scripts with ZERO narration, the normal caption
+      // pipeline (Director.add_captions → transcription → caption-service) produces
+      // nothing because there's no voiceover audio to transcribe.
+      //
+      // If the scene has explicit on-screen text in editDirections.onScreenText
+      // (extracted verbatim from the script's "On-Screen Text:" lines by the parser),
+      // generate caption overlays directly from those strings instead.
+      //
+      // This runs ONLY when:
+      //   1. User selected captions (includeCaptions: true)
+      //   2. Scene has NO voiceover (zero narration script)
+      //   3. Scene has at least one onScreenText entry
+      const onScreenTextArr = (scene.descriptor as any)?.editDirections?.onScreenText;
+      const sceneHasVoiceover = !!scene.voiceover?.audioUrl;
+      if (includeCaptions && !sceneHasVoiceover && Array.isArray(onScreenTextArr) && onScreenTextArr.length > 0) {
+        try {
+          const { createCaptionsFromScriptText } = await import('@/lib/editron/services/media/caption-service');
+          // Synthetic anchor overlay so caption-service can position relative to the scene's frame range
+          const captionAnchor: any = {
+            id: overlayId, // Just used for sourceVideoId tracking
+            from: currentFrame,
+            durationInFrames: durationFrames,
+            left: 0,
+            top: 0,
+            width,
+            height,
+          };
+          const captionOverlay = createCaptionsFromScriptText({
+            videoOverlay: captionAnchor,
+            texts: onScreenTextArr.filter((t: any) => typeof t === 'string' && t.trim().length > 0),
+            playerDimensions: { width, height },
+            fps,
+            style: 'subtitle',
+            position: 'bottom',
+          });
+          // Assign a real ID + push
+          (captionOverlay as any).id = overlayId++;
+          overlays.push(captionOverlay as any);
+          console.log(`[Finalize] Scene ${scene.sceneIndex}: ${onScreenTextArr.length} script-text caption(s) added (zero-narration fallback)`);
+        } catch (capErr: any) {
+          warnings.push(`Scene ${scene.sceneIndex}: script-text caption fallback failed: ${capErr.message}`);
+        }
+      }
+
       // Scene title overlay removed — redundant with narration text overlay.
       // The narration text on row 0 already provides context. Having both
       // creates visual clutter and confuses users into thinking there are

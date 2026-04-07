@@ -77,6 +77,36 @@ export async function listStoryboards(
 }
 
 /**
+ * Phase A3.2: Update a single sub-shot within a scene's descriptor.
+ *
+ * Used by per-sub-shot image generation so each independentGeneration sub-shot gets
+ * its own imageUrl / imageAssetId set on the storyboard doc BEFORE video gen runs.
+ * Without this the video worker falls back to the parent scene image for all sub-shots,
+ * producing 5 near-identical Seedance clips (the "3 videos stitched to 11 shots" bug).
+ */
+export async function updateSubShot(
+  storyboardId: string,
+  sceneIndex: number,
+  subShotIndex: number,
+  update: Partial<import('./schemas/storyboard').SubShot>,
+): Promise<void> {
+  const db = await getDatabase();
+
+  // Build $set ops with the nested path. We use arrayFilters for the scene match;
+  // the sub-shot index is a literal array position inside descriptor.subShots.
+  const setOps: Record<string, any> = { updatedAt: new Date() };
+  for (const [key, value] of Object.entries(update)) {
+    setOps[`scenes.$[elem].descriptor.subShots.${subShotIndex}.${key}`] = value;
+  }
+
+  await db.collection(COLLECTION).updateOne(
+    { storyboardId },
+    { $set: setOps },
+    { arrayFilters: [{ 'elem.sceneIndex': sceneIndex }] },
+  );
+}
+
+/**
  * Update only a scene's status (lightweight operation for approve/reject).
  */
 export async function updateSceneStatus(

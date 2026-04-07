@@ -131,8 +131,16 @@ export interface SceneEditDirections {
   pacing?: 'fast' | 'medium' | 'slow' | 'building' | 'beat-synced';
   /** Specific SFX direction beyond the general audioDescription */
   sfxCue?: string;
-  /** Motion graphic to insert in this scene */
+  /** Motion graphic to insert in this scene (free-form description, legacy).
+   *  For exact on-screen text extracted from the script use `onScreenText` instead. */
   motionGraphicCue?: string;
+  /** Structured on-screen text lines extracted verbatim from the script's
+   *  "On-Screen Text:" / "Text:" sections. Each entry is ONE distinct visible text
+   *  (e.g. ["Remember this feeling?"], or ["Through the years.", "Your story.", "Our place."]).
+   *  Unlike motionGraphicCue (one concatenated blob), this preserves order, count, and
+   *  exact punctuation/hashtags so the EDL executor + caption-service can use the literal
+   *  text instead of letting Gemini re-generate it. */
+  onScreenText?: string[];
   /** Camera rig/movement notes (preserved for reference, future motion tracking) */
   cameraRig?: string;
   /** Explicit color temperature if mentioned in script (Kelvin) */

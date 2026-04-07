@@ -384,6 +384,129 @@ export async function createCaptions(params: {
 }
 
 /**
+ * Phase A3.4 — Generate captions from EXACT script on-screen-text strings when
+ * no voiceover/transcription is available (commercial / brand-ad scripts often
+ * have ZERO narration, just visual text beats).
+ *
+ * Distributes the text array across the video clip's timeline. Each text becomes
+ * one Caption entry inside ONE CaptionOverlay so the editor renders them
+ * sequentially using its existing caption pipeline.
+ *
+ * Timing rules (from creative_production_knowledge.md §9 — caption readability):
+ *   - Min display per text: 1.0s
+ *   - Max display per text: 5.0s
+ *   - Comfortable: ~1.8s base + 60ms per character
+ *   - Inter-text gap: 200ms
+ *   - If total desired exceeds clip duration, scale all texts proportionally
+ */
+export function createCaptionsFromScriptText(params: {
+  videoOverlay: ClipOverlay;
+  texts: string[];
+  playerDimensions: { width: number; height: number };
+  fps?: number;
+  style?: CaptionStylePreset;
+  position?: CaptionPosition;
+}): CaptionOverlay {
+  const {
+    videoOverlay,
+    texts,
+    playerDimensions,
+    fps = 30,
+    style = 'subtitle',
+    position = 'bottom',
+  } = params;
+
+  if (!texts || texts.length === 0) {
+    throw new Error('createCaptionsFromScriptText: texts array is empty');
+  }
+
+  const clipDurationMs = (videoOverlay.durationInFrames / fps) * 1000;
+
+  // Per-text comfortable display: 1.8s base + 60ms/char, clamped to [1500, 5000]ms
+  const computeDisplayMs = (text: string): number => {
+    const base = 1800 + text.length * 60;
+    return Math.max(1500, Math.min(5000, base));
+  };
+
+  const interGapMs = 200;
+  const totalDesired =
+    texts.reduce((sum, t) => sum + computeDisplayMs(t), 0) +
+    (texts.length - 1) * interGapMs;
+
+  // If desired total exceeds clip duration, scale down proportionally so we still fit
+  const scale = totalDesired > clipDurationMs ? clipDurationMs / totalDesired : 1.0;
+
+  // Build sequential captions across the clip
+  const captions: Caption[] = [];
+  let cursorMs = 0;
+  for (const text of texts) {
+    const dispMs = Math.round(computeDisplayMs(text) * scale);
+    const startMs = cursorMs;
+    const endMs = Math.min(clipDurationMs, cursorMs + dispMs);
+
+    if (endMs <= startMs) break; // ran out of clip space
+
+    // Synthetic per-word timings (evenly distributed) so highlight/karaoke effects work
+    const wordTokens = text.split(/\s+/).filter(Boolean);
+    const perWordMs = wordTokens.length > 0 ? (endMs - startMs) / wordTokens.length : 0;
+    const captionWords: CaptionWord[] = wordTokens.map((w, i) => ({
+      word: w,
+      startMs: Math.round(startMs + i * perWordMs),
+      endMs: Math.round(startMs + (i + 1) * perWordMs),
+      confidence: 1.0,
+    }));
+
+    captions.push({
+      text,
+      startMs,
+      endMs,
+      timestampMs: startMs,
+      confidence: 1.0,
+      words: captionWords,
+    });
+
+    cursorMs = endMs + Math.round(interGapMs * scale);
+    if (cursorMs >= clipDurationMs) break;
+  }
+
+  // Clone style + display config so we don't mutate the shared STYLE_MAP/DISPLAY_CONFIG_MAP entries
+  const baseDisplayConfig: CaptionDisplayConfig = { ...DISPLAY_CONFIG_MAP[style] };
+  const baseStylesSource = STYLE_MAP[style];
+  const baseStyles: CaptionStyles = {
+    ...baseStylesSource,
+    highlight: { ...baseStylesSource.highlight },
+  };
+
+  // Normalize fontSize "32" → "32px"
+  if (/^\d+(\.\d+)?$/.test(String(baseStyles.fontSize))) {
+    baseStyles.fontSize = `${baseStyles.fontSize}px`;
+  }
+
+  // Position relative to the video overlay (reuse existing helper)
+  const { left, top, width, height } = calculatePosition(position, playerDimensions, videoOverlay);
+
+  return {
+    id: Date.now() + Math.floor(Math.random() * 10000),
+    type: OverlayType.CAPTION,
+    from: videoOverlay.from,
+    durationInFrames: videoOverlay.durationInFrames,
+    captions,
+    left,
+    top,
+    width,
+    height,
+    rotation: 0,
+    isDragging: false,
+    row: 0, // same z-index strategy as transcription captions (rendered above video at 95)
+    styles: baseStyles,
+    displayConfig: baseDisplayConfig,
+    position,
+    template: style,
+    sourceVideoId: videoOverlay.id,
+  };
+}
+
+/**
  * Calculate caption position based on preset
  */
 function calculatePosition(
