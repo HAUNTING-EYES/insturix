@@ -462,15 +462,28 @@ const E02: EditProfile = { profileId: 'E-02', name: 'Before → After Transforma
 
 const E03: EditProfile = { profileId: 'E-03', name: 'Data-Driven / Evidence', description: 'Numbers tell the story, charts build live', category: 'narrative-mode', filterPresetId: 'clean-corporate', pacing: 'medium', pacingMultiplier: 1.0, cutsPerMinRange: [8, 14], defaultTransition: 'hard-cut', captionStyle: 'subtitle', bgmDuckLevel: 0.20, graphicsDensity: 'heavy', actions: [applyFilter('clean-corporate'), addTransition('hard-cut'), addCaptions('subtitle'), audioDuck(0.20), qualityReview()], signalKeywords: [{ term: 'data', field: 'narration', weight: 0.3 }, { term: 'statistics', field: 'narration', weight: 0.3 }, { term: 'percentage', field: 'narration', weight: 0.2 }, { term: 'chart', field: 'visual', weight: 0.3 }] };
 
-// Phase A3.5.17: expanded signalKeywords to recognize nostalgia / memory / generational brand ads.
-// Previously the McDonald's "Golden Arches of Memory" nostalgia script fell through to G-01 Universal
-// Clean because nostalgia-specific vocabulary wasn't in any profile's keyword list. E-04 already has
-// the ideal defaults for this content type (film-portra warm grade, slow 5-10 cuts/min, dissolve
-// transitions matching creative_production_knowledge.md §6) — we just needed detection to find it.
+// Phase A3.5.17 (revised 2026-04-08): expanded signalKeywords to recognize emotional brand
+// storytelling across the FULL B2B vertical range — not nostalgia-specific.
+//
+// E-04 has the ideal defaults for any emotional brand-driven content (film-portra warm grade,
+// slow 5-10 cuts/min pacing, dissolve transitions per creative_production_knowledge.md §6):
+//   - Origin stories ("how we started")
+//   - Mission/purpose films ("the why")
+//   - Brand heritage / legacy / milestone announcements
+//   - Customer testimonials with emotional weight
+//   - Founder interviews / behind-the-scenes
+//   - Anniversary / retrospective content
+//   - Human-connection campaigns (any vertical: SaaS, food, fashion, finance, healthcare...)
+//   - Nostalgia ads (one specific subtype, not the only target)
+//
+// Keywords are kept BROAD and emotion/values-driven so they trigger across content types.
+// Vertical-specific terms (childhood, vintage, retro, "through the years", generational) were
+// REMOVED — those over-fit to one subtype and would have starved other valid candidates of
+// detection (e.g. a SaaS founder's-story film should also land on E-04, not just McDonald's).
 const E04: EditProfile = {
   profileId: 'E-04',
   name: 'Origin Story / Brand Narrative',
-  description: 'The founding moment, the why, the mission, nostalgic brand films',
+  description: 'Emotional brand storytelling — origin, mission, heritage, human connection. Works across any B2B vertical.',
   category: 'narrative-mode',
   filterPresetId: 'film-portra',
   pacing: 'slow',
@@ -482,35 +495,50 @@ const E04: EditProfile = {
   graphicsDensity: 'minimal',
   actions: [applyFilter('film-portra'), addTransition('dissolve'), addCaptions('subtitle'), audioDuck(0.22), qualityReview()],
   signalKeywords: [
-    // Original origin-story signals
+    // Origin / founding (any company, any vertical)
     { term: 'founded', field: 'narration', weight: 0.3 },
+    { term: 'founder', field: 'narration', weight: 0.25 },
+    { term: 'started', field: 'narration', weight: 0.15 },
+    { term: 'began', field: 'narration', weight: 0.15 },
+    // Mission / purpose / values (universal brand-narrative signals)
     { term: 'mission', field: 'narration', weight: 0.3 },
+    { term: 'purpose', field: 'narration', weight: 0.25 },
+    { term: 'values', field: 'narration', weight: 0.2 },
+    { term: 'why we', field: 'narration', weight: 0.3 },
+    { term: 'believe', field: 'narration', weight: 0.15 },
+    // Brand / story content type (not vertical-specific)
     { term: 'story', field: 'narration', weight: 0.2 },
     { term: 'brand film', field: 'contentType', weight: 0.4 },
-    // Phase A3.5.17 — nostalgia / memory / childhood / generational signals
-    { term: 'nostalgi', field: 'notes', weight: 0.45 },
-    { term: 'nostalgi', field: 'mood', weight: 0.35 },
-    { term: 'nostalgic', field: 'notes', weight: 0.45 },
-    { term: 'memory', field: 'narration', weight: 0.25 },
-    { term: 'memory', field: 'notes', weight: 0.35 },
-    { term: 'memories', field: 'narration', weight: 0.25 },
-    { term: 'memories', field: 'notes', weight: 0.35 },
-    { term: 'childhood', field: 'narration', weight: 0.35 },
-    { term: 'childhood', field: 'notes', weight: 0.4 },
-    { term: 'childhood', field: 'visual', weight: 0.3 },
-    { term: 'generation', field: 'narration', weight: 0.3 },
-    { term: 'generation', field: 'notes', weight: 0.3 },
-    { term: 'generational', field: 'visual', weight: 0.35 },
-    { term: 'vintage', field: 'visual', weight: 0.3 },
-    { term: 'retro', field: 'visual', weight: 0.25 },
-    { term: 'heritage', field: 'notes', weight: 0.3 },
-    { term: 'comforting', field: 'notes', weight: 0.25 },
-    { term: 'through the years', field: 'narration', weight: 0.4 },
-    { term: 'through the years', field: 'visual', weight: 0.3 },
-    { term: 'remember', field: 'narration', weight: 0.2 },
     { term: 'brand film', field: 'notes', weight: 0.35 },
-    { term: 'emotional', field: 'mood', weight: 0.2 },
-    { term: 'inspirational', field: 'mood', weight: 0.2 },
+    { term: 'brand story', field: 'contentType', weight: 0.35 },
+    { term: 'brand story', field: 'notes', weight: 0.3 },
+    // Heritage / legacy / milestones (broader than nostalgia — covers anniversaries,
+    // milestone announcements, multi-generational businesses, etc. across verticals)
+    { term: 'heritage', field: 'notes', weight: 0.3 },
+    { term: 'legacy', field: 'notes', weight: 0.3 },
+    { term: 'tradition', field: 'notes', weight: 0.2 },
+    { term: 'years of', field: 'narration', weight: 0.2 },
+    { term: 'anniversary', field: 'notes', weight: 0.3 },
+    { term: 'milestone', field: 'notes', weight: 0.25 },
+    // Memory as a broader concept (testimonials, retrospectives, customer stories,
+    // not just childhood nostalgia)
+    { term: 'memory', field: 'narration', weight: 0.2 },
+    { term: 'memories', field: 'narration', weight: 0.2 },
+    { term: 'memory', field: 'notes', weight: 0.25 },
+    { term: 'memories', field: 'notes', weight: 0.25 },
+    // Emotional / human / connection-oriented content (across verticals)
+    { term: 'emotional', field: 'mood', weight: 0.25 },
+    { term: 'inspirational', field: 'mood', weight: 0.25 },
+    { term: 'human', field: 'narration', weight: 0.15 },
+    { term: 'connection', field: 'narration', weight: 0.15 },
+    { term: 'connection', field: 'notes', weight: 0.2 },
+    { term: 'shared', field: 'narration', weight: 0.1 },
+    { term: 'together', field: 'narration', weight: 0.1 },
+    // Nostalgia stays in the list but at the SAME weight as other emotional signals,
+    // not as a dominant trigger — it's one valid subtype, not the only one
+    { term: 'nostalgi', field: 'notes', weight: 0.25 },
+    { term: 'nostalgic', field: 'notes', weight: 0.25 },
+    { term: 'nostalgi', field: 'mood', weight: 0.2 },
   ],
 };
 
