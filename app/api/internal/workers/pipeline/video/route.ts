@@ -444,17 +444,28 @@ async function updateBatchStatus(batchId: string): Promise<void> {
             ? await db.collection('storyboards').findOne({ storyboardId: batch.storyboardId }) as any
             : null;
           if (sbDoc) {
+            // Bundle 3: include title + onScreenText + rawProductionNotes so profile
+            // detection has enough signal to score emotional/brand-narrative content properly.
             const thinkforgeMetadata = {
+              title: sbDoc.title || '',
               scenes: (sbDoc.scenes || []).map((s: any) => ({
                 narration: s.descriptor?.narration || '',
                 visualDescription: s.descriptor?.visualDescription || '',
                 mood: s.descriptor?.mood || '',
+                audioDescription: s.descriptor?.audioDescription || '',
+                rawProductionNotes: s.descriptor?.rawProductionNotes || '',
+                editDirections: {
+                  onScreenText: s.descriptor?.editDirections?.onScreenText || [],
+                  motionGraphicCue: s.descriptor?.editDirections?.motionGraphicCue || '',
+                },
               })),
               overallMusicPrompt: sbDoc.overallMusicPrompt || '',
+              environmentNotes: sbDoc.environmentNotes || '',
+              globalEditDirections: sbDoc.globalEditDirections || undefined,
             };
             const detected = getAutoSelectedProfile(thinkforgeMetadata);
             profileId = detected.profile.profileId;
-            console.log(`[VideoWorker] Auto-detected Director profile: ${profileId} (was missing from project)`);
+            console.log(`[VideoWorker] Auto-detected Director profile: ${profileId} confidence=${detected.detection.confidence.toFixed(2)} (was missing from project)`);
           } else {
             console.log(`[VideoWorker] Batch ${batchId} complete but no pending Director profile and no storyboard for auto-detection — skipping`);
             return;

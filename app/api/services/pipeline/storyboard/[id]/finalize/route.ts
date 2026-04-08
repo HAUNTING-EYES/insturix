@@ -765,20 +765,33 @@ export async function POST(
     // We store the profile detection result so the video worker can use it.
     try {
       const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
+      // Bundle 3 (2026-04-08) fix: previously this object was a FLAT pre-extracted-signals
+      // shape (narration: "...", visual: "...") which does NOT match the ThinkForgeMetadata
+      // interface getAutoSelectedProfile() expects (`scenes: Array<{...}>`). The function's
+      // extractSignals() then called `metadata.scenes || []` → empty scenes → all empty
+      // signal strings → every profile scored 0 → always fell through to G-01 Universal Clean.
+      // This is why the user saw G-01 applied to a nostalgia brand ad in proj_r8E_z9WVaBX9
+      // despite my Bundle 2 E-04 keyword work. Now we pass the correct shape.
       const thinkforgeMetadata = {
-        narration: storyboard.scenes.map(s => s.descriptor.narration || '').join(' '),
-        visual: storyboard.scenes.map(s => s.descriptor.visualDescription || '').join(' '),
-        music: storyboard.overallMusicPrompt || '',
-        notes: '',
-        environment: (storyboard as any).environmentNotes || '',
-        character: '',
-        mood: storyboard.scenes.map(s => s.descriptor.mood || '').join(', '),
-        sceneCount: storyboard.scenes.length,
-        totalDurationSec: Math.round(currentFrame / fps),
-        platform: '',
-        format: '',
+        title: storyboard.title || (storyboard as any).sourceScriptTitle || '',
+        scenes: storyboard.scenes.map(s => ({
+          narration: s.descriptor.narration || '',
+          visualDescription: s.descriptor.visualDescription || '',
+          mood: s.descriptor.mood || '',
+          audioDescription: s.descriptor.audioDescription || '',
+          rawProductionNotes: (s.descriptor as any).rawProductionNotes || '',
+          editDirections: {
+            onScreenText: (s.descriptor.editDirections as any)?.onScreenText || [],
+            motionGraphicCue: s.descriptor.editDirections?.motionGraphicCue || '',
+          },
+        })),
+        overallMusicPrompt: storyboard.overallMusicPrompt || '',
+        environmentNotes: (storyboard as any).environmentNotes || '',
+        characterDescriptions: (storyboard as any).characterDescriptions || {},
+        globalEditDirections: storyboard.globalEditDirections || undefined,
       };
-      const { profile: detectedProfile } = getAutoSelectedProfile(thinkforgeMetadata);
+      const { profile: detectedProfile, autoSelected, detection } = getAutoSelectedProfile(thinkforgeMetadata);
+      console.log(`[Finalize] Profile detection: ${detectedProfile.profileId} confidence=${detection.confidence.toFixed(2)} auto=${autoSelected} reasoning=[${detection.reasoning.slice(0, 3).join('; ')}]`);
       const profileId = detectedProfile.profileId;
       // Store on project so video worker can dispatch Director with correct profile
       await db.collection(COLLECTIONS.PROJECTS).updateOne(

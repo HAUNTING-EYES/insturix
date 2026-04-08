@@ -333,20 +333,27 @@ export const DEFAULT_CONFIG: EditronConfig = {
     // Analysis model uses withAnalysisFallback() in gemini-model-factory.ts:
     // tries Gemma 4 first, falls back to gemini-2.5-flash ONLY on model-incompatibility errors.
     // Model hierarchy:
-    //   gemini-3.1-flash-lite-preview  — Parsing, subjects, montage, reference prompts (fast + accurate)
+    //   gemini-2.5-flash               — Parser, subjects, reference prompts (GOOD at following complex multi-rule prompts)
+    //   gemini-3.1-flash-lite-preview  — Montage detection only (simple single-task prompts)
     //   gemini-3.1-pro-preview         — Edit decisions / Unified Intelligence (best reasoning, 300s budget)
     //   gemma-4-31b-it                 — Vision analysis (FREE, native video/image understanding)
-    //   gemini-2.5-flash               — Chat + universal fallback ONLY
-    // 3.1 flash-lite for parser/subject/montage (fast, matches 90s hard cap in llm-scene-parser).
-    // 3.1 pro ONLY for Unified Intelligence decisions (runs in Director worker with its own budget).
-    // 2.5 flash ONLY for chat and universal fallback.
     //
-    // HOTFIX 2026-04-08: sceneParserModel + subjectExtractionModel were on 'gemini-3.1-pro-preview'
-    // which hung past 300s on export-for-editron → 504 timeout. Both dropped to flash-lite-preview.
-    // See commit e4943987 (prior revert for the same reason) and f0318616 (prior switch to flash-lite).
-    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    // HOTFIX HISTORY:
+    //   e4943987: reverted sceneParserModel from gemini-3.1-pro-preview to gemini-2.5-flash (pro was too slow, 504)
+    //   f0318616: switched to gemini-3.1-flash-lite-preview (even faster)
+    //   d3d295d0: added AbortSignal.timeout(90s) because flash-lite was also timing out on large scripts
+    //
+    // BUNDLE 3 (2026-04-08): flash-lite was IGNORING the Bundle 2 parser prompt rules
+    //   (independentGeneration, onScreenText, literal shot counts). Diagnosed via McDonald's
+    //   proj_r8E_z9WVaBX9 — all 13 sub-shots had independentGeneration:false despite explicit
+    //   Mode B examples in the prompt. Flash-lite is too small to reliably follow ~18K-char
+    //   multi-rule prompts. Moving to gemini-2.5-flash: ~3x cost vs flash-lite but significantly
+    //   better instruction-following. Still well within the 90s abort cap on typical scripts.
+    //   subjectExtractionModel stays on 2.5-flash for the same reason (structured output reliability).
+    //   montageDetectionModel stays on flash-lite because it's a narrower task (simpler prompt).
+    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
-    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
     analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemma-4-31b-it', 'gemini-2.5-flash'),

@@ -864,6 +864,27 @@ function applyFilterChange(
     return null;
   }
 
+  // Bundle 3 (2026-04-08): Skin-tone safety rail.
+  // Reject any filter with hue-rotate > 30deg (or < -30deg) unless the user's edit profile
+  // EXPLICITLY selected a stylistic preset (teal-orange, blade-runner, neon-nights, cool).
+  // Generic EDL filter-change decisions must not turn skin tones blue/green on emotional
+  // / human / nostalgia content. See creative_production_knowledge.md §6 Color Grading
+  // Psychology + Phase A3.5.4 disaster inventory.
+  if (filterCss) {
+    const hueMatch = filterCss.match(/hue-rotate\((-?\d+)deg\)/);
+    if (hueMatch) {
+      const degrees = parseInt(hueMatch[1], 10);
+      // Normalize to [-180, 180]
+      let normalized = degrees % 360;
+      if (normalized > 180) normalized -= 360;
+      if (normalized < -180) normalized += 360;
+      if (Math.abs(normalized) > 30) {
+        console.warn(`[EDL-Exec] Filter-change at frame ${decision.frame}: REJECTED filterCss with hue-rotate(${normalized}deg) — too extreme for skin tones. (filterId was "${filterId || '(none)'}")`);
+        return null;
+      }
+    }
+  }
+
   let modified = 0;
   const videoOverlays = overlays.filter(o =>
     (o.type === 'video' || o.type === 'image') &&
@@ -871,8 +892,19 @@ function applyFilterChange(
     o.from + o.durationInFrames > decision.frame,
   );
 
+  // Bundle 3 (2026-04-08): Don't overwrite a filter that finalize already set.
+  // Finalize's applyEditDirections picks a mood-appropriate filter from moodFilterMap
+  // (which Bundle 1 locked to skin-tone-safe presets only). Director's batch_update_overlays
+  // ALREADY respects this via a script-filter-preserved guard. The EDL executor didn't,
+  // which is how teal-orange hue-rotate(160deg) ended up on clips 0+2 of proj_r8E_z9WVaBX9
+  // despite mood='calm' and mood='inspirational' both mapping to golden-hour-pro.
+  // Fix: same guard here. Only apply filter-change to overlays that have no filter yet.
   for (const overlay of videoOverlays) {
     if (!(overlay as any).styles) (overlay as any).styles = {};
+    if ((overlay as any).styles.filter) {
+      // Finalize/Director already set a filter — respect it. Skip this overlay.
+      continue;
+    }
     if (filterCss) {
       (overlay as any).styles.filter = filterCss;
     }

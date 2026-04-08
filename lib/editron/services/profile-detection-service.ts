@@ -30,6 +30,9 @@ interface ExtractedSignals {
   mood: string;
   platform: string;
   contentType: string;
+  /** Bundle 3 (2026-04-08): project title + script purpose. Critical for commercial /
+   *  zero-narration scripts where `narration` is empty and profile detection was starving. */
+  title: string;
   sceneCount: number;
   totalDurationSec: number;
 }
@@ -41,6 +44,11 @@ interface ThinkForgeMetadata {
     mood?: string;
     audioDescription?: string;
     rawProductionNotes?: string;
+    /** Scene-level editDirections, including on-screen text that may hint at brand/emotional beats */
+    editDirections?: {
+      onScreenText?: string[];
+      motionGraphicCue?: string;
+    };
   }>;
   overallMusicPrompt?: string;
   characterDescriptions?: Record<string, string>;
@@ -57,25 +65,45 @@ interface ThinkForgeMetadata {
   platform?: string;
   /** Explicit content type if set by user */
   contentType?: string;
+  /** Bundle 3: project / script title — often the most signal-rich field in commercial scripts.
+   *  Example: "Golden Arches of Memory: A Taste of Childhood" tells you everything you need
+   *  to know about content type without any other field. */
+  title?: string;
 }
 
 function extractSignals(metadata: ThinkForgeMetadata): ExtractedSignals {
   const scenes = metadata.scenes || [];
+
+  // Bundle 3: on-screen text is a first-class signal source — on commercial scripts it's
+  // often where the real brand copy lives, not in narration (which is empty).
+  const onScreenText = scenes
+    .flatMap(s => s.editDirections?.onScreenText || [])
+    .concat(scenes.map(s => s.editDirections?.motionGraphicCue || '').filter(Boolean))
+    .join(' ')
+    .toLowerCase();
 
   return {
     narration: scenes.map(s => s.narration || '').join(' ').toLowerCase(),
     visual: scenes.map(s => s.visualDescription || '').join(' ').toLowerCase(),
     music: (metadata.overallMusicPrompt || '').toLowerCase() +
       ' ' + (metadata.globalEditDirections?.musicMood || '').toLowerCase(),
+    // Bundle 3: notes now ALSO includes title, on-screen text, and environment notes.
+    // This is a "free text" bucket for broad keyword matching. The title field is separate
+    // (see below) so profiles can target it specifically if needed.
     notes: (scenes[0]?.rawProductionNotes || '').toLowerCase() +
       ' ' + (metadata.globalEditDirections?.colorGrade || '').toLowerCase() +
-      ' ' + (metadata.globalEditDirections?.pacing || '').toLowerCase(),
+      ' ' + (metadata.globalEditDirections?.pacing || '').toLowerCase() +
+      ' ' + (metadata.title || '').toLowerCase() +
+      ' ' + (metadata.environmentNotes || '').toLowerCase() +
+      ' ' + onScreenText,
     environment: (metadata.environmentNotes || '').toLowerCase(),
     character: Object.entries(metadata.characterDescriptions || {})
       .map(([name, desc]) => `${name} ${desc}`).join(' ').toLowerCase(),
     mood: scenes.map(s => s.mood || '').join(' ').toLowerCase(),
     platform: (metadata.platform || '').toLowerCase(),
     contentType: (metadata.contentType || '').toLowerCase(),
+    // Bundle 3: title as its own field, also flowed into notes for legacy keyword matching.
+    title: (metadata.title || '').toLowerCase(),
     sceneCount: scenes.length,
     totalDurationSec: scenes.reduce((sum, s: any) => sum + (s.durationSeconds || 5), 0),
   };

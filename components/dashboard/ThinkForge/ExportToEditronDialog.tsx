@@ -362,13 +362,21 @@ export function ExportToEditronDialog({
       // Detect the best edit profile from the parsed script metadata.
       // This is a pure client-side function (no API call).
       try {
+        // Bundle 3 (2026-04-08): include title + editDirections.onScreenText in metadata.
+        // Critical for commercial / zero-narration scripts where the script title is the
+        // richest signal source and on-screen text contains brand copy.
         const metadata = {
+          title: exportData.title || projectTitle || '',
           scenes: (exportData.scenes || []).map((s: any) => ({
             narration: s.narration,
             visualDescription: s.visualDescription,
             mood: s.mood,
             audioDescription: s.audioDescription,
             rawProductionNotes: s.rawProductionNotes,
+            editDirections: {
+              onScreenText: s.editDirections?.onScreenText || [],
+              motionGraphicCue: s.editDirections?.motionGraphicCue || '',
+            },
           })),
           overallMusicPrompt: exportData.overallMusicPrompt,
           characterDescriptions: exportData.characterDescriptions,

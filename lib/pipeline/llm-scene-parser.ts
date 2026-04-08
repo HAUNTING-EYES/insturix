@@ -590,6 +590,173 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
     }
   }
 
+  // ─── Post-process: force independentGeneration on distinct sub-shots ──
+  // Bundle 3 safety net (2026-04-08): flash-lite (and sometimes flash) ignore the
+  // Mode B rule — they produce sub-shots with distinct descriptions but leave
+  // independentGeneration:false on all of them. Result: all sub-shots cut from one
+  // 5s video → 3 videos total for a 13-sub-shot script (the "3 stitched to 11"
+  // disaster from proj_r8E_z9WVaBX9).
+  //
+  // Heuristic: if a scene has >=2 sub-shots AND the sub-shot descriptions are
+  // visibly distinct (different primary nouns / locations / time periods), force
+  // independentGeneration:true on ALL of them. This guarantees per-sub-shot
+  // generation regardless of what the LLM decided.
+  //
+  // The cost preview already warns the user about independent sub-shot cost, and
+  // the user opting into sub-shot decomposition in the first place is an implicit
+  // opt-in to the higher cost. Better to over-generate than to produce 3 videos.
+  if (object.scenes) {
+    for (const scene of object.scenes) {
+      const subShots = (scene as any).subShots || [];
+      if (subShots.length < 2) continue;
+
+      // Already all independent? Skip.
+      const allIndep = subShots.every((s: any) => s.independentGeneration === true);
+      if (allIndep) continue;
+
+      // Detect distinct sub-shots: compare description + visualDescription strings
+      // If any two share <40% token overlap, they're distinct enough to need their own video
+      const normalize = (s: string) =>
+        (s || '').toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .filter((w) => w.length > 3 && !/^(the|and|for|with|into|from|that|this|which|where|their|there|shot|scene)$/.test(w));
+
+      const tokenSets = subShots.map((s: any) =>
+        new Set(normalize(`${s.description || ''} ${s.visualDescription || ''}`))
+      );
+
+      // Compute pairwise Jaccard similarity
+      let maxJaccard = 0;
+      for (let i = 0; i < tokenSets.length; i++) {
+        for (let j = i + 1; j < tokenSets.length; j++) {
+          const a = tokenSets[i] as Set<string>;
+          const b = tokenSets[j] as Set<string>;
+          if (a.size === 0 && b.size === 0) continue;
+          const intersection = new Set([...a].filter((x) => b.has(x)));
+          const union = new Set([...a, ...b]);
+          const jaccard = union.size === 0 ? 0 : intersection.size / union.size;
+          if (jaccard > maxJaccard) maxJaccard = jaccard;
+        }
+      }
+
+      // If max similarity is low (<0.4), sub-shots are visibly distinct → force independent.
+      // Also force if there are clear era markers (distinct years/decades) in any pair.
+      const allText = subShots.map((s: any) => `${s.description || ''} ${s.visualDescription || ''}`).join(' ').toLowerCase();
+      const eraMarkers = (allText.match(/\b(19[5-9]0s|20[0-2]0s|vintage|retro|modern|present[- ]day)\b/g) || []);
+      const hasMultipleEras = new Set(eraMarkers).size >= 2;
+
+      if (maxJaccard < 0.4 || hasMultipleEras) {
+        const reason = hasMultipleEras
+          ? `multi-era montage (${new Set(eraMarkers).size} distinct eras)`
+          : `distinct subjects (maxJaccard=${maxJaccard.toFixed(2)})`;
+        console.log(`[SceneParser] Post-process: scene ${(scene as any).sceneIndex} "${scene.title}" — FORCING independentGeneration=true on ${subShots.length} sub-shots (${reason})`);
+        for (const sub of subShots) {
+          sub.independentGeneration = true;
+          // Ensure visualDescription is set — copy from description if missing
+          if (!sub.visualDescription && sub.description) {
+            sub.visualDescription = sub.description;
+          }
+          // Ensure videoMotionPrompt is set — inherit from parent if missing
+          if (!sub.videoMotionPrompt && (scene as any).videoMotionPrompt) {
+            sub.videoMotionPrompt = (scene as any).videoMotionPrompt;
+          }
+        }
+      }
+    }
+  }
+
+  // ─── Post-process: extract onScreenText from raw script ───────────
+  // Bundle 3 safety net (2026-04-08): parser frequently leaves editDirections.onScreenText
+  // as null even when the script literally contains "On-Screen Text:" lines. Regex-extract
+  // them directly from the raw script as a fallback.
+  //
+  // Scan the raw script for patterns like:
+  //   On-Screen Text: "Quoted text"
+  //   On-Screen Text: Unquoted text
+  //   Text: "Quoted"
+  //   (Brief flash: "Quoted")
+  //   (Appears briefly: "Quoted")
+  // Associate each extracted text with the nearest scene (by narration match or title match).
+  if (object.scenes && scriptText) {
+    // Extract all on-screen-text strings from the raw script, in order
+    const extractions: Array<{ text: string; scriptPosition: number }> = [];
+    const patterns = [
+      /(?:on[-\s]?screen\s*text|text\s*on\s*screen|text)[:\s]*["\u201C\u2018]([^"\u201D\u2019]+)["\u201D\u2019]/gi,
+      /\((?:appears?\s*briefly|brief\s*flash|briefly)[:\s]*["\u201C\u2018]([^"\u201D\u2019]+)["\u201D\u2019]\)/gi,
+      /(?:on[-\s]?screen\s*text|text\s*on\s*screen)[:\s]*([^\n"\u201C\u201D]+?)(?=\n|$)/gi,
+    ];
+    for (const pat of patterns) {
+      pat.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pat.exec(scriptText)) !== null) {
+        const text = match[1].trim().replace(/\s+/g, ' ');
+        if (text.length > 2 && text.length < 200) {
+          // De-dupe: skip if this exact text already captured
+          if (!extractions.some((e) => e.text === text)) {
+            extractions.push({ text, scriptPosition: match.index });
+          }
+        }
+      }
+    }
+
+    if (extractions.length > 0) {
+      console.log(`[SceneParser] Post-process: regex-extracted ${extractions.length} on-screen text strings from raw script`);
+
+      // Find the script position for each scene (by title or narration match)
+      const sceneScriptPositions = object.scenes.map((scene: any) => {
+        const title = (scene.title || '').toLowerCase().substring(0, 30);
+        const narration = (scene.narration || '').toLowerCase().substring(0, 50);
+        let pos = -1;
+        if (narration.length > 5) pos = scriptText.toLowerCase().indexOf(narration);
+        if (pos < 0 && title.length > 5) pos = scriptText.toLowerCase().indexOf(title);
+        // Fallback: distribute evenly by scene index
+        if (pos < 0) pos = Math.floor((scene.sceneIndex / object.scenes.length) * scriptText.length);
+        return pos;
+      });
+
+      // Assign each extraction to the nearest scene by script position
+      for (const extraction of extractions) {
+        let bestSceneIdx = 0;
+        let bestDist = Infinity;
+        for (let i = 0; i < object.scenes.length; i++) {
+          const scenePos = sceneScriptPositions[i];
+          const nextScenePos = i + 1 < object.scenes.length ? sceneScriptPositions[i + 1] : scriptText.length;
+          // Extraction belongs to this scene if its position is within [scenePos, nextScenePos)
+          if (extraction.scriptPosition >= scenePos && extraction.scriptPosition < nextScenePos) {
+            bestSceneIdx = i;
+            bestDist = 0;
+            break;
+          }
+          // Otherwise track nearest
+          const dist = Math.abs(extraction.scriptPosition - scenePos);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestSceneIdx = i;
+          }
+        }
+
+        const scene: any = object.scenes[bestSceneIdx];
+        if (!scene.editDirections) scene.editDirections = {};
+        if (!Array.isArray(scene.editDirections.onScreenText)) {
+          scene.editDirections.onScreenText = [];
+        }
+        // De-dupe within the scene's onScreenText array
+        if (!scene.editDirections.onScreenText.includes(extraction.text)) {
+          scene.editDirections.onScreenText.push(extraction.text);
+        }
+      }
+
+      // Log what landed where
+      for (const scene of object.scenes as any[]) {
+        const texts = scene.editDirections?.onScreenText;
+        if (Array.isArray(texts) && texts.length > 0) {
+          console.log(`[SceneParser] Scene ${scene.sceneIndex} onScreenText (regex): [${texts.map((t: string) => `"${t}"`).join(', ')}]`);
+        }
+      }
+    }
+  }
+
   // ─── Post-process: correct scene durations for target total ────
   // The LLM sometimes produces durations that sum to much more than the target.
   // A 30s reel with 7 scenes should have ~4-5s per scene, not 9-12s.
