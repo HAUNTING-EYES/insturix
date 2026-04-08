@@ -6,7 +6,11 @@ import { generateReferenceImage } from '@/lib/pipeline/reference-image-service';
 import { CreditsService } from '@/lib/services/creditsService';
 import type { SubjectReference } from '@/lib/pipeline/schemas/reference-image';
 
-export const maxDuration = 60;
+// 2026-04-09: Bumped from 60s → 300s. Reference image generation uses fal.ai
+// Flux which regularly takes 30-60s per call, plus IP-adapter attempts on top of
+// that. User hit 504 here on 2026-04-08 17:10 (refs_EoxGb0f6oPQ4). Matching
+// parent reference-images/generate route's 120s + headroom.
+export const maxDuration = 300;
 
 /**
  * POST /api/services/pipeline/reference-images/[refSetId]/add-subject

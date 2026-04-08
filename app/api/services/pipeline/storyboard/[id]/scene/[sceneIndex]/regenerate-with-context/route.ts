@@ -3,7 +3,15 @@ import { auth } from '@clerk/nextjs/server';
 import { regenerateWithContext } from '@/lib/pipeline/storyboard-interactive-service';
 import { CreditsService } from '@/lib/services/creditsService';
 
-export const maxDuration = 60;
+// 2026-04-09: Bumped from 60s → 300s after FUNCTION_INVOCATION_TIMEOUT on scene 2
+// regeneration (proj_r8E_z9WVaBX9 follow-up test, log bom1::rl2r6-1775674225104).
+// regenerateWithContext does TWO sequential fal.ai calls worst-case:
+//   1. IP-adapter try (~30-60s if refs exist)
+//   2. Fallback img2img (~30-60s if IP-adapter failed)
+//   + image download + GCS upload + MongoDB writes
+// Worst case: 60-120s. 60s limit was way too tight. Matching parent
+// storyboard/generate route's 300s budget.
+export const maxDuration = 300;
 
 /**
  * POST /api/services/pipeline/storyboard/[id]/scene/[sceneIndex]/regenerate-with-context

@@ -3,7 +3,11 @@ import { auth } from '@clerk/nextjs/server';
 import { generateSceneSequential } from '@/lib/pipeline/storyboard-interactive-service';
 import { CreditsService } from '@/lib/services/creditsService';
 
-export const maxDuration = 60;
+// 2026-04-09: Bumped from 60s → 300s. Sequential scene gen runs
+// generateSceneSequential which does fal.ai image gen (~30-60s) + optional
+// IP-adapter retry + consistency check + GCS upload. Worst case 60-120s.
+// Matching parent storyboard/generate route's 300s budget.
+export const maxDuration = 300;
 
 /**
  * POST /api/services/pipeline/storyboard/[id]/generate-sequential

@@ -4,7 +4,9 @@ import { getReferenceImageSet, updateSubjectReference } from '@/lib/pipeline/ref
 import { generateReferenceImage } from '@/lib/pipeline/reference-image-service';
 import { CreditsService } from '@/lib/services/creditsService';
 
-export const maxDuration = 60;
+// 2026-04-09: Bumped from 60s → 300s. Subject regeneration does fal.ai Flux
+// image gen + optional IP-adapter retry + GCS upload. Worst case 60-120s.
+export const maxDuration = 300;
 
 export async function POST(
   req: NextRequest,
