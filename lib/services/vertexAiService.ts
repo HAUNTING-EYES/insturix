@@ -21,7 +21,7 @@ function initGenAI(): GoogleGenerativeAI {
     throw error;
   }
 }
-const PRIMARY_MODEL = "gemini-3-flash-preview";
+const PRIMARY_MODEL = "gemini-2.0-flash";
 const FALLBACK_MODEL = "gemini-2.5-flash";
 
 export async function analyzeVideoWithGemini(

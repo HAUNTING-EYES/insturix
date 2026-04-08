@@ -66,8 +66,17 @@ async function handler(request: NextRequest) {
         //   analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {})
         // ]);
         // transcriptResult = dg;
+        // const gem = await analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+        // analysisResults = gem;
         */
-        const gem = await analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+
+        // NEW GEMINI FILE API LOGIC
+        const signedUrl = await GCSManager.getSignedReadUrl(objectPath);
+        logger.info("Uploading GCS media to Gemini File API");
+        const { fileUri } = await uploadUrlToGeminiFileAPI(signedUrl, updatedMimeType, `task-${taskId}`);
+
+        logger.info("Starting Gemini Analysis for GCS Path");
+        const gem = await analyzeVideoWithGemini(fileUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
         analysisResults = gem;
         transcriptResult = {
           id: "gemini-" + Date.now().toString(),
