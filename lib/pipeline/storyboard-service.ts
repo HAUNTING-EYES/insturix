@@ -11,6 +11,7 @@ import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { buildStoryboardPrompt, buildNegativePrompt } from './storyboard-prompt-builder';
 import { saveStoryboard, updateStoryboardScene, updateSubShot, getStoryboard } from './storyboard-db';
 import { scoreStoryboardConsistency } from './consistency-scoring-service';
+import { falRetry } from './fal-retry';
 import type {
   SceneDescriptor,
   StyleGuide,
@@ -110,23 +111,26 @@ async function falSubscribeWithTimeout(
   options: any,
   timeoutMs: number = FAL_CALL_TIMEOUT_MS,
 ): Promise<any> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  // Bundle 4 Toyota A.fal.ai.1 fix: wrap in exponential-backoff retry.
+  // 3 retries total for transient errors (429/5xx/network). Non-transient
+  // bail immediately (Zod, 4xx, TypeError).
+  return falRetry(
+    () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  try {
-    const result = await Promise.race([
-      fal.subscribe(modelId, options),
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`fal.ai call timed out after ${timeoutMs / 1000}s (model: ${modelId})`)),
-          timeoutMs,
+      return Promise.race([
+        fal.subscribe(modelId, options),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`fal.ai call timed out after ${timeoutMs / 1000}s (model: ${modelId})`)),
+            timeoutMs,
+          ),
         ),
-      ),
-    ]);
-    return result;
-  } finally {
-    clearTimeout(timeout);
-  }
+      ]).finally(() => clearTimeout(timeout));
+    },
+    { maxRetries: 3, label: `image gen (${modelId})` },
+  );
 }
 
 interface ReferenceImageInput {

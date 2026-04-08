@@ -25,6 +25,7 @@ import type { ReferenceImageSet, SubjectReference } from './schemas/reference-im
 import type { ExtractedSubject } from './llm-scene-parser';
 import { IMAGE_MODELS, type ImageModelKey } from './storyboard-service';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
+import { falRetry } from './fal-retry';
 
 // Configure fal.ai
 let _falConfigured = false;
@@ -260,15 +261,23 @@ export async function generateReferenceImage(
 
   let result: any;
   try {
-    result = await (fal as any).subscribe(modelId, { input, logs: false });
+    // Bundle 4 Toyota A.fal.ai.1 fix: retry transient errors (429/5xx/network)
+    result = await falRetry(
+      () => (fal as any).subscribe(modelId, { input, logs: false }),
+      { maxRetries: 3, label: `ref-image ${subject.name} (${modelId})` },
+    );
   } catch (err: any) {
-    // If the chosen model fails, try fallback
+    // If the chosen model fails (after retries), try fallback
     if (modelId !== FALLBACK_MODEL) {
-      console.warn(`[RefImage] ${modelId} failed (${err.message}), trying ${FALLBACK_MODEL}`);
-      result = await (fal as any).subscribe(FALLBACK_MODEL, {
-        input: buildModelInput(FALLBACK_MODEL, prompt),
-        logs: false,
-      });
+      console.warn(`[RefImage] ${modelId} failed after retries (${err.message}), trying ${FALLBACK_MODEL}`);
+      result = await falRetry(
+        () =>
+          (fal as any).subscribe(FALLBACK_MODEL, {
+            input: buildModelInput(FALLBACK_MODEL, prompt),
+            logs: false,
+          }),
+        { maxRetries: 2, label: `ref-image ${subject.name} (fallback ${FALLBACK_MODEL})` },
+      );
     } else {
       throw err;
     }

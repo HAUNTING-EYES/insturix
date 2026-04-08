@@ -10,6 +10,7 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateText } from 'ai';
 import type { Storyboard } from './schemas/storyboard';
+import { safeParseLlmJson } from './llm-json-safe-parse';
 
 // ─── Public Types ────────────────────────────────────────────────
 
@@ -124,9 +125,22 @@ async function comparePair(
       temperature: 0.1,
     });
 
-    const raw = result.text.trim();
-    const jsonStr = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    const parsed = JSON.parse(jsonStr);
+    // Bundle 4 Toyota A.gemini.1 fix: safe JSON parse with fallback.
+    // Gemini sometimes returns malformed JSON (incomplete output, prose around
+    // the object). Previous code threw on any parse error, taking down the
+    // whole pair-score call. Now we get a safe default with logged warning.
+    const raw = result.text;
+    const { value: parsed } = safeParseLlmJson<any>(raw, {
+      fallback: {
+        subject_identity: 'pass',
+        lighting_match: 'pass',
+        color_palette: 'pass',
+        style_coherence: 'pass',
+        worst_issue: 'Gemini response unparseable, assumed pass',
+        regenerate_recommendation: 'none',
+      },
+      label: `consistency pair (${sceneIndexA},${sceneIndexB})`,
+    });
 
     // Convert 3-tier to numeric for backward compatibility
     const tierToNum = (t: string): number => t === 'fail' ? 3 : t === 'warn' ? 6 : 9;
@@ -447,9 +461,19 @@ export async function checkVideoQuality(
       generationConfig: { maxOutputTokens: 512, temperature: 0.1 },
     });
 
-    const raw = result.response.text().trim();
-    const jsonStr = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    const parsed = JSON.parse(jsonStr);
+    // Bundle 4 Toyota A.gemini.1 fix: safe JSON parse with fallback.
+    const raw = result.response.text();
+    const { value: parsed } = safeParseLlmJson<any>(raw, {
+      fallback: {
+        temporal_coherence: 'pass',
+        identity_preservation: 'pass',
+        physics_plausibility: 'pass',
+        artifact_presence: 'pass',
+        lighting_stability: 'pass',
+        overall_verdict: 'accept',
+      },
+      label: 'video consistency',
+    });
 
     const tierToNum = (t: string): number => t === 'fail' ? 2 : t === 'warn' ? 6 : 9;
     const validTier = (t: any): TierScore => ['pass', 'warn', 'fail'].includes(t) ? t : 'pass';

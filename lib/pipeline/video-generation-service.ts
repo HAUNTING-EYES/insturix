@@ -19,6 +19,7 @@ import {
   VIDEO_MODEL_REGISTRY,
   type VideoModelConfig,
 } from './adapters/video-model-configs';
+import { falRetry } from './fal-retry';
 
 // Configure fal.ai if key exists
 let _falConfigured = false;
@@ -40,21 +41,24 @@ async function falSubscribeWithTimeout(
   options: any,
   timeoutMs: number = FAL_VIDEO_TIMEOUT_MS,
 ): Promise<any> {
-  const timeout = setTimeout(() => {}, timeoutMs);
-  try {
-    const result = await Promise.race([
-      fal.subscribe(modelId, options),
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`fal.ai video call timed out after ${timeoutMs / 1000}s (model: ${modelId})`)),
-          timeoutMs,
+  // Bundle 4 Toyota A.fal.ai.1 fix: wrap in exponential-backoff retry for
+  // transient errors (429, 5xx, fetch failed). Non-transient errors bail
+  // immediately. Up to 3 retries total (4 attempts).
+  return falRetry(
+    () => {
+      const timeout = setTimeout(() => {}, timeoutMs);
+      return Promise.race([
+        fal.subscribe(modelId, options),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`fal.ai video call timed out after ${timeoutMs / 1000}s (model: ${modelId})`)),
+            timeoutMs,
+          ),
         ),
-      ),
-    ]);
-    return result;
-  } finally {
-    clearTimeout(timeout);
-  }
+      ]).finally(() => clearTimeout(timeout));
+    },
+    { maxRetries: 3, label: `video gen (${modelId})` },
+  );
 }
 
 /**

@@ -573,6 +573,8 @@ export async function POST(
     }
 
     // ─── Apply edit directions (filters, transitions, pacing) ─────
+    let editDirectionsFailed = false;
+    let editDirectionsError: string | undefined;
     try {
       const scenesWithDirections = storyboard.scenes.map(s => ({
         sceneIndex: s.sceneIndex,
@@ -597,10 +599,23 @@ export async function POST(
       );
       console.log(`[Finalize] Edit directions applied: ${overlays.length} overlays (${result.totalFrameShift} frame shift)`);
     } catch (editErr: any) {
-      // F6.3: Surface the error in response, not just logs
-      console.warn('[Finalize] Edit direction application failed, continuing without:', editErr.message);
-      warnings.push(`Edit directions partially failed: ${editErr.message}`);
-      pipelineWarnings.errorSwallowed('finalize', editErr, 'edit direction application');
+      // Bundle 4 Toyota B.silent.1 fix: was swallowed before, now LOUDLY surfaced.
+      // Previous behavior: caught the error, logged a warning, returned success:true
+      // and the user got a project with NO filters/transitions/pacing and never knew.
+      //
+      // NEW behavior: still continue (don't break retries on flaky LLM), but:
+      //   1. Promote severity from 'warn' to 'error' in console
+      //   2. Use errorSwallowed() which writes severity:'error' to pipelineWarnings
+      //   3. Track editDirectionsFailed flag + set prominent warning string
+      //   4. Set a dedicated field on the final project doc so the Editor UI
+      //      can surface an "Edit directions failed — filters/transitions missing" banner
+      //   5. Include the full error message in the finalize response warnings array
+      //      so the export dialog can also show it
+      editDirectionsFailed = true;
+      editDirectionsError = editErr.message || String(editErr);
+      console.error('[Finalize] Edit direction application FAILED (project will have no filters/transitions):', editDirectionsError);
+      warnings.push(`⚠️ Edit directions failed — your project will NOT have filters, transitions, or pacing applied. Error: ${editDirectionsError}`);
+      pipelineWarnings.errorSwallowed('finalize', editErr, 'edit direction application (project rendered without filters/transitions/pacing)');
     }
 
     // ─── Close gaps ONCE after initial assembly ──────────────────
@@ -674,7 +689,20 @@ export async function POST(
     );
     await db.collection(COLLECTIONS.PROJECTS).updateOne(
       { projectId: project.projectId },
-      { $set: { sourceStoryboardId: id, updatedAt: new Date() } },
+      {
+        $set: {
+          sourceStoryboardId: id,
+          updatedAt: new Date(),
+          // Bundle 4 Toyota B.silent.1 fix: if applyEditDirections failed,
+          // persist that flag on the project so the editor UI can show a
+          // "Edit directions failed — filters/transitions/pacing missing"
+          // banner. Previously this was completely invisible.
+          ...(editDirectionsFailed && {
+            editDirectionsFailed: true,
+            editDirectionsError: editDirectionsError || 'Unknown error',
+          }),
+        },
+      },
     );
 
     // ─── Dispatch BGM + SFX workers via QStash (fire-and-forget) ────

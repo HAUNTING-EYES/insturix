@@ -480,17 +480,79 @@ export function ExportToEditronDialog({
 
             if (genRes.ok) {
               const genData = await genRes.json().catch(() => ({}));
-              setRefSetId(genData.refSetId || '');
+              const sbRefSetId = genData.refSetId || '';
+              setRefSetId(sbRefSetId);
+              // Subjects start as 'pending' — we'll poll until they're all done
               setSubjects((genData.subjects || []).map((s: any) => ({ ...s, priority: 'hero' })));
-              // Auto-approve all initially (user can reject individually)
-              const allIds = new Set<string>((genData.subjects || []).map((s: SubjectRef) => s.subjectId));
-              setApprovedSubjectIds(allIds);
 
-              // Remove any suggested subjects that were actually generated as heroes
-              const generatedIds = new Set(subjectsToGenerate.map((s: any) => s.id));
-              setSuggestedSubjects((prev) => prev.filter((s) => !generatedIds.has(s.id)));
+              // Bundle 4 (2026-04-09): reference-images/generate now returns async immediately.
+              // Poll /generate-status until all subjects complete before showing the review UI.
+              if (genData.async && genData.batchId && sbRefSetId) {
+                console.log(`[ExportToEditron] Polling reference-image batch ${genData.batchId}`);
+                const MAX_POLL_ATTEMPTS = 60; // 60 × 5s = 5 minutes max
+                const POLL_INTERVAL_MS = 5000;
+                let refsCompleted = false;
+                let finalSubjects: any[] = [];
 
-              sendNotification('Reference Images Ready', `${genData.subjects?.length || 0} references generated. ${suggestedOnly.length} more suggestions from your script.`);
+                for (let poll = 0; poll < MAX_POLL_ATTEMPTS; poll++) {
+                  await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+                  try {
+                    const statusRes = await fetch(
+                      `/api/services/pipeline/reference-images/${sbRefSetId}/generate-status?batchId=${genData.batchId}`,
+                    );
+                    const statusData = await statusRes.json().catch(() => ({}));
+                    if (statusData.success) {
+                      console.log(`[ExportToEditron] Ref poll #${poll + 1}: ${statusData.completed}/${statusData.totalSubjects} done, failed=${statusData.failed}, status=${statusData.status}`);
+                      // Update subjects in-place so UI shows progress
+                      setSubjects(
+                        (statusData.subjects || []).map((s: any) => ({
+                          ...s,
+                          priority: 'hero',
+                        })),
+                      );
+                      if (statusData.isComplete) {
+                        finalSubjects = statusData.subjects || [];
+                        refsCompleted = true;
+                        break;
+                      }
+                    }
+                  } catch (pollErr: any) {
+                    console.warn(`[ExportToEditron] Ref poll #${poll + 1} failed:`, pollErr.message);
+                  }
+                }
+
+                if (!refsCompleted) {
+                  console.warn('[ExportToEditron] Reference image generation polling timed out after 5 minutes');
+                  setError('Reference image generation timed out. Continuing with what was generated.');
+                }
+
+                // Auto-approve all successfully generated subjects
+                const allIds = new Set<string>(
+                  finalSubjects.filter((s: any) => s.imageUrl).map((s: any) => s.subjectId),
+                );
+                setApprovedSubjectIds(allIds);
+
+                // Remove any suggested subjects that were actually generated as heroes
+                const generatedIds = new Set(subjectsToGenerate.map((s: any) => s.id));
+                setSuggestedSubjects((prev) => prev.filter((s) => !generatedIds.has(s.id)));
+
+                sendNotification(
+                  'Reference Images Ready',
+                  `${finalSubjects.filter((s: any) => s.imageUrl).length}/${finalSubjects.length} references generated.`,
+                );
+              } else {
+                // Legacy synchronous response (dev mode or fallback)
+                const allIds = new Set<string>(
+                  (genData.subjects || []).map((s: SubjectRef) => s.subjectId),
+                );
+                setApprovedSubjectIds(allIds);
+                const generatedIds = new Set(subjectsToGenerate.map((s: any) => s.id));
+                setSuggestedSubjects((prev) => prev.filter((s) => !generatedIds.has(s.id)));
+                sendNotification(
+                  'Reference Images Ready',
+                  `${genData.subjects?.length || 0} references generated. ${suggestedOnly.length} more suggestions from your script.`,
+                );
+              }
 
               // ─── PAUSE: Show review UI ──────────────────────────
               setStep('reviewing-references');
@@ -579,8 +641,47 @@ export function ExportToEditronDialog({
           const sbData = await sbRes.json().catch(() => ({}));
           const sbId = sbData.storyboardId || '';
           setStoryboardId(sbId);
-          const sbScenes = sbData.scenes || [];
+          let sbScenes = sbData.scenes || [];
           setStoryboardScenes(sbScenes);
+
+          // Bundle 4 (2026-04-09): storyboard/generate now returns async immediately.
+          // Poll /generate-status until all scenes complete before showing the review UI.
+          if (sbData.async && sbData.batchId && sbId) {
+            console.log(`[ExportToEditron] Polling storyboard image batch ${sbData.batchId}`);
+            const MAX_POLL_ATTEMPTS = 90; // 90 × 6s = 9 minutes max
+            const POLL_INTERVAL_MS = 6000;
+            let sbCompleted = false;
+
+            for (let poll = 0; poll < MAX_POLL_ATTEMPTS; poll++) {
+              await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+              try {
+                const statusRes = await fetch(
+                  `/api/services/pipeline/storyboard/${sbId}/generate-status?batchId=${sbData.batchId}`,
+                );
+                const statusData = await statusRes.json().catch(() => ({}));
+                if (statusData.success) {
+                  console.log(`[ExportToEditron] SB poll #${poll + 1}: ${statusData.completed}/${statusData.totalScenes} done, failed=${statusData.failed}, status=${statusData.status}`);
+                  // Update in-place so UI shows progress if it renders mid-gen
+                  sbScenes = (statusData.scenes || []).map((s: any) => ({
+                    ...s,
+                    title: sbScenes.find((existing: any) => existing.sceneIndex === s.sceneIndex)?.title || '',
+                  }));
+                  setStoryboardScenes(sbScenes);
+                  if (statusData.isComplete) {
+                    sbCompleted = true;
+                    break;
+                  }
+                }
+              } catch (pollErr: any) {
+                console.warn(`[ExportToEditron] SB poll #${poll + 1} failed:`, pollErr.message);
+              }
+            }
+
+            if (!sbCompleted) {
+              console.warn('[ExportToEditron] Storyboard generation polling timed out after 9 minutes');
+              setError('Storyboard generation timed out. Continuing with what was generated.');
+            }
+          }
 
           const generatedCount = sbScenes.filter((s: any) => s.imageUrl).length;
           sendNotification('Storyboard Ready', `${generatedCount}/${sbScenes.length} scene images generated. Review them now.`);

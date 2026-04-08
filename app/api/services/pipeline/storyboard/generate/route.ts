@@ -3,28 +3,59 @@
  *
  * Generate a full storyboard (one image per scene) from SceneDescriptors.
  * Credits: 2 per scene.
+ *
+ * Bundle 4 (2026-04-09) ARCHITECTURE CHANGE:
+ *   OLD: Inline generateFullStoryboard() ran all scene image gen inside this
+ *        route's 300s Vercel budget. Per-sub-shot gen (Bundle 2) pushed the
+ *        math past the limit → 504 timeouts on 3+ scene scripts with montage.
+ *   NEW: Route only:
+ *        1. Validates + deducts credits
+ *        2. Pre-uploads ref CDN URLs
+ *        3. Creates storyboard shell + batch + per-scene job docs
+ *        4. Dispatches N QStash messages (one per scene) to
+ *           /api/internal/workers/pipeline/storyboard-image
+ *        5. Returns { storyboardId, batchId, status: 'generating' } immediately
+ *
+ *   Frontend polls GET /api/services/pipeline/storyboard/[id]/generate-status
+ *   until all scenes complete. Each scene worker has its own 300s budget, so
+ *   20+ scene scripts with montage sub-shots no longer compete for one pool.
+ *
+ *   Scene 0 style-anchor was dropped (it required serialization). Style
+ *   consistency now relies on IP-adapter refs + explicit style guide prompts.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { Client } from '@upstash/qstash';
+import { nanoid } from 'nanoid';
 import { CreditsService } from '@/lib/services/creditsService';
-import { generateFullStoryboard, IMAGE_MODELS, type ImageModelKey } from '@/lib/pipeline/storyboard-service';
-import type { SceneDescriptor, StyleGuide } from '@/lib/pipeline/schemas/storyboard';
+import { IMAGE_MODELS, type ImageModelKey } from '@/lib/pipeline/storyboard-service';
+import { saveStoryboard } from '@/lib/pipeline/storyboard-db';
+import {
+  createStoryboardImageBatch,
+  type StoryboardImageWorkerPayload,
+} from '@/lib/pipeline/storyboard-image-queue';
+import type {
+  SceneDescriptor,
+  StyleGuide,
+  Storyboard,
+} from '@/lib/pipeline/schemas/storyboard';
 import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300; // 5 min — IP-adapter scenes are slow (~30s each)
+// This route now only VALIDATES + DISPATCHES. Should complete in <30s even for
+// 40-scene scripts (credit deduction + ref CDN upload + QStash publish × N).
+// Keeping 120s as a generous ceiling — no fal.ai calls happen inline anymore.
+export const maxDuration = 120;
 
 /**
  * Pre-upload a URL to fal.ai CDN if it isn't already a fal CDN URL.
- * This eliminates redundant per-scene re-uploads — each reference image
- * is uploaded exactly once here, then reused as-is downstream.
+ * Eliminates redundant per-scene re-uploads — each reference image is uploaded
+ * exactly once here, then reused as-is by all workers.
  */
 async function ensureFalCdnUrl(url: string): Promise<string> {
   if (!url) return url;
-  // Already on fal CDN — no work needed
   if (url.startsWith('https://fal.media/') || url.startsWith('https://v3.fal.media/')) return url;
-  // Clean URL with no query params is likely already a CDN URL
   if (!url.includes('?')) return url;
 
   const { fal } = await import('@fal-ai/client');
@@ -92,7 +123,6 @@ export async function POST(request: NextRequest) {
       globalEditDirections?: any;
     } = body;
 
-    // H2 FIX: Track warnings to surface in response
     const warnings: string[] = [];
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
@@ -102,24 +132,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // H7 FIX: Cap scene count to prevent timeout — 40+ scenes will exceed 300s
-    if (scenes.length > 40) {
-      return NextResponse.json(
-        { success: false, error: `Too many scenes (${scenes.length}). Maximum 40 scenes per storyboard to prevent timeout. Please reduce scene count or split into multiple storyboards.` },
-        { status: 400 },
-      );
-    }
-
+    // Bundle 4: raised scene cap from 40 → 60 because routes no longer hit 300s.
+    // Each scene is its own worker; we're only bounded by QStash fan-out cost
+    // (~$0.0001 per message × 60 = $0.006, negligible).
     if (scenes.length > 60) {
       return NextResponse.json(
-        { success: false, error: 'Maximum 60 scenes per storyboard' },
+        { success: false, error: `Too many scenes (${scenes.length}). Maximum 60 scenes per storyboard.` },
         { status: 400 },
       );
     }
 
-    // A1 FIX: Atomic credit deduction — deduct ALL at once, not in a loop.
-    // Pre-check + single deduction prevents race conditions where another
-    // request consumes credits between pre-check and per-scene deduction.
+    // ─── Atomic credit deduction ───────────────────────────────────
     const costPerScene = 2;
     const totalCost = scenes.length * costPerScene;
 
@@ -131,9 +154,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Single atomic deduction for all scenes
     const deductResult = await CreditsService.deductCredits(
-      userId, 'pipeline', 'storyboard_image_generation', { quantity: scenes.length },
+      userId,
+      'pipeline',
+      'storyboard_image_generation',
+      { quantity: scenes.length },
     );
     if (!deductResult.success) {
       return NextResponse.json(
@@ -142,21 +167,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (scenes.length === 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: deductResult.error || 'Insufficient credits',
-          creditsRequired: totalCost,
-        },
-        { status: 402 },
-      );
-    }
-
-    // Pre-upload all reference image URLs to fal CDN once (eliminates per-scene re-uploads).
-    // This is the single point of CDN caching — downstream code uses URLs as-is.
+    // ─── Pre-upload reference CDN URLs ──────────────────────────────
+    // Done inline (not per-worker) to avoid N × redundant uploads.
     if (approvedReferences && approvedReferences.length > 0) {
-      const uniqueUrls = new Map<string, string>(); // original → CDN URL
+      const uniqueUrls = new Map<string, string>();
       const uploadStart = Date.now();
       for (const ref of approvedReferences) {
         if (ref.imageUrl && !uniqueUrls.has(ref.imageUrl)) {
@@ -164,17 +178,16 @@ export async function POST(request: NextRequest) {
             const cdnUrl = await ensureFalCdnUrl(ref.imageUrl);
             uniqueUrls.set(ref.imageUrl, cdnUrl);
           } catch (err: any) {
-            // H2 FIX: Add to warnings (not just console.warn) — stale URL risk for users
             const cdnWarn = `CDN pre-upload failed for reference "${ref.subjectId}": ${err.message}. Using original URL (may expire or be slow).`;
             console.warn(`[storyboard/generate] ${cdnWarn}`);
             warnings.push(cdnWarn);
-            uniqueUrls.set(ref.imageUrl, ref.imageUrl); // fallback to original
+            uniqueUrls.set(ref.imageUrl, ref.imageUrl);
           }
         }
       }
       console.log(`[storyboard/generate] Pre-uploaded ${uniqueUrls.size} unique reference URLs to CDN in ${Date.now() - uploadStart}ms`);
 
-      // Replace original URLs with CDN URLs in approvedReferences
+      // Replace original URLs with CDN URLs
       for (const ref of approvedReferences) {
         if (ref.imageUrl && uniqueUrls.has(ref.imageUrl)) {
           ref.imageUrl = uniqueUrls.get(ref.imageUrl)!;
@@ -182,16 +195,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Build referenceImageMap from approved references (now with clean CDN URLs)
-    // Maps sceneIndex → array of reference images for IP-adapter consistency
-    let referenceImageMap: Record<number, Array<{ subjectId: string; imageUrl: string; weight?: number; name?: string; visualDescription?: string }>> | undefined;
+    // Build referenceImageMap from approved references
+    let referenceImageMap:
+      | Record<
+          number,
+          Array<{
+            subjectId: string;
+            imageUrl: string;
+            weight?: number;
+            name?: string;
+            visualDescription?: string;
+          }>
+        >
+      | undefined;
     if (approvedReferences && approvedReferences.length > 0) {
       referenceImageMap = {};
       for (const ref of approvedReferences) {
         for (const sceneIdx of ref.scenesAppearingIn) {
-          if (!referenceImageMap[sceneIdx]) {
-            referenceImageMap[sceneIdx] = [];
-          }
+          if (!referenceImageMap[sceneIdx]) referenceImageMap[sceneIdx] = [];
           referenceImageMap[sceneIdx].push({
             subjectId: ref.subjectId,
             imageUrl: ref.imageUrl,
@@ -204,59 +225,172 @@ export async function POST(request: NextRequest) {
       console.log(`[storyboard/generate] Reference image map built for ${Object.keys(referenceImageMap).length} scenes from ${approvedReferences.length} subjects`);
     }
 
-    // H3 FIX: Validate model resolution — reject unknown model IDs that aren't full fal-ai paths
-    const resolvedModelId = modelId && (modelId in IMAGE_MODELS)
-      ? IMAGE_MODELS[modelId as ImageModelKey]
-      : modelId; // pass through if already a full model ID or undefined
+    // Validate model resolution
+    const resolvedModelId =
+      modelId && modelId in IMAGE_MODELS ? IMAGE_MODELS[modelId as ImageModelKey] : modelId;
 
     if (modelId && !(modelId in IMAGE_MODELS) && !modelId.startsWith('fal-ai/') && !modelId.startsWith('photon')) {
       return NextResponse.json(
-        { success: false, error: `Unknown image model "${modelId}". Use a valid model key (${Object.keys(IMAGE_MODELS).join(', ')}) or a full fal-ai model ID (e.g., "fal-ai/flux/dev").` },
+        { success: false, error: `Unknown image model "${modelId}".` },
         { status: 400 },
       );
     }
 
-    const storyboard = await generateFullStoryboard(scenes, {
-      userId,
-      styleGuide,
+    // ─── Create storyboard shell + dispatch workers ─────────────────
+    const storyboardId = `sb_${nanoid(12)}`;
+    const now = new Date();
+
+    const storyboard: Storyboard = {
+      storyboardId,
       projectId,
+      userId,
       sourceScriptId,
-      modelId: resolvedModelId,
       title,
-      aspectRatio,
+      styleGuide,
       overallMusicPrompt,
-      referenceImageMap,
-      approvedReferences,
       refSetId,
-      checkConsistency,
-      consistencyThreshold,
+      approvedReferences,
       globalEditDirections,
+      scenes: scenes.map((s) => ({
+        sceneIndex: s.sceneIndex,
+        descriptor: s,
+        status: 'pending' as const,
+        generationHistory: [],
+      })),
+      status: 'generating',
+      createdAt: now,
+      updatedAt: now,
+    };
+    await saveStoryboard(storyboard);
+
+    // Create batch + job docs (tracked in MongoDB, polled by frontend)
+    const sceneIndices = scenes.map((s) => s.sceneIndex);
+    const { batchId } = await createStoryboardImageBatch(userId, storyboardId, sceneIndices);
+
+    // Dispatch to workers via QStash (one message per scene)
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const workerUrl = `${baseUrl}/api/internal/workers/pipeline/storyboard-image`;
+
+    console.log(`[storyboard/generate] Worker URL: ${workerUrl}, batch ${batchId}, ${scenes.length} scenes`);
+
+    const buildPayload = (scene: SceneDescriptor): StoryboardImageWorkerPayload => ({
+      jobId: `${batchId}_s${scene.sceneIndex}`,
+      batchId,
+      userId,
+      storyboardId,
+      sceneIndex: scene.sceneIndex,
+      descriptor: scene,
+      referenceImages: referenceImageMap?.[scene.sceneIndex],
+      styleGuide,
+      modelId: resolvedModelId,
+      aspectRatio,
+      totalScenes: scenes.length,
+      runConsistencyCheck: checkConsistency !== false,
+      consistencyThreshold,
     });
 
-    const succeeded = storyboard.scenes.filter(s => s.imageUrl).length;
-    const failed = storyboard.scenes.filter(s => !s.imageUrl).length;
+    const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
+    let enqueueErrors = 0;
+    const enqueueErrorDetails: string[] = [];
 
-    // Count how many scenes used IP-adapter vs fell back
-    const ipAdapterUsed = storyboard.scenes.filter(s => {
-      const lastEntry = s.generationHistory[s.generationHistory.length - 1];
-      return lastEntry && (lastEntry as any).usedIpAdapter === true;
-    }).length;
-    const ipAdapterFellBack = succeeded - ipAdapterUsed;
+    if (isDev) {
+      // Dev: fire-and-forget fetch (no signing keys)
+      for (const scene of scenes) {
+        fetch(workerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildPayload(scene)),
+        }).catch((err) => {
+          console.error(`[storyboard/generate] Dev dispatch failed for scene ${scene.sceneIndex}:`, err.message);
+        });
+      }
+    } else if (!process.env.QSTASH_TOKEN) {
+      console.warn('[storyboard/generate] QSTASH_TOKEN not set, using fire-and-forget fetch');
+      for (const scene of scenes) {
+        fetch(workerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildPayload(scene)),
+        }).catch((err) => {
+          console.error(`[storyboard/generate] Fetch dispatch failed for scene ${scene.sceneIndex}:`, err.message);
+        });
+      }
+    } else {
+      // Production: QStash
+      const qstashClient = new Client({
+        token: process.env.QSTASH_TOKEN,
+        baseUrl: process.env.QSTASH_URL || undefined,
+      });
+
+      const qstashResults = await Promise.allSettled(
+        scenes.map((scene) =>
+          qstashClient.publishJSON({
+            url: workerUrl,
+            body: buildPayload(scene),
+            retries: 2,
+          }),
+        ),
+      );
+
+      for (let i = 0; i < qstashResults.length; i++) {
+        const r = qstashResults[i];
+        if (r.status === 'rejected') {
+          enqueueErrors++;
+          const reason = r.reason?.message || String(r.reason);
+          enqueueErrorDetails.push(`scene ${scenes[i].sceneIndex}: ${reason}`);
+          console.error(`[storyboard/generate] QStash publish failed for scene ${scenes[i].sceneIndex}:`, reason);
+        }
+      }
+
+      // Bundle 4 / Toyota B.race.2 fix: fail HARD on any enqueue error. Partial
+      // dispatch leaves the user in a broken state where some scenes generate
+      // and some don't — worse than a clean failure.
+      if (enqueueErrors > 0) {
+        // Refund credits since we're failing the whole batch
+        try {
+          await CreditsService.refundCredits(
+            userId,
+            totalCost,
+            `storyboard dispatch failed (${enqueueErrors}/${scenes.length} enqueue errors)`,
+            { service: 'pipeline', action: 'storyboard_image_generation' },
+          );
+        } catch (refundErr: any) {
+          console.error(`[storyboard/generate] Credit refund failed: ${refundErr.message}`);
+        }
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Failed to enqueue ${enqueueErrors} of ${scenes.length} scenes. Credits refunded. Please retry.`,
+            details: enqueueErrorDetails.slice(0, 5),
+          },
+          { status: 503 },
+        );
+      }
+    }
+
+    // ─── Return immediately with batch info for polling ────────────
+    console.log(`[storyboard/generate] Dispatched ${scenes.length} scenes to ${workerUrl} (batch ${batchId})`);
 
     return NextResponse.json({
-      success: succeeded > 0,
-      storyboardId: storyboard.storyboardId,
-      status: storyboard.status,
-      scenes: storyboard.scenes.map((s) => ({
+      success: true,
+      storyboardId,
+      batchId,
+      status: 'generating',
+      totalScenes: scenes.length,
+      // Return scene stubs so the frontend can render the storyboard grid immediately
+      scenes: scenes.map((s) => ({
         sceneIndex: s.sceneIndex,
-        title: s.descriptor.title,
-        imageUrl: s.imageUrl,
-        imageAssetId: s.imageAssetId,
-        status: s.status,
+        title: s.title,
+        imageUrl: undefined,
+        imageAssetId: undefined,
+        status: 'pending',
       })),
-      summary: { total: storyboard.scenes.length, succeeded, failed, ipAdapterUsed, ipAdapterFellBack },
       creditsDeducted: totalCost,
-      consistencyReport: storyboard.consistencyReport ?? null,
+      async: true,
+      pollUrl: `/api/services/pipeline/storyboard/${storyboardId}/generate-status?batchId=${batchId}`,
       ...(warnings.length > 0 && { warnings }),
     });
   } catch (error: any) {
