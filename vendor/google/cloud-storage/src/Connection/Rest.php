@@ -355,7 +355,7 @@ class Rest implements ConnectionInterface
             $resultStream,
             $requestedBytes,
             $invocationId,
-            &$attempt,
+            &$attempt
         ) {
             // if the exception has a response for us to use
             if ($e instanceof RequestException

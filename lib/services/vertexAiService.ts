@@ -1,56 +1,39 @@
 import {
-  VertexAI,
+  GoogleGenerativeAI,
   HarmCategory,
   HarmBlockThreshold,
   SchemaType,
-} from "@google-cloud/vertexai";
+} from "@google/generative-ai";
 
-let vertexAI: VertexAI | null = null;
+let genAI: GoogleGenerativeAI | null = null;
 
-function initVertexAI(): VertexAI {
-  if (vertexAI) return vertexAI;
+function initGenAI(): GoogleGenerativeAI {
+  if (genAI) return genAI;
 
-  if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
-    throw new Error("GOOGLE_CLOUD_CREDENTIALS environment variable is not set");
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY environment variable is not set");
   }
 
   try {
-    // Decode base64 credentials
-    const decoded = Buffer.from(
-      process.env.GOOGLE_CLOUD_CREDENTIALS,
-      "base64"
-    ).toString();
-
-    const credentials = JSON.parse(decoded);
-
-    // Initialize VertexAI with googleAuthOptions
-    vertexAI = new VertexAI({
-      project: credentials.project_id,
-      location: "us-central1",
-      googleAuthOptions: {
-        credentials,
-        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-      },
-    });
-    return vertexAI;
+    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    return genAI;
   } catch (error) {
     throw error;
   }
 }
-
-const PRIMARY_MODEL = "gemini-2.5-flash";
-const FALLBACK_MODEL = "gemini-1.5-pro";
+const PRIMARY_MODEL = "gemini-3-flash-preview";
+const FALLBACK_MODEL = "gemini-2.5-flash";
 
 export async function analyzeVideoWithGemini(
-  videoUrl: string,
+  videoUrl: string, // This will now usually be the Gemini fileUri, e.g. "https://generativelanguage.googleapis.com/... or "gemini://... " Wait, actually it just takes fileUri so we keep it named videoUrl or just pass the uri as videoUrl.
   context: any,
   metadata: any,
   modelOverride?: string
 ) {
   const model = modelOverride || PRIMARY_MODEL;
-  // Initialize VertexAI lazily
+  // Initialize lazily
 
-  const client = initVertexAI();
+  const client = initGenAI();
   try {
     // Define the response schema for structured output
     const responseSchema = {
@@ -108,7 +91,7 @@ export async function analyzeVideoWithGemini(
                   type: SchemaType.OBJECT,
                   properties: {
                     name: { type: SchemaType.STRING },
-                    score: { 
+                    score: {
                       type: SchemaType.INTEGER,
                       description: "Metric score (1-100). For quality metrics, higher is better. For risk/issue metrics, lower is better."
                     },
@@ -127,8 +110,8 @@ export async function analyzeVideoWithGemini(
             type: SchemaType.OBJECT,
             properties: {
               name: { type: SchemaType.STRING },
-              score: { 
-                type: SchemaType.INTEGER, 
+              score: {
+                type: SchemaType.INTEGER,
                 description: "Risk score (1-100). A higher score indicates higher risk. Lower is better for compliance."
               },
               description: { type: SchemaType.STRING },
@@ -170,11 +153,11 @@ export async function analyzeVideoWithGemini(
       model,
       generationConfig: {
         maxOutputTokens: 8192,
-        temperature: 0.4, 
+        temperature: 0.4,
         topP: 0.95,
         topK: 40,
         responseMimeType: "application/json",
-        responseSchema: responseSchema,
+        responseSchema: responseSchema as any,
       },
       safetySettings: [
         {
@@ -212,11 +195,10 @@ USER CONTEXT & SAFETY SETTINGS:
 - Additional Details: ${context.additionalDetails || "None"}
 
 GUIDELINES:
-${
-  context.familyFriendly
-    ? "1. FAMILY FRIENDLY MODE: Ensure the analysis and language are suitable for all age groups. Avoid violence, abusive language, adult themes, hate speech, or offensive humor."
-    : "1. CONTENT SAFETY: Avoid illegal or extremely explicit content."
-}
+${context.familyFriendly
+        ? "1. FAMILY FRIENDLY MODE: Ensure the analysis and language are suitable for all age groups. Avoid violence, abusive language, adult themes, hate speech, or offensive humor."
+        : "1. CONTENT SAFETY: Avoid illegal or extremely explicit content."
+      }
 
 2. PLATFORM AWARENESS (${context.platform}):
    - Adapt tone, depth, and language according to the selected platform.
@@ -373,9 +355,9 @@ Be specific and reference actual content from the video with precise timestamps.
           : (parsed.weaknesses || []),
         contentWarnings: Array.isArray(parsed.contentWarnings)
           ? parsed.contentWarnings
-          : (Array.isArray(parsed.compliance_risks) 
-              ? parsed.compliance_risks.filter((risk: any) => risk.score > 0)
-              : []),
+          : (Array.isArray(parsed.compliance_risks)
+            ? parsed.compliance_risks.filter((risk: any) => risk.score > 0)
+            : []),
         analysisTime: parsed.analysisTime || new Date().toISOString(),
         videoUrl,
         modelUsed: model,

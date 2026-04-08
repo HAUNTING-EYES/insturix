@@ -10,6 +10,7 @@ import { transcribeAudio } from "@/lib/alyzitron/transcription/transcriptionServ
 import { upsertTranscriptionProcessing, upsertTranscriptionCompleted } from "@/lib/alyzitron";
 import { extractMediaUri, ExtractionError } from "@/lib/alyzitron/extraction/apify";
 import { streamUrlToGCS } from "@/lib/alyzitron/extraction/streamToGCS";
+import { uploadUrlToGeminiFileAPI } from "@/lib/services/geminiFileService";
 
 async function handler(request: NextRequest) {
   let currentTaskId: string | null = null;
@@ -58,12 +59,14 @@ async function handler(request: NextRequest) {
       else if (isGCSPath) {
         logger.info("Route 2: GCS Path");
         const objectPath = task.videoUrl.replace(`gs://${process.env.GCS_BUCKET_NAME}/`, "");
+        /* --- OLD DEEPGRAM LOGIC COMMENTED OUT ---
         const deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
         // const [dg, gem] = await Promise.all([
         //   transcribeAudio(deepgramUrl),
         //   analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {})
         // ]);
         // transcriptResult = dg;
+        */
         const gem = await analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
         analysisResults = gem;
         transcriptResult = {
@@ -85,16 +88,27 @@ async function handler(request: NextRequest) {
         if (extracted.mediaType === "image") {
           updatedMimeType = "image/jpeg";
           const gcsPath = `alyzitron/image/${taskId}.jpg`;
+          
+          /* --- OLD GCS LOGIC COMMENTED OUT ---
           const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, "image/jpeg");
           updatedVideoUrl = gcsRes.gcsUri;
           await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
           analysisResults = await analyzeVideoWithGemini(gcsRes.gcsUri, task.context || {}, task.metadata || {});
+          */
+
+          // NEW GEMINI FILE API LOGIC
+          const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, "image/jpeg", `task-${taskId}`);
+          updatedVideoUrl = extracted.downloadUrl; // keep original
+          await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
+          analysisResults = await analyzeVideoWithGemini(fileUri, task.context || {}, task.metadata || {});
+
         } else {
           // VIDEO/AUDIO LOGIC
           updatedMimeType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
           // Use temp directory for video meant only for analysis
           const isVideo = extracted.mediaType === "video" || extracted.mediaType === "unknown";
           
+          /* --- OLD GCS & DEEPGRAM LOGIC COMMENTED OUT ---
           const audioGcsPath = `alyzitron/media/${taskId}.mp3`;
           const tempVideoGcsPath = `alyzitron/temp/${taskId}.mp4`;
           
@@ -103,15 +117,6 @@ async function handler(request: NextRequest) {
           // 1. Stream to GCS
           const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, updatedMimeType);
           
-          // DO NOT UPDATE updatedVideoUrl if it is a video (keep the YT/Insta URL for embeds). 
-          // If it's pure audio, we can keep the GCS URL, but generally we want to keep original so embeds work. 
-          // We'll keep updatedVideoUrl as the originalSourceUrl for external links, 
-          // but for audio-only extraction we might need the GCS link. Let's keep the original for all external links 
-          // so the frontend knows what it is. Wait, originalSourceUrl is already preserved. We should ensure 'videoUrl' 
-          // stays as the original YT/Insta url.
-          // Wait, 'task.videoUrl' is the original YT/Insta link. So we simply don't overwrite updatedVideoUrl here, except for audio if needed.
-          // Actually, let's keep updatedVideoUrl as original for videos, but for audio maybe update. Let's just keep it as original so embed works if possible.
-          // The frontend checks if it's a youtube/insta link.
           if (!isVideo) {
             updatedVideoUrl = gcsRes.gcsUri;
           }
@@ -128,6 +133,18 @@ async function handler(request: NextRequest) {
           // transcriptResult = dg;
           const gem = await analyzeVideoWithGemini(gcsRes.gcsUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
           analysisResults = gem;
+          */
+
+          // NEW GEMINI FILE API LOGIC
+          logger.info("Uploading extracted media to Gemini File API");
+          const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}`);
+          
+          updatedVideoUrl = task.videoUrl; // Ensure we keep original external URL for embed
+
+          logger.info("Starting Gemini Analysis");
+          const gem = await analyzeVideoWithGemini(fileUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+          analysisResults = gem;
+          
           transcriptResult = {
             id: "gemini-" + Date.now().toString(),
             text: gem.full_transcript || "",
