@@ -535,53 +535,103 @@ export async function generateFullStoryboard(
         // NOTE: No reference images passed — we WANT visual variety here (different
         // era/subject/setting per sub-shot). IP-adapter would defeat the point.
         // Failure is non-fatal: video worker already has fallback to parent image.
+        //
+        // Hotfix 2026-04-08 (regression from initial B2 commit 8063efc6):
+        // The original impl ran sub-shots SEQUENTIALLY in a for-loop, which
+        // blew the Vercel 300s budget on 3+ scene scripts with 5 independent
+        // sub-shots per scene (~180s per scene × 3 = 540s). Now:
+        //   1. Sub-shots within a scene run in parallel (inner concurrency cap = 3)
+        //   2. Before starting, we check remaining budget — if < 90s, skip
+        //      per-sub-shot gen for this scene and rely on video worker's
+        //      parent-image fallback. Degrades gracefully instead of timing out.
+        //   3. If time runs out mid-batch, any completed sub-shots are kept.
         const indepSubShots = (sbScene.descriptor.subShots || [])
           .map((sub, idx) => ({ sub, idx }))
           .filter(({ sub }) => sub.independentGeneration && !sub.imageUrl && sub.visualDescription);
 
         if (indepSubShots.length > 0) {
-          console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: generating ${indepSubShots.length} per-sub-shot images (A3.2)`);
-          for (const { sub, idx } of indepSubShots) {
-            const subStart = Date.now();
-            try {
-              const subDescriptor: SceneDescriptor = {
-                ...sbScene.descriptor,
-                visualDescription: sub.visualDescription!,
-                imageQualityTokens: sub.imageQualityTokens || sbScene.descriptor.imageQualityTokens,
-                videoQualityTokens: sub.videoQualityTokens || sbScene.descriptor.videoQualityTokens,
-                videoMotionPrompt: sub.videoMotionPrompt || sbScene.descriptor.videoMotionPrompt,
-              };
+          // Budget check — need enough time to attempt AT LEAST one round of sub-shot gen.
+          // Flux Schnell is ~15-25s per call. With inner concurrency 3, a 5-sub-shot scene
+          // needs ~2 rounds = ~50s. Require 90s remaining before even starting.
+          const budgetRemainingMs = MAX_BUDGET_MS - (Date.now() - functionStartTime);
+          const MIN_BUDGET_FOR_SUBSHOTS_MS = 90_000;
 
-              const subResult = await generateStoryboardImage(
-                subDescriptor,
-                options.userId,
-                {
-                  styleGuide: options.styleGuide,
-                  modelId: options.modelId,
-                  aspectRatio: options.aspectRatio,
-                  sceneIndex: sbScene.sceneIndex,
-                  totalScenes,
-                  // Intentionally NO referenceImages — sub-shots must look DIFFERENT
-                  // from each other (that's the point of the montage).
-                  referenceImages: undefined,
-                },
-              );
+          if (budgetRemainingMs < MIN_BUDGET_FOR_SUBSHOTS_MS) {
+            console.warn(
+              `[Storyboard] Scene ${sbScene.sceneIndex}: SKIPPING ${indepSubShots.length} per-sub-shot images — only ${Math.round(budgetRemainingMs / 1000)}s remaining (need ${MIN_BUDGET_FOR_SUBSHOTS_MS / 1000}s). Video worker will fall back to parent image.`,
+            );
+          } else {
+            console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: generating ${indepSubShots.length} per-sub-shot images in parallel (budget ${Math.round(budgetRemainingMs / 1000)}s)`);
 
-              // Persist to storyboard doc via dedicated sub-shot updater
-              await updateSubShot(storyboardId, sbScene.sceneIndex, idx, {
-                imageUrl: subResult.imageUrl,
-                imageAssetId: subResult.assetId,
-              });
+            // Inner concurrency cap — parallelism within a single scene. Kept low (3)
+            // because the OUTER scene loop already runs up to 6 scenes in parallel,
+            // so total fal.ai concurrent requests = outer * inner = 18 max.
+            const INNER_CONCURRENCY = 3;
 
-              // Update in-memory mirror so later logic (consistency scoring, etc.) sees it
-              sub.imageUrl = subResult.imageUrl;
-              sub.imageAssetId = subResult.assetId;
+            const runOne = async ({ sub, idx }: typeof indepSubShots[number]) => {
+              // Re-check budget per sub-shot — if time already ran out, bail quietly.
+              const nowBudgetMs = MAX_BUDGET_MS - (Date.now() - functionStartTime);
+              if (nowBudgetMs < 30_000) {
+                console.warn(`[Storyboard] Scene ${sbScene.sceneIndex} sub ${idx}: skipped (budget exhausted mid-batch, ${Math.round(nowBudgetMs / 1000)}s left)`);
+                return;
+              }
+              const subStart = Date.now();
+              try {
+                const subDescriptor: SceneDescriptor = {
+                  ...sbScene.descriptor,
+                  visualDescription: sub.visualDescription!,
+                  imageQualityTokens: sub.imageQualityTokens || sbScene.descriptor.imageQualityTokens,
+                  videoQualityTokens: sub.videoQualityTokens || sbScene.descriptor.videoQualityTokens,
+                  videoMotionPrompt: sub.videoMotionPrompt || sbScene.descriptor.videoMotionPrompt,
+                };
 
-              const subElapsed = ((Date.now() - subStart) / 1000).toFixed(1);
-              console.log(`[Storyboard] Scene ${sbScene.sceneIndex} sub ${idx}: image OK in ${subElapsed}s (${subResult.assetId})`);
-            } catch (subErr: any) {
-              console.warn(`[Storyboard] Scene ${sbScene.sceneIndex} sub ${idx}: per-sub-shot image gen FAILED (non-fatal, video worker will fall back to parent image): ${subErr.message}`);
-              // Don't throw — parent image is already persisted, scene counts as generated
+                const subResult = await generateStoryboardImage(
+                  subDescriptor,
+                  options.userId,
+                  {
+                    styleGuide: options.styleGuide,
+                    modelId: options.modelId,
+                    aspectRatio: options.aspectRatio,
+                    sceneIndex: sbScene.sceneIndex,
+                    totalScenes,
+                    // Intentionally NO referenceImages — sub-shots must look DIFFERENT
+                    // from each other (that's the point of the montage).
+                    referenceImages: undefined,
+                  },
+                );
+
+                // Persist to storyboard doc via dedicated sub-shot updater
+                await updateSubShot(storyboardId, sbScene.sceneIndex, idx, {
+                  imageUrl: subResult.imageUrl,
+                  imageAssetId: subResult.assetId,
+                });
+
+                // Update in-memory mirror so later logic (consistency scoring, etc.) sees it
+                sub.imageUrl = subResult.imageUrl;
+                sub.imageAssetId = subResult.assetId;
+
+                const subElapsed = ((Date.now() - subStart) / 1000).toFixed(1);
+                console.log(`[Storyboard] Scene ${sbScene.sceneIndex} sub ${idx}: image OK in ${subElapsed}s (${subResult.assetId})`);
+              } catch (subErr: any) {
+                console.warn(`[Storyboard] Scene ${sbScene.sceneIndex} sub ${idx}: per-sub-shot image gen FAILED (non-fatal, video worker will fall back to parent image): ${subErr.message}`);
+                // Don't throw — parent image is already persisted, scene counts as generated
+              }
+            };
+
+            // Simple sliding-window concurrency runner
+            const queue = [...indepSubShots];
+            const inFlight: Promise<void>[] = [];
+            while (queue.length > 0 || inFlight.length > 0) {
+              while (inFlight.length < INNER_CONCURRENCY && queue.length > 0) {
+                const item = queue.shift()!;
+                const p = runOne(item).then(() => {
+                  inFlight.splice(inFlight.indexOf(p), 1);
+                });
+                inFlight.push(p);
+              }
+              if (inFlight.length > 0) {
+                await Promise.race(inFlight);
+              }
             }
           }
         }
