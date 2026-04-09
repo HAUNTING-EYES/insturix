@@ -905,14 +905,17 @@ export async function extractSubjectsFromScenes(
     })
     .join('\n\n');
 
-  // HOTFIX 2026-04-08: 60s hard cap — runs in the reference-images/extract-subjects
-  // route which has a 60s practical budget. If Gemini hangs, caller should surface
-  // the timeout error rather than sitting at the spinner for 5 minutes.
+  // HOTFIX 2026-04-08 (revised 2026-04-09): abort cap raised from 60s → 110s.
+  // The extract-subjects route has maxDuration=120s. gemini-2.5-flash with
+  // structured output on 10+ scene scripts with detailed visual descriptions
+  // regularly takes 60-90s. The 60s cap was causing consistent 500s on real
+  // scripts (proj_r8E_z9WVaBX9 follow-up test, log 2026-04-09 13:07:25).
+  // Raised to 110s (leaving 10s buffer for route overhead).
   const { object } = await generateObject({
     model,
     schema: SubjectExtractionSchema,
     temperature: 0.2,
-    abortSignal: AbortSignal.timeout(60_000),
+    abortSignal: AbortSignal.timeout(110_000),
     prompt: `You are a senior concept artist doing pre-production for a video. Read EVERY scene carefully and extract ALL visual subjects that could benefit from a reference image.
 
 === SCENES ===
