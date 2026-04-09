@@ -373,6 +373,54 @@ function applyTransition(
   };
 
   overlays.push(transitionOverlay as any);
+
+  // Clean up clip-overlap opacity keyframes that edit-direction-applier may
+  // have placed on the adjacent clips at this boundary. Without this, both
+  // the keyframe-based crossfade AND the transition tile render simultaneously
+  // → double transition visual. Per creative doc §6 (Transition Psychology):
+  // each boundary should have ONE transition effect, not two.
+  //
+  // Only remove opacity tracks near the boundary frame — preserve opacity
+  // keyframes placed for other purposes (fade-in at clip start, fade-out at end).
+  const boundaryLocalA = clipA.durationInFrames; // end of clipA (relative to clipA.from)
+  const boundaryLocalB = 0; // start of clipB (relative to clipB.from)
+  const cleanupMarginFrames = Math.ceil(durationFrames * 1.5); // generous margin
+
+  for (const clip of [clipA, clipB]) {
+    if (!clip.keyframeTracks) continue;
+    const opacityIdx = clip.keyframeTracks.findIndex(
+      (t: any) => t.property === 'opacity',
+    );
+    if (opacityIdx < 0) continue;
+
+    const track = clip.keyframeTracks[opacityIdx];
+    const isClipA = clip === clipA;
+    // Check if ANY opacity keyframe is near the boundary
+    const nearBoundary = track.keyframes.some((kf: any) => {
+      const dist = isClipA
+        ? Math.abs(kf.frame - boundaryLocalA)
+        : Math.abs(kf.frame - boundaryLocalB);
+      return dist <= cleanupMarginFrames;
+    });
+
+    if (nearBoundary) {
+      // Remove opacity keyframes near the boundary, keep others
+      const filtered = track.keyframes.filter((kf: any) => {
+        const dist = isClipA
+          ? Math.abs(kf.frame - boundaryLocalA)
+          : Math.abs(kf.frame - boundaryLocalB);
+        return dist > cleanupMarginFrames;
+      });
+
+      if (filtered.length === 0) {
+        // All opacity keyframes were near boundary — remove entire track
+        clip.keyframeTracks.splice(opacityIdx, 1);
+      } else {
+        clip.keyframeTracks[opacityIdx] = { ...track, keyframes: filtered };
+      }
+    }
+  }
+
   console.log(`[EDL-Exec] Transition APPLIED: ${transType} tile at frame ${anchorFrame} (clipA=${clipA.id}, clipB=${clipB.id}, dist=${bestDist})`);
   return { created: 1, modified: 0 };
 }
