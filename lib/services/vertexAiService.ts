@@ -21,7 +21,7 @@ function initGenAI(): GoogleGenerativeAI {
     throw error;
   }
 }
-const PRIMARY_MODEL = "gemini-2.0-flash";
+const PRIMARY_MODEL = "gemini-3.1-flash-lite-preview";
 const FALLBACK_MODEL = "gemini-2.5-flash";
 
 export async function analyzeVideoWithGemini(
@@ -149,6 +149,14 @@ export async function analyzeVideoWithGemini(
       ],
     };
 
+    // --- Ye block insert karo ---
+    let extraParams: any = {};
+    if (model.includes("3.1")) {
+      extraParams.thinkingConfig = { thinkingLevel: "high" };
+    } else if (model.includes("2.5")) {
+      extraParams.thinkingConfig = { thinkingBudget: 4000 };
+    }
+    // ----------------------------
     const generativeModel = client.getGenerativeModel({
       model,
       generationConfig: {
@@ -159,6 +167,7 @@ export async function analyzeVideoWithGemini(
         responseMimeType: "application/json",
         responseSchema: responseSchema as any,
       },
+
       safetySettings: [
         {
           category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
