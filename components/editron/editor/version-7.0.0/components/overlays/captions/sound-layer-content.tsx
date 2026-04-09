@@ -36,17 +36,26 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
   const volumeCallback = useMemo(() => {
     if (!duckingConfig?.enabled) return undefined;
 
-    // Find all voiceover overlays — identify by assetId prefix OR row 4.
-    // Using assetId prefix is more reliable than row number because users
-    // can accidentally drag overlays to different rows.
+    // Find all overlays that produce audio the BGM should duck under.
+    // Two sources:
+    //   1. Separate voiceover sound overlays (assetId prefix 'voiceover_'/'vo_' or row 4)
+    //   2. Video overlays with hasNativeAudio:true (Seedance 1.5/2.0 embedded audio)
+    //      These play audio from the <Video> element directly, not as sound overlays.
+    //      Without including them, BGM plays at full volume alongside Seedance audio.
     const voiceoverOverlays = allOverlays.filter((o) => {
       if (o.id === overlay.id) return false;
-      if (o.type !== 'sound') return false;
-      // Check assetId prefix first (most reliable)
-      const aid = (o as any).assetId || '';
-      if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return true;
-      // Fallback to row 4 if no recognizable assetId
-      return o.row === 4;
+
+      // Source 1: separate voiceover sound overlays
+      if (o.type === 'sound') {
+        const aid = (o as any).assetId || '';
+        if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return true;
+        if (o.row === 4) return true;
+      }
+
+      // Source 2: video overlays with native audio (Seedance)
+      if (o.type === 'video' && (o as any).hasNativeAudio) return true;
+
+      return false;
     });
 
     if (voiceoverOverlays.length === 0) return undefined;
