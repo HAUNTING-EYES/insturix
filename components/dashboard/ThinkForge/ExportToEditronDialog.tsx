@@ -1020,13 +1020,53 @@ export function ExportToEditronDialog({
 
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
-        setSubjects((prev) =>
-          prev.map((s) =>
-            s.subjectId === subjectId
-              ? { ...s, imageUrl: data.imageUrl || s.imageUrl, status: 'generated' }
-              : s,
-          ),
-        );
+
+        // Bundle 4: regenerate is now async — poll until worker completes
+        if (data.async && data.batchId && refSetId) {
+          // Mark as generating in UI
+          setSubjects((prev) =>
+            prev.map((s) =>
+              s.subjectId === subjectId ? { ...s, status: 'generating' } : s,
+            ),
+          );
+
+          const POLL_MS = 5000;
+          const MAX_POLLS = 40;
+          for (let poll = 0; poll < MAX_POLLS; poll++) {
+            await new Promise((r) => setTimeout(r, POLL_MS));
+            try {
+              const statusRes = await fetch(
+                `/api/services/pipeline/reference-images/${refSetId}/generate-status?batchId=${data.batchId}`,
+              );
+              const statusData = await statusRes.json().catch(() => ({}));
+              if (statusData.success && statusData.isComplete) {
+                const completedSubject = (statusData.subjects || []).find(
+                  (s: any) => s.subjectId === subjectId,
+                );
+                if (completedSubject?.imageUrl) {
+                  setSubjects((prev) =>
+                    prev.map((s) =>
+                      s.subjectId === subjectId
+                        ? { ...s, imageUrl: completedSubject.imageUrl, status: 'generated' }
+                        : s,
+                    ),
+                  );
+                }
+                break;
+              }
+            } catch { /* poll failed, retry */ }
+          }
+        } else {
+          // Sync response (dev mode or legacy)
+          setSubjects((prev) =>
+            prev.map((s) =>
+              s.subjectId === subjectId
+                ? { ...s, imageUrl: data.imageUrl || s.imageUrl, status: 'generated' }
+                : s,
+            ),
+          );
+        }
+
         setApprovedSubjectIds((prev) => { const next = new Set(prev); next.add(subjectId); return next; });
         sendNotification('Reference Updated', `"${subjects.find(s => s.subjectId === subjectId)?.name || subjectId}" regenerated.`);
       }
@@ -1172,25 +1212,57 @@ export function ExportToEditronDialog({
 
       const data = await res.json().catch(() => ({}));
       if (!data.subject) throw new Error('Invalid response');
+
+      // Add subject to UI immediately with pending status
       const newSubject: SubjectRef = {
         subjectId: data.subject.subjectId,
         name: data.subject.name,
         category: data.subject.category,
-        imageUrl: data.subject.imageUrl,
-        status: 'generated',
+        imageUrl: data.subject.imageUrl || undefined, // may be undefined if async
+        status: data.subject.imageUrl ? 'generated' : 'pending',
         scenesAppearingIn: data.subject.scenesAppearingIn,
         visualDescription: data.subject.visualDescription,
         priority: 'suggested',
       };
-
       setSubjects((prev) => [...prev, newSubject]);
+      // Remove from suggestions immediately (don't wait for image)
+      setSuggestedSubjects((prev) => prev.filter((s) => s.id !== suggested.id));
+
+      // Bundle 4: if response is async, poll until the worker completes
+      if (data.async && data.batchId && refSetId) {
+        const POLL_MS = 5000;
+        const MAX_POLLS = 40; // 40 × 5s = ~3 min
+        for (let poll = 0; poll < MAX_POLLS; poll++) {
+          await new Promise((r) => setTimeout(r, POLL_MS));
+          try {
+            const statusRes = await fetch(
+              `/api/services/pipeline/reference-images/${refSetId}/generate-status?batchId=${data.batchId}`,
+            );
+            const statusData = await statusRes.json().catch(() => ({}));
+            if (statusData.success && statusData.isComplete) {
+              const completedSubject = (statusData.subjects || []).find(
+                (s: any) => s.subjectId === newSubject.subjectId,
+              );
+              if (completedSubject?.imageUrl) {
+                setSubjects((prev) =>
+                  prev.map((s) =>
+                    s.subjectId === newSubject.subjectId
+                      ? { ...s, imageUrl: completedSubject.imageUrl, status: 'generated' }
+                      : s,
+                  ),
+                );
+              }
+              break;
+            }
+          } catch { /* poll failed, retry */ }
+        }
+      }
+
       setApprovedSubjectIds((prev) => {
         const next = new Set(prev);
         next.add(newSubject.subjectId);
         return next;
       });
-      // Remove from suggestions
-      setSuggestedSubjects((prev) => prev.filter((s) => s.id !== suggested.id));
       sendNotification('Reference Added', `"${suggested.name}" reference image generated.`);
     } catch (err: any) {
       setError(`Generate "${suggested.name}" failed: ${err.message}`);
@@ -1233,17 +1305,49 @@ export function ExportToEditronDialog({
 
       const data = await res.json().catch(() => ({}));
       if (!data.subject) throw new Error('Invalid response from add-subject');
+
+      // Add subject to UI immediately with pending status
       const newSubject: SubjectRef = {
         subjectId: data.subject.subjectId,
         name: data.subject.name,
         category: data.subject.category,
-        imageUrl: data.subject.imageUrl,
-        status: 'generated',
+        imageUrl: data.subject.imageUrl || undefined,
+        status: data.subject.imageUrl ? 'generated' : 'pending',
         scenesAppearingIn: data.subject.scenesAppearingIn,
         visualDescription: data.subject.visualDescription,
       };
-
       setSubjects((prev) => [...prev, newSubject]);
+
+      // Bundle 4: if response is async, poll until the worker completes
+      if (data.async && data.batchId && refSetId) {
+        const POLL_MS = 5000;
+        const MAX_POLLS = 40;
+        for (let poll = 0; poll < MAX_POLLS; poll++) {
+          await new Promise((r) => setTimeout(r, POLL_MS));
+          try {
+            const statusRes = await fetch(
+              `/api/services/pipeline/reference-images/${refSetId}/generate-status?batchId=${data.batchId}`,
+            );
+            const statusData = await statusRes.json().catch(() => ({}));
+            if (statusData.success && statusData.isComplete) {
+              const completedSubject = (statusData.subjects || []).find(
+                (s: any) => s.subjectId === newSubject.subjectId,
+              );
+              if (completedSubject?.imageUrl) {
+                setSubjects((prev) =>
+                  prev.map((s) =>
+                    s.subjectId === newSubject.subjectId
+                      ? { ...s, imageUrl: completedSubject.imageUrl, status: 'generated' }
+                      : s,
+                  ),
+                );
+              }
+              break;
+            }
+          } catch { /* poll failed, retry */ }
+        }
+      }
+
       setApprovedSubjectIds((prev) => {
         const next = new Set(prev);
         next.add(newSubject.subjectId);
