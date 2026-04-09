@@ -33,6 +33,7 @@
     "@clerk/elements": "^0.23.83",
     "@clerk/nextjs": "^6.35.2",
     "@deepgram/sdk": "^4.11.3",
+    "@distube/ytdl-core": "^4.16.12",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@fal-ai/client": "^1.7.2",
@@ -178,6 +179,7 @@
     "three": "^0.182.0",
     "use-debounce": "^10.0.6",
     "uuid": "^13.0.0",
+    "yt-dlp-exec": "^1.0.2",
     "yup": "^1.7.1",
     "zod": "^4.1.12",
     "zustand": "^5.0.8"
@@ -223,5 +225,8 @@
       ]
     }
   },
-  "packageManager": "pnpm@10.17.1+sha512.17c560fca4867ae9473a3899ad84a88334914f379be46d455cbf92e5cf4b39d34985d452d2583baf19967fa76cb5c17bc9e245529d0b98745721aa7200ecaf7a"
+  "packageManager": "pnpm@10.17.1+sha512.17c560fca4867ae9473a3899ad84a88334914f379be46d455cbf92e5cf4b39d34985d452d2583baf19967fa76cb5c17bc9e245529d0b98745721aa7200ecaf7a",
+  "pnpm": {
+  "ignoredBuiltDependencies": ["yt-dlp-exec"]
+  }
 }

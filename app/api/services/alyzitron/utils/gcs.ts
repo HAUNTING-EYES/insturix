@@ -1,6 +1,15 @@
 import { Storage } from '@google-cloud/storage';
 import { ServiceError } from '../types';
 
+/**
+ * GCSManager User Guide for Alyzitron:
+ * 
+ * Important Storage Optimization:
+ * For temporary objects like videos streamed only for Vertex AI analysis, use the prefix `alyzitron/temp/`.
+ * You MUST configure a GCS Bucket Lifecycle rule in the Google Cloud Console to automatically delete 
+ * objects with the prefix `alyzitron/temp/` after 1 day to reduce storage costs.
+ */
+
 // Lazy initialization to avoid throwing during Next.js build/import
 let storage: Storage | null = null;
 let bucket: ReturnType<Storage['bucket']> | null = null;
