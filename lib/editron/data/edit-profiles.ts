@@ -311,10 +311,27 @@ const B07: EditProfile = {
   cutsPerMinRange: [12, 22], defaultTransition: 'hard-cut', captionStyle: 'none', bgmDuckLevel: 0.12,
   graphicsDensity: 'minimal',
   actions: [applyFilter('blade-runner'), addTransition('hard-cut'), beatSync('downbeats', 0.7, 3), audioDuck(0.12), qualityReview()],
+  // 2026-04-10: Moved primary signals from 'visual' to 'contentType' + 'notes'.
+  // Previously `car` in visual at weight 0.5 + `drive` at 0.3 was triggering B-07
+  // on any ad that incidentally mentioned a car (proj_3WjWqCTVVuJv: McDonald's
+  // nostalgia ad with "family in a vintage car at a drive-in" → B-07 Automotive
+  // instead of E-04 Brand Narrative). A single incidental car reference shouldn't
+  // override 5 scenes of nostalgia content. Now: visual car/vehicle at low weight
+  // (0.15) for tiebreaking, strong weight only on contentType/notes where the user
+  // or metadata explicitly says "automotive" / "vehicle launch" / "test drive".
   signalKeywords: [
-    { term: 'car', field: 'visual', weight: 0.5 }, { term: 'vehicle', field: 'visual', weight: 0.5 },
-    { term: 'drive', field: 'visual', weight: 0.3 }, { term: 'engine', field: 'visual', weight: 0.3 },
-    { term: 'speed', field: 'visual', weight: 0.3 },
+    { term: 'automotive', field: 'contentType', weight: 0.5 },
+    { term: 'automotive', field: 'notes', weight: 0.45 },
+    { term: 'vehicle launch', field: 'contentType', weight: 0.4 },
+    { term: 'test drive', field: 'notes', weight: 0.4 },
+    { term: 'car commercial', field: 'contentType', weight: 0.45 },
+    { term: 'car review', field: 'contentType', weight: 0.4 },
+    // Low-weight visual signals — tiebreaker only, won't override stronger profiles
+    { term: 'car', field: 'visual', weight: 0.15 },
+    { term: 'vehicle', field: 'visual', weight: 0.15 },
+    { term: 'engine', field: 'visual', weight: 0.2 },
+    { term: 'horsepower', field: 'visual', weight: 0.3 },
+    { term: 'dashboard', field: 'visual', weight: 0.25 },
   ],
 };
 

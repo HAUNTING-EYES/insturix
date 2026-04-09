@@ -758,26 +758,67 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
   }
 
   // ─── Post-process: correct scene durations for target total ────
-  // The LLM sometimes produces durations that sum to much more than the target.
-  // A 30s reel with 7 scenes should have ~4-5s per scene, not 9-12s.
+  // The LLM frequently produces scenes whose total duration FAR exceeds the
+  // script's target. For proj_3WjWqCTVVuJv: "30 sec Reel" → 42s of scenes
+  // → 25 sub-shots → 64.7s actual timeline (2x the target).
+  //
+  // 2026-04-10: tightened threshold from 1.5x to 1.1x. A 30s reel that sums
+  // to 33s should already be scaled down. The previous 1.5x threshold let
+  // 42s (1.4x) through without correction — which is too lenient.
+  // Also added total sub-shot duration calculation (not just scene durations)
+  // because a scene with 6 × 3s sub-shots at independentGeneration=true
+  // will produce 18s of actual timeline content regardless of the scene's
+  // declared durationSeconds.
   if (object.scenes && object.scenes.length > 0) {
-    const totalDuration = object.scenes.reduce((sum: number, s: any) => sum + (s.durationSeconds || 5), 0);
+    // Calculate EFFECTIVE total: scenes with independent sub-shots use
+    // sum(sub.targetDurationSeconds), others use scene.durationSeconds.
+    const effectiveTotal = object.scenes.reduce((sum: number, scene: any) => {
+      const subs = (scene.subShots || []).filter((s: any) => s.independentGeneration);
+      if (subs.length > 0) {
+        const subDur = subs.reduce((ss: number, sub: any) => ss + (sub.targetDurationSeconds || 3), 0);
+        return sum + subDur;
+      }
+      return sum + (scene.durationSeconds || 5);
+    }, 0);
+
+    // Also read plain scene duration total (for the log)
+    const plainTotal = object.scenes.reduce((sum: number, s: any) => sum + (s.durationSeconds || 5), 0);
+
     // Extract target duration from script metadata if available
-    const targetMatch = scriptText.match(/(\d+)[- ]?(?:second|sec|s)\s+(?:reel|video|clip|short)/i);
+    // Patterns: "30 sec reel", "30-second video", "60s short", "Format: 30 sec reel"
+    const targetMatch = scriptText.match(/(?:format[:\s]*)?(\d+)[- ]?(?:second|sec|s)\s+(?:reel|video|clip|short|ad)/i);
     const targetDuration = targetMatch ? parseInt(targetMatch[1]) : null;
 
-    if (targetDuration && totalDuration > targetDuration * 1.5) {
+    console.log(`[SceneParser] Duration check: effectiveTotal=${effectiveTotal}s, plainTotal=${plainTotal}s, targetDuration=${targetDuration || 'unknown'}s, scenes=${object.scenes.length}`);
+
+    if (targetDuration && effectiveTotal > targetDuration * 1.1) {
       // Scenes are too long — proportionally shrink to fit target
-      const scaleFactor = targetDuration / totalDuration;
-      console.log(`[SceneParser] Post-process: durations total ${totalDuration}s but target is ${targetDuration}s — scaling by ${scaleFactor.toFixed(2)}`);
+      const scaleFactor = targetDuration / effectiveTotal;
+      console.log(`[SceneParser] Post-process: effectiveTotal ${effectiveTotal}s exceeds target ${targetDuration}s — scaling by ${scaleFactor.toFixed(2)}`);
+
       for (const scene of object.scenes) {
         const original = scene.durationSeconds || 5;
-        scene.durationSeconds = Math.max(3, Math.round(original * scaleFactor));
+        scene.durationSeconds = Math.max(2, Math.round(original * scaleFactor));
+
+        // Also scale sub-shot durations so the effective total matches
+        if (scene.subShots) {
+          for (const sub of scene.subShots) {
+            if (sub.targetDurationSeconds) {
+              sub.targetDurationSeconds = Math.max(1.5, Math.round(sub.targetDurationSeconds * scaleFactor * 10) / 10);
+            }
+          }
+        }
       }
+
       // Verify new total
-      const newTotal = object.scenes.reduce((sum: number, s: any) => sum + (s.durationSeconds || 5), 0);
-      (object as any).totalDurationSeconds = newTotal;
-      console.log(`[SceneParser] Post-process: adjusted durations total ${newTotal}s`);
+      const newEffective = object.scenes.reduce((sum: number, scene: any) => {
+        const subs = (scene.subShots || []).filter((s: any) => s.independentGeneration);
+        if (subs.length > 0) {
+          return sum + subs.reduce((ss: number, sub: any) => ss + (sub.targetDurationSeconds || 3), 0);
+        }
+        return sum + (scene.durationSeconds || 5);
+      }, 0);
+      console.log(`[SceneParser] Post-process: adjusted effective total ${newEffective}s (from ${effectiveTotal}s)`);
     }
   }
 
