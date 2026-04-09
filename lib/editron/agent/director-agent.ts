@@ -768,11 +768,22 @@ async function executeAction(
         );
         if (existingTrans) continue; // Already has a transition, skip
 
-        // Check storyboard's per-scene transition for the NEXT scene (B)
-        const sceneData = storyboardScenes.find((s: any) => {
-          // Match by approximate frame position (scenes may not align perfectly)
-          return s.sceneIndex === i + 1 || (s.editDirections?.transition);
-        });
+        // Check storyboard's per-scene transition for the NEXT scene (B).
+        // Use clipB's metadata.sceneIndex — NOT the overlay array index (i+1).
+        // Overlay index ≠ scene index because montage scenes produce multiple
+        // sub-shot overlays. E.g. 6 scenes with 4 sub-shots each = 24 overlays
+        // but only 6 scene indices. Using i+1 looked up sceneIndex 7+ which
+        // doesn't exist → fell to profile default instead of script transition.
+        const clipBSceneIndex = (clipB as any).metadata?.sceneIndex;
+        const clipASceneIndex = (clipA as any).metadata?.sceneIndex;
+
+        // If both clips are in the SAME scene (sub-shots of a montage), use
+        // the scene's internal transition (usually hard-cut for montage sub-shots).
+        // If they're in DIFFERENT scenes, look up clipB's scene transition.
+        const lookupSceneIndex = clipBSceneIndex ?? clipASceneIndex;
+        const sceneData = lookupSceneIndex !== undefined
+          ? storyboardScenes.find((s: any) => s.sceneIndex === lookupSceneIndex)
+          : undefined;
         let sceneTransType = sceneData?.editDirections?.transition?.type;
         let sceneTransDuration = sceneData?.editDirections?.transition?.durationMs;
 
