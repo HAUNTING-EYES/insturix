@@ -92,66 +92,16 @@ async function handler(request: NextRequest) {
       // ROUTE 3: EXTERNAL LINKS (YouTube/Insta)
       else {
         logger.info("Route 3: External Link Extraction");
-        const extracted = await extractMediaUri(task.videoUrl);
+        
+        const isYouTubeLink = task.videoUrl.includes("youtube.com") || task.videoUrl.includes("youtu.be");
 
-        if (extracted.mediaType === "image") {
-          updatedMimeType = "image/jpeg";
-          const gcsPath = `alyzitron/image/${taskId}.jpg`;
+        if (isYouTubeLink) {
+          logger.info("Route 3A: Direct YouTube Link to Gemini");
           
-          /* --- OLD GCS LOGIC COMMENTED OUT ---
-          const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, "image/jpeg");
-          updatedVideoUrl = gcsRes.gcsUri;
-          await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
-          analysisResults = await analyzeVideoWithGemini(gcsRes.gcsUri, task.context || {}, task.metadata || {});
-          */
+          updatedVideoUrl = task.videoUrl;
+          updatedMimeType = "video/mp4";
 
-          // NEW GEMINI FILE API LOGIC
-          const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, "image/jpeg", `task-${taskId}`);
-          updatedVideoUrl = extracted.downloadUrl; // keep original
-          await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
-          analysisResults = await analyzeVideoWithGemini(fileUri, task.context || {}, task.metadata || {});
-
-        } else {
-          // VIDEO/AUDIO LOGIC
-          updatedMimeType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
-          // Use temp directory for video meant only for analysis
-          const isVideo = extracted.mediaType === "video" || extracted.mediaType === "unknown";
-          
-          /* --- OLD GCS & DEEPGRAM LOGIC COMMENTED OUT ---
-          const audioGcsPath = `alyzitron/media/${taskId}.mp3`;
-          const tempVideoGcsPath = `alyzitron/temp/${taskId}.mp4`;
-          
-          const gcsPath = isVideo ? tempVideoGcsPath : audioGcsPath;
-
-          // 1. Stream to GCS
-          const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, updatedMimeType);
-          
-          if (!isVideo) {
-            updatedVideoUrl = gcsRes.gcsUri;
-          }
-
-          // 2. Secure URL for Deepgram
-          const objectPath = gcsPath;
-          const deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
-
-          // 3. Parallel AI
-          // const [dg, gem] = await Promise.all([
-          //   transcribeAudio(deepgramUrl),
-          //   analyzeVideoWithGemini(gcsRes.gcsUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {})
-          // ]);
-          // transcriptResult = dg;
-          const gem = await analyzeVideoWithGemini(gcsRes.gcsUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
-          analysisResults = gem;
-          */
-
-          // NEW GEMINI FILE API LOGIC
-          logger.info("Uploading extracted media to Gemini File API");
-          const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}`);
-          
-          updatedVideoUrl = task.videoUrl; // Ensure we keep original external URL for embed
-
-          logger.info("Starting Gemini Analysis");
-          const gem = await analyzeVideoWithGemini(fileUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+          const gem = await analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
           analysisResults = gem;
           
           transcriptResult = {
@@ -164,6 +114,80 @@ async function handler(request: NextRequest) {
             durationMs: 0,
             wordCount: gem.full_transcript?.trim() ? gem.full_transcript.trim().split(/\s+/).length : 0
           };
+        } else {
+          const extracted = await extractMediaUri(task.videoUrl);
+
+          if (extracted.mediaType === "image") {
+            updatedMimeType = "image/jpeg";
+            const gcsPath = `alyzitron/image/${taskId}.jpg`;
+            
+            /* --- OLD GCS LOGIC COMMENTED OUT ---
+            const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, "image/jpeg");
+            updatedVideoUrl = gcsRes.gcsUri;
+            await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
+            analysisResults = await analyzeVideoWithGemini(gcsRes.gcsUri, task.context || {}, task.metadata || {});
+            */
+
+            // NEW GEMINI FILE API LOGIC
+            const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, "image/jpeg", `task-${taskId}`);
+            updatedVideoUrl = extracted.downloadUrl; // keep original
+            await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
+            analysisResults = await analyzeVideoWithGemini(fileUri, task.context || {}, task.metadata || {});
+
+          } else {
+            // VIDEO/AUDIO LOGIC
+            updatedMimeType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
+            // Use temp directory for video meant only for analysis
+            const isVideo = extracted.mediaType === "video" || extracted.mediaType === "unknown";
+            
+            /* --- OLD GCS & DEEPGRAM LOGIC COMMENTED OUT ---
+            const audioGcsPath = `alyzitron/media/${taskId}.mp3`;
+            const tempVideoGcsPath = `alyzitron/temp/${taskId}.mp4`;
+            
+            const gcsPath = isVideo ? tempVideoGcsPath : audioGcsPath;
+
+            // 1. Stream to GCS
+            const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, updatedMimeType);
+            
+            if (!isVideo) {
+              updatedVideoUrl = gcsRes.gcsUri;
+            }
+
+            // 2. Secure URL for Deepgram
+            const objectPath = gcsPath;
+            const deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
+
+            // 3. Parallel AI
+            // const [dg, gem] = await Promise.all([
+            //   transcribeAudio(deepgramUrl),
+            //   analyzeVideoWithGemini(gcsRes.gcsUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {})
+            // ]);
+            // transcriptResult = dg;
+            const gem = await analyzeVideoWithGemini(gcsRes.gcsUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+            analysisResults = gem;
+            */
+
+            // NEW GEMINI FILE API LOGIC
+            logger.info("Uploading extracted media to Gemini File API");
+            const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}`);
+            
+            updatedVideoUrl = task.videoUrl; // Ensure we keep original external URL for embed
+
+            logger.info("Starting Gemini Analysis");
+            const gem = await analyzeVideoWithGemini(fileUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+            analysisResults = gem;
+            
+            transcriptResult = {
+              id: "gemini-" + Date.now().toString(),
+              text: gem.full_transcript || "",
+              detectedLanguage: "en",
+              confidence: 1.0,
+              speakerSegments: gem.speaker_segments || [],
+              formattedTranscript: gem.full_transcript || "",
+              durationMs: 0,
+              wordCount: gem.full_transcript?.trim() ? gem.full_transcript.trim().split(/\s+/).length : 0
+            };
+          }
         }
       }
 
