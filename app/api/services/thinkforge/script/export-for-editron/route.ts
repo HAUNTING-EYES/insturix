@@ -81,7 +81,11 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Try LLM parser first (Gemini Flash) ───────────────────
-    if (isLLMParserAvailable() && rawContent.length > 0) {
+    const llmAvailable = isLLMParserAvailable();
+    const rawContentLength = rawContent.length;
+    console.log(`[export-for-editron] LLM available: ${llmAvailable}, rawContent length: ${rawContentLength}, blocks: ${blocks?.length ?? 0}, hasPlainText: ${!!plainText}, hasCir: ${!!cir}`);
+
+    if (llmAvailable && rawContentLength > 0) {
       try {
         console.log('[export-for-editron] Using LLM parser (Gemini Flash)');
         const llmResult = await parseScriptWithLLM(rawContent, {
@@ -117,10 +121,16 @@ export async function POST(request: NextRequest) {
 
         console.log(`[export-for-editron] LLM parsed ${scenes.length} scenes`);
       } catch (llmError: any) {
-        console.warn('[export-for-editron] LLM parsing failed, falling back to regex:', llmError.message);
+        // Log the FULL error (not just message) so we can see 401s, model-not-found, rate limits, etc.
+        console.error('[export-for-editron] LLM parsing FAILED:', {
+          message: llmError.message,
+          status: llmError.status || llmError.statusCode || llmError.code,
+          name: llmError.name,
+          stack: llmError.stack?.split('\n').slice(0, 3).join(' → '),
+        });
         // H1 FIX: Track that we fell back to regex so frontend can warn user
         parserFallback = true;
-        parserFallbackReason = llmError.message;
+        parserFallbackReason = `${llmError.name || 'Error'}: ${llmError.message}`;
         // Fall through to regex parsing below
       }
     }
@@ -144,8 +154,24 @@ export async function POST(request: NextRequest) {
     }
 
     if (!scenes || scenes.length === 0) {
+      // Diagnostic context so we can actually debug 422s instead of guessing
+      const diagnostic = {
+        llmAvailable,
+        rawContentLength,
+        blocksCount: blocks?.length ?? 0,
+        hasPlainText: !!plainText,
+        hasCir: !!cir,
+        parserFallback,
+        parserFallbackReason: parserFallbackReason || undefined,
+        rawContentPreview: rawContent.substring(0, 200) || '(empty)',
+      };
+      console.error('[export-for-editron] 422: No scenes extracted. Diagnostic:', JSON.stringify(diagnostic));
       return NextResponse.json(
-        { success: false, error: 'No scenes could be extracted from the script' },
+        {
+          success: false,
+          error: 'No scenes could be extracted from the script',
+          diagnostic,
+        },
         { status: 422 },
       );
     }
