@@ -892,7 +892,6 @@ export async function extractSubjectsFromScenes(
   options: { artStyle?: string } = {},
 ): Promise<SubjectExtractionResult> {
   const google = getGeminiProvider();
-  const model = google(DEFAULT_CONFIG.aiModels.subjectExtractionModel);
 
   // Give the LLM the FULL visual description + narration — not truncated.
   // The narration often contains key subject details the visual desc misses.
@@ -905,17 +904,30 @@ export async function extractSubjectsFromScenes(
     })
     .join('\n\n');
 
-  // HOTFIX 2026-04-08 (revised 2026-04-09): abort cap raised from 60s → 110s.
-  // The extract-subjects route has maxDuration=120s. gemini-2.5-flash with
-  // structured output on 10+ scene scripts with detailed visual descriptions
-  // regularly takes 60-90s. The 60s cap was causing consistent 500s on real
-  // scripts (proj_r8E_z9WVaBX9 follow-up test, log 2026-04-09 13:07:25).
-  // Raised to 110s (leaving 10s buffer for route overhead).
-  const { object } = await generateObject({
-    model,
-    schema: SubjectExtractionSchema,
-    temperature: 0.2,
-    abortSignal: AbortSignal.timeout(110_000),
+  // 2026-04-09: Try primary model first, fall back to flash-lite if rate-limited.
+  // gemini-2.5-flash has been hitting "high demand" 503s from Google AI Studio
+  // consistently during testing (log 2026-04-09 15:45:03). Subject extraction
+  // is a simple structured task that flash-lite handles fine — unlike the complex
+  // parser prompt which needs 2.5-flash for instruction-following quality.
+  const modelsToTry = [
+    DEFAULT_CONFIG.aiModels.subjectExtractionModel,
+    'gemini-3.1-flash-lite-preview', // fallback for rate-limit / capacity
+    'gemini-2.5-flash',              // second fallback (different endpoint sometimes has capacity)
+  ];
+  // De-dupe in case primary is already one of the fallbacks
+  const uniqueModels = [...new Set(modelsToTry)];
+
+  let lastError: any;
+  for (const modelId of uniqueModels) {
+    try {
+      const model = google(modelId);
+      console.log(`[extractSubjects] Trying model: ${modelId}`);
+
+      const { object } = await generateObject({
+        model,
+        schema: SubjectExtractionSchema,
+        temperature: 0.2,
+        abortSignal: AbortSignal.timeout(110_000),
     prompt: `You are a senior concept artist doing pre-production for a video. Read EVERY scene carefully and extract ALL visual subjects that could benefit from a reference image.
 
 === SCENES ===
@@ -962,9 +974,24 @@ GOOD (character example): "Woman in her late 20s, straight jawline-length dark h
 ${options.artStyle ? `\nArt style: ${options.artStyle}. Describe subjects in this visual style.` : ''}
 
 Extract ALL subjects now (heroes + suggestions):`,
-  });
+      });
 
-  return object;
+      console.log(`[extractSubjects] SUCCESS with model ${modelId}: ${object.subjects.length} subjects`);
+      return object;
+    } catch (err: any) {
+      lastError = err;
+      const isRateLimit = /high demand|rate limit|too many requests|429|503|overloaded|capacity/i.test(err.message || '');
+      console.warn(`[extractSubjects] Model ${modelId} FAILED (${isRateLimit ? 'RATE-LIMITED' : 'ERROR'}): ${err.message}`);
+      if (!isRateLimit) {
+        // Non-rate-limit error (auth, schema, etc.) — don't bother trying fallback models
+        throw err;
+      }
+      // Rate-limited → try next model
+    }
+  }
+
+  // All models exhausted
+  throw lastError || new Error('All models failed for subject extraction');
 }
 
 // ─── Video Prompt Refinement (VideoPromptMaster) ────────────────
