@@ -1660,6 +1660,7 @@ export function ExportToEditronDialog({
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-800 border-zinc-700">
                       <SelectItem value="auto">Auto (best per scene) — Default</SelectItem>
+                      <SelectItem value="seedance-2.0">Seedance 2.0 (Best Audio-Video)</SelectItem>
                       <SelectItem value="seedance-1.5">Seedance 1.5 Pro (Native Audio)</SelectItem>
                       <SelectItem value="kling-2.1">Kling 2.1 Pro</SelectItem>
                       <SelectItem value="kling-2.6">Kling 2.6 Pro (High Motion)</SelectItem>

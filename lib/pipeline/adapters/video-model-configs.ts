@@ -427,40 +427,41 @@ export const VIDEO_MODEL_REGISTRY: Record<string, VideoModelConfig> = {
   },
 
   // ─── Seedance 2.0 ──────────────────────────────────────────────
-  // NOT YET AVAILABLE on fal.ai as of 2026-04-10 ("Coming soon" on fal.ai/seedance-2.0).
-  // Config ready to go — uncomment the endpoints when fal publishes them.
-  // Seedance 2.0 adds: multimodal understanding, 2x resolution, better audio coherence,
-  // and longer duration support (up to 30s per clip).
-  // Source: https://fal.ai/seedance-2.0
+  // Docs: https://fal.ai/models/bytedance/seedance-2.0/image-to-video
+  // Live on fal.ai as of 2026-04. Early access requires end_user_id.
+  // Duration: "auto" or "4"-"15" (string enum). Native audio: generate_audio=true default.
+  // Resolution: 480p, 720p. Aspect ratio: auto, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16.
+  // End image supported (end_image_url). Seed for reproducibility.
+  // NOTE: Geographic restriction — B2B customers outside US only. We pass end_user_id.
   'seedance-2.0': {
     key: 'seedance-2.0',
-    label: 'Seedance 2.0 (Coming Soon)',
-    sortOrder: -1, // Hidden from dropdown until endpoints are live
+    label: 'Seedance 2.0 (Best Audio-Video)',
+    sortOrder: 0, // Top of list — newest with native audio + better coherence than 1.5
     endpoints: {
-      // TODO: Replace with actual fal.ai endpoints when available
-      textToVideo: 'fal-ai/bytedance/seedance/v2.0/text-to-video',
-      imageToVideo: 'fal-ai/bytedance/seedance/v2.0/image-to-video',
+      textToVideo: 'bytedance/seedance-2.0/text-to-video',
+      imageToVideo: 'bytedance/seedance-2.0/image-to-video',
     },
     duration: {
       paramName: 'duration',
-      min: 4, max: 30, // Expected: up to 30s per clip
-      snap: (n) => Math.min(Math.max(Math.round(n), 4), 30),
-      actualSeconds: (n) => Math.min(Math.max(Math.round(n), 4), 30),
+      min: 4, max: 15,
+      // Duration is a STRING enum: "auto", "4", "5", ..., "15"
+      snap: (n) => String(Math.min(Math.max(Math.round(n), 4), 15)),
+      actualSeconds: (n) => Math.min(Math.max(Math.round(n), 4), 15),
     },
     aspectRatio: {
       paramName: 'aspect_ratio',
       supported: ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
       fallback: '16:9',
     },
-    resolution: { paramName: 'resolution', default: '1080p' },
+    resolution: { paramName: 'resolution', default: '720p' },
     imageUrlParam: 'image_url',
     endImageParam: 'end_image_url',
     referenceParam: null,
     nativeAudio: { paramName: 'generate_audio', default: true },
-    staticParams: { camera_fixed: false },
+    staticParams: {},
     supportsNegativePrompt: false,
-    negativePromptSuffix: 'motion blur artifacts, temporal glitching, vocal hallucination',
-    promptTuning: 'Seedance 2.0: multimodal cinematic coherence, describe visual + ambient audio. CRITICAL: "instrumental ambient only, no vocals, no speech" — model generates native audio. 120-180 words.',
+    negativePromptSuffix: 'motion blur artifacts, temporal glitching',
+    promptTuning: 'Seedance 2.0: cinematic audio-visual coherence, describe both visual motion AND ambient sound elements. For image-to-video: focus on movement/camera, not subject description (image provides that). Include "preserve composition and colors" for consistency. 100-150 words.',
   },
 };
 
@@ -559,8 +560,10 @@ export function buildVideoInputFromConfig(
     // vocals/speech in random languages (user reported Chinese voiceover in
     // proj_3WjWqCTVVuJv). The model's audio generation has no language control
     // parameter, so we inject audio direction into the prompt itself.
+    // NOTE: some English audio/ambience was good — don't blanket-ban all vocals.
+    // Constrain to English + ambient sounds, ban non-English speech specifically.
     if (config.nativeAudio.default) {
-      input.prompt = `${input.prompt}. Audio: instrumental ambient only, NO vocals, NO speech, NO singing, NO human voice, foley and environmental sounds only.`;
+      input.prompt = `${input.prompt}. Audio direction: ambient environmental sounds, foley effects. Any speech or vocals MUST be in English only. NO non-English speech, NO foreign language vocals.`;
     }
   }
 

@@ -85,12 +85,34 @@ export const TransitionBrowserPanel: React.FC = () => {
     setStatusMsg(`Applying ${transDef?.name || transitionId}...`);
 
     try {
-      // If a video overlay is selected, apply transition after it (single replace).
-      // Otherwise apply to all scene boundaries.
+      // Determine whether to apply to a single boundary or all boundaries.
+      //
+      // Three cases:
+      //   1. A VIDEO overlay is selected → apply after that video (single boundary)
+      //   2. A TRANSITION overlay is selected → replace THAT transition (use its clipAId)
+      //   3. Nothing selected → apply to all boundaries
+      //
+      // 2026-04-10: Previously case 2 fell through to applyToAll because
+      // selectedOverlay only matched type==='video', so clicking a transition
+      // tile then clicking a new transition type applied it to ALL 24 clips.
       const params: Record<string, any> = { type: transitionId };
+
+      // Case 1: selected overlay is a video clip
       if (selectedOverlay && selectedVideoIndex >= 0 && selectedVideoIndex < videoOverlays.length - 1) {
         params.afterOverlayId = selectedOverlay.id;
-      } else {
+      }
+      // Case 2: selected overlay is a transition tile — find its clipAId to replace just that one
+      else if (selectedOverlayId) {
+        const selectedItem = overlays.find(o => o.id === selectedOverlayId);
+        if (selectedItem?.type === 'transition' && (selectedItem as any).clipAId) {
+          params.afterOverlayId = (selectedItem as any).clipAId;
+        } else {
+          // Selected item is neither video nor transition with clipAId — apply to all
+          params.applyToAll = true;
+        }
+      }
+      // Case 3: nothing selected
+      else {
         params.applyToAll = true;
       }
 
