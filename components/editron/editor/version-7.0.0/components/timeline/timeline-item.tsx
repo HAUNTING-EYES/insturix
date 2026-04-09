@@ -360,6 +360,13 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
       setActivePanel(item.type === OverlayType.HTML_STICKER ? OverlayType.HTML_SCENE : item.type);
       setIsOpen(true);
     }
+    // Transition tiles open the Transition Browser panel so user can
+    // change the transition type. The browser's handleApply reads
+    // selectedOverlayId and uses clipAId to replace just this transition.
+    if (item.type === OverlayType.TRANSITION) {
+      setActivePanel(OverlayType.TRANSITIONS);
+      setIsOpen(true);
+    }
   };
 
   const renderContent = () => {

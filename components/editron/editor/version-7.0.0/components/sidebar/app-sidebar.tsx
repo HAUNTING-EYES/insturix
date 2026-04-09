@@ -92,6 +92,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       case OverlayType.QUALITY_REVIEW:
         return "Quality";
       case OverlayType.TRANSITIONS:
+      case OverlayType.TRANSITION: // Singular — when a transition tile is selected
         return "Transitions";
       case OverlayType.SFX_LIBRARY:
         return "Sound Effects";
@@ -146,6 +147,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     { type: OverlayType.AI_SUGGESTIONS, element: <AISuggestionsPanel /> },
     { type: OverlayType.QUALITY_REVIEW, element: <QualityReviewPanel /> },
     { type: OverlayType.TRANSITIONS, element: <TransitionBrowserPanel /> },
+    // When user clicks a transition tile on the timeline, it sets activePanel
+    // to OverlayType.TRANSITION (singular). Map it to the same browser panel.
+    { type: OverlayType.TRANSITION, element: <TransitionBrowserPanel /> },
     { type: OverlayType.SFX_LIBRARY, element: <SFXLibraryPanel /> },
     { type: OverlayType.LOTTIE, element: <LottiePanel /> },
     { type: OverlayType.HTML_SCENE, element: <HtmlScenePanel /> },
