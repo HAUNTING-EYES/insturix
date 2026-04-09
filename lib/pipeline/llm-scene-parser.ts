@@ -640,28 +640,68 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
         }
       }
 
-      // If max similarity is low (<0.4), sub-shots are visibly distinct → force independent.
-      // Also force if there are clear era markers (distinct years/decades) in any pair.
+      // Determine if sub-shots need independent generation.
+      // Per creative doc §1 (Dancyger): "Emotional = hold the shot."
+      // Per Murch: Emotion (51%) trumps everything.
+      //
+      // Same-setting continuity matters: "child reaching at table, parent
+      // wiping at table, both laughing at table" should be ONE continuous
+      // clip cut into 3 sub-shots — not 3 separate AI videos with
+      // potentially inconsistent lighting/faces/backgrounds.
+      //
+      // Force independent ONLY when:
+      //   1. Different era/time markers (1980s vs 1990s vs modern)
+      //   2. Low Jaccard AND no shared location — genuinely different places
+      //
+      // Do NOT force when:
+      //   - Sub-shots share location tokens (table, restaurant, room, etc.)
+      //     AND have no era markers — same setting, different moments
+
       const allText = subShots.map((s: any) => `${s.description || ''} ${s.visualDescription || ''}`).join(' ').toLowerCase();
-      const eraMarkers = (allText.match(/\b(19[5-9]0s|20[0-2]0s|vintage|retro|modern|present[- ]day)\b/g) || []);
+      const eraMarkers = (allText.match(/\b(19[5-9]0s|20[0-2]0s|vintage|retro|modern|present[- ]day|black and white|grainy footage)\b/g) || []);
       const hasMultipleEras = new Set(eraMarkers).size >= 2;
 
-      if (maxJaccard < 0.4 || hasMultipleEras) {
+      // Check if sub-shots share location tokens (same-setting indicator)
+      const LOCATION_TOKENS = new Set([
+        'table', 'restaurant', 'room', 'booth', 'kitchen', 'counter',
+        'store', 'office', 'desk', 'couch', 'sofa', 'bed', 'chair',
+        'park', 'garden', 'beach', 'street', 'sidewalk', 'playground',
+        'stage', 'studio', 'gym', 'field', 'court', 'pool',
+        'window', 'door', 'hallway', 'lobby', 'elevator',
+      ]);
+      // Collect location tokens from each sub-shot
+      const subShotLocations = subShots.map((s: any) => {
+        const tokens = normalize(`${s.description || ''} ${s.visualDescription || ''}`);
+        return new Set(tokens.filter(t => LOCATION_TOKENS.has(t)));
+      });
+      // Check if ANY location token appears in 2+ sub-shots
+      const allLocationTokens = subShotLocations.flatMap((s: Set<string>) => [...s]);
+      const locationCounts = new Map<string, number>();
+      for (const t of allLocationTokens) locationCounts.set(t, (locationCounts.get(t) || 0) + 1);
+      const hasSharedLocation = [...locationCounts.values()].some(count => count >= 2);
+
+      // Decision logic:
+      // - Multiple eras → always force independent (era montage)
+      // - Low Jaccard + NO shared location → force independent (genuinely different settings)
+      // - Low Jaccard + shared location → DON'T force (same place, different moments)
+      const shouldForce = hasMultipleEras || (maxJaccard < 0.4 && !hasSharedLocation);
+
+      if (shouldForce) {
         const reason = hasMultipleEras
           ? `multi-era montage (${new Set(eraMarkers).size} distinct eras)`
-          : `distinct subjects (maxJaccard=${maxJaccard.toFixed(2)})`;
+          : `distinct subjects + no shared location (maxJaccard=${maxJaccard.toFixed(2)})`;
         console.log(`[SceneParser] Post-process: scene ${(scene as any).sceneIndex} "${scene.title}" — FORCING independentGeneration=true on ${subShots.length} sub-shots (${reason})`);
         for (const sub of subShots) {
           sub.independentGeneration = true;
-          // Ensure visualDescription is set — copy from description if missing
           if (!sub.visualDescription && sub.description) {
             sub.visualDescription = sub.description;
           }
-          // Ensure videoMotionPrompt is set — inherit from parent if missing
           if (!sub.videoMotionPrompt && (scene as any).videoMotionPrompt) {
             sub.videoMotionPrompt = (scene as any).videoMotionPrompt;
           }
         }
+      } else if (maxJaccard < 0.4 && hasSharedLocation) {
+        console.log(`[SceneParser] Post-process: scene ${(scene as any).sceneIndex} "${scene.title}" — NOT forcing independentGeneration (shared location: [${[...locationCounts.entries()].filter(([,c]) => c >= 2).map(([t]) => t).join(', ')}], Jaccard=${maxJaccard.toFixed(2)}). Per creative doc: emotional continuity > visual variety.`);
       }
     }
   }
