@@ -441,6 +441,69 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
       (object.scenes[i] as any).sceneIndex = i;
     }
 
+    // ─── Fix 4: Extract duration from title timestamps ────────────
+    // LLM often embeds timing in the scene title: "SCENE 1: THE HOOK (0-5 seconds)"
+    // or "Intro (00:00-00:15)". Extract and use as durationSeconds when the LLM
+    // gave a suspicious default (5 or 15). Works for any script format.
+    for (const scene of object.scenes) {
+      const title = scene.title || '';
+      // Pattern A: "(X-Y seconds)" or "(X - Y seconds)" or "(Xs-Ys)"
+      const secRangeMatch = title.match(/\((\d+)\s*[-–—]\s*(\d+)\s*(?:seconds?|sec|s)\)/i);
+      // Pattern B: "(MM:SS-MM:SS)" or "(M:SS - M:SS)"
+      const tsRangeMatch = title.match(/\((\d{1,2}):(\d{2})\s*[-–—]\s*(\d{1,2}):(\d{2})\)/);
+
+      let extractedDuration: number | null = null;
+      if (secRangeMatch) {
+        const start = parseInt(secRangeMatch[1]);
+        const end = parseInt(secRangeMatch[2]);
+        if (end > start && end - start <= 120) {
+          extractedDuration = end - start;
+        }
+      } else if (tsRangeMatch) {
+        const startSec = parseInt(tsRangeMatch[1]) * 60 + parseInt(tsRangeMatch[2]);
+        const endSec = parseInt(tsRangeMatch[3]) * 60 + parseInt(tsRangeMatch[4]);
+        if (endSec > startSec && endSec - startSec <= 120) {
+          extractedDuration = endSec - startSec;
+        }
+      }
+
+      if (extractedDuration !== null) {
+        const current = scene.durationSeconds || 5;
+        // Only override if LLM gave a suspicious default (5 or 15) or if extracted is more accurate
+        if (current === 5 || current === 15 || Math.abs(current - extractedDuration) > 3) {
+          console.log(`[SceneParser] Fix4: scene ${(scene as any).sceneIndex} duration ${current}s → ${extractedDuration}s (from title timestamp)`);
+          scene.durationSeconds = extractedDuration;
+        }
+      }
+    }
+
+    // ─── Fix 3: Clean scene titles ────────────────────────────────
+    // LLM outputs titles like "SCENE 1: THE HOOK (0-5 seconds)" or
+    // "Scene 3 - Product Reveal" — strip the prefix/suffix for clean display.
+    for (const scene of object.scenes) {
+      let title = scene.title || '';
+      // Strip "SCENE N:" / "Scene N -" / "SCENE N." prefix (any numbering format)
+      title = title.replace(/^(?:scene|act|part|segment)\s*\d+\s*[:\-–—.]\s*/i, '');
+      // Strip "(X-Y seconds)" / "(MM:SS-MM:SS)" suffix
+      title = title.replace(/\s*\(\d+\s*[-–—]\s*\d+\s*(?:seconds?|sec|s)\)\s*$/i, '');
+      title = title.replace(/\s*\(\d{1,2}:\d{2}\s*[-–—]\s*\d{1,2}:\d{2}\)\s*$/i, '');
+      // Strip trailing punctuation artifacts
+      title = title.replace(/^[:\-–—\s]+|[:\-–—\s]+$/g, '').trim();
+
+      // If title is now empty or generic ("Introduction", "Conclusion"), generate from visualDescription
+      if (!title || /^(introduction|conclusion|opening|closing|outro|intro|end|start|beginning)$/i.test(title)) {
+        const visual = scene.visualDescription || '';
+        // Take first meaningful phrase (up to 6 words) from visualDescription
+        const words = visual.split(/\s+/).filter(w => w.length > 0).slice(0, 6);
+        title = words.length > 0 ? words.join(' ') : `Scene ${(scene as any).sceneIndex + 1}`;
+      }
+
+      if (title !== scene.title) {
+        console.log(`[SceneParser] Fix3: scene ${(scene as any).sceneIndex} title "${scene.title}" → "${title}"`);
+        scene.title = title;
+      }
+    }
+
     const globalPacing = object.globalEditDirections?.pacing?.toLowerCase() || '';
 
     for (const scene of object.scenes) {
@@ -495,6 +558,54 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
             const sfxSentences = sentences.filter(s => sfxWords.some(w => s.toLowerCase().includes(w.toLowerCase())));
             if (sfxSentences.length > 0) {
               (scene.editDirections as any).sfxCue = sfxSentences.map(s => s.trim()).join(', ');
+            }
+          }
+        }
+      }
+
+      // ─── Fix 1: Validate and clean contaminated narration ────────
+      // LLM sometimes dumps visual/camera directions into narration field.
+      // A voiceover actor reading "Visual: Shot 1: Extreme close-up of golden
+      // fries..." is catastrophic. Detect direction-label contamination and
+      // move the content to visualDescription instead.
+      //
+      // Generic detection: any narration starting with a direction label.
+      // Not script-specific — works for any format that uses standard labels.
+      if (scene.narration && scene.narration.length > 0) {
+        const narration = scene.narration.trim();
+        // Direction labels that should NEVER be in voiceover narration
+        // Tested against: "Visual:", "Camera:", "Shot 1:", "Close-up:", "Wide shot:",
+        // "Medium shot:", "Cut to:", "Angle:", "Pan:", "Track:", "Dolly:", "SFX:",
+        // "Audio:", "Music:", "B-roll:", "Insert:", "Montage:", "Transition:"
+        const directionLabelRegex = /^(?:visual|camera|shot\s*\d+|close[- ]?up|wide\s*shot|medium\s*shot|cut\s*to|angle|pan|track|dolly|sfx|audio\s*direction|music|b[- ]?roll|insert|montage|transition|ext\.|int\.|action|direction|cue)[:\s]/i;
+
+        if (directionLabelRegex.test(narration)) {
+          console.log(`[SceneParser] Fix1: scene ${(scene as any).sceneIndex} narration contaminated with direction labels — moving to visualDescription`);
+          // Append to visualDescription if it has content, otherwise replace
+          if (scene.visualDescription && scene.visualDescription.length > 10) {
+            scene.visualDescription = `${scene.visualDescription}. ${narration}`;
+          } else {
+            scene.visualDescription = narration;
+          }
+          scene.narration = '';
+        }
+
+        // Also detect narration that's MOSTLY direction content (>50% of sentences
+        // start with direction labels) — partial contamination
+        if (scene.narration && scene.narration.length > 0) {
+          const sentences = scene.narration.split(/[.!?]+/).filter(s => s.trim().length > 5);
+          if (sentences.length >= 2) {
+            const directionSentences = sentences.filter(s => directionLabelRegex.test(s.trim()));
+            if (directionSentences.length > sentences.length * 0.5) {
+              console.log(`[SceneParser] Fix1: scene ${(scene as any).sceneIndex} narration partially contaminated (${directionSentences.length}/${sentences.length} sentences are directions) — extracting clean narration`);
+              const cleanSentences = sentences.filter(s => !directionLabelRegex.test(s.trim()));
+              const dirtyContent = directionSentences.map(s => s.trim()).join('. ');
+              scene.narration = cleanSentences.map(s => s.trim()).join('. ');
+              if (dirtyContent) {
+                scene.visualDescription = scene.visualDescription
+                  ? `${scene.visualDescription}. ${dirtyContent}`
+                  : dirtyContent;
+              }
             }
           }
         }
@@ -722,9 +833,18 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
     // Extract all on-screen-text strings from the raw script, in order
     const extractions: Array<{ text: string; scriptPosition: number }> = [];
     const patterns = [
+      // Quoted text after label: On-Screen Text: "Remember this?"
       /(?:on[-\s]?screen\s*text|text\s*on\s*screen|text)[:\s]*["\u201C\u2018]([^"\u201D\u2019]+)["\u201D\u2019]/gi,
+      // Parenthetical brief text: (Appears briefly: "tagline here")
       /\((?:appears?\s*briefly|brief\s*flash|briefly)[:\s]*["\u201C\u2018]([^"\u201D\u2019]+)["\u201D\u2019]\)/gi,
+      // Unquoted text after label: On-Screen Text: Remember this?
       /(?:on[-\s]?screen\s*text|text\s*on\s*screen)[:\s]*([^\n"\u201C\u201D]+?)(?=\n|$)/gi,
+      // Fix 5: Markdown bold label: **On-Screen Text:** or **Text Overlay:**
+      /\*\*(?:on[-\s]?screen\s*text|text\s*overlay|overlay\s*text|lower\s*third|super|title\s*card)[:\s]*\*\*\s*["\u201C\u2018]?([^"\u201D\u2019\n*]+)["\u201D\u2019]?\s*$/gim,
+      // Fix 5: Label on one line, text on next: "On-Screen Text:\n  Remember this feeling?"
+      /(?:on[-\s]?screen\s*text|text\s*overlay|overlay\s*text|lower\s*third|super|title\s*card)[:\s]*\n\s*["\u201C\u2018]?([^\n"\u201D\u2019]{3,})["\u201D\u2019]?\s*$/gim,
+      // Fix 5: Hashtag/tagline patterns: #HashTag or "Tagline." after "Text:" label
+      /(?:text|tagline|hashtag|slogan|cta)[:\s]*["\u201C\u2018]?([#@][^\n"\u201D\u2019]{2,})["\u201D\u2019]?\s*$/gim,
     ];
     for (const pat of patterns) {
       pat.lastIndex = 0;
@@ -933,6 +1053,84 @@ ${scriptText.substring(0, 8000)}`,
     } catch (montageErr: any) {
       console.warn(`[SceneParser] Montage detection Gemini call failed (non-fatal): ${montageErr.message}`);
       // Non-fatal — scenes will be treated as single continuous shots
+    }
+  }
+
+  // ─── Fix 2: Code-based sub-shot fallback from explicit shot markers ───
+  // When the montage Gemini call fails OR the main parser ignores explicit
+  // "Shot 1: ...", "Shot 2: ..." markers in the script, this regex-based
+  // fallback extracts them deterministically. Works for any script format
+  // that uses numbered shot markers within a scene.
+  //
+  // Markers recognized (case-insensitive):
+  //   "Shot 1: description", "Shot 2 - description", "Shot 3. description"
+  //   "Cut 1: description", "Take 1: description"
+  //   Numbered lists within scenes: "1. description", "2. description"
+  if (object.scenes && scriptText) {
+    // Build a rough mapping of scene → raw script section
+    const scriptLower = scriptText.toLowerCase();
+
+    for (const scene of object.scenes as any[]) {
+      // Skip if scene already has sub-shots
+      if (scene.subShots && scene.subShots.length > 0) continue;
+
+      // Find this scene's section in the raw script
+      const titleSnippet = (scene.title || '').toLowerCase().substring(0, 25);
+      const narrationSnippet = (scene.narration || '').toLowerCase().substring(0, 40);
+      let sectionStart = -1;
+
+      if (narrationSnippet.length > 10) sectionStart = scriptLower.indexOf(narrationSnippet);
+      if (sectionStart < 0 && titleSnippet.length > 5) sectionStart = scriptLower.indexOf(titleSnippet);
+      if (sectionStart < 0) continue; // Can't locate this scene in the script
+
+      // Extract a window around this scene (up to next scene or 2000 chars)
+      const sectionEnd = Math.min(scriptText.length, sectionStart + 2000);
+      const section = scriptText.substring(sectionStart, sectionEnd);
+
+      // Look for explicit shot markers: "Shot N:", "Cut N:", numbered lists
+      const shotRegex = /(?:shot|cut|take)\s*(\d+)\s*[:\-–—.]\s*([^\n]+)/gi;
+      const shots: Array<{ num: number; desc: string }> = [];
+      let shotMatch: RegExpExecArray | null;
+
+      shotRegex.lastIndex = 0;
+      while ((shotMatch = shotRegex.exec(section)) !== null) {
+        const desc = shotMatch[2].trim();
+        if (desc.length > 5) {
+          shots.push({ num: parseInt(shotMatch[1]), desc });
+        }
+      }
+
+      // Need at least 2 shots to create sub-shots
+      if (shots.length < 2) continue;
+
+      // Sort by shot number
+      shots.sort((a, b) => a.num - b.num);
+
+      // Create sub-shots from the extracted markers
+      const sceneDuration = scene.durationSeconds || 5;
+      const perShotDuration = Math.max(1.5, sceneDuration / shots.length);
+
+      scene.sceneType = 'montage';
+      scene.subShots = shots.map((shot, idx) => {
+        // Strip camera-direction prefixes from the description to get a clean visual prompt
+        let visual = shot.desc
+          .replace(/^(?:extreme\s+)?(?:close[- ]?up|wide\s*shot|medium\s*shot|full\s*shot|establishing\s*shot|low[- ]angle|high[- ]angle|aerial|overhead|pov|point[- ]of[- ]view)\s*(?:of|on|[-–—:,])\s*/i, '')
+          .trim();
+        // Capitalize first letter
+        if (visual.length > 0) visual = visual.charAt(0).toUpperCase() + visual.slice(1);
+
+        return {
+          description: shot.desc,
+          startNormalized: idx / shots.length,
+          endNormalized: (idx + 1) / shots.length,
+          targetDurationSeconds: perShotDuration,
+          independentGeneration: true,
+          visualDescription: visual || shot.desc,
+          videoMotionPrompt: scene.videoMotionPrompt || '',
+        };
+      });
+
+      console.log(`[SceneParser] Fix2: scene ${scene.sceneIndex} "${scene.title}" — extracted ${shots.length} sub-shots from explicit shot markers`);
     }
   }
 
