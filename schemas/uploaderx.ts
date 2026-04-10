@@ -15,6 +15,14 @@ export interface IUploaderX extends Document {
     }>;
     connectedAt: Date;
   };
+  twitterTokens?: {
+    accessToken: string;
+    refreshToken: string;
+    userId: string;
+    userName: string;
+    expiresAt: Date;
+    connectedAt: Date;
+  };
   userId: string;
   videoUuid: string;
   filename: string;
@@ -34,6 +42,14 @@ const UploaderXSchema = new Schema<IUploaderX>({
   email: { type: String, unique: true, required: true },
   youtubeTokens: { type: Object },
   facebookTokens: { type: Object },
+  twitterTokens: {
+    accessToken: String,
+    refreshToken: String,
+    userId: String,
+    userName: String,
+    expiresAt: Date,
+    connectedAt: Date,
+  },
   userId: { type: String, required: true },
   videoUuid: { type: String, required: true },
   filename: { type: String, required: true },

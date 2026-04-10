@@ -124,6 +124,14 @@ interface IUser extends Document {
     }>;
     connectedAt: Date;
   };
+  twitterTokens?: {
+    accessToken: string;
+    refreshToken: string;
+    userId: string;
+    userName: string;
+    expiresAt: Date;
+    connectedAt: Date;
+  };
 }
 
 const serviceLimitSchema = new Schema<IServiceLimit>({
@@ -389,6 +397,14 @@ const userSchema = new Schema<IUser>({
       facebookPageAccessToken: String,
       _id: false
     }],
+    connectedAt: Date,
+  },
+  twitterTokens: {
+    accessToken: String,
+    refreshToken: String,
+    userId: String,
+    userName: String,
+    expiresAt: Date,
     connectedAt: Date,
   },
 }, {
