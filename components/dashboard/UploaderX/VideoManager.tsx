@@ -22,7 +22,9 @@ import {
   Calendar,
   FileText,
   RefreshCw,
-  Facebook
+  Facebook,
+  Instagram,
+  Youtube
 } from "lucide-react";
 import {
   Dialog,
@@ -72,6 +74,7 @@ export function VideoManager({
   const [deletingVideo, setDeletingVideo] = useState<string | null>(null);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [uploadedVideoLink, setUploadedVideoLink] = useState("");
+  const [uploadPlatform, setUploadPlatform] = useState("YouTube");
 
   // Fetch videos from API
   useEffect(() => {
@@ -292,6 +295,7 @@ export function VideoManager({
 
         console.log("🎬 YouTube Link:", data.youtubeUrl);
         setUploadedVideoLink(data.youtubeUrl);
+        setUploadPlatform("YouTube");
         setShowUploadDialog(true);
 
       } else {
@@ -396,6 +400,7 @@ export function VideoManager({
 
         console.log("🔵 Facebook Link:", data.facebookUrl);
         setUploadedVideoLink(data.facebookUrl);
+        setUploadPlatform("Facebook");
         setShowUploadDialog(true);
       } else {
         throw new Error(data.error || "Failed to upload to Facebook");
@@ -405,6 +410,110 @@ export function VideoManager({
       toast({
         title: "Upload failed",
         description: err instanceof Error ? err.message : "Facebook upload failed",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // ================== 🟣 Upload to Instagram ===================
+  const handleInstagramUpload = async (video: VideoItem) => {
+    try {
+      // 1. Check Instagram connection status first
+      const statusRes = await fetch('/api/services/uploaderx/instagram/status');
+      const statusData = await statusRes.json();
+
+      console.log("🟣 Instagram connection status:", statusData);
+
+      if (!statusData.connected) {
+        toast({
+          title: "Instagram Not Connected",
+          description: "Please connect your Instagram account to upload videos.",
+        });
+        // Open Instagram OAuth in new tab
+        window.open('/api/services/uploaderx/instagram/auth', '_blank');
+        return;
+      }
+
+      // 2. Check if user has any Instagram accounts
+      if (!statusData.accounts || statusData.accounts.length === 0) {
+        toast({
+          title: "No Instagram Accounts",
+          description: "You don't have any Instagram accounts connected. Please reconnect Instagram.",
+          variant: "destructive",
+        });
+
+        // Clear old tokens and reconnect
+        try {
+          await fetch('/api/services/uploaderx/instagram/accounts', { method: 'DELETE' });
+          console.log("✅ Cleared old Instagram tokens");
+        } catch (e) {
+          console.warn("Failed to clear old tokens:", e);
+        }
+
+        // Open Instagram OAuth in new tab
+        window.open('/api/services/uploaderx/instagram/auth', '_blank');
+        return;
+      }
+
+      // 3. Show account selection if multiple accounts
+      let selectedAccountId = null;
+      if (statusData.accounts.length > 1) {
+        const accountNames = statusData.accounts.map((a: any) => `@${a.instagramUsername}`).join('\n');
+        const input = prompt(`Select an Instagram Account:\n${accountNames}`);
+        if (!input) return; // User cancelled
+        const selectedAccount = statusData.accounts.find((a: any) => `@${a.instagramUsername}` === input || a.instagramUsername === input);
+        if (!selectedAccount) {
+          toast({
+            title: "Invalid Account",
+            description: "Please select a valid account name.",
+            variant: "destructive",
+          });
+          return;
+        }
+        selectedAccountId = selectedAccount.instagramAccountId;
+      }
+
+      // 4. Upload to Instagram
+      toast({
+        title: "Uploading to Instagram...",
+        description: `Publishing ${video.filename} as Reel to ${statusData.accounts[0]?.instagramUsername || 'your Instagram account'}.`,
+      });
+
+      const res = await fetch("/api/services/uploaderx/instagram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gcsPath: video.gcsPath,
+          videoUuid: video.videoUuid,
+          accountId: selectedAccountId,
+        }),
+      });
+
+      const data = await res.json();
+      console.log("🟣 Instagram upload response:", data);
+
+      if (!data.success && res.status === 403) {
+        throw new Error("Please connect your Instagram account first.");
+      }
+
+      if (data.success) {
+        toast({
+          title: "✅ Uploaded to Instagram",
+          description: `Reel published to ${data.accountUsername || 'your account'}!`,
+        });
+
+        console.log("🟣 Instagram Link:", data.instagramUrl);
+        setUploadedVideoLink(data.instagramUrl);
+        setUploadPlatform("Instagram");
+        setShowUploadDialog(true);
+      } else {
+        throw new Error(data.error || "Failed to upload to Instagram");
+      }
+    } catch (err) {
+      console.error("❌ Instagram upload error:", err);
+      toast({
+        title: "Upload failed",
+        description: err instanceof Error ? err.message : "Instagram upload failed",
         variant: "destructive",
       });
     }
@@ -571,6 +680,22 @@ export function VideoManager({
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={() => handleYouTubeUpload(video)}
+                          title="Upload to YouTube"
+                        >
+                          <Youtube className="h-4 w-4 text-red-500" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleInstagramUpload(video)}
+                          title="Upload to Instagram"
+                        >
+                          <Instagram className="h-4 w-4 text-pink-500" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => handleFacebookUpload(video)}
                           title="Upload to Facebook"
                         >
@@ -616,6 +741,30 @@ export function VideoManager({
                           onClick={() => handleEditVideo(video)}
                         >
                           <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleYouTubeUpload(video)}
+                          title="Upload to YouTube"
+                        >
+                          <Youtube className="h-4 w-4 text-red-500" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleInstagramUpload(video)}
+                          title="Upload to Instagram"
+                        >
+                          <Instagram className="h-4 w-4 text-pink-500" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleFacebookUpload(video)}
+                          title="Upload to Facebook"
+                        >
+                          <Facebook className="h-4 w-4 text-blue-500" />
                         </Button>
                         <Button
                           variant="outline"
@@ -712,12 +861,12 @@ export function VideoManager({
               Video Uploaded Successfully!
             </DialogTitle>
             <DialogDescription className="text-zinc-400 mt-2">
-              Your video is now live on YouTube.
+              Your video is now live on {uploadPlatform}.
             </DialogDescription>
           </DialogHeader>
 
           <div className="mt-4 p-3 bg-zinc-900/60 border border-zinc-800 rounded-lg">
-            <p className="text-sm text-zinc-400 mb-1">YouTube Link:</p>
+            <p className="text-sm text-zinc-400 mb-1">{uploadPlatform} Link:</p>
             <a
               href={uploadedVideoLink}
               target="_blank"
