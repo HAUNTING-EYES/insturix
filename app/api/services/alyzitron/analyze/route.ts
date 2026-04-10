@@ -95,18 +95,20 @@ export async function POST(request: Request) {
         url: `${baseUrl}/api/services/alyzitron/processor`,
         body: { taskId: taskId.toString(), userId, videoUrl: finalVideoUrl, context, metadata },
         retries: 3,
-        timeout: 120, // 120s — prevent retry loops during Apify Actor waits
+        timeout: 120,
         headers: { "Content-Type": "application/json" },
       });
 
       return NextResponse.json({ success: true, taskId: taskId.toString() });
 
     } catch (processingError) {
+      console.error("ANALYZE_PROCESSING_ERROR:", processingError);
       if (analyses) await analyses.deleteOne({ _id: taskId }).catch(() => { });
       await creditCheck.refund('Task creation failed').catch(() => { });
       return NextResponse.json({ success: false, error: { type: "TASK_CREATION_ERROR", message: "Failed to queue analysis" } }, { status: 500 });
     }
   } catch (error) {
+    console.error("ANALYZE_ROUTE_ERROR:", error);
     return NextResponse.json({ success: false, error: { type: "REQUEST_PROCESSING_ERROR", message: "Failed to process request" } }, { status: 500 });
   }
 }
