@@ -527,6 +527,44 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
           .trim();
       }
 
+      // FIX: Multi-subject visual description → single hero moment
+      // Image gen models render ALL subjects in one frame → collage.
+      // Detect descriptions listing multiple distinct subjects separated by
+      // commas/semicolons/periods and keep only the FIRST (hero) moment.
+      // Remaining moments can become sub-shots if needed (Fix 2 handles that).
+      //
+      // Detection heuristic: split on clause boundaries (comma/semicolon/period
+      // followed by a new subject indicator like articles or proper nouns).
+      // Only triggers when 3+ clauses each describe a separate subject.
+      if (scene.visualDescription && !scene.subShots?.length) {
+        const desc = scene.visualDescription;
+
+        // Split on strong clause boundaries: ", a ", "; ", ". A ", ", an ", etc.
+        // These patterns indicate a NEW subject being introduced.
+        const clauseSplitRegex = /(?:[.;]|,)\s+(?:a |an |the |[A-Z][a-z])/g;
+        const splitPoints: number[] = [];
+        let splitMatch: RegExpExecArray | null;
+        clauseSplitRegex.lastIndex = 0;
+        while ((splitMatch = clauseSplitRegex.exec(desc)) !== null) {
+          splitPoints.push(splitMatch.index);
+        }
+
+        // Only act if 2+ split points found (= 3+ clauses = likely multi-subject)
+        if (splitPoints.length >= 2) {
+          // Extract first clause (the hero moment)
+          const heroEnd = splitPoints[0];
+          const heroMoment = desc.substring(0, heroEnd).trim().replace(/[,;.]+$/, '').trim();
+
+          // Validate: hero moment should be substantial (>20 chars) and the
+          // remaining content should also be substantial (not just a short qualifier)
+          const remaining = desc.substring(heroEnd).trim();
+          if (heroMoment.length > 20 && remaining.length > 30) {
+            console.log(`[SceneParser] Multi-subject fix: scene ${(scene as any).sceneIndex} — truncated from ${desc.length} chars to hero moment (${heroMoment.length} chars). Removed: "${remaining.substring(0, 80)}..."`);
+            scene.visualDescription = heroMoment;
+          }
+        }
+      }
+
       // FIX: Don't propagate global pacing to individual scenes
       // If every scene has the same pacing as global, the LLM is propagating
       if (scene.editDirections?.pacing && globalPacing) {
