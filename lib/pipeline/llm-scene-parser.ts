@@ -1348,6 +1348,9 @@ export interface VideoPromptContext {
   previousSceneLastFrame?: string;
   /** Target video model for model-specific prompt tuning */
   targetModel?: 'kling' | 'veo' | 'seedance';
+  /** Cinema hardware language (camera body, lens, focal length, aperture).
+   *  Derived from edit profile via getCinemaSettingsForProfile(). */
+  cinemaHardware?: string;
 }
 
 /**
@@ -1371,11 +1374,28 @@ export async function refineVideoPrompt(
         .join('\n')
     : 'No specific reference subjects — describe motion generically for what\'s in the image.';
 
-  // Model-specific tuning guide
+  // Model-specific tuning guide (research-backed — see docs/ai-video-model-prompting-guide.md)
+  // Each model has distinct prompt length, structure, and capability preferences.
   const modelTuning: Record<string, string> = {
-    kling: 'Kling: cinematic language, include lens type, favor push-in/pull-out. 100-150 words.',
-    veo: 'Veo: handles complex motion well, ambitious camera paths OK. 100-150 words.',
-    seedance: 'Seedance: cinematic audio-visual coherence, describe both visual motion AND ambient sound elements. Include "instrumental ambient only, no vocals, no speech" for audio control. 100-150 words.',
+    kling: `Kling 2.1/2.6: 2-4 sentences. Use cinematic lens language ("tracking shot", "dolly forward").
+Always specify MOTION ENDPOINTS ("then settles back"). Never open-ended drift.
+Include cfg_scale-friendly terms: explicit camera direction, one subject, clean physics.
+Favor push-in/pull-out/tracking. Keep context to 3-5 elements max. 100-150 words.
+IMPORTANT: For image-to-video, describe ONLY motion — never re-describe the image content.`,
+
+    veo: `Veo 3.1: KEEP PROMPT SHORT — 150-300 characters optimal. Above 400 chars DEGRADES quality.
+5-element hierarchy: cinematography → setting → subject → action → optional dialogue.
+Use professional film terminology ("slow dolly forward", "crane descending", "Dutch angle").
+Lighting terms work well: "golden hour backlighting", "volumetric fog rays", "dappled light".
+DO NOT overload — one primary action per generation. 60-100 words MAX.`,
+
+    seedance: `Seedance 1.5/2.0: 4-LAYER STRUCTURE (unique to Seedance — follow exactly):
+Layer 1: Primary action/subject — core visual element and movement.
+Layer 2: Dialogue in double quotes if any — "Spoken line here."
+Layer 3: Environmental audio cues — comma-separated ambient sounds (sizzling, wind, traffic).
+Layer 4: Visual style and mood — aesthetic, lighting, emotional tone.
+Include ambient sound descriptions (this is Seedance's primary differentiator).
+Use camera_fixed language for static tripod shots. 100-150 words.`,
   };
   const modelGuide = modelTuning[context.targetModel || ''] || 'Default: slow push-in, minimal motion, one atmospheric detail. 80-120 words.';
 
@@ -1400,6 +1420,7 @@ Mood: ${context.mood || 'neutral'} | Duration: ${context.durationSeconds}s
 ${context.cameraDirection ? `Camera direction: ${context.cameraDirection}` : ''}
 ${context.transitionHint ? `Scene ends with: ${context.transitionHint}` : ''}
 ${context.previousSceneLastFrame ? 'Continues from previous scene — maintain visual continuity.' : ''}
+${context.cinemaHardware ? `\n## CINEMA HARDWARE (weave these terms naturally into your prompt)\n${context.cinemaHardware}` : ''}
 
 ## KEY SUBJECTS
 ${subjectContext}

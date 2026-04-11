@@ -90,6 +90,13 @@ async function handler(request: NextRequest) {
     if (ctx) {
       try {
         const { refineVideoPrompt } = await import('@/lib/pipeline/llm-scene-parser');
+        // Cinema hardware: derive camera/lens language from content mood + art style.
+        // This enriches the LLM prompt with physical camera terminology that models
+        // (especially Kling, Veo) respond strongly to.
+        const { getCinemaSettingsFromContent, buildCinemaFragment } = await import('@/lib/editron/data/cinema-prompt-config');
+        const cinemaSettings = getCinemaSettingsFromContent(ctx.mood, ctx.artStyle);
+        const cinemaHardware = buildCinemaFragment(cinemaSettings);
+
         refinedPrompt = await Promise.race([
           refineVideoPrompt({
             visualDescription: ctx.visualDescription || '',
@@ -103,6 +110,7 @@ async function handler(request: NextRequest) {
             videoQualityTokens: ctx.videoQualityTokens,
             cameraDirection: ctx.cameraDirection,
             transitionHint: ctx.transitionHint as any,
+            cinemaHardware,
           }),
           new Promise<string>((_, reject) => setTimeout(() => reject(new Error('LLM refinement timeout')), 30000)),
         ]);
