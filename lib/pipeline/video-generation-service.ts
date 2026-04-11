@@ -122,12 +122,15 @@ export interface VideoGenerationRequest {
   aspectRatio?: '16:9' | '9:16' | '1:1' | '4:5';
   /** Preferred provider */
   provider?: VideoProvider;
-  /** Specific fal.ai video model key (kling-2.1, kling-1.5, kling-2.6, minimax, luma-ray2, luma-dream-machine, veo-3, veo-2) */
+  /** Specific fal.ai video model key (kling-2.1, kling-2.6, seedance-1.5, seedance-2.0, veo-3.1) */
   falVideoModel?: FalVideoModel;
   /** Next scene's storyboard image URL — used as tail/end frame for smooth cross-scene transitions */
   nextSceneImageUrl?: string;
   /** Reference subject images for IP-Adapter consistency (Kling 2.6 only) */
   referenceImageUrls?: Array<{ url: string; weight?: number }>;
+  /** True if this scene has voiceover narration — disables native audio generation
+   *  on Seedance models to prevent voiceover/native-audio overlap. */
+  hasVoiceover?: boolean;
 }
 
 export interface VideoGenerationResult {
@@ -214,6 +217,7 @@ function buildFalVideoInput(
   aspectRatio: string,
   nextSceneImageUrl?: string,
   referenceImageUrls?: Array<{ url: string; weight?: number }>,
+  options?: { hasVoiceover?: boolean },
 ): Record<string, any> {
   const config = getVideoModelConfig(modelKey);
   return buildVideoInputFromConfig(
@@ -225,6 +229,7 @@ function buildFalVideoInput(
     config.supportsNegativePrompt ? VIDEO_NEGATIVE_PROMPT : undefined,
     nextSceneImageUrl,
     referenceImageUrls?.map(r => r.url),
+    { hasVoiceover: options?.hasVoiceover },
   );
 }
 
@@ -293,6 +298,7 @@ async function generateVideoWithFal(
     request.aspectRatio || '16:9',
     nextSceneImageUrl,
     cleanedRefImages,
+    { hasVoiceover: request.hasVoiceover },
   );
 
   // Log the exact input being sent to fal.ai for debugging
@@ -558,6 +564,7 @@ export async function generateVideosForScenes(
           aspectRatio: options.aspectRatio,
           provider: options.provider,
           nextSceneImageUrl: options.enableChaining && nextScene ? nextScene.imageUrl : undefined,
+          hasVoiceover: true, // Conservative default for batch path
         },
         userId,
       );
@@ -739,20 +746,20 @@ export function selectBestModel(scene: {
     return 'veo-3.1';
   }
 
-  // Dreamy, artistic, or watercolor/illustration styles — Luma Dream Machine
+  // Dreamy, artistic, or calm/mysterious scenes — Seedance 1.5 (good coherence + audio)
   if (
-    mood === 'mysterious' ||
+    mood === 'mysterious' || mood === 'calm' ||
     artStyle.includes('watercolor') ||
     artStyle.includes('illustration') ||
     artStyle.includes('anime') ||
     artStyle.includes('dream')
   ) {
-    return 'luma-dream-machine';
+    return 'seedance-1.5';
   }
 
-  // Short clips where speed matters — Wan 2.2 (fast, cheap)
+  // Short clips or playful content — Seedance 2.0 (best audio-video sync)
   if (scene.durationSeconds && scene.durationSeconds <= 4) {
-    return 'wan-2.2';
+    return 'seedance-2.0';
   }
 
   // Default: Kling 2.1 Pro — reliable, good quality, best all-rounder
@@ -762,7 +769,7 @@ export function selectBestModel(scene: {
 /**
  * Detect which provider to use based on the chosen model and available keys.
  *
- * IMPORTANT: fal.ai models (kling, minimax, runway-gen3, luma-ray2, veo-3, etc.)
+ * IMPORTANT: fal.ai models (kling, seedance, veo-3.1)
  * MUST route through fal-ai even if KIE_AI_API_KEY is set. Kie AI only wraps
  * Runway's native API — it can't proxy arbitrary fal.ai models.
  */

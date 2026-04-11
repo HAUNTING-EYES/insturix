@@ -125,13 +125,11 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       baseCost: 3,
       description: 'Per AI video clip generated from storyboard',
       modelMultipliers: {
+        'seedance-2.0': 1.2,
+        'seedance-1.5': 1,
         'kling-2.6': 1.5,
         'kling-2.1': 1,
-        'kling-1.5': 0.8,
-        'luma-ray2': 1.2,
-        'veo-3': 2,
-        'veo-2': 1.5,
-        'minimax': 0.8,
+        'veo-3.1': 2,
       },
     },
     {

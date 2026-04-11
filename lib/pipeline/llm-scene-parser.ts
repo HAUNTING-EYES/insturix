@@ -1347,7 +1347,7 @@ export interface VideoPromptContext {
   /** Previous scene's last frame description for visual continuity */
   previousSceneLastFrame?: string;
   /** Target video model for model-specific prompt tuning */
-  targetModel?: 'kling' | 'veo' | 'minimax' | 'luma' | 'wan' | 'ltx';
+  targetModel?: 'kling' | 'veo' | 'seedance';
 }
 
 /**
@@ -1375,10 +1375,7 @@ export async function refineVideoPrompt(
   const modelTuning: Record<string, string> = {
     kling: 'Kling: cinematic language, include lens type, favor push-in/pull-out. 100-150 words.',
     veo: 'Veo: handles complex motion well, ambitious camera paths OK. 100-150 words.',
-    minimax: 'MiniMax: short, dense prompts only. Under 100 words.',
-    luma: 'Luma Ray2: excels at lighting shifts. Emphasize light/shadow changes. 80-120 words.',
-    wan: 'Wan: good with natural motion, describe organic movement. 80-120 words.',
-    ltx: 'LTX: clean, simple prompts. One motion direction. 60-100 words.',
+    seedance: 'Seedance: cinematic audio-visual coherence, describe both visual motion AND ambient sound elements. Include "instrumental ambient only, no vocals, no speech" for audio control. 100-150 words.',
   };
   const modelGuide = modelTuning[context.targetModel || ''] || 'Default: slow push-in, minimal motion, one atmospheric detail. 80-120 words.';
 

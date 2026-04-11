@@ -1664,15 +1664,7 @@ export function ExportToEditronDialog({
                       <SelectItem value="seedance-1.5">Seedance 1.5 Pro (Native Audio)</SelectItem>
                       <SelectItem value="kling-2.1">Kling 2.1 Pro</SelectItem>
                       <SelectItem value="kling-2.6">Kling 2.6 Pro (High Motion)</SelectItem>
-                      <SelectItem value="wan-2.2">Wan 2.2 (Fast & Cheap)</SelectItem>
-                      <SelectItem value="ltx-2.3">LTX 2.3 (1080p + Audio)</SelectItem>
                       <SelectItem value="veo-3.1">Google Veo 3.1 (4K Premium)</SelectItem>
-                      <SelectItem value="veo-3">Google Veo 3</SelectItem>
-                      <SelectItem value="luma-ray2">Luma Ray 2</SelectItem>
-                      <SelectItem value="luma-dream-machine">Luma Dream Machine</SelectItem>
-                      <SelectItem value="minimax">MiniMax Hailuo</SelectItem>
-                      <SelectItem value="kling-1.5">Kling 1.5 Pro</SelectItem>
-                      <SelectItem value="veo-2">Google Veo 2</SelectItem>
                     </SelectContent>
                   </Select>
                   {videoModel === 'auto' && (

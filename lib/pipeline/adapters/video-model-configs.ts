@@ -136,116 +136,6 @@ export const VIDEO_MODEL_REGISTRY: Record<string, VideoModelConfig> = {
     promptTuning: 'Kling: cinematic language, include lens type, favor push-in/pull-out. 100-150 words.',
   },
 
-  // ─── Kling 1.5 Pro ─────────────────────────────────────────────
-  'kling-1.5': {
-    key: 'kling-1.5',
-    label: 'Kling 1.5 Pro',
-    sortOrder: 11, // Legacy — bottom of list
-    endpoints: { imageToVideo: 'fal-ai/kling-video/v1.5/pro/image-to-video' },
-    duration: {
-      paramName: 'duration',
-      min: 5, max: 10,
-      snap: (n) => n >= 8 ? '10' : '5',
-      actualSeconds: (n) => n >= 8 ? 10 : 5,
-    },
-    aspectRatio: {
-      paramName: 'aspect_ratio',
-      supported: ['16:9', '9:16', '1:1', '4:3', '3:4'],
-      fallback: '16:9',
-    },
-    imageUrlParam: 'image_url',
-    endImageParam: 'tail_image_url',
-    referenceParam: null,
-    staticParams: { cfg_scale: 0.5 },
-    supportsNegativePrompt: true,
-    negativePromptSuffix: 'face morphing, identity drift between frames',
-    promptTuning: 'Kling: cinematic language, include lens type, favor push-in/pull-out. 100-150 words.',
-  },
-
-  // ─── MiniMax Hailuo ────────────────────────────────────────────
-  // Docs: https://fal.ai/models/fal-ai/minimax/video-01/image-to-video/api
-  // Only accepts: prompt, image_url, prompt_optimizer. No duration or aspect_ratio.
-  minimax: {
-    key: 'minimax',
-    label: 'MiniMax Hailuo',
-    sortOrder: 9,
-    endpoints: { imageToVideo: 'fal-ai/minimax/video-01/image-to-video' },
-    duration: {
-      paramName: '', // MiniMax doesn't accept duration
-      min: 5, max: 5,
-      snap: () => '', // No-op — excluded from input by builder
-      actualSeconds: () => 5,
-    },
-    aspectRatio: {
-      paramName: '',
-      supported: [],
-      fallback: '',
-    },
-    imageUrlParam: 'image_url',
-    endImageParam: null,
-    referenceParam: null,
-    staticParams: { prompt_optimizer: true },
-    supportsNegativePrompt: false,
-    negativePromptSuffix: 'color banding in gradients, flat lighting',
-    promptTuning: 'MiniMax: short, dense prompts only. Under 100 words.',
-  },
-
-  // ─── Luma Ray 2 ────────────────────────────────────────────────
-  // Docs: https://fal.ai/models/fal-ai/luma-dream-machine/ray-2/image-to-video/api
-  // Duration: "5s" or "9s" (WITH 's' suffix).
-  'luma-ray2': {
-    key: 'luma-ray2',
-    label: 'Luma Ray 2',
-    sortOrder: 6,
-    endpoints: { imageToVideo: 'fal-ai/luma-dream-machine/ray-2/image-to-video' },
-    duration: {
-      paramName: 'duration',
-      min: 5, max: 9,
-      snap: (n) => n >= 7 ? '9s' : '5s',
-      actualSeconds: (n) => n >= 7 ? 9 : 5,
-    },
-    aspectRatio: {
-      paramName: 'aspect_ratio',
-      supported: ['16:9', '9:16', '4:3', '3:4', '21:9', '9:21'],
-      fallback: '16:9',
-    },
-    resolution: { paramName: 'resolution', default: '720p' },
-    imageUrlParam: 'image_url',
-    endImageParam: 'end_image_url',
-    referenceParam: null,
-    staticParams: { loop: false },
-    supportsNegativePrompt: false,
-    negativePromptSuffix: 'overexposure bloom, washed out highlights',
-    promptTuning: 'Luma: naturalistic motion. 80-120 words.',
-  },
-
-  // ─── Luma Dream Machine ────────────────────────────────────────
-  'luma-dream-machine': {
-    key: 'luma-dream-machine',
-    label: 'Luma Dream Machine',
-    sortOrder: 7,
-    endpoints: { imageToVideo: 'fal-ai/luma-dream-machine/image-to-video' },
-    duration: {
-      paramName: 'duration',
-      min: 5, max: 9,
-      snap: (n) => n >= 7 ? '9s' : '5s',
-      actualSeconds: (n) => n >= 7 ? 9 : 5,
-    },
-    aspectRatio: {
-      paramName: 'aspect_ratio',
-      supported: ['16:9', '9:16', '4:3', '3:4', '21:9', '9:21'],
-      fallback: '16:9',
-    },
-    resolution: { paramName: 'resolution', default: '720p' },
-    imageUrlParam: 'image_url',
-    endImageParam: 'end_image_url',
-    referenceParam: null,
-    staticParams: { loop: false },
-    supportsNegativePrompt: false,
-    negativePromptSuffix: 'overexposure bloom, washed out highlights',
-    promptTuning: 'Luma: naturalistic motion. 80-120 words.',
-  },
-
   // ─── Google Veo 3.1 ───────────────────────────────────────────
   // Docs: https://fal.ai/models/fal-ai/veo3.1/image-to-video/api
   // Duration: "4s", "6s", or "8s". Aspect ratio: ONLY "auto", "16:9", "9:16".
@@ -274,121 +164,6 @@ export const VIDEO_MODEL_REGISTRY: Record<string, VideoModelConfig> = {
     supportsNegativePrompt: true,
     negativePromptSuffix: 'texture swimming, edge warping',
     promptTuning: 'Veo: handles complex motion well, ambitious camera paths OK. 100-150 words.',
-  },
-
-  // ─── Google Veo 3 ─────────────────────────────────────────────
-  'veo-3': {
-    key: 'veo-3',
-    label: 'Google Veo 3',
-    sortOrder: 5,
-    endpoints: { imageToVideo: 'fal-ai/veo3/image-to-video' },
-    duration: {
-      paramName: 'duration',
-      min: 4, max: 8,
-      snap: (n) => n <= 4 ? '4s' : n <= 6 ? '6s' : '8s',
-      actualSeconds: (n) => n <= 4 ? 4 : n <= 6 ? 6 : 8,
-    },
-    aspectRatio: {
-      paramName: 'aspect_ratio',
-      supported: ['auto', '16:9', '9:16'],
-      fallback: 'auto',
-    },
-    resolution: { paramName: 'resolution', default: '720p' },
-    imageUrlParam: 'image_url',
-    endImageParam: null,
-    referenceParam: null,
-    nativeAudio: { paramName: 'generate_audio', default: false },
-    staticParams: {},
-    supportsNegativePrompt: true,
-    negativePromptSuffix: 'texture swimming, edge warping',
-    promptTuning: 'Veo: handles complex motion well, ambitious camera paths OK. 100-150 words.',
-  },
-
-  // ─── Google Veo 2 ─────────────────────────────────────────────
-  'veo-2': {
-    key: 'veo-2',
-    label: 'Google Veo 2',
-    sortOrder: 10,
-    endpoints: { imageToVideo: 'fal-ai/veo2/image-to-video' },
-    duration: {
-      paramName: 'duration',
-      min: 4, max: 8,
-      snap: (n) => n <= 4 ? '4s' : n <= 6 ? '6s' : '8s',
-      actualSeconds: (n) => n <= 4 ? 4 : n <= 6 ? 6 : 8,
-    },
-    aspectRatio: {
-      paramName: 'aspect_ratio',
-      supported: ['auto', '16:9', '9:16'],
-      fallback: 'auto',
-    },
-    resolution: { paramName: 'resolution', default: '720p' },
-    imageUrlParam: 'image_url',
-    endImageParam: null,
-    referenceParam: null,
-    nativeAudio: { paramName: 'generate_audio', default: false },
-    staticParams: {},
-    supportsNegativePrompt: true,
-    negativePromptSuffix: 'texture swimming, edge warping',
-    promptTuning: 'Veo: handles complex motion well, ambitious camera paths OK. 100-150 words.',
-  },
-
-  // ─── Wan 2.2 ──────────────────────────────────────────────────
-  // Docs: https://fal.ai/models/fal-ai/wan/v2.2-a14b/image-to-video/api
-  // Duration via num_frames at 16fps. Supports end_image_url.
-  'wan-2.2': {
-    key: 'wan-2.2',
-    label: 'Wan 2.2 (Fast & Cheap)',
-    sortOrder: 3,
-    endpoints: { imageToVideo: 'fal-ai/wan/v2.2-a14b/image-to-video' },
-    duration: {
-      paramName: 'num_frames',
-      min: 1, max: 10,
-      snap: (n) => Math.min(Math.max(Math.round(n * 16), 17), 161), // 16fps, 17-161 frames
-      actualSeconds: (n) => Math.min(Math.max(Math.round(n * 16), 17), 161) / 16,
-    },
-    aspectRatio: {
-      paramName: 'aspect_ratio',
-      supported: ['16:9', '9:16', 'auto'],
-      fallback: 'auto',
-    },
-    resolution: { paramName: 'resolution', default: '720p' },
-    imageUrlParam: 'image_url',
-    endImageParam: 'end_image_url',
-    referenceParam: null,
-    staticParams: { frames_per_second: 16, video_quality: 'high' },
-    supportsNegativePrompt: true,
-    negativePromptSuffix: 'motion blur bleeding, subject doubling',
-    promptTuning: 'Wan: good with natural motion, describe organic movement. 80-120 words.',
-  },
-
-  // ─── LTX 2.3 ──────────────────────────────────────────────────
-  // Docs: https://fal.ai/models/fal-ai/ltx-2.3/image-to-video/api
-  // Duration: integer 6-10. Resolution: up to 4K. Fast.
-  'ltx-2.3': {
-    key: 'ltx-2.3',
-    label: 'LTX 2.3 (4K + Audio)',
-    sortOrder: 8,
-    endpoints: { imageToVideo: 'fal-ai/ltx-2.3/image-to-video' },
-    duration: {
-      paramName: 'duration',
-      min: 6, max: 10,
-      snap: (n) => Math.min(Math.max(Math.round(n), 6), 10),
-      actualSeconds: (n) => Math.min(Math.max(Math.round(n), 6), 10),
-    },
-    aspectRatio: {
-      paramName: 'aspect_ratio',
-      supported: ['16:9', '9:16', 'auto'],
-      fallback: 'auto',
-    },
-    resolution: { paramName: 'resolution', default: '1080p' },
-    imageUrlParam: 'image_url',
-    endImageParam: 'end_image_url',
-    referenceParam: null,
-    nativeAudio: { paramName: 'generate_audio', default: false },
-    staticParams: { fps: 25 },
-    supportsNegativePrompt: true,
-    negativePromptSuffix: 'frame stuttering, temporal inconsistency',
-    promptTuning: 'LTX: clean, simple prompts. One motion direction. 60-100 words.',
   },
 
   // ─── Seedance 1.5 Pro ─────────────────────────────────────────
@@ -512,6 +287,7 @@ export function buildVideoInputFromConfig(
   negativePrompt?: string,
   nextSceneImageUrl?: string,
   referenceImageUrls?: string[],
+  options?: { hasVoiceover?: boolean },
 ): Record<string, any> {
   const input: Record<string, any> = {
     prompt,
@@ -552,17 +328,17 @@ export function buildVideoInputFromConfig(
     input[config.referenceParam] = referenceImageUrls.slice(0, config.maxReferenceImages || 4);
   }
 
-  // Native audio
+  // Native audio — disable when scene has voiceover to prevent audio overlap.
+  // Voiceover (TTS narration) is the primary audio track; Seedance native audio
+  // would generate competing speech/ambient that overlaps with it.
+  // Only enable native audio on scenes with NO voiceover narration.
   if (config.nativeAudio) {
-    input[config.nativeAudio.paramName] = config.nativeAudio.default;
+    const enableNativeAudio = config.nativeAudio.default && !options?.hasVoiceover;
+    input[config.nativeAudio.paramName] = enableNativeAudio;
 
-    // 2026-04-10: When native audio is enabled, Seedance sometimes generates
-    // vocals/speech in random languages (user reported Chinese voiceover in
-    // proj_3WjWqCTVVuJv). The model's audio generation has no language control
-    // parameter, so we inject audio direction into the prompt itself.
-    // NOTE: some English audio/ambience was good — don't blanket-ban all vocals.
-    // Constrain to English + ambient sounds, ban non-English speech specifically.
-    if (config.nativeAudio.default) {
+    if (enableNativeAudio) {
+      // When native audio IS enabled (no voiceover scene), constrain to
+      // English ambient sounds — Seedance can hallucinate non-English vocals.
       input.prompt = `${input.prompt}. Audio direction: ambient environmental sounds, foley effects. Any speech or vocals MUST be in English only. NO non-English speech, NO foreign language vocals.`;
     }
   }
