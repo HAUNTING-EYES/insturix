@@ -169,7 +169,8 @@ export const VIDEO_MODEL_REGISTRY: Record<string, VideoModelConfig> = {
   // ─── Seedance 1.5 Pro ─────────────────────────────────────────
   // Docs: https://fal.ai/models/fal-ai/bytedance/seedance/v1.5/pro/text-to-video
   //       https://fal.ai/models/fal-ai/bytedance/seedance/v1.5/pro/image-to-video/api
-  // Duration: 4-15 integer. NATIVE AUDIO: generate_audio defaults true.
+  // Duration: 4-12 integer (verified 2026-04-11 via fal.ai API docs).
+  // NATIVE AUDIO: generate_audio defaults true.
   // Scene chaining: end_image_url. Resolution: 480p, 720p, 1080p.
   'seedance-1.5': {
     key: 'seedance-1.5',
@@ -181,9 +182,10 @@ export const VIDEO_MODEL_REGISTRY: Record<string, VideoModelConfig> = {
     },
     duration: {
       paramName: 'duration',
-      min: 4, max: 15,
-      snap: (n) => Math.min(Math.max(Math.round(n), 4), 15),
-      actualSeconds: (n) => Math.min(Math.max(Math.round(n), 4), 15),
+      // fal.ai accepts integers 4-12 only. Was incorrectly set to 15 (Seedance 2.0's limit).
+      min: 4, max: 12,
+      snap: (n) => Math.min(Math.max(Math.round(n), 4), 12),
+      actualSeconds: (n) => Math.min(Math.max(Math.round(n), 4), 12),
     },
     aspectRatio: {
       paramName: 'aspect_ratio',
