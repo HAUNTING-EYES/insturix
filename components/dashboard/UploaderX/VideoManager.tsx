@@ -24,7 +24,8 @@ import {
   RefreshCw,
   Facebook,
   Instagram,
-  Youtube
+  Youtube,
+  Twitter
 } from "lucide-react";
 import {
   Dialog,
@@ -519,6 +520,82 @@ export function VideoManager({
     }
   };
 
+  // ================== 🐦 Upload to Twitter ===================
+  const handleTwitterUpload = async (video: VideoItem) => {
+    try {
+      // 1. Check Twitter connection status first
+      const statusRes = await fetch('/api/services/uploaderx/twitter/status');
+      const statusData = await statusRes.json();
+
+      console.log("🐦 Twitter connection status:", statusData);
+
+      if (!statusData.connected) {
+        toast({
+          title: "Twitter Not Connected",
+          description: "Please connect your Twitter account to upload videos.",
+        });
+        // Open Twitter OAuth in new tab
+        window.open('/api/services/uploaderx/twitter/auth', '_blank');
+        return;
+      }
+
+      // 2. Check if token is expired
+      if (statusData.isExpired) {
+        toast({
+          title: "Twitter Token Expired",
+          description: "Please reconnect your Twitter account.",
+          variant: "destructive",
+        });
+        window.open('/api/services/uploaderx/twitter/auth', '_blank');
+        return;
+      }
+
+      // 3. Upload to Twitter
+      toast({
+        title: "Uploading to Twitter...",
+        description: `Posting ${video.filename} to your Twitter account.`,
+      });
+
+      const res = await fetch("/api/services/uploaderx/twitter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gcsPath: video.gcsPath,
+          videoUuid: video.videoUuid,
+          title: video.filename,
+        }),
+      });
+
+      const data = await res.json();
+      console.log("🐦 Twitter upload response:", data);
+
+      if (!data.success && res.status === 403) {
+        throw new Error("Please connect your Twitter account first.");
+      }
+
+      if (data.success) {
+        toast({
+          title: "✅ Posted to Twitter",
+          description: `Tweet posted to ${data.accountUsername || 'your account'}!`,
+        });
+
+        console.log("🐦 Twitter Link:", data.tweetUrl);
+        setUploadedVideoLink(data.tweetUrl);
+        setUploadPlatform("Twitter");
+        setShowUploadDialog(true);
+      } else {
+        throw new Error(data.error || "Failed to upload to Twitter");
+      }
+    } catch (err) {
+      console.error("❌ Twitter upload error:", err);
+      toast({
+        title: "Upload failed",
+        description: err instanceof Error ? err.message : "Twitter upload failed",
+        variant: "destructive",
+      });
+    }
+  };
+
   const formatDuration = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
@@ -704,6 +781,14 @@ export function VideoManager({
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={() => handleTwitterUpload(video)}
+                          title="Upload to Twitter"
+                        >
+                          <Twitter className="h-4 w-4 text-sky-500" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => handleDownloadVideo(video.publicUrl, video.filename)}
                         >
                           <Download className="h-4 w-4" />
@@ -765,6 +850,14 @@ export function VideoManager({
                           title="Upload to Facebook"
                         >
                           <Facebook className="h-4 w-4 text-blue-500" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleTwitterUpload(video)}
+                          title="Upload to Twitter"
+                        >
+                          <Twitter className="h-4 w-4 text-sky-500" />
                         </Button>
                         <Button
                           variant="outline"

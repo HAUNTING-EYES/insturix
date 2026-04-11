@@ -124,6 +124,7 @@ const PlatformEditor = dynamic(() => import("@/components/dashboard/UploaderX/Pl
 const VideoManager = dynamic(() => import("@/components/dashboard/UploaderX/VideoManager").then(m => m.VideoManager), { ssr: false });
 const YouTubeConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/YouTubeConnectionStatus").then(m => m.YouTubeConnectionStatus), { ssr: false });
 const InstagramConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/InstagramConnectionStatus").then(m => m.InstagramConnectionStatus), { ssr: false });
+const TwitterConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/TwitterConnectionStatus").then(m => m.TwitterConnectionStatus), { ssr: false });
 
 export function UploaderXClientWrapper() {
   const { toast } = useToast();
@@ -198,11 +199,40 @@ export function UploaderXClientWrapper() {
     }
   }, [toast]);
 
+  // ✅ Handle Twitter connection feedback from callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const twitterConnected = params.get("twitter_connected");
+    const twitterError = params.get("twitter_error");
+
+    if (twitterConnected === "true") {
+      toast({
+        title: "Twitter connected!",
+        description: "You can now post videos to your Twitter/X account.",
+      });
+      window.history.replaceState({}, document.title, "/dashboard/uploaderx");
+    } else if (twitterError) {
+      let errorMsg = "Failed to connect Twitter.";
+      if (twitterError === "denied") errorMsg = "Twitter connection was denied. Please try again.";
+      if (twitterError === "token_exchange") errorMsg = "Twitter token exchange failed. Please try again.";
+      if (twitterError === "state_mismatch") errorMsg = "Security validation failed. Please try again.";
+      if (twitterError === "no_verifier") errorMsg = "OAuth session expired. Please try again.";
+      if (twitterError === "profile_fetch") errorMsg = "Could not fetch your Twitter profile. Please try again.";
+      toast({
+        title: "Twitter Connection Error",
+        description: errorMsg,
+        variant: "destructive",
+      });
+      window.history.replaceState({}, document.title, "/dashboard/uploaderx");
+    }
+  }, [toast]);
+
   const supportedPlatforms = useMemo(() => (
     [
       { key: "youtube", label: "YouTube" },
       { key: "instagram", label: "Instagram" },
       { key: "facebook", label: "Facebook" },
+      { key: "twitter", label: "Twitter" },
     ] as const
   ), []);
 

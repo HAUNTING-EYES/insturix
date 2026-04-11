@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
-import { UploadCloud, Image as ImageIcon, Youtube, Instagram, Facebook, CheckCircle, AlertCircle } from "lucide-react";
+import { UploadCloud, Image as ImageIcon, Youtube, Instagram, Facebook, Twitter, CheckCircle, AlertCircle } from "lucide-react";
 import { PlatformConnectionStatus } from "./PlatformConnectionStatus";
 
 type Platform = { key: string; label: string };
@@ -24,12 +24,13 @@ interface UploadFormProps {
 
 export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const { toast } = useToast();
-  const { uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, isUploading, uploadProgress } = useUploaderXUpload();
+  const { uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, isUploading, uploadProgress } = useUploaderXUpload();
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, boolean>>({
     youtube: true,
     instagram: true,
     facebook: false,
+    twitter: false,
   });
   const [activeType, setActiveType] = useState<string>("short");
 
@@ -77,6 +78,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
         let youtubeSuccess = false;
         let facebookSuccess = false;
         let instagramSuccess = false;
+        let twitterSuccess = false;
 
         // 🚀 Run platform uploads in parallel for better performance
         const uploadPromises = [];
@@ -224,6 +226,47 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
           uploadPromises.push(instagramUpload);
         }
 
+        // 🐦 Twitter Upload
+        if (selectedPlatforms.twitter) {
+          const twitterUpload = (async () => {
+            try {
+              toast({ title: "Uploading to Twitter...", description: "Posting video to your Twitter/X account." });
+
+              const twitterResult = await uploadToTwitter(
+                result.videoUuid,
+                result.gcsPath,
+                defaultTitle || videoFile.name,
+                defaultDescription
+              );
+
+              if (twitterResult.success) {
+                twitterSuccess = true;
+                toast({
+                  title: "✅ Twitter Upload Complete",
+                  description: `Video posted to @${twitterResult.accountUsername || 'your account'}.`
+                });
+              } else {
+                toast({
+                  title: "⚠️ Twitter Upload Failed",
+                  description: twitterResult.error,
+                  variant: "destructive"
+                });
+              }
+              return { platform: 'twitter', success: twitterSuccess, error: twitterResult.error };
+            } catch (twitterError) {
+              console.error("Twitter upload error:", twitterError);
+              const errorMsg = twitterError instanceof Error ? twitterError.message : "Unknown error";
+              toast({
+                title: "⚠️ Twitter Upload Failed",
+                description: errorMsg,
+                variant: "destructive"
+              });
+              return { platform: 'twitter', success: false, error: errorMsg };
+            }
+          })();
+          uploadPromises.push(twitterUpload);
+        }
+
         // Wait for all selected platform uploads to complete
         if (uploadPromises.length > 0) {
           const results = await Promise.all(uploadPromises);
@@ -234,9 +277,11 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
           if (youtubeSuccess) summary.push("✅ YouTube");
           if (facebookSuccess) summary.push("✅ Facebook");
           if (instagramSuccess) summary.push("✅ Instagram");
+          if (twitterSuccess) summary.push("✅ Twitter");
           if (!youtubeSuccess && selectedPlatforms.youtube) summary.push("❌ YouTube");
           if (!facebookSuccess && selectedPlatforms.facebook) summary.push("❌ Facebook");
           if (!instagramSuccess && selectedPlatforms.instagram) summary.push("❌ Instagram");
+          if (!twitterSuccess && selectedPlatforms.twitter) summary.push("❌ Twitter");
 
           toast({
             title: "Platform Upload Summary",
@@ -428,8 +473,8 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
             <div className="mt-3 grid grid-cols-3 gap-3">
               {platforms.map((p) => {
                 const isActive = !!selectedPlatforms[p.key];
-                const color = p.key === 'youtube' ? 'red' : p.key === 'instagram' ? 'pink' : 'blue';
-                const icon = p.key === 'youtube' ? Youtube : p.key === 'instagram' ? Instagram : Facebook;
+                const color = p.key === 'youtube' ? 'red' : p.key === 'instagram' ? 'pink' : p.key === 'facebook' ? 'blue' : 'sky';
+                const icon = p.key === 'youtube' ? Youtube : p.key === 'instagram' ? Instagram : p.key === 'facebook' ? Facebook : Twitter;
                 const Icon = icon;
                 return (
                   <button
@@ -438,7 +483,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                     onClick={() => setSelectedPlatforms(s => ({ ...s, [p.key]: !s[p.key] }))}
                     className={`h-20 rounded-lg border transition flex flex-col items-center justify-center gap-2 ${isActive ? 'border-white/20 bg-white/5' : 'border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/60'}`}
                   >
-                    <Icon className={`h-5 w-5 ${p.key === 'youtube' ? 'text-red-500' : p.key === 'instagram' ? 'text-pink-500' : 'text-blue-500'}`} />
+                    <Icon className={`h-5 w-5 ${p.key === 'youtube' ? 'text-red-500' : p.key === 'instagram' ? 'text-pink-500' : p.key === 'facebook' ? 'text-blue-500' : 'text-sky-500'}`} />
                     <span className="text-sm text-zinc-200">{p.label}</span>
                   </button>
                 );

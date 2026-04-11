@@ -402,12 +402,52 @@ export function useUploaderXUpload() {
     }
   }, []);
 
+  const uploadToTwitter = useCallback(async (
+    videoUuid: string,
+    gcsPath: string,
+    title?: string,
+    description?: string,
+  ) => {
+    try {
+      console.log("🐦 Starting Twitter upload:", { videoUuid, gcsPath, title });
+
+      const res = await fetch("/api/services/uploaderx/twitter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gcsPath,
+          videoUuid,
+          title,
+          description,
+        }),
+      });
+
+      const data = await res.json();
+      console.log("🐦 Twitter response:", data);
+
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Twitter`);
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || "Failed to upload to Twitter");
+      }
+
+      return { success: true, tweetUrl: data.tweetUrl, tweetId: data.tweetId, accountUsername: data.accountUsername };
+    } catch (error) {
+      console.error("❌ Twitter upload error:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Twitter upload failed';
+      return { success: false, error: errorMessage };
+    }
+  }, []);
+
   return {
     uploadVideo,
     uploadWithProgress,
     uploadToYouTube,
     uploadToFacebook,
     uploadToInstagram,
+    uploadToTwitter,
     isUploading,
     uploadProgress,
   };
