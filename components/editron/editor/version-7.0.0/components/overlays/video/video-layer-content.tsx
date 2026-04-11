@@ -1,9 +1,11 @@
 import { OffthreadVideo, Video, Sequence, useCurrentFrame } from "remotion";
+import { useMemo } from "react";
 import { ClipOverlay } from "../../../types";
 import { computeSpeedSegments } from "../../../utils/keyframe-evaluator";
 import { animationTemplates } from "../../../templates/animation-templates";
 import { toAbsoluteUrl } from "../../../utils/url-helper";
-import { useIsRendering } from "../../../contexts/rendering-context";
+import { useIsRendering, useAllOverlays } from "../../../contexts/rendering-context";
+import { createDuckingVolume } from "../../../utils/audio-ducking";
 
 /**
  * Interface defining the props for the VideoLayerContent component
@@ -36,6 +38,58 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const isRendering = useIsRendering();
+  const allOverlays = useAllOverlays();
+  const fps = 30; // Matches sound-layer-content.tsx
+
+  // ─── Native Audio Ducking ──────────────────────────────────────
+  // When a video has native audio (Seedance 1.5/2.0) AND voiceover overlaps,
+  // duck the video's embedded audio under the voiceover. This preserves
+  // ambient/foley sounds at a low level while keeping narration clear.
+  //
+  // OLD approach (f31e4d55, reverted): disabled generate_audio entirely when
+  // voiceover was present — killed all ambient/foley, left dead silence.
+  // NEW approach: keep native audio, duck it under VO using the same
+  // professional ducking system BGM already uses.
+  const nativeAudioVolume = useMemo(() => {
+    if (!overlay.hasNativeAudio) return undefined;
+
+    // Find voiceover overlays that might overlap with this video
+    const voiceoverOverlays = allOverlays.filter((o) => {
+      if (o.id === overlay.id) return false;
+      // Voiceover sound overlays (same detection as sound-layer-content.tsx)
+      if (o.type === 'sound') {
+        const aid = (o as any).assetId || '';
+        if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return true;
+        if (o.row === 4) return true;
+      }
+      return false;
+    });
+
+    if (voiceoverOverlays.length === 0) {
+      // No voiceover — play native audio at configured volume
+      return undefined;
+    }
+
+    // Convert absolute VO overlay positions to positions relative to this video's start
+    // because the volume callback receives frame numbers relative to the video overlay
+    const relativeVoOverlays = voiceoverOverlays.map((vo) => ({
+      from: vo.from - overlay.from,
+      durationInFrames: vo.durationInFrames,
+    }));
+
+    const baseVolume = overlay.styles.volume ?? 1;
+    return createDuckingVolume(baseVolume, relativeVoOverlays, fps, {
+      enabled: true,
+      duckLevel: 0.12,    // ~-18 dB — ambient bed level, audible but not competing
+      rampDownMs: 250,     // Slightly faster than BGM ducking (video ambient is less noticeable)
+      rampUpMs: 500,       // Smooth return after VO ends
+      lookAheadMs: 150,    // Start ducking just before VO begins
+    });
+  }, [overlay.hasNativeAudio, overlay.id, overlay.from, overlay.styles.volume, allOverlays, fps]);
+
+  // Resolve volume: use ducking callback for native audio videos with VO overlap,
+  // otherwise use static volume from overlay styles
+  const resolvedVolume = nativeAudioVolume ?? (overlay.styles.volume ?? 1);
 
   // Calculate if we're in the exit phase (last 30 frames)
   const isExitPhase = frame >= overlay.durationInFrames - 30;
@@ -145,7 +199,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
               src={videoSrc}
               startFrom={(overlay.videoStartTime || 0) + seg.sourceStartFrame}
               style={videoStyle}
-              volume={overlay.styles.volume ?? 1}
+              volume={resolvedVolume}
               playbackRate={seg.playbackRate}
               {...(isRendering ? { toneMapped: false } : { pauseWhenBuffering: false })}
             />
@@ -163,7 +217,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
           src={videoSrc}
           startFrom={overlay.videoStartTime || 0}
           style={videoStyle}
-          volume={overlay.styles.volume ?? 1}
+          volume={resolvedVolume}
           playbackRate={overlay.speed ?? 1}
           toneMapped={false}
         />
@@ -177,7 +231,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
         src={videoSrc}
         startFrom={overlay.videoStartTime || 0}
         style={videoStyle}
-        volume={overlay.styles.volume ?? 1}
+        volume={resolvedVolume}
         playbackRate={overlay.speed ?? 1}
         pauseWhenBuffering={false}
       />
