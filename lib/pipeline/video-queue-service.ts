@@ -259,6 +259,8 @@ export async function processNextVideoJob(): Promise<{
     }
 
     // Generate video
+    // Legacy queue path doesn't carry narration — default hasVoiceover:true
+    // to conservatively disable native audio (prevents overlap).
     const result = await generateVideoClip(
       {
         imageUrl: entry.imageUrl,
@@ -267,6 +269,7 @@ export async function processNextVideoJob(): Promise<{
         aspectRatio: (entry.aspectRatio as any) || '16:9',
         falVideoModel: modelKey as any,
         nextSceneImageUrl: entry.nextSceneImageUrl,
+        hasVoiceover: true,
       },
       entry.userId,
     );

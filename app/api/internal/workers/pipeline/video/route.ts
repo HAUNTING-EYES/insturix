@@ -123,6 +123,9 @@ async function handler(request: NextRequest) {
     }
 
     // Generate the video clip
+    // hasVoiceover: if the scene has narration, disable native audio on Seedance
+    // models to prevent voiceover/native-audio overlap (dual audio tracks).
+    const hasVoiceover = !!(ctx?.narration && ctx.narration.trim().length > 0);
     const result = await generateVideoClip(
       {
         imageUrl,
@@ -131,6 +134,7 @@ async function handler(request: NextRequest) {
         aspectRatio: aspectRatio as any,
         falVideoModel: videoModel as any,
         nextSceneImageUrl,
+        hasVoiceover,
       },
       userId,
     );
