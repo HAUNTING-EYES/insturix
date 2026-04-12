@@ -167,14 +167,22 @@ async function handler(request: NextRequest) {
             analysisResults = gem;
             */
 
-            // NEW GEMINI FILE API LOGIC
+            // NEW GEMINI FILE API LOGIC (supports dual video+audio upload)
             logger.info("Uploading extracted media to Gemini File API");
-            const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}`);
+            const { fileUri: videoFileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}-video`);
             
+            let audioFileUri: string | undefined;
+            if (extracted.audioUrl) {
+              logger.info("Separate audio track detected, uploading audio to Gemini File API");
+              const { fileUri: uploadedAudioUri } = await uploadUrlToGeminiFileAPI(extracted.audioUrl, 'audio/mpeg', `task-${taskId}-audio`);
+              audioFileUri = uploadedAudioUri;
+              logger.info("Audio upload complete", { data: { audioFileUri } });
+            }
+
             updatedVideoUrl = task.videoUrl; // Ensure we keep original external URL for embed
 
-            logger.info("Starting Gemini Analysis");
-            const gem = await analyzeVideoWithGemini(fileUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+            logger.info("Starting Gemini Analysis" + (audioFileUri ? " (dual-file: video + audio)" : ""));
+            const gem = await analyzeVideoWithGemini(videoFileUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {}, undefined, audioFileUri);
             analysisResults = gem;
             
             transcriptResult = {

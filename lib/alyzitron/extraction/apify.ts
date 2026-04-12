@@ -125,9 +125,12 @@ export async function extractMediaUri(url: string): Promise<any> {
     const item = items[0];
     const downloadUrl = item?.downloadUrl || item?.downloadedVideo || item?.videoUrl || item?.mediaUrl || item?.url;
 
+    // Extract separate audio URL if available (common for Instagram reels)
+    const audioUrl = item?.audioUrl || null;
+
     // Log the structure of the first item to see what keys we got
     logger.info(`[Apify] 🔍 Analyzing dataset item...`, {
-      data: { availableKeys: Object.keys(item), foundUrl: !!downloadUrl }
+      data: { availableKeys: Object.keys(item), foundUrl: !!downloadUrl, hasAudioUrl: !!audioUrl }
     });
 
     if (!downloadUrl) {
@@ -136,7 +139,7 @@ export async function extractMediaUri(url: string): Promise<any> {
 
     const totalTime = Date.now() - startTime;
     logger.info(`[Apify] ✨ Extraction successful!`, {
-      data: { platform, totalTime: `${totalTime}ms`, downloadUrl }
+      data: { platform, totalTime: `${totalTime}ms`, downloadUrl, audioUrl: audioUrl || "N/A" }
     });
 
     // Infer media type from URL
@@ -149,7 +152,7 @@ export async function extractMediaUri(url: string): Promise<any> {
         ? "audio"
         : "video";
 
-    return { downloadUrl, platform, mediaType };
+    return { downloadUrl, audioUrl, platform, mediaType };
   } catch (err: any) {
     const totalTime = Date.now() - startTime;
     logger.error(`[Apify] 💥 Pipeline CRASHED after ${totalTime}ms`, {
