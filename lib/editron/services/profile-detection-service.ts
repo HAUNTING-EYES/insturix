@@ -268,15 +268,24 @@ export function getAutoSelectedProfile(metadata: ThinkForgeMetadata): {
   const results = detectProfile(metadata);
   const top = results[0];
 
-  if (!top || top.confidence < 0.40) {
+  if (!top || top.confidence < 0.05) {
+    // Complete signal starvation — all scenes empty, no narration/visual data.
+    // Default to G-01 but flag for manual review so user knows to pick a profile.
     return {
       profile: EDIT_PROFILES['G-01'],
-      detection: { profileId: 'G-01', confidence: 0, reasoning: ['No strong signal match — using Universal Clean'], suggestedModifiers: [] },
-      autoSelected: true,
-      suggestionsNeeded: false,
+      detection: { profileId: 'G-01', confidence: 0, reasoning: ['No signal data available (empty scenes/narration) — defaulting to Universal Clean'], suggestedModifiers: [] },
+      autoSelected: false,
+      suggestionsNeeded: true,
     };
   }
 
+  // OLD: confidence < 0.40 → always fell back to G-01, ignoring the best match.
+  // A nostalgic McDonald's ad with keyword matches in "warm", "nostalgic", "brand"
+  // might score 0.35 for E-02 (Narrative Nostalgic) but got G-01 instead.
+  //
+  // NEW: use the top-scoring profile regardless of confidence level. Low confidence
+  // just means we flag for manual review (suggestionsNeeded: true) rather than
+  // overriding with G-01 which is almost never the right choice for styled content.
   return {
     profile: EDIT_PROFILES[top.profileId],
     detection: top,
