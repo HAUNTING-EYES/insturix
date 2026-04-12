@@ -487,78 +487,205 @@ export async function generateFullStoryboard(
           console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: Using scene 0 as style anchor (weight 0.3)`);
         }
 
-        const result = await generateStoryboardImage(
-          sbScene.descriptor,
-          options.userId,
-          {
-            styleGuide: options.styleGuide,
-            modelId: options.modelId,
-            aspectRatio: options.aspectRatio,
-            sceneIndex: sbScene.sceneIndex,
-            totalScenes,
-            referenceImages: sceneRefs,
-          },
-        );
+        // ─── A3.2 FIX: Montage-first image generation ──────────────────
+        // For montage scenes where ALL sub-shots have independentGeneration=true,
+        // the parent scene image is NEVER used in the final video — finalize
+        // iterates sub-shots directly. Generating a parent image wastes ~20-25s
+        // of the 280s Vercel budget, causing sub-shot generation to be skipped
+        // due to budget exhaustion → all sub-shots share one image → repeated footage.
+        //
+        // OLD approach: generate parent first, then attempt sub-shots with remaining budget.
+        // NEW approach: skip parent entirely, spend budget on sub-shots directly.
+        // Use first successful sub-shot image as scene.imageUrl for posterUrl/UI fallback.
+        const allSubShots = sbScene.descriptor.subShots || [];
+        const indepSubShotsForMontage = allSubShots
+          .map((sub, idx) => ({ sub, idx }))
+          .filter(({ sub }) => sub.independentGeneration && sub.visualDescription);
+        // Full-montage = ALL sub-shots are independent (no shared-clip sub-shots)
+        const isFullMontage = allSubShots.length > 0
+          && indepSubShotsForMontage.length === allSubShots.length;
 
-        // FIX 8: Capture scene 0's image as style anchor for subsequent scenes
-        if (sbScene.sceneIndex === 0 && result.imageUrl) {
-          styleAnchorImageUrl = result.imageUrl;
-          console.log(`[Storyboard] Scene 0 captured as style anchor for cross-scene consistency`);
+        let montageHandledSubShots = false;
+
+        if (isFullMontage) {
+          console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: FULL MONTAGE (${indepSubShotsForMontage.length} independent sub-shots) — skipping parent image, generating sub-shots directly`);
+
+          // Generate sub-shot images in parallel using Flux Schnell (fastest, ~12-15s)
+          const INNER_CONCURRENCY = 3;
+          let firstSuccessResult: { imageUrl: string; assetId: string; gcsPath: string; modelUsed: string; usedIpAdapter?: boolean } | null = null;
+
+          const runSubShot = async ({ sub, idx }: typeof indepSubShotsForMontage[number]) => {
+            // Budget check per sub-shot
+            const nowBudgetMs = MAX_BUDGET_MS - (Date.now() - functionStartTime);
+            if (nowBudgetMs < 30_000) {
+              console.warn(`[Storyboard] Scene ${sbScene.sceneIndex} sub ${idx}: skipped (budget exhausted, ${Math.round(nowBudgetMs / 1000)}s left)`);
+              return;
+            }
+            const subStart = Date.now();
+            try {
+              const subDescriptor: SceneDescriptor = {
+                ...sbScene.descriptor,
+                visualDescription: sub.visualDescription!,
+                imageQualityTokens: sub.imageQualityTokens || sbScene.descriptor.imageQualityTokens,
+                videoQualityTokens: sub.videoQualityTokens || sbScene.descriptor.videoQualityTokens,
+                videoMotionPrompt: sub.videoMotionPrompt || sbScene.descriptor.videoMotionPrompt,
+              };
+
+              const subResult = await generateStoryboardImage(
+                subDescriptor,
+                options.userId,
+                {
+                  styleGuide: options.styleGuide,
+                  // Force Flux Schnell for sub-shots — fastest model (~12-15s),
+                  // and we want visual variety not style consistency here.
+                  modelId: DEFAULT_MODEL,
+                  aspectRatio: options.aspectRatio,
+                  sceneIndex: sbScene.sceneIndex,
+                  totalScenes,
+                  referenceImages: undefined, // No IP-adapter — sub-shots must look DIFFERENT
+                },
+              );
+
+              await updateSubShot(storyboardId, sbScene.sceneIndex, idx, {
+                imageUrl: subResult.imageUrl,
+                imageAssetId: subResult.assetId,
+              });
+              sub.imageUrl = subResult.imageUrl;
+              sub.imageAssetId = subResult.assetId;
+
+              // Capture first success as parent fallback
+              if (!firstSuccessResult) {
+                firstSuccessResult = subResult;
+              }
+
+              const subElapsed = ((Date.now() - subStart) / 1000).toFixed(1);
+              console.log(`[Storyboard] Scene ${sbScene.sceneIndex} sub ${idx}: image OK in ${subElapsed}s (${subResult.assetId})`);
+            } catch (subErr: any) {
+              console.warn(`[Storyboard] Scene ${sbScene.sceneIndex} sub ${idx}: FAILED (${subErr.message})`);
+            }
+          };
+
+          // Sliding-window concurrency runner (same pattern as existing Phase A3.2)
+          const queue = [...indepSubShotsForMontage];
+          const inFlight: Promise<void>[] = [];
+          while (queue.length > 0 || inFlight.length > 0) {
+            while (inFlight.length < INNER_CONCURRENCY && queue.length > 0) {
+              const item = queue.shift()!;
+              const p = runSubShot(item).then(() => {
+                inFlight.splice(inFlight.indexOf(p), 1);
+              });
+              inFlight.push(p);
+            }
+            if (inFlight.length > 0) {
+              await Promise.race(inFlight);
+            }
+          }
+
+          montageHandledSubShots = true;
+
+          // TS control-flow can't see assignments inside async callbacks — it
+          // narrows firstSuccessResult to `never` after the initial `null` assignment.
+          // Cast to the declared type to work around this.
+          const resolvedFirst = firstSuccessResult as { imageUrl: string; assetId: string; gcsPath: string; modelUsed: string } | null;
+          if (resolvedFirst) {
+            // Use first sub-shot image as scene-level posterUrl fallback
+            sbScene.imageAssetId = resolvedFirst.assetId;
+            sbScene.imageUrl = resolvedFirst.imageUrl;
+            (sbScene as any).imageGcsPath = resolvedFirst.gcsPath;
+            sbScene.status = 'generated';
+            sbScene.generationHistory.push({
+              assetId: resolvedFirst.assetId,
+              imageUrl: resolvedFirst.imageUrl,
+              timestamp: new Date(),
+              modelUsed: resolvedFirst.modelUsed,
+            } as any);
+
+            await updateStoryboardScene(storyboardId, sbScene.sceneIndex, {
+              imageAssetId: resolvedFirst.assetId,
+              imageUrl: resolvedFirst.imageUrl,
+              imageGcsPath: resolvedFirst.gcsPath,
+              status: 'generated',
+              generationHistory: sbScene.generationHistory,
+            });
+
+            completed++;
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: MONTAGE COMPLETE in ${elapsed}s — ${indepSubShotsForMontage.filter(({ sub }) => sub.imageUrl).length}/${indepSubShotsForMontage.length} sub-shots have distinct images`);
+          } else {
+            // ALL sub-shots failed — fall back to generating a parent image
+            console.warn(`[Storyboard] Scene ${sbScene.sceneIndex}: ALL sub-shot images failed — falling back to parent image generation`);
+            montageHandledSubShots = false; // Allow Phase A3.2 to retry
+            // Fall through to standard parent image generation below
+          }
         }
 
-        sbScene.imageAssetId = result.assetId;
-        sbScene.imageUrl = result.imageUrl;
-        (sbScene as any).imageGcsPath = result.gcsPath;
-        sbScene.status = 'generated';
-        sbScene.generationHistory.push({
-          assetId: result.assetId,
-          imageUrl: result.imageUrl,
-          timestamp: new Date(),
-          modelUsed: result.modelUsed,
-        } as any);
+        // ─── Standard path: generate parent image ─────────────────────
+        // For non-montage scenes OR montage scenes where all sub-shots failed
+        if (!isFullMontage || !montageHandledSubShots) {
+          const result = await generateStoryboardImage(
+            sbScene.descriptor,
+            options.userId,
+            {
+              styleGuide: options.styleGuide,
+              modelId: options.modelId,
+              aspectRatio: options.aspectRatio,
+              sceneIndex: sbScene.sceneIndex,
+              totalScenes,
+              referenceImages: sceneRefs,
+            },
+          );
 
-        await updateStoryboardScene(storyboardId, sbScene.sceneIndex, {
-          imageAssetId: result.assetId,
-          imageUrl: result.imageUrl,
-          imageGcsPath: result.gcsPath,
-          status: 'generated',
-          generationHistory: sbScene.generationHistory,
-        });
+          // FIX 8: Capture scene 0's image as style anchor for subsequent scenes
+          if (sbScene.sceneIndex === 0 && result.imageUrl) {
+            styleAnchorImageUrl = result.imageUrl;
+            console.log(`[Storyboard] Scene 0 captured as style anchor for cross-scene consistency`);
+          }
 
-        completed++;
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: SUCCESS in ${elapsed}s (model: ${result.modelUsed}, ipAdapter: ${result.usedIpAdapter})`);
+          sbScene.imageAssetId = result.assetId;
+          sbScene.imageUrl = result.imageUrl;
+          (sbScene as any).imageGcsPath = result.gcsPath;
+          sbScene.status = 'generated';
+          sbScene.generationHistory.push({
+            assetId: result.assetId,
+            imageUrl: result.imageUrl,
+            timestamp: new Date(),
+            modelUsed: result.modelUsed,
+          } as any);
 
-        // ─── Phase A3.2: Per-sub-shot image generation ────────────────────
-        // If this scene has sub-shots with `independentGeneration: true`, each
-        // needs its OWN storyboard image from its OWN visualDescription. Without
-        // this the video worker falls back to the parent scene image for all
-        // sub-shots, producing N Seedance clips from the same starting frame
-        // → viewer perceives it as repeated footage ("3 videos stitched to 11 shots").
+          await updateStoryboardScene(storyboardId, sbScene.sceneIndex, {
+            imageAssetId: result.assetId,
+            imageUrl: result.imageUrl,
+            imageGcsPath: result.gcsPath,
+            status: 'generated',
+            generationHistory: sbScene.generationHistory,
+          });
+
+          completed++;
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: SUCCESS in ${elapsed}s (model: ${result.modelUsed}, ipAdapter: ${result.usedIpAdapter})`);
+        }
+
+        // ─── Phase A3.2: Per-sub-shot image generation (fallback path) ────
+        // This runs for NON-full-montage scenes that still have some independent
+        // sub-shots (e.g., a continuous scene with 1-2 independent inserts).
+        // Full-montage scenes are handled above via montage-first path and skip this.
         //
         // NOTE: No reference images passed — we WANT visual variety here (different
         // era/subject/setting per sub-shot). IP-adapter would defeat the point.
         // Failure is non-fatal: video worker already has fallback to parent image.
         //
-        // Hotfix 2026-04-08 (regression from initial B2 commit 8063efc6):
-        // The original impl ran sub-shots SEQUENTIALLY in a for-loop, which
-        // blew the Vercel 300s budget on 3+ scene scripts with 5 independent
-        // sub-shots per scene (~180s per scene × 3 = 540s). Now:
-        //   1. Sub-shots within a scene run in parallel (inner concurrency cap = 3)
-        //   2. Before starting, we check remaining budget — if < 90s, skip
-        //      per-sub-shot gen for this scene and rely on video worker's
-        //      parent-image fallback. Degrades gracefully instead of timing out.
-        //   3. If time runs out mid-batch, any completed sub-shots are kept.
-        const indepSubShots = (sbScene.descriptor.subShots || [])
+        // The !sub.imageUrl filter also prevents re-generation of sub-shots that
+        // already got images from the montage-first path above.
+        const indepSubShots = montageHandledSubShots ? [] : (sbScene.descriptor.subShots || [])
           .map((sub, idx) => ({ sub, idx }))
           .filter(({ sub }) => sub.independentGeneration && !sub.imageUrl && sub.visualDescription);
 
         if (indepSubShots.length > 0) {
-          // Budget check — need enough time to attempt AT LEAST one round of sub-shot gen.
-          // Flux Schnell is ~15-25s per call. With inner concurrency 3, a 5-sub-shot scene
-          // needs ~2 rounds = ~50s. Require 90s remaining before even starting.
+          // Budget check — Flux Schnell is ~12-15s per call. With inner concurrency 3,
+          // a 5-sub-shot scene needs ~2 rounds = ~30s. Lowered from 90s to 45s
+          // (was too conservative, caused routine skipping on 3+ scene scripts).
           const budgetRemainingMs = MAX_BUDGET_MS - (Date.now() - functionStartTime);
-          const MIN_BUDGET_FOR_SUBSHOTS_MS = 90_000;
+          const MIN_BUDGET_FOR_SUBSHOTS_MS = 45_000;
 
           if (budgetRemainingMs < MIN_BUDGET_FOR_SUBSHOTS_MS) {
             console.warn(
@@ -594,7 +721,9 @@ export async function generateFullStoryboard(
                   options.userId,
                   {
                     styleGuide: options.styleGuide,
-                    modelId: options.modelId,
+                    // Force Flux Schnell for sub-shots — fastest model, and we want
+                    // visual variety (each sub-shot is a different subject/era).
+                    modelId: DEFAULT_MODEL,
                     aspectRatio: options.aspectRatio,
                     sceneIndex: sbScene.sceneIndex,
                     totalScenes,
