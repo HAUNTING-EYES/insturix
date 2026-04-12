@@ -123,8 +123,10 @@ const UploadForm = dynamic(() => import("@/components/dashboard/UploaderX/Upload
 const PlatformEditor = dynamic(() => import("@/components/dashboard/UploaderX/PlatformEditor").then(m => m.PlatformEditor), { ssr: false });
 const VideoManager = dynamic(() => import("@/components/dashboard/UploaderX/VideoManager").then(m => m.VideoManager), { ssr: false });
 const YouTubeConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/YouTubeConnectionStatus").then(m => m.YouTubeConnectionStatus), { ssr: false });
+const FacebookConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/FacebookConnectionStatus").then(m => m.FacebookConnectionStatus), { ssr: false });
 const InstagramConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/InstagramConnectionStatus").then(m => m.InstagramConnectionStatus), { ssr: false });
 const TwitterConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/TwitterConnectionStatus").then(m => m.TwitterConnectionStatus), { ssr: false });
+const TwitterPermissionsStatus = dynamic(() => import("@/components/dashboard/UploaderX/TwitterPermissionsStatus").then(m => m.TwitterPermissionsStatus), { ssr: false });
 
 export function UploaderXClientWrapper() {
   const { toast } = useToast();
@@ -204,12 +206,24 @@ export function UploaderXClientWrapper() {
     const params = new URLSearchParams(window.location.search);
     const twitterConnected = params.get("twitter_connected");
     const twitterError = params.get("twitter_error");
+    const twitterScopesWarning = params.get("twitter_scopes_warning");
 
     if (twitterConnected === "true") {
       toast({
         title: "Twitter connected!",
         description: "You can now post videos to your Twitter/X account.",
       });
+
+      // Show warning if some permissions are missing
+      if (twitterScopesWarning) {
+        const missingScopes = twitterScopesWarning.split(",");
+        toast({
+          title: "⚠️ Missing Permissions",
+          description: `Some permissions were not granted: ${missingScopes.join(", ")}. Some features may not work correctly.`,
+          variant: "destructive",
+        });
+      }
+
       window.history.replaceState({}, document.title, "/dashboard/uploaderx");
     } else if (twitterError) {
       let errorMsg = "Failed to connect Twitter.";
@@ -259,6 +273,7 @@ export function UploaderXClientWrapper() {
                 <TabsList className="bg-zinc-900/60 border border-zinc-800">
                   <TabsTrigger value="videos">My Videos</TabsTrigger>
                   <TabsTrigger value="upload">Upload</TabsTrigger>
+                  <TabsTrigger value="connections">Connections</TabsTrigger>
                   <TabsTrigger value="metadata">Per-Platform Details</TabsTrigger>
                 </TabsList>
               </div>
@@ -295,6 +310,26 @@ export function UploaderXClientWrapper() {
                   onUploadSuccess={handleUploadSuccess}
                 />
               </Suspense>
+            </TabsContent>
+
+            <TabsContent value="connections" className="px-4 pb-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Suspense fallback={<div className="h-40" />}>
+                  <YouTubeConnectionStatus />
+                </Suspense>
+                <Suspense fallback={<div className="h-40" />}>
+                  <FacebookConnectionStatus />
+                </Suspense>
+                <Suspense fallback={<div className="h-40" />}>
+                  <InstagramConnectionStatus />
+                </Suspense>
+                <Suspense fallback={<div className="h-40" />}>
+                  <TwitterConnectionStatus />
+                </Suspense>
+                <Suspense fallback={<div className="h-40" />}>
+                  <TwitterPermissionsStatus />
+                </Suspense>
+              </div>
             </TabsContent>
 
             <TabsContent value="metadata" className="px-4 pb-6">

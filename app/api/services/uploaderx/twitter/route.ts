@@ -13,17 +13,13 @@ export async function POST(req: Request) {
     try {
         const session = await auth();
         if (!session.userId) {
-            console.error("❌ Twitter Upload: No active session");
             return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
         }
 
         const body = await req.json();
         const { gcsPath, videoUuid, title, description } = body;
 
-        console.log("🐦 Starting Twitter Upload:", { gcsPath, videoUuid });
-
         if (!gcsPath) {
-            console.error("❌ Twitter Upload: Missing gcsPath");
             return NextResponse.json({ success: false, error: "Missing gcsPath" }, { status: 400 });
         }
 
@@ -34,16 +30,10 @@ export async function POST(req: Request) {
         const user = await User.findOne({
             clerkUserId: session.userId,
             twitterTokens: { $exists: true, $ne: null },
+            "twitterTokens.accessToken": { $exists: true, $ne: null },
         });
 
-        console.log("🔍 Twitter user lookup result:", {
-            userFound: !!user,
-            hasTokens: !!user?.twitterTokens,
-            clerkUserId: session.userId
-        });
-
-        if (!user || !user.twitterTokens) {
-            console.error("❌ Twitter not connected for user:", session.userId);
+        if (!user || !user.twitterTokens || !user.twitterTokens.accessToken) {
             return NextResponse.json({
                 success: false,
                 error: "Twitter not connected. Please connect your Twitter account first.",
@@ -52,14 +42,66 @@ export async function POST(req: Request) {
 
         const twitterTokens = user.twitterTokens;
 
-        // Check if token is expired
+        // Check if token is expired and try to refresh
         const now = new Date();
-        if (twitterTokens.expiresAt < now) {
-            console.error("❌ Twitter token expired");
-            return NextResponse.json({
-                success: false,
-                error: "Twitter token expired. Please reconnect your Twitter account.",
-            }, { status: 401 });
+        let accessToken = twitterTokens.accessToken;
+
+        if (!twitterTokens.expiresAt || twitterTokens.expiresAt < now) {
+            // Try to refresh the access token
+            if (!twitterTokens.refreshToken) {
+                return NextResponse.json({
+                    success: false,
+                    error: "Twitter token expired and no refresh token available. Please reconnect your Twitter account.",
+                }, { status: 401 });
+            }
+
+            try {
+                const clientId = process.env.TWITTER_CLIENT_ID!;
+                const clientSecret = process.env.TWITTER_CLIENT_SECRET!;
+                const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+
+                const refreshBody = new URLSearchParams();
+                refreshBody.set("grant_type", "refresh_token");
+                refreshBody.set("refresh_token", twitterTokens.refreshToken);
+
+                const refreshRes = await fetch("https://api.x.com/2/oauth2/token", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Authorization": `Basic ${credentials}`,
+                    },
+                    body: refreshBody.toString(),
+                });
+
+                const refreshData = await refreshRes.json();
+
+                if (refreshRes.status !== 200 || refreshData.error) {
+                    return NextResponse.json({
+                        success: false,
+                        error: "Twitter token refresh failed. Please reconnect your Twitter account.",
+                    }, { status: 401 });
+                }
+
+                // Update tokens in database
+                const newExpiresAt = new Date(Date.now() + refreshData.expires_in * 1000);
+                await User.updateOne(
+                    { clerkUserId: session.userId },
+                    {
+                        $set: {
+                            "twitterTokens.accessToken": refreshData.access_token,
+                            "twitterTokens.refreshToken": refreshData.refresh_token,
+                            "twitterTokens.expiresAt": newExpiresAt,
+                        }
+                    }
+                );
+
+                accessToken = refreshData.access_token;
+            } catch (refreshError) {
+                return NextResponse.json({
+                    success: false,
+                    error: "Failed to refresh Twitter token. Please reconnect your Twitter account.",
+                }, { status: 401 });
+            }
         }
 
         // Check if video already has a Twitter ID (for updates)
@@ -179,7 +221,7 @@ export async function POST(req: Request) {
                 media_type: "video/mp4",
                 media_category: "tweet_video",
             },
-            twitterTokens.accessToken
+            accessToken
         );
 
         if (!initResponse.media_id_string) {
@@ -214,7 +256,7 @@ export async function POST(req: Request) {
                     media_id: mediaId,
                     segment_index: i.toString(),
                 },
-                twitterTokens.accessToken,
+                accessToken,
                 chunk // Media chunk
             );
 
@@ -232,7 +274,7 @@ export async function POST(req: Request) {
                 command: "FINALIZE",
                 media_id: mediaId,
             },
-            twitterTokens.accessToken
+            accessToken
         );
 
         if (!finalizeResponse.media_id_string) {
@@ -248,7 +290,7 @@ export async function POST(req: Request) {
 
         // Step 4: STATUS - Poll until processing complete
         console.log("📤 Step 4/4: POLLING status...");
-        const processingState = await pollMediaStatus(mediaId, twitterTokens.accessToken);
+        const processingState = await pollMediaStatus(mediaId, accessToken);
 
         if (processingState !== "succeeded") {
             console.error("❌ Twitter video processing failed:", processingState);
@@ -274,7 +316,7 @@ export async function POST(req: Request) {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${twitterTokens.accessToken}`,
+                "Authorization": `Bearer ${accessToken}`,
             },
             body: JSON.stringify(tweetPayload),
         });
@@ -338,30 +380,20 @@ async function twitterApiRequest(
     accessToken: string,
     mediaChunk?: Buffer
 ): Promise<any> {
-    const queryParams = new URLSearchParams(params);
-
-    // If we have a media chunk (APPEND command), use FormData
+    // If we have a media chunk (APPEND command), send raw binary
     if (mediaChunk) {
-        const FormData = (await import("form-data")).default;
-        const formData = new FormData();
-
-        // Add all params to form data
+        const appendUrl = new URL(url);
         for (const [key, value] of Object.entries(params)) {
-            formData.append(key, value);
+            appendUrl.searchParams.set(key, value);
         }
 
-        // Add media chunk
-        formData.append("media", mediaChunk, {
-            filename: "video.mp4",
-            contentType: "video/mp4",
-        });
-
-        const response = await fetch(url, {
-            method,
+        const response = await fetch(appendUrl.toString(), {
+            method: "POST",
             headers: {
                 "Authorization": `Bearer ${accessToken}`,
+                "Content-Type": "application/octet-stream",
             },
-            body: formData,
+            body: mediaChunk,
         });
 
         const data = await response.json();
@@ -381,7 +413,6 @@ async function twitterApiRequest(
         method,
         headers: {
             "Authorization": `Bearer ${accessToken}`,
-            "Content-Type": "application/x-www-form-urlencoded",
         },
     });
 
@@ -459,3 +490,4 @@ async function pollMediaStatus(mediaId: string, accessToken: string): Promise<st
     console.error("❌ Media processing timed out after 5 minutes");
     return "timed_out";
 }
+

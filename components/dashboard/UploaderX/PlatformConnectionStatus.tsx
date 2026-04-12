@@ -3,7 +3,13 @@
 import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { Badge } from "@/components/ui/badge";
-import { Youtube, Facebook, Instagram, CheckCircle, XCircle, Link2 } from "lucide-react";
+import { Youtube, Facebook, Instagram, Twitter, CheckCircle, XCircle, Link2 } from "lucide-react";
+
+interface TwitterStatus {
+  connected: boolean;
+  userName?: string;
+  isExpired?: boolean;
+}
 
 export function PlatformConnectionStatus() {
   const { user, isLoaded } = useUser();
@@ -12,6 +18,7 @@ export function PlatformConnectionStatus() {
     facebook: false,
     instagram: false,
   });
+  const [twitterStatus, setTwitterStatus] = useState<TwitterStatus>({ connected: false });
 
   const [loading, setLoading] = useState(true);
 
@@ -39,6 +46,20 @@ export function PlatformConnectionStatus() {
           igData = await igRes.json();
         } catch (e) {
           // Instagram not connected or API error
+        }
+
+        // Check Twitter via API
+        let twData = { connected: false };
+        try {
+          const twRes = await fetch('/api/services/uploaderx/twitter/status');
+          twData = await twRes.json();
+          setTwitterStatus({
+            connected: twData.connected && !twData.isExpired,
+            userName: twData.userName,
+            isExpired: twData.isExpired,
+          });
+        } catch (e) {
+          // Twitter not connected or API error
         }
 
         setConnections(prev => ({
@@ -101,6 +122,22 @@ export function PlatformConnectionStatus() {
         )}
       </div>
 
+      {/* Twitter */}
+      <div className="flex items-center gap-2">
+        <Twitter className={`h-5 w-5 ${twitterStatus.connected ? 'text-sky-500' : 'text-zinc-500'}`} />
+        <span className="text-sm text-zinc-400">Twitter</span>
+        {twitterStatus.connected ? (
+          <>
+            <CheckCircle className="h-4 w-4 text-green-500" />
+            {twitterStatus.userName && (
+              <span className="text-xs text-zinc-500">@{twitterStatus.userName}</span>
+            )}
+          </>
+        ) : (
+          <XCircle className="h-4 w-4 text-red-500" />
+        )}
+      </div>
+
       {/* Connect Links */}
       <div className="flex-1" />
 
@@ -145,6 +182,16 @@ export function PlatformConnectionStatus() {
         >
           <Link2 className="h-3 w-3" />
           Connect Instagram
+        </a>
+      )}
+
+      {!twitterStatus.connected && (
+        <a
+          href="/api/services/uploaderx/twitter/auth"
+          className="text-xs text-sky-400 hover:underline flex items-center gap-1"
+        >
+          <Link2 className="h-3 w-3" />
+          Connect Twitter
         </a>
       )}
     </div>

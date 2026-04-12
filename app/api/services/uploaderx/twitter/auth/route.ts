@@ -46,6 +46,9 @@ export async function GET(req: Request) {
         twitterAuthUrl.searchParams.set("code_challenge", codeChallenge);
         twitterAuthUrl.searchParams.set("code_challenge_method", "S256");
 
+        // TEMP DEBUG: Log the Client ID being used
+        console.log("🔍 DEBUG - Client ID:", clientId, "| Redirect URI:", redirectUri, "| Scopes:", scopes);
+
         // Create response with redirect
         const response = NextResponse.redirect(twitterAuthUrl.toString());
 
@@ -68,12 +71,8 @@ export async function GET(req: Request) {
             path: "/",
         });
 
-        console.log("🔐 Twitter OAuth redirect URL generated");
-        console.log("📋 Scopes requested:", scopes);
-
         return response;
     } catch (error) {
-        console.error("❌ Twitter auth redirect error:", error);
         return NextResponse.json(
             { error: "Failed to initialize Twitter OAuth" },
             { status: 500 }

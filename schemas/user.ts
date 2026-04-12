@@ -131,6 +131,8 @@ interface IUser extends Document {
     userName: string;
     expiresAt: Date;
     connectedAt: Date;
+    scopes?: string[];
+    missingScopes?: string[];
   };
 }
 
@@ -406,6 +408,8 @@ const userSchema = new Schema<IUser>({
     userName: String,
     expiresAt: Date,
     connectedAt: Date,
+    scopes: [String],
+    missingScopes: [String],
   },
 }, {
   timestamps: true,

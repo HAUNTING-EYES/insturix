@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Twitter, CheckCircle, XCircle, ExternalLink, Loader2 } from "lucide-react";
+import { Twitter, CheckCircle, XCircle, ExternalLink, Loader2, LogOut } from "lucide-react";
 
 interface TwitterStatus {
     connected: boolean;
@@ -96,9 +96,15 @@ export function TwitterConnectionStatus() {
 
                 {status?.connected && !status?.isExpired && (
                     <>
-                        <p className="text-xs text-zinc-400 truncate">
-                            Logged in as: <span className="text-zinc-300">@{status.userName}</span>
-                        </p>
+                        {status.userName ? (
+                            <p className="text-xs text-zinc-400 truncate">
+                                Logged in as: <span className="text-zinc-300 font-medium">@{status.userName}</span>
+                            </p>
+                        ) : (
+                            <p className="text-xs text-zinc-400 truncate">
+                                Connected successfully
+                            </p>
+                        )}
                     </>
                 )}
 
@@ -113,7 +119,7 @@ export function TwitterConnectionStatus() {
                         {disconnecting ? (
                             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                         ) : (
-                            <ExternalLink className="h-3 w-3 mr-1" />
+                            <LogOut className="h-3 w-3 mr-1" />
                         )}
                         {disconnecting ? "Disconnecting..." : "Disconnect"}
                     </Button>

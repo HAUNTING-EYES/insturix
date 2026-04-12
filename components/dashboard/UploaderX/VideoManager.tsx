@@ -132,7 +132,6 @@ export function VideoManager({
     };
 
     fetchVideos();
-    fetchVideos();
   }, [toast]);
 
 
@@ -217,6 +216,7 @@ export function VideoManager({
         // Convert uploadedAt strings to Date objects
         const videosWithDates = data.videos.map((video: any) => ({
           ...video,
+          fileSize: video.size || video.fileSize || 0,
           uploadedAt: video.uploadedAt ? new Date(video.uploadedAt) : new Date()
         }));
         setVideos(videosWithDates);
@@ -534,27 +534,41 @@ export function VideoManager({
           title: "Twitter Not Connected",
           description: "Please connect your Twitter account to upload videos.",
         });
-        // Open Twitter OAuth in new tab
-        window.open('/api/services/uploaderx/twitter/auth', '_blank');
+        // Redirect to Twitter OAuth in the same tab
+        window.location.href = '/api/services/uploaderx/twitter/auth';
         return;
       }
 
-      // 2. Check if token is expired
+      // 2. Check if token is expired (status endpoint should have refreshed it)
       if (statusData.isExpired) {
         toast({
           title: "Twitter Token Expired",
           description: "Please reconnect your Twitter account.",
           variant: "destructive",
         });
-        window.open('/api/services/uploaderx/twitter/auth', '_blank');
+        window.location.href = '/api/services/uploaderx/twitter/auth';
         return;
       }
 
-      // 3. Upload to Twitter
+      // 3. Check if required permissions are granted
+      if (statusData.missingScopes && statusData.missingScopes.includes("tweet.write")) {
+        toast({
+          title: "Missing Twitter Permission",
+          description: "The 'tweet.write' permission is required. Please reconnect your Twitter account.",
+          variant: "destructive",
+        });
+        window.location.href = '/api/services/uploaderx/twitter/auth';
+        return;
+      }
+
+      // 4. Upload to Twitter
       toast({
         title: "Uploading to Twitter...",
         description: `Posting ${video.filename} to your Twitter account.`,
       });
+
+      // Get description from video metadata if available
+      const description = video.metadata?.description || "";
 
       const res = await fetch("/api/services/uploaderx/twitter", {
         method: "POST",
@@ -563,6 +577,7 @@ export function VideoManager({
           gcsPath: video.gcsPath,
           videoUuid: video.videoUuid,
           title: video.filename,
+          description: description,
         }),
       });
 

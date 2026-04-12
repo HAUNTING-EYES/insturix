@@ -2,11 +2,32 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 
+// Required scopes for full Twitter functionality
+const REQUIRED_SCOPES = [
+    "tweet.read",
+    "tweet.write",
+    "users.read",
+    "offline.access",
+];
+
+/**
+ * Validate that all required scopes were granted
+ */
+function validateScopes(grantedScope: string): { valid: boolean; missing: string[]; granted: string[] } {
+    const grantedScopes = grantedScope?.split(" ") || [];
+    const missing = REQUIRED_SCOPES.filter(scope => !grantedScopes.includes(scope));
+    return {
+        valid: missing.length === 0,
+        missing,
+        granted: grantedScopes,
+    };
+}
+
 /**
  * GET /api/services/uploaderx/twitter/callback
  * Handles the OAuth 2.0 callback from Twitter/X.
  * Exchanges the authorization code for access/refresh tokens using PKCE,
- * fetches user's Twitter profile, and stores tokens in MongoDB.
+ * fetches user's Twitter profile, validates permissions, and stores tokens in MongoDB.
  */
 export async function GET(req: Request) {
     try {
@@ -25,19 +46,16 @@ export async function GET(req: Request) {
         const storedState = getCookieValue(cookies, "twitter_state");
 
         if (state !== storedState) {
-            console.error("❌ Twitter OAuth state mismatch - possible CSRF attack");
             return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=state_mismatch", url));
         }
 
         if (error || !code) {
-            console.error("❌ Twitter OAuth error:", error || "No code received");
             return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=denied", url));
         }
 
         // Get code verifier from cookie (PKCE)
         const codeVerifier = getCookieValue(cookies, "twitter_code_verifier");
         if (!codeVerifier) {
-            console.error("❌ Twitter code verifier not found in cookies");
             return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=no_verifier", url));
         }
 
@@ -46,11 +64,7 @@ export async function GET(req: Request) {
         const redirectUri = `${url.origin}/api/services/uploaderx/twitter/callback`;
 
         // Step 1: Exchange authorization code for access tokens
-        console.log("🔄 Exchanging Twitter authorization code for tokens...");
-
         const tokenUrl = "https://api.x.com/2/oauth2/token";
-
-        // Create Basic Auth header
         const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
         const tokenBody = new URLSearchParams();
@@ -71,7 +85,6 @@ export async function GET(req: Request) {
         const tokenData = await tokenRes.json();
 
         if (tokenRes.status !== 200 || tokenData.error) {
-            console.error("❌ Twitter token exchange error:", tokenData.error);
             return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=token_exchange", url));
         }
 
@@ -84,18 +97,13 @@ export async function GET(req: Request) {
         } = tokenData;
 
         if (!access_token) {
-            console.error("❌ No access token received from Twitter");
             return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=no_token", url));
         }
 
-        console.log("✅ Twitter access token obtained");
-        console.log("📋 Token type:", token_type);
-        console.log("📋 Expires in:", expires_in, "seconds");
-        console.log("📋 Scopes granted:", scope);
+        // Validate permissions/scopes
+        const scopeValidation = validateScopes(scope);
 
-        // Step 2: Fetch user's Twitter profile
-        console.log("👤 Fetching Twitter user profile...");
-
+        // Fetch user's Twitter profile
         const meUrl = "https://api.x.com/2/users/me";
 
         const meRes = await fetch(meUrl, {
@@ -107,18 +115,15 @@ export async function GET(req: Request) {
         const meData = await meRes.json();
 
         if (meRes.status !== 200 || meData.errors) {
-            console.error("❌ Failed to fetch Twitter profile:", meData.errors || meData);
             return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=profile_fetch", url));
         }
 
         const twitterUser = meData.data;
-        console.log("✅ Twitter profile fetched:", twitterUser.username);
 
         // Step 3: Calculate token expiration time
         const expiresAt = new Date(Date.now() + expires_in * 1000);
 
-        // Step 4: Store tokens in MongoDB
-        console.log("💾 Saving Twitter tokens to database...");
+        // Step 4: Store tokens in MongoDB with scope information
         await connectToDatabase();
         const { User } = await import("@/schemas/user");
 
@@ -133,28 +138,31 @@ export async function GET(req: Request) {
                         userName: twitterUser.username,
                         expiresAt,
                         connectedAt: new Date(),
+                        scopes: scopeValidation.granted,
+                        missingScopes: scopeValidation.missing,
                     },
                 },
             },
-            { upsert: true, new: true }
+            { new: true }
         );
 
         if (!updateResult) {
-            console.error("❌ Failed to save Twitter tokens to database");
-            return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=save_failed", url));
+            return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=user_not_found", url));
         }
 
-        console.log("✅ Twitter tokens saved to database successfully");
-        console.log("👤 Connected as:", updateResult.twitterTokens?.userName);
+        // Build redirect URL with scope validation info
+        let redirectUrl = "/dashboard/uploaderx?twitter_connected=true";
+        if (scopeValidation.missing.length > 0) {
+            redirectUrl += "&twitter_scopes_warning=" + encodeURIComponent(scopeValidation.missing.join(","));
+        }
 
         // Clean up cookies
-        const response = NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_connected=true", url));
+        const response = NextResponse.redirect(new URL(redirectUrl, url));
         response.cookies.set("twitter_code_verifier", "", { maxAge: 0, path: "/" });
         response.cookies.set("twitter_state", "", { maxAge: 0, path: "/" });
 
         return response;
     } catch (err) {
-        console.error("❌ Twitter callback error:", err);
         return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=unknown", req.url));
     }
 }
