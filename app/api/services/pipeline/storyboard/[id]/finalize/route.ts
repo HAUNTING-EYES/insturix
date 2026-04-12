@@ -388,22 +388,20 @@ export async function POST(
         });
       }
 
-      // ─── Phase A3.4 — Script-text caption fallback ─────────────────────
-      // For commercial/visual-only scripts with ZERO narration, the normal caption
-      // pipeline (Director.add_captions → transcription → caption-service) produces
-      // nothing because there's no voiceover audio to transcribe.
+      // ─── On-screen text overlays from script ───────────────────────────
+      // Scripts can have explicit "On-Screen Text:" entries (e.g., "Remember this
+      // feeling?", "McDonald's. A Taste of Childhood."). These are BRANDED GRAPHIC
+      // OVERLAYS — not voiceover captions. They should appear regardless of whether
+      // the scene has voiceover narration:
+      //   - Scene with VO + onScreenText → VO becomes spoken-word captions (Director),
+      //     onScreenText becomes a separate graphic overlay (here)
+      //   - Scene without VO + onScreenText → onScreenText becomes the only text overlay
       //
-      // If the scene has explicit on-screen text in editDirections.onScreenText
-      // (extracted verbatim from the script's "On-Screen Text:" lines by the parser),
-      // generate caption overlays directly from those strings instead.
-      //
-      // This runs ONLY when:
-      //   1. User selected captions (includeCaptions: true)
-      //   2. Scene has NO voiceover (zero narration script)
-      //   3. Scene has at least one onScreenText entry
+      // OLD: only created when !sceneHasVoiceover — missed Scene 2 of McDonald's ad
+      //      which has BOTH voiceover AND on-screen text.
+      // NEW: always creates overlays for onScreenText when present.
       const onScreenTextArr = (scene.descriptor as any)?.editDirections?.onScreenText;
-      const sceneHasVoiceover = !!scene.voiceover?.audioUrl;
-      if (includeCaptions && !sceneHasVoiceover && Array.isArray(onScreenTextArr) && onScreenTextArr.length > 0) {
+      if (includeCaptions && Array.isArray(onScreenTextArr) && onScreenTextArr.length > 0) {
         try {
           const { createCaptionsFromScriptText } = await import('@/lib/editron/services/media/caption-service');
           // Synthetic anchor overlay so caption-service can position relative to the scene's frame range
