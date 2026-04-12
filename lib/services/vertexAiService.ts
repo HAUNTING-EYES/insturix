@@ -187,6 +187,7 @@ export async function analyzeVideoWithGemini(
           threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
         },
       ],
+            ...extraParams,
     });
 
     // analysis prompt with explicit JSON formatting instructions

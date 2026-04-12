@@ -180,6 +180,23 @@ async function handler(req: Request) {
 
       // Process parent variation image if it exists (for image-to-image)
       const parentImageUrl = await processParentVariationImage(body.parentVariationId, task.details.canvas.variations, ClickatronGCSManager);
+      
+      // Validate parent image URL for generative fill
+      if (body.maskUrl && parentImageUrl) {
+        try {
+          console.log('Worker: Validating parent image URL for generative fill:', parentImageUrl);
+          const imageResponse = await fetch(parentImageUrl, { method: 'HEAD' });
+          if (!imageResponse.ok) {
+            console.error('Worker: Parent image URL is not accessible:', imageResponse.status, imageResponse.statusText);
+            throw new Error(`Cannot access parent variation image. The image may have been deleted or expired. Status: ${imageResponse.status}`);
+          }
+          console.log('Worker: Parent image URL is accessible');
+        } catch (error) {
+          console.error('Worker: Failed to validate parent image URL:', error);
+          throw new Error(`Something went wrong. Cannot access the source image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+      
       // Process reference images from job payload if they exist (for image-to-image)
       const referenceImageUrls = await processReferenceImages(body.referenceImageRefs, ClickatronGCSManager);
 

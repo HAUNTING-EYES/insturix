@@ -73,6 +73,29 @@ const truncatePrompt = (str: string, length: number = 100) => {
   return str.slice(0, length) + "...";
 };
 
+// Helper to extract user prompt from full prompt (removes system/internal prompts)
+const extractUserPrompt = (fullPrompt: string): string | null => {
+  if (!fullPrompt || !fullPrompt.trim()) return null;
+  
+  // Check for Generative Fill system prompt pattern
+  const generativeFillMatch = fullPrompt.match(/INPAINTING TASK[\s\S]*?\n\nUser Request:\s*(.+)$/);
+  if (generativeFillMatch && generativeFillMatch[1]) {
+    const userPrompt = generativeFillMatch[1].trim();
+    return userPrompt || null;
+  }
+  
+  // Check for sketch-to-edit system prompt pattern
+  const sketchToEditMatch = fullPrompt.match(/Make changes according to the annotations[\s\S]*?\n\n(.+)$/);
+  if (sketchToEditMatch && sketchToEditMatch[1]) {
+    const userPrompt = sketchToEditMatch[1].trim();
+    return userPrompt || null;
+  }
+  
+  // If no system prompt pattern found, return the original prompt if it's not empty
+  const trimmedPrompt = fullPrompt.trim();
+  return trimmedPrompt || null;
+};
+
 export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
   (
     {
@@ -594,7 +617,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               <img
                 src={proxyUrl}
                 alt=""
-                className="absolute inset-0 rounded-lg"
+                className="absolute inset-0 rounded-lg pointer-events-none"
                 style={{
                   width: "100%",
                   height: "100%",
@@ -613,7 +636,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               loading="lazy"
               decoding="async"
               fetchPriority="low"
-              className={`${className} select-none rounded-lg relative z-10`}
+              className={`${className} select-none rounded-lg relative z-10 pointer-events-none`}
               style={{
                 ...imageStyle,
                 width: "100%",
@@ -747,17 +770,25 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         )}
 
         {/* Prompt Overlay */}
-        {status === "completed" && prompt && !isFillGenerating && (
-          <div className="absolute bottom-0 left-0 right-0 p-4 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-            <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-3 shadow-xl max-w-2xl mx-auto pointer-events-auto">
-              <div className="text-xs text-zinc-400 font-medium mb-1 uppercase tracking-wider">
-                Prompt
-              </div>
-              <p className="text-sm text-white/90 leading-relaxed line-clamp-3">
-                {prompt}
-              </p>
-            </div>
-          </div>
+        {status === "completed" && !isFillGenerating && (
+          <>
+            {(() => {
+              const userPrompt = prompt ? extractUserPrompt(prompt) : null;
+              if (!userPrompt) return null;
+              return (
+                <div className="absolute bottom-0 left-0 right-0 p-4 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                  <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-3 shadow-xl max-w-2xl mx-auto pointer-events-auto">
+                    <div className="text-xs text-zinc-400 font-medium mb-1 uppercase tracking-wider">
+                      Prompt
+                    </div>
+                    <p className="text-sm text-white/90 leading-relaxed line-clamp-3">
+                      {truncatePrompt(userPrompt, 150)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+          </>
         )}
       </div>
     );

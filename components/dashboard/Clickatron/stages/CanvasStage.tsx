@@ -14,14 +14,14 @@ import { VariationsGallery } from "../canvas/VariationsGallery";
 import { AICommandConsole } from "../canvas/AICommandConsole";
 import { NewVariationConsole } from "../canvas/NewVariationConsole";
 import { Input } from "@/components/ui/input";
-import { Grid, Sliders, X, Loader2 } from "lucide-react";
+import { Grid, Sliders, X, Loader2, Square, Pencil } from "lucide-react";
 import useClickatronStore from "@/stores/useCanvasStore";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
 import { SelectionTool } from "../canvas/SelectionTool";
 import { SketchOverlay, SketchOverlayHandle } from "../canvas/SketchOverlay";
 import { ImageOverlayManager, ImageOverlayManagerHandle } from "../canvas/ImageOverlayManager";
-import { GenerativeFillPanel } from "../canvas/GenerativeFillPanel";
+import { GenerativeFillInline } from "../canvas/GenerativeFillInline";
 import { useDebounce } from "use-debounce";
 import { produce } from "immer";
 import { CanvasControls } from "../canvas/CanvasControls";
@@ -195,6 +195,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const [referenceImageCount, setReferenceImageCount] = useState<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isGenerativeFillMode, setIsGenerativeFillMode] = useState(false);
+  const [selectionMode, setSelectionMode] = useState<"rectangle" | "lasso">("rectangle");
   const [selectionBounds, setSelectionBounds] = useState<{
     x: number;
     y: number;
@@ -202,8 +203,9 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     height: number;
   } | null>(null);
   const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
+  const [inlineBoxPosition, setInlineBoxPosition] = useState<{ x: number; y: number } | null>(null);
   const [isFillGenerating, setIsFillGenerating] = useState(false);
-  const [isFillPanelOpen, setIsFillPanelOpen] = useState(false);
+  const [showInlineBox, setShowInlineBox] = useState(false);
   const [imageNaturalDimensions, setImageNaturalDimensions] = useState<{
     width: number;
     height: number;
@@ -827,11 +829,11 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     ) {
       const errorMsg = `Missing data: Task=${!!task?._id}, Var=${!!effectiveVariationId}, Sel=${!!selectionBounds}, MaskLength=${maskDataUrl?.length || 0}`;
       console.error(errorMsg);
-      alert(
-        "Error: " +
-          errorMsg +
-          ". Please try refreshing the page or re-selecting the area.",
-      );
+      toast({
+        title: "Error",
+        description: "Something went wrong. Please try refreshing the page or re-selecting the area.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -839,11 +841,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     const currentSelectionBounds = selectionBounds;
     const currentMaskDataUrl = maskDataUrl;
 
-    // Close the UI immediately to allow uninterrupted work
-    setIsFillPanelOpen(false);
+    // Close the inline box immediately to allow uninterrupted work
+    setShowInlineBox(false);
     setIsGenerativeFillMode(false);
     setSelectionBounds(null);
     setMaskDataUrl(null);
+    setInlineBoxPosition(null);
     setIsFillGenerating(true);
 
     // Background processing
@@ -856,6 +859,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${prompt}`;
         formData.append("prompt", fullPrompt);
         formData.append("modelId", modelId);
+        console.log('[CanvasStage] Sending generative fill request with model:', modelId, 'prompt:', fullPrompt);
         formData.append("variationId", effectiveVariationId);
         formData.append(
           "selectionBounds",
@@ -894,7 +898,15 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             ? JSON.stringify(errorData.details)
             : "";
           console.error("Server error details:", errorData);
-          throw new Error(`${errorMessage} ${errorDetails}`);
+          
+          // Show error toast and return immediately
+          toast({
+            title: "Error",
+            description: "Something went wrong. Please try again.",
+            variant: "destructive",
+          });
+          setIsFillGenerating(false);
+          return;
         }
 
         const data = await response.json();
@@ -948,23 +960,38 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
         // Start polling for completion in background
         if (newVariationId) {
-          await pollVariationCompletion(
-            task._id!,
-            newVariationId,
-            loadSession,
-            () => useClickatronStore.getState().task,
-            () =>
-              window.dispatchEvent(new CustomEvent("clickatron-usage-updated")),
-            2000,
-            abortControllerRef.current?.signal,
-          ).catch((err) => {
+          try {
+            await pollVariationCompletion(
+              task._id!,
+              newVariationId,
+              loadSession,
+              () => useClickatronStore.getState().task,
+              () =>
+                window.dispatchEvent(new CustomEvent("clickatron-usage-updated")),
+              2000,
+              abortControllerRef.current?.signal,
+            );
+
+            // Show success toast after successful generation
+            toast({
+              title: "Success",
+              description: "Generative fill completed successfully",
+            });
+          } catch (err) {
             if (err.message !== "Polling aborted") {
               console.error(
                 "Polling error in handleGenerativeFillGenerate:",
                 err,
               );
+
+              // Show error toast for generation failure
+              toast({
+                title: "Error",
+                description: "Something went wrong. Please try again.",
+                variant: "destructive",
+              });
             }
-          });
+          }
         }
       } catch (err) {
         console.error("Generative fill background task failed:", err);
@@ -984,8 +1011,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           setActiveVariationId(effectiveVariationId);
         }
 
-        // Show error
-        alert(err instanceof Error ? err.message : String(err));
+        // Show error toast
+        toast({
+          title: "Error",
+          description: "Something went wrong. Please try again.",
+          variant: "destructive",
+        });
       } finally {
         // Ensure loader is stopped
         setIsFillGenerating(false);
@@ -1356,11 +1387,11 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           <div className="flex-1 flex items-center justify-center overflow-hidden relative h-full">
             {/* Canvas Actions - Top Center - Only show for completed variations */}
             {activeVariation?.status === "completed" && (
-              <div 
+              <div
                 className="absolute top-6 left-1/2 transform -translate-x-1/2 z-20"
                 onClick={(e) => {
-                  e.stopPropagation(); // Prevent triggering canvas click
-                  handleCanvasClickOutside(); // Deselect tools when clicking on canvas actions
+                  e.stopPropagation();
+                  handleCanvasClickOutside();
                 }}
               >
                 <CanvasActions
@@ -1368,11 +1399,36 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   onZoomOut={() => imageRef.current?.zoomOut(0.3)}
                   onResetZoom={() => imageRef.current?.resetTransform()}
                   onDownload={(e) => {
-                    e?.stopPropagation?.(); // Prevent triggering canvas click
-                    handleCanvasClickOutside(); // Deselect tools
+                    e?.stopPropagation?.();
+                    handleCanvasClickOutside();
                     handleDownload();
                   }}
-                  // onShare={() => console.log("Share")}
+                  onGenerativeFill={(mode, e) => {
+                    e?.stopPropagation?.();
+                    handleCanvasClickOutside();
+
+                    if (mode === "rectangle" || mode === "lasso") {
+                      // User clicked Rectangle or Lasso in toolbar
+                      setSelectionMode(mode);
+                      setIsGenerativeFillMode(true);
+                      setSelectionBounds(null);
+                      setMaskDataUrl(null);
+                      setInlineBoxPosition(null);
+                      setShowInlineBox(false);
+                    } else {
+                      // User clicked Wand2 button - toggle on/off
+                      const newMode = !isGenerativeFillMode;
+                      setIsGenerativeFillMode(newMode);
+                      setSelectionBounds(null);
+                      setMaskDataUrl(null);
+                      setInlineBoxPosition(null);
+                      setShowInlineBox(false);
+                      if (!newMode) {
+                        setSelectionMode("rectangle");
+                      }
+                    }
+                  }}
+                  isGenerativeFillActive={isGenerativeFillMode}
                 />
               </div>
             )}
@@ -1468,30 +1524,6 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                     </div>
                   )}
 
-                  {/* Generative Fill toggle */}
-                  {activeVariation.status === "completed" && (
-                    <div className="absolute top-4 right-4 z-[40]">
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation(); // Prevent triggering canvas click
-                          setIsGenerativeFillMode((prev) => !prev);
-                          setSelectionBounds(null);
-                          setMaskDataUrl(null);
-                          handleCanvasClickOutside(); // Deselect tools
-                        }}
-                        className={`${
-                          isGenerativeFillMode
-                            ? "bg-green-600 hover:bg-green-700"
-                            : "bg-purple-600 hover:bg-purple-700"
-                        } shadow-lg`}
-                      >
-                        ✨ Generative Fill
-                      </Button>
-                    </div>
-                  )}
-
                   <ImageDisplay
                     key={localActiveVariation}
                     ref={imageRef}
@@ -1551,38 +1583,52 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   {/* Selection overlay */}
                   {isGenerativeFillMode &&
                     activeVariation.status === "completed" &&
-                    imageDisplayDimensions && (
-                      <div className="absolute inset-0 pointer-events-none z-[50]">
-                        <div
-                          className={`absolute ${isFillPanelOpen ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"} transition-opacity duration-200`}
-                          style={{
-                            width: `${imageDisplayDimensions.width}px`,
-                            height: `${imageDisplayDimensions.height}px`,
-                            left: "50%",
-                            top: "50%",
-                            transform: "translate(-50%, -50%)",
+                    imageDisplayDimensions &&
+                    !showInlineBox && (
+                      <div className="absolute inset-0 z-[999]">
+                        <SelectionTool
+                          imageWidth={imageDisplayDimensions.width}
+                          imageHeight={imageDisplayDimensions.height}
+                          originalWidth={imageNaturalDimensions?.width}
+                          originalHeight={imageNaturalDimensions?.height}
+                          isActive={true}
+                          selectionMode={selectionMode}
+                          onSelectionModeChange={setSelectionMode}
+                          onSelectionComplete={(sel, maskUrl, position) => {
+                            setSelectionBounds(sel);
+                            setMaskDataUrl(maskUrl);
+                            if (position) {
+                              setInlineBoxPosition(position);
+                            }
+                            setShowInlineBox(true);
                           }}
-                        >
-                          <SelectionTool
-                            imageWidth={imageDisplayDimensions.width}
-                            imageHeight={imageDisplayDimensions.height}
-                            originalWidth={imageNaturalDimensions?.width}
-                            originalHeight={imageNaturalDimensions?.height}
-                            isActive={!isFillPanelOpen}
-                            onSelectionComplete={(sel, maskUrl) => {
-                              setSelectionBounds(sel);
-                              setMaskDataUrl(maskUrl);
-                              setIsFillPanelOpen(true);
-                            }}
-                            onCancel={() => {
-                              setIsGenerativeFillMode(false);
-                              setSelectionBounds(null);
-                              setMaskDataUrl(null);
-                            }}
-                          />
-                        </div>
+                          onCancel={() => {
+                            setIsGenerativeFillMode(false);
+                            setSelectionBounds(null);
+                            setMaskDataUrl(null);
+                            setInlineBoxPosition(null);
+                          }}
+                        />
                       </div>
                     )}
+
+                  {/* Inline Generative Fill Box */}
+                  {showInlineBox && inlineBoxPosition && imageDisplayDimensions && (
+                    <GenerativeFillInline
+                      position={inlineBoxPosition}
+                      onGenerate={handleGenerativeFillGenerate}
+                      onCancel={() => {
+                        setShowInlineBox(false);
+                        setIsGenerativeFillMode(false);
+                        setSelectionBounds(null);
+                        setMaskDataUrl(null);
+                        setInlineBoxPosition(null);
+                      }}
+                      isGenerating={isFillGenerating}
+                      imageWidth={imageDisplayDimensions.width}
+                      imageHeight={imageDisplayDimensions.height}
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -1764,12 +1810,6 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           </div>
         )}
       </div>
-      <GenerativeFillPanel
-        isOpen={isFillPanelOpen}
-        onClose={() => setIsFillPanelOpen(false)}
-        onGenerate={handleGenerativeFillGenerate}
-        isGenerating={isFillGenerating}
-      />
     </motion.div>
   );
 }

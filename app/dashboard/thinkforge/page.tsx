@@ -241,24 +241,23 @@ export default function ThinkForgeLanding() {
 		}
 	}, [briefLoading, generateIdeas]);
 
-	useEffect(() => {
-		const handleMouseMove = (e: MouseEvent) => {
-			const threshold = 12;
-			if (window.innerWidth - e.clientX < threshold) {
-				if (!libraryOpen) {
-					if (edgeHoverTimeout.current) clearTimeout(edgeHoverTimeout.current);
-					edgeHoverTimeout.current = setTimeout(() => setLibraryOpen(true), 120);
-				}
-			}
-		};
-		window.addEventListener('mousemove', handleMouseMove);
-		return () => window.removeEventListener('mousemove', handleMouseMove);
-	}, [libraryOpen]);
+	// Edge hover library trigger REMOVED — Library now only opens via the Dock button.
+	// (The old code auto-opened the library when hovering near the right edge of the screen)
 
 	const handleSelectIdea = async (idea: IdeaCardData) => {
-		setSelectedIdea(idea);
-		setIdeationPhase('SELECTED');
-		// Do NOT create backend session here; session creation will occur on entering SCRIPT phase (Scripting Mode)
+		// Auto-generate a session name from the idea if not present
+		const sessionName = idea.sessionName || (idea.idea || 'New Session').split('–')[0].trim().slice(0, 40);
+		const ideaWithName = { ...idea, sessionName };
+		setSelectedIdea(ideaWithName);
+		// SKIP the session settings screen — go directly to the script editor
+		try { await session.closeSession(); } catch (err) { console.warn('[ThinkForge] closeSession warning:', err); }
+		scriptHook.resetSessionState();
+		setPendingSessionId(null);
+		setWorkspaceMode('scripting');
+		setIdeationPhase('PROMPT');
+		setIdeas([]);
+		setHasSubmitted(false);
+		setPrompt("");
 	};
 
 	const handleProceedToScript = async (updatedIdea?: IdeaCardData) => {
@@ -759,11 +758,11 @@ export default function ThinkForgeLanding() {
 					setIdeationPhase('PROMPT');
 					setWorkspaceMode('ideation');
 				}}
-			onScriptCreated={(scriptId) => {
-				setActiveScriptId(scriptId);
-				setTabsRefreshCounter(c => c + 1);
-				scriptHook.resetSessionState();
-			}}
+				onScriptCreated={(scriptId) => {
+					setActiveScriptId(scriptId);
+					setTabsRefreshCounter(c => c + 1);
+					scriptHook.resetSessionState();
+				}}
 				onSwitchScript={async (scriptId) => {
 					if (!activeSessionId) return;
 					try {
