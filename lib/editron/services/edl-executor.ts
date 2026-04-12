@@ -49,6 +49,102 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+// ─── Frame Snapping Helpers ─────────────────────────────────────
+// Decision frames from Unified Intelligence may not align with actual clip
+// positions due to pacing shifts, sub-shot splitting, or other overlay
+// modifications that happen between decision generation and EDL execution.
+// These helpers snap decision frames to the nearest actual clip positions.
+
+interface ClipBoundaryMatch {
+  /** The clip boundary frame (end of clipA / start of clipB) */
+  boundaryFrame: number;
+  /** Clip ending at/before the boundary */
+  clipA: Overlay;
+  /** Clip starting at/after the boundary */
+  clipB: Overlay;
+  /** Drift in frames between decision.frame and actual boundary */
+  drift: number;
+}
+
+/**
+ * Find the nearest clip boundary to a decision frame.
+ * Used by applyTransition to snap transition placement to actual clip edges.
+ */
+function snapToClipBoundary(
+  decisionFrame: number,
+  overlays: Overlay[],
+  maxTolerance: number = 45,
+): ClipBoundaryMatch | null {
+  const visualOverlays = overlays
+    .filter(o => o.type === 'video' || o.type === 'image')
+    .sort((a, b) => a.from - b.from);
+
+  let best: ClipBoundaryMatch | null = null;
+
+  for (let i = 0; i < visualOverlays.length - 1; i++) {
+    const a = visualOverlays[i];
+    const b = visualOverlays[i + 1];
+    const boundary = a.from + a.durationInFrames;
+    const drift = Math.abs(boundary - decisionFrame);
+
+    if (drift <= maxTolerance && (!best || drift < best.drift)) {
+      best = { boundaryFrame: boundary, clipA: a, clipB: b, drift };
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Find the video overlay that contains a given frame, with tolerance
+ * for small frame drift. If exact containment fails, checks ±tolerance
+ * frames and returns the nearest containing clip.
+ */
+function findClipAtFrame(
+  decisionFrame: number,
+  overlays: Overlay[],
+  tolerance: number = 15,
+): { clip: Overlay; snappedFrame: number; drift: number } | null {
+  // Try exact containment first
+  const exact = overlays.find(o =>
+    o.type === 'video' &&
+    o.from <= decisionFrame &&
+    o.from + o.durationInFrames > decisionFrame,
+  );
+  if (exact) return { clip: exact, snappedFrame: decisionFrame, drift: 0 };
+
+  // Try with tolerance — find nearest clip that contains decisionFrame ± tolerance
+  let bestClip: Overlay | null = null;
+  let bestDrift = Infinity;
+  let bestFrame = decisionFrame;
+
+  for (const o of overlays) {
+    if (o.type !== 'video') continue;
+    const clipStart = o.from;
+    const clipEnd = o.from + o.durationInFrames;
+
+    // Check if decisionFrame is just outside this clip
+    if (decisionFrame < clipStart && clipStart - decisionFrame <= tolerance) {
+      const drift = clipStart - decisionFrame;
+      if (drift < bestDrift) {
+        bestDrift = drift;
+        bestClip = o;
+        bestFrame = clipStart + 1; // Snap just inside clip start
+      }
+    } else if (decisionFrame >= clipEnd && decisionFrame - clipEnd < tolerance) {
+      const drift = decisionFrame - clipEnd + 1;
+      if (drift < bestDrift) {
+        bestDrift = drift;
+        bestClip = o;
+        bestFrame = clipEnd - 1; // Snap just inside clip end
+      }
+    }
+  }
+
+  if (bestClip) return { clip: bestClip, snappedFrame: bestFrame, drift: bestDrift };
+  return null;
+}
+
 // ─── Types ───────────────────────────────────────────────────────
 
 export interface ExecutionResult {
@@ -315,34 +411,18 @@ function applyTransition(
     return null;
   }
 
-  // Find the two clips at this boundary (clip A ends, clip B starts)
-  const visualOverlays = overlays
-    .filter(o => o.type === 'video' || o.type === 'image')
-    .sort((a, b) => a.from - b.from);
-
-  // Find clip A (ends near decision.frame) and clip B (starts near decision.frame)
-  let clipA: any = null;
-  let clipB: any = null;
-  let bestDist = Infinity;
-
-  for (let i = 0; i < visualOverlays.length - 1; i++) {
-    const a = visualOverlays[i];
-    const b = visualOverlays[i + 1];
-    const boundary = a.from + a.durationInFrames;
-    const dist = Math.abs(boundary - decision.frame);
-    if (dist < bestDist && dist <= 30) {
-      bestDist = dist;
-      clipA = a;
-      clipB = b;
-    }
-  }
-
-  if (!clipA || !clipB) {
-    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — no clip boundary found within 30 frames`);
+  // Snap decision frame to nearest actual clip boundary (handles pacing drift)
+  const boundaryMatch = snapToClipBoundary(decision.frame, overlays, 45);
+  if (!boundaryMatch) {
+    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — no clip boundary found within 45 frames`);
     return null;
   }
-
-  const anchorFrame = clipA.from + clipA.durationInFrames;
+  if (boundaryMatch.drift > 0) {
+    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: snapped to boundary ${boundaryMatch.boundaryFrame} (drift: ${boundaryMatch.drift} frames)`);
+  }
+  const clipA = boundaryMatch.clipA;
+  const clipB = boundaryMatch.clipB;
+  const anchorFrame = boundaryMatch.boundaryFrame;
 
   // Create proper TransitionOverlay tile (System A — editor renders these)
   const transitionOverlay = {
@@ -421,7 +501,7 @@ function applyTransition(
     }
   }
 
-  console.log(`[EDL-Exec] Transition APPLIED: ${transType} tile at frame ${anchorFrame} (clipA=${clipA.id}, clipB=${clipB.id}, dist=${bestDist})`);
+  console.log(`[EDL-Exec] Transition APPLIED: ${transType} tile at frame ${anchorFrame} (clipA=${clipA.id}, clipB=${clipB.id}, drift=${boundaryMatch.drift})`);
   return { created: 1, modified: 0 };
 }
 
@@ -430,13 +510,16 @@ function applyZoom(
   overlays: Overlay[],
   analyses?: Map<string, any>,
 ): { created: number; modified: number } | null {
-  // Find the video overlay active at this frame
-  const videoOverlay = overlays.find(o =>
-    o.type === 'video' &&
-    o.from <= decision.frame &&
-    o.from + o.durationInFrames > decision.frame,
-  );
-  if (!videoOverlay) return null;
+  // Find the video overlay at this frame (with tolerance for pacing drift)
+  const clipMatch = findClipAtFrame(decision.frame, overlays, 15);
+  if (!clipMatch) {
+    console.log(`[EDL-Exec] Zoom at frame ${decision.frame}: SKIPPED — no video clip found within 15 frames`);
+    return null;
+  }
+  if (clipMatch.drift > 0) {
+    console.log(`[EDL-Exec] Zoom at frame ${decision.frame}: snapped to clip at ${clipMatch.clip.from} (drift: ${clipMatch.drift} frames)`);
+  }
+  const videoOverlay = clipMatch.clip;
 
   // Validate zoom placement against 5-Track motion data when available.
   // Reject zoom decisions not near a motion peak or natural cut point (±10 frames).
@@ -534,12 +617,9 @@ function applySpeedChange(
   decision: EditDecision,
   overlays: Overlay[],
 ): { created: number; modified: number } | null {
-  const videoOverlay = overlays.find(o =>
-    o.type === 'video' &&
-    o.from <= decision.frame &&
-    o.from + o.durationInFrames > decision.frame,
-  ) as any;
-  if (!videoOverlay) return null;
+  const clipMatch = findClipAtFrame(decision.frame, overlays, 15);
+  if (!clipMatch) return null;
+  const videoOverlay = clipMatch.clip as any;
 
   const localFrame = decision.frame - videoOverlay.from;
   const duration = decision.durationFrames || 30;
@@ -581,12 +661,9 @@ function applyFade(
   decision: EditDecision,
   overlays: Overlay[],
 ): { created: number; modified: number } | null {
-  const overlay = overlays.find(o =>
-    (o.type === 'video' || o.type === 'image') &&
-    o.from <= decision.frame &&
-    o.from + o.durationInFrames > decision.frame,
-  );
-  if (!overlay) return null;
+  const clipMatch = findClipAtFrame(decision.frame, overlays, 15);
+  if (!clipMatch) return null;
+  const overlay = clipMatch.clip;
 
   const localFrame = decision.frame - overlay.from;
   const duration = decision.durationFrames || 20;
@@ -808,11 +885,19 @@ function applyGraphic(
     }
   }
 
+  // Snap graphic to nearest containing clip (handles pacing drift).
+  // If decision.frame falls in a gap between clips, snap to nearest clip start.
+  const graphicClipMatch = findClipAtFrame(decision.frame, overlays, 20);
+  const snappedGraphicFrame = graphicClipMatch ? graphicClipMatch.snappedFrame : decision.frame;
+  if (graphicClipMatch && graphicClipMatch.drift > 0) {
+    console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: snapped to ${snappedGraphicFrame} (drift: ${graphicClipMatch.drift} frames)`);
+  }
+
   const graphicOverlay = {
     // Deterministic ID: stable across render passes, unique per decision index
     id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
     type: 'html-scene' as const,
-    from: decision.frame,
+    from: snappedGraphicFrame,
     durationInFrames: duration,
     // Row 1 (above video on row 2, below captions-exception at z-index 95).
     // NOTE: row 1 is canonically BGM but BGM is audio-only (no visual collision).
