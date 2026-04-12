@@ -12,12 +12,9 @@
 
 import type { SceneEditDirections, GlobalEditDirections } from './schemas/storyboard';
 import { getFilterPresetById, resolveFilterFromDescription } from '@/lib/editron/data/filter-presets';
-import {
-  buildTransitionOverlay,
-  normalizeTransitionType,
-  DEFAULT_TRANSITION_FRAMES,
-  type TransitionType,
-} from '@/lib/editron/data/transition-templates';
+// Transition imports removed — transitions now handled exclusively by Director/EDL
+// (see comment in section 3 below). Old imports: buildTransitionOverlay,
+// normalizeTransitionType, DEFAULT_TRANSITION_FRAMES, TransitionType.
 import { ROW } from './scene-to-editron';
 
 interface SceneFrameInfo {
@@ -146,97 +143,23 @@ export async function applyEditDirections(
     }
   }
 
-  // ─── 3. Apply clip-overlap transitions from script directions ───
-  // Production transitions: modify adjacent clip overlays directly
-  // (extend outgoing, start incoming early, add keyframe tracks for blending)
-  const { calculateTransition, TRANSITIONS } = await import('@/lib/editron/data/transition-system');
-
-  for (let i = 1; i < scenes.length; i++) {
-    const scene = scenes[i];
-    const prevScene = scenes[i - 1];
-    const prevFrameInfo = sceneFrameMap.find(f => f.sceneIndex === prevScene.sceneIndex);
-    const currFrameInfo = sceneFrameMap.find(f => f.sceneIndex === scene.sceneIndex);
-    if (!prevFrameInfo || !currFrameInfo) continue;
-
-    // Determine transition type: per-scene > global default > hard-cut
-    let transId = 'hard-cut';
-    let transDurationMs: number | undefined;
-
-    if (scene.editDirections?.transition) {
-      transId = normalizeTransitionType(scene.editDirections.transition.type);
-      transDurationMs = scene.editDirections.transition.durationMs;
-    } else if (globalDirections?.defaultTransition) {
-      transId = normalizeTransitionType(globalDirections.defaultTransition.type);
-      transDurationMs = globalDirections.defaultTransition.durationMs;
-    }
-
-    const transDef = TRANSITIONS[transId];
-    if (!transDef || !transDef.hasVisualOverlap) continue;
-
-    const overlapFrames = transDurationMs
-      ? Math.round((transDurationMs / 1000) * fps)
-      : transDef.defaultDurationFrames;
-
-    // Find the actual video overlays for these scenes
-    const outgoingVideo = overlays.find(o =>
-      o.type === 'video' && o.from >= prevFrameInfo.fromFrame &&
-      o.from < prevFrameInfo.fromFrame + prevFrameInfo.durationFrames
-    );
-    const incomingVideo = overlays.find(o =>
-      o.type === 'video' && o.from >= currFrameInfo.fromFrame &&
-      o.from < currFrameInfo.fromFrame + currFrameInfo.durationFrames
-    );
-
-    if (!outgoingVideo || !incomingVideo) continue;
-
-    const result = calculateTransition(
-      transId,
-      { from: outgoingVideo.from, durationInFrames: outgoingVideo.durationInFrames, width, height },
-      { from: incomingVideo.from, durationInFrames: incomingVideo.durationInFrames },
-      overlapFrames,
-    );
-
-    if (result) {
-      // Modify outgoing clip — extend duration + add fade-out keyframes
-      outgoingVideo.durationInFrames = result.outgoingOverlayUpdate.durationInFrames;
-      // MERGE keyframes: for each property, combine existing + new into one track.
-      // This prevents the incoming fade-in from being overwritten by the outgoing fade-out
-      // on middle clips that participate in TWO transitions.
-      const mergedOutTracks = [...(outgoingVideo.keyframeTracks || [])];
-      for (const newTrack of result.outgoingOverlayUpdate.keyframeTracks) {
-        const existingIdx = mergedOutTracks.findIndex((t: any) => t.property === newTrack.property);
-        if (existingIdx >= 0) {
-          // Merge: keep existing keyframes (e.g. incoming fade-in) + add new ones (outgoing fade-out)
-          const existing = mergedOutTracks[existingIdx];
-          const mergedKeyframes = [...existing.keyframes, ...newTrack.keyframes]
-            .sort((a: any, b: any) => a.frame - b.frame);
-          mergedOutTracks[existingIdx] = { ...existing, keyframes: mergedKeyframes };
-        } else {
-          mergedOutTracks.push(newTrack);
-        }
-      }
-      outgoingVideo.keyframeTracks = mergedOutTracks;
-
-      // Modify incoming clip — start earlier + extend duration + add fade-in keyframes
-      incomingVideo.from = result.incomingOverlayUpdate.from;
-      incomingVideo.durationInFrames = result.incomingOverlayUpdate.durationInFrames;
-      const mergedInTracks = [...(incomingVideo.keyframeTracks || [])];
-      for (const newTrack of result.incomingOverlayUpdate.keyframeTracks) {
-        const existingIdx = mergedInTracks.findIndex((t: any) => t.property === newTrack.property);
-        if (existingIdx >= 0) {
-          const existing = mergedInTracks[existingIdx];
-          const mergedKeyframes = [...newTrack.keyframes, ...existing.keyframes]
-            .sort((a: any, b: any) => a.frame - b.frame);
-          mergedInTracks[existingIdx] = { ...existing, keyframes: mergedKeyframes };
-        } else {
-          mergedInTracks.push(newTrack);
-        }
-      }
-      incomingVideo.keyframeTracks = mergedInTracks;
-
-      console.log(`[EditDirections] Applied ${transDef.name} transition between scene ${prevScene.sceneIndex}→${scene.sceneIndex} (${overlapFrames} frames overlap)`);
-    }
-  }
+  // ─── 3. Transitions — DISABLED (single source of truth: Director/EDL) ────
+  // OLD: edit-direction-applier placed clip-overlap transitions here by modifying
+  // adjacent clip opacity keyframes. The Director's EDL executor ALSO placed
+  // TransitionOverlay tiles on row 5. Neither system detected the other's work,
+  // causing double transitions (A3.5.1/A3.5.2).
+  //
+  // NEW: All transitions are handled by the Director agent (step 6:
+  // insert_transition_overlays_by_score). The Director already reads script
+  // editDirections.transition hints per scene and uses them as the transition
+  // type. This gives us:
+  //   - Single source of truth (TransitionOverlay tiles on row 5)
+  //   - Visible + editable transitions in the editor timeline
+  //   - AI-intelligent placement based on 5-track analysis
+  //   - Script intent preserved via editDirections.transition hints
+  //
+  // The clip-overlap keyframe approach is removed entirely — it was invisible
+  // in the editor and caused the duplicate bug.
 
   // ─── 4. Apply camera/motion keyframes from script directions ──
   // Convert cameraRig and pacing directions into actual keyframe tracks
