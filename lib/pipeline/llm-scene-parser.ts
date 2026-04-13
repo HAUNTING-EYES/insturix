@@ -116,14 +116,15 @@ export async function parseScriptWithLLM(
   // OLD: hardcoded 'gemini-2.5-flash'. NEW: configurable via env var LLM_PARSER_MODEL.
   const model = (google as any)(DEFAULT_CONFIG.aiModels.sceneParserModel, { structuredOutputs: true });
 
-  // HOTFIX 2026-04-08: hard 90s cap so a stuck Gemini call fails fast and the
-  // regex fallback in /export-for-editron/route.ts:119 kicks in, instead of
-  // hanging the whole function until Vercel kills it at 300s (504 timeout).
+  // Timeout: 120s cap. The ParseResultSchema is deeply nested (80+ Zod fields)
+  // and structured output on Gemini 2.5 Flash can be slow with complex schemas.
+  // 90s was too tight — caused regex fallback on normal scripts.
+  // 120s gives breathing room while staying well under Vercel's 300s limit.
   const { object } = await generateObject({
     model,
     schema: ParseResultSchema,
     temperature: 0.3,
-    abortSignal: AbortSignal.timeout(90_000),
+    abortSignal: AbortSignal.timeout(120_000),
     prompt: `You are a senior video production director. Decompose a client script into discrete scenes, each representing ONE AI video generation call.
 
 ## INPUT CONTRACT
