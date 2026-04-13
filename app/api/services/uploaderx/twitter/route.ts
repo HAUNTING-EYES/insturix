@@ -396,7 +396,16 @@ async function twitterApiRequest(
             body: mediaChunk,
         });
 
-        const data = await response.json();
+        let data: any = {};
+        const responseText = await response.text();
+        if (responseText) {
+            try {
+                data = JSON.parse(responseText);
+            } catch (parseError) {
+                console.warn("⚠️ Failed to parse Twitter API response as JSON:", parseError);
+                data = {};
+            }
+        }
 
         if (response.status >= 400) {
             console.error("❌ Twitter API error:", data);
@@ -407,7 +416,12 @@ async function twitterApiRequest(
     }
 
     // For other commands (INIT, FINALIZE, STATUS), use query params
-    const fullUrl = `${url}?${queryParams.toString()}`;
+    const queryParams = new URL(url);
+    for (const [key, value] of Object.entries(params)) {
+        queryParams.searchParams.set(key, value);
+    }
+
+    const fullUrl = queryParams.toString();
 
     const response = await fetch(fullUrl, {
         method,
@@ -416,7 +430,16 @@ async function twitterApiRequest(
         },
     });
 
-    const data = await response.json();
+    let data: any = {};
+    const responseText = await response.text();
+    if (responseText) {
+        try {
+            data = JSON.parse(responseText);
+        } catch (parseError) {
+            console.warn("⚠️ Failed to parse Twitter API response as JSON:", parseError);
+            data = {};
+        }
+    }
 
     if (response.status >= 400) {
         console.error("❌ Twitter API error:", data);
@@ -448,7 +471,16 @@ async function pollMediaStatus(mediaId: string, accessToken: string): Promise<st
             },
         });
 
-        const data = await response.json();
+        let data: any = {};
+        const responseText = await response.text();
+        if (responseText) {
+            try {
+                data = JSON.parse(responseText);
+            } catch (parseError) {
+                console.warn("⚠️ Failed to parse Twitter API response as JSON:", parseError);
+                data = {};
+            }
+        }
 
         if (data.error) {
             console.error("❌ Media STATUS check failed:", data.error);

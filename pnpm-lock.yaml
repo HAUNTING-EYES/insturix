@@ -14,18 +14,6 @@ importers:
       '@aws-sdk/client-ses':
         specifier: ^3.934.0
         version: 3.936.0
-<<<<<<< HEAD
-=======
-      '@blocknote/core':
-        specifier: ^0.42.3
-        version: 0.42.3(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))(@types/hast@3.0.4)(highlight.js@11.11.1)(lowlight@3.3.0)(refractor@5.0.0)
-      '@blocknote/mantine':
-        specifier: ^0.42.3
-        version: 0.42.3(@floating-ui/dom@1.7.4)(@mantine/core@8.3.18(@mantine/hooks@8.3.18(react@19.1.2))(@types/react@19.2.6)(react-dom@19.1.2(react@19.1.2))(react@19.1.2))(@mantine/hooks@8.3.18(react@19.1.2))(@mantine/utils@6.0.22(react@19.1.2))(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))(@types/hast@3.0.4)(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(highlight.js@11.11.1)(lowlight@3.3.0)(react-dom@19.1.2(react@19.1.2))(react@19.1.2)(refractor@5.0.0)
-      '@blocknote/react':
-        specifier: ^0.42.3
-        version: 0.42.3(@floating-ui/dom@1.7.4)(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))(@types/hast@3.0.4)(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(highlight.js@11.11.1)(lowlight@3.3.0)(react-dom@19.1.2(react@19.1.2))(react@19.1.2)(refractor@5.0.0)
->>>>>>> 0273bf02 (fix build error)
       '@clerk/elements':
         specifier: ^0.23.83
         version: 0.23.84(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(next@15.3.6(@babel/core@7.28.4)(@opentelemetry/api@1.9.0)(react-dom@19.1.2(react@19.1.2))(react@19.1.2))(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
@@ -76,20 +64,7 @@ importers:
         version: 1.1.0(@langchain/core@1.1.15(@opentelemetry/api@1.9.0)(openai@6.9.1(ws@8.18.3)(zod@4.1.12)))(react-dom@19.1.2(react@19.1.2))(react@19.1.2)(zod@4.1.12)
       '@langchain/openai':
         specifier: ^1.1.2
-<<<<<<< HEAD
         version: 1.1.2(@langchain/core@1.1.15(@opentelemetry/api@1.9.0)(openai@6.9.1(ws@8.18.3)(zod@4.1.12)))(ws@8.18.3)
-=======
-        version: 1.1.2(@langchain/core@1.0.6(@opentelemetry/api@1.9.0)(openai@6.9.1(ws@8.18.3)(zod@4.1.12)))(ws@8.18.3)
-      '@mantine/core':
-        specifier: ^8.3.4
-        version: 8.3.18(@mantine/hooks@8.3.18(react@19.1.2))(@types/react@19.2.6)(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      '@mantine/hooks':
-        specifier: ^8.3.4
-        version: 8.3.18(react@19.1.2)
-      '@mantine/utils':
-        specifier: ^6.0.22
-        version: 6.0.22(react@19.1.2)
->>>>>>> 0273bf02 (fix build error)
       '@number-flow/react':
         specifier: ^0.5.10
         version: 0.5.10(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
@@ -265,8 +240,8 @@ importers:
         specifier: ^3.9.1
         version: 3.9.1
       '@types/uuid':
-        specifier: ^11.0.0
-        version: 11.0.0
+        specifier: ^10.0.0
+        version: 10.0.0
       '@upstash/qstash':
         specifier: ^2.8.4
         version: 2.8.4
@@ -327,18 +302,6 @@ importers:
       file-type:
         specifier: ^21.1.1
         version: 21.1.1
-<<<<<<< HEAD
-=======
-      firebase:
-        specifier: ^12.6.0
-        version: 12.6.0
-      firebase-admin:
-        specifier: ^13.6.0
-        version: 13.6.0
-      form-data:
-        specifier: ^4.0.5
-        version: 4.0.5
->>>>>>> 0273bf02 (fix build error)
       formik:
         specifier: ^2.4.9
         version: 2.4.9(@types/react@19.2.6)(react@19.1.2)
@@ -414,15 +377,6 @@ importers:
       react:
         specifier: ^19.1.2
         version: 19.1.2
-      react-best-gradient-color-picker:
-        specifier: ^3.0.14
-        version: 3.0.14(@types/react@19.2.6)(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      react-colorful:
-        specifier: ^5.6.1
-        version: 5.6.1(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      react-country-state-city:
-        specifier: ^1.1.12
-        version: 1.1.12(react@19.1.2)
       react-dom:
         specifier: ^19.1.2
         version: 19.1.2(react@19.1.2)
@@ -435,9 +389,6 @@ importers:
       react-hot-toast:
         specifier: ^2.6.0
         version: 2.6.0(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      react-hotkeys-hook:
-        specifier: ^5.2.1
-        version: 5.2.1(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
       react-icons:
         specifier: ^5.5.0
         version: 5.5.0(react@19.1.2)
@@ -2207,15 +2158,6 @@ packages:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
 
-<<<<<<< HEAD
-=======
-  '@floating-ui/react@0.27.16':
-    resolution: {integrity: sha512-9O8N4SeG2z++TSM8QA/KTeKFBVCNEz/AGS7gWPJf6KFRzmRWixFRnCnkPHRDwSVZW6QPDO6uT0P2SpWNKCc9/g==}
-    peerDependencies:
-      react: '>=17.0.0'
-      react-dom: '>=17.0.0'
-
->>>>>>> 0273bf02 (fix build error)
   '@floating-ui/utils@0.2.10':
     resolution: {integrity: sha512-aGTxbpbg8/b5JfU1HXSrbH3wXZuLPJcNEcZQFMxLs3oSzgtVu6nFPkbbGGUvBcUjKV2YyB9Wxxabo+HEH9tcRQ==}
 
@@ -2565,27 +2507,8 @@ packages:
     peerDependencies:
       '@langchain/core': ^1.0.0
 
-<<<<<<< HEAD
   '@mediapipe/tasks-vision@0.10.17':
     resolution: {integrity: sha512-CZWV/q6TTe8ta61cZXjfnnHsfWIdFhms03M9T7Cnd5y2mdpylJM0rF1qRq+wsQVRMLz1OYPVEBU9ph2Bx8cxrg==}
-=======
-  '@mantine/core@8.3.18':
-    resolution: {integrity: sha512-9tph1lTVogKPjTx02eUxDUOdXacPzK62UuSqb4TdGliI54/Xgxftq0Dfqu6XuhCxn9J5MDJaNiLDvL/1KRkYqA==}
-    peerDependencies:
-      '@mantine/hooks': 8.3.18
-      react: ^18.x || ^19.x
-      react-dom: ^18.x || ^19.x
-
-  '@mantine/hooks@8.3.18':
-    resolution: {integrity: sha512-QoWr9+S8gg5050TQ06aTSxtlpGjYOpIllRbjYYXlRvZeTsUqiTbVfvQROLexu4rEaK+yy9Wwriwl9PMRgbLqPw==}
-    peerDependencies:
-      react: ^18.x || ^19.x
-
-  '@mantine/utils@6.0.22':
-    resolution: {integrity: sha512-RSKlNZvxhMCkOFZ6slbYvZYbWjHUM+PxDQnupIOxIdsTZQQjx/BFfrfJ7kQFOP+g7MtpOds8weAetEs5obwMOQ==}
-    peerDependencies:
-      react: '>=16.8.0'
->>>>>>> 0273bf02 (fix build error)
 
   '@mongodb-js/saslprep@1.3.0':
     resolution: {integrity: sha512-zlayKCsIjYb7/IdfqxorK5+xUMyi4vOKcFy10wKJYc63NSdKI8mNME+uJqfatkPmOSMMUiojrL58IePKBm3gvQ==}
@@ -3509,6 +3432,7 @@ packages:
     resolution: {integrity: sha512-+FV9ejMUx3qIYLS7igrF6pOdptcSArnC2nVz2KAky9qGrM7Mb1NZ9eNuBTMXbr8L1QnegyAVHhRoXBJCiIXwvQ==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@remotion/compositor-linux-arm64-musl@4.0.376':
     resolution: {integrity: sha512-05/Nd/fpdkdahOigD1gVEPV2SgCvhB4HnPIVngRRJobwSbrjuhsbcAId+v75UWK05UljY3qOBYslD1uXhRdjOw==}
@@ -3520,6 +3444,7 @@ packages:
     resolution: {integrity: sha512-spQEWZP5QfHsjxvGpgJDWPfPIc+6maIZF2Pv+fDu+Cw54fy1ZzEXB3uSJEaQ2P7y/mKZELtK1Zk2GaAOlfPVeQ==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@remotion/compositor-linux-x64-gnu@4.0.376':
     resolution: {integrity: sha512-nRqobKX1Z9D6rCw9x7vNknIAwyTL2M4ebNDjaiO2bhoW4IEhFtDDDG1BkunuJ+JWyYXxXbB7ErDthpieF2IRsg==}
@@ -3531,6 +3456,7 @@ packages:
     resolution: {integrity: sha512-CqG2T31qcm4azk/3yrb1tWpOxX0R+etJr2vrJhvpTaNR+i6Z+Jp/mGBgCrSKdKsuPdTO/isLqo4BYehrg4YgRA==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@remotion/compositor-linux-x64-musl@4.0.376':
     resolution: {integrity: sha512-4VfGGQU2kCPeIxeltv4brLGiwTmXCVpVffxlrfquyyt41PYCb1NbCR1xisRUxKYYW2hv9bHA76gP0vvAOtQU6A==}
@@ -3542,6 +3468,7 @@ packages:
     resolution: {integrity: sha512-2AVSIcW2B2KYyks4Az34OOD/dFCgvYmbbOq3rMXwDYiSh02O/A94vjAWn6RaNefH/y/MdE93d76SbPS6rNpzpQ==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@remotion/compositor-win32-x64-msvc@4.0.376':
     resolution: {integrity: sha512-t+WvD1FoLuf0fmQmYQRqf/AQXpNFzE+umRc8pphnA4AP37TTVHVlcWpOXw4JbN7+cynZxyIlL8lKX12vpocLBg==}
@@ -3706,66 +3633,79 @@ packages:
     resolution: {integrity: sha512-Rn3n+FUk2J5VWx+ywrG/HGPTD9jXNbicRtTM11e/uorplArnXZYsVifnPPqNNP5BsO3roI4n8332ukpY/zN7rQ==}
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm-musleabihf@4.55.1':
     resolution: {integrity: sha512-grPNWydeKtc1aEdrJDWk4opD7nFtQbMmV7769hiAaYyUKCT1faPRm2av8CX1YJsZ4TLAZcg9gTR1KvEzoLjXkg==}
     cpu: [arm]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-arm64-gnu@4.55.1':
     resolution: {integrity: sha512-a59mwd1k6x8tXKcUxSyISiquLwB5pX+fJW9TkWU46lCqD/GRDe9uDN31jrMmVP3feI3mhAdvcCClhV8V5MhJFQ==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm64-musl@4.55.1':
     resolution: {integrity: sha512-puS1MEgWX5GsHSoiAsF0TYrpomdvkaXm0CofIMG5uVkP6IBV+ZO9xhC5YEN49nsgYo1DuuMquF9+7EDBVYu4uA==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-loong64-gnu@4.55.1':
     resolution: {integrity: sha512-r3Wv40in+lTsULSb6nnoudVbARdOwb2u5fpeoOAZjFLznp6tDU8kd+GTHmJoqZ9lt6/Sys33KdIHUaQihFcu7g==}
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-loong64-musl@4.55.1':
     resolution: {integrity: sha512-MR8c0+UxAlB22Fq4R+aQSPBayvYa3+9DrwG/i1TKQXFYEaoW3B5b/rkSRIypcZDdWjWnpcvxbNaAJDcSbJU3Lw==}
     cpu: [loong64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-ppc64-gnu@4.55.1':
     resolution: {integrity: sha512-3KhoECe1BRlSYpMTeVrD4sh2Pw2xgt4jzNSZIIPLFEsnQn9gAnZagW9+VqDqAHgm1Xc77LzJOo2LdigS5qZ+gw==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-ppc64-musl@4.55.1':
     resolution: {integrity: sha512-ziR1OuZx0vdYZZ30vueNZTg73alF59DicYrPViG0NEgDVN8/Jl87zkAPu4u6VjZST2llgEUjaiNl9JM6HH1Vdw==}
     cpu: [ppc64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-riscv64-gnu@4.55.1':
     resolution: {integrity: sha512-uW0Y12ih2XJRERZ4jAfKamTyIHVMPQnTZcQjme2HMVDAHY4amf5u414OqNYC+x+LzRdRcnIG1YodLrrtA8xsxw==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-riscv64-musl@4.55.1':
     resolution: {integrity: sha512-u9yZ0jUkOED1BFrqu3BwMQoixvGHGZ+JhJNkNKY/hyoEgOwlqKb62qu+7UjbPSHYjiVy8kKJHvXKv5coH4wDeg==}
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-s390x-gnu@4.55.1':
     resolution: {integrity: sha512-/0PenBCmqM4ZUd0190j7J0UsQ/1nsi735iPRakO8iPciE7BQ495Y6msPzaOmvx0/pn+eJVVlZrNrSh4WSYLxNg==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-gnu@4.55.1':
     resolution: {integrity: sha512-a8G4wiQxQG2BAvo+gU6XrReRRqj+pLS2NGXKm8io19goR+K8lw269eTrPkSdDTALwMmJp4th2Uh0D8J9bEV1vg==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-musl@4.55.1':
     resolution: {integrity: sha512-bD+zjpFrMpP/hqkfEcnjXWHMw5BIghGisOKPj+2NaNDuVT+8Ds4mPf3XcPHuat1tz89WRL+1wbcxKY3WSbiT7w==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-openbsd-x64@4.55.1':
     resolution: {integrity: sha512-eLXw0dOiqE4QmvikfQ6yjgkg/xDM+MdU9YJuP4ySTibXU0oAvnEWXt7UDJmD4UkYialMfOGFPJnIHSe/kdzPxg==}
@@ -4729,10 +4669,6 @@ packages:
 
   '@types/uuid@10.0.0':
     resolution: {integrity: sha512-7gqG38EyHgyP1S+7+xomFtL+ZNHcKv6DwNaCZmJmo1vgMugyF3TCnXVg4t1uk89mLNwnLtnY3TpOpCOyp1/xHQ==}
-
-  '@types/uuid@11.0.0':
-    resolution: {integrity: sha512-HVyk8nj2m+jcFRNazzqyVKiZezyhDKrGUA3jlEcg/nZ6Ms+qHwocba1Y/AaVaznJTAM9xpdFSh+ptbNrhOGvZA==}
-    deprecated: This is a stub types definition. uuid provides its own type definitions, so you do not need this installed.
 
   '@types/webidl-conversions@7.0.3':
     resolution: {integrity: sha512-CiJJvcRtIgzadHCYXw7dqEnMNRjhGZlYK05Mj9OyktqV8uVT8fD2BFOB7S1uwBE3Kj2Z+4UyPmFw/Ixgw/LAlA==}
@@ -7354,9 +7290,6 @@ packages:
   lodash.sortby@4.7.0:
     resolution: {integrity: sha512-HDWXG8isMntAyRF5vZ7xKuEvOhT4AhlRt/3czTSjvGUxjYCBVRQY48ViDHyfYz9VIoBkW4TMGQNapx+l3RUwdA==}
 
-  lodash.throttle@4.1.1:
-    resolution: {integrity: sha512-wIkUCfVKpVsWo3JSZlc+8MB5it+2AN5W8J7YVMST30UrvcQNZ1Okbj+rbVniijTWE6FGYy4XJq/rHkas8qJMLQ==}
-
   lodash@4.17.21:
     resolution: {integrity: sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==}
 
@@ -8635,27 +8568,6 @@ packages:
   razorpay@2.9.6:
     resolution: {integrity: sha512-zsHAQzd6e1Cc6BNoCNZQaf65ElL6O6yw0wulxmoG5VQDr363fZC90Mp1V5EktVzG45yPyNomNXWlf4cQ3622gQ==}
 
-  react-best-gradient-color-picker@3.0.14:
-    resolution: {integrity: sha512-UYY7PRNUWMAS02Migb4jGSFFo3jFkYIck8cKiJR4IJUermGq5s4dNoi/s5xVsgK0MKSV4j4cJxyOIoFuw7st4w==}
-    peerDependencies:
-      '@types/react': ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
-  react-colorful@5.6.1:
-    resolution: {integrity: sha512-1exovf0uGTGyq5mXQT0zgQ80uvj2PCwvF8zY1RN9/vbJVSjSo3fsB/4L3ObbF7u70NduSiK4xu4Y6q1MHoUGEw==}
-    peerDependencies:
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
-
-  react-country-state-city@1.1.12:
-    resolution: {integrity: sha512-9xOfUvm5uw5zZEjjNT3eooWvrJB08Hv1MITPYfgeQUttCHEpxbD/iqMzXNBF2g3Owc9MEnhrKCSpKn5DpTDHqg==}
-    peerDependencies:
-      react: '>=16'
-
   react-dom@19.1.2:
     resolution: {integrity: sha512-dEoydsCp50i7kS1xHOmPXq4zQYoGWedUsvqv9H6zdif2r7yLHygyfP9qou71TulRN0d6ng9EbRVsQhSqfUc19g==}
     peerDependencies:
@@ -8682,12 +8594,6 @@ packages:
     peerDependencies:
       react: '>=16'
       react-dom: '>=16'
-
-  react-hotkeys-hook@5.2.1:
-    resolution: {integrity: sha512-xbKh6zJxd/vJHT4Bw4+0pBD662Fk20V+VFhLqciCg+manTVO4qlqRqiwFOYelfHN9dBvWj9vxaPkSS26ZSIJGg==}
-    peerDependencies:
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
 
   react-icons@5.5.0:
     resolution: {integrity: sha512-MEFcXdkP3dLo8uumGI5xN3lDFNsRtrjbOEKDLD7yv76v4wpnEq2Lt2qeHaQOr34I/wPN3s3+N08WkQ+CW37Xiw==}
@@ -9356,12 +9262,6 @@ packages:
     peerDependencies:
       react: ^16.11.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-<<<<<<< HEAD
-=======
-  tabbable@6.3.0:
-    resolution: {integrity: sha512-EIHvdY5bPLuWForiR/AN2Bxngzpuwn1is4asboytXtpTgsArc+WmSJKVLlhdh71u7jFcryDqB2A8lQvj78MkyQ==}
-
->>>>>>> 0273bf02 (fix build error)
   tailwind-merge@3.4.0:
     resolution: {integrity: sha512-uSaO4gnW+b3Y2aWoWfFpX62vn2sR3skfhbjsEnaBI81WD1wBLlHZe5sWf0AqjksNdYTbGBEd0UasQMT3SNV15g==}
 
@@ -9452,9 +9352,6 @@ packages:
 
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
-
-  tinycolor2@1.4.2:
-    resolution: {integrity: sha512-vJhccZPs965sV/L2sU4oRQVAos0pQXwsvTLkWYdqJ+a8Q5kPFzJTuOFwy7UniPli44NKQGAglksjvOcpo95aZA==}
 
   tinyglobby@0.2.15:
     resolution: {integrity: sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ==}
@@ -11638,108 +11535,6 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.27.1
 
-<<<<<<< HEAD
-=======
-  '@blocknote/core@0.42.3(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))(@types/hast@3.0.4)(highlight.js@11.11.1)(lowlight@3.3.0)(refractor@5.0.0)':
-    dependencies:
-      '@emoji-mart/data': 1.2.1
-      '@shikijs/types': 3.13.0
-      '@tiptap/core': 3.11.0(@tiptap/pm@3.11.0)
-      '@tiptap/extension-bold': 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))
-      '@tiptap/extension-code': 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))
-      '@tiptap/extension-gapcursor': 3.11.0(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))
-      '@tiptap/extension-history': 3.11.0(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))
-      '@tiptap/extension-horizontal-rule': 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0)
-      '@tiptap/extension-italic': 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))
-      '@tiptap/extension-link': 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0)
-      '@tiptap/extension-paragraph': 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))
-      '@tiptap/extension-strike': 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))
-      '@tiptap/extension-text': 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))
-      '@tiptap/extension-underline': 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))
-      '@tiptap/pm': 3.11.0
-      emoji-mart: 5.6.0
-      fast-deep-equal: 3.1.3
-      hast-util-from-dom: 5.0.1
-      prosemirror-dropcursor: 1.8.2
-      prosemirror-highlight: 0.13.0(@shikijs/types@3.13.0)(@types/hast@3.0.4)(highlight.js@11.11.1)(lowlight@3.3.0)(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-transform@1.10.5)(prosemirror-view@1.41.3)(refractor@5.0.0)
-      prosemirror-model: 1.25.4
-      prosemirror-state: 1.4.4
-      prosemirror-tables: 1.8.1
-      prosemirror-transform: 1.10.5
-      prosemirror-view: 1.41.3
-      rehype-format: 5.0.1
-      rehype-parse: 9.0.1
-      rehype-remark: 10.0.1
-      rehype-stringify: 10.0.1
-      remark-gfm: 4.0.1
-      remark-parse: 11.0.0
-      remark-rehype: 11.1.2
-      remark-stringify: 11.0.0
-      unified: 11.0.5
-      unist-util-visit: 5.0.0
-      uuid: 8.3.2
-      y-prosemirror: 1.3.7(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.3)(y-protocols@1.0.6(yjs@13.6.27))(yjs@13.6.27)
-      y-protocols: 1.0.6(yjs@13.6.27)
-      yjs: 13.6.27
-    transitivePeerDependencies:
-      - '@tiptap/extensions'
-      - '@types/hast'
-      - highlight.js
-      - lowlight
-      - refractor
-      - sugar-high
-      - supports-color
-
-  '@blocknote/mantine@0.42.3(@floating-ui/dom@1.7.4)(@mantine/core@8.3.18(@mantine/hooks@8.3.18(react@19.1.2))(@types/react@19.2.6)(react-dom@19.1.2(react@19.1.2))(react@19.1.2))(@mantine/hooks@8.3.18(react@19.1.2))(@mantine/utils@6.0.22(react@19.1.2))(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))(@types/hast@3.0.4)(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(highlight.js@11.11.1)(lowlight@3.3.0)(react-dom@19.1.2(react@19.1.2))(react@19.1.2)(refractor@5.0.0)':
-    dependencies:
-      '@blocknote/core': 0.42.3(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))(@types/hast@3.0.4)(highlight.js@11.11.1)(lowlight@3.3.0)(refractor@5.0.0)
-      '@blocknote/react': 0.42.3(@floating-ui/dom@1.7.4)(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))(@types/hast@3.0.4)(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(highlight.js@11.11.1)(lowlight@3.3.0)(react-dom@19.1.2(react@19.1.2))(react@19.1.2)(refractor@5.0.0)
-      '@mantine/core': 8.3.18(@mantine/hooks@8.3.18(react@19.1.2))(@types/react@19.2.6)(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      '@mantine/hooks': 8.3.18(react@19.1.2)
-      '@mantine/utils': 6.0.22(react@19.1.2)
-      react: 19.1.2
-      react-dom: 19.1.2(react@19.1.2)
-      react-icons: 5.5.0(react@19.1.2)
-    transitivePeerDependencies:
-      - '@floating-ui/dom'
-      - '@hocuspocus/provider'
-      - '@tiptap/extensions'
-      - '@types/hast'
-      - '@types/react'
-      - '@types/react-dom'
-      - highlight.js
-      - lowlight
-      - refractor
-      - sugar-high
-      - supports-color
-
-  '@blocknote/react@0.42.3(@floating-ui/dom@1.7.4)(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))(@types/hast@3.0.4)(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(highlight.js@11.11.1)(lowlight@3.3.0)(react-dom@19.1.2(react@19.1.2))(react@19.1.2)(refractor@5.0.0)':
-    dependencies:
-      '@blocknote/core': 0.42.3(@tiptap/extensions@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0))(@types/hast@3.0.4)(highlight.js@11.11.1)(lowlight@3.3.0)(refractor@5.0.0)
-      '@emoji-mart/data': 1.2.1
-      '@floating-ui/react': 0.27.16(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      '@tiptap/core': 3.11.0(@tiptap/pm@3.11.0)
-      '@tiptap/pm': 3.11.0
-      '@tiptap/react': 3.11.0(@floating-ui/dom@1.7.4)(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0)(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      emoji-mart: 5.6.0
-      lodash.merge: 4.6.2
-      react: 19.1.2
-      react-dom: 19.1.2(react@19.1.2)
-      react-icons: 5.5.0(react@19.1.2)
-    transitivePeerDependencies:
-      - '@floating-ui/dom'
-      - '@hocuspocus/provider'
-      - '@tiptap/extensions'
-      - '@types/hast'
-      - '@types/react'
-      - '@types/react-dom'
-      - highlight.js
-      - lowlight
-      - refractor
-      - sugar-high
-      - supports-color
-
->>>>>>> 0273bf02 (fix build error)
   '@borewit/text-codec@0.1.1': {}
 
   '@cfworker/json-schema@4.1.1': {}
@@ -12400,17 +12195,6 @@ snapshots:
       react: 19.1.2
       react-dom: 19.1.2(react@19.1.2)
 
-<<<<<<< HEAD
-=======
-  '@floating-ui/react@0.27.16(react-dom@19.1.2(react@19.1.2))(react@19.1.2)':
-    dependencies:
-      '@floating-ui/react-dom': 2.1.6(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      '@floating-ui/utils': 0.2.10
-      react: 19.1.2
-      react-dom: 19.1.2(react@19.1.2)
-      tabbable: 6.3.0
-
->>>>>>> 0273bf02 (fix build error)
   '@floating-ui/utils@0.2.10': {}
 
   '@google-cloud/artifact-registry@3.5.1':
@@ -12808,31 +12592,7 @@ snapshots:
     transitivePeerDependencies:
       - ws
 
-<<<<<<< HEAD
   '@mediapipe/tasks-vision@0.10.17': {}
-=======
-  '@mantine/core@8.3.18(@mantine/hooks@8.3.18(react@19.1.2))(@types/react@19.2.6)(react-dom@19.1.2(react@19.1.2))(react@19.1.2)':
-    dependencies:
-      '@floating-ui/react': 0.27.16(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      '@mantine/hooks': 8.3.18(react@19.1.2)
-      clsx: 2.1.1
-      react: 19.1.2
-      react-dom: 19.1.2(react@19.1.2)
-      react-number-format: 5.4.4(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      react-remove-scroll: 2.7.2(@types/react@19.2.6)(react@19.1.2)
-      react-textarea-autosize: 8.5.9(@types/react@19.2.6)(react@19.1.2)
-      type-fest: 4.41.0
-    transitivePeerDependencies:
-      - '@types/react'
-
-  '@mantine/hooks@8.3.18(react@19.1.2)':
-    dependencies:
-      react: 19.1.2
-
-  '@mantine/utils@6.0.22(react@19.1.2)':
-    dependencies:
-      react: 19.1.2
->>>>>>> 0273bf02 (fix build error)
 
   '@mongodb-js/saslprep@1.3.0':
     dependencies:
@@ -13777,17 +13537,10 @@ snapshots:
 
   '@remotion/bundler@4.0.398(react-dom@19.1.2(react@19.1.2))(react@19.1.2)':
     dependencies:
-<<<<<<< HEAD
       '@remotion/media-parser': 4.0.398
       '@remotion/studio': 4.0.398(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
       '@remotion/studio-shared': 4.0.398(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      css-loader: 5.2.7(webpack@5.96.1)
-=======
-      '@remotion/media-parser': 4.0.376
-      '@remotion/studio': 4.0.376(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      '@remotion/studio-shared': 4.0.376(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
       css-loader: 5.2.7(webpack@5.96.1(esbuild@0.25.0))
->>>>>>> 0273bf02 (fix build error)
       esbuild: 0.25.0
       react: 19.1.2
       react-dom: 19.1.2(react@19.1.2)
@@ -15387,10 +15140,6 @@ snapshots:
   '@types/use-sync-external-store@0.0.6': {}
 
   '@types/uuid@10.0.0': {}
-
-  '@types/uuid@11.0.0':
-    dependencies:
-      uuid: 13.0.0
 
   '@types/webidl-conversions@7.0.3': {}
 
@@ -18360,8 +18109,6 @@ snapshots:
 
   lodash.sortby@4.7.0: {}
 
-  lodash.throttle@4.1.1: {}
-
   lodash@4.17.21: {}
 
   long@5.3.2: {}
@@ -19821,25 +19568,6 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  react-best-gradient-color-picker@3.0.14(@types/react@19.2.6)(react-dom@19.1.2(react@19.1.2))(react@19.1.2):
-    dependencies:
-      html2canvas: 1.4.1
-      lodash.throttle: 4.1.1
-      react: 19.1.2
-      react-dom: 19.1.2(react@19.1.2)
-      tinycolor2: 1.4.2
-    optionalDependencies:
-      '@types/react': 19.2.6
-
-  react-colorful@5.6.1(react-dom@19.1.2(react@19.1.2))(react@19.1.2):
-    dependencies:
-      react: 19.1.2
-      react-dom: 19.1.2(react@19.1.2)
-
-  react-country-state-city@1.1.12(react@19.1.2):
-    dependencies:
-      react: 19.1.2
-
   react-dom@19.1.2(react@19.1.2):
     dependencies:
       react: 19.1.2
@@ -19862,11 +19590,6 @@ snapshots:
     dependencies:
       csstype: 3.1.3
       goober: 2.1.16(csstype@3.1.3)
-      react: 19.1.2
-      react-dom: 19.1.2(react@19.1.2)
-
-  react-hotkeys-hook@5.2.1(react-dom@19.1.2(react@19.1.2))(react@19.1.2):
-    dependencies:
       react: 19.1.2
       react-dom: 19.1.2(react@19.1.2)
 
@@ -20739,11 +20462,6 @@ snapshots:
       react: 19.1.2
       use-sync-external-store: 1.5.0(react@19.1.2)
 
-<<<<<<< HEAD
-=======
-  tabbable@6.3.0: {}
-
->>>>>>> 0273bf02 (fix build error)
   tailwind-merge@3.4.0: {}
 
   tailwindcss-animate@1.0.7(tailwindcss@4.1.17):
@@ -20865,8 +20583,6 @@ snapshots:
   tiny-warning@1.0.3: {}
 
   tinybench@2.9.0: {}
-
-  tinycolor2@1.4.2: {}
 
   tinyglobby@0.2.15:
     dependencies:
