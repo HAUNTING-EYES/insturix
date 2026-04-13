@@ -55,7 +55,7 @@ function mulberry32(seed: number): () => number {
 // modifications that happen between decision generation and EDL execution.
 // These helpers snap decision frames to the nearest actual clip positions.
 
-interface ClipBoundaryMatch {
+export interface ClipBoundaryMatch {
   /** The clip boundary frame (end of clipA / start of clipB) */
   boundaryFrame: number;
   /** Clip ending at/before the boundary */
@@ -70,7 +70,7 @@ interface ClipBoundaryMatch {
  * Find the nearest clip boundary to a decision frame.
  * Used by applyTransition to snap transition placement to actual clip edges.
  */
-function snapToClipBoundary(
+export function snapToClipBoundary(
   decisionFrame: number,
   overlays: Overlay[],
   maxTolerance: number = 45,
@@ -100,7 +100,7 @@ function snapToClipBoundary(
  * for small frame drift. If exact containment fails, checks ±tolerance
  * frames and returns the nearest containing clip.
  */
-function findClipAtFrame(
+export function findClipAtFrame(
   decisionFrame: number,
   overlays: Overlay[],
   tolerance: number = 15,

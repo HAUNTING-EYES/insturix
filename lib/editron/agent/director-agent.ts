@@ -245,25 +245,69 @@ export async function executeDirectorPlan(
         try {
           onProgress?.(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
 
-          // TRY: Unified Intelligence Engine (sees everything — script, video, audio, storyboard)
+          // Build analyses map BEFORE the intelligence call — needed by both
+          // the creative intent translator and the EDL executor.
+          const analysesMap = new Map<string, any>();
+          for (const a of analyses) {
+            if (a.assetId) analysesMap.set(a.assetId, a);
+          }
+
+          // TRY: Creative Intent Intelligence (3-layer architecture)
+          // Layer 1 (LLM): Creative decisions — WHAT + WHY, no frame numbers
+          // Layer 2 (Code): Frame resolution — maps intent to exact frames using 5-Track
+          // Layer 3 (EDL Executor): Execution — applies decisions to overlays
           let edl: any;
           try {
-            const { assembleUnifiedContext, generateUnifiedEditPlan } = await import('@/lib/editron/services/unified-edit-intelligence');
+            const { assembleUnifiedContext, generateCreativeIntentPlan } = await import('@/lib/editron/services/unified-edit-intelligence');
+            const { compressAllAnalyses } = await import('@/lib/editron/services/asset-briefing');
+            const { translateCreativeIntentToEDL } = await import('@/lib/editron/services/intent-translator');
+
             const context = await assembleUnifiedContext(projectId, userId);
-            const plan = await generateUnifiedEditPlan(context, {
+
+            // Layer 1a: Compress 5-Track data into ~200-token briefings per clip
+            const assetBriefings = compressAllAnalyses(analysesMap);
+            const briefingsForPrompt = new Map<string, { promptText: string; slopFlags: Array<{ startFrame: number; endFrame: number; description: string }> }>();
+            for (const [id, briefing] of assetBriefings) {
+              briefingsForPrompt.set(id, { promptText: briefing.promptText, slopFlags: briefing.slopFlags });
+            }
+
+            // Layer 1b: LLM generates creative intent (WHAT + WHY, no frame numbers)
+            const intentPlan = await generateCreativeIntentPlan(context, {
               editProfileName: effectiveProfile.name,
               targetCutsPerMinute: effectiveProfile.cutsPerMinRange
                 ? (effectiveProfile.cutsPerMinRange[0] + effectiveProfile.cutsPerMinRange[1]) / 2
                 : 6,
               graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
+              assetBriefings: briefingsForPrompt,
             });
 
-            // Convert unified plan to EDL format for backward compatibility with executeEDL
+            // Layer 2: Translate creative intent → frame-accurate EDL decisions
+            const sceneContexts = context.scenes.map(s => ({
+              sceneIndex: s.sceneIndex,
+              fromFrame: s.fromFrame,
+              durationFrames: s.durationFrames,
+              voiceoverWords: s.voiceoverWords,
+              motionPeaks: s.naturalCutPoints, // These are the frame-level cut points
+            }));
+
+            const translation = translateCreativeIntentToEDL(
+              intentPlan,
+              sceneContexts,
+              analysesMap,
+              overlays,
+              context.fps,
+            );
+
+            if (translation.warnings.length > 0) {
+              console.warn(`[Director] Intent translation warnings: ${translation.warnings.join('; ')}`);
+            }
+
+            // Convert to EDL format for executeEDL (backward compatible)
             edl = {
               projectId,
-              generatedAt: plan.generatedAt,
-              totalDecisions: plan.stats.totalDecisions,
-              decisions: plan.decisions.map(d => ({
+              generatedAt: intentPlan.generatedAt,
+              totalDecisions: translation.decisions.length,
+              decisions: translation.decisions.map(d => ({
                 type: d.type,
                 frame: d.frame,
                 durationFrames: d.durationFrames,
@@ -274,11 +318,20 @@ export async function executeDirectorPlan(
                 params: d.params,
                 confidence: d.confidence,
               })),
-              stats: plan.stats,
+              stats: {
+                totalDecisions: translation.stats.decisionsGenerated,
+                cutsPerMinute: 0, // Computed downstream
+                transitionCount: translation.decisions.filter(d => d.type === 'transition').length,
+                graphicCount: translation.decisions.filter(d => d.type === 'graphic').length,
+                zoomCount: translation.decisions.filter(d => d.type === 'zoom').length,
+                averageConfidence: translation.decisions.length > 0
+                  ? translation.decisions.reduce((s, d) => s + d.confidence, 0) / translation.decisions.length
+                  : 0,
+              },
             };
 
-            edlSummary.totalDecisions = plan.stats.totalDecisions;
-            console.log(`[Director] Unified Intelligence: ${plan.stats.totalDecisions} decisions (avg confidence ${plan.stats.averageConfidence.toFixed(2)})`);
+            edlSummary.totalDecisions = translation.stats.decisionsGenerated;
+            console.log(`[Director] Creative Intent: ${intentPlan.stats.totalScenes} scenes → ${translation.stats.decisionsGenerated} decisions (${translation.stats.momentsResolved} resolved, ${translation.stats.momentsFallback} fallback)`);
           } catch (unifiedErr: any) {
             // FALLBACK: Old Reactive Edit Engine (video analysis only)
             console.warn(`[Director] Unified Intelligence failed (${unifiedErr.message}), falling back to Reactive Engine`);
@@ -297,11 +350,6 @@ export async function executeDirectorPlan(
 
           const moments = analyses.flatMap(a => detectCinematicMoments(a));
           const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-          // Build analyses map for EDL executor zoom validation
-          const analysesMap = new Map<string, any>();
-          for (const a of analyses) {
-            if (a.assetId) analysesMap.set(a.assetId, a);
-          }
           const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas, analysesMap);
 
           // Build summary by decision type

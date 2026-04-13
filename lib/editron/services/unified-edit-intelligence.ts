@@ -370,28 +370,99 @@ export async function assembleUnifiedContext(
 
 // ─── Gemini Intelligence Call ─────────────────────────────────────
 
-const EditDecisionSchema = z.object({
+// ─── OLD: Mechanical EditDecision schema (frame-level, LLM guesses frames) ──
+// Replaced by CreativeIntent schema below. The old schema asked the LLM to
+// output exact frame numbers, which it approximated from anchor points.
+// The new schema asks for WHAT + WHY (creative intent), and deterministic code
+// resolves the exact frame numbers using raw 5-Track data.
+//
+// The old EditDecisionSchema is preserved in a comment for backward compatibility
+// reference. The EDL executor still consumes EditDecisionList — the intent-
+// translator module converts creative intents to EDL decisions.
+
+// ─── NEW: Creative Intent Schema ─────────────────────────────────
+// The LLM picks from constrained enums (code can handle every value).
+// No frame numbers — just WHAT and WHY. The intent-translator resolves frames.
+
+const GraphicIntentSchema = z.object({
+  type: z.enum(['none', 'text-overlay', 'stat-counter', 'lower-third', 'callout', 'keyword-highlight', 'quote-card', 'logo']).describe('Type of graphic overlay'),
+  text: z.string().optional().describe('Text content for the graphic (use VERBATIM from onScreenText if available)'),
+  triggerMoment: z.string().describe('When this appears, in natural language: "when narrator says X", "at scene start", "at emotional peak"'),
+});
+
+const SceneIntentSchema = z.object({
+  sceneIndex: z.number().describe('Scene index (0-based)'),
+  decisiveMoment: z.string().describe('Natural language description of THE key moment in this clip. NOT a frame number. Example: "the toddler\'s biggest ketchup smile" or "when narrator says \'transformed\'" or "the product hero shot at center frame"'),
+  zoomIntent: z.enum([
+    'none',              // No zoom — the content speaks for itself
+    'gentle-drift',      // Subtle 3-6% drift (delegate to post-processing)
+    'slow-push',         // Gradual push-in over scene duration (emotional engagement)
+    'slow-pull',         // Gradual pull-back (reveal, resolution, breathing room)
+    'punch-at-peak',     // Quick zoom punch at decisive moment (maximum emphasis)
+    'push-to-subject',   // Push toward the main subject
+    'pull-from-detail',  // Start on detail, pull to reveal context
+  ]).describe('Zoom approach for this scene'),
+  pacingIntent: z.enum([
+    'hold-natural',         // Use script duration as-is
+    'extend-for-emphasis',  // 20% longer — let the moment breathe
+    'compress-energy',      // 15% shorter — build momentum in montage
+    'freeze-for-graphic',   // Freeze video behind a graphic overlay
+  ]).describe('Pacing approach for this scene'),
+  transitionIn: z.enum([
+    'hard-cut', 'dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut',
+    'zoom-punch', 'flash', 'blur', 'wipe', 'film-burn', 'glitch', 'match-cut',
+  ]).describe('Transition INTO this scene from previous'),
+  transitionOut: z.enum([
+    'hard-cut', 'dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut',
+    'zoom-punch', 'flash', 'blur', 'wipe', 'film-burn', 'glitch', 'match-cut',
+  ]).describe('Transition OUT of this scene to next'),
+  audioIntent: z.object({
+    nativeAudio: z.enum([
+      'keep-full',       // Play native audio at full volume (no voiceover in scene)
+      'keep-ambient',    // Keep as ambient bed (duck under voiceover or other primary audio)
+      'duck-under-vo',   // Specifically duck under voiceover narration
+      'mute',            // Mute native audio entirely
+    ]).describe('How to handle model-generated native audio'),
+    sfxOnEntry: z.string().optional().describe('SFX when scene starts: "whoosh", "riser", "impact", etc.'),
+    sfxAtPeak: z.string().optional().describe('SFX at decisive moment: "bass-hit", "ding", "pop", etc.'),
+  }).describe('Audio treatment for this scene'),
+  graphicIntents: z.array(GraphicIntentSchema).max(3).describe('Graphics to place in this scene (max 3). Include ALL onScreenText entries as separate graphics.'),
+  shakeIntent: z.enum([
+    'none',              // No camera shake
+    'subtle-at-peak',    // Light shake at decisive moment (emphasis)
+    'impact-hit',        // Strong impact shake (bass drop, collision, reveal)
+  ]).describe('Camera shake for this scene'),
+  reasoning: z.string().describe('WHY these choices — reference Murch\'s hierarchy, editing principles, or narrative arc. Example: "Hold longer because the smile IS the emotion (Murch: emotion 51%). No zoom — restraint is the decision. Dissolve in from montage to signal resolution."'),
+});
+
+const CreativeIntentPlanSchema = z.object({
+  sceneIntents: z.array(SceneIntentSchema).describe('Creative intent for each scene, ordered by sceneIndex'),
+});
+
+// ─── Legacy Schema (kept for generateUnifiedEditPlan fallback) ───
+const LegacyEditDecisionSchema = z.object({
   type: z.enum(['cut', 'transition', 'zoom', 'speed-change', 'graphic', 'sfx-trigger', 'filter-change', 'caption-emphasis', 'camera-shake']),
-  frame: z.number().describe('Absolute timeline frame for this decision'),
-  durationFrames: z.number().optional().describe('Duration in frames (for transitions, graphics, zooms)'),
-  reason: z.string().describe('Human-readable reason combining all context sources. Example: "Zoom punch at 2.1s — voiceover emphasis on \'anticipation\' + motion peak + BGM beat"'),
-  transitionType: z.string().optional().describe('For type=transition: dissolve, dip-to-black, wipe-left, zoom-punch, hard-cut, etc.'),
-  graphicType: z.string().optional().describe('For type=graphic: callout, stat-counter, lower-third, logo-reveal, emphasis-text'),
-  graphicText: z.string().optional().describe('Text content for the graphic'),
-  zoomScale: z.number().optional().describe('For type=zoom: target scale (1.0 = normal, 1.15 = 15% zoom in)'),
-  zoomType: z.enum(['punch-in', 'slow-push', 'pull-back']).optional().describe('For type=zoom: punch-in (quick zoom + hold), slow-push (gradual over scene), pull-back (zoom out)'),
-  speedMultiplier: z.number().optional().describe('For type=speed-change: 0.5 = slow-mo, 1.5 = speed up'),
-  confidence: z.number().min(0).max(1).describe('How confident this decision is (0-1). Higher when multiple sources agree.'),
-  sources: z.array(z.string()).describe('Which context sources informed this: "script", "video-analysis", "voiceover", "bgm", "subjects"'),
+  frame: z.number(),
+  durationFrames: z.number().optional(),
+  reason: z.string(),
+  transitionType: z.string().optional(),
+  graphicType: z.string().optional(),
+  graphicText: z.string().optional(),
+  zoomScale: z.number().optional(),
+  zoomType: z.enum(['punch-in', 'slow-push', 'pull-back']).optional(),
+  speedMultiplier: z.number().optional(),
+  confidence: z.number().min(0).max(1),
+  sources: z.array(z.string()),
 });
 
 const EditPlanSchema = z.object({
-  decisions: z.array(EditDecisionSchema).describe('All edit decisions for the project, ordered by frame'),
+  decisions: z.array(LegacyEditDecisionSchema),
 });
 
 /**
  * Generate a complete edit plan from unified project context.
- * ONE Gemini call that sees everything — script, video analysis, audio, storyboard.
+ * LEGACY — kept for reactive engine fallback. The primary path now uses
+ * generateCreativeIntentPlan() which outputs creative intent, not frame numbers.
  */
 export async function generateUnifiedEditPlan(
   context: UnifiedContext,
@@ -466,7 +537,286 @@ export async function generateUnifiedEditPlan(
   return plan;
 }
 
-// ─── Prompt Builder ──────────────────────────────────────────────
+// ─── Creative Intent Types (exported for intent-translator) ──────
+
+export type ZoomIntent = z.infer<typeof SceneIntentSchema>['zoomIntent'];
+export type PacingIntent = z.infer<typeof SceneIntentSchema>['pacingIntent'];
+export type TransitionIntent = z.infer<typeof SceneIntentSchema>['transitionIn'];
+export type AudioIntentNative = z.infer<typeof SceneIntentSchema>['audioIntent']['nativeAudio'];
+export type ShakeIntent = z.infer<typeof SceneIntentSchema>['shakeIntent'];
+export type GraphicIntentType = z.infer<typeof GraphicIntentSchema>['type'];
+
+export interface SceneIntent {
+  sceneIndex: number;
+  decisiveMoment: string;
+  zoomIntent: ZoomIntent;
+  pacingIntent: PacingIntent;
+  transitionIn: TransitionIntent;
+  transitionOut: TransitionIntent;
+  audioIntent: {
+    nativeAudio: AudioIntentNative;
+    sfxOnEntry?: string;
+    sfxAtPeak?: string;
+  };
+  graphicIntents: Array<{
+    type: GraphicIntentType;
+    text?: string;
+    triggerMoment: string;
+  }>;
+  shakeIntent: ShakeIntent;
+  reasoning: string;
+}
+
+export interface CreativeIntentPlan {
+  projectId: string;
+  generatedAt: Date;
+  sceneIntents: SceneIntent[];
+  stats: {
+    totalScenes: number;
+    zoomCount: number;
+    graphicCount: number;
+    transitionCount: number;
+  };
+}
+
+/**
+ * Generate creative intent plan — the LLM outputs WHAT + WHY per scene.
+ * No frame numbers. The intent-translator resolves frames from raw analysis data.
+ *
+ * This replaces generateUnifiedEditPlan() in the director-agent flow.
+ * The old function is kept for backward compatibility with the reactive engine fallback.
+ */
+export async function generateCreativeIntentPlan(
+  context: UnifiedContext,
+  options: {
+    editProfileName?: string;
+    targetCutsPerMinute?: number;
+    graphicDensity?: 'minimal' | 'moderate' | 'heavy';
+    style?: string;
+    /** Asset briefings (compressed 5-Track data for LLM prompt) */
+    assetBriefings?: Map<string, { promptText: string; slopFlags: Array<{ startFrame: number; endFrame: number; description: string }> }>;
+  } = {},
+): Promise<CreativeIntentPlan> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error('Gemini API key not configured');
+
+  const google = createGoogleGenerativeAI({ apiKey });
+  const contextSummary = buildCreativeIntentPrompt(context, options);
+
+  console.log(`[UnifiedIntel] Generating CREATIVE INTENT plan for ${context.projectId} (${context.scenes.length} scenes, ${Math.round(context.totalDurationMs / 1000)}s)`);
+
+  const model = google(DEFAULT_CONFIG.aiModels.unifiedIntelligenceModel);
+
+  const { object } = await generateObject({
+    model,
+    schema: CreativeIntentPlanSchema,
+    prompt: contextSummary,
+    temperature: DEFAULT_CONFIG.aiModels.editingTemperature,
+  });
+
+  const sceneIntents: SceneIntent[] = object.sceneIntents.map(si => ({
+    sceneIndex: si.sceneIndex,
+    decisiveMoment: si.decisiveMoment,
+    zoomIntent: si.zoomIntent,
+    pacingIntent: si.pacingIntent,
+    transitionIn: si.transitionIn,
+    transitionOut: si.transitionOut,
+    audioIntent: {
+      nativeAudio: si.audioIntent.nativeAudio,
+      sfxOnEntry: si.audioIntent.sfxOnEntry,
+      sfxAtPeak: si.audioIntent.sfxAtPeak,
+    },
+    graphicIntents: si.graphicIntents.map(g => ({
+      type: g.type,
+      text: g.text,
+      triggerMoment: g.triggerMoment,
+    })),
+    shakeIntent: si.shakeIntent,
+    reasoning: si.reasoning,
+  }));
+
+  const plan: CreativeIntentPlan = {
+    projectId: context.projectId,
+    generatedAt: new Date(),
+    sceneIntents,
+    stats: {
+      totalScenes: sceneIntents.length,
+      zoomCount: sceneIntents.filter(si => si.zoomIntent !== 'none' && si.zoomIntent !== 'gentle-drift').length,
+      graphicCount: sceneIntents.reduce((sum, si) => sum + si.graphicIntents.filter(g => g.type !== 'none').length, 0),
+      transitionCount: sceneIntents.filter(si => si.transitionIn !== 'hard-cut').length,
+    },
+  };
+
+  console.log(`[UnifiedIntel] Creative Intent: ${plan.stats.totalScenes} scenes, ${plan.stats.zoomCount} zooms, ${plan.stats.graphicCount} graphics, ${plan.stats.transitionCount} non-cut transitions`);
+
+  return plan;
+}
+
+// ─── Creative Intent Prompt Builder ──────────────────────────────
+
+function buildCreativeIntentPrompt(
+  context: UnifiedContext,
+  options: {
+    editProfileName?: string;
+    targetCutsPerMinute?: number;
+    graphicDensity?: string;
+    style?: string;
+    assetBriefings?: Map<string, { promptText: string; slopFlags: Array<{ startFrame: number; endFrame: number; description: string }> }>;
+  },
+): string {
+  const fps = context.fps;
+  const totalSec = Math.round(context.totalDurationMs / 1000);
+
+  // Start with the same proven creative principles, but reframed for intent output
+  let prompt = `You are the Creative Director for a ${totalSec}-second video. You make WHAT and WHY decisions for each scene. You NEVER specify frame numbers — code handles precision.
+
+## YOUR JOB
+For each scene, describe:
+1. What is THE decisive moment (in words, not frames)
+2. What edit decisions serve that moment (zoom, transition, pacing, audio, graphics)
+3. WHY — which editing principle justifies each choice
+
+## MURCH'S RULE OF SIX (your decision hierarchy)
+1. EMOTION (51%) — Does this make the viewer FEEL something?
+2. STORY (23%) — Does this advance the narrative?
+3. RHYTHM (10%) — Does this maintain or break the pacing pattern intentionally?
+4. EYE-TRACE (7%) — Does this respect where the viewer's eye is?
+5. 2D PLANE (5%) — Does the composition work?
+6. 3D CONTINUITY (4%) — Does spatial continuity make sense?
+A technically perfect decision that kills emotion is a BAD decision.
+
+## DECISIVE MOMENT PRINCIPLE
+Each scene has ONE peak. ALL decisions serve it:
+- Before peak: build (slower, tighter, rising energy)
+- AT peak: maximum emphasis
+- After peak: release (wider, dissolve, softer)
+
+## CONTRAST CREATES IMPACT
+Fast only feels fast after slow. A punch-zoom hits only after a static shot.
+After high-intensity, the next scene MUST be low-intensity.
+
+## HARD BUDGETS (${totalSec}s video)
+- Punch-zooms: MAX ${Math.round(3 * totalSec / 30)}
+- Camera shakes: MAX ${Math.round(2 * totalSec / 30)}
+- Graphics: MAX ${Math.round(7 * totalSec / 30)}, minimum 3s apart
+- "Loud" decisions (punch, shake, flash): MAX 2-3 total. Everything else "quiet."
+- Flashy transitions: NEVER two consecutive
+
+## PROJECT: ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
+`;
+
+  // Global context (same as before)
+  if (context.overallMusicPrompt) prompt += `MUSIC: ${context.overallMusicPrompt}\n`;
+  if (context.globalEditDirections) prompt += `GLOBAL STYLE: ${JSON.stringify(context.globalEditDirections)}\n`;
+  if (context.colorPalette?.length) prompt += `COLORS: ${context.colorPalette.join(', ')}\n`;
+  if (context.environmentNotes) prompt += `ENVIRONMENT: ${context.environmentNotes}\n`;
+
+  // Profile constraints (in creative language, not mechanical rules)
+  const profileName = options.editProfileName || context.editProfileName || '';
+  if (profileName) {
+    prompt += `\nEDIT PROFILE: "${profileName}"\n`;
+    prompt += `Target pacing: ${options.targetCutsPerMinute || 10} cuts/min. Graphics density: ${options.graphicDensity || 'moderate'}.\n`;
+  }
+
+  // Narrative arc (same detection as before)
+  const narrativeArc = context.globalEditDirections?.narrativeArc || '';
+  if (narrativeArc) {
+    prompt += `\nNARRATIVE ARC: ${narrativeArc}\n`;
+    // Same arc-specific rules as buildContextSummary()
+    if (/nostalg|memory|childhood|remember|past.*present/i.test(
+      context.scenes.map(s => s.narration).join(' ') + ' ' + (context.environmentNotes || '')
+    )) {
+      prompt += `NOSTALGIA PROGRESSION: early=vintage filter/slow dissolves, middle=sharper/faster, present=crisp/zoom-punches allowed, resolution=brightest/cleanest.\n`;
+    }
+  }
+
+  // Platform overrides (same as before, condensed)
+  if (profileName.toLowerCase().includes('tiktok') || profileName.toLowerCase().includes('reel')) {
+    prompt += `PLATFORM: Short-form — hook in 2-3s, captions mandatory, faster transitions.\n`;
+  } else if (profileName.toLowerCase().includes('linkedin')) {
+    prompt += `PLATFORM: LinkedIn — NO aggressive shake, MAX 1 zoom-punch/30s, clean professional graphics.\n`;
+  }
+
+  // ─── Per-scene context (using asset briefings if available) ────
+  prompt += `\n## SCENES\n\n`;
+
+  for (const scene of context.scenes) {
+    const startSec = (scene.fromFrame / fps).toFixed(1);
+    const endSec = ((scene.fromFrame + scene.durationFrames) / fps).toFixed(1);
+
+    prompt += `### Scene ${scene.sceneIndex + 1}: "${scene.title}" [${startSec}s–${endSec}s]\n`;
+    prompt += `Narration: "${scene.narration || '(silent)'}"\n`;
+    prompt += `Mood: ${scene.mood}\n`;
+
+    // Use compressed asset briefing if available, otherwise fall back to raw data
+    // Asset briefings are keyed by assetId — find the matching one for this scene's video
+    const briefing = options.assetBriefings?.values()
+      ? Array.from(options.assetBriefings.values()).find((_, idx) => idx === scene.sceneIndex)
+      : null;
+
+    if (briefing) {
+      prompt += `Asset: ${briefing.promptText}\n`;
+      if (briefing.slopFlags.length > 0) {
+        prompt += `⚠️ AI ARTIFACTS — avoid emphasizing: ${briefing.slopFlags.map(f => f.description).join('; ')}\n`;
+      }
+    } else {
+      // Fallback to raw scene data (backward compat)
+      prompt += `Visual: ${scene.visualDescription.substring(0, 200)}\n`;
+      if (scene.keyframeDescriptions.length > 0) {
+        prompt += `Video content: ${scene.keyframeDescriptions.slice(0, 3).map(d => d.substring(0, 100)).join(' | ')}\n`;
+      }
+    }
+
+    // Script-level data (always available, not from 5-Track)
+    if (scene.scriptTransition) prompt += `Script transition: ${scene.scriptTransition.type}\n`;
+    if (scene.cameraDirection) prompt += `Camera: ${scene.cameraDirection}\n`;
+
+    // On-screen text (must be reproduced VERBATIM as graphic intents)
+    if (scene.onScreenText && scene.onScreenText.length > 0) {
+      prompt += `ON-SCREEN TEXT (create one graphic per entry, use text VERBATIM):\n`;
+      scene.onScreenText.forEach((t, i) => prompt += `  ${i + 1}. "${t}"\n`);
+    }
+
+    // Voiceover timing highlights (condensed)
+    if (scene.voiceoverWords.length > 0) {
+      const emphasisWords = scene.voiceoverWords.filter(w =>
+        /^\d/.test(w.word) || /^[A-Z]{2,}$/.test(w.word) || w.word.length >= 6
+      ).slice(0, 8);
+      if (emphasisWords.length > 0) {
+        prompt += `VO emphasis: ${emphasisWords.map(w => `"${w.word}" @${(w.startMs / 1000).toFixed(1)}s`).join(', ')}\n`;
+      }
+    }
+
+    prompt += '\n';
+  }
+
+  // Anchor timeline (kept — the intent-translator uses this for frame resolution,
+  // and showing it to the LLM helps it understand where the key moments are)
+  if (context.anchors && context.anchors.length > 0) {
+    prompt += `## KEY MOMENTS (ranked by importance)\n`;
+    const topAnchors = context.anchors
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 20);
+    for (const anchor of topAnchors.sort((a, b) => a.frame - b.frame)) {
+      const sec = (anchor.timestampMs / 1000).toFixed(1);
+      const compound = anchor.isCompound ? ' ★COMPOUND' : '';
+      prompt += `- ${sec}s: ${anchor.description} [${anchor.confidence.toFixed(2)}]${compound}\n`;
+    }
+    prompt += '\n';
+  }
+
+  prompt += `## OUTPUT
+For EACH scene, provide creative intent using the structured schema. Remember:
+- decisiveMoment: describe in WORDS, not frame numbers
+- reasoning: cite Murch's hierarchy or editing principles
+- graphicIntents: include ALL onScreenText entries as separate graphics
+- The code will resolve your creative descriptions to exact frames using video analysis data
+`;
+
+  return prompt;
+}
+
+// ─── Prompt Builder (LEGACY — used by generateUnifiedEditPlan fallback) ──
 
 function buildContextSummary(
   context: UnifiedContext,
