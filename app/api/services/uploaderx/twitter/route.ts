@@ -409,6 +409,8 @@ async function twitterApiRequest(
 
         if (response.status >= 400) {
             console.error("❌ Twitter API error:", data);
+            console.error("❌ Response status:", response.status);
+            console.error("❌ Response headers:", Object.fromEntries(response.headers.entries()));
             throw new Error(data.error?.message || `Twitter API returned ${response.status}`);
         }
 
@@ -443,6 +445,8 @@ async function twitterApiRequest(
 
     if (response.status >= 400) {
         console.error("❌ Twitter API error:", data);
+        console.error("❌ Response status:", response.status);
+        console.error("❌ Response headers:", Object.fromEntries(response.headers.entries()));
         throw new Error(data.error?.message || `Twitter API returned ${response.status}`);
     }
 
