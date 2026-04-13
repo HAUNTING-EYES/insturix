@@ -362,6 +362,21 @@ async function generateVideoWithFal(
   const actualDuration = getActualModelDuration(modelKey, duration);
   console.log(`[VideoGen] Scene complete: model=${modelKey}, requested=${duration}s, actual=${actualDuration}s, totalMs=${Date.now() - startTime}, assetId=${assetId}`);
 
+  // hasNativeAudio must reflect whether audio was ACTUALLY REQUESTED, not the
+  // model's static default. When a scene has voiceover, generate_audio=false is
+  // sent to fal.ai (line 338 in video-model-configs.ts), so the video has NO
+  // native audio — even though the model supports it.
+  //
+  // OLD: modelHasNativeAudio(modelKey) → always true for Seedance, regardless of
+  //      whether audio was disabled for this specific generation. Caused:
+  //      - SFX skipped for voiceover scenes (finalize line 764 filters on hasNativeAudio)
+  //      - BGM ducked under silence (audio-ducking runs on hasNativeAudio videos)
+  // NEW: Check model config AND whether voiceover disabled it.
+  const nativeAudioConfig = getVideoModelConfig(modelKey).nativeAudio;
+  const audioWasRequested = nativeAudioConfig
+    ? (nativeAudioConfig.default && !request.hasVoiceover)
+    : false;
+
   return {
     videoUrl: uploadResult.signedUrl,
     gcsPath: uploadResult.gcsPath!,
@@ -369,7 +384,7 @@ async function generateVideoWithFal(
     assetId,
     provider: 'fal-ai',
     durationMs: actualDuration * 1000,
-    hasNativeAudio: modelHasNativeAudio(modelKey),
+    hasNativeAudio: audioWasRequested,
   };
 }
 
