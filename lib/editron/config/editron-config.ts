@@ -356,7 +356,11 @@ export const DEFAULT_CONFIG: EditronConfig = {
     subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
-    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemma-4-31b-it', 'gemini-2.5-flash'),
+    // OLD: gemma-4-31b-it — does NOT support audio input modality. Seedance videos
+    // have native audio baked in, causing 400 "Audio input modality is not enabled"
+    // on EVERY analysis call. All 5-Track data was empty/fallback.
+    // NEW: gemini-3.1-flash — supports video+audio multimodal, better quality analysis.
+    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash', 'gemini-2.5-flash'),
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
   },
