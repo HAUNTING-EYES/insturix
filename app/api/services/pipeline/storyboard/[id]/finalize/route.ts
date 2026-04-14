@@ -753,7 +753,8 @@ export async function POST(
         || buildMusicPrompt(
           storyboard.scenes.map(s => ({
             mood: s.descriptor.mood,
-            audioDescription: s.descriptor.audioDescription,
+            musicDescription: (s.descriptor as any).musicDescription,
+            audioDescription: s.descriptor.audioDescription, // fallback for old projects
           })),
         );
       console.log(`[Finalize] Dispatching BGM worker: "${musicPrompt.substring(0, 80)}", ${totalDurationSec}s`);
@@ -772,15 +773,27 @@ export async function POST(
     if (isSFXAvailable() && currentFrame > 0) {
       // Skip SFX for scenes with native video audio (e.g., Seedance 1.5 Pro).
       // Those videos already have embedded foley/ambient sounds.
+      // SFX dispatch: prefer sfxDescription (new, SFX-only), fall back to sfxCue,
+      // then audioDescription (old, mixed). Filter out scenes with no SFX data and
+      // scenes with native audio (Seedance already has embedded foley/ambient).
       const sfxInputs = storyboard.scenes
-        .filter(s => s.descriptor.audioDescription?.trim())
+        .filter(s => {
+          const desc = s.descriptor as any;
+          return (desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim() || desc.audioDescription?.trim());
+        })
         .filter(s => !(s as any).hasNativeAudio)
         .map(s => {
+          const desc = s.descriptor as any;
           const frameInfo = sceneFrameMap.find(f => f.sceneIndex === s.sceneIndex);
+          // Priority: sfxDescription > sfxCue > audioDescription (deprecated)
+          const sfxText = desc.sfxDescription?.trim()
+            || desc.editDirections?.sfxCue?.trim()
+            || desc.audioDescription?.trim()
+            || '';
           return {
             sceneIndex: s.sceneIndex,
-            audioDescription: s.descriptor.audioDescription!,
-            videoUrl: s.videoUrl || undefined, // Pass to mirelo for video-synced SFX
+            audioDescription: sfxText, // Named audioDescription for backward compat with SFX worker
+            videoUrl: s.videoUrl || undefined,
             durationSeconds: frameInfo?.durationSec ?? Math.min(s.descriptor.durationSeconds, 15),
           };
         });

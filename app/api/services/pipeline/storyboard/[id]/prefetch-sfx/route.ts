@@ -30,9 +30,11 @@ export async function POST(
     const storyboard = await getStoryboard(id, userId);
     if (!storyboard) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    const scenesWithAudio = storyboard.scenes.filter(
-      s => s.descriptor.audioDescription?.trim(),
-    );
+    // Prefer sfxDescription (new, SFX-only) > sfxCue > audioDescription (old, mixed)
+    const scenesWithAudio = storyboard.scenes.filter(s => {
+      const desc = s.descriptor as any;
+      return desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim() || desc.audioDescription?.trim();
+    });
 
     if (scenesWithAudio.length === 0) {
       return NextResponse.json({ success: true, cached: 0, message: 'No scenes with audio descriptions' });
@@ -43,7 +45,9 @@ export async function POST(
     let cached = 0;
     const results = await Promise.allSettled(
       scenesWithAudio.map(async (scene) => {
-        const query = scene.descriptor.audioDescription!;
+        // Priority: sfxDescription > sfxCue > audioDescription (deprecated)
+        const desc = scene.descriptor as any;
+        const query = desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim() || desc.audioDescription || '';
         const durationSec = Math.min(scene.descriptor.durationSeconds, 10);
 
         const sfx = await searchAndDownloadSFX(query, userId!, durationSec);

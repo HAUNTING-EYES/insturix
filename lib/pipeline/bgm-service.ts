@@ -109,22 +109,24 @@ export async function generateBackgroundMusic(
 export function buildMusicPrompt(
   scenes: Array<{
     mood?: string;
-    audioDescription?: string;
+    musicDescription?: string;
+    audioDescription?: string; // @deprecated — fallback for old projects
     editDirections?: { pacing?: string };
     narration?: string;
   }>,
   totalDurationSeconds?: number,
 ): string {
-  const audioDescriptions = scenes.map(s => s.audioDescription).filter(Boolean) as string[];
+  // Prefer musicDescription (new, music-only), fall back to audioDescription (old, mixed)
+  const musicDescriptions = scenes.map(s => s.musicDescription || s.audioDescription).filter(Boolean) as string[];
   const moods = [...new Set(scenes.map(s => s.mood).filter(Boolean))] as string[];
   const hasFast = scenes.some(s => s.editDirections?.pacing === 'fast');
   const hasVO = scenes.some(s => (s.narration?.length || 0) > 0);
   const duration = totalDurationSeconds || scenes.length * 5;
 
   // If ThinkForge provided detailed per-scene music direction, use it as energy arc
-  if (audioDescriptions.length > 0) {
+  if (musicDescriptions.length > 0) {
     return [
-      `Per-scene energy arc: ${audioDescriptions.join(' → ')}`,
+      `Per-scene energy arc: ${musicDescriptions.join(' → ')}`,
       `${duration} seconds`,
       'instrumental only, no vocals, no lyrics, no humming',
       hasVO ? 'leave mid-range clear for speech' : 'full-range mix OK',
