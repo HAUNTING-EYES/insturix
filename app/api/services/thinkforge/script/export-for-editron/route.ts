@@ -101,8 +101,6 @@ export async function POST(request: NextRequest) {
           visualDescription: s.visualDescription,
           videoMotionPrompt: s.videoMotionPrompt,
           audioDescription: s.audioDescription,
-          musicDescription: (s as any).musicDescription || '',
-          sfxDescription: (s as any).sfxDescription || '',
           durationSeconds: s.durationSeconds,
           mood: s.mood,
           imageQualityTokens: s.imageQualityTokens,
