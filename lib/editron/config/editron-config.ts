@@ -359,8 +359,9 @@ export const DEFAULT_CONFIG: EditronConfig = {
     // OLD: gemma-4-31b-it — does NOT support audio input modality. Seedance videos
     // have native audio baked in, causing 400 "Audio input modality is not enabled"
     // on EVERY analysis call. All 5-Track data was empty/fallback.
-    // NEW: gemini-3.1-flash — supports video+audio multimodal, better quality analysis.
-    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash', 'gemini-2.5-flash'),
+    // NEW: gemini-3.1-flash-lite-preview — supports video+audio multimodal, cheapest 3.1 model.
+    // Verified against Google AI API docs: name is "gemini-3.1-flash-lite-preview" (NOT "gemini-3.1-flash").
+    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
   },
