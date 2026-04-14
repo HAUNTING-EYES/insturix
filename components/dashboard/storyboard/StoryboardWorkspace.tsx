@@ -356,13 +356,16 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                     </div>
                   )}
 
-                  {/* Multi-shot montage indicator */}
+                  {/* Multi-shot montage indicator — shows image count when sub-shot images exist */}
                   {hasMontageSubShots(scene) && (
                     <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-amber-500/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
                       <Layers className="h-3 w-3" />
                       {collapsedScenes.has(scene.sceneIndex)
                         ? '1 shot'
                         : `${getSubShots(scene).length} shots`}
+                      {!collapsedScenes.has(scene.sceneIndex) &&
+                        getSubShots(scene).some((s: any) => s.imageUrl) &&
+                        <ImageIcon className="h-3 w-3 ml-0.5" />}
                     </div>
                   )}
                 </div>
@@ -507,9 +510,19 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                           <div className="space-y-2">
                             {getSubShots(selectedScene).map((sub: any, i: number) => (
                               <div key={i} className="flex items-start gap-3 bg-background/60 rounded-lg p-2.5 border border-border/50">
-                                <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
-                                  <span className="text-xs font-bold text-amber-500">{i + 1}</span>
-                                </div>
+                                {/* Sub-shot thumbnail: show generated image when available, fall back to number */}
+                                {sub.imageUrl ? (
+                                  <div className="w-16 h-10 rounded overflow-hidden flex-shrink-0 border border-border/50 relative group">
+                                    <img src={sub.imageUrl} alt={`Shot ${i + 1}`} className="w-full h-full object-cover" />
+                                    <div className="absolute top-0 left-0 bg-amber-500/80 text-[9px] font-bold text-white px-1 rounded-br">
+                                      {i + 1}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
+                                    <span className="text-xs font-bold text-amber-500">{i + 1}</span>
+                                  </div>
+                                )}
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-medium truncate">
                                     {sub.description || sub.visualDescription || `Shot ${i + 1}`}
