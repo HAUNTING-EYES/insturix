@@ -862,6 +862,21 @@ async function executeAction(
           };
           const result = await invokeAITool(singleTransAction, userId, projectId, profile, overlays);
           transModified += result;
+          // Push marker to in-memory overlays so the dedup check at line 821 sees
+          // transitions added by PREVIOUS iterations of this loop. invokeAITool
+          // writes to MongoDB but doesn't update the in-memory array — without this
+          // marker, subsequent iterations create duplicates at adjacent boundaries.
+          if (result > 0) {
+            const transDurFrames = Math.round((effectiveDuration / 1000) * 30);
+            overlays.push({
+              id: Date.now() + i,
+              type: 'transition',
+              from: boundaryFrame - Math.floor(transDurFrames / 2),
+              durationInFrames: transDurFrames,
+              row: ROW.VIDEO,
+              metadata: { isTransition: true },
+            } as any);
+          }
           console.log(`[Director] add_transition: ${i}→${i+1}: ${effectiveType} (${sceneTransType ? 'script' : 'profile default'})`);
         } catch (err: any) {
           console.warn(`[Director] add_transition: boundary ${i}→${i+1} failed: ${err.message}`);
