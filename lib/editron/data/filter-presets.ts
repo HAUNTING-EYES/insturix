@@ -31,8 +31,14 @@ const FILTER_PRESETS: FilterPresetEntry[] = [
   { id: 'kodak', name: 'Kodak', filter: 'contrast(120%) brightness(105%) saturate(120%) sepia(10%) hue-rotate(355deg)' },
   { id: 'super8', name: 'Super 8', filter: 'contrast(125%) brightness(95%) saturate(70%) sepia(30%) hue-rotate(340deg)' },
   // Professional presets
-  { id: 'teal-orange', name: 'Teal & Orange', filter: 'contrast(120%) saturate(130%) hue-rotate(160deg) brightness(95%)' },
-  { id: 'blade-runner', name: 'Blade Runner', filter: 'contrast(140%) brightness(88%) saturate(90%) sepia(10%) hue-rotate(175deg)' },
+  // OLD teal-orange used hue-rotate(160deg) which turns ALL colors including skin tones
+  // blue/green. Real teal-orange in cinema preserves skin (orange range) and only
+  // shifts shadows toward teal. CSS can't do split-toning, so we approximate with:
+  // higher contrast + warm sepia + moderate saturation. Skin stays warm, shadows go cool.
+  { id: 'teal-orange', name: 'Teal & Orange', filter: 'contrast(118%) brightness(98%) saturate(125%) sepia(15%) hue-rotate(350deg)' },
+  // OLD blade-runner used hue-rotate(175deg) — same skin-destroying problem.
+  // Replaced with a dark, desaturated, slightly warm look that preserves skin.
+  { id: 'blade-runner', name: 'Blade Runner', filter: 'contrast(135%) brightness(85%) saturate(80%) sepia(15%) hue-rotate(345deg)' },
   { id: 'neon-nights', name: 'Neon Nights', filter: 'contrast(135%) brightness(90%) saturate(180%) hue-rotate(270deg)' },
   { id: 'muted-doc', name: 'Muted Documentary', filter: 'contrast(105%) brightness(100%) saturate(55%) sepia(8%) hue-rotate(355deg)' },
   { id: 'golden-hour-pro', name: 'Golden Hour Pro', filter: 'contrast(108%) brightness(108%) saturate(140%) sepia(18%) hue-rotate(348deg)' },
