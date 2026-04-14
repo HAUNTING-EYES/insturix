@@ -318,7 +318,12 @@ async function applyDecision(
       return null;
 
     case 'filter-change':
-      return applyFilterChange(decision, overlays);
+      // DISABLED: Profile filter (Director step 3) is the single source of truth
+      // for color grading. EDL per-frame filter-change caused "filter schizophrenia"
+      // — different CSS filters per clip based on local mood inference (e.g.,
+      // hue-rotate(160deg) turning skin blue on some clips). Profile applies ONE
+      // consistent grade to ALL clips, matching professional colorist workflow.
+      return null;
 
     case 'caption-emphasis':
       // Caption emphasis is handled by Director's add_captions step with word-level timing

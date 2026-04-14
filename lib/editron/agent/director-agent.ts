@@ -576,21 +576,24 @@ async function executeAction(
       const preset = getFilterPresetById(filterPresetId);
       if (preset.id === 'none') break;
 
+      // Apply profile filter to ALL visual overlays — profile is source of truth.
+      // OLD: skipped overlays with existing filters (from edit-direction-applier or EDL).
+      // This caused "filter schizophrenia" where different clips got different grades.
+      // NEW: profile filter overwrites everything. Users can manually adjust per-clip
+      // in the editor if they want variation.
       const targetTypes = action.params.targetTypes || ['image', 'video'];
-      let skippedScriptFilter = 0;
+      let overwritten = 0;
       for (const overlay of overlays) {
         if (targetTypes.includes(overlay.type)) {
-          if ((overlay as any).styles?.filter) {
-            // Script already set a filter via edit-direction-applier — respect it
-            skippedScriptFilter++;
-            continue;
+          if ((overlay as any).styles?.filter && (overlay as any).styles.filter !== 'none') {
+            overwritten++;
           }
           overlay.styles = { ...overlay.styles, filter: preset.filter };
           modified++;
         }
       }
-      if (skippedScriptFilter > 0) {
-        console.log(`[Director] batch_update_overlays: applied filter to ${modified}, skipped ${skippedScriptFilter} (script-set filter preserved)`);
+      if (overwritten > 0) {
+        console.log(`[Director] batch_update_overlays: applied ${preset.id} to ${modified} overlays (overwrote ${overwritten} pre-set filters — profile is source of truth)`);
       }
       break;
     }
