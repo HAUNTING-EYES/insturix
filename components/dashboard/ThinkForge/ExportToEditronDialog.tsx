@@ -2527,6 +2527,15 @@ export function ExportToEditronDialog({
                   {storyboardScenes.length > 6 && (
                     <p className="text-[10px] text-zinc-500 mt-1">+{storyboardScenes.length - 6} more scenes</p>
                   )}
+                  {storyboardId && (
+                    <button
+                      onClick={() => window.open(`/dashboard/storyboard/${storyboardId}`, '_blank')}
+                      className="mt-2 w-full text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded py-1.5 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <ImageIcon className="h-3 w-3" />
+                      View Full Storyboard (sub-shots, regenerate, review)
+                    </button>
+                  )}
                 </div>
               )}
             </motion.div>
