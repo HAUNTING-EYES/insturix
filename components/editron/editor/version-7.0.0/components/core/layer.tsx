@@ -25,12 +25,15 @@ export const Layer: React.FC<{
    * Otherwise, static overlay fields are used (no performance cost).
    */
   const style: React.CSSProperties = useMemo(() => {
-    // Captions ALWAYS render on top of video (z-index 95) regardless of their timeline row.
-    // This lets captions sit on row 4 (CAPTIONS) in the timeline for clarity,
-    // while still rendering above video (row 2, z-index 80) in the player.
+    // Z-index overrides by type ensure correct render order regardless of row:
+    // - Captions (95): always on top for readability
+    // - Transitions (85): above video clips (80) they bridge, below captions
+    // - All others: 100 - (row * 10), e.g., SFX row 0 = 100, video row 2 = 80
     const zIndex = overlay.type === 'caption'
       ? 95
-      : 100 - (overlay.row || 0) * 10;
+      : overlay.type === 'transition'
+        ? 85
+        : 100 - (overlay.row || 0) * 10;
     const isSelected = overlay.id === selectedOverlayId;
 
     // Evaluate keyframe tracks if present

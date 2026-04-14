@@ -119,6 +119,10 @@ export async function POST(
       // videoDurationSec is just ONE sub-shot's video length (4s). Capping to 4s
       // squeezes all 5 sub-shots into 4s total — destroying the montage pacing.
       const descriptorForCap = scene.descriptor as any;
+      // NOTE: Parser produces either ALL-independent or ALL-shared sub-shots (Mode A vs B
+      // in llm-scene-parser.ts). Mixed scenes are not generated. If mixed scenes are ever
+      // supported, .some() here means the cap is skipped for the whole scene even if only
+      // one sub-shot is independent — non-independent sub-shots would need separate handling.
       const hasIndependentSubShotsForCap = (descriptorForCap.subShots || []).some(
         (s: any) => s.independentGeneration && (s.videoUrl || s.imageUrl)
       );
