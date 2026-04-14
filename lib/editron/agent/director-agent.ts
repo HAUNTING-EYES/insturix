@@ -576,27 +576,21 @@ async function executeAction(
       const preset = getFilterPresetById(filterPresetId);
       if (preset.id === 'none') break;
 
-      // Apply profile filter to ALL visual overlays. The profile filter is the
-      // single source of truth for color grading — it represents the user's chosen
-      // look (e.g., D-01 = teal-orange for cinematic premium).
-      //
-      // OLD: skipped overlays with existing filters (from EDL filter-change decisions).
-      // This caused "filter schizophrenia" — EDL applied per-frame mood inference
-      // (hue-rotate 160deg = blue skin on some clips) while profile wanted consistent
-      // teal-orange. Profile should ALWAYS win.
       const targetTypes = action.params.targetTypes || ['image', 'video'];
-      let overwritten = 0;
+      let skippedScriptFilter = 0;
       for (const overlay of overlays) {
         if (targetTypes.includes(overlay.type)) {
-          if ((overlay as any).styles?.filter && (overlay as any).styles.filter !== 'none') {
-            overwritten++;
+          if ((overlay as any).styles?.filter) {
+            // Script already set a filter via edit-direction-applier — respect it
+            skippedScriptFilter++;
+            continue;
           }
           overlay.styles = { ...overlay.styles, filter: preset.filter };
           modified++;
         }
       }
-      if (overwritten > 0) {
-        console.log(`[Director] batch_update_overlays: applied ${preset.id} filter to ${modified} overlays (overwrote ${overwritten} EDL-set filters — profile is source of truth)`);
+      if (skippedScriptFilter > 0) {
+        console.log(`[Director] batch_update_overlays: applied filter to ${modified}, skipped ${skippedScriptFilter} (script-set filter preserved)`);
       }
       break;
     }
@@ -865,20 +859,6 @@ async function executeAction(
           };
           const result = await invokeAITool(singleTransAction, userId, projectId, profile, overlays);
           transModified += result;
-          // Push a marker to in-memory overlays so subsequent iterations detect this
-          // transition in the dedup check (line 821). Without this, each iteration
-          // only sees EDL transitions + prior Director transitions from DB, NOT
-          // transitions added by previous iterations of THIS loop.
-          if (result > 0) {
-            overlays.push({
-              id: Date.now() + i,
-              type: 'transition',
-              from: boundaryFrame - Math.round((effectiveDuration / 1000) * 30 / 2),
-              durationInFrames: Math.round((effectiveDuration / 1000) * 30),
-              row: 2, // ROW.VIDEO
-              metadata: { isTransition: true },
-            } as any);
-          }
           console.log(`[Director] add_transition: ${i}→${i+1}: ${effectiveType} (${sceneTransType ? 'script' : 'profile default'})`);
         } catch (err: any) {
           console.warn(`[Director] add_transition: boundary ${i}→${i+1} failed: ${err.message}`);
