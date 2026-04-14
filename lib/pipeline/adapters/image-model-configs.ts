@@ -127,7 +127,8 @@ export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelConfig> = {
     endpoint: 'fal-ai/nano-banana',
     sizeFormat: 'aspect-ratio-only',
     supportsNegativePrompt: false,
-    referenceCapability: 'image-to-image',
+    // Same fix as nano-banana-2: /image-to-image sub-path doesn't exist on fal.ai
+    referenceCapability: 'text-only',
     referenceConfig: {
       paramName: 'image_urls',
       maxRefs: 4,
@@ -143,7 +144,12 @@ export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelConfig> = {
     endpoint: 'fal-ai/nano-banana-2',
     sizeFormat: 'aspect-ratio-only',
     supportsNegativePrompt: false,
-    referenceCapability: 'image-to-image',
+    // OLD: 'image-to-image' — appended /image-to-image to endpoint, but that path
+    // returns 404 on fal.ai. Nano Banana 2 accepts reference images via image_urls
+    // param on its standard endpoint, not a separate i2i sub-path.
+    // Changed to text-only to stop the 404. TODO: add inline-reference capability
+    // type that passes image_urls through the standard endpoint.
+    referenceCapability: 'text-only',
     referenceConfig: {
       paramName: 'image_urls',
       maxRefs: 4,
@@ -159,7 +165,8 @@ export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelConfig> = {
     endpoint: 'fal-ai/nano-banana-pro',
     sizeFormat: 'aspect-ratio-only',
     supportsNegativePrompt: false,
-    referenceCapability: 'image-to-image',
+    // Same fix as nano-banana-2: /image-to-image sub-path doesn't exist on fal.ai
+    referenceCapability: 'text-only',
     referenceConfig: {
       paramName: 'image_urls',
       maxRefs: 4,
