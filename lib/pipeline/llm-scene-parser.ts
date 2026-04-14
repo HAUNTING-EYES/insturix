@@ -52,7 +52,9 @@ const SceneSchema = z.object({
   narration: z.string().describe('ONLY the voiceover/dialogue words spoken aloud by a voice actor. Extract exact quoted text from "Voiceover:" or "VO:" or "Narrator:" labels. Empty string "" if no voiceover in this scene. NEVER include visual descriptions, camera directions, audio notes, or music cues.'),
   visualDescription: z.string().describe('Static image prompt: ONE primary subject, ONE setting, ONE frozen moment. This generates a SINGLE photograph.\n\nBAD: "A family sharing a meal, a grandparent smiling at a grandchild, friends laughing over lunch" — this is 3 different shots, will produce a collage.\nGOOD: "A grandmother smiling warmly at her young grandchild across a McDonald\'s table, warm golden overhead lighting, soft bokeh background" — ONE moment, ONE camera position.\n\nPick the HERO moment from the script. Other visual beats become separate scenes or sub-shots.'),
   videoMotionPrompt: z.string().describe('Video animation prompt: how this still frame comes to life. Camera movement (dolly, pan, orbit), subject micro-motion, atmospheric effects (particles, light shifts, fabric movement). Keep subtle and cinematic.'),
-  audioDescription: z.string().describe('Background audio/sound effects for this scene (not voiceover): ambient sounds, music mood, sfx.'),
+  audioDescription: z.string().describe('DEPRECATED — kept for backward compat. Write to musicDescription + sfxDescription instead. If you must use this field, put ONLY music/mood info here.'),
+  musicDescription: z.string().describe('Music/BGM mood and style for this scene. ONLY music — no sound effects, no ambient sounds. Examples: "gentle nostalgic piano, building warmth", "high-energy trap beat with bass drops". Empty string if no music direction in script.'),
+  sfxDescription: z.string().describe('Sound effects and ambient audio for this scene. Three categories:\n- Ambient bed: room tone, outdoor air, restaurant buzz, traffic hum\n- Spot SFX: cup clink, door close, footstep, paper rustle\n- Feature SFX: whoosh, impact hit, dramatic stinger, glass shatter\nDo NOT include music/BGM here — that goes in musicDescription. Empty string if no SFX direction in script.'),
   durationSeconds: z.number().describe('Total duration this generation unit occupies in the final video (sum of all sub-shot durations if sub-shots exist). Use the script timestamps or narration length to determine duration. Each scene = one AI video generation call (~$0.35), so group related visual beats as sub-shots within ONE scene rather than creating many tiny separate scenes.'),
   mood: z.enum(['energetic', 'calm', 'serious', 'playful', 'mysterious', 'dramatic', 'inspirational', 'neutral']).describe('Scene mood based on actual content: energetic=action/montage/high-energy, calm=gentle/reflective/slow moments, serious=corporate/formal/grave, playful=fun/light/humorous, mysterious=suspense/unknown/moody, dramatic=emotional-peak/conflict/revelation, inspirational=uplifting/triumph/brand-aspiration, neutral=informational/transitional. Vary based on what happens in each scene — do NOT assign the same mood to every scene.'),
   imageQualityTokens: z.string().describe('Style-appropriate quality descriptors for the image. E.g. for cinematic: "35mm film grain, shallow depth of field, anamorphic lens". For anime: "cel-shaded, clean linework, vibrant saturation". Tailor to the art style.'),
@@ -344,11 +346,28 @@ If the script provides timestamps → calculate durationSeconds for each pipelin
 If narration exists → estimate: ~150 words per minute, add 1-2s buffer.
 If no data → default to 5.
 
-## AUDIO DESCRIPTION EXTRACTION
-If the script includes per-scene music direction (emotional target, texture, dynamics, tempo):
-→ Extract into audioDescription: "focused anticipation, low synth pulse, minimal percussion, building intensity"
-If no music direction but ambient audio → audioDescription: "gym ambiance, rhythmic breathing"
-If nothing → audioDescription: ""
+## AUDIO EXTRACTION (MUSIC vs SFX — MUST SPLIT)
+The script's Audio section often mixes music direction with sound effects. You MUST separate them into two fields:
+
+### musicDescription (for BGM generation):
+- Music mood, genre, tempo, instrumentation, energy curve
+- Examples: "gentle nostalgic piano, building to warm uplifting", "high-energy trap, 128 BPM, bass-heavy"
+- If no music direction in script → musicDescription: ""
+
+### sfxDescription (for sound effects search/generation):
+- Ambient beds: room tone, outdoor air, traffic hum, restaurant buzz
+- Spot SFX: cup clink, door close, footstep, paper rustle
+- Feature SFX: whoosh, impact hit, dramatic stinger, glass shatter
+- If no SFX direction in script → sfxDescription: ""
+
+### audioDescription (DEPRECATED — backward compat only):
+- Copy musicDescription value here for old consumers that still read it
+- Do NOT put SFX in audioDescription
+
+Example: "**Audio:** Gentle, nostalgic piano music begins. Faint, distant sound of children's laughter."
+→ musicDescription: "gentle, nostalgic piano music, warm and inviting"
+→ sfxDescription: "faint distant children's laughter, restaurant ambient"
+→ audioDescription: "gentle, nostalgic piano music, warm and inviting" (copy of musicDescription)
 
 ## MOTION GRAPHIC CUE EXTRACTION
 If the script implies branded / stat / callout elements without giving exact copy:
@@ -390,21 +409,27 @@ Do NOT invent text. The field is for EXACT copy extraction only.
 ALSO set motionGraphicCue as a brief free-form description (backward compat with older consumers),
 but onScreenText is the authoritative source.
 
-## SFX EXTRACTION (CRITICAL — must split from audioDescription)
-The Audio section often mixes music, narration, and SFX. You MUST split them:
-- Text after "SFX:" or "Sound:" → editDirections.sfxCue (strip the label prefix)
-- Music mood, background audio → audioDescription
-- Spoken words → narration
+## SFX EXTRACTION (uses BOTH sfxDescription AND editDirections.sfxCue)
+The Audio section mixes music, narration, and SFX. Split them into three outputs:
 
-Example: "**Audio:** SFX: Chalk dust puff, fabric rustle, light sharp click. Subtle ambient gym hum, faint rhythmic breathing."
-→ sfxCue: "chalk dust puff, fabric rustle, light sharp click"
-→ audioDescription: "subtle ambient gym hum, faint rhythmic breathing"
+1. **musicDescription** — music mood, genre, tempo, instrumentation
+2. **sfxDescription** — ambient beds + spot SFX + feature SFX (the FULL SFX soundscape)
+3. **editDirections.sfxCue** — the MOST important single SFX moment (for targeted SFX search)
+4. **narration** — spoken words only
 
-Example: "**Audio:** SFX: Exaggerated whoosh for jump, subtle crowd roar. Warm, comforting background music."
-→ sfxCue: "exaggerated whoosh, subtle crowd roar"
-→ audioDescription: "warm, comforting background music"
+Example: "**Audio:** SFX: Chalk dust puff, fabric rustle, light sharp click. Subtle ambient gym hum, faint rhythmic breathing. Inspiring orchestral score builds."
+→ musicDescription: "inspiring orchestral score, building energy"
+→ sfxDescription: "chalk dust puff, fabric rustle, light sharp click, subtle ambient gym hum, faint rhythmic breathing"
+→ sfxCue: "chalk dust puff" (the most prominent SFX cue)
+→ audioDescription: "inspiring orchestral score, building energy" (copy of musicDescription)
 
-If no SFX mentioned → sfxCue: null (not empty string)
+Example: "**Audio:** Gentle, nostalgic piano music begins. Faint, distant sound of children's laughter."
+→ musicDescription: "gentle, nostalgic piano music, warm and inviting"
+→ sfxDescription: "faint distant children's laughter"
+→ sfxCue: "children's laughter" (most prominent)
+→ audioDescription: "gentle, nostalgic piano music, warm and inviting"
+
+If no SFX in script → sfxDescription: "", sfxCue: null
 
 ## EDIT DIRECTIONS MAPPING
 ### Transitions (map script cues to exact IDs):

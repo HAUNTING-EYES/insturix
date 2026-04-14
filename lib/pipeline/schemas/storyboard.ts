@@ -76,8 +76,22 @@ export interface SceneDescriptor {
   durationSeconds: number;
   mood: string;
   cameraDirection?: string;
-  /** Audio/sound design notes from the script (e.g. "sirens, crowd noise") */
+  /** @deprecated Use musicDescription + sfxDescription instead.
+   *  Previously mixed music mood ("gentle nostalgic piano") with SFX ("children's laughter").
+   *  Kept for backward compatibility — old projects only have this field.
+   *  Consumers should read musicDescription/sfxDescription first, fall back to audioDescription. */
   audioDescription?: string;
+  /** Music/BGM mood and style direction. For BGM generation (CassetteAI).
+   *  Examples: "gentle nostalgic piano, building to warm uplifting", "high-energy trap beat, 128 BPM"
+   *  Does NOT include sound effects — those go in sfxDescription or editDirections.sfxCue. */
+  musicDescription?: string;
+  /** Sound effects and ambient audio direction. For SFX search/generation.
+   *  Three-Layer Sound Model (creative_production_knowledge.md):
+   *    - Ambient bed: "restaurant buzz, room tone, outdoor air"
+   *    - Spot SFX: "cup clink, door close, footstep"
+   *    - Feature SFX: "whoosh, impact hit, stinger"
+   *  Does NOT include music/BGM — that goes in musicDescription. */
+  sfxDescription?: string;
   /** Dedicated motion/animation prompt for AI video generation (from LLM parser) */
   videoMotionPrompt?: string;
   /** Dynamic quality tokens for image generation, specific to the art style (from LLM) */
