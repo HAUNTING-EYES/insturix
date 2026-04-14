@@ -3836,7 +3836,7 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
               easing: 'ease-in-out',
               from: transFrom,
               durationInFrames: overlapFrames,
-              row: outgoing.row || 2, // Same row as video clips
+              row: outgoing.row || ROW.VIDEO, // Inline with video clips (DaVinci-style)
               left: 0, top: 0, width: outgoing.width || 1920, height: outgoing.height || 1080,
               isDragging: false, rotation: 0,
               content: transDef.name || transId,

@@ -431,7 +431,7 @@ function applyTransition(
     type: 'transition' as const,
     from: anchorFrame - Math.floor(durationFrames / 2),
     durationInFrames: durationFrames,
-    row: ROW.TRANSITIONS,
+    row: ROW.VIDEO, // DaVinci-style: transitions render inline between clips on the video track
     left: 0,
     top: 0,
     width: canvas.width,
