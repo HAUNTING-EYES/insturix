@@ -1,5 +1,11 @@
 /**
- * Storyboard Image Generation Queue Service
+ * @deprecated DEAD CODE — zero imports (verified 2026-04-14 via grep).
+ * Storyboard image generation now runs inline in storyboard-service.ts
+ * (parallel concurrency 4-6, QStash workers for large batches).
+ * This Redis-based queue was superseded but never removed.
+ * Kept as reference for the Redis+MongoDB queue pattern.
+ *
+ * Original: Storyboard Image Generation Queue Service
  *
  * Async parallel storyboard image generation using Upstash Redis queue + MongoDB.
  * Same architecture as video-queue-service.ts.

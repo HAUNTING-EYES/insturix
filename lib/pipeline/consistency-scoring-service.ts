@@ -131,13 +131,15 @@ async function comparePair(
     // whole pair-score call. Now we get a safe default with logged warning.
     const raw = result.text;
     const { value: parsed } = safeParseLlmJson<any>(raw, {
+      // OLD: all 'pass' — hid parse failures behind false "everything OK" signal.
+      // NEW: 'warn' — surfaces that we couldn't check, without triggering auto-regen.
       fallback: {
-        subject_identity: 'pass',
-        lighting_match: 'pass',
-        color_palette: 'pass',
-        style_coherence: 'pass',
-        worst_issue: 'Gemini response unparseable, assumed pass',
-        regenerate_recommendation: 'none',
+        subject_identity: 'warn',
+        lighting_match: 'warn',
+        color_palette: 'warn',
+        style_coherence: 'warn',
+        worst_issue: 'Gemini response unparseable — consistency unknown (flagged for review)',
+        regenerate_recommendation: 'none', // Don't auto-regen on parse failure
       },
       label: `consistency pair (${sceneIndexA},${sceneIndexB})`,
     });
