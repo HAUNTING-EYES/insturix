@@ -11,6 +11,7 @@ import {
   CaptionOverlay,
   ClipOverlay,
 } from "@/components/editron/editor/version-7.0.0/types";
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 import {
   findBestRow,
   resolveCoordinates,
@@ -2083,8 +2084,8 @@ Use this to understand what exists. Then decide what to do based on user intent.
         const videoEnd = videoFrom + overlay.durationInFrames;
         const voiceoverOverlay = project.overlays.find((o: any) => {
           if (o.type !== 'sound') return false;
-          // Match by: same time range (within 30 frames tolerance) AND on voiceover row (4) or has voiceover_ assetId
-          const isVoiceover = o.row === 3 || (o.assetId || '').startsWith('voiceover_');
+          // Match by: same time range (within 30 frames tolerance) AND on voiceover row (3) or has voiceover_ assetId
+          const isVoiceover = o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_');
           if (!isVoiceover) return false;
           const oEnd = o.from + o.durationInFrames;
           // Check time overlap (not exact match — overlays may differ by a few frames)
@@ -2133,7 +2134,7 @@ Use this to understand what exists. Then decide what to do based on user intent.
         // NEW: row 4 (ROW.CAPTIONS) for clean timeline separation.
         // Rendering z-index is handled in layer.tsx — captions get z-index 95
         // regardless of row, so they always render above video (z-index 80).
-        captionOverlay = { ...captionOverlay, row: 4 };
+        captionOverlay = { ...captionOverlay, row: ROW.CAPTIONS };
         
         // Add caption to project
         await projectService.addOverlay(userId, projectId, captionOverlay as any);
@@ -2659,7 +2660,7 @@ Linked captions are automatically moved with their videos.`,
             lockTypography: input.lockTypography || false,
             typographyProfile,
           },
-          row: 6, // Motion graphics row
+          row: ROW.MOTION_GRAPHICS,
           left: videoBox.left,
           top: videoBox.top,
           width: videoBox.width,
@@ -3599,7 +3600,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
 
         // Find voiceover/caption overlays for narration context
         const voOverlays = project.overlays.filter((o: any) =>
-          o.type === 'sound' && (o.row === 3 || (o.assetId || '').startsWith('voiceover_')),
+          o.type === 'sound' && (o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_')),
         );
         const captionOverlays = project.overlays.filter((o: any) => o.type === 'caption');
 
@@ -4832,7 +4833,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         const totalDurationSec = Math.round(totalFrames / fps);
 
         // Remove existing BGM (row 1 sound overlays)
-        const bgmOverlays = overlays.filter((o: any) => o.type === 'sound' && o.row === 1);
+        const bgmOverlays = overlays.filter((o: any) => o.type === 'sound' && o.row === ROW.BGM);
         for (const bgm of bgmOverlays) {
           await projectService.deleteOverlay(userId, projectId, bgm.id);
         }
@@ -4848,7 +4849,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           type: 'sound',
           from: 0,
           durationInFrames: totalFrames,
-          row: 5,
+          row: ROW.BGM, // Was 5 (TRANSITIONS row) — BGM must be on row 1
           left: 0, top: 0, width: 0, height: 0,
           isDragging: false, rotation: 0,
           content: bgm.audioUrl,
@@ -5167,7 +5168,7 @@ Examples:
           type: 'sound',
           from: startFrame,
           durationInFrames: durationFrames,
-          row: 6,
+          row: ROW.MOTION_GRAPHICS,
           left: 0, top: 0, width: 0, height: 0,
           isDragging: false, rotation: 0,
           content: audioUrl,

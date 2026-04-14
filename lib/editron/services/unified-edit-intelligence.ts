@@ -20,6 +20,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import type { AssetAnalysis } from './five-track-analysis';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -165,7 +166,7 @@ export async function assembleUnifiedContext(
 
   // Get voiceover overlays
   const voiceoverOverlays = overlays
-    .filter((o: any) => o.type === 'sound' && ((o.assetId || '').startsWith('voiceover_') || o.row === 3));
+    .filter((o: any) => o.type === 'sound' && ((o.assetId || '').startsWith('voiceover_') || o.row === ROW.VOICEOVER));
 
   // Build per-scene context
   const scenes: SceneContext[] = [];

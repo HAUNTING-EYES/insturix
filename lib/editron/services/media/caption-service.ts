@@ -14,6 +14,7 @@ import type {
 } from './types';
 import { msToTimelineFrame } from './types';
 import { getTranscription } from './transcription-service';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { groupWordsIntoCaptions } from '@/lib/editron/utils/caption-utils';
 import { 
   CaptionOverlay, 
@@ -372,7 +373,7 @@ export async function createCaptions(params: {
     height,
     rotation: 0,
     isDragging: false,
-    row: 0, // Row 0 = topmost z-index (100 - row*10). Captions must render ABOVE video (row 2, z-index 80).
+    row: ROW.CAPTIONS, // Row 4. z-index is overridden to 95 for captions in layer.tsx (always renders above video).
     styles: finalStyles,
     displayConfig,
     position,
@@ -497,7 +498,7 @@ export function createCaptionsFromScriptText(params: {
     height,
     rotation: 0,
     isDragging: false,
-    row: 0, // same z-index strategy as transcription captions (rendered above video at 95)
+    row: ROW.CAPTIONS, // Row 4. z-index overridden to 95 in layer.tsx (always above video).
     styles: baseStyles,
     displayConfig: baseDisplayConfig,
     position,

@@ -55,7 +55,7 @@ export const LottiePanel: React.FC = () => {
       type: OverlayType.IMAGE,
       from: 0,
       durationInFrames: 90, // 3 seconds at 30fps
-      row: 1,
+      row: 6, // ROW.MOTION_GRAPHICS — Lottie animations belong on the graphics track, not BGM (was 1)
       left: 100,
       top: 100,
       width: 300,

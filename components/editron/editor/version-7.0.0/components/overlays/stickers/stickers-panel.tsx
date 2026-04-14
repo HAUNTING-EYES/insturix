@@ -34,7 +34,7 @@ const StickerPreview = memo(
         width: 200,
         left: 0,
         top: 0,
-        row: 0,
+        row: 6, // ROW.MOTION_GRAPHICS — stickers are visual overlays, not SFX (was 0)
         isDragging: false,
         rotation: 0,
         styles: {

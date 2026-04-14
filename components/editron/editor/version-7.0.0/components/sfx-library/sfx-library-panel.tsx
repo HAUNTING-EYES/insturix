@@ -67,7 +67,7 @@ export const SFXLibraryPanel: React.FC = () => {
         type: OverlayType.SOUND,
         from: 0, // Place at start — user can drag to desired position
         durationInFrames: Math.round(sfx.duration * fps),
-        row: 6, // SFX row
+        row: 0, // ROW.SFX — sound effects on track 0, not MOTION_GRAPHICS (was 6)
         left: 0,
         top: 0,
         width: 0,

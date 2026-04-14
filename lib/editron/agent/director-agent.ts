@@ -24,6 +24,7 @@
 import type { EditProfile, EditProfileAction, DirectorResult, ProjectBrief, ProfileId } from '@/lib/editron/data/edit-profile-types';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import { projectService } from '@/lib/editron/services/project-service';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 
 /**
@@ -112,7 +113,7 @@ export async function executeDirectorPlan(
       const { detectCinematicMoments } = await import('@/lib/editron/services/cinematic-moment-detector');
 
       const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
-      const voiceoverOverlays = overlays.filter(o => o.type === 'sound' && o.row === 3).sort((a, b) => a.from - b.from);
+      const voiceoverOverlays = overlays.filter(o => o.type === 'sound' && o.row === ROW.VOICEOVER).sort((a, b) => a.from - b.from);
       const analyses: any[] = [];
       try {
         const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
@@ -596,7 +597,7 @@ async function executeAction(
     case 'audio_ducking': {
       // Configure ducking on BGM overlays (row 1)
       for (const overlay of overlays) {
-        if (overlay.type === 'sound' && overlay.row === 1) {
+        if (overlay.type === 'sound' && overlay.row === ROW.BGM) {
           overlay.styles = {
             ...overlay.styles,
             duckingConfig: {
@@ -954,7 +955,7 @@ async function invokeAITool(
       try {
         const { getTranscription } = await import('@/lib/editron/services/media/transcription-service');
         const voiceoverOverlays = overlays.filter(o =>
-          o.type === 'sound' && ((o.assetId || '').startsWith('voiceover_') || o.row === 3)
+          o.type === 'sound' && ((o.assetId || '').startsWith('voiceover_') || o.row === ROW.VOICEOVER)
         );
         console.log(`[Director] add_captions: pre-warming transcriptions for ${voiceoverOverlays.length} voiceovers`);
         for (const vo of voiceoverOverlays) {
@@ -1015,7 +1016,7 @@ async function invokeAITool(
     }
     case 'sync_cuts_to_beats': {
       // Find audio (BGM) and video overlays
-      const bgmOverlay = overlays.find(o => o.type === 'sound' && o.row === 1);
+      const bgmOverlay = overlays.find(o => o.type === 'sound' && o.row === ROW.BGM);
       const videoOverlay = overlays.find(o => o.type === 'video');
       if (!bgmOverlay || !videoOverlay) {
         console.log(`[Director] sync_cuts_to_beats: missing BGM or video overlay`);
@@ -1083,15 +1084,13 @@ function checkCondition(condition: string | undefined, overlays: any[]): boolean
     case 'hasVideoOverlays':
       return overlays.some(o => o.type === 'video');
     case 'hasSpeech':
-      return overlays.some(o => o.type === 'sound' && (o.row === 3 || (o.assetId || '').startsWith('voiceover_')));
+      return overlays.some(o => o.type === 'sound' && (o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_')));
     case 'hasVoiceover':
-      // ROW.VOICEOVER = 3 (not 4). Also check by assetId prefix as fallback.
-      return overlays.some(o => o.type === 'sound' && (o.row === 3 || (o.assetId || '').startsWith('voiceover_')));
+      return overlays.some(o => o.type === 'sound' && (o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_')));
     case 'hasMultipleScenes':
       return overlays.filter(o => o.type === 'image' || o.type === 'video').length > 1;
     case 'hasBGM':
-      // ROW.BGM = 1. Also check by assetId prefix.
-      return overlays.some(o => o.type === 'sound' && (o.row === 1 || (o.assetId || '').startsWith('bgm_')));
+      return overlays.some(o => o.type === 'sound' && (o.row === ROW.BGM || (o.assetId || '').startsWith('bgm_')));
     default:
       return true;
   }

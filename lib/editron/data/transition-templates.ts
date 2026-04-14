@@ -81,7 +81,7 @@ export function buildTransitionOverlay(
     type: 'transition' as any,
     from: startFrame,
     durationInFrames: durationFrames,
-    row: 1, // Transition layer — in front of video (row 2) and image (row 3)
+    row: 2, // VIDEO row — transitions render inline between clips (DaVinci-style). NOTE: this function is currently unused (EDL executor creates transitions directly).
     left: 0,
     top: 0,
     width,

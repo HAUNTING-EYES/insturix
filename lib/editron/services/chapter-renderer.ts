@@ -18,6 +18,7 @@ import { renderMediaOnLambda, getRenderProgress } from '@remotion/lambda/client'
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -86,7 +87,7 @@ export function detectChapterBoundaries(
 
   // Find all scene boundaries (where video overlays start/end on row 2)
   const videoOverlays = overlays
-    .filter(o => o.type === 'video' && o.row === 2)
+    .filter(o => o.type === 'video' && o.row === ROW.VIDEO)
     .sort((a, b) => a.from - b.from);
 
   if (videoOverlays.length === 0) {
