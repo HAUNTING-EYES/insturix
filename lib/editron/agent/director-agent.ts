@@ -25,6 +25,7 @@ import type { EditProfile, EditProfileAction, DirectorResult, ProjectBrief, Prof
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import { projectService } from '@/lib/editron/services/project-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 
 /**
@@ -602,10 +603,10 @@ async function executeAction(
             ...overlay.styles,
             duckingConfig: {
               enabled: true,
-              duckLevel: action.params.duckLevel ?? 0.20,
-              rampDownMs: action.params.rampDownMs ?? 300,
-              rampUpMs: action.params.rampUpMs ?? 600,
-              lookAheadMs: action.params.lookAheadMs ?? 200,
+              duckLevel: action.params.duckLevel ?? DEFAULT_CONFIG.audio.duckLevel,
+              rampDownMs: action.params.rampDownMs ?? DEFAULT_CONFIG.audio.rampDownMs,
+              rampUpMs: action.params.rampUpMs ?? DEFAULT_CONFIG.audio.rampUpMs,
+              lookAheadMs: action.params.lookAheadMs ?? DEFAULT_CONFIG.audio.lookAheadMs,
             },
           };
           modified++;
