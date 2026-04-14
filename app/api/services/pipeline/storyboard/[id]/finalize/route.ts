@@ -113,7 +113,16 @@ export async function POST(
       // Cap scene duration to actual video length to prevent freeze frames.
       // If script says 5.7s but Kling only generated 5s, use 5s.
       // Without this cap, Remotion freezes on the last frame for the extra 0.7s.
-      if (videoDurationSec && videoDurationSec > 0 && sceneDurationSec > videoDurationSec) {
+      //
+      // SKIP for montage scenes with independent sub-shots: each sub-shot has its
+      // own targetDurationSeconds (e.g., 3.6s × 5 = 18s total). The parent scene's
+      // videoDurationSec is just ONE sub-shot's video length (4s). Capping to 4s
+      // squeezes all 5 sub-shots into 4s total — destroying the montage pacing.
+      const descriptorForCap = scene.descriptor as any;
+      const hasIndependentSubShotsForCap = (descriptorForCap.subShots || []).some(
+        (s: any) => s.independentGeneration && (s.videoUrl || s.imageUrl)
+      );
+      if (!hasIndependentSubShotsForCap && videoDurationSec && videoDurationSec > 0 && sceneDurationSec > videoDurationSec) {
         console.log(`[Finalize] Scene ${scene.sceneIndex}: capping duration from ${sceneDurationSec.toFixed(1)}s to ${videoDurationSec.toFixed(1)}s (video shorter than script)`);
         sceneDurationSec = videoDurationSec;
       }
