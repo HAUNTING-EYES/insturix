@@ -70,7 +70,7 @@ export async function POST(req: Request) {
                         "Content-Type": "application/x-www-form-urlencoded",
                         "Authorization": `Basic ${credentials}`,
                     },
-                    body: refreshBody.toString(),
+                    body: refreshBody,
                 });
 
                 const refreshData = await refreshRes.json();
@@ -184,7 +184,7 @@ export async function POST(req: Request) {
 
         // Get file metadata for size
         const [metadata] = await file.getMetadata();
-        const fileSize = metadata.size as number;
+        const fileSize = Number(metadata.size);
         const fileName = gcsPath.split("/").pop() || "video.mp4";
 
         console.log(`📦 File size: ${(fileSize / (1024 * 1024)).toFixed(2)} MB`);
@@ -207,34 +207,47 @@ export async function POST(req: Request) {
         const [fileBuffer] = await file.download();
         console.log(`✅ Downloaded ${(fileBuffer.length / (1024 * 1024)).toFixed(2)} MB`);
 
-        // ================= CHUNKED UPLOAD =================
-        console.log("🐦 Starting Twitter Chunked Media Upload...");
+        // ================= CHUNKED UPLOAD USING API V2 =================
+        console.log("🐦 Starting Twitter API v2 Media Upload...");
 
-        // Step 1: INIT - Initialize the upload
+        // Step 1: INITIALIZE - Initialize the upload
         console.log("📤 Step 1/4: INITIALIZING upload...");
-        const initResponse = await twitterApiRequest(
-            "POST",
-            "https://upload.twitter.com/1.1/media/upload.json",
-            {
-                command: "INIT",
-                total_bytes: fileSize.toString(),
-                media_type: "video/mp4",
-                media_category: "tweet_video",
+        const initResponse = await fetch("https://api.x.com/2/media/upload/initialize", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
             },
-            accessToken
-        );
+            body: JSON.stringify({
+                media_type: "video/mp4",
+                total_bytes: fileSize,
+                media_category: "tweet_video",
+            }),
+        });
 
-        if (!initResponse.media_id_string) {
-            console.error("❌ Twitter INIT failed:", initResponse);
+        const initData = await initResponse.json();
+
+        console.log("📥 INIT response:", JSON.stringify(initData, null, 2));
+
+        if (!initResponse.ok || initData.error) {
+            console.error("❌ Twitter INIT failed:", initData);
             return NextResponse.json({
                 success: false,
                 error: "Failed to initialize Twitter upload",
-                details: initResponse,
+                details: initData,
             }, { status: 500 });
         }
 
-        const mediaId = initResponse.media_id_string;
+        const mediaId = initData.data?.id || initData.media_id || initData.media_id_string;
         console.log("✅ INIT successful, media_id:", mediaId);
+
+        if (!mediaId) {
+            console.error("❌ No media_id found in INIT response:", initData);
+            return NextResponse.json({
+                success: false,
+                error: "Failed to get media ID from Twitter",
+            }, { status: 500 });
+        }
 
         // Step 2: APPEND - Upload video in chunks
         console.log("📤 Step 2/4: UPLOADING chunks...");
@@ -248,17 +261,26 @@ export async function POST(req: Request) {
 
             console.log(`📦 Uploading chunk ${i + 1}/${totalChunks} (${(chunk.length / 1024).toFixed(2)} KB)`);
 
-            await twitterApiRequest(
-                "POST",
-                "https://upload.twitter.com/1.1/media/upload.json",
-                {
-                    command: "APPEND",
-                    media_id: mediaId,
-                    segment_index: i.toString(),
+            const appendUrl = `https://api.x.com/2/media/upload/${mediaId}/append`;
+            const appendResponse = await fetch(appendUrl, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${accessToken}`,
+                    "Content-Type": "application/octet-stream",
+                    "x-media_type": "video/mp4",
                 },
-                accessToken,
-                chunk // Media chunk
-            );
+                body: chunk,
+            });
+
+            if (!appendResponse.ok) {
+                const appendError = await appendResponse.json();
+                console.error(`❌ Chunk ${i + 1} upload failed:`, appendError);
+                return NextResponse.json({
+                    success: false,
+                    error: `Failed to upload chunk ${i + 1}`,
+                    details: appendError,
+                }, { status: 500 });
+            }
 
             console.log(`✅ Chunk ${i + 1}/${totalChunks} uploaded`);
         }
@@ -267,22 +289,23 @@ export async function POST(req: Request) {
 
         // Step 3: FINALIZE - Finalize the upload
         console.log("📤 Step 3/4: FINALIZING upload...");
-        const finalizeResponse = await twitterApiRequest(
-            "POST",
-            "https://upload.twitter.com/1.1/media/upload.json",
-            {
-                command: "FINALIZE",
-                media_id: mediaId,
+        const finalizeUrl = `https://api.x.com/2/media/upload/${mediaId}/finalize`;
+        const finalizeResponse = await fetch(finalizeUrl, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
             },
-            accessToken
-        );
+        });
 
-        if (!finalizeResponse.media_id_string) {
-            console.error("❌ Twitter FINALIZE failed:", finalizeResponse);
+        const finalizeData = await finalizeResponse.json();
+
+        if (!finalizeResponse.ok || finalizeData.error) {
+            console.error("❌ Twitter FINALIZE failed:", finalizeData);
             return NextResponse.json({
                 success: false,
                 error: "Failed to finalize Twitter upload",
-                details: finalizeResponse,
+                details: finalizeData,
             }, { status: 500 });
         }
 
@@ -290,7 +313,7 @@ export async function POST(req: Request) {
 
         // Step 4: STATUS - Poll until processing complete
         console.log("📤 Step 4/4: POLLING status...");
-        const processingState = await pollMediaStatus(mediaId, accessToken);
+        const processingState = await pollMediaStatusV2(mediaId, accessToken);
 
         if (processingState !== "succeeded") {
             console.error("❌ Twitter video processing failed:", processingState);
@@ -312,6 +335,8 @@ export async function POST(req: Request) {
             },
         };
 
+        console.log("📝 Tweet payload:", JSON.stringify(tweetPayload, null, 2));
+
         const tweetResponse = await fetch("https://api.x.com/2/tweets", {
             method: "POST",
             headers: {
@@ -323,16 +348,18 @@ export async function POST(req: Request) {
 
         const tweetData = await tweetResponse.json();
 
-        if (tweetResponse.status !== 201 || tweetData.error) {
+        console.log("📥 Tweet response:", JSON.stringify(tweetData, null, 2));
+
+        if (!tweetResponse.ok || tweetData.error) {
             console.error("❌ Tweet creation failed:", tweetData);
             return NextResponse.json({
                 success: false,
-                error: tweetData.error?.message || "Failed to create tweet",
+                error: tweetData.error?.message || tweetData.detail || "Failed to create tweet",
                 details: tweetData,
             }, { status: 500 });
         }
 
-        const tweetId = tweetData.data.id;
+        const tweetId = tweetData.data?.id;
         const tweetUrl = `https://x.com/${twitterTokens.userName}/status/${tweetId}`;
 
         console.log("✅ Tweet created successfully:", tweetUrl);
@@ -371,92 +398,9 @@ export async function POST(req: Request) {
 }
 
 /**
- * Make authenticated request to Twitter API
+ * Poll media status until processing is complete (API v2)
  */
-async function twitterApiRequest(
-    method: string,
-    url: string,
-    params: Record<string, string>,
-    accessToken: string,
-    mediaChunk?: Buffer
-): Promise<any> {
-    // If we have a media chunk (APPEND command), send raw binary
-    if (mediaChunk) {
-        const appendUrl = new URL(url);
-        for (const [key, value] of Object.entries(params)) {
-            appendUrl.searchParams.set(key, value);
-        }
-
-        const response = await fetch(appendUrl.toString(), {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${accessToken}`,
-                "Content-Type": "application/octet-stream",
-            },
-            body: mediaChunk,
-        });
-
-        let data: any = {};
-        const responseText = await response.text();
-        if (responseText) {
-            try {
-                data = JSON.parse(responseText);
-            } catch (parseError) {
-                console.warn("⚠️ Failed to parse Twitter API response as JSON:", parseError);
-                data = {};
-            }
-        }
-
-        if (response.status >= 400) {
-            console.error("❌ Twitter API error:", data);
-            console.error("❌ Response status:", response.status);
-            console.error("❌ Response headers:", Object.fromEntries(response.headers.entries()));
-            throw new Error(data.error?.message || `Twitter API returned ${response.status}`);
-        }
-
-        return data;
-    }
-
-    // For other commands (INIT, FINALIZE, STATUS), use query params
-    const queryParams = new URL(url);
-    for (const [key, value] of Object.entries(params)) {
-        queryParams.searchParams.set(key, value);
-    }
-
-    const fullUrl = queryParams.toString();
-
-    const response = await fetch(fullUrl, {
-        method,
-        headers: {
-            "Authorization": `Bearer ${accessToken}`,
-        },
-    });
-
-    let data: any = {};
-    const responseText = await response.text();
-    if (responseText) {
-        try {
-            data = JSON.parse(responseText);
-        } catch (parseError) {
-            console.warn("⚠️ Failed to parse Twitter API response as JSON:", parseError);
-            data = {};
-        }
-    }
-
-    if (response.status >= 400) {
-        console.error("❌ Twitter API error:", data);
-        console.error("❌ Response status:", response.status);
-        console.error("❌ Response headers:", Object.fromEntries(response.headers.entries()));
-        throw new Error(data.error?.message || `Twitter API returned ${response.status}`);
-    }
-
-    return data;
-}
-
-/**
- * Poll media status until processing is complete
- */
-async function pollMediaStatus(mediaId: string, accessToken: string): Promise<string> {
+async function pollMediaStatusV2(mediaId: string, accessToken: string): Promise<string> {
     const maxAttempts = 60; // 5 minutes (5 second intervals)
     const interval = 5000; // 5 seconds
     let attempts = 0;
@@ -465,11 +409,9 @@ async function pollMediaStatus(mediaId: string, accessToken: string): Promise<st
         await new Promise(resolve => setTimeout(resolve, interval));
         attempts++;
 
-        const statusUrl = new URL("https://upload.twitter.com/1.1/media/upload.json");
-        statusUrl.searchParams.set("command", "STATUS");
-        statusUrl.searchParams.set("media_id", mediaId);
+        const statusUrl = `https://api.x.com/2/media/upload/${mediaId}`;
 
-        const response = await fetch(statusUrl.toString(), {
+        const response = await fetch(statusUrl, {
             headers: {
                 "Authorization": `Bearer ${accessToken}`,
             },
@@ -525,5 +467,62 @@ async function pollMediaStatus(mediaId: string, accessToken: string): Promise<st
     // Timeout
     console.error("❌ Media processing timed out after 5 minutes");
     return "timed_out";
+}
+
+/**
+ * Make authenticated request to Twitter API using OAuth 2.0 Bearer token
+ * @deprecated Use direct fetch with OAuth 2.0 Bearer token instead
+ */
+async function twitterApiRequest(
+    method: string,
+    url: string,
+    params: Record<string, string>,
+    accessToken: string,
+    mediaChunk?: Buffer
+): Promise<any> {
+    // Build URL with query params using WHATWG URL API
+    const requestUrl = new URL(url);
+    for (const [key, value] of Object.entries(params)) {
+        requestUrl.searchParams.set(key, value);
+    }
+
+    const headers: Record<string, string> = {
+        "Authorization": `Bearer ${accessToken}`,
+    };
+
+    let body: BodyInit | undefined = undefined;
+
+    // For APPEND command with media chunk, use raw binary
+    if (mediaChunk) {
+        headers["Content-Type"] = "application/octet-stream";
+        body = mediaChunk as unknown as BodyInit;
+    }
+
+    const response = await fetch(requestUrl.toString(), {
+        method,
+        headers,
+        body,
+    });
+
+    let data: any = {};
+    const responseText = await response.text();
+    if (responseText) {
+        try {
+            data = JSON.parse(responseText);
+        } catch (parseError) {
+            console.warn("⚠️ Failed to parse Twitter API response as JSON:", parseError);
+            data = {};
+        }
+    }
+
+    if (response.status >= 400) {
+        console.error("❌ Twitter API error:", data);
+        console.error("❌ Response status:", response.status);
+        console.error("❌ Response headers:", Object.fromEntries(response.headers.entries()));
+        console.error("❌ Response body:", responseText);
+        throw new Error(data.error?.message || `Twitter API returned ${response.status}`);
+    }
+
+    return data;
 }
 

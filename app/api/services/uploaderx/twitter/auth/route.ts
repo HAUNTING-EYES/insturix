@@ -17,16 +17,18 @@ export async function GET(req: Request) {
         const { origin } = new URL(req.url);
         const redirectUri = `${origin}/api/services/uploaderx/twitter/callback`;
 
-        // Required scopes for Twitter/X API v2
+        // Required scopes for Twitter/X API v2 with media upload
         // tweet.read - Read user's tweets
         // tweet.write - Create tweets (including with media)
         // users.read - Read user's profile info
         // offline.access - Get refresh token for long-term access
+        // media.write - Upload media (videos/images) to Twitter
         const scopes = [
             "tweet.read",
             "tweet.write",
             "users.read",
             "offline.access",
+            "media.write",
         ].join(" ");
 
         // Generate PKCE code verifier and challenge
@@ -34,7 +36,6 @@ export async function GET(req: Request) {
         const codeChallenge = await generateCodeChallenge(codeVerifier);
 
         // Store code verifier in cookie for callback validation
-        // This is needed to verify the token exchange
         const state = session.userId;
 
         const twitterAuthUrl = new URL("https://x.com/i/oauth2/authorize");
@@ -46,8 +47,7 @@ export async function GET(req: Request) {
         twitterAuthUrl.searchParams.set("code_challenge", codeChallenge);
         twitterAuthUrl.searchParams.set("code_challenge_method", "S256");
 
-        // TEMP DEBUG: Log the Client ID being used
-        console.log("🔍 DEBUG - Client ID:", clientId, "| Redirect URI:", redirectUri, "| Scopes:", scopes);
+        console.log("🔐 OAuth 2.0 scopes requested:", scopes);
 
         // Create response with redirect
         const response = NextResponse.redirect(twitterAuthUrl.toString());

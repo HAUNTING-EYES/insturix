@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 
-// Required scopes for full Twitter functionality
+// Required scopes for full Twitter functionality including media upload
 const REQUIRED_SCOPES = [
     "tweet.read",
     "tweet.write",
     "users.read",
     "offline.access",
+    "media.write",
 ];
 
 /**
