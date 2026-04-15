@@ -7,7 +7,7 @@ async function testGCS() {
 
         // Try with Application Default Credentials first
         const storage = new Storage({
-            projectId: 'insturix-dev'
+            projectId: process.env.GOOGLE_CLOUD_PROJECT || 'insturix-493414'
         });
 
         // List buckets to test connection

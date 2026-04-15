@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-PROJECT_ID="insturix-457914"
+PROJECT_ID="insturix-493414"
 REGION="us-central1"
 REPO_NAME="remotion-repo"
 
