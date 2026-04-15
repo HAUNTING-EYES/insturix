@@ -6,6 +6,9 @@ node_modules
 .env
 .env.local
 .env.production
+.env.preview
+.env.staging
+.env.development
 
 .excalidraw
 tsconfig.tsbuildinfo
@@ -41,3 +44,11 @@ tsconfig.tsbuildinfo
 /cloud-run-renderer/package-lock.json
 .vercel
 .env*.local
+
+# Claude Code context file (not part of codebase)
+CLAUDE.md
+.mcp.json
+.code-review-graph/
+
+# GCP Migration secrets — NEVER commit
+migrations/gcp-account-switch/secrets/

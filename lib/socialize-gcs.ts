@@ -23,7 +23,7 @@ if (process.env.GCS_BUCKET_NAME) {
                 credentials: gcsCredentials,
             }
             : {
-                projectId: process.env.GOOGLE_CLOUD_PROJECT_ID || 'insturix-dev',
+                projectId: process.env.GOOGLE_CLOUD_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || 'insturix-493414',
             };
 
         storage = new Storage(storageConfig);

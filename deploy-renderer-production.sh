@@ -2,7 +2,7 @@
 set -e
 
 # PRODUCTION Configuration
-PROJECT_ID="insturix-457914"
+PROJECT_ID="insturix-493414"
 REGION="us-central1"
 SERVICE_NAME="remotion-renderer"
 # Use Artifact Registry
