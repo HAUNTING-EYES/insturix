@@ -70,6 +70,22 @@ export interface EditProfile {
   bgmDuckLevel: number;
   /** Graphics density */
   graphicsDensity: 'heavy' | 'moderate' | 'minimal';
+  /**
+   * Transition SFX policy — controls the rule-driven transition SFX placer
+   * (Director step 3.6, DIRECTOR_KNOWLEDGE_BASE.md Part 9 rules A-001/A-002).
+   *
+   * - 'full' (default when omitted): KB default volumes — whoosh 0.30 on
+   *   dissolve/wipe, impact 0.55 on zoom-punch/flash. Use for energetic,
+   *   social, brand-promotion content where transition SFX sells the motion.
+   * - 'subtle': 50% volume attenuation (-6 dB). Use for cinematic, emotional,
+   *   narrative content where SFX should be felt, not heard.
+   * - 'off': skip transition SFX placement entirely. Use for documentary,
+   *   luxury, minimalist content where silence/restraint IS the aesthetic.
+   *
+   * The absence of this field = 'full' (KB default). Only opinionated profiles
+   * need to specify this — most inherit standard behavior.
+   */
+  transitionSFXPolicy?: 'full' | 'subtle' | 'off';
 
   // ─── Director Agent Actions ───────────────────────────
   /** Ordered tool calls the Director Agent executes */

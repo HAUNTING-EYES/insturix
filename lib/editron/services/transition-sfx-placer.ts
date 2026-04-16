@@ -21,6 +21,11 @@
  *   whoosh: -10 dB → 0.30  (A-001 range: -12 to -8 dB)
  *   impact:  -5 dB → 0.55  (A-002 range:  -6 to -3 dB)
  *
+ * PROFILE POLICY (EditProfile.transitionSFXPolicy):
+ *   'full'   (default): KB volumes as-is. Energetic, social, brand content.
+ *   'subtle' (50% vol): Cinematic, emotional, retro — felt not heard. Half volume.
+ *   'off'    (skip):    Documentary, luxury, minimalist — silence is the aesthetic.
+ *
  * IDEMPOTENCY:
  *   Uses deterministic overlay IDs based on transition.id + token.
  *   Running twice won't produce duplicate SFX overlays (filter by existing IDs).
@@ -79,31 +84,30 @@ function mapTransitionStyleToSFX(style: string): SFXPlacementSpec | null {
   }
 }
 
-// ─── Profile-aware volume adjustment ─────────────────────────────
+// ─── Profile-aware policy resolution ─────────────────────────────
 
 /**
- * Adjust the KB default volume based on profile character.
+ * Resolve the profile's transitionSFXPolicy. Default is 'full' when the
+ * profile doesn't specify the field — most profiles inherit KB defaults.
  *
- * Cinematic, documentary, luxury profiles mix SFX quieter to preserve the
- * organic feel. Social, gaming, UGC profiles keep KB defaults because the
- * audience expects prominent SFX.
- *
- * Deliberately simple for MVP — a more nuanced per-profile SFX policy can be
- * added later via an EditProfile.sfxPolicy field (deferred).
+ * Only opinionated profiles override:
+ * - 'off'    → skip all transition SFX (documentary, luxury — silence IS the style)
+ * - 'subtle' → half volume (cinematic, emotional, retro — felt not heard)
+ * - 'full'   → KB default volumes (energetic, social, brand)
  */
-function adjustVolumeForProfile(baseVolume: number, profile: EditProfile | null): number {
-  if (!profile) return baseVolume;
+function resolvePolicy(profile: EditProfile | null): 'full' | 'subtle' | 'off' {
+  if (!profile) return 'full';
+  return profile.transitionSFXPolicy ?? 'full';
+}
 
-  const profileId = (profile.profileId || '').toUpperCase();
-
-  // Documentary (D-prefix) + Luxury brand ad profiles: subtle SFX (-6 dB vs default)
-  // D-01 Cinematic, D-05 Documentary, D-08 Luxury all fall into this bucket.
-  if (profileId.startsWith('D-')) {
-    return baseVolume * 0.5; // -6 dB additional attenuation
-  }
-
-  // Gaming / high-energy social profiles: keep default KB volume
-  // (B-13 Gaming intentionally has prominent SFX per KB A-100 allowance)
+/**
+ * Apply policy-aware volume scaling to the KB default.
+ * 'subtle' → 50% (roughly -6 dB).
+ * 'full' / default → unchanged.
+ * 'off' is handled at a higher level (placement is skipped entirely, never reaches here).
+ */
+function adjustVolumeForPolicy(baseVolume: number, policy: 'full' | 'subtle' | 'off'): number {
+  if (policy === 'subtle') return baseVolume * 0.5;
   return baseVolume;
 }
 
@@ -191,6 +195,18 @@ export async function placeTransitionSFX(
     skipReasons: {},
     tokensUsed: [],
   };
+
+  // Profile policy check — 'off' profiles skip transition SFX entirely.
+  // This is the opinionated path (documentary / luxury / minimalist profiles
+  // that deliberately use silence or natural-only audio).
+  const policy = resolvePolicy(profile);
+  if (policy === 'off') {
+    console.log(
+      `[TransitionSFX] Profile ${profile?.profileId || '(none)'} has transitionSFXPolicy='off' — ` +
+      `skipping all transition SFX by design (silence is the aesthetic)`
+    );
+    return result;
+  }
 
   // Library availability check — graceful degradation (Rule 16)
   if (!isSFXLibraryAvailable()) {
@@ -281,7 +297,7 @@ export async function placeTransitionSFX(
       src: sfx.audioUrl,
       assetId: sfx.audioAssetId,
       styles: {
-        volume: adjustVolumeForProfile(spec.volume, profile),
+        volume: adjustVolumeForPolicy(spec.volume, policy),
         opacity: 1,
       },
       metadata: {
