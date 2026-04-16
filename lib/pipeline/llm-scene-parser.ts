@@ -1243,6 +1243,66 @@ ${scriptText.substring(0, 8000)}`,
     }
   }
 
+  // ─── Post-process: detect beat-sync signals + extract BPM ────
+  // Beat-sync is a TOOL, not a default style (creative_production_knowledge.md
+  // content_editing_knowledge.md). It activates ONLY when the script or scene
+  // explicitly signals it. Three signal sources (in priority order):
+  //   1. Any scene has editDirections.pacing === 'beat-synced' (explicit script pacing)
+  //   2. globalEditDirections.pacing === 'beat-synced' (script-level directive)
+  //   3. Script text contains beat-sync keywords ("beat-synced", "quick cuts",
+  //      "cut on the drop", "edit to the beat", "montage", "hype reel")
+  //
+  // If activated, downstream finalize synchronously dispatches BGM, detects
+  // beats, and passes the beat grid to Director for cut placement. See
+  // pipeline_investigations.md "Beat-sync design doc (Option C)" 2026-04-17.
+  //
+  // BPM extraction (separate concern, may run even without beat-sync active):
+  //   regex match /\d{2,3}\s*bpm/i against the raw script. Captures explicit
+  //   tempo specifications like "140 BPM driving electronic". Used later by
+  //   beat-detection-service even in non-beat-sync mode (future SFX timing).
+  const scriptLower = (scriptText || '').toLowerCase();
+  const BEAT_SYNC_KEYWORDS = [
+    'beat-synced',
+    'beat synced',
+    'quick cuts',
+    'cut on the drop',
+    'cut on the beat',
+    'edit to the beat',
+    'montage',
+    'hype reel',
+    'rapid cuts',
+    'beat drop',
+  ];
+
+  const anyScenePacing = (object.scenes as any[]).some(
+    (s: any) => s.editDirections?.pacing === 'beat-synced',
+  );
+  const globalPacing = (object as any).globalEditDirections?.pacing === 'beat-synced';
+  const scriptKeywordMatch = BEAT_SYNC_KEYWORDS.some((kw) => scriptLower.includes(kw));
+
+  const beatSyncActive = anyScenePacing || globalPacing || scriptKeywordMatch;
+
+  // Extract BPM regex — broadly useful even outside beat-sync flow
+  const bpmMatch = (scriptText || '').match(/(\d{2,3})\s*bpm\b/i);
+  const bpm = bpmMatch ? parseInt(bpmMatch[1], 10) : null;
+  const bpmValid = bpm !== null && bpm >= 40 && bpm <= 220;
+
+  // Attach to parser result without modifying Zod schema — these are derived signals.
+  (object as any).beatSyncActive = beatSyncActive;
+  if (bpmValid) (object as any).bpm = bpm;
+
+  if (beatSyncActive) {
+    const reasons: string[] = [];
+    if (anyScenePacing) reasons.push('scene.editDirections.pacing=beat-synced');
+    if (globalPacing) reasons.push('globalEditDirections.pacing=beat-synced');
+    if (scriptKeywordMatch) reasons.push('script-keyword');
+    console.log(
+      `[SceneParser] Beat-sync ACTIVE: reasons=[${reasons.join(', ')}]${bpmValid ? `, bpm=${bpm}` : ''}`
+    );
+  } else if (bpmValid) {
+    console.log(`[SceneParser] BPM extracted (no beat-sync): bpm=${bpm}`);
+  }
+
   return object;
 }
 
