@@ -196,10 +196,16 @@ export async function POST(
               try {
                 const analysis = await getAnalysis(sub.videoAssetId);
                 if (analysis?.status === 'complete') {
-                  const bestStart = selectBestSegment(analysis, subDur, fps);
+                  // Detect AI slop (teleports, morphing, artifacts) so selectBestSegment
+                  // can avoid those frame ranges when picking the trim window.
+                  // Slop detection is deterministic + cheap (structural checks on analysis).
+                  const { detectSlop } = await import('@/lib/editron/services/asset-briefing');
+                  const slopRanges = detectSlop(analysis);
+                  const bestStart = selectBestSegment(analysis, subDur, fps, undefined, slopRanges);
                   if (bestStart > 0) {
                     subOverlay.videoStartTime = bestStart; // Remotion seeks to this frame
                     subOverlay.metadata.smartClipStart = bestStart;
+                    subOverlay.metadata.slopRangesAvoided = slopRanges.length;
                   }
                 }
               } catch { /* analysis not available — use clip from start */ }
@@ -348,14 +354,20 @@ export async function POST(
           },
           hasNativeAudio: (scene as any).hasNativeAudio || false,
         };
-        // Smart clip selection: if clip is longer than scene, pick best segment
+        // Smart clip selection: if clip is longer than scene, pick best segment.
+        // Slop-aware: AI artifacts (morphing, teleports, object count changes) in the
+        // generated clip are heavily penalized during window selection, so the trim
+        // window naturally avoids slop. Double-duty: duration fit + quality uplift.
         if (scene.videoAssetId && videoDurationSec && durationFrames < Math.round(videoDurationSec * fps)) {
           try {
             const analysis = await getAnalysis(scene.videoAssetId);
             if (analysis?.status === 'complete') {
-              const bestStart = selectBestSegment(analysis, durationFrames, fps);
+              const { detectSlop } = await import('@/lib/editron/services/asset-briefing');
+              const slopRanges = detectSlop(analysis);
+              const bestStart = selectBestSegment(analysis, durationFrames, fps, undefined, slopRanges);
               if (bestStart > 0) {
                 mainVideoOverlay.videoStartTime = bestStart;
+                (mainVideoOverlay as any).metadata = { ...(mainVideoOverlay as any).metadata, slopRangesAvoided: slopRanges.length };
               }
             }
           } catch { /* analysis not available — use clip from start */ }

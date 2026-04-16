@@ -1303,21 +1303,36 @@ export async function analyzeProjectAssets(
  * @param contentHint - Optional hint about what content type this is
  * @returns startFrame (in frames) — where in the source clip to begin playback
  */
+/**
+ * Minimal slop-range interface for selectBestSegment scoring.
+ *
+ * Structurally compatible with `SlopFlag` from asset-briefing.ts (which also has
+ * these fields). Defined locally to avoid a circular import (asset-briefing.ts
+ * already imports from this file).
+ */
+export interface SlopRange {
+  startFrame: number;
+  endFrame: number;
+  severity: 'high' | 'medium' | 'low';
+}
+
 export function selectBestSegment(
   analysis: AssetAnalysis,
   targetDurationFrames: number,
   fps: number = 30,
   contentHint?: 'action' | 'beauty' | 'talking-head' | 'default',
+  slopRanges?: SlopRange[],
 ): number {
   const totalFrames = Math.round(analysis.durationMs / 1000 * fps);
 
   // If the target is longer than or equal to the clip, start from the beginning
   if (targetDurationFrames >= totalFrames) return 0;
 
-  // If no motion data, fall back to start
+  // If no motion data AND no slop ranges, fall back to start
   const segments = analysis.motionSegments || [];
   const peaks = analysis.motionPeaks || [];
-  if (segments.length === 0 && peaks.length === 0) return 0;
+  const hasSlop = slopRanges && slopRanges.length > 0;
+  if (segments.length === 0 && peaks.length === 0 && !hasSlop) return 0;
 
   // Determine selection strategy from content hint or analysis
   const strategy = contentHint || inferContentStrategy(analysis);
@@ -1330,7 +1345,7 @@ export function selectBestSegment(
 
   for (let start = 0; start <= maxStart; start += step) {
     const end = start + targetDurationFrames;
-    const score = scoreSegment(start, end, segments, peaks, strategy, totalFrames);
+    const score = scoreSegment(start, end, segments, peaks, strategy, totalFrames, slopRanges);
     if (score > bestScore) {
       bestScore = score;
       bestStart = start;
@@ -1359,6 +1374,11 @@ function inferContentStrategy(
 
 /**
  * Score a candidate segment based on content strategy.
+ *
+ * When `slopRanges` are provided (from asset-briefing's detectSlop), windows
+ * overlapping with AI artifacts are heavily penalized — higher severity =
+ * larger penalty. This makes the selection double as a slop-avoidance pass:
+ * the returned "best window" is simultaneously high motion + low slop.
  */
 function scoreSegment(
   startFrame: number,
@@ -1367,6 +1387,7 @@ function scoreSegment(
   peaks: number[],
   strategy: 'action' | 'beauty' | 'talking-head' | 'default',
   totalFrames: number,
+  slopRanges?: SlopRange[],
 ): number {
   const peaksInSegment = peaks.filter(p => p >= startFrame && p < endFrame).length;
 
@@ -1386,18 +1407,45 @@ function scoreSegment(
   // Bias toward earlier segments (natural video structure)
   const positionBias = 1 - (startFrame / totalFrames) * 0.3;
 
+  // Slop penalty — windows overlapping with AI artifacts are heavily downgraded
+  // so the "best" window naturally avoids slop while still favoring motion/peaks.
+  // Severity weights tuned so a 1-frame high-severity slop overwhelms small
+  // motion/peak gains; medium/low slop discourages but doesn't always dominate.
+  let slopPenalty = 0;
+  if (slopRanges && slopRanges.length > 0) {
+    const windowFrames = Math.max(1, endFrame - startFrame);
+    for (const flag of slopRanges) {
+      const overlapStart = Math.max(startFrame, flag.startFrame);
+      const overlapEnd = Math.min(endFrame, flag.endFrame);
+      if (overlapStart < overlapEnd) {
+        const overlapFrames = overlapEnd - overlapStart;
+        const overlapFraction = overlapFrames / windowFrames;
+        const severityWeight = flag.severity === 'high' ? 30 : flag.severity === 'medium' ? 15 : 5;
+        slopPenalty += severityWeight * overlapFraction;
+      }
+    }
+  }
+
+  let baseScore: number;
   switch (strategy) {
     case 'action':
-      return peaksInSegment * 10 + avgMotion * 5 + positionBias;
+      baseScore = peaksInSegment * 10 + avgMotion * 5 + positionBias;
+      break;
 
     case 'beauty':
-      return -avgMotion * 10 - peaksInSegment * 5 + positionBias;
+      baseScore = -avgMotion * 10 - peaksInSegment * 5 + positionBias;
+      break;
 
-    case 'talking-head':
+    case 'talking-head': {
       const centerBias = 1 - Math.abs(((startFrame + endFrame) / 2) / totalFrames - 0.5) * 2;
-      return -avgMotion * 5 + centerBias * 3 + positionBias;
+      baseScore = -avgMotion * 5 + centerBias * 3 + positionBias;
+      break;
+    }
 
     default:
-      return peaksInSegment * 3 + avgMotion * 2 + positionBias * 2;
+      baseScore = peaksInSegment * 3 + avgMotion * 2 + positionBias * 2;
+      break;
   }
+
+  return baseScore - slopPenalty;
 }
