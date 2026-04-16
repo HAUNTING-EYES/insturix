@@ -262,14 +262,20 @@ export async function POST(req: Request) {
             console.log(`📦 Uploading chunk ${i + 1}/${totalChunks} (${(chunk.length / 1024).toFixed(2)} KB)`);
 
             const appendUrl = `https://api.x.com/2/media/upload/${mediaId}/append`;
+            
+            // Convert chunk to base64 for JSON transmission
+            const base64Chunk = chunk.toString("base64");
+            
             const appendResponse = await fetch(appendUrl, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${accessToken}`,
-                    "Content-Type": "application/octet-stream",
-                    "x-media_type": "video/mp4",
+                    "Content-Type": "application/json",
                 },
-                body: chunk,
+                body: JSON.stringify({
+                    segment_index: i,
+                    media: base64Chunk,
+                }),
             });
 
             if (!appendResponse.ok) {
