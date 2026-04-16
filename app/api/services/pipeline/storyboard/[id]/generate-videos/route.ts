@@ -287,6 +287,8 @@ export async function POST(
               videoMotionPrompt: subMotion,
               referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
               transitionHint: descriptor.editDirections?.transition,
+              // Script's SFX/ambient direction — Seedance weaves into native audio; others ignore
+              sfxDescription: (descriptor as any).sfxDescription?.trim() || undefined,
             } : undefined,
           });
           console.log(`[generate-videos] Scene ${scene.sceneIndex} sub-shot ${si}: "${sub.description}" (${subDuration}s, independent)`);
@@ -320,6 +322,8 @@ export async function POST(
             videoMotionPrompt: descriptor.videoMotionPrompt,
             referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
             transitionHint: descriptor.editDirections?.transition,
+            // Script's SFX/ambient direction — Seedance weaves into native audio; others ignore
+            sfxDescription: (descriptor as any).sfxDescription?.trim() || undefined,
           } : undefined,
         });
       }

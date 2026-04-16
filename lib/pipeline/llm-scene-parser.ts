@@ -1377,6 +1377,16 @@ export interface VideoPromptContext {
   /** Cinema hardware language (camera body, lens, focal length, aperture).
    *  Derived from edit profile via getCinemaSettingsForProfile(). */
   cinemaHardware?: string;
+  /** Sound effects + ambient bed description from script (creative_production_knowledge §3 Three-Layer Sound Model).
+   *  For Seedance models, this is injected into the audio layer of the prompt so the
+   *  model generates matching foley/ambient natively. For non-Seedance models, unused. */
+  sfxDescription?: string;
+  /** True when a separate voiceover will be generated (Kokoro/Deepgram) for this scene.
+   *  Used ONLY with targetModel='seedance' to suppress dialogue generation in the video
+   *  prompt — prevents per-clip voice identity drift that destroys cross-clip brand voice
+   *  consistency. A single Kokoro voice across all scenes > Seedance's per-clip roll-of-the-dice.
+   *  See creative_production_knowledge §3 (dialogue layer is identity), §15 (VO priority). */
+  suppressDialogue?: boolean;
 }
 
 /**
@@ -1423,7 +1433,31 @@ Layer 4: Visual style and mood — aesthetic, lighting, emotional tone.
 Include ambient sound descriptions (this is Seedance's primary differentiator).
 Use camera_fixed language for static tripod shots. 100-150 words.`,
   };
-  const modelGuide = modelTuning[context.targetModel || ''] || 'Default: slow push-in, minimal motion, one atmospheric detail. 80-120 words.';
+
+  // Seedance dialogue suppression: when a separate TTS (Kokoro) will generate the voiceover,
+  // Seedance MUST NOT generate dialogue audio because per-clip voice identity drift destroys
+  // cross-clip brand voice consistency. See creative_production_knowledge §3 (dialogue is the
+  // identity layer) and §15 (VO priority -12 to -6 dB requires ONE consistent voice across project).
+  // Auto-infer: 'seedance' target + narration present + caller didn't override = suppress.
+  const effectiveSuppressDialogue =
+    context.suppressDialogue ??
+    (context.targetModel === 'seedance' && !!context.narration?.trim());
+
+  // When suppressing, replace the Seedance template with an explicit "no dialogue" variant.
+  let modelGuide = modelTuning[context.targetModel || ''] || 'Default: slow push-in, minimal motion, one atmospheric detail. 80-120 words.';
+  if (context.targetModel === 'seedance' && effectiveSuppressDialogue) {
+    modelGuide = `Seedance 1.5/2.0 (DIALOGUE SUPPRESSED — TTS generates voice separately):
+Layer 1: Primary action/subject — core visual element and movement.
+Layer 2: NON-VERBAL vocalizations ONLY — breaths, grunts, laughs, sighs, gasps. NO spoken words, NO intelligible dialogue, NO narration. Voiceover is generated externally by a consistent TTS model and overlaid in post — Seedance must stay silent on speech to preserve brand voice consistency across clips.
+Layer 3: Environmental audio cues — comma-separated ambient sounds${context.sfxDescription ? ` (weave in: ${context.sfxDescription.substring(0, 180)})` : ' (sizzling, wind, traffic, room tone as scene dictates)'}.
+Layer 4: Visual style and mood — aesthetic, lighting, emotional tone.
+NEGATIVE AUDIO: spoken dialogue, voiceover, narration, intelligible speech, spoken words.
+Include ambient sound descriptions (this is Seedance's primary differentiator). Use camera_fixed language for static tripod shots. 100-150 words.`;
+  } else if (context.targetModel === 'seedance' && context.sfxDescription) {
+    // Seedance with explicit dialogue allowed + sfxDescription: enrich Layer 3 with script SFX
+    modelGuide = `${modelTuning.seedance}
+Weave these specific ambient/foley sounds into Layer 3: ${context.sfxDescription.substring(0, 200)}`;
+  }
 
   // HOTFIX 2026-04-08: 60s hard cap — called per-scene from video worker
   // (300s total budget). If refinement hangs, worker falls back to buildMotionPrompt()
@@ -1441,11 +1475,15 @@ Refine a motion prompt for one scene. The video model receives the starting imag
 ## SCENE CONTEXT
 Starting image shows: ${context.visualDescription.substring(0, 400)}
 Initial motion idea: ${context.videoMotionPrompt || 'Not specified — choose most cinematic option'}
-Narration: ${context.narration?.substring(0, 800) || 'Silent'}
+${effectiveSuppressDialogue
+  ? `Voice cadence reference (TTS handles the actual speech separately — DO NOT generate voice): "${context.narration?.substring(0, 400) || ''}"`
+  : `Narration: ${context.narration?.substring(0, 800) || 'Silent'}`
+}
 Mood: ${context.mood || 'neutral'} | Duration: ${context.durationSeconds}s
 ${context.cameraDirection ? `Camera direction: ${context.cameraDirection}` : ''}
 ${context.transitionHint ? `Scene ends with: ${context.transitionHint}` : ''}
 ${context.previousSceneLastFrame ? 'Continues from previous scene — maintain visual continuity.' : ''}
+${context.sfxDescription ? `\n## SOUND DESIGN (creative_production_knowledge §3 Three-Layer Sound Model)\nAmbient + spot SFX for this scene: ${context.sfxDescription.substring(0, 300)}` : ''}
 ${context.cinemaHardware ? `\n## CINEMA HARDWARE (weave these terms naturally into your prompt)\n${context.cinemaHardware}` : ''}
 
 ## KEY SUBJECTS

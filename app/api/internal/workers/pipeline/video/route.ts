@@ -49,6 +49,9 @@ interface VideoWorkerPayload {
     videoMotionPrompt?: string;
     referenceSubjects?: string[];
     transitionHint?: { type?: string };
+    /** Sound design description from script (ambient + spot SFX). Fed into Seedance
+     *  audio layer to generate matching foley natively. Unused for non-Seedance models. */
+    sfxDescription?: string;
   };
 }
 
@@ -97,6 +100,14 @@ async function handler(request: NextRequest) {
         const cinemaSettings = getCinemaSettingsFromContent(ctx.mood, ctx.artStyle);
         const cinemaHardware = buildCinemaFragment(cinemaSettings);
 
+        // Determine prompt-tuning family from the video model key. This activates
+        // model-specific prompt templates (e.g., Seedance's 4-layer structure with
+        // ambient audio guidance, or Veo's short 150-300 char spec). Previously
+        // targetModel was never passed, so all refinements fell through to the
+        // generic default — the Seedance template existed as dead code.
+        const { getPromptTuningFamily } = await import('@/lib/pipeline/adapters/video-model-configs');
+        const targetModel = getPromptTuningFamily(videoModel) ?? undefined;
+
         refinedPrompt = await Promise.race([
           refineVideoPrompt({
             visualDescription: ctx.visualDescription || '',
@@ -111,6 +122,14 @@ async function handler(request: NextRequest) {
             cameraDirection: ctx.cameraDirection,
             transitionHint: ctx.transitionHint as any,
             cinemaHardware,
+            targetModel,
+            // Pass the script's sound-design description. For Seedance, this gets
+            // woven into the audio layer so the model generates matching foley natively.
+            // For non-Seedance models it's ignored (kept in interface for symmetry).
+            sfxDescription: ctx.sfxDescription,
+            // suppressDialogue is auto-inferred inside refineVideoPrompt based on
+            // (targetModel === 'seedance' && narration exists). Kokoro TTS generates
+            // the voice consistently across all scenes — Seedance must not speak.
           }),
           new Promise<string>((_, reject) => setTimeout(() => reject(new Error('LLM refinement timeout')), 30000)),
         ]);

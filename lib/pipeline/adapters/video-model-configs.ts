@@ -365,3 +365,22 @@ export function modelHasNativeAudio(key: string): boolean {
   const config = getVideoModelConfig(key);
   return config.nativeAudio?.default === true;
 }
+
+/**
+ * Map an adapter model key to its prompt-tuning family, for use with
+ * llm-scene-parser.ts's refineVideoPrompt targetModel parameter.
+ *
+ * The tuning family controls which model-specific template the LLM uses
+ * (4-layer Seedance structure vs 2-4 sentence Kling vs terse Veo).
+ * Families are prompt-engineering buckets, not API compatibility — a new
+ * "kling-2.7" key would map to 'kling' because the prompt style is the same.
+ *
+ * Returns null for unknown models → refiner falls back to generic template.
+ */
+export function getPromptTuningFamily(key: string): 'kling' | 'veo' | 'seedance' | null {
+  const lower = (key || '').toLowerCase();
+  if (lower.startsWith('seedance')) return 'seedance';
+  if (lower.startsWith('kling')) return 'kling';
+  if (lower.startsWith('veo')) return 'veo';
+  return null;
+}
