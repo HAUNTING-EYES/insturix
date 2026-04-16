@@ -21,6 +21,7 @@ function initGenAI(): GoogleGenerativeAI {
     throw error;
   }
 }
+
 const PRIMARY_MODEL = "gemini-3.1-flash-lite-preview";
 const FALLBACK_MODEL = "gemini-2.5-flash";
 
@@ -168,7 +169,6 @@ export async function analyzeVideoWithGemini(
         responseMimeType: "application/json",
         responseSchema: responseSchema as any,
       },
-
       safetySettings: [
         {
           category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
@@ -187,7 +187,7 @@ export async function analyzeVideoWithGemini(
           threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
         },
       ],
-            ...extraParams,
+      ...extraParams,
     });
 
     // analysis prompt with explicit JSON formatting instructions
@@ -308,8 +308,8 @@ Be specific and reference actual content from the video with precise timestamps.
 
     parts.push({
       fileData: {
-        mimeType: 'video/mp4',
-        fileUri: videoUrl,
+        mimeType: "audio/mpeg",
+        fileUri: audioUri,
       },
     });
 
