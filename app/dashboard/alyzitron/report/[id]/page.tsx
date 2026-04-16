@@ -61,7 +61,7 @@ async function getAnalysis(id: string) {
       analysis: {
         ...analysis,
         _id: analysis._id.toString()
-      },
+      } as any,
       isOwner: !!isOwner,
       isPublic
     };
@@ -143,12 +143,17 @@ export default async function AnalysisReport({ params }: PageProps) {
     analysisData.compliance_risks = complianceMetrics;
   }
 
-  // Check if videoUrl is not a YouTube URL and get signed GCS video url
   const isYouTubeUrl =
     analysis.videoUrl &&
     (analysis.videoUrl.includes("youtube.com") || analysis.videoUrl.includes("youtu.be"));
+    
+  const isInstagramUrl = 
+    analysis.videoUrl &&
+    (analysis.videoUrl.includes("instagram.com"));
 
-  const signedUrl = !isYouTubeUrl ? await getGcsSignedUrl(analysis.videoUrl) : null;
+  const isEmbeddableUrl = isYouTubeUrl || isInstagramUrl;
+
+  const signedUrl = !isEmbeddableUrl ? await getGcsSignedUrl(analysis.videoUrl) : null;
 
   return (
     <div className="container mx-auto p-8">
@@ -156,12 +161,14 @@ export default async function AnalysisReport({ params }: PageProps) {
         <AnalysisDetails
           analysisData={analysisData}
           videoUrl={analysis.videoUrl}
-          signedUrl={signedUrl}
+          signedUrl={signedUrl || undefined}
           videoTitle={analysis.metadata?.originalFilename}
           createdAt={analysis.createdAt}
           analysisId={analysis._id}
           isOwner={isOwner}
           isPublic={isPublic}
+          userId={analysis.clerkUserId}
+          taskId={resolvedParams.id}
         />
       </div>
     </div>

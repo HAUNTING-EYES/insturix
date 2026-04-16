@@ -18,9 +18,11 @@ import {
   RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { AnalysisData, MetricData } from "../../../../../lib/types";
+import ChatToggleButton from "@/components/dashboard/Alyzitron/chat/Chattogglebutton";
+import ChatPanel from "@/components/dashboard/Alyzitron/chat/ChatPanel";
 import { ExportPDFButton } from "@/components/dashboard/Alyzitron/ExportPDFButton";
 
 // Helper function to copy text to clipboard
@@ -162,6 +164,8 @@ interface AnalysisDetailsProps {
   analysisId?: string;
   isOwner?: boolean;
   isPublic?: boolean;
+  userId?: string;
+  taskId?: string;
 }
 
 interface ShareButtonProps {
@@ -362,6 +366,8 @@ export function AnalysisDetails({
   analysisId,
   isOwner,
   isPublic,
+  userId,
+  taskId
 }: AnalysisDetailsProps) {
   const [currentIsPublic, setCurrentIsPublic] = useState(isPublic || false);
   const [currentTitleIndex, setCurrentTitleIndex] = useState(0);
@@ -369,10 +375,15 @@ export function AnalysisDetails({
   const [showAllTitles, setShowAllTitles] = useState(false);
   const [showAllDescriptions, setShowAllDescriptions] = useState(false);
   const [copiedItems, setCopiedItems] = useState<Set<string>>(new Set());
+  const [open, setOpen] = useState(false);
 
   // Video player refs for both YouTube and uploaded videos
   const videoRef = useRef<HTMLVideoElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const openPanel = useCallback(() => setOpen(true), []);
+  const closePanel = useCallback(() => setOpen(false), []);
+  const togglePanel = useCallback(() => setOpen((v) => !v), []);
 
   // Helper function to handle copy with visual feedback
   const handleCopy = async (text: string, itemId: string) => {
@@ -412,8 +423,8 @@ export function AnalysisDetails({
       // Scroll to video
       iframeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } 
-    // For uploaded videos
-    else if (videoRef.current) {
+    // For uploaded videos (Instagram doesn't support start time via iframe API easily, so we only do YouTube and native)
+    else if (!isYouTubeUrl && !isInstagramUrl && videoRef.current) {
       videoRef.current.currentTime = seconds;
       videoRef.current.play().catch(err => {
         console.log("Autoplay prevented:", err);
@@ -449,6 +460,17 @@ export function AnalysisDetails({
     videoUrl &&
     (videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be"));
   const youtubeVideoId = isYouTubeUrl ? extractYouTubeVideoId(videoUrl) : null;
+  
+  // Extract Instagram ID for embedding
+  const extractInstagramVideoId = (url: string): string | null => {
+    const regex = /(?:https?:\/\/)?(?:www\.)?instagram\.com\/(?:p|reel|reels)\/([a-zA-Z0-9_-]+)/;
+    const match = url.match(regex);
+    return match ? match[1] : null;
+  };
+  
+  const isInstagramUrl = videoUrl && videoUrl.includes("instagram.com");
+  const instagramVideoId = isInstagramUrl ? extractInstagramVideoId(videoUrl) : null;
+  const isEmbeddable = isYouTubeUrl || isInstagramUrl;
 
   // Helper functions for title/description navigation
   const nextTitle = () => {
@@ -515,6 +537,10 @@ export function AnalysisDetails({
               />
             </div>
           )}
+          {/* Chat toggle button — fixed to top-right or wherever fits your UI */}
+          <div className="fixed top-4 right-4 z-50">
+            <ChatToggleButton open={open} onClick={togglePanel} />
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8">
@@ -565,29 +591,42 @@ export function AnalysisDetails({
       </div>
 
       {/* Video Section */}
-      {youtubeVideoId ? (
+      {isEmbeddable ? (
         <div className="mb-8">
           <div className="bg-black/40 border border-zinc-800 rounded-lg p-6 backdrop-blur-xl">
             <div className="flex flex-col lg:flex-row gap-6">
               <div className="lg:w-2/3">
                 <div
-                  className="relative w-full"
-                  style={{ paddingBottom: "56.25%" /* 16:9 aspect ratio */ }}
+                  className={`relative w-full ${isInstagramUrl ? 'max-w-[400px] mx-auto' : ''}`}
+                  style={{ paddingBottom: isInstagramUrl ? "130%" : "56.25%" /* 16:9 for YT, approx 4:5 for IG */ }}
                 >
-                  <iframe
-                    ref={iframeRef}
-                    className="absolute top-0 left-0 w-full h-full rounded-lg"
-                    src={`https://www.youtube.com/embed/${youtubeVideoId}`}
-                    title="YouTube video player"
-                    frameBorder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                  />
+                  {isYouTubeUrl && youtubeVideoId && (
+                    <iframe
+                      ref={iframeRef}
+                      className="absolute top-0 left-0 w-full h-full rounded-lg"
+                      src={`https://www.youtube.com/embed/${youtubeVideoId}`}
+                      title="YouTube video player"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                    />
+                  )}
+                  {isInstagramUrl && instagramVideoId && (
+                    <iframe
+                      ref={iframeRef}
+                      className="absolute top-0 left-0 w-full h-full rounded-lg bg-white"
+                      src={`https://www.instagram.com/p/${instagramVideoId}/embed/`}
+                      title="Instagram video player"
+                      frameBorder="0"
+                      allowTransparency
+                      allowFullScreen
+                    />
+                  )}
                 </div>
               </div>
               <div className="lg:w-1/3 flex flex-col justify-center">
                 <h2 className="text-xl font-semibold text-zinc-100 mb-3">
-                  {videoTitle || "YouTube Video"}
+                  {videoTitle || (isYouTubeUrl ? "YouTube Video" : "Instagram Video")}
                 </h2>
                 <p className="text-zinc-400 text-sm mb-4">
                   Original video being analyzed
@@ -1133,6 +1172,17 @@ export function AnalysisDetails({
           </div>
         </CardContent>
       </Card>
+
+      {/* Chat panel — slides in from right, sits above content */}
+      <ChatPanel
+        taskId={taskId as string}
+        videoUrl={videoUrl || signedUrl as string}
+        videoAnalysis={analysisData}
+        videoTitle={videoTitle}
+        userId={userId}
+        open={open}
+        onClose={closePanel}
+      />
     </div>
   );
 }

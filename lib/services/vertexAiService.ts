@@ -1,53 +1,39 @@
 import {
-  VertexAI,
+  GoogleGenerativeAI,
   HarmCategory,
   HarmBlockThreshold,
   SchemaType,
-} from "@google-cloud/vertexai";
+} from "@google/generative-ai";
 
-let vertexAI: VertexAI | null = null;
+let genAI: GoogleGenerativeAI | null = null;
 
-function initVertexAI(): VertexAI {
-  if (vertexAI) return vertexAI;
+function initGenAI(): GoogleGenerativeAI {
+  if (genAI) return genAI;
 
-  if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
-    throw new Error("GOOGLE_CLOUD_CREDENTIALS environment variable is not set");
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY environment variable is not set");
   }
 
   try {
-    // Decode base64 credentials
-    const decoded = Buffer.from(
-      process.env.GOOGLE_CLOUD_CREDENTIALS,
-      "base64"
-    ).toString();
-
-    const credentials = JSON.parse(decoded);
-
-    // Initialize VertexAI with googleAuthOptions
-    vertexAI = new VertexAI({
-      project: credentials.project_id,
-      location: "us-central1",
-      googleAuthOptions: {
-        credentials,
-        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-      },
-    });
-    return vertexAI;
+    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    return genAI;
   } catch (error) {
     throw error;
   }
 }
-
-const model = "gemini-2.5-flash";
+const PRIMARY_MODEL = "gemini-3.1-flash-lite-preview";
+const FALLBACK_MODEL = "gemini-2.5-flash";
 
 export async function analyzeVideoWithGemini(
-  videoUrl: string,
+  videoUrl: string, // This will now usually be the Gemini fileUri, e.g. "https://generativelanguage.googleapis.com/... or "gemini://... " Wait, actually it just takes fileUri so we keep it named videoUrl or just pass the uri as videoUrl.
   context: any,
-  metadata: any
+  metadata: any,
+  modelOverride?: string
 ) {
-  // Initialize VertexAI lazily
+  const model = modelOverride || PRIMARY_MODEL;
+  // Initialize lazily
 
-  const client = initVertexAI();
+  const client = initGenAI();
   try {
     // Define the response schema for structured output
     const responseSchema = {
@@ -105,7 +91,7 @@ export async function analyzeVideoWithGemini(
                   type: SchemaType.OBJECT,
                   properties: {
                     name: { type: SchemaType.STRING },
-                    score: { 
+                    score: {
                       type: SchemaType.INTEGER,
                       description: "Metric score (1-100). For quality metrics, higher is better. For risk/issue metrics, lower is better."
                     },
@@ -124,14 +110,31 @@ export async function analyzeVideoWithGemini(
             type: SchemaType.OBJECT,
             properties: {
               name: { type: SchemaType.STRING },
-              score: { 
-                type: SchemaType.INTEGER, 
+              score: {
+                type: SchemaType.INTEGER,
                 description: "Risk score (1-100). A higher score indicates higher risk. Lower is better for compliance."
               },
               description: { type: SchemaType.STRING },
             },
             required: ["name", "score", "description"],
           },
+        },
+        full_transcript: {
+          type: SchemaType.STRING,
+          description: "A word-for-word string containing the entire transcription. Strictly do not summarize the dialogue, provide everything spoken.",
+        },
+        speaker_segments: {
+          type: SchemaType.ARRAY,
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              speaker: { type: SchemaType.STRING, description: "Speaker identifier (e.g., Speaker A)" },
+              text: { type: SchemaType.STRING, description: "The exact words spoken by the speaker" },
+              start_time: { type: SchemaType.STRING, description: "Start time in HH:MM:SS format" }
+            },
+            required: ["speaker", "text", "start_time"]
+          },
+          description: "A word-for-word transcript divided by speaker. Strictly do not summarize, provide everything spoken.",
         },
       },
       required: [
@@ -141,19 +144,30 @@ export async function analyzeVideoWithGemini(
         "strengths",
         "weaknesses",
         "analysis",
+        "full_transcript",
+        "speaker_segments",
       ],
     };
 
+    // --- Ye block insert karo ---
+    let extraParams: any = {};
+    if (model.includes("3.1")) {
+      extraParams.thinkingConfig = { thinkingLevel: "high" };
+    } else if (model.includes("2.5")) {
+      extraParams.thinkingConfig = { thinkingBudget: 4000 };
+    }
+    // ----------------------------
     const generativeModel = client.getGenerativeModel({
       model,
       generationConfig: {
         maxOutputTokens: 8192,
-        temperature: 0.4, 
+        temperature: 0.4,
         topP: 0.95,
         topK: 40,
         responseMimeType: "application/json",
-        responseSchema: responseSchema,
+        responseSchema: responseSchema as any,
       },
+
       safetySettings: [
         {
           category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
@@ -172,6 +186,7 @@ export async function analyzeVideoWithGemini(
           threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
         },
       ],
+            ...extraParams,
     });
 
     // analysis prompt with explicit JSON formatting instructions
@@ -190,11 +205,10 @@ USER CONTEXT & SAFETY SETTINGS:
 - Additional Details: ${context.additionalDetails || "None"}
 
 GUIDELINES:
-${
-  context.familyFriendly
-    ? "1. FAMILY FRIENDLY MODE: Ensure the analysis and language are suitable for all age groups. Avoid violence, abusive language, adult themes, hate speech, or offensive humor."
-    : "1. CONTENT SAFETY: Avoid illegal or extremely explicit content."
-}
+${context.familyFriendly
+        ? "1. FAMILY FRIENDLY MODE: Ensure the analysis and language are suitable for all age groups. Avoid violence, abusive language, adult themes, hate speech, or offensive humor."
+        : "1. CONTENT SAFETY: Avoid illegal or extremely explicit content."
+      }
 
 2. PLATFORM AWARENESS (${context.platform}):
    - Adapt tone, depth, and language according to the selected platform.
@@ -238,11 +252,17 @@ ANALYSIS REQUIREMENTS:
 5. Include timestamps [HH:MM:SS] naturally in descriptions ONLY when referring to specific moments
 6. Give specific suggestions and remarks for improvement that are strategically aligned with the user's context (${context.platform}, ${context.location}). For example, if location is India, suggest optimizations for Indian viewers or compliance with Indian ad standards.
 7. List any content warnings if applicable
+8. Provide a word-for-word full transcript and speaker segments. Strictly do not summarize the dialogue, provide EVERYTHING spoken verbatim.
 
 CRITICAL: Return ONLY raw JSON without any markdown formatting, backticks, or explanatory text.
 
 JSON STRUCTURE EXAMPLE:
 {
+  "full_transcript": "Wait, let's keep going. Yes, I think so...",
+  "speaker_segments": [
+    {"speaker": "Speaker A", "text": "Wait, let's keep going.", "start_time": "00:00:00"},
+    {"speaker": "Speaker B", "text": "Yes, I think so...", "start_time": "00:00:03"}
+  ],
   "summary": "Detailed summary here",
   "keyMoments": [
     {"timestamp": "00:00:00", "description": "Video starts with intro"},
@@ -332,6 +352,8 @@ Be specific and reference actual content from the video with precise timestamps.
       // Ensure all required fields exist with defaults
       const finalResult = {
         ...parsed, // Include all original fields from the model (analysis, strengths, titles, etc.)
+        full_transcript: parsed.full_transcript || "",
+        speaker_segments: parsed.speaker_segments || [],
         summary: parsed.summary || parsed.overview || `Analysis of "${metadata.originalFilename}"`,
         keyMoments: Array.isArray(parsed.keyMoments) ? parsed.keyMoments : [],
         qualityAssessment: parsed.qualityAssessment || {
@@ -343,9 +365,9 @@ Be specific and reference actual content from the video with precise timestamps.
           : (parsed.weaknesses || []),
         contentWarnings: Array.isArray(parsed.contentWarnings)
           ? parsed.contentWarnings
-          : (Array.isArray(parsed.compliance_risks) 
-              ? parsed.compliance_risks.filter((risk: any) => risk.score > 0)
-              : []),
+          : (Array.isArray(parsed.compliance_risks)
+            ? parsed.compliance_risks.filter((risk: any) => risk.score > 0)
+            : []),
         analysisTime: parsed.analysisTime || new Date().toISOString(),
         videoUrl,
         modelUsed: model,
@@ -423,6 +445,11 @@ Be specific and reference actual content from the video with precise timestamps.
       };
     }
   } catch (error) {
+    // --- Fallback to Gemini Pro if Flash fails ---
+    if (modelOverride !== FALLBACK_MODEL) {
+      console.warn(`[VertexAI] ${modelOverride || PRIMARY_MODEL} failed, falling back to ${FALLBACK_MODEL}...`);
+      return analyzeVideoWithGemini(videoUrl, context, metadata, FALLBACK_MODEL);
+    }
     throw error;
   }
 }

@@ -3,12 +3,12 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
-import { CircleDot, PlayCircle, ChevronRight, RefreshCw, AlertCircle } from 'lucide-react';
+import { CircleDot, PlayCircle, ChevronRight, RefreshCw, AlertCircle, Instagram, Twitter } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { QueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
 
-import type { AnalysisStatus } from '@/app/api/services/alyzitron/types'
+import type { AnalysisStatus, AnalysisResults } from '@/app/api/services/alyzitron/types'
 import type { PaginatedResponse } from './AnalysisList';
 
 interface AnalysisError {
@@ -35,6 +35,7 @@ interface AnalysisProgressProps {
     videoDuration?: number;
     videoSize?: number;
   };
+  results?: AnalysisResults | null;
   createdByName?: string;
   onClick?: () => void;
 }
@@ -54,6 +55,7 @@ export function AnalysisProgress({
   videoUrl,
   metadata,
   createdByName,
+  results,
   onClick
 }: AnalysisProgressProps) {
   const router = useRouter();
@@ -80,6 +82,29 @@ export function AnalysisProgress({
   // Check if videoUrl is a YouTube URL and get video ID
   const isYouTubeUrl = videoUrl && (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be'));
   const youtubeVideoId = isYouTubeUrl ? extractYouTubeVideoId(videoUrl) : null;
+  const isInstagramUrl = videoUrl && videoUrl.includes('instagram.com');
+  const isTwitterUrl = videoUrl && (videoUrl.includes('twitter.com') || videoUrl.includes('x.com'));
+
+  let authorInfo = createdByName && createdByName.toLowerCase() !== 'unknown' ? createdByName : null;
+  if (!authorInfo && videoUrl) {
+    if (isInstagramUrl) {
+        const match = videoUrl.match(/instagram\.com\/([a-zA-Z0-9._]+)/);
+        if (match && match[1] && !['p', 'reel', 'tv'].includes(match[1])) {
+            authorInfo = `@${match[1]}`;
+        } else {
+            authorInfo = 'Instagram';
+        }
+    } else if (isTwitterUrl) {
+        const match = videoUrl.match(/(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]+)/);
+        if (match && match[1] && !['status'].includes(match[1])) {
+            authorInfo = `@${match[1]}`;
+        } else {
+            authorInfo = 'X (Twitter)';
+        }
+    } else if (isYouTubeUrl) {
+        authorInfo = 'YouTube';
+    }
+  }
 
   // Helper function to calculate remaining time
   const calculateRemainingTime = (startTime: number | Date | undefined | string, duration: number): number => {
@@ -228,10 +253,12 @@ export function AnalysisProgress({
                   priority={false}
                 />
               </div>
+            ) : isInstagramUrl ? (
+                <Instagram className="h-6 w-6 text-pink-500 group-hover:text-pink-400 transition-colors" />
+            ) : isTwitterUrl ? (
+                <Twitter className="h-6 w-6 text-sky-500 group-hover:text-sky-400 transition-colors" />
             ) : (
-               <PlayCircle
-                className="h-6 w-6 text-zinc-500 group-hover:text-zinc-300 transition-colors"
-              />
+               <PlayCircle className="h-6 w-6 text-zinc-500 group-hover:text-zinc-300 transition-colors" />
             )}
           </div>
 
@@ -241,15 +268,22 @@ export function AnalysisProgress({
                 {title || 'Analysis'}
               </h3>
             </div>
-            <div className="flex items-center gap-2 mt-0.5">
+            {results?.overview && (
+              <p className="text-xs text-zinc-400 mt-1 line-clamp-1 group-hover:text-zinc-300 transition-colors" title={results.overview}>
+                {results.overview}
+              </p>
+            )}
+            <div className="flex items-center gap-2 mt-1.5">
               {metadata?.videoDuration && (
                 <p className="text-[10px] text-zinc-500">{formatDuration(metadata.videoDuration)}</p>
               )}
-              {createdByName && (
+              {authorInfo && (
                 <div className="flex items-center gap-1 ml-1 pl-2 border-l border-zinc-800">
-                  <span className="text-[9px] text-zinc-600 font-medium uppercase tracking-tighter">BY</span>
+                  {(authorInfo.startsWith('@') || (createdByName && createdByName.toLowerCase() !== 'unknown')) && (
+                    <span className="text-[9px] text-zinc-600 font-medium uppercase tracking-tighter">BY</span>
+                  )}
                   <span className="text-[10px] text-zinc-400 font-bold truncate max-w-[80px]">
-                    {createdByName}
+                    {authorInfo}
                   </span>
                 </div>
               )}

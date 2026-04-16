@@ -336,15 +336,6 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
             metadata,
           );
         } else if (source.type === "link") {
-          if (!isYouTubeUrl(source.url)) {
-            toast({
-              title: "Invalid URL",
-              description: "Please paste a valid YouTube link.",
-              variant: "destructive",
-            });
-            setIsProcessing(false);
-            return;
-          }
           const payload = {
             videoUrl: source.url,
             submissionId: submissionId,
@@ -840,8 +831,8 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           onOpenChange(newOpen);
         }}
       >
-        <DialogContent className="max-w-4xl w-[94vw] max-h-[88vh] p-0 rounded-2xl bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/70 shadow-[0_14px_60px_-20px_rgba(0,0,0,0.7)] ring-1 ring-white/5">
-          <div className="relative flex min-h-[360px] max-h-[88vh] flex-col">
+        <DialogContent className="max-w-4xl w-[94vw] max-h-[88vh] p-0 rounded-2xl bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/70 shadow-[0_14px_60px_-20px_rgba(0,0,0,0.7)] ring-1 ring-white/5 overflow-hidden flex flex-col">
+          <div className="relative flex min-h-[360px] max-h-[88vh] flex-col overflow-hidden">
             {/* Header */}
             <motion.div
               initial={{ opacity: 0, y: 8 }}
@@ -1052,8 +1043,11 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     </AnimatePresence>
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <h4 className="text-sm text-zinc-200 font-medium truncate">
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <h4 
+                      className="text-sm text-zinc-200 font-medium break-all line-clamp-2"
+                      title={source.type === "link" ? source.preview?.title || source.url : source.type === "file" ? source.file.name : ""}
+                    >
                       {source.type === "link"
                         ? source.preview?.title || "Loading..."
                         : source.type === "file"
@@ -1095,7 +1089,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                       {source.type === "file" && source.file
                         ? `${formatBytes(source.file.size)} • ${formatDuration(source.duration)}`
                         : source.type === "link"
-                          ? "YouTube video"
+                          ? "External media"
                           : ""}
                     </p>
                   </div>

@@ -6,6 +6,9 @@ node_modules
 .env
 .env.local
 .env.production
+.env.preview
+.env.staging
+.env.development
 
 .excalidraw
 tsconfig.tsbuildinfo
@@ -42,7 +45,13 @@ tsconfig.tsbuildinfo
 .vercel
 .env*.local
 
-.vercel
-
 # Claude Code context file (not part of codebase)
 CLAUDE.md
+.mcp.json
+.code-review-graph/
+
+# GCP Migration secrets — NEVER commit
+migrations/gcp-account-switch/secrets/
+
+# Local reference repos (vendored open-source projects for inspiration, not shipped)
+reference-repos/

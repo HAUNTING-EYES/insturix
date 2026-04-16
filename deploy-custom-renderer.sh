@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-PROJECT_ID="insturix-dev" # Updated to dev project
+PROJECT_ID="insturix-dev-v2" # Updated to new GCP account dev project
 REGION="us-central1"
 SERVICE_NAME="remotion-renderer"
 # Use Artifact Registry

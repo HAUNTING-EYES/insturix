@@ -5,246 +5,244 @@ import { CreditsService } from "@/lib/services/creditsService";
 import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
-
+import { GCSManager } from "../utils/gcs";
+import { transcribeAudio } from "@/lib/alyzitron/transcription/transcriptionService";
+import { upsertTranscriptionProcessing, upsertTranscriptionCompleted } from "@/lib/alyzitron";
+import { extractMediaUri, ExtractionError } from "@/lib/alyzitron/extraction/apify";
+import { streamUrlToGCS } from "@/lib/alyzitron/extraction/streamToGCS";
+import { uploadUrlToGeminiFileAPI } from "@/lib/services/geminiFileService";
 
 async function handler(request: NextRequest) {
+  let currentTaskId: string | null = null;
+  let currentUserId: string | null = null;
+
   try {
     const body = await request.json();
     const { taskId, userId } = body;
+    currentTaskId = taskId;
+    currentUserId = userId;
 
-    if (!taskId || !userId) {
-      logger.error("Missing required fields in QStash payload", {
-        data: { taskId, userId },
-      });
-      return NextResponse.json(
-        { error: "Missing taskId or userId" },
-        { status: 400 }
-      );
-    }
+    if (!taskId || !userId) return NextResponse.json({ error: "Missing data" }, { status: 400 });
+
     const { analyses } = await getCollections();
+    if (!ObjectId.isValid(taskId)) return NextResponse.json({ error: "Invalid task ID" }, { status: 400 });
 
-    // Validate ObjectId format
-    if (!ObjectId.isValid(taskId)) {
-      return NextResponse.json(
-        { error: "Invalid taskId format" },
-        { status: 400 }
-      );
-    }
+    const task = await analyses.findOne({ _id: ObjectId.createFromHexString(taskId), clerkUserId: userId });
+    if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    if (task.status === "completed" || task.status === "failed") return NextResponse.json({ success: true, message: "Already processed" });
 
-    // 1. Fetch the task
-    const task = await analyses.findOne({
-      _id: ObjectId.createFromHexString(taskId),
-      clerkUserId: userId,
-    });
+    // Initial Status Update
+    await analyses.updateOne({ _id: task._id }, { $set: { status: "processing", processingStartTime: new Date(), updatedAt: new Date() } });
 
-
-
-    if (!task) {
-      logger.error("Task not found", { data: { taskId, userId } });
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
-    }
-    // Prevent re-processing if already completed/failed
-    if (task.status === "completed" || task.status === "failed") {
-      logger.warn("Task already processed", {
-        data: { taskId, userId, status: task.status },
-      });
-      return NextResponse.json({
-        success: true,
-        message: "Task already processed",
-      });
-    }
-
-    // 2. Update status to processing (MongoDB)
-    await analyses.updateOne(
-      { _id: task._id },
-      {
-        $set: {
-          status: "processing",
-          processingStartTime: new Date(),
-          updatedAt: new Date(),
-        },
-      }
-    );
-
-    // 3. Perform video analysis with Vertex AI
+    // --- PIPELINE START ---
     try {
-      logger.info("Starting Vertex AI analysis", {
-        data: { taskId, userId, videoUrl: task.videoUrl },
-      });
+      logger.info("Starting Omni-Media Pipeline v2 (Apify) 🚀", { data: { taskId, url: task.videoUrl } });
+      await upsertTranscriptionProcessing(taskId, task.videoUrl).catch(() => { });
 
-      // Call Vertex AI for analysis with all required data
-      const analysisResults = await analyzeVideoWithGemini(
-        task.videoUrl,
-        task.context || {},
-        task.metadata || {}
-      );
+      const isGCSPath = task.videoUrl.startsWith("gs://");
+      const isDirectImageUpload = task.metadata?.mimeType?.startsWith('image/') || task.videoUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i) !== null;
 
-      logger.info("Vertex AI analysis completed", {
-        data: { taskId, userId },
-      });
+      let analysisResults;
+      let transcriptResult = null;
+      let updatedVideoUrl = task.videoUrl;
+      let updatedMimeType = task.metadata?.mimeType || 'video/mp4';
+      const originalSourceUrl = task.videoUrl;
 
-      // 4. Save results and mark as completed (MongoDB)
-      const updateData: any = {
-        status: "completed",
-        results: analysisResults,
-        completedAt: new Date(),
-        updatedAt: new Date(),
-      };
+      // ROUTE 1: IMAGE UPLOAD
+      if (isDirectImageUpload) {
+        logger.info("Route 1: Direct Image");
+        updatedMimeType = 'image/jpeg';
+        await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image Analysis]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
+        analysisResults = await analyzeVideoWithGemini(task.videoUrl, task.context || {}, task.metadata || {});
+      }
+      // ROUTE 2: DIRECT GCS VIDEO
+      else if (isGCSPath) {
+        logger.info("Route 2: GCS Path");
+        const objectPath = task.videoUrl.replace(`gs://${process.env.GCS_BUCKET_NAME}/`, "");
+        /* --- OLD DEEPGRAM LOGIC COMMENTED OUT ---
+        const deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
+        // const [dg, gem] = await Promise.all([
+        //   transcribeAudio(deepgramUrl),
+        //   analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {})
+        // ]);
+        // transcriptResult = dg;
+        // const gem = await analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+        // analysisResults = gem;
+        */
 
-      await analyses.updateOne({ _id: task._id }, { $set: updateData });
+        // NEW GEMINI FILE API LOGIC
+        const signedUrl = await GCSManager.getSignedReadUrl(objectPath);
+        logger.info("Uploading GCS media to Gemini File API");
+        const { fileUri } = await uploadUrlToGeminiFileAPI(signedUrl, updatedMimeType, `task-${taskId}`);
 
-      logger.info("Analysis completed successfully", {
-        data: { taskId, userId },
-      });
+        logger.info("Starting Gemini Analysis for GCS Path");
+        const gem = await analyzeVideoWithGemini(fileUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+        analysisResults = gem;
+        transcriptResult = {
+          id: "gemini-" + Date.now().toString(),
+          text: gem.full_transcript || "",
+          detectedLanguage: "en",
+          confidence: 1.0,
+          speakerSegments: gem.speaker_segments || [],
+          formattedTranscript: gem.full_transcript || "",
+          durationMs: 0,
+          wordCount: gem.full_transcript?.trim() ? gem.full_transcript.trim().split(/\s+/).length : 0
+        };
+      }
+      // ROUTE 3: EXTERNAL LINKS (YouTube/Insta)
+      else {
+        logger.info("Route 3: External Link Extraction");
+        
+        const isYouTubeLink = task.videoUrl.includes("youtube.com") || task.videoUrl.includes("youtu.be");
 
-      return NextResponse.json({
-        success: true,
-        taskId,
-        status: "completed",
-      });
-    } catch (analysisError) {
-      // 5. Handle analysis failure with robust refund logic
-      const errorMessage = (() => {
-        if (analysisError instanceof Error) {
-          const msg = analysisError.message;
-          if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("SocketTimeout")) {
-            return "Network error: Failed to reach AI analysis service. Please retry.";
-          }
-          if (msg.includes("permission") || msg.includes("API_KEY") || msg.includes("access denied")) {
-            return "Configuration error: AI service access denied.";
-          }
-          if (msg.includes("quota") || msg.includes("429")) {
-            return "Server busy: AI analysis quota exceeded. Please wait a few minutes.";
-          }
-          if (msg.includes("invalid") || msg.includes("format")) {
-            return "Processing error: The video format is not supported or the file is corrupted.";
-          }
-          return msg;
-        }
-        return "Video analysis failed due to an unexpected error.";
-      })();
-      logger.error("Video analysis failed", {
-        data: {
-          taskId,
-          userId,
-          error: errorMessage,
-          videoUrl: task.videoUrl,
-        },
-      });
+        if (isYouTubeLink) {
+          logger.info("Route 3A: Direct YouTube Link to Gemini");
+          
+          updatedVideoUrl = task.videoUrl;
+          updatedMimeType = "video/mp4";
 
-      // Compute refund minutes (fallback to 1 minute if unknown)
-      const minutes =
-        task.usageMinutes ||
-        Math.max(1, Math.ceil((task.metadata?.videoDuration || 0) / 60));
+          const gem = await analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+          analysisResults = gem;
+          
+          transcriptResult = {
+            id: "gemini-" + Date.now().toString(),
+            text: gem.full_transcript || "",
+            detectedLanguage: "en",
+            confidence: 1.0,
+            speakerSegments: gem.speaker_segments || [],
+            formattedTranscript: gem.full_transcript || "",
+            durationMs: 0,
+            wordCount: gem.full_transcript?.trim() ? gem.full_transcript.trim().split(/\s+/).length : 0
+          };
+        } else {
+          const extracted = await extractMediaUri(task.videoUrl);
 
-      // Try to atomically mark task as failed and refunded when possible
-      let shouldRefund = true;
-      try {
-        const updateResult = await analyses.updateOne(
-          { _id: task._id, refunded: { $ne: true } },
-          {
-            $set: {
-              status: "failed",
-              error: { message: errorMessage, timestamp: new Date() },
-              refunded: true,
-              updatedAt: new Date(),
-            },
-          }
-        );
+          if (extracted.mediaType === "image") {
+            updatedMimeType = "image/jpeg";
+            const gcsPath = `alyzitron/image/${taskId}.jpg`;
+            
+            /* --- OLD GCS LOGIC COMMENTED OUT ---
+            const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, "image/jpeg");
+            updatedVideoUrl = gcsRes.gcsUri;
+            await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
+            analysisResults = await analyzeVideoWithGemini(gcsRes.gcsUri, task.context || {}, task.metadata || {});
+            */
 
-        if (updateResult.modifiedCount === 0) {
-          // No modification: either already refunded or update didn't match
-          const fresh = await analyses.findOne({ _id: task._id });
-          if (fresh?.refunded) {
-            shouldRefund = false;
-            logger.info("Task already marked refunded, skipping refund", {
-              data: { taskId },
-            });
+            // NEW GEMINI FILE API LOGIC
+            const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, "image/jpeg", `task-${taskId}`);
+            updatedVideoUrl = extracted.downloadUrl; // keep original
+            await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
+            analysisResults = await analyzeVideoWithGemini(fileUri, task.context || {}, task.metadata || {});
+
           } else {
-            // Update didn't modify but refunded not set; we'll still attempt refund
-            logger.warn("Failed to mark task as refunded; proceeding to refund anyway", {
-              data: { taskId },
-            });
-            shouldRefund = true;
+            // VIDEO/AUDIO LOGIC
+            updatedMimeType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
+            // Use temp directory for video meant only for analysis
+            const isVideo = extracted.mediaType === "video" || extracted.mediaType === "unknown";
+            
+            /* --- OLD GCS & DEEPGRAM LOGIC COMMENTED OUT ---
+            const audioGcsPath = `alyzitron/media/${taskId}.mp3`;
+            const tempVideoGcsPath = `alyzitron/temp/${taskId}.mp4`;
+            
+            const gcsPath = isVideo ? tempVideoGcsPath : audioGcsPath;
+
+            // 1. Stream to GCS
+            const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, updatedMimeType);
+            
+            if (!isVideo) {
+              updatedVideoUrl = gcsRes.gcsUri;
+            }
+
+            // 2. Secure URL for Deepgram
+            const objectPath = gcsPath;
+            const deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
+
+            // 3. Parallel AI
+            // const [dg, gem] = await Promise.all([
+            //   transcribeAudio(deepgramUrl),
+            //   analyzeVideoWithGemini(gcsRes.gcsUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {})
+            // ]);
+            // transcriptResult = dg;
+            const gem = await analyzeVideoWithGemini(gcsRes.gcsUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+            analysisResults = gem;
+            */
+
+            // NEW GEMINI FILE API LOGIC
+            logger.info("Uploading extracted media to Gemini File API");
+            const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}`);
+            
+            updatedVideoUrl = task.videoUrl; // Ensure we keep original external URL for embed
+
+            logger.info("Starting Gemini Analysis");
+            const gem = await analyzeVideoWithGemini(fileUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+            analysisResults = gem;
+            
+            transcriptResult = {
+              id: "gemini-" + Date.now().toString(),
+              text: gem.full_transcript || "",
+              detectedLanguage: "en",
+              confidence: 1.0,
+              speakerSegments: gem.speaker_segments || [],
+              formattedTranscript: gem.full_transcript || "",
+              durationMs: 0,
+              wordCount: gem.full_transcript?.trim() ? gem.full_transcript.trim().split(/\s+/).length : 0
+            };
           }
         }
-      } catch (updateErr) {
-        logger.error("Failed to update task status/refunded flag", {
-          data: { taskId, error: updateErr instanceof Error ? updateErr.message : String(updateErr) },
-        });
-        // Proceed to refund as a best-effort
-        shouldRefund = true;
       }
 
-      if (shouldRefund) {
-        try {
-          // Perform refund (2 credits per minute for Alyzitron)
-          const creditsToRefund = minutes * 2;
-          await CreditsService.refundCredits(userId, creditsToRefund, `Video analysis failed: ${errorMessage}`, {
-            service: "alyzitron",
-            action: "video_analysis",
-          });
-          logger.info("Credits refunded after analysis failure", {
-            data: { taskId, userId, minutes, creditsToRefund },
-          });
-
-          // Ensure task has refunded flag set (best-effort)
-          try {
-            await analyses.updateOne(
-              { _id: task._id },
-              { $set: { refunded: true, updatedAt: new Date() } }
-            );
-          } catch (setFlagErr) {
-            logger.warn("Failed to set refunded flag after refund", {
-              data: { taskId, error: setFlagErr instanceof Error ? setFlagErr.message : String(setFlagErr) },
-            });
-          }
-        } catch (refundError) {
-          logger.error("Failed to refund credits", {
-            data: {
-              taskId,
-              userId,
-              error:
-                refundError instanceof Error
-                  ? refundError.message
-                  : String(refundError),
-            },
-          });
-        }
+      // Finalizing Results
+      if (transcriptResult) {
+        await upsertTranscriptionCompleted(taskId, {
+          deepgramRequestId: transcriptResult.id,
+          text: transcriptResult.text,
+          detectedLanguage: transcriptResult.detectedLanguage,
+          confidence: transcriptResult.confidence,
+          speakerSegments: transcriptResult.speakerSegments,
+          formattedTranscript: transcriptResult.formattedTranscript,
+          durationMs: transcriptResult.durationMs,
+          wordCount: transcriptResult.wordCount,
+        }).catch(() => { });
       }
 
-      return NextResponse.json(
+      await analyses.updateOne(
+        { _id: task._id },
         {
-          success: false,
-          error: "Analysis failed, credits refunded (or attempted)",
-          taskId,
-        },
-        { status: 500 }
+          $set: {
+            status: "completed",
+            results: analysisResults,
+            transcription: transcriptResult,
+            videoUrl: updatedVideoUrl,
+            originalSourceUrl,
+            "metadata.mimeType": updatedMimeType,
+            completedAt: new Date(),
+            updatedAt: new Date()
+          }
+        }
       );
+
+      return NextResponse.json({ success: true, taskId, status: "completed" });
+
+    } catch (err: any) {
+      logger.error("Pipeline failed", { data: { taskId, error: err.message } });
+      const { analyses: coll } = await getCollections();
+      await coll.updateOne(
+        { _id: ObjectId.createFromHexString(taskId) },
+        { $set: { status: "failed", error: { message: err.message, code: err.code || "PIPELINE_ERROR" }, refunded: true } }
+      );
+      try { await CreditsService.refundCredits(userId, (task.usageMinutes || 1) * 2, `Failed: ${err.message}`, { service: "alyzitron", action: "video_analysis" }); } catch (e) { }
+      return NextResponse.json({ success: false, error: err.message }, { status: 500 });
     }
-  } catch (error) {
-    logger.error("Processor error", {
-      data: { error: error instanceof Error ? error.message : String(error) },
-    });
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+  } catch (globalErr: any) {
+    logger.error("Global Catch", { data: { error: globalErr.message } });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-// Development bypass logic
-export const POST = async (request: NextRequest) => {
-  const bypassHeader = request.headers.get("x-development-bypass");
-  const isDevelopmentBypass = bypassHeader === "true";
-
-  if (isDevelopmentBypass) {
-    logger.warn("Development bypass of QStash signature verification enabled");
-    return handler(request);
-  } else {
-    // Correct usage: wrap the handler
-    return verifySignatureAppRouter(handler)(request);
-  }
+export const POST = async (req: NextRequest) => {
+  const bypass = req.headers.get("x-development-bypass");
+  if (bypass === "true") return handler(req);
+  return verifySignatureAppRouter(handler)(req);
 };
 
 export const runtime = "nodejs";
