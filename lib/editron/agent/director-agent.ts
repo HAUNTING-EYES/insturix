@@ -503,6 +503,40 @@ export async function executeDirectorPlan(
       }
     }
 
+    // ─── Step 3.6: Transition SFX placement ──────────────────
+    // Rule-driven SFX placement per DIRECTOR_KNOWLEDGE_BASE.md Part 9
+    // (A-001 whoosh on dissolve/wipe, A-002 impact on zoom-punch/flash).
+    //
+    // Runs AFTER the profile action loop so all transitions from
+    // edit-direction-applier, EDL executor, and add_transition tool calls
+    // are visible. Runs BEFORE step 4 merge so SFX overlays are in the
+    // saved project state.
+    //
+    // Deterministic — no LLM dependency (Rule 18N). A sound designer's
+    // workflow: look at the cut, place the sound. This mirrors that.
+    try {
+      const { placeTransitionSFX } = await import('@/lib/editron/services/transition-sfx-placer');
+      const sfxResult = await placeTransitionSFX(overlays, userId, effectiveProfile, pipelineWarnings);
+      if (sfxResult.placed > 0) {
+        console.log(
+          `[Director] Transition SFX: placed ${sfxResult.placed}, skipped ${sfxResult.skipped} ` +
+          `(tokens: ${sfxResult.tokensUsed.join(',')})`
+        );
+        result.overlaysModified += sfxResult.placed;
+      } else if (sfxResult.skipped > 0) {
+        console.log(
+          `[Director] Transition SFX: 0 placed, ${sfxResult.skipped} skipped ` +
+          `(reasons: ${JSON.stringify(sfxResult.skipReasons)})`
+        );
+      }
+    } catch (sfxErr: any) {
+      const errMsg = sfxErr?.message || 'Unknown error';
+      console.error('[Director] Transition SFX placement failed:', errMsg);
+      result.warnings.push(`Transition SFX placement failed: ${errMsg}`);
+      pipelineWarnings.errorSwallowed('sfx', sfxErr, 'transition SFX placer');
+      // Non-fatal — continue to merge/save. Missing SFX is degradation, not failure.
+    }
+
     // ─── Step 4: Merge and save ───────────────────────────────
     // Re-read the project to pick up any BGM/SFX overlays that async
     // audio workers pushed while the Director was executing (~75s).
