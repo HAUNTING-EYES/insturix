@@ -1044,6 +1044,51 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
       }, 0);
       console.log(`[SceneParser] Post-process: adjusted effective total ${newEffective}s (from ${effectiveTotal}s)`);
     }
+
+    // ─── Post-process: scale sub-shots UP to fill parent scene duration ──
+    // PROBLEM (Nike test 2026-04-14): parser LLM follows SubShotSchema hint
+    // "Minimum 3s for AI video quality" literally, producing 5 × 3s = 15s sub-shot
+    // total for a 20s scripted scene. Downstream scene-to-editron advances timeline
+    // by max(subTotal, sceneDuration) and gap-closing then compresses the 5s empty
+    // tail. Result: 20s scripted delivers 15s — Rule 8N violation.
+    //
+    // FIX: if sum(sub.targetDurationSeconds) < 85% of scene.durationSeconds, scale
+    // sub-shots UP proportionally to fill the scene. Mirrors the existing scale-DOWN
+    // logic above (which caps runaway LLM output at 1.1x target).
+    //
+    // MODEL-ACHIEVABILITY (Rule 18N): scaled targets (e.g., 3s → 4s) are honored by
+    // Seedance exactly (integer 4-15 grid). Kling {5, 10} and Veo {4, 6, 8} snap to
+    // nearest ≥ target; downstream selectBestSegment trims the overshoot via
+    // videoStartTime. User-selected model is never changed (see
+    // pipeline_investigations.md "Duration fix (CORRECTED)" 2026-04-17).
+    //
+    // INDEPENDENT SUB-SHOTS ONLY: non-independent sub-shots share one parent video
+    // (their durations are cuts of a fixed-length source), so scaling them would
+    // exceed the source. Skip those.
+    for (const scene of object.scenes as any[]) {
+      const sceneDur = scene.durationSeconds || 5;
+      const subs = (scene.subShots || []).filter((s: any) => s.independentGeneration);
+      if (subs.length === 0) continue;
+
+      const subTotal = subs.reduce((acc: number, s: any) => acc + (s.targetDurationSeconds || 3), 0);
+      if (subTotal <= 0) continue;
+
+      // Hysteresis: only scale if under-fill exceeds 15% (symmetric with scale-DOWN 1.1x trigger)
+      if (subTotal < sceneDur * 0.85) {
+        const scaleUp = sceneDur / subTotal;
+        for (const sub of subs) {
+          if (sub.targetDurationSeconds) {
+            // Round to 1 decimal place for clean numbers downstream
+            sub.targetDurationSeconds = Math.round(sub.targetDurationSeconds * scaleUp * 10) / 10;
+          }
+        }
+        const newSubTotal = subs.reduce((acc: number, s: any) => acc + (s.targetDurationSeconds || 3), 0);
+        console.log(
+          `[SceneParser] Scene ${scene.sceneIndex}: scaled sub-shots UP ${subTotal.toFixed(1)}s → ${newSubTotal.toFixed(1)}s ` +
+          `(scene.durationSeconds=${sceneDur}s, ${subs.length} sub-shots, factor=${scaleUp.toFixed(2)})`
+        );
+      }
+    }
   }
 
   // ─── Post-process: detect montage scenes via dedicated Gemini call ─────
