@@ -759,7 +759,128 @@ export async function POST(
       }
     };
 
-    if (isBGMAvailable() && currentFrame > 0) {
+    // ─── Beat-sync: synchronous BGM path when parser flagged beatSyncActive ──
+    // Design: pipeline_investigations.md "Beat-sync design doc (Option C)"
+    //   2026-04-17. For beat-sync-critical content (montages, hype reels,
+    //   music-aware profiles), BGM must complete BEFORE Director runs so the
+    //   beat grid is available for cut placement. Non-beat-sync content keeps
+    //   the fast async QStash path below.
+    //
+    // Failure mode: any error in sync generation → fall back to async (degraded
+    // mode — beat-sync won't engage but videos still render). Graceful per Rule 16.
+    const beatSyncActive = (storyboard as any).beatSyncActive === true;
+    let bgmSyncCompleted = false;
+
+    if (isBGMAvailable() && currentFrame > 0 && beatSyncActive) {
+      const totalDurationSec = Math.round(currentFrame / fps);
+      const musicPrompt = storyboard.overallMusicPrompt
+        || buildMusicPrompt(
+          storyboard.scenes.map(s => ({
+            mood: s.descriptor.mood,
+            musicDescription: (s.descriptor as any).musicDescription,
+            audioDescription: s.descriptor.audioDescription,
+          })),
+        );
+
+      try {
+        console.log(
+          `[Finalize] Beat-sync ACTIVE — generating BGM synchronously for beat detection (${totalDurationSec}s, "${musicPrompt.substring(0, 60)}")`
+        );
+        const { generateBackgroundMusic } = await import('@/lib/pipeline/bgm-service');
+        const bgm = await Promise.race([
+          generateBackgroundMusic(musicPrompt, userId, totalDurationSec),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('BGM sync timeout (120s)')), 120_000),
+          ),
+        ]);
+
+        // Detect beats (heuristic from BPM — upgrade path to audio analysis
+        // documented in beat-detection-service.ts header).
+        const { detectBeats } = await import('@/lib/editron/services/beat-detection-service');
+        const beatGrid = await detectBeats({
+          audioUrl: bgm.audioUrl,
+          bpm: (storyboard as any).bpm,
+          durationFrames: currentFrame,
+          fps,
+          hints: {
+            mood: storyboard.scenes[0]?.descriptor.mood,
+            profileId: (project as any).pendingDirectorProfileId,
+          },
+        });
+
+        console.log(
+          `[Finalize] Beat grid computed: ${beatGrid.bpm} BPM, ` +
+          `${beatGrid.beats.length} beats, ${beatGrid.downbeats.length} downbeats, ` +
+          `source=${beatGrid.source}`
+        );
+
+        // Build BGM overlay mirroring audio worker's shape (route.ts:118-140)
+        // so downstream Director + editor treat it identically to async-generated BGM.
+        // Beat grid stored on overlay metadata so Director reads from the BGM source itself.
+        const bgmOverlayId = Date.now() * 1000 + Math.floor(Math.random() * 999999);
+        overlays.push({
+          id: bgmOverlayId,
+          type: 'sound',
+          from: 0,
+          durationInFrames: currentFrame,
+          row: ROW.BGM,
+          left: 0, top: 0, width: 0, height: 0,
+          isDragging: false, rotation: 0,
+          content: bgm.audioUrl,
+          src: bgm.audioUrl,
+          assetId: bgm.audioAssetId,
+          styles: {
+            volume: 0.75,
+            opacity: 1,
+            duckingConfig: {
+              enabled: true,
+              duckLevel: 0.20,
+              rampDownMs: 300,
+              rampUpMs: 600,
+              lookAheadMs: 200,
+            },
+          },
+          metadata: {
+            source: 'finalize-sync-beat-sync',
+            beatSyncActive: true,
+            beatGrid,
+          },
+        } as any);
+
+        // Register asset (same as audio worker does after generation)
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+          { assetId: bgm.audioAssetId },
+          {
+            $setOnInsert: {
+              assetId: bgm.audioAssetId,
+              userId,
+              type: 'audio',
+              filename: `${bgm.audioAssetId}.mp3`,
+              source: 'user-upload',
+              gcsPath: bgm.gcsPath,
+              cachedUrl: bgm.audioUrl,
+              urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              size: 0,
+              uploadedAt: new Date(),
+            },
+          },
+          { upsert: true },
+        );
+
+        bgmSyncCompleted = true;
+        console.log(`[Finalize] Sync BGM + beat grid ready for Director`);
+      } catch (syncBgmErr: any) {
+        console.error(`[Finalize] Sync BGM failed: ${syncBgmErr.message} — falling back to async (beat-sync degraded)`);
+        pipelineWarnings.degraded(
+          'bgm',
+          'beat-sync-sync-dispatch',
+          `Sync BGM for beat-sync flow failed: ${syncBgmErr.message}. Falling back to async QStash dispatch — beat-sync will not engage for this run.`,
+        );
+        // Fall through to async path below (bgmSyncCompleted stays false)
+      }
+    }
+
+    if (isBGMAvailable() && currentFrame > 0 && !bgmSyncCompleted) {
       const totalDurationSec = Math.round(currentFrame / fps);
       const musicPrompt = storyboard.overallMusicPrompt
         || buildMusicPrompt(
