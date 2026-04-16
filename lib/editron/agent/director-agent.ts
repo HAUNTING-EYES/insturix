@@ -503,14 +503,54 @@ export async function executeDirectorPlan(
       }
     }
 
+    // ─── Step 3.5: Beat-sync cut alignment (beatSyncActive projects only) ──
+    // If finalize sync-generated BGM with a beat grid, snap montage sub-shot cut
+    // points to the nearest beats. Runs BEFORE transition SFX (step 3.6) so the
+    // SFX overlays land on the FINAL (beat-aligned) cut frames, not their
+    // creative-intent positions.
+    //
+    // Only activates when BGM overlay has metadata.beatGrid (i.e., finalize went
+    // through the sync-beat-sync branch). Non-beat-sync projects have async BGM
+    // without beat grid → this step is a silent no-op. See
+    // pipeline_investigations.md "Beat-sync design doc (Option C)" 2026-04-17.
+    //
+    // Creative doc alignment: §11 "Cuts on downbeats (beat 1 of a measure)".
+    // alignCutsToBeats() uses a 0.5s snap threshold — cuts further than 15
+    // frames from any beat are left creative-intent-placed (no forced snap).
+    try {
+      const bgmOverlay: any = overlays.find(
+        (o: any) => o?.type === 'sound' && o?.metadata?.beatGrid?.beats?.length > 0,
+      );
+      if (bgmOverlay?.metadata?.beatGrid) {
+        const beatGrid = bgmOverlay.metadata.beatGrid;
+        const fps = project.fps || 30;
+        const { alignCutsToBeats } = await import('@/lib/pipeline/scene-to-editron');
+        const snapped = alignCutsToBeats(overlays, beatGrid.beats, fps);
+        console.log(
+          `[Director] Beat-sync step 3.5: ${snapped} cut(s) snapped to beats ` +
+          `(grid: ${beatGrid.bpm} BPM, ${beatGrid.beats.length} beats, ` +
+          `${beatGrid.downbeats?.length || 0} downbeats, source=${beatGrid.source})`,
+        );
+        if (snapped > 0) result.overlaysModified += snapped;
+      }
+      // else: no beat grid on any sound overlay — not a beat-sync project. Silent no-op.
+    } catch (beatAlignErr: any) {
+      const errMsg = beatAlignErr?.message || 'Unknown error';
+      console.error('[Director] Beat-sync alignment failed:', errMsg);
+      result.warnings.push(`Beat-sync alignment failed: ${errMsg}`);
+      pipelineWarnings.errorSwallowed('director', beatAlignErr, 'beat-sync alignment (alignCutsToBeats)');
+      // Non-fatal — continue to step 3.6. Creative-intent cuts stay in place.
+    }
+
     // ─── Step 3.6: Transition SFX placement ──────────────────
     // Rule-driven SFX placement per DIRECTOR_KNOWLEDGE_BASE.md Part 9
     // (A-001 whoosh on dissolve/wipe, A-002 impact on zoom-punch/flash).
     //
     // Runs AFTER the profile action loop so all transitions from
     // edit-direction-applier, EDL executor, and add_transition tool calls
-    // are visible. Runs BEFORE step 4 merge so SFX overlays are in the
-    // saved project state.
+    // are visible. Runs AFTER step 3.5 beat alignment so SFX overlays land
+    // on the aligned (not creative-intent) cut frames. Runs BEFORE step 4
+    // merge so SFX overlays are in the saved project state.
     //
     // Deterministic — no LLM dependency (Rule 18N). A sound designer's
     // workflow: look at the cut, place the sound. This mirrors that.
