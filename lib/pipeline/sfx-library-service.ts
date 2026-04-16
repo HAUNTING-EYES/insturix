@@ -209,27 +209,141 @@ export async function searchAndDownloadSFX(
 }
 
 /**
- * Convert an audioDescription into search keywords for SFX library lookup.
- * Uses simple keyword extraction — no LLM needed.
+ * KB atomic tokens for SFX library search.
+ *
+ * BACKGROUND (why this changed 2026-04-16):
+ * The previous implementation joined up to 5 filtered keywords into a compound
+ * query like "climactic whoosh strong impact hit crowd cheering". Pixabay/Freesound
+ * index sounds by single-word tags — compound phrases return zero matches.
+ * Nike test (proj_o0IBr1ParZJQ, 2026-04-14): 3 searches, 0 hits, silent output.
+ *
+ * NEW STRATEGY (rule-driven per Rule 18N — reduce LLM dependency):
+ * Extract ONE atomic token from the description using DIRECTOR_KB Part 9 vocabulary
+ * first, fallback to ambient tokens for environment beds, last resort to generic 'ambient'.
+ *
+ * WHY THIS WORKS: SFX libraries are indexed by single-word descriptors. A sound
+ * designer searching for a transition whoosh types "whoosh", not
+ * "climactic whoosh, strong impact hit, subtle crowd cheering". We do the same.
+ */
+
+// Primary SFX primitives from DIRECTOR_KNOWLEDGE_BASE.md Part 9 (rules A-001 to A-021).
+// Stem-match via \bTOKEN catches TOKEN, TOKENs, TOKENing, TOKENful, etc.
+// Order = priority: earlier tokens win if multiple match in the same description.
+const KB_PRIMARY_TOKENS: string[] = [
+  // A-001: transition SFX (dissolve/wipe/slide/swish-pan/film-burn)
+  'whoosh',        // primary
+  'swoosh',        // common synonym
+  'swish',         // scripts often use "swish" for fabric/movement
+  // A-002: zoom-punch / flash transitions (impact-hit)
+  'impact',        // stem covers impactful, impacting
+  'thud',          // related percussive
+  'boom',          // low-frequency impact
+  // A-010: pre-reveal tension
+  'riser',
+  // A-011: pre-beat-drop anticipation
+  'cymbal',        // matches "reverse-cymbal" via stem
+  // A-020: graphic entrance (non-cinematic)
+  'pop',
+  'notification',
+  // A-021: stat-counter landing
+  'click',
+  'ding',
+  'chime',
+  'bell',
+  // Orchestral/musical stingers
+  'stinger',
+  'flourish',
+  // Generic percussive fallback
+  'hit',
+];
+
+// Ambient / environment tokens for scene-level sound beds.
+// Checked after primary tokens fail to match.
+const KB_AMBIENT_TOKENS: string[] = [
+  'crowd',
+  'cheer',
+  'applause',
+  'footstep',
+  'footfall',
+  'breath',        // stem covers breathing
+  'gasp',
+  'laugh',
+  'rustle',
+  'traffic',
+  'nature',
+  'forest',
+  'ocean',
+  'waves',
+  'rain',
+  'wind',
+  'river',
+  'birds',
+  'fire',
+  'crackle',
+  'typing',
+  'chatter',
+  'ambient',       // generic bed fallback
+];
+
+// Stopwords for the noun-extraction fallback path.
+const SFX_STOP_WORDS = new Set([
+  'the','a','an','and','or','but','in','on','at','to','for','of','with','by','from','as',
+  'is','was','are','were','been','be','have','has','had','do','does','did',
+  'will','would','could','should','may','might','shall','can',
+  'this','that','these','those','it','its','they','them','their',
+  'sound','sounds','effect','effects',
+  // Qualifiers (not nouns — never useful as search terms)
+  'subtle','gentle','soft','faint','slight','quiet','strong','sudden','sharp','clean',
+  'climactic','rhythmic','atmospheric','dynamic','cinematic','triumphant','epic',
+  'deep','loud','light','heavy','slow','fast','quick','brief',
+]);
+
+/**
+ * Convert a free-form audio description into a single atomic search token
+ * for SFX library lookup.
+ *
+ * Strategy (rule-based, deterministic — Rule 18N):
+ * 1. Match highest-priority KB primary token (DIRECTOR_KB Part 9 primitives).
+ * 2. If no primary match, try KB ambient tokens for environment beds.
+ * 3. Fallback: extract first meaningful noun after stopword filtering.
+ * 4. Last resort: 'ambient' (function never returns empty string).
+ *
+ * @example
+ *   "climactic whoosh, strong impact hit, subtle crowd cheering, triumphant flourish"
+ *     → "whoosh"  (A-001 primary)
+ *   "sudden impactful hit, sharp punchy sound design, sprinter's footfalls"
+ *     → "impact"  (A-002 primary — 'impactful' stem-matches 'impact')
+ *   "swish of fabric, impact of feet, rhythmic breathing, athletic environment"
+ *     → "swish"   (A-001 synonym wins over 'impact' by priority)
+ *   "office chatter with typing sounds"
+ *     → "chatter" (ambient token — no primary match)
+ *   "soft music swell"
+ *     → "ambient" (no KB match, no nouns > 3 chars)
  */
 export function audioDescriptionToSearchQuery(audioDescription: string): string {
-  // Remove common non-SFX words
-  const stopWords = new Set([
-    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-    'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-    'could', 'should', 'may', 'might', 'shall', 'can', 'this', 'that',
-    'these', 'those', 'it', 'its', 'sound', 'sounds', 'effect', 'effects',
-    'subtle', 'gentle', 'soft', 'faint', 'slight', 'quiet',
-  ]);
+  const desc = (audioDescription || '').toLowerCase().trim();
+  if (!desc) return 'ambient';
 
-  return audioDescription
-    .toLowerCase()
+  // 1. Primary KB tokens (transition/feature SFX primitives — DIRECTOR_KB Part 9)
+  for (const token of KB_PRIMARY_TOKENS) {
+    const regex = new RegExp(`\\b${token}`, 'i');
+    if (regex.test(desc)) return token;
+  }
+
+  // 2. Ambient / environment tokens (scene beds)
+  for (const token of KB_AMBIENT_TOKENS) {
+    const regex = new RegExp(`\\b${token}`, 'i');
+    if (regex.test(desc)) return token;
+  }
+
+  // 3. Fallback: first meaningful noun from stopword-filtered description
+  const words = desc
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
-    .filter(w => w.length > 2 && !stopWords.has(w))
-    .slice(0, 5) // Max 5 keywords
-    .join(' ');
+    .filter(w => w.length >= 4 && !SFX_STOP_WORDS.has(w));
+
+  // 4. Last resort guarantee: never return empty — 'ambient' always has library matches
+  return words[0] || 'ambient';
 }
 
 /**
