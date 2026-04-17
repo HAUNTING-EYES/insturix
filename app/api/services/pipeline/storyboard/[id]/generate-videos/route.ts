@@ -27,6 +27,7 @@ import {
   isLLMParserAvailable,
   type VideoPromptContext,
 } from '@/lib/pipeline/llm-scene-parser';
+import { getActualVideoDuration } from '@/lib/pipeline/adapters/video-model-configs';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 
@@ -258,7 +259,14 @@ export async function POST(
           const subVisual = sub.visualDescription || descriptor.visualDescription;
           const subMotion = sub.videoMotionPrompt || descriptor.videoMotionPrompt;
           const rawDur = sub.targetDurationSeconds;
-          const subDuration = (!rawDur || isNaN(rawDur)) ? 5 : Math.max(Math.min(rawDur, 10), 3); // 3-10s, default 5 if NaN
+          // 2026-04-17: replaced hardcoded 3-10s cap with model-aware snap.
+          // getActualVideoDuration(model, n) returns the nearest achievable duration
+          // for the user's chosen video model (Kling {5,10}, Veo {4,6,8}, Seedance 4-15).
+          // Honors Rule 8N (script duration is king) — we no longer forcibly chop 15s
+          // scenes to 10s when the model (e.g., Seedance 2.0) could deliver 15s.
+          // See pipeline_investigations.md "Hardcoded 10s video duration cap" entry.
+          const requestedDur = (!rawDur || isNaN(rawDur)) ? 5 : Math.max(rawDur, 3);
+          const subDuration = getActualVideoDuration(resolvedModel, requestedDur);
 
           // Use sub-shot's own image if available, otherwise parent scene image
           const subImageUrl = sub.imageUrl || scene.imageUrl!;
@@ -310,7 +318,11 @@ export async function POST(
           sceneIndex: scene.sceneIndex,
           imageUrl: scene.imageUrl!,
           motionPrompt,
-          durationSeconds: Math.min(descriptor.durationSeconds, 10),
+          // 2026-04-17: replaced hardcoded Math.min(x, 10) with model-aware snap.
+          // Previously ALL scenes capped at 10s regardless of model capability —
+          // violating Rule 8N for any model that can do longer (Seedance 1.5: 12s,
+          // Seedance 2.0: 15s). Now respects user's chosen model's duration grid.
+          durationSeconds: getActualVideoDuration(resolvedModel, descriptor.durationSeconds),
           nextSceneImageUrl: enableChaining ? (nextScene?.imageUrl || undefined) : undefined,
           refinementContext: useLLMRefinement ? {
             visualDescription: descriptor.visualDescription,
