@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderX from "@/schemas/uploaderx";
+import { oauth1aRequest } from "@/lib/oauth1a";
 
 /**
  * POST /api/services/uploaderx/twitter
@@ -192,7 +193,7 @@ export async function POST(req: Request) {
 
         // Twitter video limits
         const MAX_VIDEO_SIZE = 512 * 1024 * 1024; // 512 MB
-        const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB chunks
+        const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB chunks (smaller to avoid 413)
 
         if (fileSize > MAX_VIDEO_SIZE) {
             console.error("❌ File too large for Twitter:", fileSize);
@@ -225,7 +226,16 @@ export async function POST(req: Request) {
             }),
         });
 
-        const initData = await initResponse.json();
+        let initData: any = {};
+        const initResponseText = await initResponse.text();
+        if (initResponseText) {
+            try {
+                initData = JSON.parse(initResponseText);
+            } catch (parseError) {
+                console.error("❌ Failed to parse INIT response:", parseError);
+                initData = { error: "Invalid JSON response from Twitter" };
+            }
+        }
 
         console.log("📥 INIT response:", JSON.stringify(initData, null, 2));
 
@@ -261,34 +271,71 @@ export async function POST(req: Request) {
 
             console.log(`📦 Uploading chunk ${i + 1}/${totalChunks} (${(chunk.length / 1024).toFixed(2)} KB)`);
 
-            const appendUrl = `https://api.x.com/2/media/upload/${mediaId}/append`;
-            
-            // Convert chunk to base64 for JSON transmission
+            // Encode chunk as base64 for JSON transmission
             const base64Chunk = chunk.toString("base64");
             
-            const appendResponse = await fetch(appendUrl, {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${accessToken}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    segment_index: i,
-                    media: base64Chunk,
-                }),
-            });
+            // Twitter API: id is already in path, don't add as query param
+            const appendUrl = `https://api.x.com/2/media/upload/${mediaId}/append`;
+            
+            try {
+                const appendResponse = await fetch(appendUrl, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        segment_index: i,
+                        media: base64Chunk,
+                    }),
+                });
 
-            if (!appendResponse.ok) {
-                const appendError = await appendResponse.json();
-                console.error(`❌ Chunk ${i + 1} upload failed:`, appendError);
+                // Handle response - don't assume JSON
+                if (!appendResponse.ok) {
+                    let appendError: any = {};
+                    const responseText = await appendResponse.text();
+                    
+                    if (responseText) {
+                        try {
+                            appendError = JSON.parse(responseText);
+                        } catch (parseError) {
+                            appendError = { raw_response: responseText };
+                        }
+                    }
+                    
+                    console.error(`❌ Chunk ${i + 1} upload failed (status ${appendResponse.status}):`, appendError);
+                    return NextResponse.json({
+                        success: false,
+                        error: `Failed to upload chunk ${i + 1} of ${totalChunks}`,
+                        details: appendError,
+                        status: appendResponse.status,
+                    }, { status: 500 });
+                }
+
+                // Validate successful response
+                if (appendResponse.status === 204) {
+                    console.log(`✅ Chunk ${i + 1}/${totalChunks} uploaded (204 No Content)`);
+                } else {
+                    // For other 2xx responses, log the status
+                    const responseText = await appendResponse.text();
+                    if (responseText) {
+                        try {
+                            const responseData = JSON.parse(responseText);
+                            console.log(`✅ Chunk ${i + 1}/${totalChunks} uploaded`, responseData);
+                        } catch {
+                            console.log(`✅ Chunk ${i + 1}/${totalChunks} uploaded (${appendResponse.status})`);
+                        }
+                    } else {
+                        console.log(`✅ Chunk ${i + 1}/${totalChunks} uploaded (${appendResponse.status} - empty body)`);
+                    }
+                }
+            } catch (chunkError) {
+                console.error(`❌ Chunk ${i + 1} upload error:`, chunkError);
                 return NextResponse.json({
                     success: false,
-                    error: `Failed to upload chunk ${i + 1}`,
-                    details: appendError,
+                    error: `Error uploading chunk ${i + 1}: ${chunkError instanceof Error ? chunkError.message : 'Unknown error'}`,
                 }, { status: 500 });
             }
-
-            console.log(`✅ Chunk ${i + 1}/${totalChunks} uploaded`);
         }
 
         console.log("✅ All chunks uploaded successfully");
@@ -304,7 +351,16 @@ export async function POST(req: Request) {
             },
         });
 
-        const finalizeData = await finalizeResponse.json();
+        let finalizeData: any = {};
+        const finalizeResponseText = await finalizeResponse.text();
+        if (finalizeResponseText) {
+            try {
+                finalizeData = JSON.parse(finalizeResponseText);
+            } catch (parseError) {
+                console.warn("⚠️ FINALIZE response is not JSON (might be empty or 204):", parseError);
+                finalizeData = {};
+            }
+        }
 
         if (!finalizeResponse.ok || finalizeData.error) {
             console.error("❌ Twitter FINALIZE failed:", finalizeData);
@@ -352,7 +408,16 @@ export async function POST(req: Request) {
             body: JSON.stringify(tweetPayload),
         });
 
-        const tweetData = await tweetResponse.json();
+        let tweetData: any = {};
+        const tweetResponseText = await tweetResponse.text();
+        if (tweetResponseText) {
+            try {
+                tweetData = JSON.parse(tweetResponseText);
+            } catch (parseError) {
+                console.error("❌ Failed to parse tweet response:", parseError);
+                tweetData = { error: "Invalid JSON response from Twitter" };
+            }
+        }
 
         console.log("📥 Tweet response:", JSON.stringify(tweetData, null, 2));
 
