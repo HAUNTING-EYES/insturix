@@ -594,8 +594,24 @@ export async function executeDirectorPlan(
       }
     }
 
+    // Strip in-memory dedup markers before persist. The add_transition loop
+    // (line ~945) pushes lightweight sentinel objects with
+    // `metadata.inMemoryMarker: true` so subsequent iterations see what the
+    // previous one added (invokeAITool writes to MongoDB but doesn't update the
+    // in-memory array). Those sentinels must NEVER reach MongoDB — they have
+    // no transitionStyle, no source, no content, and would render as "ghost"
+    // transitions. See pipeline_investigations.md 2026-04-18 for the regression
+    // this protects against.
+    const persistableOverlays = overlays.filter(
+      (o: any) => !o?.metadata?.inMemoryMarker,
+    );
+    const strippedCount = overlays.length - persistableOverlays.length;
+    if (strippedCount > 0) {
+      console.log(`[Director] Stripped ${strippedCount} in-memory dedup marker(s) before save`);
+    }
+
     await projectService.saveProject(userId, projectId, {
-      overlays,
+      overlays: persistableOverlays,
       aspectRatio: project.aspectRatio,
       playerDimensions: project.playerDimensions,
       fps: project.fps,
@@ -940,6 +956,14 @@ async function executeAction(
           // transitions added by PREVIOUS iterations of this loop. invokeAITool
           // writes to MongoDB but doesn't update the in-memory array — without this
           // marker, subsequent iterations create duplicates at adjacent boundaries.
+          //
+          // ⚠️ IN-MEMORY ONLY — must NOT reach MongoDB. The `inMemoryMarker: true`
+          // flag is the signal for the step-4 save to strip these before persist.
+          // Witnessed regression: proj_3ETiKQF69nRd had 3 ghost transitions (no
+          // source, no transitionStyle) at frames 250/404/678 because step-4
+          // `saveProject(overlays)` persisted the in-memory array including these
+          // markers. See pipeline_investigations.md 2026-04-18 "Dual transition
+          // system regression (A3.5.1/A3.5.2 returned)".
           if (result > 0) {
             const transDurFrames = Math.round((effectiveDuration / 1000) * 30);
             overlays.push({
@@ -948,7 +972,7 @@ async function executeAction(
               from: boundaryFrame - Math.floor(transDurFrames / 2),
               durationInFrames: transDurFrames,
               row: ROW.VIDEO,
-              metadata: { isTransition: true },
+              metadata: { isTransition: true, inMemoryMarker: true },
             } as any);
           }
           console.log(`[Director] add_transition: ${i}→${i+1}: ${effectiveType} (${sceneTransType ? 'script' : 'profile default'})`);
