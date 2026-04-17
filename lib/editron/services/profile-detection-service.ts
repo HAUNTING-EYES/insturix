@@ -17,6 +17,11 @@
 
 import { EDIT_PROFILES } from '@/lib/editron/data/edit-profiles';
 import type { EditProfile, ProfileId, DetectionResult, ModifierId } from '@/lib/editron/data/edit-profile-types';
+import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
+
+// Scoring constants pulled from editron-config.ts (Rule A6 — one source of truth).
+// Full rationale + tuning guidance in ProfileDetectionConfig interface definition.
+const DETECTION = DEFAULT_CONFIG.profileDetection;
 
 // ─── Signal Extraction ───────────────────────────────────────────
 
@@ -119,11 +124,8 @@ function extractSignals(metadata: ThinkForgeMetadata): ExtractedSignals {
 
 function scoreProfile(profile: EditProfile, signals: ExtractedSignals): number {
   let score = 0;
-  let maxPossible = 0;
 
   for (const keyword of profile.signalKeywords) {
-    maxPossible += keyword.weight;
-
     const fieldText = signals[keyword.field as keyof ExtractedSignals];
     if (typeof fieldText !== 'string') continue;
 
@@ -132,9 +134,17 @@ function scoreProfile(profile: EditProfile, signals: ExtractedSignals): number {
     }
   }
 
-  // Normalize to 0-1
-  if (maxPossible === 0) return 0;
-  let normalized = score / maxPossible;
+  // Normalize by fixed target score (Rule A6, editron-config.ts ProfileDetectionConfig).
+  //
+  // OLD APPROACH (2026-04-17 bugfix): `score / maxPossible` — penalized rich-keyword
+  // profiles. A profile with 4 keywords totaling 1.1 max weight could beat a profile
+  // with 16 keywords totaling 5.2 max weight even with fewer actual matches, because
+  // percentage-based normalization favors sparse profiles.
+  //
+  // NEW APPROACH: absolute match strength divided by fixed target. Profile can't game
+  // by having fewer keywords. 5 medium-weight matches (≈2.5 raw) hits confidence 1.0.
+  // See pipeline_investigations.md for full analysis + Nike test validation.
+  let normalized = Math.min(1, score / DETECTION.scoreNormalizationTarget);
 
   // ─── Structural bonuses ─────────────────────────────────
   // Short-form content bonus
@@ -256,7 +266,7 @@ export function detectProfile(metadata: ThinkForgeMetadata): DetectionResult[] {
   // Score candidate profiles (filtered by LLM category if available)
   for (const profile of candidateProfiles) {
     const confidence = scoreProfile(profile, signals);
-    if (confidence < 0.05) continue; // Skip zero-match profiles
+    if (confidence < DETECTION.minConfidenceThreshold) continue; // Skip zero-match profiles
 
     const reasoning: string[] = [];
     for (const kw of profile.signalKeywords) {
@@ -289,7 +299,7 @@ export function detectProfile(metadata: ThinkForgeMetadata): DetectionResult[] {
     for (const profile of allProfiles) {
       if (candidateProfiles.includes(profile)) continue; // Already scored
       const confidence = scoreProfile(profile, signals);
-      if (confidence < 0.05) continue;
+      if (confidence < DETECTION.minConfidenceThreshold) continue;
       const reasoning: string[] = [];
       for (const kw of profile.signalKeywords) {
         const fieldText = signals[kw.field as keyof ExtractedSignals];
@@ -321,7 +331,7 @@ export function getAutoSelectedProfile(metadata: ThinkForgeMetadata): {
   const results = detectProfile(metadata);
   const top = results[0];
 
-  if (!top || top.confidence < 0.05) {
+  if (!top || top.confidence < DETECTION.minConfidenceThreshold) {
     // Complete signal starvation — all scenes empty, no narration/visual data.
     // Default to G-01 but flag for manual review so user knows to pick a profile.
     return {
@@ -342,7 +352,7 @@ export function getAutoSelectedProfile(metadata: ThinkForgeMetadata): {
   return {
     profile: EDIT_PROFILES[top.profileId],
     detection: top,
-    autoSelected: top.confidence >= 0.60,
-    suggestionsNeeded: top.confidence < 0.60,
+    autoSelected: top.confidence >= DETECTION.autoSelectConfidence,
+    suggestionsNeeded: top.confidence < DETECTION.autoSelectConfidence,
   };
 }

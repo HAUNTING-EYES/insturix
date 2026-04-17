@@ -209,6 +209,70 @@ export interface AIModelConfig {
   parsingTemperature: number;
 }
 
+// ─── Profile Detection ─────────────────────────────────────────────
+//
+// Scoring math + thresholds for profile-detection-service.ts. Centralized
+// here (Rule A6 — one source of truth) so scoring behavior can be tuned
+// in ONE place without touching scoring code.
+//
+// CRITICAL BUG FIXED 2026-04-17 (see pipeline_investigations.md):
+// Previous scoring divided raw score by EACH profile's own maxPossible
+// (sum of its keyword weights). This PENALIZED profiles with rich keyword
+// vocabularies — a profile with 4 keywords totaling 1.1 max could beat a
+// profile with 16 keywords totaling 5.2 max even with fewer actual matches,
+// because percentage-based scoring favors sparse profiles.
+// Concrete bug: Nike athletic script detected as "E-Commerce / Product
+// Launch" (B-02, 4 keywords) instead of "Athletic" (B-05, 16 keywords)
+// because B-02 scored 0.55 (2 matches / 4 keywords) vs B-05 0.38 (5
+// matches / 16 keywords) — despite B-05 having 5x more actual evidence.
+//
+// NEW APPROACH: normalize by a FIXED target score instead of per-profile
+// max. Absolute match strength wins. Profile can't game the scoring by
+// having fewer keywords.
+
+export interface ProfileDetectionConfig {
+  /**
+   * Fixed divisor for normalizing raw keyword-match scores into the 0-1
+   * confidence range. Represents the "strong match" target score.
+   *
+   * Mathematical interpretation: 2.5 is roughly the sum of weights when
+   * 5 medium-weight keywords (0.5) match, or 3 strong keywords (0.8)
+   * match, or 7 light keywords (0.35) match. Any combination summing to
+   * 2.5+ rounds to confidence 1.0 (auto-select).
+   *
+   * Tuning guide:
+   *   - Lower (e.g., 2.0): easier auto-select — more profiles reach 0.60+
+   *   - Higher (e.g., 3.0): harder auto-select — fewer auto-matches, more
+   *     falls to G-01 Universal Clean fallback
+   *
+   * Empirical validation (Nike test 2026-04-17):
+   *   B-05 Athletic score 2.0 / 2.5 = 0.80 → auto-select ✓
+   *   B-02 Product Launch score 0.6 / 2.5 = 0.24 → falls to suggest tier ✓
+   */
+  scoreNormalizationTarget: number;
+
+  /**
+   * Minimum raw score for a profile to appear in detection results.
+   * Prevents zero-match and trivial-match profiles from cluttering output.
+   * Was previously hardcoded as `confidence < 0.05` in detectProfile().
+   */
+  minConfidenceThreshold: number;
+
+  /**
+   * Confidence threshold at which detected profile is auto-selected
+   * without user review. Above this, the system trusts its own detection.
+   * Was hardcoded as `0.60` in getAutoSelectedProfile().
+   */
+  autoSelectConfidence: number;
+
+  /**
+   * Confidence threshold below which detection falls back to G-01
+   * Universal Clean and flags the project for manual profile review.
+   * Was hardcoded as `0.40` in getAutoSelectedProfile().
+   */
+  fallbackConfidence: number;
+}
+
 // ─── The Full Config ───────────────────────────────────────────────
 
 export interface EditronConfig {
@@ -220,6 +284,7 @@ export interface EditronConfig {
   audio: AudioConfig;
   music: MusicConfig;
   aiModels: AIModelConfig;
+  profileDetection: ProfileDetectionConfig;
 }
 
 // ─── Default Values ────────────────────────────────────────────────
@@ -364,6 +429,23 @@ export const DEFAULT_CONFIG: EditronConfig = {
     analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
+  },
+  profileDetection: {
+    // See ProfileDetectionConfig interface above for full rationale.
+    // 2.5 = "strong match target" (5 medium-weight keyword matches or equivalent).
+    // Validated against Nike test 2026-04-17: B-05 Athletic (16 keywords) now
+    // beats B-02 Product Launch (4 keywords) as intended.
+    scoreNormalizationTarget: 2.5,
+    // Below this raw score, profile is excluded from results. Previously hardcoded
+    // as `confidence < 0.05` (post-normalization check) which was inconsistent across
+    // profiles because the normalization itself varied by profile. Now applied
+    // consistently as a raw-score threshold.
+    minConfidenceThreshold: 0.05,
+    // Auto-select threshold — detected profile accepted without user review.
+    autoSelectConfidence: 0.60,
+    // Fall-back threshold — below this, G-01 Universal Clean is used + project flagged
+    // for manual profile review in UI.
+    fallbackConfidence: 0.40,
   },
 };
 
