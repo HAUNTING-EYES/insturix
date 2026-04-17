@@ -141,7 +141,12 @@ export async function parseScriptWithLLM(
     model,
     schema: ParseResultSchema,
     temperature: 0.3,
-    abortSignal: AbortSignal.timeout(120_000),
+    // 2026-04-17: bumped 120s → 180s after witnessing cold-start timeouts on the
+    // new GCP project (insturix-493414). First Gemini call of the day often takes
+    // 120-150s (structured output on complex Zod schema). 180s gives headroom while
+    // staying well under Vercel's 300s function limit (leaves ~100s for other work).
+    // See pipeline_investigations.md "LLM parser cold-start timeouts" for root cause.
+    abortSignal: AbortSignal.timeout(180_000),
     prompt: `You are a senior video production director. Decompose a client script into discrete scenes, each representing ONE AI video generation call.
 
 ## INPUT CONTRACT
