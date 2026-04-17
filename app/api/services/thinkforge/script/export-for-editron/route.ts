@@ -181,6 +181,97 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ─── Parser output quality validation (Rule 2N: No Fallbacks as Solutions) ─────
+    //
+    // When the LLM parser fails (timeout, API error), the regex fallback runs.
+    // For structured scripts containing editorial headers ("Emotional Target:",
+    // "Instrumentation:", "Visual:", "Audio:", etc.), the regex parser produces
+    // garbage output: it dumps the ENTIRE scene block into BOTH narration AND
+    // visualDescription fields, identical character-for-character.
+    //
+    // Concrete failure witnessed 2026-04-17 in proj_a83yxEs73pKg / sb_pq2iQh5xGLaQ:
+    // - narration.length === visualDescription.length (622 / 906 / 630 chars)
+    // - narration === visualDescription (byte-identical)
+    // - narration starts with "Emotional Target: Immediate engagement..."
+    // - TTS then tried to SPEAK that metadata (46-62s of speech for 10s scenes)
+    //
+    // This is exactly what Rule 2N prohibits — a fallback that silently produces
+    // unusable output, burning user credits on garbage while hiding the real
+    // LLM-parser problem. Better to fail loudly so user retries — on retry the
+    // LLM parser is usually warm and works. See pipeline_investigations.md
+    // "LLM parser cold-start timeouts force regex fallback with destructive data shape"
+    // for full root-cause analysis.
+    //
+    // The validation catches TWO specific garbage patterns that indicate regex
+    // fallback on a structured script:
+    // 1. narration and visualDescription are byte-identical (the clear dump smell)
+    // 2. narration starts with a script-editorial header, indicating the parser
+    //    confused metadata for spoken dialogue
+    //
+    // Scripts that legitimately use regex fallback (simple prose scripts without
+    // editorial scaffolding) will pass both checks and proceed normally.
+    const EDITORIAL_HEADER_PATTERNS = [
+      /^emotional\s+target\s*:/i,
+      /^instrumentation\s*:/i,
+      /^tempo\s*:/i,
+      /^genre\s*\/?\s*style\s*:/i,
+      /^visual\s*:/i,
+      /^audio\s*:/i,
+      /^transition\s+notes\s*:/i,
+      /^on-screen\s+text\s*:/i,
+    ];
+
+    const qualityIssues: Array<{ sceneIndex: number; issue: string }> = [];
+    for (const scene of scenes) {
+      const narr = (scene.narration || '').trim();
+      const vis = (scene.visualDescription || '').trim();
+
+      // Check 1: identical narration and visualDescription (regex dump smell)
+      if (narr.length > 50 && narr === vis) {
+        qualityIssues.push({
+          sceneIndex: scene.sceneIndex ?? 0,
+          issue: `narration and visualDescription are byte-identical (${narr.length} chars) — regex parser dumped entire scene block into both fields`,
+        });
+        continue; // One issue per scene is enough for diagnosis
+      }
+
+      // Check 2: narration starts with an editorial metadata header
+      // (indicates parser mistook metadata for dialogue)
+      for (const pattern of EDITORIAL_HEADER_PATTERNS) {
+        if (pattern.test(narr)) {
+          qualityIssues.push({
+            sceneIndex: scene.sceneIndex ?? 0,
+            issue: `narration starts with editorial header matching ${pattern.source} — got: "${narr.slice(0, 50)}..."`,
+          });
+          break;
+        }
+      }
+    }
+
+    if (qualityIssues.length > 0) {
+      const diagnostic = {
+        llmAvailable,
+        parserFallback,
+        parserFallbackReason: parserFallbackReason || undefined,
+        qualityIssues,
+        scenesAffected: qualityIssues.length,
+        totalScenes: scenes.length,
+      };
+      console.error('[export-for-editron] 422: Parser output quality check FAILED. Diagnostic:', JSON.stringify(diagnostic));
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Script could not be parsed cleanly. The AI parser was temporarily unavailable and the fallback parser could not cleanly separate narration from visual descriptions. Please retry in ~30 seconds — the AI parser typically works on retry after a cold start.',
+          reason: 'parser-quality-check-failed',
+          retryable: true,
+          parserFallback,
+          parserFallbackReason: parserFallbackReason || undefined,
+          qualityIssues,
+        },
+        { status: 422 },
+      );
+    }
+
     return NextResponse.json({
       success: true,
       title,
