@@ -406,17 +406,10 @@ function applyTransition(
     return null;
   }
 
-  // Check if a transition already exists near this frame
-  const existingTransition = overlays.find(o =>
-    (o.type === 'transition' || (o as any).metadata?.isTransition) &&
-    Math.abs(o.from - decision.frame) < 15,
-  );
-  if (existingTransition) {
-    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — existing transition within 15 frames`);
-    return null;
-  }
-
-  // Snap decision frame to nearest actual clip boundary (handles pacing drift)
+  // Snap decision frame to nearest actual clip boundary FIRST so the dedup
+  // below can use clipA/clipB identity (authoritative) instead of frame
+  // proximity alone (fragile — misses when EDL and Director use different
+  // reference frames for the same boundary).
   const boundaryMatch = snapToClipBoundary(decision.frame, overlays, 45);
   if (!boundaryMatch) {
     console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — no clip boundary found within 45 frames`);
@@ -428,6 +421,32 @@ function applyTransition(
   const clipA = boundaryMatch.clipA;
   const clipB = boundaryMatch.clipB;
   const anchorFrame = boundaryMatch.boundaryFrame;
+
+  // Check if a transition already exists for this clip pair. Clip-pair match
+  // is the authoritative dedup key — a pair of clips has exactly one boundary,
+  // so at most one transition belongs between them. Frame-proximity is kept
+  // as a fallback for legacy overlays that don't have clipAId/clipBId set
+  // (e.g. the pre-A1 in-memory markers that could still exist if someone
+  // re-runs Director on an older project state).
+  // See pipeline_investigations.md 2026-04-18 (Dual transition regression)
+  // for why frame-only dedup missed same-pair duplicates across systems.
+  const existingTransition = overlays.find(o => {
+    if (o.type !== 'transition' && !(o as any).metadata?.isTransition) return false;
+    // Authoritative: same clip pair
+    if ((o as any).clipAId === clipA.id && (o as any).clipBId === clipB.id) return true;
+    // Fallback: frame proximity for overlays missing clipAId/clipBId
+    if ((o as any).clipAId == null || (o as any).clipBId == null) {
+      return Math.abs(o.from - decision.frame) < 15;
+    }
+    return false;
+  });
+  if (existingTransition) {
+    const reason = ((existingTransition as any).clipAId === clipA.id && (existingTransition as any).clipBId === clipB.id)
+      ? `clipA=${clipA.id}/clipB=${clipB.id} pair match (source: ${(existingTransition as any).metadata?.source || 'unknown'})`
+      : `legacy overlay within 15 frames`;
+    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — ${reason}`);
+    return null;
+  }
 
   // Create proper TransitionOverlay tile (System A — editor renders these)
   const transitionOverlay = {

@@ -503,6 +503,31 @@ export async function executeDirectorPlan(
       }
     }
 
+    // ─── Step 3.4: Transition dedup safety net (B3) ──────────────
+    // All transition-creating steps are done: edit-direction-applier (disabled),
+    // EDL executor (step 3), Director add_transition tool (step 3). Before
+    // step 3.5 (beat-sync) and step 3.6 (SFX placer) see the transition set,
+    // guarantee at most one transition per (clipAId, clipBId) pair and strip
+    // any ghost markers (no source + no transitionStyle) that slipped through.
+    // This is the safety net for Root Cause B of the 2026-04-18 regression —
+    // see pipeline_investigations.md and dedupTransitionsByClipPair below.
+    try {
+      const dedupResult = dedupTransitionsByClipPair(overlays);
+      if (dedupResult.duplicatesRemoved > 0 || dedupResult.ghostsStripped > 0) {
+        console.log(
+          `[Director] Step 3.4: transition dedup — removed ${dedupResult.duplicatesRemoved} duplicate(s), ` +
+          `stripped ${dedupResult.ghostsStripped} ghost(s)`,
+        );
+        result.overlaysModified += dedupResult.duplicatesRemoved + dedupResult.ghostsStripped;
+      }
+    } catch (dedupErr: any) {
+      const errMsg = dedupErr?.message || 'Unknown error';
+      console.error('[Director] Step 3.4 transition dedup failed:', errMsg);
+      result.warnings.push(`Transition dedup failed: ${errMsg}`);
+      pipelineWarnings.errorSwallowed('director', dedupErr, 'transition dedup (dedupTransitionsByClipPair)');
+      // Non-fatal — step 4's A1 marker filter still runs as a secondary net.
+    }
+
     // ─── Step 3.5: Beat-sync cut alignment (beatSyncActive projects only) ──
     // If finalize sync-generated BGM with a beat grid, snap montage sub-shot cut
     // points to the nearest beats. Runs BEFORE transition SFX (step 3.6) so the
@@ -857,14 +882,21 @@ async function executeAction(
         console.log(`[Director] add_transition: ${existingTransitions.length} script transitions already exist, respecting user's script intent`);
         // Check if there are gaps (scenes without transitions between them)
         const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
-        const transitionFrames = new Set(existingTransitions.map(t => t.from));
         let gapCount = 0;
         for (let i = 0; i < videoOverlays.length - 1; i++) {
-          const boundaryFrame = videoOverlays[i].from + videoOverlays[i].durationInFrames;
-          // Check if any transition exists near this boundary (±15 frames)
-          const hasTransition = existingTransitions.some(
-            t => Math.abs(t.from - boundaryFrame) < 30 || Math.abs((t.from + t.durationInFrames) - boundaryFrame) < 30,
-          );
+          const clipA = videoOverlays[i];
+          const clipB = videoOverlays[i + 1];
+          const boundaryFrame = clipA.from + clipA.durationInFrames;
+          // Authoritative: clipA/clipB identity match (single boundary per pair).
+          // Fallback: frame proximity for legacy overlays without clipAId/clipBId.
+          // See pipeline_investigations.md 2026-04-18 (Dual transition regression).
+          const hasTransition = existingTransitions.some(t => {
+            if ((t as any).clipAId === clipA.id && (t as any).clipBId === clipB.id) return true;
+            if ((t as any).clipAId == null || (t as any).clipBId == null) {
+              return Math.abs(t.from - boundaryFrame) < 30 || Math.abs((t.from + t.durationInFrames) - boundaryFrame) < 30;
+            }
+            return false;
+          });
           if (!hasTransition) gapCount++;
         }
         if (gapCount === 0) {
@@ -903,12 +935,22 @@ async function executeAction(
         const clipA = videoOverlaysForTrans[i];
         const clipB = videoOverlaysForTrans[i + 1];
 
-        // Check if a transition already exists near this boundary
+        // Check if a transition already exists for this clip pair.
+        // Authoritative: clipA/clipB identity match. Fallback: frame proximity
+        // for legacy overlays without clipAId/clipBId. This matches the EDL
+        // executor's dedup logic so both systems can see each other's work
+        // even when their frame references differ (EDL uses decision.frame,
+        // Director uses boundaryFrame). See pipeline_investigations.md
+        // 2026-04-18 (Dual transition regression) for the failure case.
         const boundaryFrame = clipA.from + clipA.durationInFrames;
-        const existingTrans = overlays.find(o =>
-          (o.type === 'transition' || (o as any).metadata?.isTransition) &&
-          Math.abs(o.from - boundaryFrame) < 30
-        );
+        const existingTrans = overlays.find(o => {
+          if (o.type !== 'transition' && !(o as any).metadata?.isTransition) return false;
+          if ((o as any).clipAId === clipA.id && (o as any).clipBId === clipB.id) return true;
+          if ((o as any).clipAId == null || (o as any).clipBId == null) {
+            return Math.abs(o.from - boundaryFrame) < 30;
+          }
+          return false;
+        });
         if (existingTrans) continue; // Already has a transition, skip
 
         // Check storyboard's per-scene transition for the NEXT scene (B).
@@ -1227,4 +1269,157 @@ function applyBriefOverrides(profile: EditProfile, brief?: ProjectBrief): EditPr
     graphicsDensity: brief.overrides.graphicsDensity ?? profile.graphicsDensity,
     defaultTransition: brief.overrides.defaultTransition ?? profile.defaultTransition,
   };
+}
+
+// ─── Transition Dedup Safety Net (B3) ────────────────────────────
+//
+// Post-composition sweep that guarantees at most ONE transition per (clipAId,
+// clipBId) pair in the project, regardless of which code path produced them.
+// Runs at the end of the profile action loop, BEFORE step 3.5 (beat-sync) and
+// step 3.6 (SFX placer) — so those downstream steps see a clean set.
+//
+// WHY THIS EXISTS
+// Root Cause B of the dual-transition regression (pipeline_investigations.md
+// 2026-04-18): the EDL executor and the Director's add_transition tool each
+// have their own dedup check, but they use different reference frames to
+// measure proximity. When the numbers drift, one system doesn't see the
+// other's work. The per-site B1 fixes (clip-pair identity in both dedup
+// checks) prevent most cases. THIS function is the safety net that also
+// catches:
+//   - Future code paths that add transitions without going through the
+//     checked sites
+//   - Pre-existing project state from before the B1 fixes landed
+//   - Legacy overlays without clipAId/clipBId (treated as ghosts)
+//
+// PRIORITY ORDER (higher = keep)
+//   edl                       100  — LLM creative intent, authoritative
+//   tool                       80  — Director/AI-chat add_transition tool
+//   unknown with transitionStyle 10 — something legitimate we don't recognize
+//   ghost (inMemoryMarker OR no source AND no style)  -1 — always lose
+//
+// INVARIANTS
+//   - Only operates on overlays where type === 'transition' OR
+//     metadata.isTransition is true. All other overlays pass through untouched.
+//   - Stable sort within a group: ties broken by original array index (first
+//     wins), so behavior is deterministic across runs.
+//   - Mutates the overlays array in place via length=0 + push, matching the
+//     convention used by split_clips at line ~797.
+//   - Idempotent: running twice on the same clean array removes nothing.
+//   - Returns counts for logging and result.overlaysModified tracking.
+//
+// FAILURE MODES GUARDED AGAINST
+//   - clipAId === 0 or '' as valid IDs → use `== null` (catches null+undefined
+//     only, not 0 or '').
+//   - Ghost transitions without clipAId/clipBId → go to the "unknown pair"
+//     bucket and get stripped if they have no source AND no transitionStyle.
+//   - A legit transition with no source but a real transitionStyle → kept as
+//     last-resort priority 10, not stripped.
+//   - Mutation-during-iteration → collect removal indices into a Set first,
+//     then filter once.
+const TRANSITION_SOURCE_PRIORITY: Record<string, number> = {
+  edl: 100,
+  tool: 80,
+  // 'transition-sfx-placer' produces type:'sound' overlays, not transitions,
+  // so it should never appear in this dedup. Included defensively anyway.
+  'transition-sfx-placer': 60,
+};
+
+function transitionPriority(o: any): number {
+  // Tagged in-memory sentinel → always lose (A1 filter should already strip
+  // these before save; this is belt-and-suspenders for step-3.5/3.6 consumers).
+  if (o?.metadata?.inMemoryMarker) return -1;
+  const src = o?.metadata?.source;
+  if (src && TRANSITION_SOURCE_PRIORITY[src] !== undefined) {
+    return TRANSITION_SOURCE_PRIORITY[src];
+  }
+  // No recognized source but has a real transitionStyle → legit but unknown
+  // (e.g., an external tool added a transition). Keep as last-resort winner.
+  if (o?.transitionStyle) return 10;
+  // No source, no style → shaped like a ghost. Strip.
+  return -1;
+}
+
+function dedupTransitionsByClipPair(
+  overlays: any[],
+): { ghostsStripped: number; duplicatesRemoved: number } {
+  if (overlays.length === 0) return { ghostsStripped: 0, duplicatesRemoved: 0 };
+
+  // Collect transition indices with their overlays
+  const transitionEntries: Array<{ idx: number; overlay: any }> = [];
+  for (let i = 0; i < overlays.length; i++) {
+    const o = overlays[i];
+    if (o?.type === 'transition' || o?.metadata?.isTransition) {
+      transitionEntries.push({ idx: i, overlay: o });
+    }
+  }
+  if (transitionEntries.length === 0) {
+    return { ghostsStripped: 0, duplicatesRemoved: 0 };
+  }
+
+  // Group by clip-pair identity. Entries missing clipAId/clipBId go to the
+  // "unknown pair" bucket for ghost detection.
+  const pairGroups = new Map<string, Array<{ idx: number; overlay: any }>>();
+  const unknownPair: Array<{ idx: number; overlay: any }> = [];
+
+  for (const entry of transitionEntries) {
+    const a = entry.overlay.clipAId;
+    const b = entry.overlay.clipBId;
+    if (a == null || b == null) {
+      unknownPair.push(entry);
+    } else {
+      const key = `${a}_${b}`;
+      const arr = pairGroups.get(key);
+      if (arr) arr.push(entry);
+      else pairGroups.set(key, [entry]);
+    }
+  }
+
+  const toRemove = new Set<number>();
+  let duplicatesRemoved = 0;
+  let ghostsStripped = 0;
+
+  // Per-pair: keep highest-priority winner, remove rest
+  for (const [key, members] of pairGroups) {
+    if (members.length <= 1) continue;
+    // Sort descending by priority; original array index as tiebreaker (stable)
+    const sorted = [...members].sort((a, b) => {
+      const diff = transitionPriority(b.overlay) - transitionPriority(a.overlay);
+      return diff !== 0 ? diff : a.idx - b.idx;
+    });
+    const winner = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+      toRemove.add(sorted[i].idx);
+      duplicatesRemoved++;
+    }
+    const winnerSrc = winner.overlay?.metadata?.source || 'unknown';
+    const winnerStyle = winner.overlay?.transitionStyle || 'unknown';
+    console.log(
+      `[Director] Transition dedup: pair ${key} had ${members.length} entries, ` +
+      `kept ${winnerSrc}/${winnerStyle} @ frame ${winner.overlay.from}, ` +
+      `removed ${members.length - 1} duplicate(s)`,
+    );
+  }
+
+  // Unknown-pair bucket: strip ghosts only. Keep legit transitions even
+  // without clipIds (e.g., legacy overlays) — those still have a transitionStyle.
+  for (const entry of unknownPair) {
+    const o = entry.overlay;
+    const isGhost = o?.metadata?.inMemoryMarker ||
+      (!o?.metadata?.source && !o?.transitionStyle);
+    if (isGhost) {
+      toRemove.add(entry.idx);
+      ghostsStripped++;
+    }
+  }
+  if (ghostsStripped > 0) {
+    console.log(`[Director] Transition dedup: stripped ${ghostsStripped} ghost transition(s) (no source + no transitionStyle)`);
+  }
+
+  if (toRemove.size > 0) {
+    const kept = overlays.filter((_, idx) => !toRemove.has(idx));
+    overlays.length = 0;
+    overlays.push(...kept);
+  }
+
+  return { ghostsStripped, duplicatesRemoved };
 }
