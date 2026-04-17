@@ -69,6 +69,12 @@ interface ThinkForgeMetadata {
    *  Example: "Golden Arches of Memory: A Taste of Childhood" tells you everything you need
    *  to know about content type without any other field. */
   title?: string;
+  /** LLM-suggested profile category from parser (added 2026-04-17).
+   *  When present, detection ONLY scores profiles within this category, eliminating
+   *  cross-category false positives. The LLM understands "Nike Athletes in Motion"
+   *  is industry-vertical (sports), not production-mode (screen recording) — keyword
+   *  scoring alone can't make this semantic distinction. */
+  suggestedProfileCategory?: string;
 }
 
 function extractSignals(metadata: ThinkForgeMetadata): ExtractedSignals {
@@ -224,9 +230,31 @@ export function detectProfile(metadata: ThinkForgeMetadata): DetectionResult[] {
   const signals = extractSignals(metadata);
   const modifiers = detectModifiers(signals);
 
+  // ─── LLM category filter (2026-04-17 — eliminates cross-category false positives) ──
+  // When the parser output includes suggestedProfileCategory (an LLM semantic read of the
+  // script), ONLY score profiles within that category. This prevents "screen" in "On-Screen
+  // Text" from matching F-03 (Screen Demo) when the content is actually an athletic brand ad.
+  //
+  // Fallback: if category is absent (old parser output), score ALL profiles (current behavior).
+  // If category filtering produces zero results (LLM picked wrong category and no profile
+  // within it matches), also fall back to scoring all profiles.
+  const suggestedCategory = metadata.suggestedProfileCategory?.toLowerCase().trim();
+  const allProfiles = Object.values(EDIT_PROFILES);
+  const candidateProfiles = suggestedCategory
+    ? allProfiles.filter(p => p.category === suggestedCategory)
+    : allProfiles;
+
+  if (suggestedCategory) {
+    console.log(
+      `[ProfileDetection] LLM suggested category: "${suggestedCategory}" → ` +
+      `${candidateProfiles.length} candidate profiles (of ${allProfiles.length} total)`
+    );
+  }
+
   const results: DetectionResult[] = [];
 
-  for (const profile of Object.values(EDIT_PROFILES)) {
+  // Score candidate profiles (filtered by LLM category if available)
+  for (const profile of candidateProfiles) {
     const confidence = scoreProfile(profile, signals);
     if (confidence < 0.05) continue; // Skip zero-match profiles
 
@@ -248,6 +276,31 @@ export function detectProfile(metadata: ThinkForgeMetadata): DetectionResult[] {
 
   // Sort by confidence descending
   results.sort((a, b) => b.confidence - a.confidence);
+
+  // Fallback: if LLM category filtering produced zero results (LLM picked wrong category
+  // OR no keywords in that category match the script), re-score ALL profiles. This ensures
+  // we never return an empty list due to a bad LLM category suggestion. Rule 16 graceful
+  // degradation — LLM filter is a quality boost, not a gate.
+  if (results.length === 0 && suggestedCategory && candidateProfiles.length < allProfiles.length) {
+    console.warn(
+      `[ProfileDetection] Category "${suggestedCategory}" produced 0 results — ` +
+      `falling back to all ${allProfiles.length} profiles`
+    );
+    for (const profile of allProfiles) {
+      if (candidateProfiles.includes(profile)) continue; // Already scored
+      const confidence = scoreProfile(profile, signals);
+      if (confidence < 0.05) continue;
+      const reasoning: string[] = [];
+      for (const kw of profile.signalKeywords) {
+        const fieldText = signals[kw.field as keyof ExtractedSignals];
+        if (typeof fieldText === 'string' && fieldText.includes(kw.term.toLowerCase())) {
+          reasoning.push(`"${kw.term}" found in ${kw.field} (+${kw.weight.toFixed(2)})`);
+        }
+      }
+      results.push({ profileId: profile.profileId, confidence, reasoning, suggestedModifiers: modifiers });
+    }
+    results.sort((a, b) => b.confidence - a.confidence);
+  }
 
   return results;
 }

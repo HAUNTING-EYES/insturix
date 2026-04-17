@@ -974,6 +974,10 @@ export async function POST(
         environmentNotes: (storyboard as any).environmentNotes || '',
         characterDescriptions: (storyboard as any).characterDescriptions || {},
         globalEditDirections: storyboard.globalEditDirections || undefined,
+        // LLM-suggested profile category (2026-04-17): semantic content classification from
+        // parser's full-script understanding. Drives category-filtered profile detection,
+        // eliminating cross-category false positives (e.g., Nike ≠ Screen Demo).
+        suggestedProfileCategory: (storyboard as any).suggestedProfileCategory || undefined,
       };
       const { profile: detectedProfile, autoSelected, detection } = getAutoSelectedProfile(thinkforgeMetadata);
       console.log(`[Finalize] Profile detection: ${detectedProfile.profileId} confidence=${detection.confidence.toFixed(2)} auto=${autoSelected} reasoning=[${detection.reasoning.slice(0, 3).join('; ')}]`);

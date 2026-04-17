@@ -89,6 +89,21 @@ const ParseResultSchema = z.object({
   colorPalette: z.array(z.string()).describe('Specific color names used throughout the script\'s visual identity. Extract 3-8 dominant colors from the visual descriptions. Use specific color names, not generic ("cobalt blue" not "blue").'),
   environmentNotes: z.string().describe('Brief description (1-3 sentences) of the overall visual environment and setting across the video. E.g. "Modern minimalist tech office with floor-to-ceiling windows, warm natural lighting, and clean geometric furniture." Summarize the dominant setting/world of the script.'),
   globalEditDirections: GlobalEditDirectionsSchema.optional().describe('Global editing instructions extracted from the script\'s production notes, creative direction, or style guide sections. ONLY populate from explicit content in the script.'),
+  // LLM-suggested editing category — used by profile detection to filter before keyword scoring.
+  // The LLM reads the FULL script semantically (content type, mood, visual style, audience) and
+  // picks the broad category. Detection then only scores profiles within that category, eliminating
+  // cross-category false positives (e.g., athletic brand ad wrongly matching "Screen Demo" because
+  // the word "screen" appeared in "On-Screen Text"). See pipeline_investigations.md 2026-04-17
+  // "Profile detection — F-03 Screen Demo false positive" for the motivating bug.
+  suggestedProfileCategory: z.enum([
+    'platform-native',    // Platform-optimized: YouTube, Instagram Reels, TikTok, LinkedIn, Facebook
+    'industry-vertical',  // Sector-specific: SaaS/Tech, Food, Fashion, Real Estate, Athletic/Sports, Healthcare
+    'content-format',     // Structure-defined: Listicle, How-To, Comparison, Case Study, Event Recap
+    'cinematic-style',    // Aesthetic-first: Cinematic Premium, Documentary, Bold/High Energy, Retro, Luxury
+    'narrative-mode',     // Story-structure: Brand Story, Testimonial, Problem-Solution, Before-After
+    'production-mode',    // Footage-type: Talking Head, Screen Recording, Live Event
+    'special-purpose',    // Fallback/blend: Universal Clean, Custom Style-Blend
+  ]).describe('What BROAD editing category fits this script best. Pick based on the overall content intent, NOT individual keywords. Examples:\n- Nike athletic brand ad → "industry-vertical" (sports/fitness sector)\n- SaaS product demo with UI → "production-mode" (screen recording type)\n- Instagram Reel with trending audio → "platform-native" (platform-optimized)\n- Cinematic brand film → "cinematic-style" (aesthetic-first)\n- Customer testimonial → "narrative-mode" (story-structure)\n- General marketing video → "special-purpose" (universal clean)'),
 });
 
 export type ParsedScene = z.infer<typeof SceneSchema>;

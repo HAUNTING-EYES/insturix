@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
     let colorPalette: string[] = [];
     let environmentNotes = '';
     let globalEditDirections: any = undefined;
+    let suggestedProfileCategory = '';
     // H1 FIX: Track parser fallback for frontend warning
     let parserFallback = false;
     let parserFallbackReason = '';
@@ -120,6 +121,8 @@ export async function POST(request: NextRequest) {
         colorPalette = llmResult.colorPalette || [];
         environmentNotes = llmResult.environmentNotes || '';
         globalEditDirections = (llmResult as any).globalEditDirections || undefined;
+        // LLM-suggested profile category for detection filtering (2026-04-17)
+        suggestedProfileCategory = (llmResult as any).suggestedProfileCategory || '';
 
         console.log(`[export-for-editron] LLM parsed ${scenes.length} scenes`);
       } catch (llmError: any) {
@@ -189,6 +192,7 @@ export async function POST(request: NextRequest) {
       colorPalette,
       environmentNotes,
       globalEditDirections,
+      suggestedProfileCategory,
       rawContent: rawContent.substring(0, 5000),
       // H1 FIX: Notify frontend when LLM parser failed and regex fallback was used
       ...(parserFallback && { parserFallback: true, parserFallbackReason }),

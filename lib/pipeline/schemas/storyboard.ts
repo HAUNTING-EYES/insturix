@@ -291,6 +291,9 @@ export interface Storyboard {
   consistencyReport?: ConsistencyReport;
   /** Global editing instructions for the entire video (from LLM parser or user brief) */
   globalEditDirections?: GlobalEditDirections;
+  /** LLM-suggested profile category — used by profile detection to filter before keyword
+   *  scoring (2026-04-17). Eliminates cross-category false positives. */
+  suggestedProfileCategory?: string;
   status: 'generating' | 'ready' | 'partial' | 'error';
   createdAt: Date;
   updatedAt: Date;

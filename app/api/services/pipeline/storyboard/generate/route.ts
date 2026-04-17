@@ -100,6 +100,7 @@ export async function POST(request: NextRequest) {
       checkConsistency,
       consistencyThreshold,
       globalEditDirections,
+      suggestedProfileCategory,
     }: {
       scenes: SceneDescriptor[];
       styleGuide?: StyleGuide;
@@ -121,6 +122,7 @@ export async function POST(request: NextRequest) {
       checkConsistency?: boolean;
       consistencyThreshold?: number;
       globalEditDirections?: any;
+      suggestedProfileCategory?: string;
     } = body;
 
     const warnings: string[] = [];
@@ -251,6 +253,7 @@ export async function POST(request: NextRequest) {
       refSetId,
       approvedReferences,
       globalEditDirections,
+      suggestedProfileCategory,
       scenes: scenes.map((s) => ({
         sceneIndex: s.sceneIndex,
         descriptor: s,

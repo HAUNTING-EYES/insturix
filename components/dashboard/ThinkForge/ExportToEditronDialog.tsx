@@ -144,6 +144,7 @@ export function ExportToEditronDialog({
   const [characterDescriptions, setCharacterDescriptions] = useState<string | undefined>(undefined);
   const [environmentNotes, setEnvironmentNotes] = useState<string | undefined>(undefined);
   const [globalEditDirections, setGlobalEditDirections] = useState<any>(undefined);
+  const [suggestedProfileCategory, setSuggestedProfileCategory] = useState('');
 
   // Storyboard scene edit state
   const [regeneratingSceneIdxs, setRegeneratingSceneIdxs] = useState<Set<number>>(new Set());
@@ -345,6 +346,7 @@ export function ExportToEditronDialog({
       setCharacterDescriptions(exportData.characterDescriptions || undefined);
       setEnvironmentNotes(exportData.environmentNotes || undefined);
       setGlobalEditDirections(exportData.globalEditDirections || undefined);
+      setSuggestedProfileCategory(exportData.suggestedProfileCategory || '');
       const projectTitle = title || exportData.title || 'Untitled Script';
       setTitle(projectTitle);
 
@@ -383,6 +385,7 @@ export function ExportToEditronDialog({
           colorPalette: exportData.colorPalette,
           environmentNotes: exportData.environmentNotes,
           globalEditDirections: exportData.globalEditDirections,
+          suggestedProfileCategory: exportData.suggestedProfileCategory,
         };
         const detected = getAutoSelectedProfile(metadata);
         setDetectedProfile({
@@ -634,6 +637,7 @@ export function ExportToEditronDialog({
             refSetId: refSetId || undefined,
             approvedReferences: approved.length > 0 ? approved : undefined,
             globalEditDirections: globalEditDirections || undefined,
+            suggestedProfileCategory: suggestedProfileCategory || undefined,
           }),
         });
 
