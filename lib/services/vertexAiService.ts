@@ -21,6 +21,7 @@ function initGenAI(): GoogleGenerativeAI {
     throw error;
   }
 }
+
 const PRIMARY_MODEL = "gemini-3.1-flash-lite-preview";
 const FALLBACK_MODEL = "gemini-2.5-flash";
 
@@ -28,7 +29,8 @@ export async function analyzeVideoWithGemini(
   videoUrl: string, // This will now usually be the Gemini fileUri, e.g. "https://generativelanguage.googleapis.com/... or "gemini://... " Wait, actually it just takes fileUri so we keep it named videoUrl or just pass the uri as videoUrl.
   context: any,
   metadata: any,
-  modelOverride?: string
+  modelOverride?: string,
+  audioUri?: string
 ) {
   const model = modelOverride || PRIMARY_MODEL;
   // Initialize lazily
@@ -167,7 +169,6 @@ export async function analyzeVideoWithGemini(
         responseMimeType: "application/json",
         responseSchema: responseSchema as any,
       },
-
       safetySettings: [
         {
           category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
@@ -186,7 +187,7 @@ export async function analyzeVideoWithGemini(
           threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
         },
       ],
-            ...extraParams,
+      ...extraParams,
     });
 
     // analysis prompt with explicit JSON formatting instructions
@@ -253,7 +254,10 @@ ANALYSIS REQUIREMENTS:
 6. Give specific suggestions and remarks for improvement that are strategically aligned with the user's context (${context.platform}, ${context.location}). For example, if location is India, suggest optimizations for Indian viewers or compliance with Indian ad standards.
 7. List any content warnings if applicable
 8. Provide a word-for-word full transcript and speaker segments. Strictly do not summarize the dialogue, provide EVERYTHING spoken verbatim.
-
+${audioUri ? `
+DUAL-FILE AUDIO INSTRUCTION:
+I have provided a video file and its separate audio track. Please analyze them together. Ensure the transcript is generated from the provided audio track while using the video for visual context and speaker identification.
+` : ''}
 CRITICAL: Return ONLY raw JSON without any markdown formatting, backticks, or explanatory text.
 
 JSON STRUCTURE EXAMPLE:
@@ -302,15 +306,24 @@ Be specific and reference actual content from the video with precise timestamps.
     // Prepare request parts
     const parts: any[] = [];
 
-
     parts.push({
       fileData: {
-        mimeType: 'video/mp4',
-        fileUri: videoUrl,
+        mimeType: "audio/mpeg",
+        fileUri: audioUri,
       },
-    }, {
-      text: prompt,
     });
+
+    // If a separate audio track was provided, include it as an additional part
+    if (audioUri) {
+      parts.push({
+        fileData: {
+          mimeType: 'audio/mpeg',
+          fileUri: audioUri,
+        },
+      });
+    }
+
+    parts.push({ text: prompt });
 
 
     const request = {
@@ -448,7 +461,7 @@ Be specific and reference actual content from the video with precise timestamps.
     // --- Fallback to Gemini Pro if Flash fails ---
     if (modelOverride !== FALLBACK_MODEL) {
       console.warn(`[VertexAI] ${modelOverride || PRIMARY_MODEL} failed, falling back to ${FALLBACK_MODEL}...`);
-      return analyzeVideoWithGemini(videoUrl, context, metadata, FALLBACK_MODEL);
+      return analyzeVideoWithGemini(videoUrl, context, metadata, FALLBACK_MODEL, audioUri);
     }
     throw error;
   }
