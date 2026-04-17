@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { Badge } from "@/components/ui/badge";
-import { Youtube, Facebook, Instagram, Twitter, CheckCircle, XCircle, Link2 } from "lucide-react";
+import { Youtube, Facebook, Instagram, Twitter, Linkedin, CheckCircle, XCircle, Link2 } from "lucide-react";
 
 interface TwitterStatus {
   connected: boolean;
@@ -17,6 +17,7 @@ export function PlatformConnectionStatus() {
     youtube: false,
     facebook: false,
     instagram: false,
+    linkedin: false,
   });
   const [twitterStatus, setTwitterStatus] = useState<TwitterStatus>({ connected: false });
 
@@ -62,10 +63,20 @@ export function PlatformConnectionStatus() {
           // Twitter not connected or API error
         }
 
+        // Check LinkedIn via API
+        let liData = { connected: false };
+        try {
+          const liRes = await fetch('/api/services/uploaderx/linkedin/status');
+          liData = await liRes.json();
+        } catch (e) {
+          // LinkedIn not connected or API error
+        }
+
         setConnections(prev => ({
           ...prev,
           facebook: fbData.connected || false,
           instagram: igData.connected || false,
+          linkedin: liData.connected || false,
         }));
       } catch (error) {
         console.error("Failed to check connections:", error);
@@ -138,6 +149,17 @@ export function PlatformConnectionStatus() {
         )}
       </div>
 
+      {/* LinkedIn */}
+      <div className="flex items-center gap-2">
+        <Linkedin className={`h-5 w-5 ${connections.linkedin ? 'text-blue-600' : 'text-zinc-500'}`} />
+        <span className="text-sm text-zinc-400">LinkedIn</span>
+        {connections.linkedin ? (
+          <CheckCircle className="h-4 w-4 text-green-500" />
+        ) : (
+          <XCircle className="h-4 w-4 text-red-500" />
+        )}
+      </div>
+
       {/* Connect Links */}
       <div className="flex-1" />
 
@@ -192,6 +214,18 @@ export function PlatformConnectionStatus() {
         >
           <Link2 className="h-3 w-3" />
           Connect Twitter
+        </a>
+      )}
+
+      {!connections.linkedin && (
+        <a
+          href="/api/services/uploaderx/linkedin/auth"
+          className="text-xs text-blue-400 hover:underline flex items-center gap-1"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Link2 className="h-3 w-3" />
+          Connect LinkedIn
         </a>
       )}
     </div>

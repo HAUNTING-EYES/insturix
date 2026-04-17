@@ -23,6 +23,19 @@ export interface IUploaderX extends Document {
     expiresAt: Date;
     connectedAt: Date;
   };
+  linkedinTokens?: {
+    accessToken: string;
+    refreshToken?: string;
+    userId: string;
+    userName: string;
+    expiresAt: Date;
+    connectedAt: Date;
+    organizations?: Array<{
+      id: string;
+      name: string;
+      vanityName: string;
+    }>;
+  };
   userId: string;
   videoUuid: string;
   filename: string;
@@ -49,6 +62,19 @@ const UploaderXSchema = new Schema<IUploaderX>({
     userName: String,
     expiresAt: Date,
     connectedAt: Date,
+  },
+  linkedinTokens: {
+    accessToken: String,
+    refreshToken: String,
+    userId: String,
+    userName: String,
+    expiresAt: Date,
+    connectedAt: Date,
+    organizations: [{
+      id: String,
+      name: String,
+      vanityName: String,
+    }],
   },
   userId: { type: String, required: true },
   videoUuid: { type: String, required: true },

@@ -126,6 +126,7 @@ const YouTubeConnectionStatus = dynamic(() => import("@/components/dashboard/Upl
 const FacebookConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/FacebookConnectionStatus").then(m => m.FacebookConnectionStatus), { ssr: false });
 const InstagramConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/InstagramConnectionStatus").then(m => m.InstagramConnectionStatus), { ssr: false });
 const TwitterConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/TwitterConnectionStatus").then(m => m.TwitterConnectionStatus), { ssr: false });
+const LinkedInConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/LinkedInConnectionStatus").then(m => m.LinkedInConnectionStatus), { ssr: false });
 const TwitterPermissionsStatus = dynamic(() => import("@/components/dashboard/UploaderX/TwitterPermissionsStatus").then(m => m.TwitterPermissionsStatus), { ssr: false });
 
 export function UploaderXClientWrapper() {
@@ -241,12 +242,39 @@ export function UploaderXClientWrapper() {
     }
   }, [toast]);
 
+  // ✅ Handle LinkedIn connection feedback from callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const linkedinConnected = params.get("linkedin_connected");
+    const linkedinError = params.get("linkedin_error");
+
+    if (linkedinConnected === "true") {
+      toast({
+        title: "LinkedIn connected!",
+        description: "You can now post content to LinkedIn.",
+      });
+      window.history.replaceState({}, document.title, "/dashboard/uploaderx");
+    } else if (linkedinError) {
+      let errorMsg = "Failed to connect LinkedIn.";
+      if (linkedinError === "denied") errorMsg = "LinkedIn connection was denied. Please try again.";
+      if (linkedinError === "token_exchange") errorMsg = "LinkedIn token exchange failed. Please try again.";
+      if (linkedinError === "profile_fetch") errorMsg = "Could not fetch your LinkedIn profile. Please try again.";
+      toast({
+        title: "LinkedIn Connection Error",
+        description: errorMsg,
+        variant: "destructive",
+      });
+      window.history.replaceState({}, document.title, "/dashboard/uploaderx");
+    }
+  }, [toast]);
+
   const supportedPlatforms = useMemo(() => (
     [
       { key: "youtube", label: "YouTube" },
       { key: "instagram", label: "Instagram" },
       { key: "facebook", label: "Facebook" },
       { key: "twitter", label: "Twitter" },
+      { key: "linkedin", label: "LinkedIn" },
     ] as const
   ), []);
 
@@ -328,6 +356,9 @@ export function UploaderXClientWrapper() {
                 </Suspense>
                 <Suspense fallback={<div className="h-40" />}>
                   <TwitterPermissionsStatus />
+                </Suspense>
+                <Suspense fallback={<div className="h-40" />}>
+                  <LinkedInConnectionStatus />
                 </Suspense>
               </div>
             </TabsContent>

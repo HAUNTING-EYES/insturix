@@ -38,6 +38,20 @@ export interface ISubscription {
   paymentMethod?: "card" | "upi" | "netbanking" | "wallet";
 }
 
+export interface ILinkedInTokens {
+  accessToken: string;
+  refreshToken?: string;
+  userId: string;
+  userName: string;
+  expiresAt: Date;
+  connectedAt: Date;
+  organizations?: Array<{
+    id: string;
+    name: string;
+    vanityName: string;
+  }>;
+}
+
 export interface IUiMessage {
   id: string; // Unique identifier for the message (e.g., a UUID)
   type: 'modal' | 'banner' | 'disclaimer'; // Type of UI element to display

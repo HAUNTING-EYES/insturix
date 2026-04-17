@@ -441,6 +441,56 @@ export function useUploaderXUpload() {
     }
   }, []);
 
+  const uploadToLinkedIn = useCallback(async (
+    videoUuid: string,
+    gcsPath: string,
+    title?: string,
+    description?: string,
+    postType?: 'personal' | 'organization',
+    organizationId?: string
+  ) => {
+    try {
+      console.log("🔗 Starting LinkedIn upload:", { videoUuid, gcsPath, title, postType, organizationId });
+
+      const res = await fetch("/api/services/uploaderx/linkedin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gcsPath,
+          videoUuid,
+          title,
+          description,
+          postType: postType || 'personal',
+          organizationId,
+        }),
+      });
+
+      const data = await res.json();
+      console.log("🔗 LinkedIn response:", data);
+
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to LinkedIn`);
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || "Failed to upload to LinkedIn");
+      }
+
+      return {
+        success: true,
+        postUrl: data.postUrl,
+        postId: data.postId,
+        mediaType: data.mediaType,
+        postType: data.postType,
+        organizationId: data.organizationId
+      };
+    } catch (error) {
+      console.error("❌ LinkedIn upload error:", error);
+      const errorMessage = error instanceof Error ? error.message : 'LinkedIn upload failed';
+      return { success: false, error: errorMessage };
+    }
+  }, []);
+
   return {
     uploadVideo,
     uploadWithProgress,
@@ -448,6 +498,7 @@ export function useUploaderXUpload() {
     uploadToFacebook,
     uploadToInstagram,
     uploadToTwitter,
+    uploadToLinkedIn,
     isUploading,
     uploadProgress,
   };

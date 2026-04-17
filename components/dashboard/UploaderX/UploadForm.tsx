@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
-import { UploadCloud, Image as ImageIcon, Youtube, Instagram, Facebook, Twitter, CheckCircle, AlertCircle } from "lucide-react";
+import { UploadCloud, Image as ImageIcon, Youtube, Instagram, Facebook, Twitter, Linkedin, CheckCircle, AlertCircle } from "lucide-react";
 import { PlatformConnectionStatus } from "./PlatformConnectionStatus";
 
 type Platform = { key: string; label: string };
@@ -24,13 +24,14 @@ interface UploadFormProps {
 
 export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const { toast } = useToast();
-  const { uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, isUploading, uploadProgress } = useUploaderXUpload();
+  const { uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, isUploading, uploadProgress } = useUploaderXUpload();
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, boolean>>({
     youtube: true,
     instagram: true,
     facebook: false,
     twitter: false,
+    linkedin: false,
   });
   const [activeType, setActiveType] = useState<string>("short");
 
@@ -79,6 +80,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
         let facebookSuccess = false;
         let instagramSuccess = false;
         let twitterSuccess = false;
+        let linkedinSuccess = false;
 
         // 🚀 Run platform uploads in parallel for better performance
         const uploadPromises = [];
@@ -98,38 +100,15 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                 if (!finalDescription.toLowerCase().includes('#shorts')) finalDescription += ' #Shorts';
               }
 
-              const ytResult = await uploadToYouTube(
-                result.videoUuid,
-                result.gcsPath,
-                videoFile.name,
-                finalTitle,
-                finalDescription,
-                privacyStatus
-              );
-
-              if (ytResult.success) {
-                youtubeSuccess = true;
-                toast({
-                  title: "✅ YouTube Upload Complete",
-                  description: "Your video is now live on YouTube."
-                });
+              const result = await uploadToYouTube(videoUuid, gcsPath, finalTitle, finalDescription, privacyStatus);
+              if (result.success) {
+                toast({ title: "✅ Uploaded to YouTube", description: "Your video is live!" });
               } else {
-                toast({
-                  title: "⚠️ YouTube Upload Failed",
-                  description: ytResult.error,
-                  variant: "destructive"
-                });
+                toast({ title: "❌ YouTube upload failed", description: result.error, variant: "destructive" });
               }
-              return { platform: 'youtube', success: youtubeSuccess, error: ytResult.error };
-            } catch (ytError) {
-              console.error("YouTube upload error:", ytError);
-              const errorMsg = ytError instanceof Error ? ytError.message : "Unknown error";
-              toast({
-                title: "⚠️ YouTube Upload Failed",
-                description: errorMsg,
-                variant: "destructive"
-              });
-              return { platform: 'youtube', success: false, error: errorMsg };
+            } catch (error) {
+              console.error("YouTube upload error:", error);
+              toast({ title: "❌ YouTube upload failed", description: "An unexpected error occurred", variant: "destructive" });
             }
           })();
           uploadPromises.push(youtubeUpload);
@@ -139,38 +118,17 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
         if (selectedPlatforms.facebook) {
           const facebookUpload = (async () => {
             try {
-              toast({ title: "Uploading to Facebook...", description: "Sending video to your Page." });
+              toast({ title: "Uploading to Facebook...", description: "Sending to your page." });
 
-              const fbResult = await uploadToFacebook(
-                result.videoUuid,
-                result.gcsPath,
-                defaultTitle || videoFile.name,
-                defaultDescription
-              );
-
-              if (fbResult.success) {
-                facebookSuccess = true;
-                toast({
-                  title: "✅ Facebook Upload Complete",
-                  description: `Video posted to ${fbResult.pageName || 'your Page'}.`
-                });
+              const result = await uploadToFacebook(videoUuid, gcsPath, defaultTitle, defaultDescription);
+              if (result.success) {
+                toast({ title: "✅ Uploaded to Facebook", description: `Posted to ${result.pageName || 'your page'}!` });
               } else {
-                toast({
-                  title: "⚠️ Facebook Upload Failed",
-                  description: fbResult.error,
-                  variant: "destructive"
-                });
+                toast({ title: "❌ Facebook upload failed", description: result.error, variant: "destructive" });
               }
-              return { platform: 'facebook', success: facebookSuccess, error: fbResult.error };
-            } catch (fbError) {
-              console.error("Facebook upload error:", fbError);
-              const errorMsg = fbError instanceof Error ? fbError.message : "Unknown error";
-              toast({
-                title: "⚠️ Facebook Upload Failed",
-                description: errorMsg,
-                variant: "destructive"
-              });
-              return { platform: 'facebook', success: false, error: errorMsg };
+            } catch (error) {
+              console.error("Facebook upload error:", error);
+              toast({ title: "❌ Facebook upload failed", description: "An unexpected error occurred", variant: "destructive" });
             }
           })();
           uploadPromises.push(facebookUpload);
@@ -180,47 +138,17 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
         if (selectedPlatforms.instagram) {
           const instagramUpload = (async () => {
             try {
-              toast({ title: "Uploading to Instagram...", description: "Publishing as Reel to your account." });
+              toast({ title: "Uploading to Instagram...", description: "Publishing as Reel." });
 
-              // Auto-append #Reels if type is shorts/reels
-              let finalTitle = defaultTitle || videoFile.name;
-              let finalDescription = defaultDescription;
-
-              if (activeType === 'short') {
-                if (!finalTitle.toLowerCase().includes('#reels')) finalTitle += ' #Reels';
-                if (!finalDescription.toLowerCase().includes('#reels')) finalDescription += ' #Reels';
-              }
-
-              const igResult = await uploadToInstagram(
-                result.videoUuid,
-                result.gcsPath,
-                finalTitle,
-                finalDescription
-              );
-
-              if (igResult.success) {
-                instagramSuccess = true;
-                toast({
-                  title: "✅ Instagram Upload Complete",
-                  description: `Reel posted to @${igResult.accountUsername || 'your account'}.`
-                });
+              const result = await uploadToInstagram(videoUuid, gcsPath, defaultTitle, defaultDescription);
+              if (result.success) {
+                toast({ title: "✅ Uploaded to Instagram", description: `Reel published to ${result.accountUsername || 'your account'}!` });
               } else {
-                toast({
-                  title: "⚠️ Instagram Upload Failed",
-                  description: igResult.error,
-                  variant: "destructive"
-                });
+                toast({ title: "❌ Instagram upload failed", description: result.error, variant: "destructive" });
               }
-              return { platform: 'instagram', success: instagramSuccess, error: igResult.error };
-            } catch (igError) {
-              console.error("Instagram upload error:", igError);
-              const errorMsg = igError instanceof Error ? igError.message : "Unknown error";
-              toast({
-                title: "⚠️ Instagram Upload Failed",
-                description: errorMsg,
-                variant: "destructive"
-              });
-              return { platform: 'instagram', success: false, error: errorMsg };
+            } catch (error) {
+              console.error("Instagram upload error:", error);
+              toast({ title: "❌ Instagram upload failed", description: "An unexpected error occurred", variant: "destructive" });
             }
           })();
           uploadPromises.push(instagramUpload);
@@ -230,41 +158,121 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
         if (selectedPlatforms.twitter) {
           const twitterUpload = (async () => {
             try {
-              toast({ title: "Uploading to Twitter...", description: "Posting video to your Twitter/X account." });
+              toast({ title: "Uploading to Twitter...", description: "Posting to your account." });
 
-              const twitterResult = await uploadToTwitter(
-                result.videoUuid,
-                result.gcsPath,
-                defaultTitle || videoFile.name,
-                defaultDescription
-              );
-
-              if (twitterResult.success) {
-                twitterSuccess = true;
-                toast({
-                  title: "✅ Twitter Upload Complete",
-                  description: `Video posted to @${twitterResult.accountUsername || 'your account'}.`
-                });
+              const result = await uploadToTwitter(videoUuid, gcsPath, defaultTitle, defaultDescription);
+              if (result.success) {
+                toast({ title: "✅ Posted to Twitter", description: `Tweet posted to ${result.accountUsername || 'your account'}!` });
               } else {
-                toast({
-                  title: "⚠️ Twitter Upload Failed",
-                  description: twitterResult.error,
-                  variant: "destructive"
-                });
+                toast({ title: "❌ Twitter upload failed", description: result.error, variant: "destructive" });
               }
-              return { platform: 'twitter', success: twitterSuccess, error: twitterResult.error };
-            } catch (twitterError) {
-              console.error("Twitter upload error:", twitterError);
-              const errorMsg = twitterError instanceof Error ? twitterError.message : "Unknown error";
-              toast({
-                title: "⚠️ Twitter Upload Failed",
-                description: errorMsg,
-                variant: "destructive"
-              });
-              return { platform: 'twitter', success: false, error: errorMsg };
+            } catch (error) {
+              console.error("Twitter upload error:", error);
+              toast({ title: "❌ Twitter upload failed", description: "An unexpected error occurred", variant: "destructive" });
             }
           })();
           uploadPromises.push(twitterUpload);
+        }
+
+        // 🔗 LinkedIn Upload
+        if (selectedPlatforms.linkedin) {
+          const linkedinUpload = (async () => {
+            try {
+              toast({ title: "Uploading to LinkedIn...", description: "Posting to your profile." });
+
+              const result = await uploadToLinkedIn(videoUuid, gcsPath, defaultTitle, defaultDescription);
+              if (result.success) {
+                toast({ title: "✅ Posted to LinkedIn", description: `Post published to ${result.postType === 'organization' ? result.organizationName || 'organization' : 'your profile'}!` });
+              } else {
+                toast({ title: "❌ LinkedIn upload failed", description: result.error, variant: "destructive" });
+              }
+            } catch (error) {
+              console.error("LinkedIn upload error:", error);
+              toast({ title: "❌ LinkedIn upload failed", description: "An unexpected error occurred", variant: "destructive" });
+            }
+          })();
+          uploadPromises.push(linkedinUpload);
+        }
+
+        // 🔵 Facebook Upload
+        if (selectedPlatforms.facebook) {
+          const facebookUpload = (async () => {
+            try {
+              toast({ title: "Uploading to Facebook...", description: "Sending to your page." });
+
+              const result = await uploadToFacebook(videoUuid, gcsPath, defaultTitle, defaultDescription);
+              if (result.success) {
+                toast({ title: "✅ Uploaded to Facebook", description: `Posted to ${result.pageName || 'your page'}!` });
+              } else {
+                toast({ title: "❌ Facebook upload failed", description: result.error, variant: "destructive" });
+              }
+            } catch (error) {
+              console.error("Facebook upload error:", error);
+              toast({ title: "❌ Facebook upload failed", description: "An unexpected error occurred", variant: "destructive" });
+            }
+          })();
+          uploadPromises.push(facebookUpload);
+        }
+
+        // 🟣 Instagram Upload
+        if (selectedPlatforms.instagram) {
+          const instagramUpload = (async () => {
+            try {
+              toast({ title: "Uploading to Instagram...", description: "Publishing as Reel." });
+
+              const result = await uploadToInstagram(videoUuid, gcsPath, defaultTitle, defaultDescription);
+              if (result.success) {
+                toast({ title: "✅ Uploaded to Instagram", description: `Reel published to ${result.accountUsername || 'your account'}!` });
+              } else {
+                toast({ title: "❌ Instagram upload failed", description: result.error, variant: "destructive" });
+              }
+            } catch (error) {
+              console.error("Instagram upload error:", error);
+              toast({ title: "❌ Instagram upload failed", description: "An unexpected error occurred", variant: "destructive" });
+            }
+          })();
+          uploadPromises.push(instagramUpload);
+        }
+
+        // 🐦 Twitter Upload
+        if (selectedPlatforms.twitter) {
+          const twitterUpload = (async () => {
+            try {
+              toast({ title: "Uploading to Twitter...", description: "Posting to your account." });
+
+              const result = await uploadToTwitter(videoUuid, gcsPath, defaultTitle, defaultDescription);
+              if (result.success) {
+                toast({ title: "✅ Posted to Twitter", description: `Tweet posted to ${result.accountUsername || 'your account'}!` });
+              } else {
+                toast({ title: "❌ Twitter upload failed", description: result.error, variant: "destructive" });
+              }
+            } catch (error) {
+              console.error("Twitter upload error:", error);
+              toast({ title: "❌ Twitter upload failed", description: "An unexpected error occurred", variant: "destructive" });
+            }
+          })();
+          uploadPromises.push(twitterUpload);
+        }
+
+        // 🔗 LinkedIn Upload
+        if (selectedPlatforms.linkedin) {
+          const linkedinUpload = (async () => {
+            try {
+              toast({ title: "Uploading to LinkedIn...", description: "Posting to your profile." });
+
+              const result = await uploadToLinkedIn(videoUuid, gcsPath, defaultTitle, defaultDescription);
+              if (result.success) {
+                linkedinSuccess = true;
+                toast({ title: "✅ Posted to LinkedIn", description: `Post published to ${result.postType === 'organization' ? result.organizationName || 'organization' : 'your profile'}!` });
+              } else {
+                toast({ title: "❌ LinkedIn upload failed", description: result.error, variant: "destructive" });
+              }
+            } catch (error) {
+              console.error("LinkedIn upload error:", error);
+              toast({ title: "❌ LinkedIn upload failed", description: "An unexpected error occurred", variant: "destructive" });
+            }
+          })();
+          uploadPromises.push(linkedinUpload);
         }
 
         // Wait for all selected platform uploads to complete
@@ -278,10 +286,12 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
           if (facebookSuccess) summary.push("✅ Facebook");
           if (instagramSuccess) summary.push("✅ Instagram");
           if (twitterSuccess) summary.push("✅ Twitter");
+          if (linkedinSuccess) summary.push("✅ LinkedIn");
           if (!youtubeSuccess && selectedPlatforms.youtube) summary.push("❌ YouTube");
           if (!facebookSuccess && selectedPlatforms.facebook) summary.push("❌ Facebook");
           if (!instagramSuccess && selectedPlatforms.instagram) summary.push("❌ Instagram");
           if (!twitterSuccess && selectedPlatforms.twitter) summary.push("❌ Twitter");
+          if (!linkedinSuccess && selectedPlatforms.linkedin) summary.push("❌ LinkedIn");
 
           toast({
             title: "Platform Upload Summary",
@@ -470,12 +480,13 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
         <CardContent className="p-4 space-y-4">
           <div>
             <Label className="text-zinc-200">Select platforms</Label>
-            <div className="mt-3 grid grid-cols-3 gap-3">
+            <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3">
               {platforms.map((p) => {
                 const isActive = !!selectedPlatforms[p.key];
-                const color = p.key === 'youtube' ? 'red' : p.key === 'instagram' ? 'pink' : p.key === 'facebook' ? 'blue' : 'sky';
-                const icon = p.key === 'youtube' ? Youtube : p.key === 'instagram' ? Instagram : p.key === 'facebook' ? Facebook : Twitter;
+                const color = p.key === 'youtube' ? 'red' : p.key === 'instagram' ? 'pink' : p.key === 'facebook' ? 'blue' : p.key === 'twitter' ? 'sky' : 'blue';
+                const icon = p.key === 'youtube' ? Youtube : p.key === 'instagram' ? Instagram : p.key === 'facebook' ? Facebook : p.key === 'twitter' ? Twitter : Linkedin;
                 const Icon = icon;
+                const colorClass = p.key === 'youtube' ? 'text-red-500' : p.key === 'instagram' ? 'text-pink-500' : p.key === 'facebook' ? 'text-blue-500' : p.key === 'twitter' ? 'text-sky-500' : 'text-blue-600';
                 return (
                   <button
                     key={p.key}
@@ -483,7 +494,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                     onClick={() => setSelectedPlatforms(s => ({ ...s, [p.key]: !s[p.key] }))}
                     className={`h-20 rounded-lg border transition flex flex-col items-center justify-center gap-2 ${isActive ? 'border-white/20 bg-white/5' : 'border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/60'}`}
                   >
-                    <Icon className={`h-5 w-5 ${p.key === 'youtube' ? 'text-red-500' : p.key === 'instagram' ? 'text-pink-500' : p.key === 'facebook' ? 'text-blue-500' : 'text-sky-500'}`} />
+                    <Icon className={`h-5 w-5 ${colorClass}`} />
                     <span className="text-sm text-zinc-200">{p.label}</span>
                   </button>
                 );

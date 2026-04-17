@@ -25,7 +25,8 @@ import {
   Facebook,
   Instagram,
   Youtube,
-  Twitter
+  Twitter,
+  Linkedin
 } from "lucide-react";
 import {
   Dialog,
@@ -611,10 +612,135 @@ export function VideoManager({
     }
   };
 
-  const formatDuration = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  // ================== 🔗 Upload to LinkedIn ===================
+  const handleLinkedInUpload = async (video: VideoItem) => {
+    try {
+      // 1. Check LinkedIn connection status first
+      const statusRes = await fetch('/api/services/uploaderx/linkedin/status');
+      const statusData = await statusRes.json();
+
+      console.log("🔗 LinkedIn connection status:", statusData);
+
+      if (!statusData.connected) {
+        toast({
+          title: "LinkedIn Not Connected",
+          description: "Please connect your LinkedIn account to upload content.",
+        });
+        // Open LinkedIn OAuth in new tab
+        window.open('/api/services/uploaderx/linkedin/auth', '_blank');
+        return;
+      }
+
+      // 2. Check if token is expired
+      if (statusData.isExpired) {
+        toast({
+          title: "LinkedIn Token Expired",
+          description: "Please reconnect your LinkedIn account.",
+          variant: "destructive",
+        });
+        window.open('/api/services/uploaderx/linkedin/auth', '_blank');
+        return;
+      }
+
+      // 3. Determine post type and organization selection
+      let postType: 'personal' | 'organization' = 'personal';
+      let selectedOrganizationId: string | null = null;
+
+      const targets: Array<{ type: 'personal' | 'organization'; label: string; organizationId?: string }> = [];
+      if (statusData.canPostPersonal) {
+        targets.push({ type: 'personal', label: 'Personal Profile' });
+      }
+
+      if (statusData.organizations && statusData.organizations.length > 0) {
+        statusData.organizations.forEach((org: any) => {
+          targets.push({ type: 'organization', label: org.name, organizationId: org.id });
+        });
+      }
+
+      if (targets.length === 0) {
+        toast({
+          title: "LinkedIn posting unavailable",
+          description: "Your LinkedIn connection does not include a valid posting target. Reconnect with the proper LinkedIn scopes.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      let selectedTargetIndex = 0;
+      if (targets.length > 1) {
+        const selectionPrompt = targets
+          .map((target, index) => `${index + 1}. ${target.label}`)
+          .join('\n');
+
+        const input = prompt(`Select where to post:\n${selectionPrompt}`);
+        if (!input) return; // User cancelled
+
+        selectedTargetIndex = parseInt(input, 10) - 1;
+        if (selectedTargetIndex < 0 || selectedTargetIndex >= targets.length) {
+          toast({
+            title: "Invalid Selection",
+            description: "Please select a valid option.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      const selectedTarget = targets[selectedTargetIndex];
+      postType = selectedTarget.type;
+      selectedOrganizationId = selectedTarget.organizationId || null;
+
+      // 4. Upload to LinkedIn
+      const postTarget = postType === 'organization'
+        ? statusData.organizations?.find((o: any) => o.id === selectedOrganizationId)?.name || 'organization'
+        : 'your profile';
+
+      toast({
+        title: "Uploading to LinkedIn...",
+        description: `Posting to ${postTarget}.`,
+      });
+
+      const res = await fetch("/api/services/uploaderx/linkedin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gcsPath: video.gcsPath,
+          videoUuid: video.videoUuid,
+          title: video.metadata?.title || video.filename,
+          description: video.metadata?.description || "",
+          postType,
+          organizationId: selectedOrganizationId,
+        }),
+      });
+
+      const data = await res.json();
+      console.log("🔗 LinkedIn upload response:", data);
+
+      if (!data.success && res.status === 403) {
+        throw new Error("Please connect your LinkedIn account first.");
+      }
+
+      if (data.success) {
+        toast({
+          title: "✅ Posted to LinkedIn",
+          description: `Content posted to ${postTarget}!`,
+        });
+
+        console.log("🔗 LinkedIn Post URL:", data.postUrl);
+        setUploadedVideoLink(data.postUrl);
+        setUploadPlatform("LinkedIn");
+        setShowUploadDialog(true);
+      } else {
+        throw new Error(data.error || "Failed to upload to LinkedIn");
+      }
+    } catch (err) {
+      console.error("❌ LinkedIn upload error:", err);
+      toast({
+        title: "Upload failed",
+        description: err instanceof Error ? err.message : "LinkedIn upload failed",
+        variant: "destructive",
+      });
+    }
   };
 
   if (loading) {
@@ -873,6 +999,14 @@ export function VideoManager({
                           title="Upload to Twitter"
                         >
                           <Twitter className="h-4 w-4 text-sky-500" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleLinkedInUpload(video)}
+                          title="Upload to LinkedIn"
+                        >
+                          <Linkedin className="h-4 w-4 text-blue-600" />
                         </Button>
                         <Button
                           variant="outline"
