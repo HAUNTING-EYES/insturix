@@ -245,17 +245,20 @@ export function UploaderXClientWrapper() {
   // ✅ Handle LinkedIn connection feedback from callback
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const linkedinConnected = params.get("linkedin_connected");
-    const linkedinError = params.get("linkedin_error");
+    const linkedinConnected = params.get("success") === "linkedin_connected";
+    const linkedinError = params.get("error");
 
-    if (linkedinConnected === "true") {
+    if (linkedinConnected) {
+      console.log("[ClientWrapper] LinkedIn connection detected via URL parameter");
       toast({
         title: "LinkedIn connected!",
         description: "You can now post content to LinkedIn.",
       });
-      window.history.replaceState({}, document.title, "/dashboard/uploaderx");
+      // Don't clean the URL - let LinkedInConnectionStatus handle the cleanup
     } else if (linkedinError) {
       let errorMsg = "Failed to connect LinkedIn.";
+      const message = params.get("message");
+      if (message) errorMsg = decodeURIComponent(message);
       if (linkedinError === "denied") errorMsg = "LinkedIn connection was denied. Please try again.";
       if (linkedinError === "token_exchange") errorMsg = "LinkedIn token exchange failed. Please try again.";
       if (linkedinError === "profile_fetch") errorMsg = "Could not fetch your LinkedIn profile. Please try again.";
@@ -264,7 +267,11 @@ export function UploaderXClientWrapper() {
         description: errorMsg,
         variant: "destructive",
       });
-      window.history.replaceState({}, document.title, "/dashboard/uploaderx");
+      // Clean up error from URL
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete('error');
+      newUrl.searchParams.delete('message');
+      window.history.replaceState({}, document.title, newUrl.toString());
     }
   }, [toast]);
 

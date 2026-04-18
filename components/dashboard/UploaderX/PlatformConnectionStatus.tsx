@@ -26,6 +26,24 @@ export function PlatformConnectionStatus() {
   useEffect(() => {
     const checkConnections = async () => {
       try {
+        // Check if we just returned from OAuth success
+        const urlParams = new URLSearchParams(window.location.search);
+        const isLinkedInSuccess = urlParams.get('success') === 'linkedin_connected';
+
+        if (isLinkedInSuccess) {
+          // Clean up the URL
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('success');
+          window.history.replaceState({}, '', newUrl.toString());
+          
+          // Wait for database to update, then refresh LinkedIn status
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          const liRes = await fetch('/api/services/uploaderx/linkedin/status');
+          const liData = await liRes.json();
+          setConnections(prev => ({ ...prev, linkedin: liData.connected || false }));
+          return;
+        }
+
         // Check YouTube via Clerk external accounts
         if (isLoaded && user) {
           const googleAccount = user.externalAccounts.find(
@@ -68,7 +86,9 @@ export function PlatformConnectionStatus() {
         try {
           const liRes = await fetch('/api/services/uploaderx/linkedin/status');
           liData = await liRes.json();
+          console.log("[PlatformStatus] LinkedIn status:", liData);
         } catch (e) {
+          console.warn("[PlatformStatus] LinkedIn API error:", e);
           // LinkedIn not connected or API error
         }
 
@@ -221,8 +241,6 @@ export function PlatformConnectionStatus() {
         <a
           href="/api/services/uploaderx/linkedin/auth"
           className="text-xs text-blue-400 hover:underline flex items-center gap-1"
-          target="_blank"
-          rel="noopener noreferrer"
         >
           <Link2 className="h-3 w-3" />
           Connect LinkedIn

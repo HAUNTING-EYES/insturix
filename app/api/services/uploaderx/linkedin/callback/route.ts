@@ -138,10 +138,12 @@ export async function GET(request: NextRequest) {
             { upsert: true }
         );
 
-        console.log("✅ LinkedIn tokens stored for user:", state);
+        console.log("✅ LinkedIn tokens stored for user:", state, "Tokens:", linkedinTokens);
 
         // Redirect back to dashboard with success
-        return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/dashboard/uploaderx?success=linkedin_connected`);
+        const redirectUrl = `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/uploaderx?success=linkedin_connected&t=${Date.now()}`;
+        console.log("[LinkedIn Callback] Redirecting to:", redirectUrl);
+        return NextResponse.redirect(redirectUrl);
 
     } catch (error) {
         console.error("❌ LinkedIn callback error:", error);

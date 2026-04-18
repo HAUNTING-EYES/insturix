@@ -30,13 +30,16 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
 
   const checkStatus = async () => {
     try {
+      console.log("[LinkedInUI] Checking LinkedIn status...");
       setStatus(prev => ({ ...prev, loading: true }));
 
       const res = await fetch("/api/services/uploaderx/linkedin/status");
       const data = await res.json();
 
+      console.log("[LinkedInUI] Status response:", data);
+
       if (data.success) {
-        setStatus({
+        const newStatus = {
           connected: data.connected,
           canPostPersonal: data.canPostPersonal,
           userName: data.userName,
@@ -45,10 +48,13 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
           isExpired: data.isExpired,
           connectedAt: data.connectedAt,
           loading: false,
-        });
+        };
+        console.log("[LinkedInUI] Setting status to:", newStatus);
+        setStatus(newStatus);
 
         onConnectionChange?.(data.connected);
       } else {
+        console.error("[LinkedInUI] API returned success: false", data);
         setStatus({
           connected: false,
           loading: false,
@@ -64,11 +70,47 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
   };
 
   useEffect(() => {
-    checkStatus();
+    // Check if we just returned from OAuth success
+    const urlParams = new URLSearchParams(window.location.search);
+    const isLinkedInSuccess = urlParams.get('success') === 'linkedin_connected';
+
+    console.log("[LinkedInUI] Component mounted, checking OAuth success:", isLinkedInSuccess);
+
+    if (isLinkedInSuccess) {
+      console.log("[LinkedInUI] OAuth success detected, cleaning URL and refreshing status");
+      // Clean up the URL
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete('success');
+      window.history.replaceState({}, '', newUrl.toString());
+      
+      // Add a longer delay to ensure database is updated after OAuth
+      setTimeout(() => {
+        console.log("[LinkedInUI] Delayed status check after OAuth...");
+        checkStatus();
+      }, 1500);
+    } else {
+      checkStatus();
+    }
   }, []);
 
   const handleConnect = () => {
-    window.open('/api/services/uploaderx/linkedin/auth', '_blank');
+    const width = 600;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    const popup = window.open(
+      '/api/services/uploaderx/linkedin/auth',
+      'LinkedIn Connect',
+      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+    );
+    
+    const checkPopup = setInterval(() => {
+      if (popup?.closed) {
+        clearInterval(checkPopup);
+        checkStatus();
+      }
+    }, 500);
   };
 
   const handleDisconnect = async () => {

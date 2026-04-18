@@ -41,15 +41,78 @@ export async function POST(req: Request) {
         }
 
         const tokens = user.linkedinTokens;
-        const accessToken = tokens.accessToken;
+        let accessToken = tokens.accessToken;
 
-        // Check if token is expired
+        // Check if token is expired and try to refresh
         const now = new Date();
         if (tokens.expiresAt && tokens.expiresAt < now) {
-            return NextResponse.json({
-                success: false,
-                error: "LinkedIn token expired. Please reconnect your LinkedIn account.",
-            }, { status: 401 });
+            if (!tokens.refreshToken) {
+                return NextResponse.json({
+                    success: false,
+                    error: "LinkedIn token expired. Please reconnect your LinkedIn account.",
+                }, { status: 401 });
+            }
+
+            try {
+                const clientId = process.env.LINKEDIN_CLIENT_ID;
+                const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
+
+                if (clientId && clientSecret) {
+                    console.log("🔄 Attempting to refresh LinkedIn token...");
+
+                    const refreshResponse = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            grant_type: 'refresh_token',
+                            refresh_token: tokens.refreshToken,
+                            client_id: clientId,
+                            client_secret: clientSecret,
+                        }),
+                    });
+
+                    const refreshData = await refreshResponse.json();
+                    console.log("📥 LinkedIn refresh response:", refreshData);
+
+                    if (refreshResponse.ok && refreshData.access_token) {
+                        const newExpiresAt = new Date(Date.now() + (refreshData.expires_in * 1000));
+
+                        await User.updateOne(
+                            { clerkUserId: session.userId },
+                            {
+                                $set: {
+                                    'linkedinTokens.accessToken': refreshData.access_token,
+                                    'linkedinTokens.refreshToken': refreshData.refresh_token || tokens.refreshToken,
+                                    'linkedinTokens.expiresAt': newExpiresAt,
+                                }
+                            }
+                        );
+
+                        accessToken = refreshData.access_token;
+                        console.log("✅ LinkedIn token refreshed successfully");
+                    } else {
+                        console.warn("⚠️ LinkedIn token refresh failed:", refreshData);
+                        return NextResponse.json({
+                            success: false,
+                            error: "LinkedIn token expired. Please reconnect your LinkedIn account.",
+                        }, { status: 401 });
+                    }
+                } else {
+                    console.error("❌ LinkedIn credentials not configured");
+                    return NextResponse.json({
+                        success: false,
+                        error: "LinkedIn token expired. Please reconnect your LinkedIn account.",
+                    }, { status: 401 });
+                }
+            } catch (refreshError) {
+                console.error("❌ LinkedIn token refresh error:", refreshError);
+                return NextResponse.json({
+                    success: false,
+                    error: "LinkedIn token expired. Please reconnect your LinkedIn account.",
+                }, { status: 401 });
+            }
         }
 
         // Determine author URN based on post type

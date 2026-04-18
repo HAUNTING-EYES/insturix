@@ -626,8 +626,8 @@ export function VideoManager({
           title: "LinkedIn Not Connected",
           description: "Please connect your LinkedIn account to upload content.",
         });
-        // Open LinkedIn OAuth in new tab
-        window.open('/api/services/uploaderx/linkedin/auth', '_blank');
+        // Open LinkedIn OAuth in same tab
+        window.location.href = '/api/services/uploaderx/linkedin/auth';
         return;
       }
 
@@ -638,7 +638,7 @@ export function VideoManager({
           description: "Please reconnect your LinkedIn account.",
           variant: "destructive",
         });
-        window.open('/api/services/uploaderx/linkedin/auth', '_blank');
+        window.location.href = '/api/services/uploaderx/linkedin/auth';
         return;
       }
 
