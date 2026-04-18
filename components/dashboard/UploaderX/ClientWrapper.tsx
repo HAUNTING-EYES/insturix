@@ -154,12 +154,21 @@ export function UploaderXClientWrapper() {
     const params = new URLSearchParams(window.location.search);
     const fbConnected = params.get("fb_connected");
     const fbError = params.get("fb_error");
+    const fbWarning = params.get("fb_warning");
 
     if (fbConnected === "true") {
-      toast({
-        title: "Facebook connected!",
-        description: "You can now upload videos to your Facebook Pages.",
-      });
+      if (fbWarning === "no_pages") {
+        toast({
+          title: "Facebook connected, but no Pages found",
+          description: "You don't have any Facebook Pages. Create a Page at facebook.com/pages/create and reconnect.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Facebook connected!",
+          description: "You can now upload videos to your Facebook Pages.",
+        });
+      }
       window.history.replaceState({}, document.title, "/dashboard/uploaderx");
     } else if (fbError) {
       let errorMsg = "Failed to connect Facebook.";

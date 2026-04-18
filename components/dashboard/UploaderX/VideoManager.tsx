@@ -336,7 +336,7 @@ export function VideoManager({
       if (!statusData.pages || statusData.pages.length === 0) {
         toast({
           title: "No Facebook Pages",
-          description: "You don't have any Facebook Pages connected. Please reconnect Facebook.",
+          description: "You need at least one Facebook Page to upload videos. Create one at facebook.com/pages/create, then reconnect Facebook.",
           variant: "destructive",
         });
         

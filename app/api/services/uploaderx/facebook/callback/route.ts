@@ -86,6 +86,17 @@ export async function GET(req: Request) {
         console.log(`✅ Found ${pages.length} Pages:`, pages.map((p: any) => p.pageName));
         console.log("✅ Pages data:", JSON.stringify(pages, null, 2));
 
+        // Check if pages array is empty and warn user
+        if (pages.length === 0) {
+            console.warn("⚠️ No Facebook Pages found for this user!");
+            console.warn("💡 The user may need to:");
+            console.warn("   1. Create a Facebook Page at https://www.facebook.com/pages/create");
+            console.warn("   2. Be an admin of at least one Page");
+            console.warn("   3. Ensure Facebook App has 'pages_show_list' permission in App Review");
+            
+            // Still save the connection but with empty pages - user will see the issue when trying to upload
+        }
+
         // Also fetch user profile info
         const meRes = await fetch(
             `https://graph.facebook.com/v21.0/me?access_token=${userAccessToken}&fields=id,name,email`
@@ -116,6 +127,11 @@ export async function GET(req: Request) {
 
         console.log("💾 Facebook tokens saved to database");
         console.log("💾 Saved pages:", updateResult?.facebookTokens?.pages?.length || 0);
+
+        // If no pages found, redirect with warning
+        if (pages.length === 0) {
+            return NextResponse.redirect(new URL("/dashboard/uploaderx?fb_connected=true&fb_warning=no_pages", req.url));
+        }
 
         return NextResponse.redirect(new URL("/dashboard/uploaderx?fb_connected=true", req.url));
     } catch (err) {
