@@ -983,13 +983,41 @@ async function executeAction(
         const effectiveDuration = sceneTransDuration || action.params.durationMs || 500;
 
         try {
+          // Target ONE specific pair (clipA → adjacent next clip, which is clipB).
+          //
+          // Passing `afterOverlayId` routes the add_transition tool to its
+          // single-pair branch at tools.ts:3857-3864, which calls
+          // `applyBetween(videoOverlays[targetIdx], videoOverlays[targetIdx+1])`
+          // exactly once.
+          //
+          // ⚠️ DO NOT replace with `clipAId`/`clipBId` — those fields do NOT
+          // exist in `addTransitionSchema` (tools.ts:3732-3744). Zod silently
+          // strips them. The tool then sees no afterOverlayId and no
+          // applyToAll flag, and at tools.ts:3852 falls through to the
+          // applyToAll loop — iterating EVERY pair and, for each, running
+          // the delete-existing logic at tools.ts:3802-3808 that obliterates
+          // pre-existing EDL transitions on OTHER pairs.
+          //
+          // Witnessed regression 2026-04-19 in proj_L7c43ghg7Rt3:
+          // EDL placed 5 transitions (dissolve, film-burn, dip-to-white,
+          // 2 dissolves); Director identified 5 gap boundaries and called
+          // add_transition 5 times intending to fill only those gaps; each
+          // call silently ran applyToAll and left the project with 10 dissolves
+          // (all 5 EDL styles wiped). proj_3jE3Q8mx5fB5 was "fine" only
+          // because its EDL saturated all 10 boundaries — Director's gap
+          // check broke out of this loop before ever invoking the tool.
+          //
+          // See pipeline_investigations.md entry 2026-04-19 for the full
+          // investigation and the confirmed single-caller blast radius
+          // (Director-layer params are the only broken call site; profile
+          // action params with `applyToAll: true` and UI panel calls are
+          // correct).
           const singleTransAction = {
             ...action,
             params: {
               type: effectiveType,
               durationMs: effectiveDuration,
-              clipAId: clipA.id,
-              clipBId: clipB.id,
+              afterOverlayId: clipA.id,
             },
           };
           const result = await invokeAITool(singleTransAction, userId, projectId, profile, overlays);
