@@ -94,8 +94,16 @@ export function compressAnalysisToBriefing(
 
   // ── Audio content ──
   const audioContent = buildAudioContent(analysis);
-  const hasSpeech = (analysis.speechSegments || []).some(s => s.text.trim().length > 0)
-    || (analysis.audio?.speechSegments || []).some(s => s.text.trim().length > 0);
+  // Defensive: partial cached analyses can have speech segments with
+  // undefined `text` fields. Guard before `.trim()` (see buildAudioContent
+  // for full context). Fix 2026-04-19 post fired-teammate audit.
+  const hasTextualSpeech = (segs: any[] | undefined) =>
+    Array.isArray(segs)
+      ? segs.some(s => typeof s?.text === 'string' && s.text.trim().length > 0)
+      : false;
+  const hasSpeech =
+    hasTextualSpeech(analysis.speechSegments) ||
+    hasTextualSpeech(analysis.audio?.speechSegments);
 
   // ── Slop detection ──
   const slopFlags = detectSlop(analysis);
@@ -234,22 +242,57 @@ function findKeyMoment(
 function buildAudioContent(analysis: AssetAnalysis): string {
   const parts: string[] = [];
 
-  // Speech segments
-  const speech = analysis.speechSegments || [];
+  // Speech segments.
+  //
+  // DEFENSIVE NOTE (2026-04-19 fired-teammate audit sibling fix):
+  // TypeScript types say `speechSegments[i].text: string` and
+  // `audio.{beats,silences,energyCurve}: Array<...>` (all non-nullable).
+  // But RUNTIME analyses cached for AI-generated video clips sometimes
+  // contain partial objects where these sub-fields are undefined. Every
+  // `.length` / `.trim()` / `.some()` access below must be defensive or
+  // the whole briefing crashes with "Cannot read properties of undefined
+  // (reading 'length')" and we fall through to the error path at
+  // compressAllAnalyses:420, producing a FALLBACK briefing for the LLM
+  // that contains only "Unknown (compression failed)". Witnessed on
+  // proj_L7c43ghg7Rt3 where all 11 clips failed compression → Unified
+  // Intelligence ran with zero per-clip context → EDL under-saturated
+  // transition decisions → Director add_transition bug compounded.
+  //
+  // ROOT CAUSE (deeper, separate work): the 5-Track cache sometimes
+  // stores partial `audio` objects (type says AudioAnalysis, runtime
+  // gives a stub missing sub-arrays). Possibly from an early schema
+  // migration or from a short-clip code path that skips audio sub-analyses.
+  // Investigation logged in pipeline_investigations.md 2026-04-19
+  // "AssetBriefing crashes on partial cached audio/musicStructure shape".
+  //
+  // This fix is DEFENSIVE not MASKING — it produces a partial briefing
+  // (correct creative context minus audio detail) instead of a useless
+  // all-unknown fallback. Rule 18N fail-visible still applies: the LLM
+  // sees clear "no audio analysis available" text when audio data is
+  // malformed, downstream can detect via quality='fallback' is unchanged.
+  const speech = Array.isArray(analysis.speechSegments) ? analysis.speechSegments : [];
   if (speech.length > 0) {
-    const languages = new Set(speech.map(s => s.text.trim()).filter(Boolean));
-    parts.push(`speech detected (${languages.size} segment${languages.size > 1 ? 's' : ''})`);
+    const nonEmpty = speech
+      .map(s => (typeof s?.text === 'string' ? s.text.trim() : ''))
+      .filter(Boolean);
+    if (nonEmpty.length > 0) {
+      parts.push(`speech detected (${nonEmpty.length} segment${nonEmpty.length > 1 ? 's' : ''})`);
+    }
   }
 
   // Audio analysis
   const audio = analysis.audio;
   if (audio) {
-    if (audio.beats.length > 0) parts.push(`${audio.beats.length} beats detected`);
-    if (audio.silences.length > 0 && audio.silences.some(s => s.durationMs > 500)) {
+    const beats = Array.isArray(audio.beats) ? audio.beats : [];
+    const silences = Array.isArray(audio.silences) ? audio.silences : [];
+    const energyCurve = Array.isArray(audio.energyCurve) ? audio.energyCurve : [];
+
+    if (beats.length > 0) parts.push(`${beats.length} beats detected`);
+    if (silences.length > 0 && silences.some(s => (s?.durationMs ?? 0) > 500)) {
       parts.push('significant silence');
     }
-    const avgEnergy = audio.energyCurve.length > 0
-      ? audio.energyCurve.reduce((s, e) => s + e.energy, 0) / audio.energyCurve.length
+    const avgEnergy = energyCurve.length > 0
+      ? energyCurve.reduce((s, e) => s + (e?.energy ?? 0), 0) / energyCurve.length
       : 0;
     if (avgEnergy > 0.6) parts.push('high audio energy');
     else if (avgEnergy > 0.3) parts.push('moderate audio energy');
@@ -257,10 +300,12 @@ function buildAudioContent(analysis: AssetAnalysis): string {
   }
 
   // Music structure
-  if (analysis.musicStructure) {
-    parts.push(`music: ${analysis.musicStructure.bpm} BPM`);
-    if (analysis.musicStructure.drops.length > 0) {
-      parts.push(`${analysis.musicStructure.drops.length} energy drops`);
+  const music = analysis.musicStructure;
+  if (music) {
+    if (typeof music.bpm === 'number') parts.push(`music: ${music.bpm} BPM`);
+    const drops = Array.isArray(music.drops) ? music.drops : [];
+    if (drops.length > 0) {
+      parts.push(`${drops.length} energy drops`);
     }
   }
 
@@ -287,14 +332,20 @@ export function detectSlop(analysis: AssetAnalysis): SlopFlag[] {
 
   // ── Check 1: Subject Teleport ──
   // Subject present in keyframe N, absent in N+1, present in N+2
+  //
+  // DEFENSIVE NOTE: partial cached analyses can have tracks with
+  // undefined `frames`. Guard before `.length` / indexing. See
+  // buildAudioContent doc block for root cause + investigation ref.
   for (const track of tracks) {
-    if (track.frames.length < 3) continue;
-    for (let i = 1; i < track.frames.length - 1; i++) {
-      const prev = track.frames[i - 1];
-      const curr = track.frames[i];
-      const next = track.frames[i + 1];
+    const frames = Array.isArray(track?.frames) ? track.frames : [];
+    if (frames.length < 3) continue;
+    for (let i = 1; i < frames.length - 1; i++) {
+      const prev = frames[i - 1];
+      const curr = frames[i];
+      const next = frames[i + 1];
+      if (!prev || !curr || !next) continue;
       // Gap detection: confidence drops below 0.2 then recovers
-      if (prev.confidence > 0.5 && curr.confidence < 0.2 && next.confidence > 0.5) {
+      if ((prev.confidence ?? 0) > 0.5 && (curr.confidence ?? 0) < 0.2 && (next.confidence ?? 0) > 0.5) {
         flags.push({
           startFrame: prev.frame,
           endFrame: next.frame,
@@ -309,10 +360,11 @@ export function detectSlop(analysis: AssetAnalysis): SlopFlag[] {
   // ── Check 2: Bounding Box Jump ──
   // Subject box size changes >50% between adjacent keyframes
   for (const track of tracks) {
-    for (let i = 1; i < track.frames.length; i++) {
-      const prev = track.frames[i - 1];
-      const curr = track.frames[i];
-      if (!prev.box || !curr.box) continue;
+    const frames = Array.isArray(track?.frames) ? track.frames : [];
+    for (let i = 1; i < frames.length; i++) {
+      const prev = frames[i - 1];
+      const curr = frames[i];
+      if (!prev || !curr || !prev.box || !curr.box) continue;
       const prevArea = prev.box.w * prev.box.h;
       const currArea = curr.box.w * curr.box.h;
       if (prevArea === 0 || currArea === 0) continue;
