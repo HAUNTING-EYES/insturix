@@ -117,6 +117,19 @@ export async function POST(req: Request) {
 
         // Determine author URN based on post type
         let authorUrn: string;
+        
+        // Check if user can post to either personal or organization
+        const canPostPersonal = !!tokens.userId;
+        const hasOrganizations = tokens.organizations && tokens.organizations.length > 0;
+        
+        if (!canPostPersonal && !hasOrganizations) {
+            console.error("❌ LinkedIn user has no valid posting target");
+            return NextResponse.json({
+                success: false,
+                error: "LinkedIn account doesn't have permission to post. Please reconnect with the required permissions (profile and/or organization admin).",
+            }, { status: 400 });
+        }
+        
         if (postType === 'organization') {
             if (!organizationId) {
                 return NextResponse.json({
@@ -133,6 +146,15 @@ export async function POST(req: Request) {
             }
             authorUrn = `urn:li:organization:${organizationId}`;
         } else {
+            // Default to organization if userId is not available but organizations are
+            if (!tokens.userId && hasOrganizations) {
+                console.log("⚠️ LinkedIn user has no personal profile access, defaulting to first organization");
+                const firstOrg = tokens.organizations[0];
+                return NextResponse.json({
+                    success: false,
+                    error: "Personal profile posting not available. Please use organization posting.",
+                }, { status: 400 });
+            }
             if (!tokens.userId) {
                 return NextResponse.json({
                     success: false,

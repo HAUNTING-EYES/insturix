@@ -482,7 +482,8 @@ export function useUploaderXUpload() {
         postId: data.postId,
         mediaType: data.mediaType,
         postType: data.postType,
-        organizationId: data.organizationId
+        organizationId: data.organizationId,
+        organizationName: data.organizationName
       };
     } catch (error) {
       console.error("❌ LinkedIn upload error:", error);

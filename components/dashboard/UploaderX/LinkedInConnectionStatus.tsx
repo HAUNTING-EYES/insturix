@@ -11,18 +11,30 @@ interface LinkedInConnectionStatusProps {
   onConnectionChange?: (connected: boolean) => void;
 }
 
+interface LinkedInStatus {
+  connected: boolean;
+  canPostPersonal?: boolean;
+  canPostOrganization?: boolean;
+  canPost?: boolean;
+  userName?: string;
+  userId?: string;
+  organizations?: Array<{ id: string; name: string; vanityName: string }>;
+  isExpired?: boolean;
+  connectedAt?: string;
+  loading: boolean;
+}
+
 export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnectionStatusProps) {
-  const [status, setStatus] = useState<{
-    connected: boolean;
-    canPostPersonal?: boolean;
-    userName?: string;
-    userId?: string;
-    organizations?: Array<{ id: string; name: string; vanityName: string }>;
-    isExpired?: boolean;
-    connectedAt?: string;
-    loading: boolean;
-  }>({
+  const [status, setStatus] = useState<LinkedInStatus>({
     connected: false,
+    canPostPersonal: false,
+    canPostOrganization: false,
+    canPost: false,
+    userName: undefined,
+    userId: undefined,
+    organizations: [],
+    isExpired: false,
+    connectedAt: undefined,
     loading: true,
   });
 
@@ -34,29 +46,43 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
       setStatus(prev => ({ ...prev, loading: true }));
 
       const res = await fetch("/api/services/uploaderx/linkedin/status");
+      console.log("[LinkedInUI] Status API response status:", res.status);
+      
       const data = await res.json();
-
-      console.log("[LinkedInUI] Status response:", data);
+      console.log("[LinkedInUI] Status response data:", JSON.stringify(data));
 
       if (data.success) {
+        const isConnected = !!data.connected;
+        console.log("[LinkedInUI] Setting connected state to:", isConnected);
+        
         const newStatus = {
-          connected: data.connected,
-          canPostPersonal: data.canPostPersonal,
+          connected: isConnected,
+          canPostPersonal: !!data.canPostPersonal,
           userName: data.userName,
           userId: data.userId,
           organizations: data.organizations || [],
-          isExpired: data.isExpired,
+          isExpired: !!data.isExpired,
+          canPost: !!data.canPost,
+          canPostOrganization: !!data.canPostOrganization,
           connectedAt: data.connectedAt,
           loading: false,
         };
-        console.log("[LinkedInUI] Setting status to:", newStatus);
+        console.log("[LinkedInUI] Final status object:", JSON.stringify(newStatus));
         setStatus(newStatus);
 
-        onConnectionChange?.(data.connected);
+        onConnectionChange?.(isConnected);
       } else {
         console.error("[LinkedInUI] API returned success: false", data);
         setStatus({
           connected: false,
+          canPostPersonal: false,
+          canPostOrganization: false,
+          canPost: false,
+          userName: undefined,
+          userId: undefined,
+          organizations: [],
+          isExpired: false,
+          connectedAt: undefined,
           loading: false,
         });
       }
@@ -64,6 +90,14 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
       console.error("❌ LinkedIn status check error:", error);
       setStatus({
         connected: false,
+        canPostPersonal: false,
+        canPostOrganization: false,
+        canPost: false,
+        userName: undefined,
+        userId: undefined,
+        organizations: [],
+        isExpired: false,
+        connectedAt: undefined,
         loading: false,
       });
     }
@@ -73,21 +107,40 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
     // Check if we just returned from OAuth success
     const urlParams = new URLSearchParams(window.location.search);
     const isLinkedInSuccess = urlParams.get('success') === 'linkedin_connected';
+    const isLinkedInError = urlParams.get('error') === 'linkedin_connected';
 
-    console.log("[LinkedInUI] Component mounted, checking OAuth success:", isLinkedInSuccess);
+    console.log("[LinkedInUI] Component mounted, checking OAuth state:", { isLinkedInSuccess, isLinkedInError });
 
     if (isLinkedInSuccess) {
       console.log("[LinkedInUI] OAuth success detected, cleaning URL and refreshing status");
       // Clean up the URL
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.delete('success');
+      newUrl.searchParams.delete('t'); // Remove timestamp param
       window.history.replaceState({}, '', newUrl.toString());
       
       // Add a longer delay to ensure database is updated after OAuth
       setTimeout(() => {
         console.log("[LinkedInUI] Delayed status check after OAuth...");
         checkStatus();
-      }, 1500);
+      }, 2000);
+    } else if (isLinkedInError) {
+      // Clean up error from URL
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete('error');
+      window.history.replaceState({}, '', newUrl.toString());
+      setStatus({
+        connected: false,
+        canPostPersonal: false,
+        canPostOrganization: false,
+        canPost: false,
+        userName: undefined,
+        userId: undefined,
+        organizations: [],
+        isExpired: false,
+        connectedAt: undefined,
+        loading: false,
+      });
     } else {
       checkStatus();
     }

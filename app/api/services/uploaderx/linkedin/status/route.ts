@@ -19,15 +19,33 @@ export async function GET() {
         await connectToDatabase();
         const { User } = await import("@/schemas/user");
 
+        console.log("[LinkedIn Status] Looking for user with clerkUserId:", session.userId);
+        
+        // Use a more reliable query - check if linkedinTokens exists and has accessToken
         const user = await User.findOne({
             clerkUserId: session.userId,
-            linkedinTokens: { $exists: true, $ne: null },
+            "linkedinTokens.accessToken": { $exists: true, $ne: "" }
         });
+        
+        console.log("[LinkedIn Status] User found:", !!user);
+        if (user) {
+            console.log("[LinkedIn Status] User email:", user.email);
+            console.log("[LinkedIn Status] Has linkedinTokens:", !!user.linkedinTokens);
+            console.log("[LinkedIn Status] accessToken exists:", !!user.linkedinTokens?.accessToken);
+            console.log("[LinkedIn Status] accessToken value:", user.linkedinTokens?.accessToken ? "EXISTS (value hidden)" : "EMPTY");
+            console.log("[LinkedIn Status] full tokens:", JSON.stringify(user.linkedinTokens));
+        } else {
+            console.log("[LinkedIn Status] User not found - checking all users with LinkedIn tokens...");
+            const usersWithLinkedIn = await User.find({ "linkedinTokens.accessToken": { $exists: true } }).limit(5);
+            console.log("[LinkedIn Status] Users with linkedinTokens:", usersWithLinkedIn.length);
+            usersWithLinkedIn.forEach((u, i) => {
+                console.log(`[LinkedIn Status] User ${i+1}: clerkUserId=${u.clerkUserId}, hasToken=${!!u.linkedinTokens?.accessToken}`);
+            });
+        }
 
-        console.log("[LinkedIn Status] User found:", !!user, "Has tokens:", !!user?.linkedinTokens);
-
-        if (!user || !user.linkedinTokens) {
+        if (!user || !user.linkedinTokens || !user.linkedinTokens.accessToken) {
             console.log("[LinkedIn Status] No LinkedIn connection for user");
+            console.log("[LinkedIn Status] Response will be: connected=false");
             return NextResponse.json({
                 success: true,
                 connected: false,
@@ -94,18 +112,33 @@ export async function GET() {
         }
 
         const finalIsExpired = refreshFailed || (tokens.expiresAt && tokens.expiresAt < new Date());
-        console.log("[LinkedIn Status] User connected - canPostPersonal:", !!tokens.userId, "isExpired:", finalIsExpired, "refreshFailed:", refreshFailed, "orgs:", tokens.organizations?.length || 0);
         
-        return NextResponse.json({
+        const canPostPersonal = !!tokens.userId;
+        const hasOrganizations = tokens.organizations && tokens.organizations.length > 0;
+        const canPost = canPostPersonal || hasOrganizations;
+        
+        console.log("[LinkedIn Status] User connected - canPostPersonal:", canPostPersonal, "hasOrganizations:", hasOrganizations, "canPost:", canPost, "isExpired:", finalIsExpired, "refreshFailed:", refreshFailed);
+        
+        if (!canPost) {
+            console.warn("⚠️ LinkedIn user has no valid posting target (no userId and no organizations)");
+        }
+        
+        const responseData = {
             success: true,
             connected: true,
-            canPostPersonal: !!tokens.userId,
+            canPostPersonal: canPostPersonal,
+            canPostOrganization: hasOrganizations,
             userName: tokens.userName,
             userId: tokens.userId,
             organizations: tokens.organizations || [],
             isExpired: finalIsExpired,
+            canPost: canPost,
             connectedAt: tokens.connectedAt,
-        });
+        };
+        
+        console.log("[LinkedIn Status] Full response JSON:", JSON.stringify(responseData));
+        
+        return NextResponse.json(responseData);
 
     } catch (error) {
         console.error("❌ LinkedIn status error:", error);

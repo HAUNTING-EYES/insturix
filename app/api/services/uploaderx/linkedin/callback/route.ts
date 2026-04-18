@@ -19,13 +19,17 @@ export async function GET(request: NextRequest) {
         }
 
         if (!code || !state) {
-            console.error("❌ LinkedIn callback missing code or state");
+            console.error("❌ LinkedIn callback missing code or state. Code:", !!code, "State:", state);
             return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/dashboard/uploaderx?error=linkedin_auth_invalid`);
         }
+
+        console.log("[LinkedIn Callback] Received code and state. State (userId):", state);
 
         const clientId = process.env.LINKEDIN_CLIENT_ID;
         const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
         const redirectUri = process.env.LINKEDIN_REDIRECT_URI || `${process.env.NEXT_PUBLIC_APP_URL}/api/services/uploaderx/linkedin/callback`;
+
+        console.log("[LinkedIn Callback] Using redirect URI:", redirectUri);
 
         if (!clientId || !clientSecret) {
             console.error("❌ LinkedIn credentials not configured");
@@ -93,21 +97,27 @@ export async function GET(request: NextRequest) {
         }
 
         // Get user's organizations (companies they administer)
-        const orgsResponse = await fetch('https://api.linkedin.com/v2/organizations?q=organizations', {
-            headers: {
-                'Authorization': `Bearer ${access_token}`,
-                'X-Restli-Protocol-Version': '2.0.0',
-            },
-        });
-
         let organizations = [];
-        if (orgsResponse.ok) {
-            const orgsData = await orgsResponse.json();
-            organizations = orgsData.elements?.map((org: any) => ({
-                id: org.id,
-                name: org.localizedName,
-                vanityName: org.vanityName,
-            })) || [];
+        try {
+            const orgsResponse = await fetch('https://api.linkedin.com/v2/organizations?q=organizations', {
+                headers: {
+                    'Authorization': `Bearer ${access_token}`,
+                    'X-Restli-Protocol-Version': '2.0.0',
+                },
+            });
+
+            if (orgsResponse.ok) {
+                const orgsData = await orgsResponse.json();
+                organizations = orgsData.elements?.map((org: any) => ({
+                    id: org.id,
+                    name: org.localizedName,
+                    vanityName: org.vanityName,
+                })) || [];
+            } else {
+                console.warn("⚠️ LinkedIn organizations fetch failed, continuing without orgs");
+            }
+        } catch (orgError) {
+            console.warn("⚠️ LinkedIn organizations fetch error:", orgError);
         }
 
         // Store tokens in database
@@ -138,7 +148,12 @@ export async function GET(request: NextRequest) {
             { upsert: true }
         );
 
-        console.log("✅ LinkedIn tokens stored for user:", state, "Tokens:", linkedinTokens);
+        // Verify the tokens were saved
+        const savedUser = await User.findOne({ clerkUserId: state });
+        console.log("✅ LinkedIn tokens stored for user:", state);
+        console.log("✅ Saved user data - linkedinTokens exists:", !!savedUser?.linkedinTokens);
+        console.log("✅ Saved user data - accessToken exists:", !!savedUser?.linkedinTokens?.accessToken);
+        console.log("✅ Saved user data - full tokens:", savedUser?.linkedinTokens);
 
         // Redirect back to dashboard with success
         const redirectUrl = `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/uploaderx?success=linkedin_connected&t=${Date.now()}`;

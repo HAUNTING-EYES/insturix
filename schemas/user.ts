@@ -425,6 +425,20 @@ const userSchema = new Schema<IUser>({
     scopes: [String],
     missingScopes: [String],
   },
+  linkedinTokens: {
+    accessToken: String,
+    refreshToken: String,
+    userId: String,
+    userName: String,
+    expiresAt: Date,
+    connectedAt: Date,
+    organizations: [{
+      id: String,
+      name: String,
+      vanityName: String,
+      _id: false
+    }],
+  },
 }, {
   timestamps: true,
 });
