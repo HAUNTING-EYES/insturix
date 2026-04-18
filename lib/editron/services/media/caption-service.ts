@@ -441,10 +441,21 @@ function calculatePosition(
 }
 
 /**
- * Get available style presets
+ * Get available style presets.
+ *
+ * Returns the full list of registered caption style presets from STYLE_MAP.
+ *
+ * HISTORY: previously returned only 5 values (tiktok / minimal / bold /
+ * karaoke / subtitle), which caused downstream validators (see
+ * `refreshCaptions` at line ~502) to reject existing overlays tagged with
+ * 'hormozi' / 'mrbeast' / 'ali-abdaal' / 'corporate' even though those
+ * presets had been added to STYLE_MAP months earlier. Also meant any UI
+ * reading this helper would present a stale list to users. Updated
+ * 2026-04-19 to return all 9 registered presets (Rule A6, one source of
+ * truth — derived from STYLE_MAP keys so future additions stay in sync).
  */
 export function getStylePresets(): CaptionStylePreset[] {
-  return ['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle'];
+  return Object.keys(STYLE_MAP) as CaptionStylePreset[];
 }
 
 /**

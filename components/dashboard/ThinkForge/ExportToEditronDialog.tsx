@@ -2415,10 +2415,24 @@ export function ExportToEditronDialog({
                   >
                     <option value="">Auto (from profile)</option>
                     <option value="none">None</option>
-                    <option value="subtitle">Subtitle</option>
+                    {/* Baseline + display-mode styles (pre-existing) */}
+                    <option value="subtitle">Subtitle (clean bottom bar)</option>
                     <option value="word-by-word">Word by Word</option>
-                    <option value="karaoke">Karaoke</option>
-                    <option value="fancy">Fancy / Kinetic</option>
+                    <option value="karaoke">Karaoke (progressive highlight)</option>
+                    <option value="fancy">Fancy / Kinetic (AI-generated)</option>
+                    {/* Creator-style presets from caption-service STYLE_MAP.
+                        All 9 styles were registered in the backend STYLE_MAP
+                        and addCaptionsSchema, but the dropdown was only
+                        exposing a subset — so users couldn't actually pick
+                        Hormozi / MrBeast / etc. Surfaced 2026-04-19 as part
+                        of the Editron stability audit (edge_cases_backlog #22). */}
+                    <option value="tiktok">TikTok</option>
+                    <option value="minimal">Minimal</option>
+                    <option value="bold">Bold</option>
+                    <option value="hormozi">Hormozi (bold white, yellow keywords)</option>
+                    <option value="mrbeast">MrBeast (large colorful, pop)</option>
+                    <option value="ali-abdaal">Ali Abdaal (clean modern)</option>
+                    <option value="corporate">Corporate (pro bottom bar)</option>
                   </select>
                 </div>
                 <div>
