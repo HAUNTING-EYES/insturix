@@ -16,7 +16,7 @@ export async function POST(req: Request) {
         }
 
         const body = await req.json();
-        const { gcsPath, videoUuid, title, description, postType = 'personal', organizationId } = body;
+        let { gcsPath, videoUuid, title, description, postType = 'personal', organizationId } = body;
 
         console.log("🔗 Starting LinkedIn Upload:", { gcsPath, videoUuid, postType, organizationId });
 
@@ -42,6 +42,39 @@ export async function POST(req: Request) {
 
         const tokens = user.linkedinTokens;
         let accessToken = tokens.accessToken;
+        
+        // If userId is missing, try to fetch profile from LinkedIn
+        // Note: Even without r_liteprofile scope, sometimes we can get the user ID
+        let userId = tokens.userId;
+        if (!userId) {
+            console.log("⚠️ LinkedIn userId not stored, attempting to fetch profile...");
+            try {
+                const profileResponse = await fetch('https://api.linkedin.com/v2/me', {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'X-Restli-Protocol-Version': '2.0.0',
+                    },
+                });
+                
+                if (profileResponse.ok) {
+                    const profileData = await profileResponse.json();
+                    userId = profileData.id;
+                    console.log("✅ Fetched LinkedIn userId:", userId);
+                    
+                    // Update the stored userId
+                    await User.updateOne(
+                        { clerkUserId: session.userId },
+                        { $set: { 'linkedinTokens.userId': userId } }
+                    );
+                } else {
+                    console.warn("⚠️ Could not fetch LinkedIn profile:", profileResponse.status, profileResponse.statusText);
+                    // Even if we can't get userId, the user might still be able to post
+                    // We'll check if they can post to organizations
+                }
+            } catch (profileError) {
+                console.warn("⚠️ Error fetching LinkedIn profile:", profileError);
+            }
+        }
 
         // Check if token is expired and try to refresh
         const now = new Date();
@@ -118,26 +151,39 @@ export async function POST(req: Request) {
         // Determine author URN based on post type
         let authorUrn: string;
         
-        // Check if user can post to either personal or organization
-        const canPostPersonal = !!tokens.userId;
-        const hasOrganizations = tokens.organizations && tokens.organizations.length > 0;
+        // Check available posting options
+        const canPostPersonal = !!userId;
+        const organizations = tokens.organizations || [];
+        const hasOrganizations = organizations.length > 0;
         
+        console.log("[LinkedIn] Posting options - canPostPersonal:", canPostPersonal, "hasOrganizations:", hasOrganizations, "organizations:", organizations.length);
+        
+        // If no posting options available at all
         if (!canPostPersonal && !hasOrganizations) {
             console.error("❌ LinkedIn user has no valid posting target");
             return NextResponse.json({
                 success: false,
-                error: "LinkedIn account doesn't have permission to post. Please reconnect with the required permissions (profile and/or organization admin).",
+                error: "LinkedIn account doesn't have permission to post. Please reconnect with the required permissions.",
             }, { status: 400 });
         }
         
         if (postType === 'organization') {
+            // Organization posting
             if (!organizationId) {
-                return NextResponse.json({
-                    success: false,
-                    error: "Organization ID is required for LinkedIn organization posts.",
-                }, { status: 400 });
+                // If no organizationId provided but user has organizations, use first one
+                if (hasOrganizations) {
+                    console.log("[LinkedIn] No organizationId provided, using first organization");
+                    organizationId = organizations[0].id;
+                } else {
+                    return NextResponse.json({
+                        success: false,
+                        error: "Organization ID is required for LinkedIn organization posts.",
+                    }, { status: 400 });
+                }
             }
-            const org = tokens.organizations?.find((o: any) => o.id === organizationId);
+            
+            // Verify user has access to this organization
+            const org = organizations.find((o: any) => String(o.id) === String(organizationId));
             if (!org) {
                 return NextResponse.json({
                     success: false,
@@ -145,23 +191,24 @@ export async function POST(req: Request) {
                 }, { status: 400 });
             }
             authorUrn = `urn:li:organization:${organizationId}`;
+            console.log("[LinkedIn] Posting to organization:", organizationId, org.name);
         } else {
-            // Default to organization if userId is not available but organizations are
-            if (!tokens.userId && hasOrganizations) {
-                console.log("⚠️ LinkedIn user has no personal profile access, defaulting to first organization");
-                const firstOrg = tokens.organizations[0];
-                return NextResponse.json({
-                    success: false,
-                    error: "Personal profile posting not available. Please use organization posting.",
-                }, { status: 400 });
-            }
-            if (!tokens.userId) {
+            // Personal profile posting
+            if (!userId) {
+                // If no userId but has organizations, suggest organization posting
+                if (hasOrganizations) {
+                    return NextResponse.json({
+                        success: false,
+                        error: "Personal profile posting not available. Please use organization posting by specifying organizationId.",
+                    }, { status: 400 });
+                }
                 return NextResponse.json({
                     success: false,
                     error: "LinkedIn personal posting requires profile access. Reconnect with the LinkedIn profile permission enabled.",
                 }, { status: 400 });
             }
-            authorUrn = `urn:li:person:${tokens.userId}`;
+            authorUrn = `urn:li:person:${userId}`;
+            console.log("[LinkedIn] Posting to personal profile:", userId);
         }
 
         // Get file from GCS

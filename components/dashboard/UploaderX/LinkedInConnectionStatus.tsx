@@ -38,6 +38,11 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
     loading: true,
   });
 
+  // Debug: Log when status changes
+  useEffect(() => {
+    console.log("[LinkedInUI] Status changed:", JSON.stringify(status));
+  }, [status]);
+
   const { toast } = useToast();
 
   const checkStatus = async () => {
@@ -52,8 +57,12 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
       console.log("[LinkedInUI] Status response data:", JSON.stringify(data));
 
       if (data.success) {
+        console.log("[LinkedInUI] data.success is true");
+        console.log("[LinkedInUI] data.connected value:", data.connected);
+        console.log("[LinkedInUI] typeof data.connected:", typeof data.connected);
+        
         const isConnected = !!data.connected;
-        console.log("[LinkedInUI] Setting connected state to:", isConnected);
+        console.log("[LinkedInUI] isConnected:", isConnected);
         
         const newStatus = {
           connected: isConnected,

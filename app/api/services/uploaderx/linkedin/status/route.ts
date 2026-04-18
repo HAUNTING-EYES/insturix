@@ -57,6 +57,44 @@ export async function GET() {
         const now = new Date();
         const isExpired = tokens.expiresAt && tokens.expiresAt < now;
 
+        // If userId is missing, try to fetch it from LinkedIn
+        let userId = tokens.userId;
+        if (!userId) {
+            console.log("[LinkedIn Status] userId not stored, fetching from LinkedIn...");
+            
+            // Try multiple approaches to get userId
+            try {
+                // Approach 1: Use the me endpoint with proper scope
+                const profileResponse = await fetch('https://api.linkedin.com/v2/me', {
+                    headers: {
+                        'Authorization': `Bearer ${tokens.accessToken}`,
+                        'X-Restli-Protocol-Version': '2.0.0',
+                    },
+                });
+                
+                if (profileResponse.ok) {
+                    const profileData = await profileResponse.json();
+                    userId = profileData.id;
+                    console.log("[LinkedIn Status] Fetched userId from profile:", userId);
+                    
+                    // Update stored userId
+                    await User.updateOne(
+                        { clerkUserId: session.userId },
+                        { $set: { 'linkedinTokens.userId': userId } }
+                    );
+                } else {
+                    console.warn("[LinkedIn Status] Could not fetch profile:", profileResponse.status, profileResponse.statusText);
+                    
+                    // Approach 2: Try using the OAuth token info endpoint
+                    // Note: LinkedIn doesn't have a direct token introspection, but we can try
+                    // Approach 3: If posting is allowed, the token is valid - we'll handle in upload
+                    console.log("[LinkedIn Status] Profile fetch failed. User will need to reconnect with r_liteprofile scope.");
+                }
+            } catch (profileError) {
+                console.warn("[LinkedIn Status] Error fetching profile:", profileError);
+            }
+        }
+
         // If token is expired, try to refresh it
         let refreshFailed = false;
         if (isExpired && tokens.refreshToken) {
@@ -113,11 +151,11 @@ export async function GET() {
 
         const finalIsExpired = refreshFailed || (tokens.expiresAt && tokens.expiresAt < new Date());
         
-        const canPostPersonal = !!tokens.userId;
+        const canPostPersonal = !!userId;
         const hasOrganizations = tokens.organizations && tokens.organizations.length > 0;
         const canPost = canPostPersonal || hasOrganizations;
         
-        console.log("[LinkedIn Status] User connected - canPostPersonal:", canPostPersonal, "hasOrganizations:", hasOrganizations, "canPost:", canPost, "isExpired:", finalIsExpired, "refreshFailed:", refreshFailed);
+        console.log("[LinkedIn Status] User connected - canPostPersonal:", canPostPersonal, "hasOrganizations:", hasOrganizations, "canPost:", canPost, "isExpired:", finalIsExpired, "refreshFailed:", refreshFailed, "userId:", userId);
         
         if (!canPost) {
             console.warn("⚠️ LinkedIn user has no valid posting target (no userId and no organizations)");
@@ -129,11 +167,13 @@ export async function GET() {
             canPostPersonal: canPostPersonal,
             canPostOrganization: hasOrganizations,
             userName: tokens.userName,
-            userId: tokens.userId,
+            userId: userId,
             organizations: tokens.organizations || [],
             isExpired: finalIsExpired,
             canPost: canPost,
             connectedAt: tokens.connectedAt,
+            needsReconnect: !canPostPersonal && !hasOrganizations,
+            message: !canPostPersonal && !hasOrganizations ? "LinkedIn profile access required. Please reconnect with profile permissions enabled." : undefined,
         };
         
         console.log("[LinkedIn Status] Full response JSON:", JSON.stringify(responseData));

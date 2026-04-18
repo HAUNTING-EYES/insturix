@@ -30,6 +30,8 @@ export function PlatformConnectionStatus() {
         const urlParams = new URLSearchParams(window.location.search);
         const isLinkedInSuccess = urlParams.get('success') === 'linkedin_connected';
 
+        console.log("[PlatformStatus] OAuth success check:", isLinkedInSuccess);
+
         if (isLinkedInSuccess) {
           // Clean up the URL
           const newUrl = new URL(window.location.href);
@@ -37,10 +39,16 @@ export function PlatformConnectionStatus() {
           window.history.replaceState({}, '', newUrl.toString());
           
           // Wait for database to update, then refresh LinkedIn status
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
           const liRes = await fetch('/api/services/uploaderx/linkedin/status');
           const liData = await liRes.json();
-          setConnections(prev => ({ ...prev, linkedin: liData.connected || false }));
+          console.log("[PlatformStatus] LinkedIn status response (OAuth flow):", JSON.stringify(liData));
+          
+          setConnections(prev => ({ 
+            ...prev, 
+            linkedin: liData.connected || false,
+          }));
           return;
         }
 
@@ -86,12 +94,13 @@ export function PlatformConnectionStatus() {
         try {
           const liRes = await fetch('/api/services/uploaderx/linkedin/status');
           liData = await liRes.json();
-          console.log("[PlatformStatus] LinkedIn status:", liData);
+          console.log("[PlatformStatus] LinkedIn status response:", JSON.stringify(liData));
         } catch (e) {
           console.warn("[PlatformStatus] LinkedIn API error:", e);
           // LinkedIn not connected or API error
         }
 
+        console.log("[PlatformStatus] Setting linkedin connection:", liData.connected);
         setConnections(prev => ({
           ...prev,
           facebook: fbData.connected || false,
@@ -109,6 +118,11 @@ export function PlatformConnectionStatus() {
       checkConnections();
     }
   }, [isLoaded, user]);
+
+  // Debug: log connections state changes
+  useEffect(() => {
+    console.log("[PlatformStatus] connections state changed:", JSON.stringify(connections));
+  }, [connections]);
 
   if (loading || !isLoaded) {
     return (

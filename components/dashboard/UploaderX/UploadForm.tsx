@@ -70,6 +70,9 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
       setUploadResult(result);
 
       if (result.success && result.videoUuid && result.gcsPath) {
+        const videoUuid = result.videoUuid;
+        const gcsPath = result.gcsPath;
+        
         toast({
           title: "Video saved securely",
           description: `Processing platform uploads...`

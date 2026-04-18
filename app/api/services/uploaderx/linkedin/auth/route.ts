@@ -21,19 +21,34 @@ export async function GET() {
         }
 
         // LinkedIn OAuth scopes are configurable because some LinkedIn apps are only approved for narrower permission sets.
-        const scopes: string[] = ['w_member_social']; // Default to the posting permission.
+        // To enable all posting options, set these env vars to 'true':
+        // - LINKEDIN_REQUEST_PROFILE_SCOPE=true (for personal profile posting)
+        // - LINKEDIN_REQUEST_ORG_SCOPE=true (for organization admin access)
+        // - LINKEDIN_REQUEST_ORG_SOCIAL_SCOPE=true (for organization posting)
+        // 
+        // Note: You must have these scopes approved in your LinkedIn Developer Portal
+        const scopes: string[] = ['w_member_social']; // Base permission for posting
+        
+        // Profile scope - requires r_liteprofile approval in LinkedIn app
         if (process.env.LINKEDIN_REQUEST_PROFILE_SCOPE === 'true') {
             scopes.push('r_liteprofile');
         }
+        
+        // Email scope - requires r_emailaddress approval
         if (process.env.LINKEDIN_REQUEST_EMAIL_SCOPE === 'true') {
             scopes.push('r_emailaddress');
         }
+        
+        // Organization scopes - require approval in LinkedIn app
+        // Only add if explicitly enabled to avoid unauthorized scope errors
         if (process.env.LINKEDIN_REQUEST_ORG_SCOPE === 'true') {
             scopes.push('rw_organization_admin');
         }
-        if (process.env.LINKEDIN_REQUEST_ORG_SCOPE === 'true' && process.env.LINKEDIN_REQUEST_ORG_SOCIAL_SCOPE === 'true') {
+        if (process.env.LINKEDIN_REQUEST_ORG_SOCIAL_SCOPE === 'true') {
             scopes.push('w_organization_social');
         }
+        
+        console.log("🔗 LinkedIn OAuth scopes:", scopes);
 
         const scopeString = scopes.join(' ');
 
