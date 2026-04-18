@@ -384,128 +384,27 @@ export async function createCaptions(params: {
   return captionOverlay;
 }
 
-/**
- * Phase A3.4 — Generate captions from EXACT script on-screen-text strings when
- * no voiceover/transcription is available (commercial / brand-ad scripts often
- * have ZERO narration, just visual text beats).
- *
- * Distributes the text array across the video clip's timeline. Each text becomes
- * one Caption entry inside ONE CaptionOverlay so the editor renders them
- * sequentially using its existing caption pipeline.
- *
- * Timing rules (from creative_production_knowledge.md §9 — caption readability):
- *   - Min display per text: 1.0s
- *   - Max display per text: 5.0s
- *   - Comfortable: ~1.8s base + 60ms per character
- *   - Inter-text gap: 200ms
- *   - If total desired exceeds clip duration, scale all texts proportionally
- */
-export function createCaptionsFromScriptText(params: {
-  videoOverlay: ClipOverlay;
-  texts: string[];
-  playerDimensions: { width: number; height: number };
-  fps?: number;
-  style?: CaptionStylePreset;
-  position?: CaptionPosition;
-}): CaptionOverlay {
-  const {
-    videoOverlay,
-    texts,
-    playerDimensions,
-    fps = 30,
-    style = 'subtitle',
-    position = 'bottom',
-  } = params;
-
-  if (!texts || texts.length === 0) {
-    throw new Error('createCaptionsFromScriptText: texts array is empty');
-  }
-
-  const clipDurationMs = (videoOverlay.durationInFrames / fps) * 1000;
-
-  // Per-text comfortable display: 1.8s base + 60ms/char, clamped to [1500, 5000]ms
-  const computeDisplayMs = (text: string): number => {
-    const base = 1800 + text.length * 60;
-    return Math.max(1500, Math.min(5000, base));
-  };
-
-  const interGapMs = 200;
-  const totalDesired =
-    texts.reduce((sum, t) => sum + computeDisplayMs(t), 0) +
-    (texts.length - 1) * interGapMs;
-
-  // If desired total exceeds clip duration, scale down proportionally so we still fit
-  const scale = totalDesired > clipDurationMs ? clipDurationMs / totalDesired : 1.0;
-
-  // Build sequential captions across the clip
-  const captions: Caption[] = [];
-  let cursorMs = 0;
-  for (const text of texts) {
-    const dispMs = Math.round(computeDisplayMs(text) * scale);
-    const startMs = cursorMs;
-    const endMs = Math.min(clipDurationMs, cursorMs + dispMs);
-
-    if (endMs <= startMs) break; // ran out of clip space
-
-    // Synthetic per-word timings (evenly distributed) so highlight/karaoke effects work
-    const wordTokens = text.split(/\s+/).filter(Boolean);
-    const perWordMs = wordTokens.length > 0 ? (endMs - startMs) / wordTokens.length : 0;
-    const captionWords: CaptionWord[] = wordTokens.map((w, i) => ({
-      word: w,
-      startMs: Math.round(startMs + i * perWordMs),
-      endMs: Math.round(startMs + (i + 1) * perWordMs),
-      confidence: 1.0,
-    }));
-
-    captions.push({
-      text,
-      startMs,
-      endMs,
-      timestampMs: startMs,
-      confidence: 1.0,
-      words: captionWords,
-    });
-
-    cursorMs = endMs + Math.round(interGapMs * scale);
-    if (cursorMs >= clipDurationMs) break;
-  }
-
-  // Clone style + display config so we don't mutate the shared STYLE_MAP/DISPLAY_CONFIG_MAP entries
-  const baseDisplayConfig: CaptionDisplayConfig = { ...DISPLAY_CONFIG_MAP[style] };
-  const baseStylesSource = STYLE_MAP[style];
-  const baseStyles: CaptionStyles = {
-    ...baseStylesSource,
-    highlight: { ...baseStylesSource.highlight },
-  };
-
-  // Normalize fontSize "32" → "32px"
-  if (/^\d+(\.\d+)?$/.test(String(baseStyles.fontSize))) {
-    baseStyles.fontSize = `${baseStyles.fontSize}px`;
-  }
-
-  // Position relative to the video overlay (reuse existing helper)
-  const { left, top, width, height } = calculatePosition(position, playerDimensions, videoOverlay);
-
-  return {
-    id: Date.now() + Math.floor(Math.random() * 10000),
-    type: OverlayType.CAPTION,
-    from: videoOverlay.from,
-    durationInFrames: videoOverlay.durationInFrames,
-    captions,
-    left,
-    top,
-    width,
-    height,
-    rotation: 0,
-    isDragging: false,
-    row: ROW.CAPTIONS, // Row 4. z-index overridden to 95 in layer.tsx (always above video).
-    styles: baseStyles,
-    displayConfig: baseDisplayConfig,
-    position,
-    template: style,
-    sourceVideoId: videoOverlay.id,
-  };
-}
+// ─── REMOVED 2026-04-19: createCaptionsFromScriptText ─────────────────────
+//
+// This function was the engine behind Phase A3.4's "script-text caption
+// fallback" for no-VO scenes (commit 55106894). It consumed a scene's
+// onScreenText array and produced a Caption overlay with synthetic per-word
+// timings distributed across the scene duration.
+//
+// REMOVED because the architectural rule changed (Refined Option 1,
+// user-approved 2026-04-19): captions are for SPEECH, graphics are for
+// STANDALONE on-screen text. Silent scenes no longer get caption fallbacks
+// — they get graphics emitted by the EDL path instead. This function's only
+// caller (finalize/route.ts:~430) was removed in the same commit.
+//
+// If you're reading this because you need "text on screen without VO": do
+// NOT re-add this function. Use the graphic path (edl-executor.applyGraphic
+// → html-scene overlays). See memory/edge_cases_backlog.md items #21/#23/#24
+// for related polish work on graphic styling and positioning.
+//
+// Historical implementation is preserved in git history at commit 55106894
+// if needed for reference.
+// ──────────────────────────────────────────────────────────────────────────
 
 /**
  * Calculate caption position based on preset

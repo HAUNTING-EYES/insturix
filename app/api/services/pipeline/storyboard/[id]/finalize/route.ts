@@ -414,47 +414,41 @@ export async function POST(
       }
 
       // ─── On-screen text overlays from script ───────────────────────────
-      // Scripts can have explicit "On-Screen Text:" entries (e.g., "Remember this
-      // feeling?", "McDonald's. A Taste of Childhood."). These are BRANDED GRAPHIC
-      // OVERLAYS — not voiceover captions. They should appear regardless of whether
-      // the scene has voiceover narration:
-      //   - Scene with VO + onScreenText → VO becomes spoken-word captions (Director),
-      //     onScreenText becomes a separate graphic overlay (here)
-      //   - Scene without VO + onScreenText → onScreenText becomes the only text overlay
+      // REMOVED 2026-04-19: the caption-fallback path that used to live here
+      // (Phase A3.4, commit 55106894) was the source of the duplicate-text
+      // regression seen in proj_3jE3Q8mx5fB5 — it emitted onScreenText as
+      // Caption overlays while the EDL's graphic path ALSO emitted the same
+      // text as html-scene keyword-highlights. Same text rendered twice in
+      // two different visual systems.
       //
-      // OLD: only created when !sceneHasVoiceover — missed Scene 2 of McDonald's ad
-      //      which has BOTH voiceover AND on-screen text.
-      // NEW: always creates overlays for onScreenText when present.
-      const onScreenTextArr = (scene.descriptor as any)?.editDirections?.onScreenText;
-      if (includeCaptions && Array.isArray(onScreenTextArr) && onScreenTextArr.length > 0) {
-        try {
-          const { createCaptionsFromScriptText } = await import('@/lib/editron/services/media/caption-service');
-          // Synthetic anchor overlay so caption-service can position relative to the scene's frame range
-          const captionAnchor: any = {
-            id: overlayId, // Just used for sourceVideoId tracking
-            from: currentFrame,
-            durationInFrames: durationFrames,
-            left: 0,
-            top: 0,
-            width,
-            height,
-          };
-          const captionOverlay = createCaptionsFromScriptText({
-            videoOverlay: captionAnchor,
-            texts: onScreenTextArr.filter((t: any) => typeof t === 'string' && t.trim().length > 0),
-            playerDimensions: { width, height },
-            fps,
-            style: 'subtitle',
-            position: 'bottom',
-          });
-          // Assign a real ID + push
-          (captionOverlay as any).id = overlayId++;
-          overlays.push(captionOverlay as any);
-          console.log(`[Finalize] Scene ${scene.sceneIndex}: ${onScreenTextArr.length} script-text caption(s) added (zero-narration fallback)`);
-        } catch (capErr: any) {
-          warnings.push(`Scene ${scene.sceneIndex}: script-text caption fallback failed: ${capErr.message}`);
-        }
-      }
+      // Architectural rule (Refined Option 1, user-approved 2026-04-19):
+      //   - Captions are for SPEECH. They render what's being said.
+      //   - Graphics are for STANDALONE on-screen text. They render script
+      //     text that isn't tied to a voiceover moment.
+      //   - Never both for the same content.
+      //
+      // After this change:
+      //   - Scene has VO → caption service transcribes VO → Caption overlays (row 0).
+      //     onScreenText is handled by the EDL path as a graphic (see below).
+      //   - Scene has no VO → no caption fallback. onScreenText becomes a graphic
+      //     via EDL's applyGraphic (keyword-highlight / lower-third / etc.).
+      //   - Scene has no VO and no onScreenText → no text overlay. Correct behavior.
+      //
+      // EDL handling of onScreenText:
+      //   - unified-edit-intelligence.ts feeds scene.editDirections.onScreenText
+      //     to Gemini, which emits graphicIntents (see line ~430 prompt:
+      //     "Include ALL onScreenText entries as separate graphics").
+      //   - intent-translator.ts converts graphicIntents → graphic decisions.
+      //   - edl-executor.applyGraphic() creates html-scene overlays.
+      //   - auto-post-processing.validateScreenZones() enforces caption/graphic
+      //     screen-zone separation (Zone 3 reserved for captions).
+      //
+      // If a future regression shows onScreenText missing from output, the fix
+      // belongs in the EDL path (make emission deterministic), NOT here. Do not
+      // re-add a caption fallback — it violates the routing rule above.
+      //
+      // See: memory/edge_cases_backlog.md #21, #23, #24 for follow-ups on
+      // styling, positioning, and motion-graphics polish.
 
       // Scene title overlay removed — redundant with narration text overlay.
       // The narration text on row 0 already provides context. Having both
