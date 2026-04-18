@@ -381,17 +381,35 @@ function UserMenu() {
     setMounted(true);
   }, []);
 
-  // Check if user is admin
+  // Check if current user is an admin.
+  //
+  // Previously read NEXT_PUBLIC_ADMIN_EMAILS directly, which baked the full
+  // admin allowlist into every browser bundle. Now fetches /api/admin/whoami
+  // which only returns a boolean for the current user — the allowlist stays
+  // server-side. See fired-teammate access audit 2026-04-19.
   React.useEffect(() => {
-    if (user) {
-      const userEmail = user.emailAddresses[0]?.emailAddress?.toLowerCase();
-      const adminEmailsEnv = process.env.NEXT_PUBLIC_ADMIN_EMAILS;
-
-      if (userEmail && adminEmailsEnv) {
-        const adminEmails = adminEmailsEnv.split(",").map((e) => e.trim().toLowerCase());
-        setIsAdmin(adminEmails.includes(userEmail));
-      }
+    if (!user) {
+      setIsAdmin(false);
+      return;
     }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/whoami', { credentials: 'include' });
+        if (!res.ok) {
+          if (!cancelled) setIsAdmin(false);
+          return;
+        }
+        const data = (await res.json()) as { isAdmin?: boolean };
+        if (!cancelled) setIsAdmin(Boolean(data.isAdmin));
+      } catch {
+        // Network failure → treat as non-admin (safe default — hides the UI
+        // affordance but never grants access, since the real check is the
+        // server guard on /admin routes).
+        if (!cancelled) setIsAdmin(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [user]);
 
   const handleSignOut = async () => {

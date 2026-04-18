@@ -15,12 +15,22 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 /**
- * Get list of admin emails from environment variable
+ * Get list of admin emails from environment variable.
+ *
+ * SERVER-ONLY. Reads from ADMIN_EMAILS (non-public, stays in backend).
+ *
+ * HISTORY: Previously fell back to NEXT_PUBLIC_ADMIN_EMAILS, which was baked
+ * into the client bundle at build time and exposed the admin email list to
+ * anyone viewing page source. After a fired-teammate access audit (2026-04-19),
+ * the variable was renamed and the fallback removed. If you need the admin
+ * list in a client component, do NOT add back a NEXT_PUBLIC_ var — fetch from
+ * a server-guarded API route instead.
+ *
  * @returns Array of admin email addresses
  */
 export function getAdminEmails(): string[] {
-  const adminEmailsEnv = process.env.ADMIN_EMAILS || process.env.NEXT_PUBLIC_ADMIN_EMAILS;
-  
+  const adminEmailsEnv = process.env.ADMIN_EMAILS;
+
   if (!adminEmailsEnv) {
     console.warn("⚠️ ADMIN_EMAILS environment variable not set. No admin access will be granted.");
     return [];

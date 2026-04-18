@@ -1,47 +1,51 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import AdminDashboard from "./AdminDashboard";
 
-const ADMIN_EMAILS = process.env.NEXT_PUBLIC_ADMIN_EMAILS
-  ? process.env.NEXT_PUBLIC_ADMIN_EMAILS.split(",").map((e) => e.trim())
-  : [];
-
+/**
+ * AdminDashboardClient — client wrapper around the admin dashboard.
+ *
+ * AUTHORIZATION NOTE (updated 2026-04-19):
+ *   Admin authorization is enforced SERVER-SIDE by `requireAdmin()` in
+ *   `app/admin/layout.tsx` BEFORE this component ever renders. By the time
+ *   this runs on the client, the user is already verified as an admin.
+ *
+ *   We previously duplicated the email-list check here using
+ *   NEXT_PUBLIC_ADMIN_EMAILS, but that (a) leaked the full admin email list
+ *   into the browser bundle — anyone could view page source to enumerate
+ *   admins — and (b) was redundant with the server guard. Removed during
+ *   fired-teammate access audit.
+ *
+ * This component now only handles:
+ *   1. Clerk loading state (spinner until the Clerk SDK resolves)
+ *   2. Logout-mid-session edge case (user was an admin, logged out in
+ *      another tab, still looking at this page — redirect to login)
+ *
+ * Do NOT add back any client-side admin email check. Security is the
+ * server guard; client checks are always bypassable and they leak the
+ * allowlist. If a future feature needs "is current user an admin" on the
+ * client, add a `/api/admin/whoami` route that returns a boolean and call
+ * that — never put the email list in NEXT_PUBLIC_.
+ */
 export default function AdminDashboardClient() {
   const { isLoaded, userId } = useAuth();
   const { user } = useUser();
   const router = useRouter();
-  const [authState, setAuthState] = useState<"loading" | "authorized" | "unauthorized">("loading");
 
   useEffect(() => {
-    // Only run after Clerk has loaded
-    if (!isLoaded) {
-      return;
-    }
-
-    // Not logged in - redirect
+    if (!isLoaded) return;
+    // Logout-mid-session edge case: Clerk session died after the server
+    // guard ran. Redirect out.
     if (!userId) {
-      setAuthState("unauthorized");
       router.push("/admin/login");
-      return;
     }
+  }, [isLoaded, userId, router]);
 
-    // Check email authorization
-    const userEmail = user?.emailAddresses?.[0]?.emailAddress;
-    if (!userEmail || !ADMIN_EMAILS.includes(userEmail)) {
-      setAuthState("unauthorized");
-      router.push("/admin/login");
-      return;
-    }
-
-    // Authorized
-    setAuthState("authorized");
-  }, [isLoaded, userId, user, router]);
-
-  // Show loading screen while checking auth or while unauthorized
-  if (authState !== "authorized") {
+  // Loading / logged-out state — show the spinner backdrop
+  if (!isLoaded || !userId) {
     return (
       <div className="relative min-h-screen overflow-hidden bg-white dark:bg-zinc-950">
         {/* Backdrop */}
@@ -60,7 +64,7 @@ export default function AdminDashboardClient() {
     );
   }
 
-  // User is authorized - render dashboard
+  // Authorized (verified server-side by app/admin/layout.tsx → requireAdmin)
   return (
     <div className="relative min-h-screen overflow-hidden bg-white dark:bg-zinc-950">
       {/* Backdrop */}
