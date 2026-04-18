@@ -384,7 +384,7 @@ ADMIN_DOCUMENTATION_INDEX.md (Start here!)
 ### Steps
 1. Pull latest code
 2. Run `npm install`
-3. Set `NEXT_PUBLIC_ADMIN_EMAILS`
+3. Set `ADMIN_EMAILS`
 4. Run `npm run dev` to test locally
 5. Deploy to staging
 6. Run QA tests

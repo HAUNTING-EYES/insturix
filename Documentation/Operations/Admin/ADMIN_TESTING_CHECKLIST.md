@@ -19,7 +19,7 @@
 - [ ] Clerk configuration is correct
 
 ### Environment Variables
-- [ ] `NEXT_PUBLIC_ADMIN_EMAILS` is set
+- [ ] `ADMIN_EMAILS` is set
 - [ ] Clerk keys are configured
 - [ ] No missing env variables in production
 

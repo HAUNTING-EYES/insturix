@@ -85,7 +85,7 @@ The admin panel follows a **minimalist, professional design** with:
 
 ### Configuration
 ```env
-NEXT_PUBLIC_ADMIN_EMAILS=admin@insturix.com,user@insturix.com
+ADMIN_EMAILS=admin@insturix.com,user@insturix.com
 ```
 
 ### Search Engine Protection
@@ -214,7 +214,7 @@ See [Testing Checklist](./ADMIN_TESTING_CHECKLIST.md) for comprehensive testing 
 ## 🐛 Troubleshooting
 
 ### Can't Access Admin Panel
-1. Verify your email is in `NEXT_PUBLIC_ADMIN_EMAILS`
+1. Verify your email is in `ADMIN_EMAILS`
 2. Clear browser cache and cookies
 3. Try incognito/private window
 4. Check network tab for errors
@@ -285,7 +285,7 @@ When reporting bugs, include:
 
 When onboarding new admins:
 
-- [ ] Add email to `NEXT_PUBLIC_ADMIN_EMAILS`
+- [ ] Add email to `ADMIN_EMAILS`
 - [ ] Provide Clerk credentials
 - [ ] Explain login process
 - [ ] Show dashboard walkthrough

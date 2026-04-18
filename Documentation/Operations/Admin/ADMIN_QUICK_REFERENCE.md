@@ -124,9 +124,9 @@ Section Gap:   32px (space-y-8)
 - ✅ Session validation
 - ✅ No sensitive data in DOM
 
-**Setup**: Set `NEXT_PUBLIC_ADMIN_EMAILS` env var
+**Setup**: Set `ADMIN_EMAILS` env var
 ```env
-NEXT_PUBLIC_ADMIN_EMAILS=admin@insturix.com,user@insturix.com
+ADMIN_EMAILS=admin@insturix.com,user@insturix.com
 ```
 
 ---
