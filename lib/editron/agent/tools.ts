@@ -3730,7 +3730,7 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
   // ─── Transition Tool ──────────────────────────────────────────────
 
   const addTransitionSchema = z.object({
-    afterOverlayId: z.coerce.number().optional().describe("ID of the video overlay AFTER which to insert the transition. If not provided, adds between all adjacent scenes."),
+    afterOverlayId: z.coerce.number().optional().describe("ID of the video overlay AFTER which to insert the transition. Targets ONE specific pair (that clip and its next adjacent clip). Required unless applyToAll=true."),
     type: z.enum([
       'dissolve', 'dip-to-black', 'dip-to-white', 'flash', 'blur-transition',
       'wipe-left', 'wipe-right', 'slide-up', 'slide-down',
@@ -3739,8 +3739,25 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
       'soft-cut', 'crossfade',
     ]).default('dissolve').describe("Transition type. 'crossfade/fade/soft-cut' = dissolve, 'fade to black' = dip-to-black, 'quick/punchy' = zoom-punch, 'smooth' = dissolve"),
     durationMs: z.coerce.number().optional().describe("Transition duration in milliseconds (default varies by type, typically 500ms)"),
-    applyToAll: z.boolean().optional().describe("If true, add this transition between ALL adjacent video clips"),
-  });
+    applyToAll: z.boolean().optional().describe("If true, add this transition between ALL adjacent video clips. Required unless afterOverlayId is set."),
+  }).refine(
+    (val) => val.applyToAll === true || typeof val.afterOverlayId === 'number',
+    {
+      // ⚠️ Without this refine, callers that pass NEITHER afterOverlayId nor
+      // applyToAll fall through to the applyToAll branch at line ~3852 and
+      // silently iterate every clip pair — where `applyBetween` deletes any
+      // existing transition (including EDL-placed film-burn / dip-to-white /
+      // etc) before placing the caller's default dissolve. Witnessed in
+      // proj_L7c43ghg7Rt3 when Director passed undeclared clipAId/clipBId
+      // params that Zod stripped, leaving the tool with no target. See
+      // pipeline_investigations.md 2026-04-19 "add_transition tool's
+      // applyToAll fallback silently overwrites EDL-placed transitions".
+      // Director-side fix shipped in commit a74ddcba (pass afterOverlayId).
+      // This refine is the belt-and-suspenders so future callers can't
+      // reintroduce the silent overwrite. Fail loud → Rule 18N.
+      message: 'add_transition requires either afterOverlayId (single pair) or applyToAll=true (all pairs). Passing neither is ambiguous and was a silent-overwrite footgun — explicitly choose one.',
+    }
+  );
 
   const addTransitionTool = tool(
     async (input: z.infer<typeof addTransitionSchema>) => {

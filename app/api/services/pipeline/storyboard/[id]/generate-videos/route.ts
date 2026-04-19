@@ -45,12 +45,18 @@ export async function POST(
     const { id: storyboardId } = await params;
     const body = await request.json();
 
-    // Auth: prefer Clerk session, fallback to userId in body (for internal AI tool calls)
+    // Auth: prefer Clerk session, fallback to userId in body (for internal AI tool calls).
+    // Rule 18N: fail-visible on real auth errors — a bare `catch {}` silently masked
+    // Clerk middleware misconfiguration / key rotation / network failures, leaving
+    // the caller with a confusing 401 "Unauthorized" instead of the real cause.
+    // Log the error but continue (body.userId fallback is the legitimate internal path).
     let userId: string | null = null;
     try {
       const authResult = await auth();
       userId = authResult.userId;
-    } catch {}
+    } catch (authErr: any) {
+      console.warn(`[generate-videos] Clerk auth() threw: ${authErr?.message || authErr} — falling back to body.userId`);
+    }
     if (!userId && body.userId) {
       userId = body.userId;
     }
@@ -236,7 +242,10 @@ export async function POST(
       const scene = sortedScenes[i];
       const nextScene = i < sortedScenes.length - 1 ? sortedScenes[i + 1] : null;
       const descriptor = scene.descriptor as any;
-      const subShots = descriptor.subShots || [];
+      // `|| []` handles undefined but NOT null — JSON deserialization can
+      // produce literal `null` for optional array fields on some documents.
+      // `Array.isArray` guards both cases. Toyota audit B.data.4.
+      const subShots = Array.isArray(descriptor.subShots) ? descriptor.subShots : [];
       const isMontageWithIndependent = descriptor.sceneType === 'montage'
         && subShots.length > 1
         && subShots.some((s: any) => s.independentGeneration);
@@ -268,8 +277,17 @@ export async function POST(
           const requestedDur = (!rawDur || isNaN(rawDur)) ? 5 : Math.max(rawDur, 3);
           const subDuration = getActualVideoDuration(resolvedModel, requestedDur);
 
-          // Use sub-shot's own image if available, otherwise parent scene image
-          const subImageUrl = sub.imageUrl || scene.imageUrl!;
+          // Use sub-shot's own image if available, otherwise parent scene image.
+          // Both MUST be present at this point — parent scene was filtered at
+          // targetScenes.filter (line ~100 requires s.imageUrl). But a stale
+          // MongoDB document or partial deletion could leave scene.imageUrl
+          // undefined. Fail-visible via explicit guard instead of `!` cast.
+          // Toyota audit B.data.1.
+          const subImageUrl = sub.imageUrl || scene.imageUrl;
+          if (!subImageUrl) {
+            console.error(`[generate-videos] Scene ${scene.sceneIndex} sub-shot ${si}: missing imageUrl on both sub-shot and parent — skipping dispatch`);
+            continue;
+          }
 
           // OLD: LLM refinement here (sequential, ~15s each, caused 504 on 14+ scenes).
           // NEW: Send basic prompt + refinement context to worker. Worker refines in its own 300s budget.
@@ -305,6 +323,13 @@ export async function POST(
         // ─── Continuous scene or montage from same clip: one job ───
         // OLD: LLM refinement here (sequential, ~15s each, caused 504 on 14+ scenes).
         // NEW: Basic prompt + refinement context sent to worker.
+        // Guard imageUrl like the sub-shot path — targetScenes.filter
+        // requires s.imageUrl but stale / partial docs can sneak through.
+        // Toyota audit B.data.1.
+        if (!scene.imageUrl) {
+          console.error(`[generate-videos] Scene ${scene.sceneIndex}: missing imageUrl — skipping dispatch`);
+          continue;
+        }
         const motionPrompt = buildMotionPrompt({
           visualDescription: descriptor.visualDescription,
           narration: descriptor.narration,
@@ -316,7 +341,7 @@ export async function POST(
 
         sceneJobs.push({
           sceneIndex: scene.sceneIndex,
-          imageUrl: scene.imageUrl!,
+          imageUrl: scene.imageUrl,
           motionPrompt,
           // 2026-04-17: replaced hardcoded Math.min(x, 10) with model-aware snap.
           // Previously ALL scenes capped at 10s regardless of model capability —
