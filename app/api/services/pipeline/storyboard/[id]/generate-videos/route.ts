@@ -276,6 +276,17 @@ export async function POST(
           // See pipeline_investigations.md "Hardcoded 10s video duration cap" entry.
           const requestedDur = (!rawDur || isNaN(rawDur)) ? 5 : Math.max(rawDur, 3);
           const subDuration = getActualVideoDuration(resolvedModel, requestedDur);
+          // Contributor #3 visibility (pipeline_investigations.md): model
+          // duration grids (Kling 5/10, Veo 4/6/8, Seedance integer) silently
+          // snap. When snap delta exceeds 0.5s it's user-visible drift — log
+          // so it's auditable in Vercel function logs + pipelineWarnings
+          // downstream (still TODO for finalize/director consumers).
+          if (Math.abs(subDuration - requestedDur) > 0.5) {
+            console.warn(
+              `[generate-videos] Scene ${scene.sceneIndex} sub-shot ${si}: duration SNAPPED ${requestedDur}s → ${subDuration}s ` +
+              `(model=${resolvedModel} grid limitation). Timeline will use ${subDuration}s; consider switching model if duration fidelity matters.`
+            );
+          }
 
           // Use sub-shot's own image if available, otherwise parent scene image.
           // Both MUST be present at this point — parent scene was filtered at
@@ -339,6 +350,16 @@ export async function POST(
           videoQualityTokens: descriptor.videoQualityTokens,
         });
 
+        const actualSceneDur = getActualVideoDuration(resolvedModel, descriptor.durationSeconds);
+        // Contributor #3 snap-delta visibility (pipeline_investigations.md).
+        // Kling/Veo/Seedance grids silently snap to discrete buckets; surface
+        // when the delta is user-noticeable.
+        if (Math.abs(actualSceneDur - descriptor.durationSeconds) > 0.5) {
+          console.warn(
+            `[generate-videos] Scene ${scene.sceneIndex}: duration SNAPPED ${descriptor.durationSeconds}s → ${actualSceneDur}s ` +
+            `(model=${resolvedModel} grid limitation). Timeline drift of ${(actualSceneDur - descriptor.durationSeconds).toFixed(1)}s vs script.`
+          );
+        }
         sceneJobs.push({
           sceneIndex: scene.sceneIndex,
           imageUrl: scene.imageUrl,
@@ -347,7 +368,7 @@ export async function POST(
           // Previously ALL scenes capped at 10s regardless of model capability —
           // violating Rule 8N for any model that can do longer (Seedance 1.5: 12s,
           // Seedance 2.0: 15s). Now respects user's chosen model's duration grid.
-          durationSeconds: getActualVideoDuration(resolvedModel, descriptor.durationSeconds),
+          durationSeconds: actualSceneDur,
           nextSceneImageUrl: enableChaining ? (nextScene?.imageUrl || undefined) : undefined,
           refinementContext: useLLMRefinement ? {
             visualDescription: descriptor.visualDescription,

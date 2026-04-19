@@ -1158,7 +1158,37 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
 3. Don't create decisions at frame 0 or the last frame.
 4. Respect ALL hard budgets listed above — the executor WILL reject decisions that exceed them.
 5. confidence > 0.8 when multiple Murch criteria agree, 0.5-0.7 for single-source.
-6. Generate ${Math.round(totalSec * 0.6)}-${Math.round(totalSec * 1.0)} decisions for this ${totalSec}s video.
+6. Generate ${(() => {
+    // Content-length-aware decision density. Previously hardcoded 0.6-1.0
+    // per second regardless of length — over-edited long-form (a 5-min
+    // tutorial would request 180-300 decisions) and under-served the
+    // differences between short-form punch and sustained long-form breathing.
+    //
+    // Per creative_production_knowledge.md §5 Pacing by Content Type:
+    //   - Short-form social (Hormozi/TikTok/Reels): 15-25 cuts/min → 0.6-0.8/s
+    //   - Brand ad (energy):                         12-20 cuts/min → 0.4-0.6/s
+    //   - Brand ad (nostalgia/documentary):           6-10 cuts/min → 0.15-0.25/s
+    //   - Tutorial / explainer:                       4-8  cuts/min → 0.1-0.2/s
+    // We generalize by total-duration proxy (shorter content tends toward
+    // more decisive social pacing; longer tends toward sustained).
+    // Tier 18N: deterministic per totalSec — same input yields same range.
+    let lowRate: number;
+    let highRate: number;
+    if (totalSec <= 15) {           // Short-form social / hook content
+      lowRate = 0.6; highRate = 1.0;
+    } else if (totalSec <= 30) {    // Brand ad short-cut
+      lowRate = 0.5; highRate = 0.8;
+    } else if (totalSec <= 60) {    // Standard brand ad
+      lowRate = 0.35; highRate = 0.6;
+    } else if (totalSec <= 180) {   // Long brand film / documentary short
+      lowRate = 0.2; highRate = 0.4;
+    } else {                        // Tutorial / long-form (>3 min)
+      lowRate = 0.12; highRate = 0.25;
+    }
+    const low = Math.max(3, Math.round(totalSec * lowRate));
+    const high = Math.max(low + 2, Math.round(totalSec * highRate));
+    return `${low}-${high}`;
+  })()} decisions for this ${totalSec}s video (density auto-scaled to content length — denser for short-form social, sparser for sustained long-form per creative doc §5).
 7. First scene: establish visual interest early. For short-form social (TikTok/Reels/Shorts): hook within 2-3s. For long-form/tutorial/documentary: can take 5-10s for context. Adapt to the content, don't force a 1s hook on a lecture (Rule P-002).
 8. Last scene: logo-reveal graphic, pull-back zoom, resolving transition (Rule Z-021, G-020).`;
 
