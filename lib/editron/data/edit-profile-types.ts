@@ -58,8 +58,6 @@ export interface EditProfile {
   filterPresetId: string;
   /** Overall pacing */
   pacing: 'fast' | 'medium' | 'slow' | 'variable' | 'beat-synced';
-  /** Pacing multiplier (1.0 = normal, 0.7 = fast, 1.4 = slow) */
-  pacingMultiplier: number;
   /** Target cuts per minute */
   cutsPerMinRange: [number, number];
   /** Default transition between scenes */
