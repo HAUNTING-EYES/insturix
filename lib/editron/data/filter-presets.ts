@@ -54,6 +54,19 @@ export function getFilterPresetById(presetId: string): FilterPresetEntry {
   return FILTER_PRESETS.find(p => p.id === presetId) || FILTER_PRESETS[0];
 }
 
+/**
+ * All valid filter preset IDs. Single source of truth for schemas that need
+ * to validate filter-preset choices (LLM scene parser, Director Agent,
+ * profile detection) — these consumers MUST import this array instead of
+ * maintaining their own hardcoded list. Prevents drift (the kind of bug
+ * where the scene parser hides newly-added presets from the LLM).
+ *
+ * Typed as `[string, ...string[]]` so it can be passed directly to
+ * `z.enum()` without a cast at the call site.
+ */
+export const FILTER_PRESET_IDS: [string, ...string[]] =
+  FILTER_PRESETS.map(p => p.id) as [string, ...string[]];
+
 /** Semantic mapping from natural language color descriptions to preset IDs.
  *
  * NOTE: Stylistic presets that use large hue-rotate values (teal-orange, blade-runner,

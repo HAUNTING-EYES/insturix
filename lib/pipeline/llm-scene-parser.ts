@@ -12,6 +12,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
+import { FILTER_PRESET_IDS } from '@/lib/editron/data/filter-presets';
 
 // ─── Schema ──────────────────────────────────────────────────────
 
@@ -26,7 +27,9 @@ const SceneEditDirectionsSchema = z.object({
     ]),
     durationMs: z.number().optional(),
   }).optional().describe('Transition INTO this scene. Only set if the script explicitly mentions a transition (e.g. "CUT TO", "DISSOLVE TO", "FADE IN"). null if not mentioned.'),
-  filterPresetId: z.string().optional().describe('Color grade for this scene, mapped to preset ID. Only set if the script explicitly describes a color mood for this specific scene. Options: cinematic, teal-orange, blade-runner, neon-nights, muted-doc, golden-hour-pro, desaturated-drama, film-portra, clean-corporate, vivid, warm-neutral, noir, retro, warm, cool. null if not mentioned.'),
+  filterPresetId: z.enum(FILTER_PRESET_IDS).optional().describe(
+    `Color grade for this scene, mapped to preset ID. Only set if the script explicitly describes a color mood for this specific scene. Options (source: lib/editron/data/filter-presets.ts): ${FILTER_PRESET_IDS.join(', ')}. null if not mentioned.`,
+  ),
   pacing: z.enum(['fast', 'medium', 'slow', 'building', 'beat-synced']).optional().describe('Pacing for THIS specific scene. ONLY set if the script explicitly describes pacing for this scene (e.g. "quick cuts", "slow reveal", "building tension"). Do NOT propagate global pacing to individual scenes — the global pacing field handles that. null if this scene has no explicit pacing instruction.'),
   sfxCue: z.string().optional().describe('Specific sound effect cue beyond general audio. Only set if the script explicitly describes an SFX moment (e.g. "whoosh", "heartbeat", "glass shatter"). null if not mentioned.'),
   motionGraphicCue: z.string().optional().describe('Legacy free-form motion graphic description. For exact on-screen text, use onScreenText instead. null if not mentioned.'),
