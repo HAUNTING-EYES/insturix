@@ -487,12 +487,17 @@ export async function generateUnifiedEditPlan(
   // OLD: hardcoded 'gemini-2.5-flash'. NEW: configurable via LLM_INTELLIGENCE_MODEL env var.
   const model = google(DEFAULT_CONFIG.aiModels.unifiedIntelligenceModel);
 
-  const { object } = await generateObject({
+  // geminiRetry (Batch 4, Toyota A.gemini.6): transient 429 / 5xx / network
+  // errors get exponential-backoff retries. A Director run that used to hard-
+  // fail on a single rate-limit spike now recovers. Daily quota + 401/403
+  // bail immediately.
+  const { geminiRetry } = await import('@/lib/pipeline/gemini-retry');
+  const { object } = await geminiRetry(() => generateObject({
     model,
     schema: EditPlanSchema,
     prompt: contextSummary,
     temperature: DEFAULT_CONFIG.aiModels.editingTemperature,
-  });
+  }), { label: 'unified-edit-intelligence plan', maxRetries: 2 });
 
   const decisions: EditPlanDecision[] = object.decisions.map(d => ({
     type: d.type,

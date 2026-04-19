@@ -137,7 +137,11 @@ export async function parseScriptWithLLM(
   // and structured output on Gemini 2.5 Flash can be slow with complex schemas.
   // 90s was too tight — caused regex fallback on normal scripts.
   // 120s gives breathing room while staying well under Vercel's 300s limit.
-  const { object } = await generateObject({
+  // geminiRetry (Batch 4, Toyota A.gemini.6): transient 429 / 5xx / network
+  // errors get up to 3 retries with exponential backoff (1.5s → 3s → 6s → 12s).
+  // Daily quota exceeded + 401/403 bail immediately per retryer's classifier.
+  const { geminiRetry } = await import('./gemini-retry');
+  const { object } = await geminiRetry(() => generateObject({
     model,
     schema: ParseResultSchema,
     temperature: 0.3,
@@ -475,7 +479,7 @@ ${options.aspectRatio ? `ASPECT RATIO: ${options.aspectRatio}. Adjust compositio
 SCRIPT:
 ${scriptText.substring(0, 24000)}
 ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters. Process only content above. Add final scene with title "SCRIPT_TRUNCATED".]' : ''}`,
-  });
+  }), { label: 'llm-scene-parser main', maxRetries: 2 });
 
   // ─── Post-processing validation ────────────────────────────────
   // The LLM sometimes breaks rules despite explicit instructions.
