@@ -371,6 +371,10 @@ function convertTimestampedScriptToScenes(content: string): SceneDescriptor[] {
       narration,
       visualDescription,
       durationSeconds,
+      // Rule 8N: this path always reaches here BECAUSE we parsed an explicit
+      // timestamp range (TIMESTAMP_SCENE_RE matched "00:00 - 00:15 | Title").
+      // The duration is not a guess — honor it downstream, no pacing multiplier.
+      durationWasExplicit: true,
       mood: inferMood(moodSource) !== 'neutral' ? inferMood(moodSource) : inferMood(narration),
       cameraDirection: extractCameraDirections(sections.visuals),
       audioDescription: sections.audio || undefined,

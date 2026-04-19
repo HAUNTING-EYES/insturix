@@ -527,6 +527,11 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
           console.log(`[SceneParser] Fix4: scene ${(scene as any).sceneIndex} duration ${current}s → ${extractedDuration}s (from title timestamp)`);
           scene.durationSeconds = extractedDuration;
         }
+        // Rule 8N: the duration came from an explicit timestamp in the script
+        // title — flag it so the pacing multiplier downstream will NOT compound
+        // on top of the user's stated number. See
+        // `edit-direction-applier.ts` pacing loop for the read side.
+        (scene as any).durationWasExplicit = true;
       }
     }
 

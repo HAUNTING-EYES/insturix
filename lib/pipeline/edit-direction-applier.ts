@@ -31,7 +31,16 @@ interface SceneFrameInfo {
  */
 export async function applyEditDirections(
   overlays: any[],
-  scenes: Array<{ sceneIndex: number; editDirections?: SceneEditDirections; audioDescription?: string }>,
+  scenes: Array<{
+    sceneIndex: number;
+    editDirections?: SceneEditDirections;
+    audioDescription?: string;
+    /** Narration text — used for VO-bound duration floor (Rule 8N Contributor #2 fix). */
+    narration?: string;
+    /** True when durationSeconds came from an explicit script timestamp.
+     *  When true, pacing multiplier is skipped (Rule 8N). */
+    durationWasExplicit?: boolean;
+  }>,
   sceneFrameMap: SceneFrameInfo[],
   globalDirections: GlobalEditDirections | undefined,
   width: number,
@@ -100,12 +109,53 @@ export async function applyEditDirections(
     let frameShift = 0;
     let anyPacingApplied = false;
 
+    // Rule 8N VO-bound floor: estimated TTS seconds-per-second of narration.
+    // 150 words-per-minute = 2.5 words-per-second. Conservative — narrators
+    // speak slower on dramatic/emotional copy, faster on information-dense.
+    // If the computed pacing would chop narration mid-sentence, we bump the
+    // multiplier up to 1.0 (no compression) rather than silently truncating VO.
+    const VO_WORDS_PER_SECOND = 2.5;
+    const FPS = 30;
+
     for (const info of sceneFrameMap) {
       const scene = scenes.find(s => s.sceneIndex === info.sceneIndex);
+
+      // Rule 8N: skip pacing multiplier when duration came from an explicit
+      // script timestamp. User wrote a number — don't compound on top of it.
+      // Flag set by llm-scene-parser (Fix-4 post-processor) and
+      // script-to-scenes (convertTimestampedScriptToScenes). See
+      // pipeline_investigations.md [2026-04-16] Contributor #2.
+      const durationWasExplicit = (scene as any)?.durationWasExplicit === true;
+
       const scenePacing = scene?.editDirections?.pacing;
-      const multiplier = scenePacing
-        ? (pacingMultiplierMap[scenePacing] || 1.0)
-        : globalPacingMult;
+      const rawMultiplier = durationWasExplicit
+        ? 1.0
+        : (scenePacing
+            ? (pacingMultiplierMap[scenePacing] || 1.0)
+            : globalPacingMult);
+
+      // VO-bound floor: if this scene has narration, compute the minimum
+      // duration required to fit the voiceover. Pacing compression never
+      // goes below that floor — better to leave silence tail than to chop VO.
+      const narrationWords = (scene?.narration || '').trim().split(/\s+/).filter(Boolean).length;
+      const voFloorFrames = narrationWords > 0
+        ? Math.ceil((narrationWords / VO_WORDS_PER_SECOND) * FPS)
+        : 0;
+      const voFloorMultiplier = info.durationFrames > 0 && voFloorFrames > 0
+        ? voFloorFrames / info.durationFrames
+        : 0;
+
+      // Final multiplier: raw pacing, but never below VO floor.
+      const multiplier = Math.max(rawMultiplier, voFloorMultiplier);
+
+      if (voFloorMultiplier > rawMultiplier && voFloorMultiplier > 1.0) {
+        console.warn(
+          `[EditDirections] Scene ${info.sceneIndex}: VO-bound floor overrode pacing ` +
+          `(raw=${rawMultiplier.toFixed(2)}, voFloor=${voFloorMultiplier.toFixed(2)}, ` +
+          `${narrationWords}w won't fit in ${(info.durationFrames / FPS).toFixed(1)}s). ` +
+          `Stretching scene to ${(voFloorFrames / FPS).toFixed(1)}s.`,
+        );
+      }
 
       if (multiplier === 1.0) {
         // Still need to shift by accumulated frameShift from previous scenes

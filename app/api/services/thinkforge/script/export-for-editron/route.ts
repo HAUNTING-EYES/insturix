@@ -106,6 +106,11 @@ export async function POST(request: NextRequest) {
           musicDescription: (s as any).musicDescription || '',
           sfxDescription: (s as any).sfxDescription || '',
           durationSeconds: s.durationSeconds,
+          // Rule 8N: propagate explicit-timestamp detection (set by the Fix-4
+          // post-processor in llm-scene-parser.ts). Consumed by
+          // edit-direction-applier to skip the pacing multiplier on scenes whose
+          // duration came from an explicit script timestamp.
+          durationWasExplicit: (s as any).durationWasExplicit === true,
           mood: s.mood,
           imageQualityTokens: s.imageQualityTokens,
           videoQualityTokens: s.videoQualityTokens,

@@ -74,6 +74,21 @@ export interface SceneDescriptor {
   narration: string;
   visualDescription: string;
   durationSeconds: number;
+  /**
+   * True when `durationSeconds` came from an explicit timing marker in the
+   * script (e.g. "00:00 - 00:15 | Hook" or "Scene 2: 5-25 seconds").
+   *
+   * Rule 8N (Script Duration is King): when this is true, downstream stages
+   * (edit-direction-applier pacing multiplier, profile pacingMultiplier) must
+   * NOT apply duration multipliers. The user wrote a number — honor it.
+   *
+   * When false/undefined, the duration is an LLM or regex estimate based on
+   * word count or heuristics, and pacing multipliers apply normally.
+   *
+   * Set by `convertTimestampedScriptToScenes` (regex path) and
+   * `parseScriptWithLLM` post-processor (LLM path).
+   */
+  durationWasExplicit?: boolean;
   mood: string;
   cameraDirection?: string;
   /** @deprecated Use musicDescription + sfxDescription instead.
