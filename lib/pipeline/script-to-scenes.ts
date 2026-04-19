@@ -68,6 +68,46 @@ function isMetaContent(text: string): boolean {
   return /\b(this document|this script|the goal is to create|outlines the|the following|no dialogue or exposition is permitted|music carries the full|this angle showcases|this section|project title|target audience|key message|format:|platform:|purpose:|product:|style:|aesthetic:|tone:|distribution strategy)\b/i.test(lower);
 }
 
+// ─── Editorial header detection (shared w/ export route quality gate) ───
+//
+// Structured scripts often scaffold scenes with editorial metadata lines like
+// "Emotional Target: Immediate engagement" or "Instrumentation: Cinematic synth".
+// These are directives to the production team, NOT lines the narrator should
+// speak. Prior to the 2026-04-19 fix, the ThinkForge-blocks converter silently
+// concatenated these lines into `narration` (the TTS input), which made the
+// narrator literally speak the metadata on every cold-start regex fallback.
+//
+// This list is the single source of truth — the export route's quality gate
+// imports the same constant so the detection list never drifts between the
+// parser and the validator.
+export const EDITORIAL_HEADER_PATTERNS: readonly RegExp[] = [
+  /^emotional\s+target\s*:/i,
+  /^instrumentation\s*:/i,
+  /^tempo\s*:/i,
+  /^genre\s*\/?\s*style\s*:/i,
+  /^visual\s*:/i,
+  /^audio\s*:/i,
+  /^transition\s+notes?\s*:/i,
+  /^on-screen\s+text\s*:/i,
+  /^mood\s*:/i,
+  /^color\s+palette\s*:/i,
+  /^sound\s+design\s*:/i,
+  /^pacing\s*:/i,
+  /^shot\s+type\s*:/i,
+  /^camera\s+direction\s*:/i,
+];
+
+/** True when a text block *starts* with an editorial-metadata header. */
+export function isEditorialHeaderLine(text: string): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  for (const pat of EDITORIAL_HEADER_PATTERNS) {
+    if (pat.test(trimmed)) return true;
+  }
+  return false;
+}
+
 // ─── ThinkForge Blocks → Scenes ──────────────────────────────────
 
 export function convertThinkForgeBlocksToScenes(
@@ -95,7 +135,13 @@ export function convertThinkForgeBlocksToScenes(
       sceneIndex: idx,
       title: currentScene.title || `Scene ${idx + 1}`,
       narration,
-      visualDescription: currentScene.visualDescription || narration.substring(0, 2000),
+      // Intentionally NOT falling back to narration.substring(0, 2000) here.
+      // That byte-identical copy was the "regex parser dump" smell the export
+      // route quality gate catches — and it also made TTS speak visual-description
+      // copy. Downstream (storyboard-prompt-builder.ts:106) already handles
+      // empty visualDescription by extracting a short narration hint — which
+      // is a proper 300-char scene-context excerpt, not a full duplicate.
+      visualDescription: currentScene.visualDescription || '',
       durationSeconds: currentScene.durationSeconds || Math.min(estimateDuration(narration), 15),
       mood: currentScene.mood || inferMood(narration),
       cameraDirection: currentScene.cameraDirection,
@@ -139,6 +185,15 @@ export function convertThinkForgeBlocksToScenes(
       } else if (block.kind === 'why') {
         // "Why" blocks give mood / intent hints
         currentScene.mood = inferMood(text) !== 'neutral' ? inferMood(text) : currentScene.mood;
+      } else if (isEditorialHeaderLine(text)) {
+        // Editorial metadata like "Emotional Target: ..." / "Instrumentation: ..."
+        // are directives to the production team, NOT spoken narration. Route to
+        // rawProductionNotes alongside meta-section content so the edit-direction
+        // system can still use them, but never send them to TTS.
+        const headerLabel = currentScene.title
+          ? `[${currentScene.title} — directive]`
+          : '[directive]';
+        rawProductionNotes.push(`${headerLabel} ${text}`);
       } else {
         // paragraph / example → narration content
         currentScene.narration = ((currentScene.narration || '') + ' ' + text).trim();
@@ -421,7 +476,11 @@ export function convertCIRToScenes(cir: CIRDocument): SceneDescriptor[] {
       sceneIndex: idx,
       title: current.title,
       narration: current.narration,
-      visualDescription: current.visual || current.narration.substring(0, 2000),
+      // No copy-back fallback to narration — that produced byte-identical
+      // narration/visualDescription, the exact pattern the export route's
+      // quality gate rejects. Empty is fine: storyboard-prompt-builder
+      // extracts a short scene-context hint from narration when visual is empty.
+      visualDescription: current.visual || '',
       durationSeconds: estimateDuration(current.narration),
       mood: current.mood || inferMood(current.narration),
     });

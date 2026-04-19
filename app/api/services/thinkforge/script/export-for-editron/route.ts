@@ -17,6 +17,7 @@ import {
   convertPlainTextToScenes,
   convertCIRToScenes,
   hasTimestampedScenes,
+  EDITORIAL_HEADER_PATTERNS,
 } from '@/lib/pipeline/script-to-scenes';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
@@ -210,17 +211,14 @@ export async function POST(request: NextRequest) {
     //
     // Scripts that legitimately use regex fallback (simple prose scripts without
     // editorial scaffolding) will pass both checks and proceed normally.
-    const EDITORIAL_HEADER_PATTERNS = [
-      /^emotional\s+target\s*:/i,
-      /^instrumentation\s*:/i,
-      /^tempo\s*:/i,
-      /^genre\s*\/?\s*style\s*:/i,
-      /^visual\s*:/i,
-      /^audio\s*:/i,
-      /^transition\s+notes\s*:/i,
-      /^on-screen\s+text\s*:/i,
-    ];
-
+    //
+    // NOTE: EDITORIAL_HEADER_PATTERNS is imported from script-to-scenes.ts so the
+    // detection list is a single source of truth. The regex parser uses the same
+    // list to route editorial headers to rawProductionNotes instead of narration
+    // (commit after 079c0ae7). If this gate ever trips now, it's a legitimate
+    // signal of a NEW editorial pattern we haven't seen — the fix is to add the
+    // pattern to EDITORIAL_HEADER_PATTERNS in script-to-scenes.ts, not to
+    // duplicate the list here.
     const qualityIssues: Array<{ sceneIndex: number; issue: string }> = [];
     for (const scene of scenes) {
       const narr = (scene.narration || '').trim();
