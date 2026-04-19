@@ -283,14 +283,23 @@ export async function executeDirectorPlan(
               assetBriefings: briefingsForPrompt,
             });
 
-            // Layer 2: Translate creative intent → frame-accurate EDL decisions
-            const sceneContexts = context.scenes.map(s => ({
-              sceneIndex: s.sceneIndex,
-              fromFrame: s.fromFrame,
-              durationFrames: s.durationFrames,
-              voiceoverWords: s.voiceoverWords,
-              motionPeaks: s.naturalCutPoints, // These are the frame-level cut points
-            }));
+            // Layer 2: Translate creative intent → frame-accurate EDL decisions.
+            // onScreenText passed through so the translator's safety-net can
+            // guarantee every script-authored on-screen text line emits a
+            // graphic decision even if the LLM's graphicIntents drops some
+            // (see intent-translator.ts for the enforcement logic).
+            const sceneContexts = context.scenes.map(s => {
+              const sbScene = storyboardScenes.find(sb => sb.sceneIndex === s.sceneIndex);
+              const onScreenText = sbScene?.editDirections?.onScreenText;
+              return {
+                sceneIndex: s.sceneIndex,
+                fromFrame: s.fromFrame,
+                durationFrames: s.durationFrames,
+                voiceoverWords: s.voiceoverWords,
+                motionPeaks: s.naturalCutPoints, // These are the frame-level cut points
+                onScreenText: Array.isArray(onScreenText) ? onScreenText : undefined,
+              };
+            });
 
             const translation = translateCreativeIntentToEDL(
               intentPlan,

@@ -35,6 +35,18 @@ interface SceneFrameContext {
   voiceoverWords: Array<{ word: string; startMs: number; endMs: number }>;
   motionPeaks?: number[];     // Relative to scene start
   naturalCutPoints?: number[]; // Relative to scene start
+  /**
+   * Script-extracted on-screen text lines for this scene.
+   * Used by the deterministic safety-net at the end of translateCreativeIntentToEDL
+   * to guarantee EVERY onScreenText entry emits a graphic decision, even when
+   * the LLM's `graphicIntents` array drops some. Without this, EDL output for
+   * no-VO scenes could miss user's branded text entirely (the caption fallback
+   * was removed in commit dd758500; EDL is now the sole owner of on-screen
+   * text rendering — Rule 18N says rule-driven > LLM-probabilistic for
+   * mechanical "render this text" work).
+   * See pipeline_investigations.md 2026-04-19 EDL onScreenText enforcement.
+   */
+  onScreenText?: string[];
 }
 
 /** A single frame-level edit decision (same type EDL executor consumes) */
@@ -154,6 +166,8 @@ export function translateCreativeIntentToEDL(
     }
 
     // ── Graphics ──
+    // Track emitted texts so the safety-net below can detect missed onScreenText.
+    const emittedGraphicTexts = new Set<string>();
     for (const graphic of intent.graphicIntents) {
       if (graphic.type === 'none') continue;
 
@@ -176,6 +190,52 @@ export function translateCreativeIntentToEDL(
         confidence: 0.75,
         sources: ['creative-intent', 'script'],
       });
+      if (graphic.text && graphic.text.trim().length > 0) {
+        emittedGraphicTexts.add(graphic.text.trim().toLowerCase());
+      }
+    }
+
+    // ── Deterministic onScreenText safety net ──
+    // 2026-04-19 (Batch 5): after the LLM's graphicIntents are processed,
+    // cross-check the scene's onScreenText array. Any entry the LLM failed
+    // to emit as a graphic gets a deterministic fallback decision so the
+    // user's script text is GUARANTEED to appear on screen.
+    //
+    // Why this exists: the LLM prompt says "Include ALL onScreenText entries
+    // as separate graphics" but Gemini's output is probabilistic (max 3
+    // graphicIntents per scene, no minimum). Scenes with 4+ onScreenText
+    // entries routinely lost the 4th+ one. And the commit dd758500 (refined
+    // Option 1) removed the caption fallback, making EDL the sole renderer
+    // of standalone on-screen text — so drops here = text vanishes entirely.
+    //
+    // Rule 18N: rule-driven > LLM-probabilistic for mechanical render work.
+    // Rule 8N: script's author explicitly wrote that text, we MUST show it.
+    const onScreenText = sceneCtx.onScreenText || [];
+    for (const text of onScreenText) {
+      const trimmed = (text || '').trim();
+      if (!trimmed) continue;
+      if (emittedGraphicTexts.has(trimmed.toLowerCase())) continue; // LLM already covered it
+
+      // Place at 1/3 into the scene (same default as LLM's fallback trigger
+      // resolution — gives reading time after the scene establishes).
+      const fallbackFrame = sceneCtx.fromFrame + Math.round(sceneCtx.durationFrames * 0.33);
+      decisions.push({
+        type: 'graphic',
+        frame: fallbackFrame,
+        durationFrames: Math.round(2.5 * fps),
+        reason: `onScreenText safety-net: "${trimmed}" (LLM graphicIntents missed this entry)`,
+        params: {
+          graphicType: 'keyword-highlight',
+          text: trimmed,
+        },
+        confidence: 0.6,
+        sources: ['onScreenText-safety-net', 'script'],
+      });
+      emittedGraphicTexts.add(trimmed.toLowerCase());
+      warnings.push(
+        `Scene ${intent.sceneIndex}: onScreenText "${trimmed.substring(0, 40)}${trimmed.length > 40 ? '...' : ''}" ` +
+        `was not in LLM graphicIntents — injected deterministic fallback graphic`
+      );
     }
 
     // ── SFX ──

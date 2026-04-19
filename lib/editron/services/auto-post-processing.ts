@@ -270,18 +270,38 @@ export function validateScreenZones(
       fixed++;
     }
 
-    // Zone 3 check — only captions and lower-thirds allowed in bottom 20%
+    // Zone 3 check — only captions and lower-thirds allowed in bottom 20%.
+    //
+    // 2026-04-19 (Batch 5): extended to also reserve Zone 3 when a VOICEOVER
+    // overlay exists at the same frame, even if no caption has been emitted
+    // yet. Rationale: voiceover triggers add_captions downstream (Director
+    // step 8), so a graphic placed at bottom-center on a VO-present frame
+    // would collide with captions AS SOON AS they land. Pre-emptive
+    // reservation avoids the race where graphics claim the zone first and
+    // have to be moved again by a later pass. Rule 18N: predictable final
+    // state regardless of invocation order. See refined Option 1 at commit
+    // dd758500 — captions are the sole renderer of spoken text, they own
+    // Zone 3 whenever speech is happening.
     if (overlay.top > zone3Top && graphicType !== 'lower-third') {
-      // Check if there are active captions that might overlap
+      // Check for active captions OR active voiceovers at this frame
       const hasActiveCaptionsAtFrame = overlays.some(o =>
         o.type === 'caption' &&
         o.from <= overlay.from &&
         (o.from + o.durationInFrames) > overlay.from
       );
-      if (hasActiveCaptionsAtFrame) {
+      const hasActiveVoiceoverAtFrame = overlays.some(o =>
+        o.type === 'sound' &&
+        (o.row === 3 /* ROW.VOICEOVER */
+          || (o.assetId && typeof o.assetId === 'string' && o.assetId.startsWith('voiceover_'))
+          || o.metadata?.isVoiceover === true) &&
+        o.from <= overlay.from &&
+        (o.from + o.durationInFrames) > overlay.from
+      );
+      if (hasActiveCaptionsAtFrame || hasActiveVoiceoverAtFrame) {
         // Move graphic above Zone 3
         overlay.top = Math.min(overlay.top, zone3Top - overlay.height - 10);
-        violations.push(`G-100: Moved ${graphicType} out of caption zone at frame ${overlay.from}`);
+        const reason = hasActiveCaptionsAtFrame ? 'caption present' : 'VO present (captions will render here)';
+        violations.push(`G-100: Moved ${graphicType} out of Zone 3 at frame ${overlay.from} — ${reason}`);
         fixed++;
       }
     }
