@@ -143,6 +143,34 @@ interface ReferenceImageInput {
   visualDescription?: string;
 }
 
+/**
+ * Scene-type-aware cap on reference image count (Rule 19N domain-expert check).
+ *
+ * Background (2026-04-20): After commit `9be691ba` (S-13) enabled reference
+ * image passthrough on the Nano Banana family, montage scenes degraded —
+ * a "Generational Montage" across 5 different eras received 3 refs of the
+ * grandmother/product/environment from unrelated scenes, so NB2 blended
+ * the single grandmother identity into period-specific sub-shots it
+ * shouldn't have appeared in. Observed in `proj_FRDtVSjoFvZr` Scene 1.
+ *
+ * Right rule per a real cinematographer: use refs only when subject
+ * identity should persist across the shot. Skip them on content types
+ * where identity is DELIBERATELY variable (montage) or absent (text-card).
+ *
+ * @param sceneType — from `SceneDescriptor.sceneType` (LLM parser sets it).
+ * @returns max refs this scene may receive; 0 = skip refs entirely.
+ */
+function getMaxRefsForSceneType(sceneType?: string): number {
+  switch (sceneType) {
+    case 'montage':      return 0; // different subjects per beat — refs would homogenize
+    case 'text-card':    return 0; // pure text render, refs are noise
+    case 'logo-reveal':  return 1; // single brand asset IS the frame
+    case 'talking-head': return 2; // character dominant, optional secondary
+    case 'continuous':   return 3; // current behavior — full ref set
+    default:             return 3; // unknown sceneType → safe default (= previous behavior)
+  }
+}
+
 interface GenerateImageOptions {
   styleGuide?: StyleGuide;
   modelId?: string;
@@ -222,9 +250,23 @@ export async function generateStoryboardImage(
   const modelConfig = Object.values(IMAGE_MODEL_REGISTRY).find(c => c.endpoint === (fallbackModelId || DEFAULT_MODEL))
     || getImageModelConfig('flux-schnell');
 
-  if (hasReferences && modelConfig.referenceCapability !== 'text-only') {
-    const refs = options.referenceImages!;
-    console.log(`[Storyboard] Scene ${options.sceneIndex}: Using ${modelConfig.referenceCapability} with ${refs.length} ref(s) on ${modelConfig.key}`);
+  // Rule 19N scene-type-aware ref cap — see getMaxRefsForSceneType above.
+  const sceneTypeRefCap = getMaxRefsForSceneType((scene as any).sceneType);
+  if (hasReferences && sceneTypeRefCap === 0) {
+    console.log(
+      `[Storyboard] Scene ${options.sceneIndex} (sceneType=${(scene as any).sceneType}): ` +
+      `skipping ${options.referenceImages!.length} ref(s) — sceneType routes to text-only generation ` +
+      `(avoids identity contamination on montage/text-card scenes)`,
+    );
+  }
+
+  if (hasReferences && sceneTypeRefCap > 0 && modelConfig.referenceCapability !== 'text-only') {
+    const rawRefs = options.referenceImages!;
+    const refs = rawRefs.slice(0, sceneTypeRefCap);
+    console.log(
+      `[Storyboard] Scene ${options.sceneIndex} (sceneType=${(scene as any).sceneType || 'default'}): ` +
+      `Using ${modelConfig.referenceCapability} with ${refs.length}/${rawRefs.length} ref(s) on ${modelConfig.key}`,
+    );
 
     try {
       // ── Luma provider: UNI-1 with character_ref ──
