@@ -14,7 +14,12 @@
 
 export type ImageProvider = 'fal' | 'luma';
 export type SizeFormat = 'width-height-object' | 'aspect-ratio-only' | 'aspect-ratio-string';
-export type ReferenceCapability = 'character-ref' | 'ip-adapter' | 'image-to-image' | 'text-only';
+export type ReferenceCapability =
+  | 'character-ref'       // Luma-native identity reference (best for face consistency)
+  | 'ip-adapter'          // fal.ai Flux General IP-adapter LoRA
+  | 'image-to-image'      // fal.ai models that accept a /image-to-image sub-path endpoint
+  | 'inline-image-urls'   // fal.ai models that accept image_urls array on their STANDARD endpoint (no sub-path). Nano Banana family works this way — added 2026-04-19 to replace the 'text-only' stop-gap that was disabling reference passthrough. See pipeline_investigations.md 2026-04-18 "Nano Banana 2 reference images hardcoded to text-only".
+  | 'text-only';          // Model has no reference mechanism — descriptions in prompt
 
 export interface ImageModelConfig {
   /** Unique key used in UI dropdown and API payload */
@@ -127,8 +132,12 @@ export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelConfig> = {
     endpoint: 'fal-ai/nano-banana',
     sizeFormat: 'aspect-ratio-only',
     supportsNegativePrompt: false,
-    // Same fix as nano-banana-2: /image-to-image sub-path doesn't exist on fal.ai
-    referenceCapability: 'text-only',
+    // 2026-04-19 (Batch 3): was 'text-only' as a 404-workaround. Now uses the
+    // real mechanism — image_urls array on the STANDARD endpoint (no
+    // /image-to-image suffix). Per pipeline_investigations.md entry, the
+    // dispatch branch for 'inline-image-urls' at storyboard-service.ts
+    // passes the refs without touching the endpoint URL.
+    referenceCapability: 'inline-image-urls',
     referenceConfig: {
       paramName: 'image_urls',
       maxRefs: 4,
@@ -144,12 +153,13 @@ export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelConfig> = {
     endpoint: 'fal-ai/nano-banana-2',
     sizeFormat: 'aspect-ratio-only',
     supportsNegativePrompt: false,
-    // OLD: 'image-to-image' — appended /image-to-image to endpoint, but that path
-    // returns 404 on fal.ai. Nano Banana 2 accepts reference images via image_urls
-    // param on its standard endpoint, not a separate i2i sub-path.
-    // Changed to text-only to stop the 404. TODO: add inline-reference capability
-    // type that passes image_urls through the standard endpoint.
-    referenceCapability: 'text-only',
+    // 2026-04-19 (Batch 3): was 'text-only' stop-gap after 'image-to-image'
+    // returned 404 (fal.ai doesn't host /image-to-image sub-paths for NB2).
+    // NB2 actually accepts up to 14 reference images via image_urls on the
+    // standard endpoint — this config caps at 4 for bandwidth. Scene images
+    // will now visually match the user's approved reference subjects
+    // instead of drifting style-independently.
+    referenceCapability: 'inline-image-urls',
     referenceConfig: {
       paramName: 'image_urls',
       maxRefs: 4,
@@ -165,8 +175,8 @@ export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelConfig> = {
     endpoint: 'fal-ai/nano-banana-pro',
     sizeFormat: 'aspect-ratio-only',
     supportsNegativePrompt: false,
-    // Same fix as nano-banana-2: /image-to-image sub-path doesn't exist on fal.ai
-    referenceCapability: 'text-only',
+    // 2026-04-19 (Batch 3): same capability flip as nano-banana-2.
+    referenceCapability: 'inline-image-urls',
     referenceConfig: {
       paramName: 'image_urls',
       maxRefs: 4,

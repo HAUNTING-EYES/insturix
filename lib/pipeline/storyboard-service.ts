@@ -277,7 +277,14 @@ export async function generateStoryboardImage(
         _ipAdapterConsecutiveFailures++;
       }
 
-      // ── fal.ai image-to-image: Nano Banana models ──
+      // ── fal.ai image-to-image: legacy sub-path models ──
+      // NOTE (2026-04-19): this branch is for any model whose config declares
+      // `referenceCapability: 'image-to-image'` (appends /image-to-image to
+      // the endpoint). The Nano Banana family used to be here but returned
+      // 404 — fal.ai doesn't host that sub-path for NB. They're now on
+      // `'inline-image-urls'` below. This branch is kept for any future model
+      // that DOES host /image-to-image properly (Flux Kontext Dev routes
+      // differently via its own 'image_url' single-ref param, not here).
       if (modelConfig.referenceCapability === 'image-to-image' && modelConfig.referenceConfig) {
         const editEndpoint = modelConfig.endpoint.replace(/\/?$/, '/image-to-image');
         const result = await falSubscribeWithTimeout(editEndpoint, {
@@ -295,6 +302,45 @@ export async function generateStoryboardImage(
           const uploaded = await downloadAndUpload(imageUrl, userId, modelConfig.endpoint);
           return { ...uploaded, usedReference: true } as any;
         }
+      }
+
+      // ── fal.ai inline image_urls: Nano Banana family ──
+      // 2026-04-19 (Batch 3, pipeline_investigations.md "Nano Banana 2
+      // reference images hardcoded to text-only"):
+      //
+      // NB, NB2, NB-Pro all accept reference images via the `image_urls`
+      // array parameter on their STANDARD endpoint (no sub-path). Previous
+      // code appended /image-to-image which 404s on fal.ai for this family,
+      // so the fallback flipped them to 'text-only' — which meant scene
+      // images got ZERO reference context, only text descriptions. User-
+      // observable quality drift: approved ref subjects (Happy Meal,
+      // Golden Arches) didn't visually match the scene images NB2 generated
+      // from text alone.
+      //
+      // This branch uses the standard endpoint + passes refs through the
+      // configured paramName (image_urls). staticParams (e.g., resolution)
+      // from the model config are merged so tier-specific knobs still apply.
+      if (modelConfig.referenceCapability === 'inline-image-urls' && modelConfig.referenceConfig) {
+        const result = await falSubscribeWithTimeout(modelConfig.endpoint, {
+          input: {
+            prompt: `${prompt}. Maintain visual consistency with reference subjects.`,
+            [modelConfig.referenceConfig.paramName]: refs
+              .map(r => r.imageUrl)
+              .slice(0, modelConfig.referenceConfig.maxRefs),
+            num_images: 1,
+            ...(modelConfig.staticParams || {}),
+          },
+          logs: false,
+        }, 60_000);
+        const data = result.data as any;
+        const imageUrl = data?.images?.[0]?.url || data?.image?.url || null;
+        if (imageUrl) {
+          const uploaded = await downloadAndUpload(imageUrl, userId, modelConfig.endpoint);
+          return { ...uploaded, usedReference: true, referenceCapability: 'inline-image-urls' } as any;
+        }
+        // If no imageUrl came back, fall through to standard-gen-without-refs
+        // (line ~307 "Attempt 2"). Logged warning so it's auditable.
+        console.warn(`[Storyboard] Scene ${options.sceneIndex}: inline-image-urls call to ${modelConfig.endpoint} returned no imageUrl, falling through to text-only generation`);
       }
     } catch (refErr: any) {
       if (modelConfig.referenceCapability === 'ip-adapter') _ipAdapterConsecutiveFailures++;
