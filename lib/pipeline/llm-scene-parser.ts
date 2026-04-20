@@ -1103,6 +1103,146 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
     }
   }
 
+  // ─── Post-process: deterministic transition keyword extraction ─────
+  //
+  // Background (2026-04-20 forensic — proj_-V4uKTjjM2vA): user's script
+  // explicitly said "Rapid cuts" in Scene 1 Camera section, "Dynamic,
+  // quick-paced cuts" in Scene 2, "Smooth, slightly slower movement" in
+  // Scene 3. LLM's extracted editDirections.transition was undefined for
+  // scenes 0 and 2, and "dissolve" for scene 2 (didn't even match the
+  // script's own cut intent). The Director then fell back to profile
+  // default (D-07 defaultTransition: 'dissolve'), and every scene
+  // boundary got dissolve/soft-cut. User wanted rapid cuts, got smooth
+  // smears.
+  //
+  // Root cause (Rule 18N violation): transition-type decisions were
+  // probabilistic (LLM judgment) for signals that are explicit in the
+  // script text. "QUICK CUT" / "RAPID CUTS" / "HARD CUT" / "DISSOLVE
+  // TO" / "FADE TO BLACK" / "SMASH CUT" etc. are keyword-level instructions
+  // — no judgment needed. This post-processor does rule-driven extraction
+  // over the raw script (per-scene chunk) and sets
+  // editDirections.transition deterministically.
+  //
+  // Scope rule: if the script contains a transition keyword in a scene's
+  // chunk, the keyword wins over whatever the LLM emitted. User's
+  // explicit words outrank LLM's inference. Logged when we override.
+  //
+  // Rule alignment:
+  //   - Rule 18N: rule-driven over probabilistic for explicit signals.
+  //   - Rule 2N: deterministic extraction is not a "fallback" — it's the
+  //     primary path for keyword-present scenes; LLM fills gaps only
+  //     when the script was vague.
+  //   - Rule 15: transition vocabulary grounded in
+  //     creative_production_knowledge.md §5 Transition Psychology (hard
+  //     cuts for rapid pacing, dissolves for time-passage, dip-to-black
+  //     for chapter ends).
+  //
+  // Pattern order matters — MULTI-WORD specific patterns checked before
+  // single-word fallbacks (e.g., "rapid cuts" must match before plain
+  // "cut" would). First match wins per scene.
+  if (object.scenes && scriptText) {
+    // Each pattern maps to a transition.type enum value from
+    // SceneEditDirectionsSchema (llm-scene-parser.ts:20-26). Enum drift
+    // here would silently fail downstream — if you add a pattern, verify
+    // the target is in that enum.
+    const TRANSITION_KEYWORD_PATTERNS: Array<{ re: RegExp; type: string; durationMs: number; label: string }> = [
+      // Multi-word specific (match before single-word fallbacks)
+      { re: /\b(?:rapid|quick|fast)\s+cuts?\b/i,              type: 'hard-cut',      durationMs: 0,   label: 'rapid/quick cuts' },
+      { re: /\bdynamic(?:,?\s*quick[-\s]?paced)?\s+cuts?\b/i, type: 'hard-cut',      durationMs: 0,   label: 'dynamic/quick-paced cuts' },
+      { re: /\bhard\s+cuts?\b/i,                              type: 'hard-cut',      durationMs: 0,   label: 'hard cut' },
+      { re: /\bsmash\s+cut\b/i,                               type: 'smash-cut',     durationMs: 0,   label: 'smash cut' },
+      { re: /\bmatch\s+cut\b/i,                               type: 'match-cut',     durationMs: 0,   label: 'match cut' },
+      { re: /\bjump\s+cut\b/i,                                type: 'jump-cut',      durationMs: 0,   label: 'jump cut' },
+      { re: /\bcut\s+on\s+action\b/i,                         type: 'cut-on-action', durationMs: 0,   label: 'cut on action' },
+      { re: /\bsoft\s+cuts?\b/i,                              type: 'soft-cut',      durationMs: 200, label: 'soft cut' },
+      { re: /\b(?:cross[-\s])?dissolve(?:\s+to)?\b/i,         type: 'dissolve',      durationMs: 500, label: 'dissolve' },
+      { re: /\bfade\s+(?:to\s+)?black\b/i,                    type: 'dip-to-black',  durationMs: 600, label: 'fade to black' },
+      { re: /\bfade\s+(?:to\s+)?white\b/i,                    type: 'dip-to-white',  durationMs: 600, label: 'fade to white' },
+      { re: /\bflash\s+(?:to\s+)?white\b/i,                   type: 'flash',         durationMs: 100, label: 'flash white' },
+      { re: /\b(?:punch[-\s]in|rapid\s+zoom\s+in)\b/i,        type: 'zoom-punch',    durationMs: 270, label: 'punch-in / rapid zoom in' },
+      { re: /\b(?:pull[-\s]back|rapid\s+zoom\s+out|zoom\s+out\s+quick)\b/i, type: 'zoom-out', durationMs: 300, label: 'pull back / rapid zoom out' },
+      { re: /\bwhip\s+(?:pan|cut)\b/i,                        type: 'whip-pan',      durationMs: 300, label: 'whip pan' },
+      { re: /\biris\s+(?:wipe|out)\b/i,                       type: 'iris-wipe',     durationMs: 500, label: 'iris wipe' },
+      { re: /\bfilm\s+burn\b/i,                               type: 'film-burn',     durationMs: 400, label: 'film burn' },
+      { re: /\bblur\s+transition\b/i,                         type: 'blur-transition', durationMs: 300, label: 'blur transition' },
+      { re: /\bwipe\s+(?:to\s+)?left\b/i,                     type: 'wipe-left',     durationMs: 500, label: 'wipe left' },
+      { re: /\bwipe\s+(?:to\s+)?right\b/i,                    type: 'wipe-right',    durationMs: 500, label: 'wipe right' },
+      { re: /\bslide\s+up\b/i,                                type: 'slide-up',      durationMs: 500, label: 'slide up' },
+      { re: /\bslide\s+down\b/i,                              type: 'slide-down',    durationMs: 500, label: 'slide down' },
+      // Single-word fallbacks — match ONLY if no multi-word pattern above hit.
+      { re: /\bcut\s+to\b/i,                                  type: 'hard-cut',      durationMs: 0,   label: 'cut to' },
+      { re: /\bwipe\b/i,                                      type: 'wipe-left',     durationMs: 500, label: 'wipe (default direction)' },
+      { re: /\bglitch\b/i,                                    type: 'glitch',        durationMs: 200, label: 'glitch' },
+      // Note: "fade in" / "fade up" intentionally NOT mapped — there is
+      // no enum value for an open-from-black. First scene is an implicit
+      // opener; the LLM and Director both treat video start as
+      // transition-free. A false match here would produce a mid-video
+      // dip-to-black where none is wanted.
+    ];
+
+    // Compute per-scene script-chunk boundaries. Same approach as the
+    // onScreenText regex post-processor above — locate each scene by title
+    // or narration substring, chunk the script between consecutive scenes.
+    const sceneScriptPositions = (object.scenes as any[]).map((scene: any) => {
+      const title = (scene.title || '').toLowerCase().substring(0, 30);
+      const narration = (scene.narration || '').toLowerCase().substring(0, 50);
+      let pos = -1;
+      if (narration.length > 5) pos = scriptText.toLowerCase().indexOf(narration);
+      if (pos < 0 && title.length > 5) pos = scriptText.toLowerCase().indexOf(title);
+      if (pos < 0) pos = Math.floor((scene.sceneIndex / object.scenes.length) * scriptText.length);
+      return pos;
+    });
+
+    let totalMatched = 0;
+    let totalOverrode = 0;
+    for (let i = 0; i < object.scenes.length; i++) {
+      const scene: any = object.scenes[i];
+      const scenePos = sceneScriptPositions[i];
+      const nextScenePos = i + 1 < object.scenes.length ? sceneScriptPositions[i + 1] : scriptText.length;
+      const sceneChunk = scriptText.substring(Math.max(0, scenePos), nextScenePos);
+
+      // Find the first matching keyword pattern in this scene's chunk
+      let match: { type: string; durationMs: number; label: string } | null = null;
+      for (const pat of TRANSITION_KEYWORD_PATTERNS) {
+        if (pat.re.test(sceneChunk)) {
+          match = { type: pat.type, durationMs: pat.durationMs, label: pat.label };
+          break;
+        }
+      }
+
+      if (!match) continue;
+
+      if (!scene.editDirections) scene.editDirections = {};
+
+      const existing = scene.editDirections.transition;
+      if (existing?.type === match.type) {
+        // LLM already matched the user's explicit keyword — no change, no log.
+        continue;
+      }
+
+      if (existing?.type) {
+        // LLM emitted a DIFFERENT transition than what the script says.
+        // Override with the keyword match (user's explicit words beat LLM inference).
+        console.log(
+          `[SceneParser] Transition keyword OVERRIDE: scene ${scene.sceneIndex} ` +
+          `LLM emitted "${existing.type}" but script keyword "${match.label}" → using "${match.type}"`,
+        );
+        totalOverrode++;
+      } else {
+        console.log(
+          `[SceneParser] Transition keyword extracted: scene ${scene.sceneIndex} matched "${match.label}" → type=${match.type}`,
+        );
+      }
+
+      scene.editDirections.transition = { type: match.type, durationMs: match.durationMs };
+      totalMatched++;
+    }
+
+    if (totalMatched > 0) {
+      console.log(`[SceneParser] Transition keyword extraction: ${totalMatched} scene(s) matched (${totalOverrode} LLM overrides)`);
+    }
+  }
+
   // ─── Post-process: correct scene durations for target total ────
   // The LLM frequently produces scenes whose total duration FAR exceeds the
   // script's target. For proj_3WjWqCTVVuJv: "30 sec Reel" → 42s of scenes
