@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getStoryboard, updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
-import { searchAndDownloadSFX } from '@/lib/pipeline/sfx-library-service';
+import { searchAndDownloadSFX, audioDescriptionToSearchQuery } from '@/lib/pipeline/sfx-library-service';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -30,14 +30,24 @@ export async function POST(
     const storyboard = await getStoryboard(id, userId);
     if (!storyboard) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    // Prefer sfxDescription (new, SFX-only) > sfxCue > audioDescription (old, mixed)
+    // 2026-04-20 fix (part of SFX 3-chain Phase B2):
+    //
+    // Old code pulled `audioDescription` as a fallback source when sfxDescription
+    // and sfxCue were both empty. But per the SceneDescriptor schema,
+    // audioDescription is the DEPRECATED field that now holds MUSIC description
+    // (copy of musicDescription for backward compat). Passing music to a SFX
+    // library search returns zero hits — confirmed in proj_FRDtVSjoFvZr log
+    // ("uplifting and warm piano music, swelling..." → 0 results).
+    //
+    // Fix: only source from SFX-specific fields (sfxDescription, sfxCue). If
+    // both are empty, the scene genuinely has no SFX intent — skip pre-fetch.
     const scenesWithAudio = storyboard.scenes.filter(s => {
       const desc = s.descriptor as any;
-      return desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim() || desc.audioDescription?.trim();
+      return desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim();
     });
 
     if (scenesWithAudio.length === 0) {
-      return NextResponse.json({ success: true, cached: 0, message: 'No scenes with audio descriptions' });
+      return NextResponse.json({ success: true, cached: 0, message: 'No scenes with SFX descriptions' });
     }
 
     console.log(`[prefetch-sfx] Searching SFX library for ${scenesWithAudio.length} scenes`);
@@ -45,12 +55,25 @@ export async function POST(
     let cached = 0;
     const results = await Promise.allSettled(
       scenesWithAudio.map(async (scene) => {
-        // Priority: sfxDescription > sfxCue > audioDescription (deprecated)
         const desc = scene.descriptor as any;
-        const query = desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim() || desc.audioDescription || '';
+        const rawQuery = desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim() || '';
+
+        // 2026-04-20 fix (SFX 3-chain Phase B2):
+        //
+        // Old code passed rawQuery (natural-language, e.g. "faint distant
+        // children's laughter, subtle ambient restaurant hum") straight to
+        // Freesound — which indexes by single-word tags. Zero hits confirmed in
+        // proj_FRDtVSjoFvZr log for every scene.
+        //
+        // The codebase already has audioDescriptionToSearchQuery() which
+        // extracts one atomic KB token ("laugh", "chatter", "whoosh") from the
+        // description. sfx-service.ts:80 uses it correctly; only this prefetch
+        // route was bypassing it. Wiring it in now so prefetch has the same
+        // hit rate as the main SFX path.
+        const searchQuery = audioDescriptionToSearchQuery(rawQuery);
         const durationSec = Math.min(scene.descriptor.durationSeconds, 10);
 
-        const sfx = await searchAndDownloadSFX(query, userId!, durationSec);
+        const sfx = await searchAndDownloadSFX(searchQuery, userId!, durationSec);
         if (sfx) {
           // Cache on the storyboard scene for finalize to use
           await updateStoryboardScene(id, scene.sceneIndex, {
@@ -60,11 +83,14 @@ export async function POST(
               gcsPath: sfx.gcsPath,
               durationMs: sfx.durationMs,
               source: sfx.source,
-              query,
+              query: searchQuery,
+              rawDescription: rawQuery,
             },
           } as any);
           cached++;
-          console.log(`[prefetch-sfx] Scene ${scene.sceneIndex}: "${query.substring(0, 40)}" → ${sfx.source} (${sfx.originalTitle || sfx.audioAssetId})`);
+          console.log(`[prefetch-sfx] Scene ${scene.sceneIndex}: "${rawQuery.substring(0, 40)}" → tok="${searchQuery}" → ${sfx.source} (${sfx.originalTitle || sfx.audioAssetId})`);
+        } else {
+          console.log(`[prefetch-sfx] Scene ${scene.sceneIndex}: "${rawQuery.substring(0, 40)}" → tok="${searchQuery}" → no library match (will fall back to mirelo/CassetteAI during finalize)`);
         }
       }),
     );
