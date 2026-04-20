@@ -105,38 +105,68 @@ export function generateEditDecisionList(
     const offsetDecisions = (decs: EditDecision[]): EditDecision[] =>
       decs.map(d => ({ ...d, frame: d.frame + offsetFrames }));
 
+    // ─── Confidence gate (mirrors EDL executor applyZoom pattern) ─────
+    // Check analysisQuality before dispatching to signal-driven generators.
+    // Fallback/low data has fabricated motion peaks (motionIntensity=0.3 everywhere),
+    // placeholder keyframes, and no real cut points — running those generators
+    // against fake signals produces meaningless edit decisions (random zoom punches,
+    // false cinematic moments, subject callouts with 0.5 confidence).
+    // Speech (Track A) and music (Track C) come from semantic content, not video
+    // signal analysis, so they are always safe to use regardless of quality.
+    const quality = (analysis as any).analysisQuality || 'unknown';
+    const isReliableAnalysis = quality === 'high' || quality === 'medium';
+
+    if (!isReliableAnalysis) {
+      console.log(`[ReactiveEdit] Asset quality='${quality}' — skipping motion/visual/audio/cinematic generators (fallback data protection)`);
+    }
+
     // ─── Track A: Speech-driven (narration-reactive) ───────────
+    // Always safe — speech segments come from real transcript classification.
     if (analysis.speechSegments.length > 0) {
       decisions.push(...offsetDecisions(generateSpeechDecisions(analysis.speechSegments, graphicDensity)));
     }
 
     // ─── Track C: Music-driven (rhythm-reactive) ───────────────
+    // Always safe — music structure is derived from real beat detection.
     if (analysis.musicStructure) {
       decisions.push(...offsetDecisions(generateMusicDecisions(analysis.musicStructure, mode, pacing)));
     }
 
     // ─── Layer 2: Motion-driven ────────────────────────────────
-    if (analysis.motionSegments.length > 0) {
+    // Only use when analysis is real. Fallback data has motionIntensity=0.3 / cameraMotion='static'
+    // for all segments — those constants produce incorrect zoom punches and speed-change suggestions.
+    if (isReliableAnalysis && analysis.motionSegments.length > 0) {
       decisions.push(...offsetDecisions(generateMotionDecisions(analysis.motionSegments, analysis.motionPeaks)));
     }
 
     // ─── Layer 5: Subject-driven ───────────────────────────────
-    if (analysis.subjectTracks.length > 0) {
+    // Only use when analysis is real. Fallback subjects have confidence=0.5 placeholders
+    // that would trigger logo-reveal or callout graphics without real detections.
+    if (isReliableAnalysis && analysis.subjectTracks.length > 0) {
       decisions.push(...offsetDecisions(generateSubjectDecisions(analysis.subjectTracks, graphicDensity)));
     }
 
     // ─── Layer 4: Visual-driven ────────────────────────────────
-    if (analysis.keyframeAnalyses.length > 0) {
+    // Only use when analysis is real. Fallback keyframes have naturalCutPoint=false
+    // and generic moodScore/energyLevel defaults — would produce random cut suggestions.
+    if (isReliableAnalysis && analysis.keyframeAnalyses.length > 0) {
       decisions.push(...offsetDecisions(generateVisualDecisions(analysis.keyframeAnalyses)));
     }
 
     // ─── Layer 3: Audio sync points ────────────────────────────
-    if (analysis.audio) {
+    // Only use when analysis is real. Fallback audio has no real transients/beats —
+    // beat-transient coincidences would be fabricated, generating false zoom punches.
+    if (isReliableAnalysis && analysis.audio) {
       decisions.push(...offsetDecisions(generateAudioSyncDecisions(analysis.audio.transients, analysis.audio.beats)));
     }
 
     // ─── Cinematic moments (multi-track peaks) ─────────────────
-    decisions.push(...offsetDecisions(detectCinematicMoments(analysis)));
+    // Only use when analysis is real. Cinematic moment detection combines music energy,
+    // motion intensity, and speech signals — all of those are fallback defaults for
+    // low-quality assets, which would produce false multi-track peak detections.
+    if (isReliableAnalysis) {
+      decisions.push(...offsetDecisions(detectCinematicMoments(analysis)));
+    }
 
     // ─── Script edit directions (HIGHEST priority — explicit intent) ───
     // These come from ThinkForge script via storyboard enrichment.

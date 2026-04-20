@@ -322,6 +322,8 @@ export function validateScreenZones(
 export function applyFreezeFrameUnderGraphics(
   overlays: any[],
   canvas: { width: number; height: number } = { width: 1920, height: 1080 },
+  analyses?: Map<string, AssetAnalysis>,
+  pipelineWarnings?: any,
 ): { modified: number; skippedTiny: number } {
   let modified = 0;
   let skippedTiny = 0;
@@ -354,6 +356,23 @@ export function applyFreezeFrameUnderGraphics(
       v.from <= graphic.from && (v.from + v.durationInFrames) > graphic.from
     );
     if (!video) continue;
+
+    // Confidence gate (mirrors EDL executor applyZoom pattern).
+    // Only apply freeze-frame when analysis quality is 'high' or 'medium'.
+    // Fallback/low analysis means the graphic was placed based on unreliable signals —
+    // freezing a real video clip based on a false graphic placement would degrade quality.
+    // If no analysis map is provided, apply conservatively (existing behaviour).
+    if (analyses && video.assetId) {
+      const analysis = analyses.get(video.assetId);
+      if (analysis) {
+        const quality = (analysis as any).analysisQuality || 'unknown';
+        if (quality !== 'high' && quality !== 'medium') {
+          console.log(`[PostProcess] S-020: Skipping freeze-frame for ${graphicType} at frame ${graphic.from} — analysis quality '${quality}' is too low to trust graphic placement`);
+          pipelineWarnings?.degraded('finalize', `freeze-frame skipped for ${graphicType} at frame ${graphic.from}`, `Analysis quality '${quality}' — freeze-frame requires high/medium quality data`);
+          continue;
+        }
+      }
+    }
 
     // Check if video already has a speed curve (don't override existing speed ramps)
     if (video.speedCurve && video.speedCurve.length > 0) continue;
@@ -462,6 +481,10 @@ export function runPostProcessing(
   analyses?: Map<string, AssetAnalysis>,
   /** AssetIds whose zoom was budget-rejected by EDL — drift-zoom skips these */
   budgetRejectedZoomAssetIds?: Set<string>,
+  /** Pipeline warnings collector — threaded through to freeze-frame logic
+   *  so low-confidence scenes can opt out of freeze aesthetics loudly
+   *  (added 2026-04-20 during Prateek confidence-tracking cherry-pick). */
+  pipelineWarnings?: any,
 ): {
   driftZoomApplied: number;
   zoneViolationsFixed: number;
@@ -475,8 +498,9 @@ export function runPostProcessing(
   // G-100: Screen zone validation
   const zoneResult = validateScreenZones(overlays, canvas);
 
-  // S-020: Freeze-frame under graphic overlays (Hormozi signature, skips tiny graphics)
-  const freezeResult = applyFreezeFrameUnderGraphics(overlays, canvas);
+  // S-020: Freeze-frame under graphic overlays (Hormozi signature, skips tiny graphics + low-confidence scenes)
+  // Passes analyses map so the function can check analysisQuality before freezing.
+  const freezeResult = applyFreezeFrameUnderGraphics(overlays, canvas, analyses, pipelineWarnings);
 
   // P-010: Duration variety (no 3 consecutive same-duration scenes, respects voiceover)
   const durationResult = validateDurationVariety(overlays);

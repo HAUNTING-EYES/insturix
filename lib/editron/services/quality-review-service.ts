@@ -8,6 +8,7 @@
  */
 
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+import type { AssetAnalysis } from './five-track-analysis';
 
 export interface QualityIssue {
   type: IssueType;
@@ -58,6 +59,7 @@ interface AnalyzableOverlay {
   from: number;
   durationInFrames: number;
   row: number;
+  assetId?: string;
   styles?: any;
   content?: string;
 }
@@ -230,8 +232,8 @@ export function runQualityReview(
   overlays: AnalyzableOverlay[],
   fps: number = 30,
   projectDuration?: number,
-  /** Optional: analysis quality map (assetId → quality). If most are fallback, deduct score. */
-  analysisQualities?: Map<string, string>,
+  /** Optional: analysis results map (assetId → AssetAnalysis) */
+  analyses?: Map<string, AssetAnalysis>,
 ): QualityReport {
   const totalDuration = projectDuration || Math.max(...overlays.map(o => o.from + o.durationInFrames), 0);
 
@@ -246,14 +248,31 @@ export function runQualityReview(
   ];
 
   // Check analysis quality — if most assets used fallback data, editing decisions are unreliable
-  if (analysisQualities && analysisQualities.size > 0) {
-    const fallbackCount = [...analysisQualities.values()].filter(q => q === 'fallback' || q === 'low').length;
-    const total = analysisQualities.size;
+  if (analyses && analyses.size > 0) {
+    let fallbackCount = 0;
+    let criticalConfidenceFailures = 0;
+    const total = analyses.size;
+
+    for (const [assetId, analysis] of analyses) {
+      const quality = analysis.analysisQuality || 'unknown';
+      if (quality === 'fallback' || quality === 'low') {
+        fallbackCount++;
+      }
+
+      // Check for deep slop: near-zero confidence in critical tracks
+      if (analysis.confidenceBreakdown) {
+        const { vision, speech } = analysis.confidenceBreakdown;
+        if (vision < 0.2 || speech < 0.2) {
+          criticalConfidenceFailures++;
+        }
+      }
+    }
+
     if (fallbackCount > total * 0.5) {
       allIssues.push({
         type: 'low_analysis' as any,
-        severity: 'warning',
-        description: `${fallbackCount}/${total} assets used fallback analysis data. Editing decisions may be less accurate.`,
+        severity: criticalConfidenceFailures > total * 0.3 ? 'critical' : 'warning',
+        description: `${fallbackCount}/${total} assets used fallback or low-quality analysis data. AI editing decisions may be unreliable.`,
         autoFixable: false,
         suggestedFix: 'Re-run 5-Track analysis with better video quality or longer timeout',
       });
