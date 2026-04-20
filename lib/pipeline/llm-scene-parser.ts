@@ -33,12 +33,12 @@ const SceneEditDirectionsSchema = z.object({
   pacing: z.enum(['fast', 'medium', 'slow', 'building', 'beat-synced']).optional().describe('Pacing for THIS specific scene. ONLY set if the script explicitly describes pacing for this scene (e.g. "quick cuts", "slow reveal", "building tension"). Do NOT propagate global pacing to individual scenes — the global pacing field handles that. null if this scene has no explicit pacing instruction.'),
   sfxCue: z.string().optional().describe('Specific sound effect cue beyond general audio. Only set if the script explicitly describes an SFX moment (e.g. "whoosh", "heartbeat", "glass shatter"). null if not mentioned.'),
   motionGraphicCue: z.string().optional().describe('Legacy free-form motion graphic description. For exact on-screen text, use onScreenText instead. null if not mentioned.'),
-  onScreenText: z.array(z.string()).optional().describe('Structured array of on-screen text strings extracted VERBATIM from the script\'s "On-Screen Text:" / "Text:" / "(Appears briefly:)" sections. Each entry is ONE distinct visible text line. Preserve EXACT wording including punctuation, hashtags, emoji, and quotes.\n\nExamples:\n- Script says "On-Screen Text: Remember this feeling?" → ["Remember this feeling?"]\n- Script says "On-Screen Text: Through the years. Your story. Our place." → ["Through the years.", "Your story.", "Our place."] (3 entries — each sentence is a separate on-screen graphic)\n- Script says "On-Screen Text: A taste of childhood, always fresh." and a separate line "On-Screen Text: Share your memories. #GoldenArchesOfMemory" → ["A taste of childhood, always fresh.", "Share your memories. #GoldenArchesOfMemory"]\n\nCRITICAL: Do NOT re-word, shorten, or merge these. They become caption/graphic overlays using the exact strings. Return empty array [] or omit if the script has no on-screen text for this scene.'),
+  onScreenText: z.array(z.string()).optional().describe('Structured array of on-screen text strings extracted VERBATIM from the script\'s "On-Screen Text:" / "Text:" / "(Appears briefly:)" sections. Each entry is ONE distinct visible text line. Preserve EXACT wording including punctuation, hashtags, emoji, and quotes.\n\nStructural pattern (placeholders in <angle brackets> — DO NOT copy the brackets, replace them with the actual script text):\n- Script says `On-Screen Text: "<line A>"` → ["<line A>"]\n- Multiple parenthetical flashes in one scene: `(Appears briefly: "<flash 1>") (Appears briefly: "<flash 2>") (Appears briefly: "<flash 3>")` → ["<flash 1>", "<flash 2>", "<flash 3>"] (one entry per distinct flash)\n- Closing scene tagline + CTA: `On-Screen Text: "<tagline>"` and `On-Screen Text: "<CTA or hashtag line>"` → ["<tagline>", "<CTA or hashtag line>"]\n\nCRITICAL: Do NOT re-word, shorten, merge, or INVENT text. Every string you emit MUST appear character-for-character in the script. Hallucinations are stripped by a downstream validator, so inventing text just wastes your tokens. Return empty array [] or omit if the script has no on-screen text for this scene.'),
   cameraRig: z.string().optional().describe('Camera movement/rig notes from the script (e.g. "steadicam", "dolly", "crane shot"). Preserved for reference. null if not mentioned.'),
 }).describe('Editing directions for this scene. Return null for any field NOT explicitly present in the script — do NOT invent directions.');
 
 const SubShotSchema = z.object({
-  description: z.string().describe('What this sub-shot shows (e.g. "child reaching for Happy Meal toy")'),
+  description: z.string().describe('What this sub-shot shows (e.g. "hand reaching for product on shelf", "close-up of laptop screen displaying app UI", "runner crossing finish line" — use VERBATIM visual subject from the script, NOT content from this example)'),
   startNormalized: z.number().min(0).max(1).describe('Where in the parent clip this sub-shot starts (0.0 = beginning, 1.0 = end). Used when sub-shots share one generated clip.'),
   endNormalized: z.number().min(0).max(1).describe('Where in the parent clip this sub-shot ends'),
   targetDurationSeconds: z.number().describe('How long this sub-shot appears in the final video. Minimum 3s for AI video quality.'),
@@ -53,10 +53,10 @@ const SubShotSchema = z.object({
 const SceneSchema = z.object({
   title: z.string().describe('Short cinematic scene title (2-6 words, no markdown, no "Scene 1" generic labels)'),
   narration: z.string().describe('ONLY the voiceover/dialogue words spoken aloud by a voice actor. Extract exact quoted text from "Voiceover:" or "VO:" or "Narrator:" labels. Empty string "" if no voiceover in this scene. NEVER include visual descriptions, camera directions, audio notes, or music cues.'),
-  visualDescription: z.string().describe('Static image prompt: ONE primary subject, ONE setting, ONE frozen moment. This generates a SINGLE photograph.\n\nBAD: "A family sharing a meal, a grandparent smiling at a grandchild, friends laughing over lunch" — this is 3 different shots, will produce a collage.\nGOOD: "A grandmother smiling warmly at her young grandchild across a McDonald\'s table, warm golden overhead lighting, soft bokeh background" — ONE moment, ONE camera position.\n\nPick the HERO moment from the script. Other visual beats become separate scenes or sub-shots.'),
+  visualDescription: z.string().describe('Static image prompt: ONE primary subject, ONE setting, ONE frozen moment. This generates a SINGLE photograph.\n\nBAD (3 different actions in one string — produces collage artifact): "A user opens an app, the dashboard loads, friends share a document" — this is 3 separate moments, not one.\nGOOD (one frozen moment, describe the subject + setting + light): "A product designer at a standing desk, one hand on a stylus hovering over a tablet, dual monitors glowing in the background, overhead pendant light casting a warm pool on the desk surface" — ONE moment, ONE camera position.\n\nPick the HERO moment from the script. Other visual beats become separate scenes or sub-shots. Describe the user\'s actual script content — do NOT reuse the subject from this example.'),
   videoMotionPrompt: z.string().describe('Video animation prompt: how this still frame comes to life. Camera movement (dolly, pan, orbit), subject micro-motion, atmospheric effects (particles, light shifts, fabric movement). Keep subtle and cinematic.'),
   audioDescription: z.string().describe('DEPRECATED — kept for backward compat. Write to musicDescription + sfxDescription instead. If you must use this field, put ONLY music/mood info here.'),
-  musicDescription: z.string().describe('Music/BGM mood and style for this scene. ONLY music — no sound effects, no ambient sounds. Examples: "gentle nostalgic piano, building warmth", "high-energy trap beat with bass drops". Empty string if no music direction in script.'),
+  musicDescription: z.string().describe('Music/BGM mood and style for this scene. ONLY music — no sound effects, no ambient sounds. Style of description shape (DO NOT COPY these examples — describe the music the user\'s script actually calls for): "warm acoustic guitar, slow build", "driving electronic pulse, 128 BPM", "cinematic orchestral swell", "ambient synth pad, minimal". Empty string if no music direction in script.'),
   sfxDescription: z.string().describe('Sound effects and ambient audio for this scene. Three categories:\n- Ambient bed: room tone, outdoor air, restaurant buzz, traffic hum\n- Spot SFX: cup clink, door close, footstep, paper rustle\n- Feature SFX: whoosh, impact hit, dramatic stinger, glass shatter\nDo NOT include music/BGM here — that goes in musicDescription. Empty string if no SFX direction in script.'),
   durationSeconds: z.number().describe('Total duration this generation unit occupies in the final video (sum of all sub-shot durations if sub-shots exist). Use the script timestamps or narration length to determine duration. Each scene = one AI video generation call (~$0.35), so group related visual beats as sub-shots within ONE scene rather than creating many tiny separate scenes.'),
   mood: z.enum(['energetic', 'calm', 'serious', 'playful', 'mysterious', 'dramatic', 'inspirational', 'neutral']).describe('Scene mood based on actual content: energetic=action/montage/high-energy, calm=gentle/reflective/slow moments, serious=corporate/formal/grave, playful=fun/light/humorous, mysterious=suspense/unknown/moody, dramatic=emotional-peak/conflict/revelation, inspirational=uplifting/triumph/brand-aspiration, neutral=informational/transitional. Vary based on what happens in each scene — do NOT assign the same mood to every scene.'),
@@ -303,7 +303,7 @@ When sub-shots show DIFFERENT subjects, DIFFERENT locations, DIFFERENT eras, or 
 - The pipeline will generate a separate storyboard image AND a separate video clip per sub-shot
 - Cost = (N × $0.02 image) + (N × $0.35 video). The user pre-approves this in the cost preview.
 
-Example: "1980s child at McDonald's car seat → 1990s teens in booth → 2000s drive-thru → modern family"
+Example (tech evolution montage): "engineer coding on a bulky 1990s beige desktop → developer on a mid-2000s silver laptop → startup team around a modern ultrabook → solo founder on a foldable tablet in a co-working loft"
 → 4 DIFFERENT subjects, 4 DIFFERENT eras, 4 DIFFERENT sets.
 → 4 sub-shots ALL with independentGeneration: true, each with its OWN visualDescription describing its own era/subject.
 → Do NOT collapse into one visualDescription — each needs its own reference image or they all look identical.
@@ -313,33 +313,33 @@ Example: "1980s child at McDonald's car seat → 1990s teens in booth → 2000s 
 If the script uses explicit "Shot 1: / Shot 2: / Shot 3:" markers, produce EXACTLY that many sub-shots.
 Do NOT collapse Shot 1-3 into one visualDescription. Do NOT add extra sub-shots the script didn't ask for.
 
-Example: Script says:
+Example (fitness product hook — different domain, same shape): Script says:
   Scene 1: The Hook
-    Shot 1: Extreme close-up: Child's hand unwrapping a vintage Happy Meal toy.
-    Shot 2: Close-up: Steaming McDonald's fries in a classic red carton.
-    Shot 3: Quick cut: Retro McDonald's sign, sun-drenched and slightly faded.
+    Shot 1: Extreme close-up: a runner's hand gripping a stopwatch at the starting line.
+    Shot 2: Close-up: freshly laced carbon-plate running shoes on rubberized track.
+    Shot 3: Quick cut: a stadium tunnel mouth with sunlight cutting through steam.
 
 → ONE scene with EXACTLY 3 sub-shots.
-→ These are 3 VISUALLY DISTINCT subjects (toy / fries / sign) in 3 DIFFERENT framings → MODE B.
+→ These are 3 VISUALLY DISTINCT subjects (stopwatch / shoes / tunnel) in 3 DIFFERENT framings → MODE B.
 → ALL 3 sub-shots get independentGeneration: true + their own visualDescription.
-→ WRONG: collapsing into "A nostalgic McDonald's toy unwrapping scene" as a single visualDescription with no independent sub-shots — this loses 2/3 of the visuals.
+→ WRONG: collapsing into "A runner preparing for a race" as a single visualDescription with no independent sub-shots — this loses 2/3 of the visuals.
 → WRONG: producing 4+ sub-shots — the script said 3.
 
 ### ANTI-PATTERN — do NOT duplicate previous scenes' montage content into later scenes
 
 Scripts often follow "Hook → Montage → Resolution" structure. The RESOLUTION scene is usually a UNIFIED present-day scene (one subject, one setting, emotional payoff), NOT another montage.
 
-WRONG example (what the parser has done before):
-  Script Scene 3: "Diverse group gathered around a table at McDonald's, all smiling and sharing food."
-  Parser output: 5 sub-shots describing "1980s child / 1990s teens / 2000s drive-thru / modern family / diverse friends"
-  → This DUPLICATES Scene 2's era montage into Scene 3. Scene 3 is supposed to be ONE unified present-day beat.
+WRONG example (abstract — the parser has done this before with various scripts):
+  Script Scene 3 (resolution): "<unified present-day hero moment the script describes — could be a team gathered around a desk, an athlete crossing a finish line, a family at a dinner table, a user closing an app with satisfaction>"
+  Parser output: 5 sub-shots REPEATING Scene 2's montage beats (different eras / different subjects / different locations).
+  → This DUPLICATES Scene 2's montage into Scene 3. Scene 3 is supposed to be ONE unified present-day beat.
 
 CORRECT output for that Scene 3:
-  ONE scene (or 1-3 sub-shots of the same table scene: wide shot → close-up of hands → reaction), ALL showing the SAME unified present-day group.
+  ONE scene (or 1-3 sub-shots of the SAME unified moment: wide shot → close-up of hands → reaction), ALL showing the SAME unified present-day subject and setting.
   NO era shifts. NO repeat of Scene 2's shot list.
-  sceneType: "continuous" (or "montage" ONLY if the script explicitly lists sub-shots within Scene 3).
+  sceneType: "continuous" (or "montage" ONLY if the script EXPLICITLY lists different sub-shots within Scene 3).
 
-Rule: each scene's subShots MUST describe DIFFERENT content from OTHER scenes' subShots. If you find yourself writing "1980s child reaching for fry" in BOTH Scene 2's subShots AND Scene 3's subShots, STOP — Scene 3 is a different scene and needs its own shot list from the script.
+Rule: each scene's subShots MUST describe DIFFERENT content from OTHER scenes' subShots. If you find yourself repeating Scene 2's shot descriptions in Scene 3's subShots, STOP — Scene 3 is a different scene and needs its own shot list extracted verbatim from the script.
 
 ### When to SPLIT into separate generation units:
 - DIFFERENT subjects in DIFFERENT locations (runner vs basketball player vs gymnast)
@@ -378,7 +378,7 @@ The script's Audio section often mixes music direction with sound effects. You M
 
 ### musicDescription (for BGM generation):
 - Music mood, genre, tempo, instrumentation, energy curve
-- Examples: "gentle nostalgic piano, building to warm uplifting", "high-energy trap, 128 BPM, bass-heavy"
+- Example shapes (describe the USER'S music intent, do not copy these strings): "warm acoustic guitar, slow build into strings", "driving electronic pulse at 128 BPM, bass-forward", "minimalist piano with ambient synth pad", "orchestral brass swell resolving to quiet strings"
 - If no music direction in script → musicDescription: ""
 
 ### sfxDescription (for sound effects search/generation):
@@ -391,10 +391,10 @@ The script's Audio section often mixes music direction with sound effects. You M
 - Copy musicDescription value here for old consumers that still read it
 - Do NOT put SFX in audioDescription
 
-Example: "**Audio:** Gentle, nostalgic piano music begins. Faint, distant sound of children's laughter."
-→ musicDescription: "gentle, nostalgic piano music, warm and inviting"
-→ sfxDescription: "faint distant children's laughter, restaurant ambient"
-→ audioDescription: "gentle, nostalgic piano music, warm and inviting" (copy of musicDescription)
+Example (tech product launch — different domain to prevent few-shot bias): "**Audio:** Steady synth pad enters low. Mechanical keyboard clicks, server rack fan hum, distant meeting-room chatter."
+→ musicDescription: "steady synth pad, low minimal ambient electronic"
+→ sfxDescription: "mechanical keyboard clicks, server rack fan hum, distant meeting-room chatter"
+→ audioDescription: "steady synth pad, low minimal ambient electronic" (copy of musicDescription)
 
 ## MOTION GRAPHIC CUE EXTRACTION
 If the script implies branded / stat / callout elements without giving exact copy:
@@ -415,23 +415,28 @@ Extract EACH DISTINCT text line VERBATIM into editDirections.onScreenText as an 
 - Do NOT merge multi-line text blocks unless they genuinely appear as one visible text element.
 - Do NOT rewrite, shorten, or paraphrase. The downstream system will use these strings as literal text on the graphic overlay.
 
-Examples:
-Script: \`On-Screen Text: "Remember this feeling?"\`
-→ onScreenText: ["Remember this feeling?"]
+Extraction patterns (these describe the SHAPE of valid output — placeholders in ALL_CAPS_UNDERSCORE are NOT literal text, they mark "insert the exact script text here"):
 
-Script says (between Scene 2 cuts):
-  (Appears briefly: "Through the years.")
-  (Appears briefly: "Your story.")
-  (Appears briefly: "Our place.")
-→ onScreenText: ["Through the years.", "Your story.", "Our place."]
+Pattern 1 — single quoted line:
+Script contains: On-Screen Text: "USE_ACTUAL_SCRIPT_LINE_HERE"
+→ onScreenText: ["USE_ACTUAL_SCRIPT_LINE_HERE"]
 
-Script's Scene 3 ends with:
-  On-Screen Text: "A taste of childhood, always fresh."
-  On-Screen Text: "Share your McDonald's memories. #GoldenArchesOfMemory"
-→ onScreenText: ["A taste of childhood, always fresh.", "Share your McDonald's memories. #GoldenArchesOfMemory"]
+Pattern 2 — multiple parenthetical flashes in one scene:
+Script contains (between scene cuts):
+  (Appears briefly: "SCRIPT_FLASH_ONE")
+  (Appears briefly: "SCRIPT_FLASH_TWO")
+  (Appears briefly: "SCRIPT_FLASH_THREE")
+→ onScreenText: ["SCRIPT_FLASH_ONE", "SCRIPT_FLASH_TWO", "SCRIPT_FLASH_THREE"]
 
-If the script has NO explicit on-screen text for this scene → omit onScreenText (or return empty array).
-Do NOT invent text. The field is for EXACT copy extraction only.
+Pattern 3 — closing-scene tagline + CTA/hashtag:
+Script's final scene ends with:
+  On-Screen Text: "SCRIPT_TAGLINE_HERE"
+  On-Screen Text: "SCRIPT_CTA_OR_HASHTAG_HERE"
+→ onScreenText: ["SCRIPT_TAGLINE_HERE", "SCRIPT_CTA_OR_HASHTAG_HERE"]
+
+CRITICAL — DO NOT COPY THE PLACEHOLDERS: the ALL_CAPS strings above are a pattern schema, not literal text. When processing a real script, replace them with the EXACT verbatim text from the script. Never emit strings containing underscores or ALL_CAPS placeholder tokens. Never emit made-up taglines. If the script has no on-screen text for a scene, OMIT the field or return empty array [].
+
+Hallucination guard: every string you emit in onScreenText MUST appear character-for-character somewhere in the script you received. A downstream validator will strip any string that is not present in the raw script — strings you invent will be silently deleted, so invention costs you nothing but accuracy.
 
 ALSO set motionGraphicCue as a brief free-form description (backward compat with older consumers),
 but onScreenText is the authoritative source.
@@ -450,11 +455,11 @@ Example: "**Audio:** SFX: Chalk dust puff, fabric rustle, light sharp click. Sub
 → sfxCue: "chalk dust puff" (the most prominent SFX cue)
 → audioDescription: "inspiring orchestral score, building energy" (copy of musicDescription)
 
-Example: "**Audio:** Gentle, nostalgic piano music begins. Faint, distant sound of children's laughter."
-→ musicDescription: "gentle, nostalgic piano music, warm and inviting"
-→ sfxDescription: "faint distant children's laughter"
-→ sfxCue: "children's laughter" (most prominent)
-→ audioDescription: "gentle, nostalgic piano music, warm and inviting"
+Example (real-estate walkthrough — different domain, same shape): "**Audio:** Warm acoustic guitar enters. Faint, distant footsteps on hardwood, soft HVAC hum, a screen door clicking shut."
+→ musicDescription: "warm acoustic guitar, unhurried and welcoming"
+→ sfxDescription: "faint distant footsteps on hardwood, soft HVAC hum, a screen door clicking shut"
+→ sfxCue: "screen door click" (most prominent)
+→ audioDescription: "warm acoustic guitar, unhurried and welcoming"
 
 If no SFX in script → sfxDescription: "", sfxCue: null
 
@@ -1010,6 +1015,77 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
           console.log(`[SceneParser] Scene ${scene.sceneIndex} onScreenText (regex): [${texts.map((t: string) => `"${t}"`).join(', ')}]`);
         }
       }
+    }
+  }
+
+  // ─── Post-process: onScreenText hallucination validator ────────────
+  //
+  // Background (2026-04-20 forensic — proj_-V4uKTjjM2vA):
+  // Prior to this pass, the LLM parser prompt was seeded with the March
+  // McDonald's A3 test script's on-screen texts as few-shot examples
+  // ("Remember this feeling?", "Through the years.", "A taste of
+  // childhood, always fresh.", "Share your McDonald's memories.
+  // #GoldenArchesOfMemory"). When any user submitted a McDonald's-themed
+  // script, the LLM's attention locked onto those examples and copied
+  // them verbatim into `editDirections.onScreenText` — even though the
+  // user's actual script had different on-screen text (or none at all).
+  // Result: shipped videos contained fabricated taglines unrelated to
+  // the brief. Prompt genericization (this commit) is layer 1 defense;
+  // this validator is layer 2.
+  //
+  // Rule: every string emitted in onScreenText MUST appear character-
+  // for-character (case-insensitive, punctuation-normalized) in the raw
+  // script. Any string that doesn't is by definition invented — either
+  // by the LLM or by a hypothetical future regex bug — and is stripped
+  // loudly. The regex post-processor above (lines 916+) ensures that
+  // anything legitimately present in the script IS captured before this
+  // validator runs, so stripping an entry cannot lose a true positive.
+  //
+  // Rule 2N aligned: instead of silently accepting LLM output, validate
+  // against ground truth (the user's script) and fail loudly when they
+  // disagree.
+  if (object.scenes && scriptText) {
+    // Normalize once (strip punctuation + collapse whitespace + lowercase)
+    // so minor punctuation/casing differences don't trigger false negatives.
+    const normalizeForMatch = (s: string): string =>
+      s.toLowerCase()
+        .replace(/[\u2018\u2019\u201C\u201D]/g, "'") // fancy quotes → straight
+        .replace(/[^a-z0-9\s]/gi, ' ')                // punctuation → space
+        .replace(/\s+/g, ' ')                         // collapse whitespace
+        .trim();
+    const scriptNormalized = normalizeForMatch(scriptText);
+
+    let totalStripped = 0;
+    const strippedSamples: string[] = [];
+    for (const scene of object.scenes as any[]) {
+      const texts = scene.editDirections?.onScreenText;
+      if (!Array.isArray(texts) || texts.length === 0) continue;
+
+      const survivors = texts.filter((text: any) => {
+        if (typeof text !== 'string') return false;
+        const normText = normalizeForMatch(text);
+        if (normText.length < 3) return false; // too short to be meaningful
+        if (scriptNormalized.includes(normText)) return true;
+        // Does not appear in script — hallucination, strip.
+        totalStripped++;
+        if (strippedSamples.length < 5) strippedSamples.push(`scene ${scene.sceneIndex}: "${text}"`);
+        return false;
+      });
+
+      scene.editDirections.onScreenText = survivors;
+      // Clean up empty arrays so downstream doesn't see `[]` as intent
+      if (survivors.length === 0 && scene.editDirections) {
+        delete scene.editDirections.onScreenText;
+      }
+    }
+
+    if (totalStripped > 0) {
+      console.warn(
+        `[SceneParser] onScreenText HALLUCINATION VALIDATOR stripped ${totalStripped} invented text(s). ` +
+        `Samples: ${strippedSamples.join(' | ')}. ` +
+        `This means the LLM emitted text not present in the user's script — if this fires regularly, ` +
+        `check the parser prompt for domain-contamination in few-shot examples.`,
+      );
     }
   }
 
