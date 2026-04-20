@@ -179,6 +179,18 @@ export interface AssetAnalysis {
   // Track A: Speech semantic
   speechSegments: SpeechSegment[];
 
+  /**
+   * Phase C asset-centric flag (2026-04-21): true when the AI-gen clip's
+   * audio contained speech despite the script intent being silent (empty
+   * narration). Set by the Track A verification pass when Deepgram
+   * transcription returns meaningful text on a silent-intent AI scene —
+   * most commonly a Seedance native-audio hallucination. Downstream
+   * consumers can use this to gate audio decisions: if true, treat the
+   * clip as having unreliable native audio (candidate for muting or
+   * Freesound ambient layering even though hasNativeAudio=true).
+   */
+  hasHallucinatedSpeech?: boolean;
+
   // Track C: Music structure
   musicStructure: MusicStructure | null;
 
@@ -1107,17 +1119,101 @@ export async function runFullAnalysis(
   }
 
   // Track A: Speech semantic
-  // AI videos: use storyboard narration (richest source — we wrote it)
-  // Real footage: classify from transcription
+  //
+  // Phase C asset-centric verification pass (2026-04-21, Option F):
+  //
+  // BEFORE this change, AI-gen clips with `storyboardScene.narration === ""`
+  // (silent-intent brand ads, b-roll, montages) skipped speech classification
+  // entirely — the code trusted "script said silent, clip is silent." But
+  // native-audio video models (Seedance 1.5/2.0) hallucinate speech when
+  // people are visible in frame, regardless of the prompt constraint. That
+  // hallucinated speech:
+  //   (a) was NOT detected — speechSegments stayed empty
+  //   (b) got CHOPPED when duration-capping clipped the end frame mid-word
+  //   (c) confused downstream SFX decisions (filter thought clip had clean
+  //       native audio worth keeping; actually had random speech)
+  //
+  // Asset-centric fix (per user's Phase C vision): for every AI-gen clip
+  // with silent script intent, VERIFY against the actual audio by
+  // transcribing the generated clip. If transcription returns meaningful
+  // text, flag hallucination and populate speechSegments so downstream
+  // intelligence can react. This closes the "what the script asked for"
+  // vs "what the model actually produced" gap the user flagged.
+  //
+  // Cost: +1 Deepgram call per AI-gen clip (~$0.001, +2-5s latency).
+  // Trivial relative to the quality win.
+  //
+  // Gated by:
+  //   - isAIVideo (real-footage path uses existing transcript-in branch)
+  //   - !narration.trim() (scenes with intended dialogue go narration path)
+  //   - videoUrl present (need source to transcribe)
+  //   - Deepgram configured (graceful skip if not)
+  //   - Time budget (isOverBudget skips to respect 120s cap)
   let speechSegments: SpeechSegment[] = [];
-  if (storyboardScene?.narration && words) {
-    // AI video path — classify the known narration (fastest, most accurate)
-    speechSegments = await classifySpeech(storyboardScene.narration, words);
-    console.log(`[TrackA] AI video: classified ${speechSegments.length} segments from storyboard narration`);
-  } else if (transcript && words) {
-    // Real footage path — classify from transcription
-    speechSegments = await classifySpeech(transcript, words);
-    console.log(`[TrackA] Real footage: classified ${speechSegments.length} segments from transcription`);
+  let hasHallucinatedSpeech = false;
+
+  if (isAIVideo && !storyboardScene?.narration?.trim() && videoUrl) {
+    try {
+      const { transcribeMedia, isDeepgramConfigured } = await import(
+        './deepgram-service'
+      );
+      if (isDeepgramConfigured() && !isOverBudget()) {
+        console.log(
+          `[TrackA] Asset-centric verification: transcribing AI-gen clip ${assetId} (script intent: silent)`,
+        );
+        const t = await transcribeMedia(videoUrl);
+        const transcriptText = (t.transcript || '').trim();
+        // Threshold: >10 chars of non-trivial text AND >2 words = real speech,
+        // not a spurious "uh" / "hmm" single-word match from noise.
+        if (transcriptText.length > 10 && t.words.length > 2) {
+          hasHallucinatedSpeech = true;
+          const wordsForSpeech = t.words.map((w) => ({
+            word: w.word,
+            startMs: w.startMs,
+            endMs: w.endMs,
+          }));
+          speechSegments = await classifySpeech(transcriptText, wordsForSpeech);
+          console.warn(
+            `[TrackA] HALLUCINATED SPEECH detected in AI-gen clip ${assetId}: ` +
+            `script intent was silent but audio transcribed to "${transcriptText.substring(0, 100)}...". ` +
+            `Populated ${speechSegments.length} speechSegments so downstream cut placement + audio gating can avoid mid-speech boundaries. ` +
+            `Likely Seedance 1.5/2.0 native-audio hallucination from visible subjects.`,
+          );
+        } else {
+          console.log(
+            `[TrackA] AI-gen clip ${assetId} verified silent (transcript: "${transcriptText}", words: ${t.words.length})`,
+          );
+        }
+      } else if (!isDeepgramConfigured()) {
+        console.log(
+          `[TrackA] Asset-centric verification skipped for ${assetId}: Deepgram not configured`,
+        );
+      } else {
+        console.log(
+          `[TrackA] Asset-centric verification skipped for ${assetId}: over 120s analysis budget`,
+        );
+      }
+    } catch (err: any) {
+      console.warn(
+        `[TrackA] Transcription verification failed for ${assetId}: ${err.message}. ` +
+        `Proceeding without hallucination flag — downstream will treat as silent.`,
+      );
+    }
+  }
+
+  // Fallback to existing narration/transcript paths if verification didn't
+  // populate anything (script has narration, or transcript was pre-supplied
+  // by the caller for real-footage clips).
+  if (speechSegments.length === 0) {
+    if (storyboardScene?.narration && words) {
+      // AI video path — classify the known narration (fastest, most accurate)
+      speechSegments = await classifySpeech(storyboardScene.narration, words);
+      console.log(`[TrackA] AI video: classified ${speechSegments.length} segments from storyboard narration`);
+    } else if (transcript && words) {
+      // Real footage path — classify from transcription supplied by caller
+      speechSegments = await classifySpeech(transcript, words);
+      console.log(`[TrackA] Real footage: classified ${speechSegments.length} segments from transcription`);
+    }
   }
 
   // Enrich with storyboard edit directions if available
@@ -1200,6 +1296,7 @@ export async function runFullAnalysis(
     keyframeAnalyses: keyframeData,
     subjectTracks: subjectData,
     speechSegments,
+    hasHallucinatedSpeech, // Phase C asset-centric flag — see Track A verification block above
     musicStructure,
     naturalCutPoints,
     audioSyncPoints,
