@@ -11,8 +11,22 @@ import type { SceneDescriptor } from './schemas/storyboard';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-/** Extract plain text from a RichTextNode array. */
-function richTextToPlain(nodes: RichTextNode[]): string {
+/**
+ * Extract plain text from a RichTextNode array.
+ *
+ * Handles both direct `text` nodes and `link` nodes (which hold their
+ * displayed text in a nested `content[].text` structure). Other node
+ * types (mention, hashtag, etc.) fall through to empty string — callers
+ * that see 0-length output on non-empty input can infer the block used
+ * an unhandled node type.
+ *
+ * Exported so the export-for-editron route can use the same extraction
+ * logic as the regex parser — previously the route had its own inline
+ * `n.text || ''` variant that silently dropped link-node text,
+ * producing empty rawContent and 422s on ThinkForge blocks that used
+ * hyperlinks (2026-04-20 regression trace).
+ */
+export function richTextToPlain(nodes: RichTextNode[]): string {
   return nodes
     .map((n) => {
       if (n.type === 'text') return n.text ?? '';

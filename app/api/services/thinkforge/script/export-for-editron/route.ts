@@ -18,6 +18,7 @@ import {
   convertCIRToScenes,
   hasTimestampedScenes,
   EDITORIAL_HEADER_PATTERNS,
+  richTextToPlain,
 } from '@/lib/pipeline/script-to-scenes';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
@@ -49,20 +50,38 @@ export async function POST(request: NextRequest) {
 
     // ─── Reconstruct script text from input ────────────────────
     if (blocks && Array.isArray(blocks) && blocks.length > 0) {
+      // 2026-04-20: use the shared richTextToPlain helper — the old inline
+      // `n.text || ''` variant silently dropped link-node text (link nodes
+      // hold their displayed text in nested content[].text, not directly on
+      // .text) and produced empty rawContent → 422. One source of truth now.
       rawContent = (plainText && typeof plainText === 'string')
         ? plainText
         : blocks
-            .map((b: any) =>
-              (b.content || []).map((n: any) => n.text || '').join(''),
-            )
+            .map((b: any) => richTextToPlain(b.content || []))
+            .filter(Boolean)
             .join('\n');
+
+      // Diagnostic: if blocks came in but extracted text is empty, dump the
+      // block structure to logs so we can see what node types we haven't
+      // handled. This is how future regressions of the same shape get caught
+      // loudly instead of as silent 422s.
+      if (rawContent.length === 0) {
+        const structurePreview = blocks.slice(0, 3).map((b: any) => ({
+          kind: b.kind,
+          contentLength: Array.isArray(b.content) ? b.content.length : 'not-array',
+          nodeTypes: Array.isArray(b.content) ? b.content.map((n: any) => n?.type ?? typeof n) : [],
+          firstNodeKeys: Array.isArray(b.content) && b.content[0] ? Object.keys(b.content[0]) : [],
+        }));
+        console.error(
+          `[export-for-editron] richTextToPlain returned 0 chars from ${blocks.length} block(s). ` +
+          `Block structure preview (up to 3):`,
+          JSON.stringify(structurePreview),
+        );
+      }
 
       const firstHeader = blocks.find((b: any) => b.kind === 'header');
       if (firstHeader) {
-        const text = firstHeader.content
-          ?.map((n: any) => n.text || '')
-          .join('')
-          .trim();
+        const text = richTextToPlain(firstHeader.content || []);
         if (text) title = text;
       }
     } else if (cir && cir.sections) {
