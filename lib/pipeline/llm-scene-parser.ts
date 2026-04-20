@@ -1534,13 +1534,14 @@ Be EXHAUSTIVE and SPECIFIC:
 - For characters: face details, hair, skin tone, build, specific clothing, accessories
 - For products: dimensions, finish, design language, distinctive elements
 
-BAD: "A modern product" → generic, could be anything
-GOOD (product example): "Matte black titanium device, rounded rectangular form, 3-inch OLED display with minimal UI, single recessed side button, subtle chamfered edges, woven fabric strap with magnetic clasp"
-GOOD (vehicle example): "Electric sedan, pearl white metallic paint, low swept roofline, flush door handles, full-width LED light bar spanning rear, 21-inch turbine wheels, panoramic glass roof"
-GOOD (food example): "Artisan sourdough loaf, deep golden-brown crust with distinctive ear scoring, dusted with rice flour, open crumb visible at torn edge, rustic oval shape on dark slate board"
+BAD shape: "A SUBJECT_CATEGORY" with no specifics → generic, could be anything.
+GOOD shape (placeholders only — DO NOT copy, describe the user's actual subject from the script):
+  Products:   "MATERIAL + COLOR + FORM_FACTOR, KEY_DIMENSIONS, DISTINGUISHING_FEATURE_1, DISTINGUISHING_FEATURE_2, FINISH_OR_TEXTURE"
+  Vehicles:   "VEHICLE_TYPE, PAINT_COLOR + FINISH, BODY_SHAPE_DETAIL, LIGHTING_OR_TRIM_DETAIL, WHEEL_OR_GLASS_DETAIL"
+  Food:       "FOOD_TYPE, CRUST_OR_SURFACE_DETAIL, INGREDIENT_OR_COLOR_DETAIL, PLATING_OR_SERVING_DETAIL, SETTING"
+  Characters: "AGE_RANGE + GENDER, HAIR_DESCRIPTION (color+length+style), SKIN_TONE, FACE_FEATURE, CLOTHING_DETAIL, ACCESSORY_OR_POSTURE, BUILD"
 
-BAD: "A young woman" → generic, could be anyone
-GOOD (character example): "Woman in her late 20s, straight jawline-length dark hair with side-swept bangs, warm skin tone, defined cheekbones, tailored charcoal blazer over cream top, layered thin necklaces, confident subtle smile, athletic build"
+Fill every placeholder token (ALL_CAPS_UNDERSCORE) from what the user's script literally describes about that subject. Do NOT substitute content from these shapes — they are templates, not examples of real subjects.
 ${options.artStyle ? `\nArt style: ${options.artStyle}. Describe subjects in this visual style.` : ''}
 
 Extract ALL subjects now (heroes + suggestions):`,
@@ -1722,14 +1723,14 @@ ${subjectContext}
 3. CAMERA MOVEMENT — be PRECISE. Shape: "CAMERA_MOVE_VERB + SPEED + TARGET" (e.g. the specific move the script calls for, not the generic word "camera moves").
 4. ATMOSPHERIC DETAIL — ONE only. Shape: "ATMOSPHERIC_ELEMENT VERB subtly/gently (fog, steam, dust, light shift, fabric motion — pick one that fits the user\'s setting, do not invent).
 
-## ARTIFACT AVOIDANCE (CRITICAL — these cause visual failures)
-- NEVER describe hands interacting with small objects (holding fries, opening packets). Instead frame the RESULT: "enjoying food together" not "fingers gripping a fry"
-- NEVER describe eating mechanics (biting, chewing). Instead: "savoring the moment, warm smile, food at chest level"
+## ARTIFACT AVOIDANCE (CRITICAL — these cause visual failures in AI video models)
+- NEVER describe hands interacting with small objects in precise grip/manipulation. AI models fail at finger-object articulation. Instead frame the RESULT or wider context of the action — describe what the action accomplishes, not the micro-mechanics of fingers/hands gripping.
+- NEVER describe eating mechanics (biting, chewing, swallowing). AI models fail at mouth+food motion. Instead describe the surrounding expression and staging — the moment around the meal, not the moment of consumption.
 - NEVER include readable text in the scene. Text overlays are added separately in post.
 - ALWAYS specify: "consistent lighting throughout, no exposure changes"
 - ALWAYS specify: "temporally consistent, smooth motion, no flickering"
-- For people: "natural relaxed posture, hands at sides or resting on table" unless gesture is essential
-- For products/food: "hero product positioned at rule-of-thirds intersection, shallow depth of field"
+- For people: default to natural relaxed posture with hands at sides or resting on a surface, unless a specific gesture is essential to the script.
+- For products/foreground subjects: hero positioned at rule-of-thirds intersection with shallow depth of field.
 
 ## COMPOSITION (from cinematography principles)
 - Use rule of thirds for subject placement
