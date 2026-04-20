@@ -898,35 +898,70 @@ export async function POST(
     }
 
     if (isSFXAvailable() && currentFrame > 0) {
-      // Skip SFX for scenes with native video audio (e.g., Seedance 1.5 Pro).
-      // Those videos already have embedded foley/ambient sounds.
-      // SFX dispatch: prefer sfxDescription (new, SFX-only), fall back to sfxCue,
-      // then audioDescription (old, mixed). Filter out scenes with no SFX data and
-      // scenes with native audio (Seedance already has embedded foley/ambient).
+      // SFX 3-chain Phase B3 fix (2026-04-20):
+      //
+      // Two bugs removed here — both confirmed against proj_-V4uKTjjM2vA log
+      // where zero `AudioWorker Processing sfx` logs appeared despite every
+      // scene having sfxDescription populated.
+      //
+      // Bug #1 — `!hasNativeAudio` filter was dropping every Seedance scene.
+      //   Old assumption: "Seedance videos have embedded foley, don't need
+      //   content SFX." Empirical reality: Seedance 1.5 generates
+      //   hallucinated speech, NOT clean ambient foley, and this speech gets
+      //   chopped mid-sentence when we duration-cap clips. The assumption
+      //   failed in practice.
+      //
+      //   Creative rationale (Rule 15, consulting creative_production_knowledge.md
+      //   §3 Three-Layer Sound Model, affirmed by Rule 19N domain-expert check):
+      //   ambient bed + spot SFX + feature SFX is the base level of
+      //   professional sound design. "Never leave a scene silent" is the rule.
+      //   A sound designer would NEVER rely on a video model's hallucinated
+      //   background to replace intentional ambient design. Content SFX at
+      //   0.3 volume complements; it does not overpower. If the video also
+      //   has usable native audio, layering still works (both play). If the
+      //   native audio is garbage, content SFX carries the scene.
+      //
+      //   The separate Seedance dialogue-intent fix (on user's priority list,
+      //   next phase) will address the hallucinated-speech problem at the
+      //   source — disable native audio when the script didn't request it.
+      //   That fix is complementary, not a replacement for content SFX.
+      //
+      // Bug #2 — audioDescription fallback held MUSIC content.
+      //   Per SceneDescriptor schema, audioDescription is DEPRECATED and now
+      //   mirrors musicDescription (kept for backward compat with old readers).
+      //   When sfxDescription and sfxCue were empty, the old code fell
+      //   through to audioDescription and dispatched a music prompt to the
+      //   SFX worker — which then tried Freesound/mirelo/CassetteAI with
+      //   music content and got zero usable results. Same bug as prefetch
+      //   route (fixed there in S-25). Dropping audioDescription from
+      //   fallback here too.
       const sfxInputs = storyboard.scenes
         .filter(s => {
           const desc = s.descriptor as any;
-          return (desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim() || desc.audioDescription?.trim());
+          return (desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim());
         })
-        .filter(s => !(s as any).hasNativeAudio)
         .map(s => {
           const desc = s.descriptor as any;
           const frameInfo = sceneFrameMap.find(f => f.sceneIndex === s.sceneIndex);
-          // Priority: sfxDescription > sfxCue > audioDescription (deprecated)
           const sfxText = desc.sfxDescription?.trim()
             || desc.editDirections?.sfxCue?.trim()
-            || desc.audioDescription?.trim()
             || '';
           return {
             sceneIndex: s.sceneIndex,
-            audioDescription: sfxText, // Named audioDescription for backward compat with SFX worker
+            audioDescription: sfxText, // Named audioDescription for backward compat with SFX worker's existing payload shape
             videoUrl: s.videoUrl || undefined,
             durationSeconds: frameInfo?.durationSec ?? Math.min(s.descriptor.durationSeconds, 15),
           };
         });
 
       if (sfxInputs.length > 0) {
-        console.log(`[Finalize] Dispatching SFX worker: ${sfxInputs.length} scenes`);
+        const nativeAudioSceneCount = storyboard.scenes.filter(s => (s as any).hasNativeAudio).length;
+        console.log(
+          `[Finalize] Dispatching SFX worker: ${sfxInputs.length} scenes` +
+          (nativeAudioSceneCount > 0
+            ? ` (${nativeAudioSceneCount} have hasNativeAudio=true — previously filtered, now layered per Three-Layer Sound Model; native audio reliability is a separate concern handled at video-gen time)`
+            : ''),
+        );
         await dispatchAudio({
           type: 'sfx',
           projectId: project.projectId,
@@ -935,6 +970,8 @@ export async function POST(
           sfxInputs,
           sceneFrameMap,
         }, 'SFX');
+      } else {
+        console.log('[Finalize] SFX worker NOT dispatched — no scene has sfxDescription or sfxCue');
       }
     }
 
