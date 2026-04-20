@@ -38,7 +38,7 @@ const SceneEditDirectionsSchema = z.object({
 }).describe('Editing directions for this scene. Return null for any field NOT explicitly present in the script — do NOT invent directions.');
 
 const SubShotSchema = z.object({
-  description: z.string().describe('What this sub-shot shows (e.g. "hand reaching for product on shelf", "close-up of laptop screen displaying app UI", "runner crossing finish line" — use VERBATIM visual subject from the script, NOT content from this example)'),
+  description: z.string().describe('What this sub-shot shows — short visual summary extracted VERBATIM from the script shot line. Shape: "CAMERA_FRAMING of SUBJECT performing ACTION in SETTING". Do not paraphrase or substitute content from any example — read what the user\'s Shot N line literally describes.'),
   startNormalized: z.number().min(0).max(1).describe('Where in the parent clip this sub-shot starts (0.0 = beginning, 1.0 = end). Used when sub-shots share one generated clip.'),
   endNormalized: z.number().min(0).max(1).describe('Where in the parent clip this sub-shot ends'),
   targetDurationSeconds: z.number().describe('How long this sub-shot appears in the final video. Minimum 3s for AI video quality.'),
@@ -53,10 +53,10 @@ const SubShotSchema = z.object({
 const SceneSchema = z.object({
   title: z.string().describe('Short cinematic scene title (2-6 words, no markdown, no "Scene 1" generic labels)'),
   narration: z.string().describe('ONLY the voiceover/dialogue words spoken aloud by a voice actor. Extract exact quoted text from "Voiceover:" or "VO:" or "Narrator:" labels. Empty string "" if no voiceover in this scene. NEVER include visual descriptions, camera directions, audio notes, or music cues.'),
-  visualDescription: z.string().describe('Static image prompt: ONE primary subject, ONE setting, ONE frozen moment. This generates a SINGLE photograph.\n\nBAD (3 different actions in one string — produces collage artifact): "A user opens an app, the dashboard loads, friends share a document" — this is 3 separate moments, not one.\nGOOD (one frozen moment, describe the subject + setting + light): "A product designer at a standing desk, one hand on a stylus hovering over a tablet, dual monitors glowing in the background, overhead pendant light casting a warm pool on the desk surface" — ONE moment, ONE camera position.\n\nPick the HERO moment from the script. Other visual beats become separate scenes or sub-shots. Describe the user\'s actual script content — do NOT reuse the subject from this example.'),
+  visualDescription: z.string().describe('Static image prompt: ONE primary subject, ONE setting, ONE frozen moment. This generates a SINGLE photograph.\n\nShape rule (abstract — these examples use placeholder tokens, NEVER copy them to output):\nBAD shape: "SUBJECT doing ACTION_1, then SUBJECT doing ACTION_2, then SUBJECT doing ACTION_3" — 3 moments in one string produces a collage artifact.\nGOOD shape: "SUBJECT doing ACTION in SETTING, LIGHTING_DESCRIPTION, CAMERA_FRAMING" — one frozen moment, one camera position.\n\nFill in SUBJECT, ACTION, SETTING, LIGHTING_DESCRIPTION, CAMERA_FRAMING with the EXACT subject/action/setting the user\'s script names. Pick the HERO moment from the script. Other visual beats become separate scenes or sub-shots. Do not substitute content from these placeholders.'),
   videoMotionPrompt: z.string().describe('Video animation prompt: how this still frame comes to life. Camera movement (dolly, pan, orbit), subject micro-motion, atmospheric effects (particles, light shifts, fabric movement). Keep subtle and cinematic.'),
   audioDescription: z.string().describe('DEPRECATED — kept for backward compat. Write to musicDescription + sfxDescription instead. If you must use this field, put ONLY music/mood info here.'),
-  musicDescription: z.string().describe('Music/BGM mood and style for this scene. ONLY music — no sound effects, no ambient sounds. Style of description shape (DO NOT COPY these examples — describe the music the user\'s script actually calls for): "warm acoustic guitar, slow build", "driving electronic pulse, 128 BPM", "cinematic orchestral swell", "ambient synth pad, minimal". Empty string if no music direction in script.'),
+  musicDescription: z.string().describe('Music/BGM mood and style for this scene. ONLY music — no sound effects, no ambient sounds.\n\nOutput shape (placeholders — DO NOT copy, fill from script): "GENRE_OR_INSTRUMENTATION, MOOD_DESCRIPTOR, ENERGY_CURVE". Read the user\'s script Music/Audio line and condense it into this shape using the user\'s literal words. Empty string if the script has no music direction.'),
   sfxDescription: z.string().describe('Sound effects and ambient audio for this scene. Three categories:\n- Ambient bed: room tone, outdoor air, restaurant buzz, traffic hum\n- Spot SFX: cup clink, door close, footstep, paper rustle\n- Feature SFX: whoosh, impact hit, dramatic stinger, glass shatter\nDo NOT include music/BGM here — that goes in musicDescription. Empty string if no SFX direction in script.'),
   durationSeconds: z.number().describe('Total duration this generation unit occupies in the final video (sum of all sub-shot durations if sub-shots exist). Use the script timestamps or narration length to determine duration. Each scene = one AI video generation call (~$0.35), so group related visual beats as sub-shots within ONE scene rather than creating many tiny separate scenes.'),
   mood: z.enum(['energetic', 'calm', 'serious', 'playful', 'mysterious', 'dramatic', 'inspirational', 'neutral']).describe('Scene mood based on actual content: energetic=action/montage/high-energy, calm=gentle/reflective/slow moments, serious=corporate/formal/grave, playful=fun/light/humorous, mysterious=suspense/unknown/moody, dramatic=emotional-peak/conflict/revelation, inspirational=uplifting/triumph/brand-aspiration, neutral=informational/transitional. Vary based on what happens in each scene — do NOT assign the same mood to every scene.'),
@@ -67,7 +67,7 @@ const SceneSchema = z.object({
   // Generation unit + sub-shots
   generationUnitId: z.string().describe('Group ID for scenes generated from the SAME video clip. Scenes with the same generationUnitId share one AI video generation call. Use a short descriptive ID like "playground", "car-night", "food-closeup". Each unique ID = one $0.35 video gen call.'),
   primaryVisualForUnit: z.boolean().describe('true if this scene is the PRIMARY visual for its generation unit (the one that gets generated). false if this scene reuses/cuts from another scene\'s generated video.'),
-  subShots: z.array(SubShotSchema).optional().describe('If the script describes multiple quick cuts within this scene\'s time window (e.g. "Quick cuts: A, B, C"), define sub-shots here.\n\nFor montage of DIFFERENT subjects: set independentGeneration=true on each sub-shot with its own visualDescription. Each generates a separate AI video clip (separate cost). Example: "child reaching" + "parent wiping" = 2 independent clips.\n\nFor montage of SAME subject: leave independentGeneration=false. Sub-shots cut from one generated clip. Example: "shoe sole detail" + "lacing detail" = one shoe clip, cut at sub-shot boundaries.\n\nLeave empty/omit for continuous scenes.'),
+  subShots: z.array(SubShotSchema).optional().describe('If the script describes multiple quick cuts within this scene\'s time window (format: "Quick cuts: BEAT_A, BEAT_B, BEAT_C"), define sub-shots here.\n\nDIFFERENT subjects across beats: set independentGeneration=true on each sub-shot with its own visualDescription extracted verbatim from that beat. Each generates a separate AI video clip (separate cost).\n\nSAME subject across beats (same thing in different framings): leave independentGeneration=false. Sub-shots cut from one generated clip. Parent visualDescription describes the subject; sub-shots mark cut timings.\n\nLeave empty/omit for continuous scenes.'),
   sceneType: z.enum(['continuous', 'montage', 'logo-reveal', 'text-card', 'talking-head']).describe('Scene type: "continuous" = one unbroken shot, "montage" = rapid cuts (may have sub-shots with independent generation), "logo-reveal" = brand/logo moment, "text-card" = title/end card, "talking-head" = speaker on camera'),
   assetRecommendation: z.enum(['ai-video', 'stock', 'animated-still', 'graphics-only']).describe(`Almost always "ai-video". Only use "graphics-only" for data/chart/infographic scenes. The system handles stock and animated-still automatically — you should not set those.`),
 });
@@ -106,7 +106,7 @@ const ParseResultSchema = z.object({
     'narrative-mode',     // Story-structure: Brand Story, Testimonial, Problem-Solution, Before-After
     'production-mode',    // Footage-type: Talking Head, Screen Recording, Live Event
     'special-purpose',    // Fallback/blend: Universal Clean, Custom Style-Blend
-  ]).describe('What BROAD editing category fits this script best. Pick based on the overall content intent, NOT individual keywords. Examples:\n- Nike athletic brand ad → "industry-vertical" (sports/fitness sector)\n- SaaS product demo with UI → "production-mode" (screen recording type)\n- Instagram Reel with trending audio → "platform-native" (platform-optimized)\n- Cinematic brand film → "cinematic-style" (aesthetic-first)\n- Customer testimonial → "narrative-mode" (story-structure)\n- General marketing video → "special-purpose" (universal clean)'),
+  ]).describe('What BROAD editing category fits this script best. Pick based on the overall content intent, NOT individual keywords.\n\nCategory decision rules (use the category whose definition the script matches, do not pattern-match on brands):\n- "industry-vertical" — script is for a specific industry/sector (sports, automotive, finance, healthcare, food, etc.).\n- "production-mode" — script specifies a distinctive footage TYPE (screen recording, talking head, live event, interview).\n- "platform-native" — script explicitly targets a platform\'s native format (Reels, TikTok, Shorts, Stories).\n- "cinematic-style" — script emphasizes AESTHETIC over content type (premium, documentary, bold/high-energy, retro, luxury).\n- "narrative-mode" — script follows a specific STORY STRUCTURE (testimonial, before-after, problem-solution, brand origin).\n- "special-purpose" — general marketing video with no distinctive category anchor, use as fallback.'),
 });
 
 export type ParsedScene = z.infer<typeof SceneSchema>;
@@ -214,26 +214,26 @@ This text is sent to an AI image model to generate a single photograph.
 - MANDATORY: if a subject appeared in a previous scene, repeat their EXACT visual description for consistency
 
 ### Handling multiple visual beats in one scene:
-If SAME subject from SAME camera setup (e.g., "runner starts, accelerates, hits stride"):
+Same subject, same camera setup (one subject doing a continuous action):
 → Keep as one pipeline scene. Pick the most visually striking moment. Other beats inform videoMotionPrompt.
 
-If SAME subject from DIFFERENT camera setups (e.g., "tight on alarm clock, then low angle of feet"):
-→ SPLIT — each requires a different photograph. Group beats that share the same framing.
+Same subject, different camera setups (one subject shown from multiple framings in sequence):
+→ SPLIT — each framing requires its own photograph. Group beats that share the same framing.
 
-If DIFFERENT subjects (e.g., "runner's eyes, then basketball hands, then gymnast feet"):
+Different subjects (distinct people/objects across beats):
 → ALWAYS SPLIT into separate pipeline scenes.
 
 ### Handling montage descriptions:
 
-"Rapid montage of X details" where X is ONE subject (e.g., "montage of Nike shoe details"):
+Pattern: "Rapid montage of X details" where X is ONE subject (multiple framings of the same thing):
 → Keep as ONE scene with sceneType="montage"
-→ Create sub-shots with independentGeneration=FALSE (cut from same clip)
-→ The parent visualDescription shows the subject, sub-shots define cut timings
+→ Create sub-shots with independentGeneration=FALSE (cut from same generated clip)
+→ The parent visualDescription shows the single subject, sub-shots define cut timings only
 
-"Rapid montage of DIFFERENT subjects" (e.g., "child reaching, parent wiping, both laughing"):
+Pattern: "Rapid montage of DIFFERENT subjects" (each beat shows a different thing):
 → Keep as ONE scene with sceneType="montage"
 → Create sub-shots with independentGeneration=TRUE on each
-→ Each sub-shot gets its own visualDescription and videoMotionPrompt
+→ Each sub-shot gets its own visualDescription + videoMotionPrompt describing ITS specific subject extracted verbatim from the script
 → Each generates a separate AI video clip (additional cost per sub-shot)
 → The parent scene's visualDescription becomes the FIRST sub-shot's visual
 
@@ -303,27 +303,41 @@ When sub-shots show DIFFERENT subjects, DIFFERENT locations, DIFFERENT eras, or 
 - The pipeline will generate a separate storyboard image AND a separate video clip per sub-shot
 - Cost = (N × $0.02 image) + (N × $0.35 video). The user pre-approves this in the cost preview.
 
-Example (tech evolution montage): "engineer coding on a bulky 1990s beige desktop → developer on a mid-2000s silver laptop → startup team around a modern ultrabook → solo founder on a foldable tablet in a co-working loft"
-→ 4 DIFFERENT subjects, 4 DIFFERENT eras, 4 DIFFERENT sets.
-→ 4 sub-shots ALL with independentGeneration: true, each with its OWN visualDescription describing its own era/subject.
-→ Do NOT collapse into one visualDescription — each needs its own reference image or they all look identical.
+RULE (abstract — do NOT copy any content from this block, it's a pattern schema):
+When the script describes a montage across DIFFERENT eras/times/subjects/locations
+(format: "SCENE_BEAT_1 → SCENE_BEAT_2 → SCENE_BEAT_3 → SCENE_BEAT_N"),
+output N sub-shots where each sub-shot's visualDescription is the EXACT subject
+and setting the user's script names for that beat. Every sub-shot gets
+independentGeneration: true. Each beat needs its own reference image because
+one image cannot represent N different subjects.
+
+Do NOT collapse the N beats into a single visualDescription.
+Do NOT invent beat content — use the subjects the script literally names.
+Tokens SCENE_BEAT_* above are placeholders; in real output they are replaced
+by the verbatim subjects from the user's script.
 
 ### LITERAL SHOT COUNTS (MANDATORY — honor the script's explicit shot numbering)
 
 If the script uses explicit "Shot 1: / Shot 2: / Shot 3:" markers, produce EXACTLY that many sub-shots.
 Do NOT collapse Shot 1-3 into one visualDescription. Do NOT add extra sub-shots the script didn't ask for.
 
-Example (fitness product hook — different domain, same shape): Script says:
-  Scene 1: The Hook
-    Shot 1: Extreme close-up: a runner's hand gripping a stopwatch at the starting line.
-    Shot 2: Close-up: freshly laced carbon-plate running shoes on rubberized track.
-    Shot 3: Quick cut: a stadium tunnel mouth with sunlight cutting through steam.
+RULE (abstract — do NOT copy any content from this block, it's a pattern schema):
+Script format: "Scene N: TITLE / Shot 1: SHOT_DESCRIPTION_ONE / Shot 2: SHOT_DESCRIPTION_TWO / Shot 3: SHOT_DESCRIPTION_THREE"
+Output: ONE scene with EXACTLY 3 sub-shots (N sub-shots for N shots, no more no less).
+        Each sub-shot's visualDescription = SHOT_DESCRIPTION_N extracted verbatim from that shot line.
 
-→ ONE scene with EXACTLY 3 sub-shots.
-→ These are 3 VISUALLY DISTINCT subjects (stopwatch / shoes / tunnel) in 3 DIFFERENT framings → MODE B.
-→ ALL 3 sub-shots get independentGeneration: true + their own visualDescription.
-→ WRONG: collapsing into "A runner preparing for a race" as a single visualDescription with no independent sub-shots — this loses 2/3 of the visuals.
-→ WRONG: producing 4+ sub-shots — the script said 3.
+MODE decision:
+- If SHOT_DESCRIPTION_1/2/3 are 3 VISUALLY DISTINCT subjects (different things in different framings)
+  → MODE B: all sub-shots get independentGeneration: true + each writes its own visualDescription.
+- If SHOT_DESCRIPTION_1/2/3 show the SAME subject from different framings (close-up / medium / wide of one thing)
+  → MODE A: one shared clip, sub-shots are time-range markers only.
+
+WRONG patterns:
+- Collapsing N shots into one visualDescription — this loses (N-1)/N of the user's intended visuals.
+- Adding extra sub-shots the script didn't list — the script's shot count is canonical.
+
+Tokens SHOT_DESCRIPTION_* above are placeholders; real output uses the verbatim
+subject each shot line describes.
 
 ### ANTI-PATTERN — do NOT duplicate previous scenes' montage content into later scenes
 
@@ -342,9 +356,9 @@ CORRECT output for that Scene 3:
 Rule: each scene's subShots MUST describe DIFFERENT content from OTHER scenes' subShots. If you find yourself repeating Scene 2's shot descriptions in Scene 3's subShots, STOP — Scene 3 is a different scene and needs its own shot list extracted verbatim from the script.
 
 ### When to SPLIT into separate generation units:
-- DIFFERENT subjects in DIFFERENT locations (runner vs basketball player vs gymnast)
-- Dramatically different visual styles within the same script (nostalgic film vs crisp modern)
-- Logo/brand reveals (always their own unit)
+- DIFFERENT subjects in DIFFERENT locations (any two beats that do not share a subject or a setting).
+- Dramatically different visual styles within the same script (e.g., script calls for period-look footage next to crisp modern footage).
+- Logo/brand reveals (always their own unit — even if thematically connected to adjacent scenes).
 
 ### When to MERGE into one generation unit:
 - Same subject, same location, different camera angles → ONE unit, use Mode A sub-shots
@@ -378,7 +392,7 @@ The script's Audio section often mixes music direction with sound effects. You M
 
 ### musicDescription (for BGM generation):
 - Music mood, genre, tempo, instrumentation, energy curve
-- Example shapes (describe the USER'S music intent, do not copy these strings): "warm acoustic guitar, slow build into strings", "driving electronic pulse at 128 BPM, bass-forward", "minimalist piano with ambient synth pad", "orchestral brass swell resolving to quiet strings"
+- Shape only (placeholders — DO NOT copy these strings): "GENRE_OR_INSTRUMENTATION, MOOD_DESCRIPTOR, ENERGY_CURVE". Describe what the user\'s script actually calls for.
 - If no music direction in script → musicDescription: ""
 
 ### sfxDescription (for sound effects search/generation):
@@ -391,14 +405,17 @@ The script's Audio section often mixes music direction with sound effects. You M
 - Copy musicDescription value here for old consumers that still read it
 - Do NOT put SFX in audioDescription
 
-Example (tech product launch — different domain to prevent few-shot bias): "**Audio:** Steady synth pad enters low. Mechanical keyboard clicks, server rack fan hum, distant meeting-room chatter."
-→ musicDescription: "steady synth pad, low minimal ambient electronic"
-→ sfxDescription: "mechanical keyboard clicks, server rack fan hum, distant meeting-room chatter"
-→ audioDescription: "steady synth pad, low minimal ambient electronic" (copy of musicDescription)
+Shape only (placeholders — DO NOT copy, extract the user\'s actual audio):
+Input shape: "**Audio:** MUSIC_LINE_FROM_SCRIPT. SFX_LINE_FROM_SCRIPT."
+→ musicDescription: MUSIC_LINE_FROM_SCRIPT condensed to mood/genre/instrumentation
+→ sfxDescription:   SFX_LINE_FROM_SCRIPT condensed to comma-separated ambient+spot+feature sounds
+→ audioDescription: (copy of musicDescription for backward compat)
+
+Fill the placeholders from the user\'s actual Audio section. Do not substitute "synth pad", "acoustic guitar", "keyboard clicks", or any other content token.
 
 ## MOTION GRAPHIC CUE EXTRACTION
 If the script implies branded / stat / callout elements without giving exact copy:
-→ Extract into editDirections.motionGraphicCue: "stat counter: 50% off", "lower third: LIMITLESS FLOW", "brand logo reveal: Nike swoosh"
+→ Extract into editDirections.motionGraphicCue using the shape "GRAPHIC_TYPE: GRAPHIC_VALUE" where GRAPHIC_TYPE is one of stat counter / lower third / brand logo reveal / callout / etc. and GRAPHIC_VALUE comes verbatim from the user\'s script. Do not substitute brand names or numbers from other scripts.
 If nothing → motionGraphicCue: ""
 
 ## ON-SCREEN TEXT EXTRACTION (CRITICAL — preserve exact script copy)
@@ -449,17 +466,14 @@ The Audio section mixes music, narration, and SFX. Split them into three outputs
 3. **editDirections.sfxCue** — the MOST important single SFX moment (for targeted SFX search)
 4. **narration** — spoken words only
 
-Example: "**Audio:** SFX: Chalk dust puff, fabric rustle, light sharp click. Subtle ambient gym hum, faint rhythmic breathing. Inspiring orchestral score builds."
-→ musicDescription: "inspiring orchestral score, building energy"
-→ sfxDescription: "chalk dust puff, fabric rustle, light sharp click, subtle ambient gym hum, faint rhythmic breathing"
-→ sfxCue: "chalk dust puff" (the most prominent SFX cue)
-→ audioDescription: "inspiring orchestral score, building energy" (copy of musicDescription)
+Shape only (abstract — DO NOT copy any content, extract the user\'s actual audio):
+Input shape: "**Audio:** SFX: SFX_LIST. AMBIENT_LAYER. MUSIC_LINE."
+→ musicDescription: MUSIC_LINE as genre + mood + energy (music only, no sfx)
+→ sfxDescription:   SFX_LIST + AMBIENT_LAYER combined as comma-separated (sfx only, no music)
+→ sfxCue:           the single most prominent SFX moment from SFX_LIST (for targeted search)
+→ audioDescription: (copy of musicDescription for backward compat)
 
-Example (real-estate walkthrough — different domain, same shape): "**Audio:** Warm acoustic guitar enters. Faint, distant footsteps on hardwood, soft HVAC hum, a screen door clicking shut."
-→ musicDescription: "warm acoustic guitar, unhurried and welcoming"
-→ sfxDescription: "faint distant footsteps on hardwood, soft HVAC hum, a screen door clicking shut"
-→ sfxCue: "screen door click" (most prominent)
-→ audioDescription: "warm acoustic guitar, unhurried and welcoming"
+Every placeholder above must be replaced with the user\'s literal script content. Do not copy placeholder tokens. Do not substitute content from other scripts.
 
 If no SFX in script → sfxDescription: "", sfxCue: null
 
@@ -1234,12 +1248,12 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
         prompt: `Read this script and identify scenes that describe MULTIPLE DISTINCT visual shots (3+) that would each need a SEPARATE AI video clip.
 
 RULES:
-- Only flag scenes where the VISUAL section lists 3+ DIFFERENT subjects/actions
-- "Quick cuts: A child reaching. Kids laughing. Parent wiping." → 3 shots (3 different actions)
-- "Teenagers sharing fries in a car at night." → 1 shot (one continuous moment, do NOT decompose)
-- "Close-up on a fry, then a bite of a Big Mac, then arches through window." → 3 shots (3 different subjects)
-- "A family sharing a meal, a grandparent smiling." → 1-2 subjects in same setting, do NOT decompose unless they are truly different scenes
-- Each shot description must be a COMPLETE visual prompt for AI image/video generation
+- Only flag scenes where the VISUAL section lists 3+ DIFFERENT subjects/actions.
+- Shape: "Quick cuts: BEAT_ONE. BEAT_TWO. BEAT_THREE." → 3 shots when each BEAT describes a DIFFERENT subject or action.
+- Shape: one continuous action described in a single sentence → 1 shot (do NOT decompose — this is one moment, not a montage).
+- Shape: 2-3 related actions within the SAME setting with the SAME subjects → 1 shot (do NOT decompose unless each beat has a distinctly different subject or framing).
+- Each shot description must be a COMPLETE visual prompt for AI image/video generation, extracted verbatim from the script's BEAT_N content.
+- Do not substitute content from these pattern descriptions — BEAT_N are placeholders, not real shots.
 
 PARSED SCENES (with their narration for context):
 ${object.scenes.map((s: any) => `Scene ${s.sceneIndex}: "${s.title}" — Narration: "${s.narration}"`).join('\n')}
@@ -1702,11 +1716,11 @@ ${context.cinemaHardware ? `\n## CINEMA HARDWARE (weave these terms naturally in
 ## KEY SUBJECTS
 ${subjectContext}
 
-## PROMPT STRUCTURE (follow this order)
-1. ENVIRONMENT + LIGHTING first (e.g., "warm golden-hour light fills a cozy restaurant interior")
-2. SUBJECT + ACTION (e.g., "a grandmother gently hands a french fry to her grandchild")
-3. CAMERA MOVEMENT — be PRECISE (e.g., "slow steady push-in" NOT "camera moves")
-4. ATMOSPHERIC DETAIL — ONE only (e.g., "steam rises gently from the coffee cup")
+## PROMPT STRUCTURE (follow this order — placeholders DO NOT copy, fill from script)
+1. ENVIRONMENT + LIGHTING first. Shape: "LIGHTING_QUALITY + DIRECTION fills SETTING_TYPE interior/exterior"
+2. SUBJECT + ACTION. Shape: "SUBJECT performs ACTION in SETTING" — use the script's exact subject and action.
+3. CAMERA MOVEMENT — be PRECISE. Shape: "CAMERA_MOVE_VERB + SPEED + TARGET" (e.g. the specific move the script calls for, not the generic word "camera moves").
+4. ATMOSPHERIC DETAIL — ONE only. Shape: "ATMOSPHERIC_ELEMENT VERB subtly/gently (fog, steam, dust, light shift, fabric motion — pick one that fits the user\'s setting, do not invent).
 
 ## ARTIFACT AVOIDANCE (CRITICAL — these cause visual failures)
 - NEVER describe hands interacting with small objects (holding fries, opening packets). Instead frame the RESULT: "enjoying food together" not "fingers gripping a fry"
