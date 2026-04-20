@@ -21,6 +21,7 @@ interface BGMResult {
   gcsPath: string;
   audioAssetId: string;
   durationMs: number;
+  buffer?: Buffer;
 }
 
 /**
@@ -98,6 +99,7 @@ export async function generateBackgroundMusic(
     gcsPath: uploadResult.gcsPath!,
     audioAssetId: uploadResult.assetId,
     durationMs: durationSec * 1000, // Approximate — actual may differ
+    buffer,
   };
 }
 

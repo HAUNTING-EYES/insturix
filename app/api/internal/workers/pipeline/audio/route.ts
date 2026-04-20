@@ -13,10 +13,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { generateBackgroundMusic, buildMusicPrompt } from '@/lib/pipeline/bgm-service';
-import { ROW } from '@/lib/pipeline/scene-to-editron';
+import { ROW, alignCutsToBeats } from '@/lib/pipeline/scene-to-editron';
 import { generateSFXForScenes } from '@/lib/pipeline/sfx-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { createPipelineWarnings } from '@/lib/editron/services/pipeline-warnings';
+import { analyzeBeatsFull } from '@/lib/editron/services/media/beat-detection-service';
 
 /**
  * Persist pipeline warnings from this worker run to the project doc.
@@ -167,6 +168,50 @@ async function handler(request: NextRequest) {
       );
 
       console.log(`[AudioWorker] BGM complete: ${bgm.audioAssetId} (${Date.now() - startMs}ms)`);
+      
+      // Phase A10 FIX: Use the alignCutsToBeats function as part of the "pipeline flow".
+      // This automatically snaps script-driven montage sub-shots to the beats of the 
+      // newly generated BGM.
+      try {
+        console.log(`[AudioWorker] Starting automatic beat alignment for montages...`);
+        const { AudioContext } = await import('node-web-audio-api');
+        const ctx = new AudioContext();
+        // Convert Node.js Buffer to ArrayBuffer for decoding
+        if (!bgm.buffer) throw new Error('No audio buffer returned from BGM generation');
+        const arrayBuffer = bgm.buffer.buffer.slice(bgm.buffer.byteOffset, bgm.buffer.byteOffset + bgm.buffer.byteLength) as ArrayBuffer;
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        await ctx.close();
+
+        const beatAnalysis = await analyzeBeatsFull(audioBuffer);
+        const beatFrames = beatAnalysis.beats.map(b => ({
+          frame: Math.round((b.timeMs / 1000) * fps),
+          isDownbeat: b.isDownbeat
+        }));
+
+        // Reload project to get latest overlays (after the BGM push above)
+        const updatedProject = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId }) as any;
+        if (updatedProject && updatedProject.overlays) {
+          const snappedCount = alignCutsToBeats(updatedProject.overlays, beatFrames, fps);
+          if (snappedCount > 0) {
+            await db.collection(COLLECTIONS.PROJECTS).updateOne(
+              { projectId },
+              { 
+                $set: { 
+                  overlays: updatedProject.overlays,
+                  updatedAt: new Date() 
+                } 
+              }
+            );
+            console.log(`[AudioWorker] Pipeline Flow: Aligned ${snappedCount} montage cuts to BGM beats`);
+          } else {
+            console.log(`[AudioWorker] Pipeline Flow: No montage cuts required alignment`);
+          }
+        }
+      } catch (alignErr: any) {
+        console.error(`[AudioWorker] Beat alignment enhancement failed: ${alignErr.message}`);
+        // Non-critical: do not persist as an error or fail the worker
+      }
+
       await persistWarnings(db, projectId, warnings);
       return NextResponse.json({ success: true, type: 'bgm', assetId: bgm.audioAssetId, warnings: warnings.getAll() });
 
