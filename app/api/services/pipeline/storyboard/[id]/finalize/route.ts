@@ -898,48 +898,51 @@ export async function POST(
     }
 
     if (isSFXAvailable() && currentFrame > 0) {
-      // SFX 3-chain Phase B3 fix (2026-04-20):
+      // SFX dispatch design (S-28, 2026-04-20 — corrects the over-reach of S-26):
       //
-      // Two bugs removed here — both confirmed against proj_-V4uKTjjM2vA log
-      // where zero `AudioWorker Processing sfx` logs appeared despite every
-      // scene having sfxDescription populated.
+      // ─── History ───
+      // S-26 removed the `!hasNativeAudio` filter, arguing "Three-Layer Sound
+      // Model says never leave a scene silent, so layer content SFX on every
+      // scene." User (correctly) pushed back: that over-mandated Freesound SFX
+      // on top of Seedance scenes that already had usable audio, creating
+      // over-layered muddy output. The doc's "never silent" rule is already
+      // satisfied when Seedance audio is present — even if imperfect. The
+      // right response to "Seedance audio is sometimes hallucinated speech"
+      // is to fix it AT SOURCE (via content-aware gating in the video-gen
+      // request), not to blanket-layer Freesound on every clip.
       //
-      // Bug #1 — `!hasNativeAudio` filter was dropping every Seedance scene.
-      //   Old assumption: "Seedance videos have embedded foley, don't need
-      //   content SFX." Empirical reality: Seedance 1.5 generates
-      //   hallucinated speech, NOT clean ambient foley, and this speech gets
-      //   chopped mid-sentence when we duration-cap clips. The assumption
-      //   failed in practice.
+      // S-28 restores the `!hasNativeAudio` filter. Content SFX dispatches
+      // only for scenes where the video clip has no usable native audio —
+      // i.e., Seedance was disabled, or the model was text-video-only (Kling,
+      // Veo, MiniMax, etc.), or future Mode 2/3 user-uploaded clips that
+      // arrive as mute tracks.
       //
-      //   Creative rationale (Rule 15, consulting creative_production_knowledge.md
-      //   §3 Three-Layer Sound Model, affirmed by Rule 19N domain-expert check):
-      //   ambient bed + spot SFX + feature SFX is the base level of
-      //   professional sound design. "Never leave a scene silent" is the rule.
-      //   A sound designer would NEVER rely on a video model's hallucinated
-      //   background to replace intentional ambient design. Content SFX at
-      //   0.3 volume complements; it does not overpower. If the video also
-      //   has usable native audio, layering still works (both play). If the
-      //   native audio is garbage, content SFX carries the scene.
+      // ─── Kept from S-26 (still right) ───
+      // The `audioDescription` music-leak fallback was a real bug, separate
+      // from the filter question. audioDescription mirrors musicDescription
+      // (schema deprecation note), so falling back to it routed music prompts
+      // to the SFX worker → Freesound searched for piano music → zero hits.
+      // S-28 keeps that removal — source only from sfxDescription and sfxCue.
       //
-      //   The separate Seedance dialogue-intent fix (on user's priority list,
-      //   next phase) will address the hallucinated-speech problem at the
-      //   source — disable native audio when the script didn't request it.
-      //   That fix is complementary, not a replacement for content SFX.
+      // ─── Per-scene ambient, not continuous ───
+      // creative_production_knowledge.md §3 says "ambient beds should be
+      // continuous — don't start/stop between cuts." That rule assumes a
+      // SINGLE-LOCATION scene or sequence. For montage across DIFFERENT
+      // settings (restaurant → train → park), ambient MUST vary by scene —
+      // continuous would be wrong. Per-scene SFX payload preserved here.
       //
-      // Bug #2 — audioDescription fallback held MUSIC content.
-      //   Per SceneDescriptor schema, audioDescription is DEPRECATED and now
-      //   mirrors musicDescription (kept for backward compat with old readers).
-      //   When sfxDescription and sfxCue were empty, the old code fell
-      //   through to audioDescription and dispatched a music prompt to the
-      //   SFX worker — which then tried Freesound/mirelo/CassetteAI with
-      //   music content and got zero usable results. Same bug as prefetch
-      //   route (fixed there in S-25). Dropping audioDescription from
-      //   fallback here too.
+      // ─── Modes 2/3 note ───
+      // When user-uploaded footage arrives (Phase C asset-centric path),
+      // `hasNativeAudio` currently only flags AI-gen models. A future
+      // extension should flag any clip with usable audio (user recording OR
+      // AI-gen). For now, this filter still handles the AI-gen case
+      // correctly; Mode 2/3 audio handling is its own architectural work.
       const sfxInputs = storyboard.scenes
         .filter(s => {
           const desc = s.descriptor as any;
           return (desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim());
         })
+        .filter(s => !(s as any).hasNativeAudio)
         .map(s => {
           const desc = s.descriptor as any;
           const frameInfo = sceneFrameMap.find(f => f.sceneIndex === s.sceneIndex);
@@ -948,19 +951,22 @@ export async function POST(
             || '';
           return {
             sceneIndex: s.sceneIndex,
-            audioDescription: sfxText, // Named audioDescription for backward compat with SFX worker's existing payload shape
+            audioDescription: sfxText, // named for SFX worker payload-shape compat
             videoUrl: s.videoUrl || undefined,
             durationSeconds: frameInfo?.durationSec ?? Math.min(s.descriptor.durationSeconds, 15),
           };
         });
 
+      const hasSfxIntent = storyboard.scenes.filter(s => {
+        const desc = s.descriptor as any;
+        return (desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim());
+      }).length;
+      const nativeAudioSceneCount = storyboard.scenes.filter(s => (s as any).hasNativeAudio).length;
+
       if (sfxInputs.length > 0) {
-        const nativeAudioSceneCount = storyboard.scenes.filter(s => (s as any).hasNativeAudio).length;
         console.log(
-          `[Finalize] Dispatching SFX worker: ${sfxInputs.length} scenes` +
-          (nativeAudioSceneCount > 0
-            ? ` (${nativeAudioSceneCount} have hasNativeAudio=true — previously filtered, now layered per Three-Layer Sound Model; native audio reliability is a separate concern handled at video-gen time)`
-            : ''),
+          `[Finalize] Dispatching SFX worker: ${sfxInputs.length} scenes ` +
+          `(from ${hasSfxIntent} with sfxDescription/sfxCue; ${nativeAudioSceneCount} skipped due to hasNativeAudio — those rely on the clip's own audio)`,
         );
         await dispatchAudio({
           type: 'sfx',
@@ -970,6 +976,12 @@ export async function POST(
           sfxInputs,
           sceneFrameMap,
         }, 'SFX');
+      } else if (hasSfxIntent > 0 && nativeAudioSceneCount > 0) {
+        console.log(
+          `[Finalize] SFX worker NOT dispatched — all ${hasSfxIntent} scene(s) with SFX intent have hasNativeAudio=true ` +
+          `(clip's own audio is the ambient bed; layering Freesound on top would over-mix). ` +
+          `If native audio is unreliable, fix that at the video-gen gate (C2 dialogue-intent work), not here.`,
+        );
       } else {
         console.log('[Finalize] SFX worker NOT dispatched — no scene has sfxDescription or sfxCue');
       }
