@@ -201,7 +201,15 @@ export async function executeEDL(
   // Only execute high-confidence decisions (>0.5)
   const minConfidence = DEFAULT_CONFIG.analysis.minConfidenceForDecisions;
   const actionable = edl.decisions.filter(d => d.confidence > minConfidence);
-  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement`);
+
+  // Sort by confidence DESCENDING so the best decisions survive budget limits.
+  // Previously: first-come-first-served (iteration order) meant a mediocre
+  // zoom at frame 10 consumed the budget, rejecting a better zoom at frame 200.
+  // Now: highest-confidence decisions always commit first. Budget becomes a
+  // quality FILTER (keeps top-K) not a position GATE (keeps first-K).
+  actionable.sort((a, b) => b.confidence - a.confidence);
+
+  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement, sorted by confidence`);
 
   // Deterministic epoch for overlay IDs — stable within this Director run, unique across runs.
   // Derived from projectId hash so the same EDL on the same project always produces the same IDs.
@@ -212,8 +220,17 @@ export async function executeEDL(
 
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
-    // Check budget BEFORE applying
-    const budgetResult = budget.evaluate(decision as any);
+
+    // Script-specified on-screen text BYPASSES budget. The user wrote this
+    // text in their script — budget should never reject explicit user content.
+    // Only LLM-generated graphics are budget-constrained.
+    const isScriptOnScreenText = decision.type === 'graphic'
+      && decision.sources?.includes('onScreenText-safety-net');
+
+    // Check budget BEFORE applying (skip for script on-screen text)
+    const budgetResult = isScriptOnScreenText
+      ? { allowed: true }
+      : budget.evaluate(decision as any);
     if (!budgetResult.allowed) {
       result.decisionsSkipped++;
       budgetRejected++;
