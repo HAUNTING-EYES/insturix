@@ -157,6 +157,21 @@ export async function executeDirectorPlan(
         }
 
         try {
+          // ── Step 0: Check user's media library for matching footage ──
+          // Surfaces existing footage that matches the scene description.
+          // Informational only (no auto-replacement) — future: offer swap in AI chat.
+          const sceneDescForSearch = storyboardScenes.find((s: any) => s.sceneIndex === (vo as any).metadata?.sceneIndex)?.visualDescription;
+          if (sceneDescForSearch) {
+            try {
+              const { findMatchingFootage } = await import('@/lib/editron/services/asset-search-service');
+              const match = await findMatchingFootage(userId, sceneDescForSearch, 0.75);
+              if (match) {
+                console.log(`[Director] Scene ${i}: matching footage found in library — ${match.assetId} (score=${match.score.toFixed(2)})`);
+                result.warnings.push(`Scene ${i}: user footage "${match.filename}" matches this scene (score=${match.score.toFixed(2)}) — consider reusing`);
+              }
+            } catch { /* non-fatal: no media assets or no Gemini key */ }
+          }
+
           // Check cache first
           let analysis = await getAnalysis(assetId);
           if (analysis) {
@@ -484,6 +499,33 @@ export async function executeDirectorPlan(
       .filter(action => checkCondition(action.condition, overlays))
       .sort((a, b) => a.order - b.order);
 
+    // ─── Step 2.5: Continuity analysis (pure, zero-cost) ─────
+    // Scores adjacent scene pairs to inform transition selection.
+    // Priority: script transition > KB M-002 > continuity > profile default.
+    let scenePairAnalysis: Array<{ sceneA: number; sceneB: number; score: { overall: number; visualSimilarity: number }; recommendedTransition: string; flagForReview: boolean }> = [];
+    const videoOverlaysForContinuity = overlays.filter((o: any) => o.type === 'video').sort((a: any, b: any) => a.from - b.from);
+    if (videoOverlaysForContinuity.length > 1 && storyboardScenes.length > 0) {
+      try {
+        const { analyzeAllScenePairs } = await import('@/lib/editron/services/continuity-service');
+        const scenesForContinuity = videoOverlaysForContinuity.map((vo: any, idx: number) => {
+          const sbScene = storyboardScenes.find((s: any) => s.sceneIndex === (vo.metadata?.sceneIndex ?? idx));
+          return {
+            sceneIndex: vo.metadata?.sceneIndex ?? idx,
+            visualDescription: sbScene?.visualDescription || '',
+            mood: sbScene?.mood || 'neutral',
+            colorPalette: [] as string[],
+            durationSeconds: (vo.durationInFrames || 150) / 30,
+          };
+        });
+        scenePairAnalysis = analyzeAllScenePairs(scenesForContinuity);
+        const flagged = scenePairAnalysis.filter(p => p.flagForReview).length;
+        console.log(`[Director] Continuity: ${scenePairAnalysis.length} pairs analyzed${flagged ? `, ${flagged} flagged for review` : ''}`);
+        if (flagged) result.warnings.push(`Continuity: ${flagged} scene pair(s) have low continuity (overall < 0.40)`);
+      } catch (contErr: any) {
+        console.warn(`[Director] Continuity analysis failed (non-fatal): ${contErr.message}`);
+      }
+    }
+
     const totalSteps = actions.length;
     onProgress?.(0, totalSteps, 'Starting Director Agent execution...');
 
@@ -493,7 +535,7 @@ export async function executeDirectorPlan(
       onProgress?.(i + 1, totalSteps, action.description);
 
       try {
-        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes);
+        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis);
         result.overlaysModified += modified;
         result.actionsExecuted++;
 
@@ -685,6 +727,7 @@ async function executeAction(
   projectId: string,
   profile: EditProfile,
   storyboardScenes: any[] = [],
+  scenePairAnalysis: Array<{ sceneA: number; sceneB: number; score: { overall: number; visualSimilarity: number }; recommendedTransition: string; flagForReview: boolean }> = [],
 ): Promise<number> {
   let modified = 0;
 
@@ -1018,8 +1061,21 @@ async function executeAction(
           effectiveDuration = sceneTransDuration || 600;
           console.log(`[Director] add_transition: boundary ${i}→${i+1}: montage edge (${sceneAType}→${sceneBType}), ${effectiveType} per KB M-002/T-022`);
         } else {
-          effectiveType = sceneTransType || transType;
-          effectiveDuration = sceneTransDuration || action.params.durationMs || 500;
+          // Priority: script transition > continuity recommendation > profile default
+          const pairAnalysis = scenePairAnalysis.find(
+            p => p.sceneA === clipASceneIndex && p.sceneB === clipBSceneIndex
+          );
+          if (sceneTransType) {
+            effectiveType = sceneTransType;
+            effectiveDuration = sceneTransDuration || action.params.durationMs || 500;
+          } else if (pairAnalysis) {
+            effectiveType = pairAnalysis.recommendedTransition;
+            effectiveDuration = action.params.durationMs || 500;
+            console.log(`[Director] add_transition: boundary ${i}→${i+1}: continuity-informed ${effectiveType} (score=${pairAnalysis.score.overall.toFixed(2)})`);
+          } else {
+            effectiveType = transType;
+            effectiveDuration = action.params.durationMs || 500;
+          }
         }
 
         try {
