@@ -502,7 +502,7 @@ export async function executeDirectorPlan(
     // ─── Step 2.5: Continuity analysis (pure, zero-cost) ─────
     // Scores adjacent scene pairs to inform transition selection.
     // Priority: script transition > KB M-002 > continuity > profile default.
-    let scenePairAnalysis: Array<{ sceneA: number; sceneB: number; score: { overall: number; visualSimilarity: number }; recommendedTransition: string; flagForReview: boolean }> = [];
+    let scenePairAnalysis: Array<{ sceneA: number; sceneB: number; score: { overall: number; visualSimilarity: number; energyMatch?: number }; recommendedTransition: string; flagForReview: boolean }> = [];
     const videoOverlaysForContinuity = overlays.filter((o: any) => o.type === 'video').sort((a: any, b: any) => a.from - b.from);
     if (videoOverlaysForContinuity.length > 1 && storyboardScenes.length > 0) {
       try {
@@ -727,7 +727,7 @@ async function executeAction(
   projectId: string,
   profile: EditProfile,
   storyboardScenes: any[] = [],
-  scenePairAnalysis: Array<{ sceneA: number; sceneB: number; score: { overall: number; visualSimilarity: number }; recommendedTransition: string; flagForReview: boolean }> = [],
+  scenePairAnalysis: Array<{ sceneA: number; sceneB: number; score: { overall: number; visualSimilarity: number; energyMatch?: number }; recommendedTransition: string; flagForReview: boolean }> = [],
 ): Promise<number> {
   let modified = 0;
 
@@ -1069,7 +1069,17 @@ async function executeAction(
             effectiveType = sceneTransType;
             effectiveDuration = sceneTransDuration || action.params.durationMs || 500;
           } else if (pairAnalysis) {
-            effectiveType = pairAnalysis.recommendedTransition;
+            let contType = pairAnalysis.recommendedTransition;
+            // KB T-012 (WEIGHT 9): NEVER dissolve between contrasting moods.
+            // soft-cut IS a dissolve variant. If energy match is low (<0.4),
+            // moods are contrasting → force hard-cut instead of soft-cut/dissolve.
+            const contrastingMoods = pairAnalysis.score.energyMatch !== undefined
+              && pairAnalysis.score.energyMatch < 0.4;
+            if (contrastingMoods && (contType === 'soft-cut' || contType === 'dissolve')) {
+              contType = 'hard-cut';
+              console.log(`[Director] add_transition: boundary ${i}→${i+1}: T-012 override, contrasting moods → hard-cut`);
+            }
+            effectiveType = contType;
             effectiveDuration = action.params.durationMs || 500;
             console.log(`[Director] add_transition: boundary ${i}→${i+1}: continuity-informed ${effectiveType} (score=${pairAnalysis.score.overall.toFixed(2)})`);
           } else {
