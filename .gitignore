@@ -55,3 +55,16 @@ migrations/gcp-account-switch/secrets/
 
 # Local reference repos (vendored open-source projects for inspiration, not shipped)
 reference-repos/
+
+# IDE / agent config (personal, not shipped)
+.claude/plans/
+.claude/settings.json
+.claude/skills/
+.cursor/
+.opencode.json
+
+# Dev-only scripts (debug/test helpers, not shipped)
+scripts/TEST_SCRIPT_COMPREHENSIVE.md
+scripts/audit-orphans.py
+scripts/debug-proj.mjs
+scripts/debug-proj-storyboard.mjs
