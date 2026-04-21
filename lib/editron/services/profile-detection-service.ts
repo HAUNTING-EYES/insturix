@@ -287,13 +287,16 @@ export function detectProfile(metadata: ThinkForgeMetadata): DetectionResult[] {
   // Sort by confidence descending
   results.sort((a, b) => b.confidence - a.confidence);
 
-  // Fallback: if LLM category filtering produced zero results (LLM picked wrong category
-  // OR no keywords in that category match the script), re-score ALL profiles. This ensures
-  // we never return an empty list due to a bad LLM category suggestion. Rule 16 graceful
-  // degradation — LLM filter is a quality boost, not a gate.
-  if (results.length === 0 && suggestedCategory && candidateProfiles.length < allProfiles.length) {
+  // Fallback: if LLM category filtering produced zero results OR only low-confidence
+  // matches (< 0.30), re-score ALL profiles. This catches the case where the LLM
+  // categorizes "McDonald's brand ad for Instagram" as platform-native when the
+  // content is actually narrative-mode (E-04 Brand Narrative). A 15% match on A-02
+  // YouTube Short should not win when E-04 would score 60%+.
+  // Rule 16 graceful degradation — LLM filter is a quality boost, not a gate.
+  const topCategoryScore = results.length > 0 ? results[0].confidence : 0;
+  if ((results.length === 0 || topCategoryScore < 0.30) && suggestedCategory && candidateProfiles.length < allProfiles.length) {
     console.warn(
-      `[ProfileDetection] Category "${suggestedCategory}" produced 0 results — ` +
+      `[ProfileDetection] Category "${suggestedCategory}" produced ${results.length === 0 ? '0 results' : `weak top score (${(topCategoryScore * 100).toFixed(0)}%)`} — ` +
       `falling back to all ${allProfiles.length} profiles`
     );
     for (const profile of allProfiles) {
