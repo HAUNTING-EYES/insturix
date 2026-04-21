@@ -240,35 +240,42 @@ export function detectProfile(metadata: ThinkForgeMetadata): DetectionResult[] {
   const signals = extractSignals(metadata);
   const modifiers = detectModifiers(signals);
 
-  // ─── LLM category filter (2026-04-17 — eliminates cross-category false positives) ──
-  // When the parser output includes suggestedProfileCategory (an LLM semantic read of the
-  // script), ONLY score profiles within that category. This prevents "screen" in "On-Screen
-  // Text" from matching F-03 (Screen Demo) when the content is actually an athletic brand ad.
+  // ─── LLM category as BOOST, not filter (revised 2026-04-22) ──
+  // OLD (b0e142f2): LLM category FILTERED profiles — only scored within
+  // suggested category. Broke for brand ads mentioning "Instagram" (LLM
+  // picked platform-native, excluded narrative-mode E-04).
   //
-  // Fallback: if category is absent (old parser output), score ALL profiles (current behavior).
-  // If category filtering produces zero results (LLM picked wrong category and no profile
-  // within it matches), also fall back to scoring all profiles.
+  // NEW: score ALL 54 profiles always. LLM category adds a BONUS (+0.25)
+  // to matching profiles. This way a good match in the "wrong" category
+  // still wins, but the LLM's semantic read gives a tiebreaker edge.
+  // Vision §1: rule-driven scoring (deterministic) + LLM as boost (not gate).
   const suggestedCategory = metadata.suggestedProfileCategory?.toLowerCase().trim();
   const allProfiles = Object.values(EDIT_PROFILES);
-  const candidateProfiles = suggestedCategory
-    ? allProfiles.filter(p => p.category === suggestedCategory)
-    : allProfiles;
+  const CATEGORY_BOOST = 0.25;
 
   if (suggestedCategory) {
     console.log(
       `[ProfileDetection] LLM suggested category: "${suggestedCategory}" → ` +
-      `${candidateProfiles.length} candidate profiles (of ${allProfiles.length} total)`
+      `applied as +${CATEGORY_BOOST} boost (scoring all ${allProfiles.length} profiles)`
     );
   }
 
   const results: DetectionResult[] = [];
 
-  // Score candidate profiles (filtered by LLM category if available)
-  for (const profile of candidateProfiles) {
-    const confidence = scoreProfile(profile, signals);
-    if (confidence < DETECTION.minConfidenceThreshold) continue; // Skip zero-match profiles
+  for (const profile of allProfiles) {
+    let confidence = scoreProfile(profile, signals);
+
+    // Category boost: if LLM agrees with the profile's category, bump score
+    if (suggestedCategory && profile.category === suggestedCategory) {
+      confidence = Math.min(1, confidence + CATEGORY_BOOST);
+    }
+
+    if (confidence < DETECTION.minConfidenceThreshold) continue;
 
     const reasoning: string[] = [];
+    if (suggestedCategory && profile.category === suggestedCategory) {
+      reasoning.push(`LLM category match "${suggestedCategory}" (+${CATEGORY_BOOST})`);
+    }
     for (const kw of profile.signalKeywords) {
       const fieldText = signals[kw.field as keyof ExtractedSignals];
       if (typeof fieldText === 'string' && fieldText.includes(kw.term.toLowerCase())) {
@@ -287,33 +294,10 @@ export function detectProfile(metadata: ThinkForgeMetadata): DetectionResult[] {
   // Sort by confidence descending
   results.sort((a, b) => b.confidence - a.confidence);
 
-  // Fallback: if LLM category filtering produced zero results OR only low-confidence
-  // matches (< 0.30), re-score ALL profiles. This catches the case where the LLM
-  // categorizes "McDonald's brand ad for Instagram" as platform-native when the
-  // content is actually narrative-mode (E-04 Brand Narrative). A 15% match on A-02
-  // YouTube Short should not win when E-04 would score 60%+.
-  // Rule 16 graceful degradation — LLM filter is a quality boost, not a gate.
-  const topCategoryScore = results.length > 0 ? results[0].confidence : 0;
-  if ((results.length === 0 || topCategoryScore < 0.30) && suggestedCategory && candidateProfiles.length < allProfiles.length) {
-    console.warn(
-      `[ProfileDetection] Category "${suggestedCategory}" produced ${results.length === 0 ? '0 results' : `weak top score (${(topCategoryScore * 100).toFixed(0)}%)`} — ` +
-      `falling back to all ${allProfiles.length} profiles`
-    );
-    for (const profile of allProfiles) {
-      if (candidateProfiles.includes(profile)) continue; // Already scored
-      const confidence = scoreProfile(profile, signals);
-      if (confidence < DETECTION.minConfidenceThreshold) continue;
-      const reasoning: string[] = [];
-      for (const kw of profile.signalKeywords) {
-        const fieldText = signals[kw.field as keyof ExtractedSignals];
-        if (typeof fieldText === 'string' && fieldText.includes(kw.term.toLowerCase())) {
-          reasoning.push(`"${kw.term}" found in ${kw.field} (+${kw.weight.toFixed(2)})`);
-        }
-      }
-      results.push({ profileId: profile.profileId, confidence, reasoning, suggestedModifiers: modifiers });
-    }
-    results.sort((a, b) => b.confidence - a.confidence);
-  }
+  // No fallback block needed — we now score ALL profiles always (category is
+  // a boost, not a filter). The old filter+fallback approach was removed because
+  // it broke for scripts mentioning target platforms (McDonald's + "Instagram"
+  // → LLM picked platform-native → E-04 Brand Narrative excluded).
 
   return results;
 }
