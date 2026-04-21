@@ -26,6 +26,7 @@ import type { ExtractedSubject } from './llm-scene-parser';
 import { IMAGE_MODELS, type ImageModelKey } from './storyboard-service';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { falRetry } from './fal-retry';
+import { IMAGE_MODEL_REGISTRY, getImageModelConfig, buildImageInputFromConfig } from './adapters/image-model-configs';
 
 // Configure fal.ai
 let _falConfigured = false;
@@ -179,43 +180,26 @@ function buildBasicPrompt(
 // ─── Per-model input adaptation ─────────────────────────────────
 // Different fal.ai models expect different input shapes.
 
+// OLD: hardcoded if/else chain that only knew flux/imagen/seedream/recraft.
+// Sent `image_size: {width,height}` to Nano Banana which needs `aspect_ratio`
+// + `resolution` → fal.ai rejected with 500. The "bag" succeeded only because
+// it fell through to the flux/schnell fallback chain.
+// NEW: delegates to the same adapter config system storyboard-service uses.
 function buildModelInput(
   modelId: string,
   prompt: string,
 ): Record<string, any> {
-  const base: Record<string, any> = {
+  const configEntry = Object.values(IMAGE_MODEL_REGISTRY).find(c => c.endpoint === modelId);
+  if (configEntry) {
+    return buildImageInputFromConfig(configEntry, prompt, '', 1024, 1024);
+  }
+  // Fallback for unregistered models (flux-dev, flux-schnell not in registry)
+  return {
     prompt,
     num_images: 1,
     enable_safety_checker: false,
+    image_size: { width: 1024, height: 1024 },
   };
-
-  // Flux models
-  if (modelId.includes('flux')) {
-    base.image_size = { width: 1024, height: 1024 };
-    return base;
-  }
-
-  // Imagen 4
-  if (modelId.includes('imagen')) {
-    base.image_size = { width: 1024, height: 1024 };
-    return base;
-  }
-
-  // Seedream
-  if (modelId.includes('seedream')) {
-    base.image_size = { width: 1024, height: 1024 };
-    return base;
-  }
-
-  // Recraft V3
-  if (modelId.includes('recraft')) {
-    base.image_size = { width: 1024, height: 1024 };
-    return base;
-  }
-
-  // Default
-  base.image_size = { width: 1024, height: 1024 };
-  return base;
 }
 
 // ─── Core Generation ────────────────────────────────────────────
