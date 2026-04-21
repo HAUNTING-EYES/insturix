@@ -996,7 +996,7 @@ export async function POST(
     // NOT here — because videos aren't ready yet at finalize time.
     // We store the profile detection result so the video worker can use it.
     try {
-      const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
+      const { getAutoSelectedProfileWithEmbeddings, getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
       // Bundle 3 (2026-04-08) fix: previously this object was a FLAT pre-extracted-signals
       // shape (narration: "...", visual: "...") which does NOT match the ThinkForgeMetadata
       // interface getAutoSelectedProfile() expects (`scenes: Array<{...}>`). The function's
@@ -1026,7 +1026,8 @@ export async function POST(
         // eliminating cross-category false positives (e.g., Nike ≠ Screen Demo).
         suggestedProfileCategory: (storyboard as any).suggestedProfileCategory || undefined,
       };
-      const { profile: detectedProfile, autoSelected, detection } = getAutoSelectedProfile(thinkforgeMetadata);
+      // Use embedding-enhanced detection (async, Gemini API). Falls back to keyword-only if unavailable.
+      const { profile: detectedProfile, autoSelected, detection } = await getAutoSelectedProfileWithEmbeddings(thinkforgeMetadata).catch(() => getAutoSelectedProfile(thinkforgeMetadata));
       console.log(`[Finalize] Profile detection: ${detectedProfile.profileId} confidence=${detection.confidence.toFixed(2)} auto=${autoSelected} reasoning=[${detection.reasoning.slice(0, 3).join('; ')}]`);
       const profileId = detectedProfile.profileId;
       // Store on project so video worker can dispatch Director with correct profile

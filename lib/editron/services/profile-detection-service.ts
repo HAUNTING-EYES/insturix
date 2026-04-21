@@ -19,6 +19,15 @@ import { EDIT_PROFILES } from '@/lib/editron/data/edit-profiles';
 import type { EditProfile, ProfileId, DetectionResult, ModifierId } from '@/lib/editron/data/edit-profile-types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
+// ─── Semantic Embedding Cache ────────────────────────────────────
+// Pre-computed embeddings for all 54 profiles. Built once per process,
+// reused across all detection calls. Profile text = name + description
+// + category + all signal keyword terms (the full semantic identity).
+// Uses Gemini text-embedding-004 (same model as asset-search-service).
+
+let profileEmbeddingCache: Map<string, number[]> | null = null;
+let embeddingInitPromise: Promise<void> | null = null;
+
 // Scoring constants pulled from editron-config.ts (Rule A6 — one source of truth).
 // Full rationale + tuning guidance in ProfileDetectionConfig interface definition.
 const DETECTION = DEFAULT_CONFIG.profileDetection;
@@ -342,4 +351,201 @@ export function getAutoSelectedProfile(metadata: ThinkForgeMetadata): {
     autoSelected: top.confidence >= DETECTION.autoSelectConfidence,
     suggestionsNeeded: top.confidence < DETECTION.autoSelectConfidence,
   };
+}
+
+// ─── Semantic Embedding Functions ────────────────────────────────
+
+/** Build a semantic text string for a profile (used as embedding input). */
+function profileToText(profile: EditProfile): string {
+  const keywords = profile.signalKeywords.map(k => k.term).join(', ');
+  return `${profile.name}. ${profile.description}. Category: ${profile.category}. Keywords: ${keywords}`;
+}
+
+/** Build a semantic text string from script metadata (used as embedding input). */
+function metadataToText(metadata: ThinkForgeMetadata): string {
+  const scenes = metadata.scenes || [];
+  const narration = scenes.map(s => s.narration || '').filter(Boolean).join(' ').substring(0, 500);
+  const visuals = scenes.map(s => s.visualDescription || '').filter(Boolean).join(' ').substring(0, 500);
+  const mood = scenes.map(s => s.mood || '').filter(Boolean).join(', ');
+  const title = metadata.title || '';
+  const music = metadata.overallMusicPrompt || metadata.globalEditDirections?.musicMood || '';
+  return `${title}. ${narration}. Visuals: ${visuals}. Mood: ${mood}. Music: ${music}`.trim();
+}
+
+/** Embed a single text string using Gemini text-embedding-004. Returns null on failure. */
+async function embedText(text: string): Promise<number[] | null> {
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
+    if (!apiKey) return null;
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    const result = await model.embedContent(text);
+    return result.embedding?.values || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Cosine similarity between two vectors. */
+function cosineSim(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+/**
+ * Initialize profile embeddings cache. Called once, deduped via promise.
+ * Embeds all 54 profiles in parallel (batches of 8 to avoid rate limits).
+ */
+async function initProfileEmbeddings(): Promise<void> {
+  if (profileEmbeddingCache) return;
+  profileEmbeddingCache = new Map();
+
+  const profiles = Object.values(EDIT_PROFILES);
+  const BATCH = 8;
+
+  for (let i = 0; i < profiles.length; i += BATCH) {
+    const batch = profiles.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      batch.map(async (p) => {
+        const text = profileToText(p);
+        const emb = await embedText(text);
+        return { id: p.profileId, emb };
+      }),
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.emb) {
+        profileEmbeddingCache.set(r.value.id, r.value.emb);
+      }
+    }
+  }
+
+  console.log(`[ProfileDetection] Embedded ${profileEmbeddingCache.size}/${profiles.length} profiles`);
+}
+
+/**
+ * Score profiles using semantic embedding similarity.
+ * Returns a Map of profileId → similarity score (0-1).
+ * Falls back to empty map if embeddings unavailable.
+ */
+/**
+ * Async variant of detectProfile that blends keyword scores with
+ * semantic embedding similarity. Use server-side only (requires Gemini API).
+ *
+ * Blending: keyword * 0.6 + semantic * 0.4
+ * If embeddings unavailable, falls back to keyword-only (same as detectProfile).
+ */
+export async function detectProfileWithEmbeddings(metadata: ThinkForgeMetadata): Promise<DetectionResult[]> {
+  // Start with keyword-based detection (always available, zero-cost)
+  const keywordResults = detectProfile(metadata);
+
+  // Try semantic scoring (may fail gracefully)
+  const semanticScores = await scoreProfilesBySemantic(metadata);
+  if (semanticScores.size === 0) return keywordResults;
+
+  // Blend keyword and semantic scores
+  const KEYWORD_WEIGHT = 0.6;
+  const SEMANTIC_WEIGHT = 0.4;
+
+  for (const result of keywordResults) {
+    const semScore = semanticScores.get(result.profileId) || 0;
+    // Normalize semantic score: cosine similarity for text embeddings is typically
+    // 0.5-1.0 range (rarely negative). Scale 0.5-1.0 → 0-1 for fair blending.
+    const normalizedSem = Math.max(0, Math.min(1, (semScore - 0.5) * 2));
+    const blended = result.confidence * KEYWORD_WEIGHT + normalizedSem * SEMANTIC_WEIGHT;
+    result.confidence = Math.min(1, blended);
+    if (normalizedSem > 0.3) {
+      result.reasoning.push(`Semantic similarity: ${(normalizedSem * 100).toFixed(0)}%`);
+    }
+  }
+
+  // Also check profiles that keyword scoring missed but semantic scoring found
+  const keywordProfileIds = new Set(keywordResults.map(r => r.profileId));
+  for (const [profileId, semScore] of semanticScores) {
+    if (keywordProfileIds.has(profileId as ProfileId)) continue;
+    const normalizedSem = Math.max(0, Math.min(1, (semScore - 0.5) * 2));
+    if (normalizedSem < 0.3) continue; // Too weak to surface
+
+    const profile = EDIT_PROFILES[profileId as ProfileId];
+    if (!profile) continue;
+
+    keywordResults.push({
+      profileId: profileId as ProfileId,
+      confidence: normalizedSem * SEMANTIC_WEIGHT, // No keyword score, only semantic
+      reasoning: [`Semantic-only match: ${(normalizedSem * 100).toFixed(0)}%`],
+      suggestedModifiers: detectModifiers(extractSignals(metadata)),
+    });
+  }
+
+  keywordResults.sort((a, b) => b.confidence - a.confidence);
+  return keywordResults;
+}
+
+/**
+ * Async variant of getAutoSelectedProfile that uses semantic embeddings.
+ * Falls back to keyword-only if embeddings fail.
+ */
+export async function getAutoSelectedProfileWithEmbeddings(metadata: ThinkForgeMetadata): Promise<{
+  profile: EditProfile;
+  detection: DetectionResult;
+  autoSelected: boolean;
+  suggestionsNeeded: boolean;
+}> {
+  const results = await detectProfileWithEmbeddings(metadata);
+  const top = results[0];
+
+  if (!top || top.confidence < DETECTION.minConfidenceThreshold) {
+    return {
+      profile: EDIT_PROFILES['G-01'],
+      detection: { profileId: 'G-01', confidence: 0, reasoning: ['No signal data available — defaulting to Universal Clean'], suggestedModifiers: [] },
+      autoSelected: false,
+      suggestionsNeeded: true,
+    };
+  }
+
+  return {
+    profile: EDIT_PROFILES[top.profileId],
+    detection: top,
+    autoSelected: top.confidence >= DETECTION.autoSelectConfidence,
+    suggestionsNeeded: top.confidence < DETECTION.autoSelectConfidence,
+  };
+}
+
+export async function scoreProfilesBySemantic(
+  metadata: ThinkForgeMetadata,
+): Promise<Map<string, number>> {
+  const scores = new Map<string, number>();
+
+  try {
+    // Initialize profile embeddings (deduped, only runs once)
+    if (!embeddingInitPromise) {
+      embeddingInitPromise = initProfileEmbeddings();
+    }
+    await embeddingInitPromise;
+
+    if (!profileEmbeddingCache || profileEmbeddingCache.size === 0) return scores;
+
+    const scriptText = metadataToText(metadata);
+    if (!scriptText || scriptText.length < 10) return scores;
+
+    const scriptEmb = await embedText(scriptText);
+    if (!scriptEmb) return scores;
+
+    for (const [profileId, profileEmb] of profileEmbeddingCache) {
+      scores.set(profileId, cosineSim(scriptEmb, profileEmb));
+    }
+
+    console.log(`[ProfileDetection] Semantic scores computed for ${scores.size} profiles`);
+  } catch (err: any) {
+    console.warn(`[ProfileDetection] Semantic scoring failed (non-fatal): ${err.message}`);
+  }
+
+  return scores;
 }
