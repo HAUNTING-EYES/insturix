@@ -17,6 +17,7 @@ import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
+import { searchAndDownloadSFX, isSFXLibraryAvailable } from '@/lib/pipeline/sfx-library-service';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -215,6 +216,24 @@ export async function executeEDL(
   // Derived from projectId hash so the same EDL on the same project always produces the same IDs.
   const idEpoch = Math.floor(Date.now() / 1000);
 
+  // Pre-resolve unique SFX tokens so the decision loop doesn't make
+  // per-decision API calls. One Freesound search per unique token.
+  const sfxCache = new Map<string, { audioUrl: string; audioAssetId: string; durationMs: number } | null>();
+  if (isSFXLibraryAvailable()) {
+    const sfxDecisions = actionable.filter(d => d.type === 'sfx-trigger');
+    const uniqueTokens = new Set(sfxDecisions.map(d => (d as any).params?.sfxType).filter(Boolean));
+    for (const token of uniqueTokens) {
+      try {
+        const result = await searchAndDownloadSFX(token as string, userId, 3);
+        sfxCache.set(token as string, result ? { audioUrl: result.audioUrl, audioAssetId: result.audioAssetId, durationMs: result.durationMs } : null);
+        console.log(`[EDL-Exec] SFX pre-resolve: "${token}" → ${result ? 'found' : 'null'}`);
+      } catch (err: any) {
+        sfxCache.set(token as string, null);
+        console.warn(`[EDL-Exec] SFX pre-resolve failed for "${token}": ${err.message}`);
+      }
+    }
+  }
+
   let budgetRejected = 0;
   let decisionIndex = 0;
 
@@ -252,7 +271,7 @@ export async function executeEDL(
         const altBudgetResult = budget.evaluate(altDecision as any);
         if (altBudgetResult.allowed) {
           try {
-            const applied = await applyDecision(altDecision as EditDecision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex + 100000);
+            const applied = await applyDecision(altDecision as EditDecision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex + 100000, sfxCache);
             if (applied) {
               budget.commit(altDecision as any);
               result.decisionsExecuted++;
@@ -267,7 +286,7 @@ export async function executeEDL(
     }
 
     try {
-      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex);
+      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache);
       if (applied) {
         budget.commit(decision as any);
         result.decisionsExecuted++;
@@ -308,6 +327,7 @@ async function applyDecision(
   analyses?: Map<string, any>,
   idEpoch: number = 0,
   decisionIndex: number = 0,
+  sfxCache?: Map<string, { audioUrl: string; audioAssetId: string; durationMs: number } | null>,
 ): Promise<{ created: number; modified: number } | null> {
 
   switch (decision.type) {
@@ -346,10 +366,34 @@ async function applyDecision(
       // Caption emphasis is handled by Director's add_captions step with word-level timing
       return null;
 
-    case 'sfx-trigger':
-      // SFX triggers are informational — the SFX worker already placed sounds during finalize.
-      // Future: could adjust volume/timing of existing SFX overlays at this frame.
-      return null;
+    case 'sfx-trigger': {
+      const sfxType = (decision as any).params?.sfxType as string | undefined;
+      if (!sfxType || !sfxCache) return null;
+      const cached = sfxCache.get(sfxType);
+      if (!cached) return null;
+
+      const fps = DEFAULT_CONFIG.timing.fps;
+      const sfxDurFrames = Math.min(Math.round((cached.durationMs / 1000) * fps), 90);
+      const sfxId = deterministicOverlayId(idEpoch, 'sfx-trigger', decision.frame, decisionIndex);
+
+      overlays.push({
+        id: sfxId,
+        type: 'sound',
+        from: decision.frame,
+        durationInFrames: sfxDurFrames,
+        row: ROW.SFX,
+        left: 0, top: 0, width: 0, height: 0,
+        isDragging: false, rotation: 0,
+        content: cached.audioUrl,
+        src: cached.audioUrl,
+        assetId: cached.audioAssetId,
+        styles: { volume: 0.25, opacity: 1 },
+        metadata: { source: 'edl-sfx-trigger', sfxType },
+      } as any);
+
+      console.log(`[EDL-Exec] sfx-trigger: placed "${sfxType}" at frame ${decision.frame}`);
+      return { created: 1, modified: 0 };
+    }
 
     case 'camera-shake':
       return applyCameraShake(decision, overlays, canvas);
