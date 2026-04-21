@@ -1145,10 +1145,23 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
     // SceneEditDirectionsSchema (llm-scene-parser.ts:20-26). Enum drift
     // here would silently fail downstream — if you add a pattern, verify
     // the target is in that enum.
+    // PACING keywords describe within-scene editing rhythm ("rapid cuts",
+    // "quick cuts", "dynamic cuts"). These set editDirections.pacing, NOT
+    // editDirections.transition. A montage with "rapid cuts" between its
+    // sub-shots should still dissolve INTO the montage from the previous scene.
+    // McDonald's bug (2026-04-21): "QUICK CUT" shot prefixes + "Rapid cuts"
+    // camera direction were setting hard-cut on EVERY scene boundary → zero
+    // dissolves in a nostalgic brand ad. Rule 19N: a film editor uses "rapid
+    // cuts" to describe pacing, not the transition into the scene.
+    const PACING_KEYWORDS: Array<{ re: RegExp; pacing: string; label: string }> = [
+      { re: /\b(?:rapid|quick|fast)\s+cuts?\b/i,              pacing: 'fast',    label: 'rapid/quick cuts' },
+      { re: /\bdynamic(?:,?\s*quick[-\s]?paced)?\s+cuts?\b/i, pacing: 'fast',    label: 'dynamic/quick-paced cuts' },
+      { re: /\bslow\s+(?:reveal|movement|push|zoom)\b/i,      pacing: 'slow',    label: 'slow reveal/movement' },
+      { re: /\bsmooth(?:,?\s*slightly)?\s+slower\b/i,          pacing: 'slow',    label: 'smooth/slower' },
+    ];
+
     const TRANSITION_KEYWORD_PATTERNS: Array<{ re: RegExp; type: string; durationMs: number; label: string }> = [
-      // Multi-word specific (match before single-word fallbacks)
-      { re: /\b(?:rapid|quick|fast)\s+cuts?\b/i,              type: 'hard-cut',      durationMs: 0,   label: 'rapid/quick cuts' },
-      { re: /\bdynamic(?:,?\s*quick[-\s]?paced)?\s+cuts?\b/i, type: 'hard-cut',      durationMs: 0,   label: 'dynamic/quick-paced cuts' },
+      // Actual transition types (between scenes, not within-scene pacing)
       { re: /\bhard\s+cuts?\b/i,                              type: 'hard-cut',      durationMs: 0,   label: 'hard cut' },
       { re: /\bsmash\s+cut\b/i,                               type: 'smash-cut',     durationMs: 0,   label: 'smash cut' },
       { re: /\bmatch\s+cut\b/i,                               type: 'match-cut',     durationMs: 0,   label: 'match cut' },
@@ -1201,10 +1214,34 @@ ${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters.
       const nextScenePos = i + 1 < object.scenes.length ? sceneScriptPositions[i + 1] : scriptText.length;
       const sceneChunk = scriptText.substring(Math.max(0, scenePos), nextScenePos);
 
-      // Find the first matching keyword pattern in this scene's chunk
+      // ── Pacing extraction (separate from transitions) ──
+      // "Rapid cuts" / "quick cuts" / "dynamic cuts" describe within-scene
+      // editing rhythm, NOT the transition INTO the scene. Set pacing field.
+      if (!scene.editDirections) scene.editDirections = {};
+      for (const pk of PACING_KEYWORDS) {
+        if (pk.re.test(sceneChunk)) {
+          if (!scene.editDirections.pacing || scene.editDirections.pacing === 'medium') {
+            scene.editDirections.pacing = pk.pacing;
+          }
+          break;
+        }
+      }
+
+      // ── Transition extraction ──
+      // Only matches ACTUAL transition types (dissolve, fade to black, etc.)
+      // NOT pacing descriptions (rapid cuts, quick cuts — those are above).
+      //
+      // Also skip "QUICK CUT:" shot prefixes (e.g., "Shot 2: QUICK CUT: ...")
+      // — these describe how to enter a specific shot, not a scene transition.
+      // We detect this by checking if the match is immediately preceded by
+      // "Shot" + number + colon, which is a shot-prefix pattern.
       let match: { type: string; durationMs: number; label: string } | null = null;
       for (const pat of TRANSITION_KEYWORD_PATTERNS) {
-        if (pat.re.test(sceneChunk)) {
+        const m = pat.re.exec(sceneChunk);
+        if (m) {
+          // Check if this is a shot prefix like "Shot 2: QUICK CUT:" — skip
+          const beforeMatch = sceneChunk.substring(Math.max(0, m.index - 20), m.index);
+          if (/shot\s+\d+\s*:\s*$/i.test(beforeMatch)) continue;
           match = { type: pat.type, durationMs: pat.durationMs, label: pat.label };
           break;
         }

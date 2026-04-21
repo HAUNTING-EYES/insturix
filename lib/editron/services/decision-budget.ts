@@ -125,7 +125,20 @@ export class DecisionBudget {
     this.fps = fps;
     this.totalFrames = Math.round((totalDurationMs / 1000) * fps);
     this.durationScale = Math.max(1, totalDurationMs / 30000);
-    this.BUDGETS = { ...DecisionBudget.KB_DEFAULTS, ...profileOverrides };
+
+    // Short-form adjustment: videos ≤45s get relaxed graphic spacing.
+    // KB G-002 baseline (90 frames = 3s gap) was designed for 2+ min videos.
+    // A 30s ad with 17 clips averages 53 frames/clip — 90-frame gap means
+    // most on-screen text gets rejected. Scale gap proportionally but floor
+    // at 45 frames (1.5s) to avoid visual clutter.
+    const shortFormOverrides: Partial<BudgetLimits> = {};
+    if (totalDurationMs <= 45000) {
+      const scaleFactor = Math.max(0.5, totalDurationMs / 60000);
+      shortFormOverrides.KEYWORD_MIN_GAP_FRAMES = Math.max(45, Math.round(90 * scaleFactor));
+      shortFormOverrides.GRAPHIC_BREATHING_FRAMES = Math.max(20, Math.round(45 * scaleFactor));
+    }
+
+    this.BUDGETS = { ...DecisionBudget.KB_DEFAULTS, ...shortFormOverrides, ...profileOverrides };
   }
 
   /**
