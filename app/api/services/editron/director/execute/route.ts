@@ -14,7 +14,11 @@ import { executeDirectorPlan } from '@/lib/editron/agent/director-agent';
 import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120; // Director Agent should complete within 2 minutes
+// Bottleneck: Gemini creative-intent call (~60s for 17 scenes) + 5-Track
+// load + EDL + profile actions. 120s too tight for 10+ scene projects.
+// Verified from proj_vGGN9Sva5Yiw logs: LLM alone took 61s.
+// Long-term: move to dedicated QStash worker (Option B in memory).
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
