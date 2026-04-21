@@ -381,6 +381,10 @@ export async function POST(
       // voiceover audio. Raw text boxes are ugly and don't sync to speech.
 
       // Voiceover audio overlay — CAPPED to scene duration to prevent bleed into next scene
+      if (includeVoiceover && scene.descriptor?.narration?.trim() && !scene.voiceover?.audioUrl) {
+        warnings.push(`Scene ${scene.sceneIndex}: has narration ("${scene.descriptor.narration.substring(0, 40)}...") but no voiceover audio — TTS may have failed or not run`);
+        pipelineWarnings.degraded('finalize', `scene ${scene.sceneIndex} voiceover`, 'narration exists but voiceover audio missing');
+      }
       if (includeVoiceover && scene.voiceover?.audioUrl) {
         const voDurationFrames = Math.round((scene.voiceover.audioDurationMs / 1000) * fps);
         // Cap VO to scene duration so it never overlaps the next scene's voiceover
