@@ -295,7 +295,7 @@ export function translateCreativeIntentToEDL(
 
 interface ResolvedMoment {
   frame: number;
-  method: 'vo-word' | 'subject' | 'motion-peak' | 'energy' | 'temporal' | 'fallback';
+  method: 'vo-word' | 'subject' | 'subject-track' | 'motion-peak' | 'energy' | 'temporal' | 'fallback';
 }
 
 /**
@@ -353,7 +353,39 @@ function resolveDecisiveMoment(
     return { frame: scene.fromFrame + Math.round(scene.durationFrames * 0.5), method: 'temporal' };
   }
 
-  // ── Strategy 4: Smile/expression keywords → check keyframe analysis ──
+  // ── Strategy 4: Subject tracking match ──
+  // 5-Track has per-frame bounding boxes for subjects (person, product, logo,
+  // etc.). If the LLM description mentions a subject category or label, find
+  // the frame where that subject is most prominent (largest bounding box area).
+  // This catches "zoom when the product appears" or "the child reaches for
+  // the Happy Meal" — descriptions that reference visual subjects.
+  const subjectWords: Record<string, string[]> = {
+    person: ['person', 'child', 'kid', 'man', 'woman', 'grandparent', 'teenager', 'family', 'couple', 'friend', 'parent', 'boy', 'girl', 'people', 'hand'],
+    product: ['product', 'item', 'package', 'box', 'bag', 'container', 'meal', 'fry', 'fries', 'burger', 'drink', 'cup', 'food', 'sandwich'],
+    logo: ['logo', 'arches', 'brand', 'sign', 'symbol', 'icon'],
+    animal: ['animal', 'dog', 'cat', 'pet'],
+  };
+  for (const [category, words] of Object.entries(subjectWords)) {
+    if (words.some(w => desc.includes(w))) {
+      for (const [, analysis] of analyses) {
+        const tracks = (analysis as AssetAnalysis).subjectTracks || [];
+        const matching = tracks.filter(t =>
+          t.category === category || words.some(w => t.label.toLowerCase().includes(w))
+        );
+        if (matching.length > 0 && matching[0].frames.length > 0) {
+          // Pick frame with largest bounding box (most prominent appearance)
+          const bestFrame = matching[0].frames
+            .filter(f => f.frame >= 0 && f.frame <= scene.durationFrames)
+            .sort((a, b) => (b.box.w * b.box.h) - (a.box.w * a.box.h))[0];
+          if (bestFrame) {
+            return { frame: scene.fromFrame + bestFrame.frame, method: 'subject-track' };
+          }
+        }
+      }
+    }
+  }
+
+  // ── Strategy 5: Smile/expression keywords → check keyframe analysis ──
   const expressionWords = ['smile', 'laugh', 'cry', 'expression', 'emotion', 'reaction', 'surprise'];
   if (expressionWords.some(w => desc.includes(w))) {
     // Find keyframe with highest energy level (proxy for expression peak)
