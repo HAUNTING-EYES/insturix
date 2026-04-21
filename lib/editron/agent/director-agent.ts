@@ -126,6 +126,7 @@ export async function executeDirectorPlan(
           if (sb) {
             storyboardScenes = sb.scenes.map(s => ({
               sceneIndex: s.sceneIndex,
+              sceneType: (s as any).sceneType || 'continuous',
               narration: s.descriptor.narration,
               visualDescription: s.descriptor.visualDescription,
               mood: s.descriptor.mood,
@@ -971,15 +972,34 @@ async function executeAction(
         const clipBSceneIndex = (clipB as any).metadata?.sceneIndex;
         const clipASceneIndex = (clipA as any).metadata?.sceneIndex;
 
-        // If both clips are in the SAME scene (sub-shots of a montage), use
-        // the scene's internal transition (usually hard-cut for montage sub-shots).
-        // If they're in DIFFERENT scenes, look up clipB's scene transition.
-        const lookupSceneIndex = clipBSceneIndex ?? clipASceneIndex;
-        const sceneData = lookupSceneIndex !== undefined
-          ? storyboardScenes.find((s: any) => s.sceneIndex === lookupSceneIndex)
+        // ── KB M-002: Montage transition consistency ──────────────────
+        // Same scene (montage sub-shots) → hard-cut, no overlay.
+        // Montage entry/exit → dissolve or dip-to-black.
+        // Different non-montage scenes → script transition or profile default.
+        const sameScene = clipASceneIndex !== undefined
+          && clipBSceneIndex !== undefined
+          && clipASceneIndex === clipBSceneIndex;
+
+        if (sameScene) {
+          console.log(`[Director] add_transition: boundary ${i}→${i+1}: same scene ${clipASceneIndex}, hard-cut per KB M-002`);
+          continue;
+        }
+
+        // Different scenes — look up both for montage detection
+        const sceneAData = clipASceneIndex !== undefined
+          ? storyboardScenes.find((s: any) => s.sceneIndex === clipASceneIndex)
           : undefined;
-        let sceneTransType = sceneData?.editDirections?.transition?.type;
-        let sceneTransDuration = sceneData?.editDirections?.transition?.durationMs;
+        const sceneBData = clipBSceneIndex !== undefined
+          ? storyboardScenes.find((s: any) => s.sceneIndex === clipBSceneIndex)
+          : undefined;
+
+        const sceneAType = sceneAData?.sceneType || (clipA as any).metadata?.sceneType || 'continuous';
+        const sceneBType = sceneBData?.sceneType || (clipB as any).metadata?.sceneType || 'continuous';
+        const isMontageEdge = sceneAType === 'montage' || sceneBType === 'montage';
+
+        // Use clipB's scene transition (entering that scene)
+        let sceneTransType = sceneBData?.editDirections?.transition?.type;
+        let sceneTransDuration = sceneBData?.editDirections?.transition?.durationMs;
 
         // Skip if script says "hard-cut" — no transition overlay needed
         if (sceneTransType === 'hard-cut' || sceneTransType === 'none') {
@@ -987,9 +1007,20 @@ async function executeAction(
           continue;
         }
 
-        // Use script transition, fall back to profile default
-        const effectiveType = sceneTransType || transType;
-        const effectiveDuration = sceneTransDuration || action.params.durationMs || 500;
+        // KB M-002: montage entry/exit defaults to dissolve
+        // KB T-022 (WEIGHT 10 override): NEVER dip-to-black in montage sequences
+        let effectiveType: string;
+        let effectiveDuration: number;
+        if (isMontageEdge) {
+          const montageTransType = sceneTransType || 'dissolve';
+          // T-022 hard override: dip-to-black kills montage momentum → force dissolve
+          effectiveType = montageTransType === 'dip-to-black' ? 'dissolve' : montageTransType;
+          effectiveDuration = sceneTransDuration || 600;
+          console.log(`[Director] add_transition: boundary ${i}→${i+1}: montage edge (${sceneAType}→${sceneBType}), ${effectiveType} per KB M-002/T-022`);
+        } else {
+          effectiveType = sceneTransType || transType;
+          effectiveDuration = sceneTransDuration || action.params.durationMs || 500;
+        }
 
         try {
           // Target ONE specific pair (clipA → adjacent next clip, which is clipB).
