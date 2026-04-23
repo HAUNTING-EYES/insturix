@@ -313,40 +313,121 @@ async function handler(request: NextRequest) {
         console.log(`[VideoWorker] 5-Track analysis cached for ${result.assetId}`);
       }
 
-      // Derive quality score from analysis data (zero extra cost — reuses what 5-Track already computed)
+      // Quality scoring: 2-tier approach.
+      // Tier 1 (deterministic, zero cost): checks from 5-Track data.
+      // Tier 2 (Gemini Vision, ~$0.003): sends keyframes for artifact detection.
+      // Per creative_production_knowledge.md §7: check anatomical correctness,
+      // text hallucination, temporal consistency, composition, motion naturalness.
       if (analysis) {
         const kfAnalyses = analysis.keyframeAnalyses || [];
         const subjectTracks = analysis.subjectTracks || [];
+        const motionSegs = analysis.motionSegments || [];
 
-        // Quality heuristics from analysis data:
-        // 1. Subject consistency: do subjects persist across keyframes?
-        const subjectCount = subjectTracks.length;
-        const subjectScore = subjectCount > 0 ? Math.min(subjectCount * 2, 10) : 5;
+        // ── Tier 1: Deterministic checks from 5-Track ──
 
-        // 2. Visual coherence: are keyframe descriptions consistent in mood/energy?
-        const energyValues = kfAnalyses.map(kf => kf.energyLevel || 0.5);
-        const energyVariance = energyValues.length > 1
-          ? energyValues.reduce((sum, v) => sum + Math.pow(v - (energyValues.reduce((a, b) => a + b, 0) / energyValues.length), 2), 0) / energyValues.length
+        // 1. Motion smoothness (0-10): erratic motion = AI artifacts
+        const motionIntensities = motionSegs.map((s: any) => s.motionIntensity || 0);
+        const motionJumps = motionIntensities.filter((_: number, i: number) =>
+          i > 0 && Math.abs(motionIntensities[i] - motionIntensities[i - 1]) > 0.5
+        ).length;
+        const motionScore = Math.max(0, 10 - motionJumps * 3);
+
+        // 2. Subject stability (0-10): subjects appearing/disappearing = morphing
+        const subjectFrameCounts = subjectTracks.map((t: any) => (t.frames || []).length);
+        const avgPersistence = subjectFrameCounts.length > 0
+          ? subjectFrameCounts.reduce((a: number, b: number) => a + b, 0) / subjectFrameCounts.length
           : 0;
-        const coherenceScore = Math.max(0, 10 - energyVariance * 20); // Low variance = high coherence
+        const stabilityScore = Math.min(10, avgPersistence * 2);
 
-        // 3. Brightness consistency
-        const brightnessValues = kfAnalyses.map(kf => kf.brightness || 0.5);
-        const brightnessVariance = brightnessValues.length > 1
-          ? brightnessValues.reduce((sum, v) => sum + Math.pow(v - (brightnessValues.reduce((a, b) => a + b, 0) / brightnessValues.length), 2), 0) / brightnessValues.length
-          : 0;
-        const brightnessScore = Math.max(0, 10 - brightnessVariance * 30);
+        // 3. Keyframe description consistency (0-10): wildly different descriptions = temporal incoherence
+        const descriptions = kfAnalyses.map((kf: any) => (kf.description || '').toLowerCase());
+        let descOverlap = 5;
+        if (descriptions.length >= 2) {
+          const words0 = new Set(descriptions[0].split(/\s+/).filter((w: string) => w.length > 3));
+          const wordsLast = new Set(descriptions[descriptions.length - 1].split(/\s+/).filter((w: string) => w.length > 3));
+          const shared = [...words0].filter(w => wordsLast.has(w)).length;
+          descOverlap = Math.min(10, (shared / Math.max(words0.size, 1)) * 15);
+        }
 
-        // Combined quality score (0-100)
-        const qualityScore = Math.round((subjectScore * 0.4 + coherenceScore * 0.35 + brightnessScore * 0.25) * 10);
+        // 4. Composition check (0-10): subjects detected in frame center vs edges
+        let compositionScore = 5;
+        for (const track of subjectTracks) {
+          const frames = (track as any).frames || [];
+          if (frames.length > 0 && frames[0].box) {
+            const cx = frames[0].box.x + frames[0].box.w / 2;
+            const cy = frames[0].box.y + frames[0].box.h / 2;
+            const thirdX = cx > 0.25 && cx < 0.75;
+            const thirdY = cy > 0.25 && cy < 0.75;
+            if (thirdX && thirdY) compositionScore = 8;
+            break;
+          }
+        }
 
-        await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-          { _id: jobId } as any,
-          { $set: { qualityScore, qualitySource: '5-track-derived' } },
+        // Deterministic score (0-100)
+        const deterministicScore = Math.round(
+          (motionScore * 0.30 + stabilityScore * 0.25 + descOverlap * 0.25 + compositionScore * 0.20) * 10
         );
 
+        // ── Tier 2: Gemini Vision artifact check (only on borderline or low scores) ──
+        let visionScore: number | null = null;
+        let visionIssues: string[] = [];
+        const shouldRunVision = deterministicScore < 75 && kfAnalyses.length > 0;
+
+        if (shouldRunVision) {
+          try {
+            const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+            if (apiKey && kfAnalyses[0]?.description) {
+              const { GoogleGenerativeAI } = await import('@google/generative-ai');
+              const genAI = new GoogleGenerativeAI(apiKey);
+              const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+              const kfSummary = kfAnalyses.slice(0, 3).map((kf: any, i: number) =>
+                `Frame ${i + 1}: ${(kf.description || '').substring(0, 200)}`
+              ).join('\n');
+
+              const visionResult = await visionModel.generateContent(
+                `Rate this AI-generated video on a scale of 0-10 based on these keyframe descriptions. Check for: melted/extra fingers, face morphing, text hallucination, temporal flickering, unnatural physics, composition issues. Be strict.
+
+Keyframes:
+${kfSummary}
+
+Original prompt: ${refinedPrompt?.substring(0, 200) || 'unknown'}
+
+Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
+              );
+
+              const visionText = visionResult.response?.text() || '';
+              try {
+                const parsed = JSON.parse(visionText.replace(/```json\n?|\n?```/g, '').trim());
+                visionScore = Math.max(0, Math.min(10, parsed.score || 5));
+                visionIssues = parsed.issues || [];
+              } catch { visionScore = null; }
+            }
+          } catch (visionErr: any) {
+            console.warn(`[VideoWorker] Vision quality check failed (non-fatal): ${visionErr.message}`);
+          }
+        }
+
+        // Final score: blend deterministic + vision (if available)
+        const qualityScore = visionScore !== null
+          ? Math.round((deterministicScore * 0.4 + visionScore * 10 * 0.6))
+          : deterministicScore;
+
+        const qualitySource = visionScore !== null ? 'hybrid-vision' : 'deterministic-5track';
+        await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
+          { _id: jobId } as any,
+          { $set: {
+            qualityScore,
+            qualitySource,
+            qualityDeterministic: deterministicScore,
+            ...(visionScore !== null && { qualityVision: visionScore * 10, qualityVisionIssues: visionIssues }),
+          } },
+        );
+
+        console.log(`[VideoWorker] Quality ${qualityScore}/100 (${qualitySource}) for scene ${sceneIndex}${visionIssues.length > 0 ? ` — issues: ${visionIssues.join(', ')}` : ''}`);
+
         if (qualityScore < 40) {
-          console.warn(`[VideoWorker] LOW QUALITY (${qualityScore}/100) for scene ${sceneIndex} (derived from 5-Track)`);
+          console.warn(`[VideoWorker] LOW QUALITY (${qualityScore}/100) for scene ${sceneIndex}`);
           await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
             { _id: jobId } as any,
             { $set: { qualityFlag: 'low', qualityShouldRegenerate: true } },
