@@ -620,25 +620,27 @@ export async function generateCreativeIntentPlan(
     temperature: DEFAULT_CONFIG.aiModels.editingTemperature,
   });
 
-  const sceneIntents: SceneIntent[] = object.sceneIntents.map(si => ({
-    sceneIndex: si.sceneIndex,
-    decisiveMoment: si.decisiveMoment,
-    zoomIntent: si.zoomIntent,
-    pacingIntent: si.pacingIntent,
-    transitionIn: si.transitionIn,
-    transitionOut: si.transitionOut,
+  // Defensive: Vercel AI SDK's generateObject can return undefined for nested
+  // arrays/objects when Gemini omits optional fields. Guard every access.
+  const sceneIntents: SceneIntent[] = (object.sceneIntents || []).map(si => ({
+    sceneIndex: si.sceneIndex ?? 0,
+    decisiveMoment: si.decisiveMoment ?? 'midpoint of the scene',
+    zoomIntent: si.zoomIntent ?? 'none',
+    pacingIntent: si.pacingIntent ?? 'maintain',
+    transitionIn: si.transitionIn ?? 'hard-cut',
+    transitionOut: si.transitionOut ?? 'hard-cut',
     audioIntent: {
-      nativeAudio: si.audioIntent.nativeAudio,
-      sfxOnEntry: si.audioIntent.sfxOnEntry,
-      sfxAtPeak: si.audioIntent.sfxAtPeak,
+      nativeAudio: si.audioIntent?.nativeAudio ?? 'keep',
+      sfxOnEntry: si.audioIntent?.sfxOnEntry,
+      sfxAtPeak: si.audioIntent?.sfxAtPeak,
     },
-    graphicIntents: si.graphicIntents.map(g => ({
-      type: g.type,
+    graphicIntents: (si.graphicIntents || []).map(g => ({
+      type: g.type ?? 'none',
       text: g.text,
-      triggerMoment: g.triggerMoment,
+      triggerMoment: g.triggerMoment ?? 'scene-start',
     })),
-    shakeIntent: si.shakeIntent,
-    reasoning: si.reasoning,
+    shakeIntent: si.shakeIntent ?? 'none',
+    reasoning: si.reasoning ?? '',
   }));
 
   const plan: CreativeIntentPlan = {
