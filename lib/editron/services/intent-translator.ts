@@ -372,7 +372,7 @@ function resolveDecisiveMoment(
         const matching = tracks.filter(t =>
           t.category === category || words.some(w => t.label.toLowerCase().includes(w))
         );
-        if (matching.length > 0 && matching[0].frames.length > 0) {
+        if (matching.length > 0 && matching[0].frames && matching[0].frames.length > 0) {
           // Pick frame with largest bounding box (most prominent appearance)
           const bestFrame = matching[0].frames
             .filter(f => f.frame >= 0 && f.frame <= scene.durationFrames)
