@@ -669,6 +669,42 @@ export async function executeDirectorPlan(
         console.log(`[Director] Merging ${asyncOverlays.length} async overlays (BGM/SFX from audio workers)`);
         overlays.push(...asyncOverlays);
       }
+
+      // Merge keyframe tracks from DB into in-memory overlays.
+      // The add_transition tool writes keyframeTracks directly to MongoDB
+      // via updateOverlay(), but saveProject() at line ~690 overwrites the
+      // entire overlays array from the in-memory copy which doesn't have them.
+      // Without this merge, dissolve/transition keyframes are silently lost.
+      const freshMap = new Map((freshProject.overlays || []).map((o: any) => [o.id, o]));
+      let kfMerged = 0;
+      for (const overlay of overlays) {
+        const fresh = freshMap.get(overlay.id);
+        if (fresh?.keyframeTracks?.length > 0 && !(overlay as any).keyframeTracks?.length) {
+          (overlay as any).keyframeTracks = fresh.keyframeTracks;
+          kfMerged++;
+        }
+      }
+      if (kfMerged > 0) {
+        console.log(`[Director] Merged keyframeTracks from DB for ${kfMerged} overlays (transition opacity/zoom)`);
+      }
+    }
+
+    // ─── Step 4.5: Run BGM-dependent actions that were skipped ───
+    // Audio ducking requires BGM. BGM arrives async via QStash worker
+    // and is merged above in Step 4. Profile actions ran at Step 3 when
+    // BGM wasn't present → hasBGM was false → audio_ducking skipped.
+    const hasBGMNow = overlays.some((o: any) => o.type === 'sound' && (o.row === ROW.BGM || (o.assetId || '').startsWith('bgm_')));
+    if (hasBGMNow) {
+      const duckAction = profileActions.find(a => a.tool === 'audio_ducking');
+      if (duckAction) {
+        try {
+          const modified = await executeAction(duckAction, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis);
+          result.overlaysModified += modified;
+          console.log(`[Director] Step 4.5: audio ducking applied post-merge (BGM arrived async) — ${modified} modified`);
+        } catch (duckErr: any) {
+          console.warn(`[Director] Step 4.5: audio ducking failed (non-fatal): ${duckErr.message}`);
+        }
+      }
     }
 
     // Strip in-memory dedup markers before persist. The add_transition loop
