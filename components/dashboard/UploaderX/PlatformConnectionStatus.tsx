@@ -158,13 +158,9 @@ export function PlatformConnectionStatus() {
 
       {/* Instagram */}
       <div className="flex items-center gap-2">
-        <Instagram className={`h-5 w-5 ${connections.instagram ? 'text-pink-500' : 'text-zinc-500'}`} />
+        <Instagram className="h-5 w-5 text-zinc-500 opacity-50" />
         <span className="text-sm text-zinc-400">Instagram</span>
-        {connections.instagram ? (
-          <CheckCircle className="h-4 w-4 text-green-500" />
-        ) : (
-          <XCircle className="h-4 w-4 text-red-500" />
-        )}
+        <span className="text-xs text-zinc-500">Coming Soon</span>
       </div>
 
       {/* Twitter */}
@@ -229,7 +225,8 @@ export function PlatformConnectionStatus() {
         </a>
       )}
 
-      {!connections.instagram && (
+      {/* Instagram connection disabled - coming soon */}
+      {/* {!connections.instagram && (
         <a
           href="/api/services/uploaderx/instagram/auth"
           className="text-xs text-pink-400 hover:underline flex items-center gap-1"
@@ -239,7 +236,7 @@ export function PlatformConnectionStatus() {
           <Link2 className="h-3 w-3" />
           Connect Instagram
         </a>
-      )}
+      )} */}
 
       {!twitterStatus.connected && (
         <a

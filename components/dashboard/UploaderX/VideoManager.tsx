@@ -908,6 +908,8 @@ export function VideoManager({
                           size="sm"
                           onClick={() => handleInstagramUpload(video)}
                           title="Upload to Instagram"
+                          disabled
+                          className="opacity-50 cursor-not-allowed"
                         >
                           <Instagram className="h-4 w-4 text-pink-500" />
                         </Button>
@@ -981,6 +983,8 @@ export function VideoManager({
                           size="sm"
                           onClick={() => handleInstagramUpload(video)}
                           title="Upload to Instagram"
+                          disabled
+                          className="opacity-50 cursor-not-allowed"
                         >
                           <Instagram className="h-4 w-4 text-pink-500" />
                         </Button>

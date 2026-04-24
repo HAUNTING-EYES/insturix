@@ -134,16 +134,16 @@ export function InstagramConnectionStatus() {
                 ) : (
                     <Button
                         size="sm"
-                        onClick={handleConnect}
-                        className="w-full h-8 text-xs bg-pink-600 hover:bg-pink-500"
+                        disabled
+                        className="w-full h-8 text-xs bg-gray-600 cursor-not-allowed"
                     >
                         <ExternalLink className="h-3 w-3 mr-1" />
-                        Connect Instagram
+                        Coming Soon
                     </Button>
                 )}
 
                 <p className="text-xs text-zinc-500">
-                    Connect an Instagram Business account to publish Reels and posts.
+                    Instagram integration is coming soon. Stay tuned for updates!
                 </p>
             </CardContent>
         </Card>

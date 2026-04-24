@@ -339,19 +339,36 @@ export function PlatformEditor({
       {/* Platform Tabs */}
       <Tabs value={activePlatform} onValueChange={setActivePlatform}>
         <TabsList className="bg-zinc-900/60 border border-zinc-800">
-          {platforms.map((platform) => (
-            <TabsTrigger key={platform.key} value={platform.key} className="flex items-center gap-2">
-              {getPlatformIcon(platform.key)}
-              <span>{platform.label}</span>
-            </TabsTrigger>
-          ))}
+          {platforms.map((platform) => {
+            const isDisabled = platform.key === 'instagram';
+            return (
+              <TabsTrigger 
+                key={platform.key} 
+                value={platform.key} 
+                disabled={isDisabled}
+                className={`flex items-center gap-2 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {getPlatformIcon(platform.key)}
+                <span>{platform.label}</span>
+                {isDisabled && <span className="text-xs text-zinc-400">(Soon)</span>}
+              </TabsTrigger>
+            );
+          })}
         </TabsList>
 
         {platforms.map((platform) => (
           <TabsContent key={platform.key} value={platform.key} className="mt-6">
             <Card className="bg-zinc-950/60 border-zinc-800">
               <CardContent className="p-6">
-                {renderPlatformContent(platform.key)}
+                {platform.key === 'instagram' ? (
+                  <div className="text-center py-8">
+                    <Instagram className="h-12 w-12 text-pink-500 mx-auto mb-4 opacity-50" />
+                    <h3 className="text-lg font-medium text-zinc-200 mb-2">Instagram Integration</h3>
+                    <p className="text-zinc-400">Coming soon! We're working on Instagram integration.</p>
+                  </div>
+                ) : (
+                  renderPlatformContent(platform.key)
+                )}
               </CardContent>
             </Card>
           </TabsContent>
