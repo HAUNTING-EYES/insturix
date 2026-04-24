@@ -128,6 +128,34 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
   };
 
   useEffect(() => {
+    const handleLinkedInPopupMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      if (event.data?.source !== "uploaderx-linkedin-oauth") {
+        return;
+      }
+
+      const payload = event.data.payload || {};
+      if (payload.success) {
+        toast({
+          title: "LinkedIn connected!",
+          description: "You can now post content to LinkedIn.",
+        });
+      } else {
+        toast({
+          title: "LinkedIn Connection Error",
+          description: payload.message || "Failed to connect LinkedIn.",
+          variant: "destructive",
+        });
+      }
+
+      checkStatus();
+    };
+
+    window.addEventListener("message", handleLinkedInPopupMessage);
+
     // Check if we just returned from OAuth success
     const urlParams = new URLSearchParams(window.location.search);
     const isLinkedInSuccess = urlParams.get('success') === 'linkedin_connected';
@@ -171,6 +199,10 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
     } else {
       checkStatus();
     }
+
+    return () => {
+      window.removeEventListener("message", handleLinkedInPopupMessage);
+    };
   }, []);
 
   const handleConnect = () => {

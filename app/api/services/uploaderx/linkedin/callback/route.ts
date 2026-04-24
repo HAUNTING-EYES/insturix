@@ -3,6 +3,47 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { getLinkedInScopes } from "@/lib/uploaderx/linkedinScopes";
 import { getLinkedInDashboardUrl, getLinkedInRedirectUri } from "@/lib/uploaderx/linkedinUrl";
 
+function createPopupResponse(
+    request: NextRequest,
+    payload: Record<string, string | number | boolean | null | undefined>,
+    fallbackUrl: string
+) {
+    const origin = new URL(request.url).origin;
+    const serializedPayload = JSON.stringify(payload);
+    const escapedFallback = JSON.stringify(fallbackUrl);
+
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>LinkedIn Connection</title>
+  </head>
+  <body>
+    <script>
+      (function () {
+        var payload = ${serializedPayload};
+        var fallbackUrl = ${escapedFallback};
+        try {
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage({ source: "uploaderx-linkedin-oauth", payload: payload }, ${JSON.stringify(origin)});
+            window.close();
+            return;
+          }
+        } catch (error) {}
+        window.location.replace(fallbackUrl);
+      })();
+    </script>
+    <p>Completing LinkedIn connection...</p>
+  </body>
+</html>`;
+
+    return new NextResponse(html, {
+        headers: {
+            "Content-Type": "text/html; charset=utf-8",
+        },
+    });
+}
+
 /**
  * GET /api/services/uploaderx/linkedin/callback
  * Handles LinkedIn OAuth callback and exchanges code for tokens
@@ -17,12 +58,21 @@ export async function GET(request: NextRequest) {
 
         if (error) {
             console.error("LinkedIn OAuth error:", error, errorDescription);
-            return NextResponse.redirect(getLinkedInDashboardUrl(`/dashboard/uploaderx?error=linkedin_auth_failed&message=${encodeURIComponent(errorDescription || error)}`, request));
+            const fallbackUrl = getLinkedInDashboardUrl(`/dashboard/uploaderx?error=linkedin_auth_failed&message=${encodeURIComponent(errorDescription || error)}`, request);
+            return createPopupResponse(request, {
+                success: false,
+                error: "linkedin_auth_failed",
+                message: errorDescription || error,
+            }, fallbackUrl);
         }
 
         if (!code || !state) {
             console.error("LinkedIn callback missing code or state. Code:", !!code, "State:", state);
-            return NextResponse.redirect(getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_auth_invalid", request));
+            const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_auth_invalid", request);
+            return createPopupResponse(request, {
+                success: false,
+                error: "linkedin_auth_invalid",
+            }, fallbackUrl);
         }
 
         const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
@@ -31,7 +81,11 @@ export async function GET(request: NextRequest) {
 
         if (!clientId || !clientSecret) {
             console.error("LinkedIn credentials not configured");
-            return NextResponse.redirect(getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_config_error", request));
+            const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_config_error", request);
+            return createPopupResponse(request, {
+                success: false,
+                error: "linkedin_config_error",
+            }, fallbackUrl);
         }
 
         const tokenResponse = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
@@ -52,7 +106,11 @@ export async function GET(request: NextRequest) {
 
         if (!tokenResponse.ok || tokenData.error) {
             console.error("LinkedIn token exchange failed:", tokenData);
-            return NextResponse.redirect(getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_token_exchange_failed", request));
+            const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_token_exchange_failed", request);
+            return createPopupResponse(request, {
+                success: false,
+                error: "linkedin_token_exchange_failed",
+            }, fallbackUrl);
         }
 
         const { access_token, expires_in, refresh_token, id_token } = tokenData;
@@ -190,9 +248,18 @@ export async function GET(request: NextRequest) {
         );
 
         const redirectUrl = getLinkedInDashboardUrl(`/dashboard/uploaderx?success=linkedin_connected&t=${Date.now()}`, request);
-        return NextResponse.redirect(redirectUrl);
+        return createPopupResponse(request, {
+            success: true,
+            connected: true,
+            provider: "linkedin",
+            t: Date.now(),
+        }, redirectUrl);
     } catch (error) {
         console.error("LinkedIn callback error:", error);
-        return NextResponse.redirect(getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_callback_error", request));
+        const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_callback_error", request);
+        return createPopupResponse(request, {
+            success: false,
+            error: "linkedin_callback_error",
+        }, fallbackUrl);
     }
 }
