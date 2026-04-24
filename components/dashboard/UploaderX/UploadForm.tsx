@@ -48,7 +48,8 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
     [selectedPlatforms]
   );
   const isLinkedInOnly = selectedPlatformKeys.length === 1 && selectedPlatformKeys[0] === "linkedin";
-  const hasLinkedInText = !!(defaultTitle.trim() || defaultDescription.trim());
+  const isTwitterOnly = selectedPlatformKeys.length === 1 && selectedPlatformKeys[0] === "twitter";
+  const hasTextOnlyPostContent = !!(defaultTitle.trim() || defaultDescription.trim());
   const isReady = useMemo(() => {
     if (selectedPlatformKeys.length === 0) {
       return false;
@@ -56,14 +57,14 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
     if (videoFile) {
       return true;
     }
-    return isLinkedInOnly && hasLinkedInText;
-  }, [videoFile, selectedPlatformKeys, isLinkedInOnly, hasLinkedInText]);
+    return (isLinkedInOnly || isTwitterOnly) && hasTextOnlyPostContent;
+  }, [videoFile, selectedPlatformKeys, isLinkedInOnly, isTwitterOnly, hasTextOnlyPostContent]);
 
   const handleSubmit = async () => {
-    if (!videoFile && !(isLinkedInOnly && hasLinkedInText)) {
+    if (!videoFile && !((isLinkedInOnly || isTwitterOnly) && hasTextOnlyPostContent)) {
       toast({
         title: "Video required",
-        description: "Please select a video file, or use LinkedIn only for a text post.",
+        description: "Please select a video file, or use LinkedIn/Twitter only for a text post.",
         variant: "destructive"
       });
       return;
@@ -93,6 +94,36 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
         toast({
           title: "LinkedIn post failed",
           description: "An error occurred while publishing your LinkedIn post.",
+          variant: "destructive"
+        });
+      }
+      return;
+    }
+
+    if (!videoFile && isTwitterOnly) {
+      try {
+        toast({
+          title: "Posting to Twitter...",
+          description: "Publishing your text post."
+        });
+
+        const twitterResult = await uploadToTwitter(undefined, undefined, defaultTitle, defaultDescription);
+        if (twitterResult.success) {
+          toast({
+            title: "Posted to Twitter",
+            description: "Your text post is live on Twitter/X."
+          });
+        } else {
+          toast({
+            title: "Twitter post failed",
+            description: twitterResult.error,
+            variant: "destructive"
+          });
+        }
+      } catch (error) {
+        toast({
+          title: "Twitter post failed",
+          description: "An error occurred while publishing your Twitter/X post.",
           variant: "destructive"
         });
       }
@@ -564,6 +595,8 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
 	                ? `${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)} MB)`
 	                : isLinkedInOnly
 	                  ? "LinkedIn text-only post ready"
+	                  : isTwitterOnly
+	                    ? "Twitter text-only post ready"
 	                  : "No video selected"}
 	            </div>
 	            <Button
@@ -571,7 +604,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
 	              onClick={handleSubmit}
 	              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
 	            >
-	              {isUploading ? "Uploading..." : isLinkedInOnly && !videoFile ? "Post to LinkedIn" : "Upload Video"}
+	              {isUploading ? "Uploading..." : isLinkedInOnly && !videoFile ? "Post to LinkedIn" : isTwitterOnly && !videoFile ? "Post to Twitter" : "Upload Video"}
 	            </Button>
 	          </div>
 

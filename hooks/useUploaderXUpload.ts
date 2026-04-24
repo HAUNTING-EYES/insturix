@@ -405,8 +405,8 @@ export function useUploaderXUpload() {
   }, []);
 
   const uploadToTwitter = useCallback(async (
-    videoUuid: string,
-    gcsPath: string,
+    videoUuid?: string,
+    gcsPath?: string,
     title?: string,
     description?: string,
   ) => {

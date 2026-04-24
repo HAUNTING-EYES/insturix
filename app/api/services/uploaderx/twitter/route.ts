@@ -14,10 +14,6 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { gcsPath, videoUuid, title, description } = body;
 
-    if (!gcsPath) {
-      return NextResponse.json({ success: false, error: "Missing gcsPath" }, { status: 400 });
-    }
-
     await connectToDatabase();
     const { User } = await import("@/schemas/user");
 
@@ -149,132 +145,143 @@ export async function POST(req: Request) {
       });
     }
 
-    const videoAsset = await resolveUploaderXVideo({ videoUuid, gcsPath });
-    const fileSize = Number(videoAsset.size || 0);
-    const fileBuffer = await fetchUploaderXBuffer(videoAsset.publicUrl);
+    let mediaId: string | undefined;
+    let processingState: string | undefined;
+    if (gcsPath) {
+      const videoAsset = await resolveUploaderXVideo({ videoUuid, gcsPath });
+      const fileSize = Number(videoAsset.size || 0);
+      const fileBuffer = await fetchUploaderXBuffer(videoAsset.publicUrl);
 
-    const MAX_VIDEO_SIZE = 512 * 1024 * 1024;
-    const CHUNK_SIZE = 2 * 1024 * 1024;
+      const MAX_VIDEO_SIZE = 512 * 1024 * 1024;
+      const CHUNK_SIZE = 2 * 1024 * 1024;
 
-    if (fileSize > MAX_VIDEO_SIZE) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `File too large. Twitter maximum size is 512MB, your file is ${(fileSize / (1024 * 1024)).toFixed(2)}MB`,
-        },
-        { status: 400 }
-      );
-    }
-
-    const initResponse = await fetch("https://api.x.com/2/media/upload/initialize", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        media_type: videoAsset.contentType || "video/mp4",
-        total_bytes: fileSize,
-        media_category: "tweet_video",
-      }),
-    });
-
-    let initData: any = {};
-    const initResponseText = await initResponse.text();
-    if (initResponseText) {
-      try {
-        initData = JSON.parse(initResponseText);
-      } catch {
-        initData = { error: "Invalid JSON response from Twitter" };
+      if (fileSize > MAX_VIDEO_SIZE) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `File too large. Twitter maximum size is 512MB, your file is ${(fileSize / (1024 * 1024)).toFixed(2)}MB`,
+          },
+          { status: 400 }
+        );
       }
-    }
 
-    if (!initResponse.ok || initData.error) {
-      return NextResponse.json(
-        { success: false, error: "Failed to initialize Twitter upload", details: initData },
-        { status: 500 }
-      );
-    }
-
-    const mediaId = initData.data?.id || initData.media_id || initData.media_id_string;
-    if (!mediaId) {
-      return NextResponse.json(
-        { success: false, error: "Failed to get media ID from Twitter" },
-        { status: 500 }
-      );
-    }
-
-    const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * CHUNK_SIZE;
-      const end = Math.min(start + CHUNK_SIZE, fileSize);
-      const chunk = fileBuffer.slice(start, end);
-
-      const appendResponse = await fetch(`https://api.x.com/2/media/upload/${mediaId}/append`, {
+      const initResponse = await fetch("https://api.x.com/2/media/upload/initialize", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          segment_index: i,
-          media: chunk.toString("base64"),
+          media_type: videoAsset.contentType || "video/mp4",
+          total_bytes: fileSize,
+          media_category: "tweet_video",
         }),
       });
 
-      if (!appendResponse.ok) {
-        let appendError: any = {};
-        const responseText = await appendResponse.text();
-        if (responseText) {
-          try {
-            appendError = JSON.parse(responseText);
-          } catch {
-            appendError = { raw_response: responseText };
-          }
+      let initData: any = {};
+      const initResponseText = await initResponse.text();
+      if (initResponseText) {
+        try {
+          initData = JSON.parse(initResponseText);
+        } catch {
+          initData = { error: "Invalid JSON response from Twitter" };
         }
+      }
 
+      if (!initResponse.ok || initData.error) {
         return NextResponse.json(
-          {
-            success: false,
-            error: `Failed to upload chunk ${i + 1} of ${totalChunks}`,
-            details: appendError,
+          { success: false, error: "Failed to initialize Twitter upload", details: initData },
+          { status: 500 }
+        );
+      }
+
+      mediaId = initData.data?.id || initData.media_id || initData.media_id_string;
+      if (!mediaId) {
+        return NextResponse.json(
+          { success: false, error: "Failed to get media ID from Twitter" },
+          { status: 500 }
+        );
+      }
+
+      const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, fileSize);
+        const chunk = fileBuffer.slice(start, end);
+
+        const appendResponse = await fetch(`https://api.x.com/2/media/upload/${mediaId}/append`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
           },
+          body: JSON.stringify({
+            segment_index: i,
+            media: chunk.toString("base64"),
+          }),
+        });
+
+        if (!appendResponse.ok) {
+          let appendError: any = {};
+          const responseText = await appendResponse.text();
+          if (responseText) {
+            try {
+              appendError = JSON.parse(responseText);
+            } catch {
+              appendError = { raw_response: responseText };
+            }
+          }
+
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Failed to upload chunk ${i + 1} of ${totalChunks}`,
+              details: appendError,
+            },
+            { status: 500 }
+          );
+        }
+      }
+
+      const finalizeResponse = await fetch(`https://api.x.com/2/media/upload/${mediaId}/finalize`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      let finalizeData: any = {};
+      const finalizeResponseText = await finalizeResponse.text();
+      if (finalizeResponseText) {
+        try {
+          finalizeData = JSON.parse(finalizeResponseText);
+        } catch {
+          finalizeData = {};
+        }
+      }
+
+      if (!finalizeResponse.ok || finalizeData.error) {
+        return NextResponse.json(
+          { success: false, error: "Failed to finalize Twitter upload", details: finalizeData },
+          { status: 500 }
+        );
+      }
+
+      processingState = await pollMediaStatusV2(mediaId, accessToken);
+      if (processingState !== "succeeded") {
+        return NextResponse.json(
+          { success: false, error: `Twitter video processing failed: ${processingState}` },
           { status: 500 }
         );
       }
     }
 
-    const finalizeResponse = await fetch(`https://api.x.com/2/media/upload/${mediaId}/finalize`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    let finalizeData: any = {};
-    const finalizeResponseText = await finalizeResponse.text();
-    if (finalizeResponseText) {
-      try {
-        finalizeData = JSON.parse(finalizeResponseText);
-      } catch {
-        finalizeData = {};
-      }
-    }
-
-    if (!finalizeResponse.ok || finalizeData.error) {
-      return NextResponse.json(
-        { success: false, error: "Failed to finalize Twitter upload", details: finalizeData },
-        { status: 500 }
-      );
-    }
-
-    const processingState = await pollMediaStatusV2(mediaId, accessToken);
-    if (processingState !== "succeeded") {
-      return NextResponse.json(
-        { success: false, error: `Twitter video processing failed: ${processingState}` },
-        { status: 500 }
-      );
+    const tweetPayload: any = {
+      text: tweetText,
+    };
+    if (mediaId) {
+      tweetPayload.media = { media_ids: [mediaId] };
     }
 
     const tweetResponse = await fetch("https://api.x.com/2/tweets", {
@@ -283,10 +290,7 @@ export async function POST(req: Request) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({
-        text: tweetText,
-        media: { media_ids: [mediaId] },
-      }),
+      body: JSON.stringify(tweetPayload),
     });
 
     let tweetData: any = {};
@@ -332,7 +336,7 @@ export async function POST(req: Request) {
       success: true,
       tweetUrl,
       tweetId,
-      mediaId,
+      mediaId: mediaId || null,
       accountUsername: twitterTokens.userName,
     });
   } catch (error: any) {
