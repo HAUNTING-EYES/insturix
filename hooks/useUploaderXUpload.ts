@@ -44,7 +44,7 @@ export function useUploaderXUpload() {
 
     try {
       // Step 1: Get signed URL from our API
-      const signResponse = await fetch('/api/services/uploaderx/gcs/sign', {
+      const signResponse = await fetch('/api/services/uploaderx/r2/sign', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -62,7 +62,7 @@ export function useUploaderXUpload() {
 
       const { url: signedUrl, gcsPath, videoUuid, publicUrl } = await signResponse.json();
       console.log("✅ Signed URL data received:", { gcsPath, videoUuid, publicUrl });
-      // Step 2: Upload file directly to GCS using signed URL
+      // Step 2: Upload file directly to R2 using signed URL
       const uploadResponse = await fetch(signedUrl, {
         method: 'PUT',
         body: file,
@@ -90,6 +90,7 @@ export function useUploaderXUpload() {
           fileSize: file.size,
           contentType: file.type,
           videoUuid,
+          publicUrl,
         }),
       });
 
@@ -148,7 +149,7 @@ export function useUploaderXUpload() {
 
     try {
       // Step 1: Get signed URL
-      const signResponse = await fetch('/api/services/uploaderx/gcs/sign', {
+      const signResponse = await fetch('/api/services/uploaderx/r2/sign', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -201,6 +202,7 @@ export function useUploaderXUpload() {
                   fileSize: file.size,
                   contentType: file.type,
                   videoUuid,
+                  publicUrl,
                   metadata, // Pass metadata to backend
                 }),
               });
@@ -254,7 +256,7 @@ export function useUploaderXUpload() {
         console.log('Uploading to:', signedUrl);
 
         xhr.open('PUT', signedUrl);
-        // xhr.setRequestHeader('Content-Type', file.type);
+        xhr.setRequestHeader('Content-Type', file.type);
         xhr.send(file);
       });
 
