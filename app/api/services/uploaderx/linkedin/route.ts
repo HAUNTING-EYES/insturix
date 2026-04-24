@@ -13,9 +13,14 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     let { gcsPath, videoUuid, title, description, postType = "personal", organizationId } = body;
+    const postText = title || description || "Posted via Insturix UploaderX";
+    const hasMedia = !!gcsPath;
 
-    if (!gcsPath) {
-      return NextResponse.json({ success: false, error: "Missing gcsPath" }, { status: 400 });
+    if (!hasMedia && !postText.trim()) {
+      return NextResponse.json(
+        { success: false, error: "LinkedIn post content is required." },
+        { status: 400 }
+      );
     }
 
     await connectToDatabase();
@@ -175,91 +180,101 @@ export async function POST(req: Request) {
       authorUrn = `urn:li:person:${userId}`;
     }
 
-    const videoAsset = await resolveUploaderXVideo({ videoUuid, gcsPath });
-    const fileName = videoAsset.filename || gcsPath.split("/").pop() || "file";
-    const contentType = videoAsset.contentType || "application/octet-stream";
-    const fileBuffer = await fetchUploaderXBuffer(videoAsset.publicUrl);
+    let mediaType = "NONE";
+    let assetUrn: string | undefined;
+    let fileName = title || "LinkedIn post";
 
-    let mediaType = "document";
-    if (contentType.startsWith("video/")) {
-      mediaType = "video";
-    } else if (contentType.startsWith("image/")) {
-      mediaType = "image";
-    } else if (contentType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
+    if (hasMedia) {
+      const videoAsset = await resolveUploaderXVideo({ videoUuid, gcsPath });
+      fileName = videoAsset.filename || gcsPath.split("/").pop() || "file";
+      const contentType = videoAsset.contentType || "application/octet-stream";
+      const fileBuffer = await fetchUploaderXBuffer(videoAsset.publicUrl);
+
       mediaType = "document";
+      if (contentType.startsWith("video/")) {
+        mediaType = "video";
+      } else if (contentType.startsWith("image/")) {
+        mediaType = "image";
+      } else if (contentType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
+        mediaType = "document";
+      }
+
+      const registerResponse = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "X-Restli-Protocol-Version": "2.0.0",
+        },
+        body: JSON.stringify({
+          registerUploadRequest: {
+            recipes: [`urn:li:digitalmediaRecipe:feedshare-${mediaType}`],
+            owner: authorUrn,
+            serviceRelationships: [
+              {
+                relationshipType: "OWNER",
+                identifier: "urn:li:userGeneratedContent",
+              },
+            ],
+          },
+        }),
+      });
+
+      const registerData = await registerResponse.json();
+      if (!registerResponse.ok || registerData.error) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Failed to register upload with LinkedIn",
+            details: registerData,
+          },
+          { status: 500 }
+        );
+      }
+
+      const uploadUrl =
+        registerData.value.uploadMechanism["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]
+          .uploadUrl;
+      assetUrn = registerData.value.asset;
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": contentType,
+        },
+        body: fileBuffer,
+      });
+
+      if (!uploadResponse.ok) {
+        return NextResponse.json(
+          { success: false, error: "Failed to upload file to LinkedIn" },
+          { status: 500 }
+        );
+      }
     }
 
-    const registerResponse = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        "X-Restli-Protocol-Version": "2.0.0",
-      },
-      body: JSON.stringify({
-        registerUploadRequest: {
-          recipes: [`urn:li:digitalmediaRecipe:feedshare-${mediaType}`],
-          owner: authorUrn,
-          serviceRelationships: [
-            {
-              relationshipType: "OWNER",
-              identifier: "urn:li:userGeneratedContent",
-            },
-          ],
-        },
-      }),
-    });
+    const shareContent: any = {
+      shareCommentary: { text: postText },
+      shareMediaCategory: hasMedia ? mediaType.toUpperCase() : "NONE",
+    };
 
-    const registerData = await registerResponse.json();
-    if (!registerResponse.ok || registerData.error) {
-      return NextResponse.json(
+    if (hasMedia && assetUrn) {
+      shareContent.media = [
         {
-          success: false,
-          error: "Failed to register upload with LinkedIn",
-          details: registerData,
+          status: "READY",
+          description: { text: description || title || `Uploaded via Insturix UploaderX` },
+          media: assetUrn,
+          title: { text: title || fileName },
         },
-        { status: 500 }
-      );
+      ];
     }
 
-    const uploadUrl =
-      registerData.value.uploadMechanism["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]
-        .uploadUrl;
-    const assetUrn = registerData.value.asset;
-
-    const uploadResponse = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": contentType,
-      },
-      body: fileBuffer,
-    });
-
-    if (!uploadResponse.ok) {
-      return NextResponse.json(
-        { success: false, error: "Failed to upload file to LinkedIn" },
-        { status: 500 }
-      );
-    }
-
-    const postText = title || description || "Posted via Insturix UploaderX";
     const postBody: any = {
       author: authorUrn,
       lifecycleState: "PUBLISHED",
       specificContent: {
-        "com.linkedin.ugc.ShareContent": {
-          shareCommentary: { text: postText },
-          shareMediaCategory: mediaType.toUpperCase(),
-          media: [
-            {
-              status: "READY",
-              description: { text: description || title || `Uploaded via Insturix UploaderX` },
-              media: assetUrn,
-              title: { text: title || fileName },
-            },
-          ],
-        },
+        "com.linkedin.ugc.ShareContent": shareContent,
       },
       visibility: {
         "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
@@ -313,7 +328,7 @@ export async function POST(req: Request) {
       success: true,
       postUrl,
       postId,
-      mediaType,
+      mediaType: hasMedia ? mediaType : "text",
       postType,
       organizationId: postType === "organization" ? organizationId : null,
     });

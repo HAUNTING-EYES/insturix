@@ -43,16 +43,59 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const [privacyStatus, setPrivacyStatus] = useState("private");
   const [uploadResult, setUploadResult] = useState<{ success: boolean; videoUuid?: string; error?: string } | null>(null);
 
-
-  const isReady = useMemo(() => !!videoFile && Object.values(selectedPlatforms).some(Boolean), [videoFile, selectedPlatforms]);
+  const selectedPlatformKeys = useMemo(
+    () => Object.entries(selectedPlatforms).filter(([, enabled]) => enabled).map(([key]) => key),
+    [selectedPlatforms]
+  );
+  const isLinkedInOnly = selectedPlatformKeys.length === 1 && selectedPlatformKeys[0] === "linkedin";
+  const hasLinkedInText = !!(defaultTitle.trim() || defaultDescription.trim());
+  const isReady = useMemo(() => {
+    if (selectedPlatformKeys.length === 0) {
+      return false;
+    }
+    if (videoFile) {
+      return true;
+    }
+    return isLinkedInOnly && hasLinkedInText;
+  }, [videoFile, selectedPlatformKeys, isLinkedInOnly, hasLinkedInText]);
 
   const handleSubmit = async () => {
-    if (!videoFile) {
+    if (!videoFile && !(isLinkedInOnly && hasLinkedInText)) {
       toast({
-        title: "No video selected",
-        description: "Please select a video file to upload.",
+        title: "Video required",
+        description: "Please select a video file, or use LinkedIn only for a text post.",
         variant: "destructive"
       });
+      return;
+    }
+
+    if (!videoFile && isLinkedInOnly) {
+      try {
+        toast({
+          title: "Posting to LinkedIn...",
+          description: "Publishing your text post."
+        });
+
+        const linkedinResult = await uploadToLinkedIn(undefined, undefined, defaultTitle, defaultDescription);
+        if (linkedinResult.success) {
+          toast({
+            title: "Posted to LinkedIn",
+            description: "Your text post is live on LinkedIn."
+          });
+        } else {
+          toast({
+            title: "LinkedIn post failed",
+            description: linkedinResult.error,
+            variant: "destructive"
+          });
+        }
+      } catch (error) {
+        toast({
+          title: "LinkedIn post failed",
+          description: "An error occurred while publishing your LinkedIn post.",
+          variant: "destructive"
+        });
+      }
       return;
     }
 
@@ -515,18 +558,22 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
 
           <Separator className="bg-zinc-800" />
 
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-zinc-400">
-              {videoFile ? `${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)} MB)` : "No video selected"}
-            </div>
-            <Button
-              disabled={!isReady || isUploading}
-              onClick={handleSubmit}
-              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
-            >
-              {isUploading ? "Uploading..." : "Upload Video"}
-            </Button>
-          </div>
+	          <div className="flex items-center justify-between">
+	            <div className="text-sm text-zinc-400">
+	              {videoFile
+	                ? `${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)} MB)`
+	                : isLinkedInOnly
+	                  ? "LinkedIn text-only post ready"
+	                  : "No video selected"}
+	            </div>
+	            <Button
+	              disabled={!isReady || isUploading}
+	              onClick={handleSubmit}
+	              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
+	            >
+	              {isUploading ? "Uploading..." : isLinkedInOnly && !videoFile ? "Post to LinkedIn" : "Upload Video"}
+	            </Button>
+	          </div>
 
           {uploadResult?.success && (
             <div className="p-3 bg-green-900/20 border border-green-500/30 rounded-lg">

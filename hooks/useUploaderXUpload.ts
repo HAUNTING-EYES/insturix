@@ -444,8 +444,8 @@ export function useUploaderXUpload() {
   }, []);
 
   const uploadToLinkedIn = useCallback(async (
-    videoUuid: string,
-    gcsPath: string,
+    videoUuid?: string,
+    gcsPath?: string,
     title?: string,
     description?: string,
     postType?: 'personal' | 'organization',
