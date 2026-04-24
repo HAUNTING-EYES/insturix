@@ -16,6 +16,9 @@ interface LinkedInStatus {
   canPostPersonal?: boolean;
   canPostOrganization?: boolean;
   canPost?: boolean;
+  message?: string;
+  missingScopes?: string[];
+  needsReconnect?: boolean;
   userName?: string;
   userId?: string;
   organizations?: Array<{ id: string; name: string; vanityName: string }>;
@@ -30,6 +33,9 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
     canPostPersonal: false,
     canPostOrganization: false,
     canPost: false,
+    message: undefined,
+    missingScopes: [],
+    needsReconnect: false,
     userName: undefined,
     userId: undefined,
     organizations: [],
@@ -70,6 +76,9 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
           userName: data.userName,
           userId: data.userId,
           organizations: data.organizations || [],
+          message: data.message,
+          missingScopes: data.missingScopes || [],
+          needsReconnect: !!data.needsReconnect,
           isExpired: !!data.isExpired,
           canPost: !!data.canPost,
           canPostOrganization: !!data.canPostOrganization,
@@ -87,6 +96,9 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
           canPostPersonal: false,
           canPostOrganization: false,
           canPost: false,
+          message: undefined,
+          missingScopes: [],
+          needsReconnect: false,
           userName: undefined,
           userId: undefined,
           organizations: [],
@@ -102,6 +114,9 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
         canPostPersonal: false,
         canPostOrganization: false,
         canPost: false,
+        message: undefined,
+        missingScopes: [],
+        needsReconnect: false,
         userName: undefined,
         userId: undefined,
         organizations: [],
@@ -143,6 +158,9 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
         canPostPersonal: false,
         canPostOrganization: false,
         canPost: false,
+        message: undefined,
+        missingScopes: [],
+        needsReconnect: false,
         userName: undefined,
         userId: undefined,
         organizations: [],
@@ -268,7 +286,12 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
 
             {!status.canPostPersonal && (
               <p className="text-xs text-yellow-500">
-                Personal posting is unavailable until profile permissions are granted.
+                {status.message || "Personal posting is unavailable until profile permissions are granted."}
+              </p>
+            )}
+            {!!status.missingScopes?.length && (
+              <p className="text-xs text-zinc-500">
+                Missing LinkedIn scopes: {status.missingScopes.join(", ")}
               </p>
             )}
             {status.connectedAt && (
@@ -286,6 +309,14 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
               >
                 Refresh
               </Button>
+              {!status.canPostPersonal && (
+                <Button
+                  size="sm"
+                  onClick={handleConnect}
+                >
+                  Reconnect
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"

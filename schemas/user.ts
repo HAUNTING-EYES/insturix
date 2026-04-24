@@ -45,6 +45,8 @@ export interface ILinkedInTokens {
   userName: string;
   expiresAt: Date;
   connectedAt: Date;
+  scopes?: string[];
+  missingScopes?: string[];
   organizations?: Array<{
     id: string;
     name: string;
@@ -148,6 +150,7 @@ interface IUser extends Document {
     scopes?: string[];
     missingScopes?: string[];
   };
+  linkedinTokens?: ILinkedInTokens;
 }
 
 const serviceLimitSchema = new Schema<IServiceLimit>({
@@ -432,6 +435,8 @@ const userSchema = new Schema<IUser>({
     userName: String,
     expiresAt: Date,
     connectedAt: Date,
+    scopes: [String],
+    missingScopes: [String],
     organizations: [{
       id: String,
       name: String,

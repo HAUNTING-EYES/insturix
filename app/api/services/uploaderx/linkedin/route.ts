@@ -125,12 +125,16 @@ export async function POST(req: Request) {
     const canPostPersonal = !!userId;
     const organizations = tokens.organizations || [];
     const hasOrganizations = organizations.length > 0;
+    const missingScopes = tokens.missingScopes || [];
 
     if (!canPostPersonal && !hasOrganizations) {
       return NextResponse.json(
         {
           success: false,
-          error: "LinkedIn account doesn't have permission to post. Please reconnect with the required permissions.",
+          error: missingScopes.includes("profile") || missingScopes.includes("openid")
+            ? "LinkedIn personal posting needs OpenID profile access. Please reconnect LinkedIn and grant profile permission."
+            : "LinkedIn posting target is unavailable. Please reconnect LinkedIn and grant the required permissions.",
+          missingScopes,
         },
         { status: 400 }
       );

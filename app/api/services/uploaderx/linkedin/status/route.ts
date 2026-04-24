@@ -88,7 +88,7 @@ export async function GET() {
                     // Approach 2: Try using the OAuth token info endpoint
                     // Note: LinkedIn doesn't have a direct token introspection, but we can try
                     // Approach 3: If posting is allowed, the token is valid - we'll handle in upload
-                    console.log("[LinkedIn Status] Profile fetch failed. User will need to reconnect with r_liteprofile scope.");
+                    console.log("[LinkedIn Status] Profile fetch failed. User will need to reconnect with LinkedIn profile scope.");
                 }
             } catch (profileError) {
                 console.warn("[LinkedIn Status] Error fetching profile:", profileError);
@@ -154,6 +154,9 @@ export async function GET() {
         const canPostPersonal = !!userId;
         const hasOrganizations = tokens.organizations && tokens.organizations.length > 0;
         const canPost = canPostPersonal || hasOrganizations;
+        const missingScopes = tokens.missingScopes || [];
+        const needsProfileReconnect = !canPostPersonal && (missingScopes.includes("profile") || missingScopes.includes("openid") || !hasOrganizations);
+        const needsOrgReconnect = !hasOrganizations && (missingScopes.includes("rw_organization_admin") || missingScopes.includes("w_organization_social"));
         
         console.log("[LinkedIn Status] User connected - canPostPersonal:", canPostPersonal, "hasOrganizations:", hasOrganizations, "canPost:", canPost, "isExpired:", finalIsExpired, "refreshFailed:", refreshFailed, "userId:", userId);
         
@@ -169,11 +172,19 @@ export async function GET() {
             userName: tokens.userName,
             userId: userId,
             organizations: tokens.organizations || [],
+            scopes: tokens.scopes || [],
+            missingScopes,
             isExpired: finalIsExpired,
             canPost: canPost,
             connectedAt: tokens.connectedAt,
             needsReconnect: !canPostPersonal && !hasOrganizations,
-            message: !canPostPersonal && !hasOrganizations ? "LinkedIn profile access required. Please reconnect with profile permissions enabled." : undefined,
+            needsProfileReconnect,
+            needsOrgReconnect,
+            message: !canPost
+                ? "LinkedIn personal posting needs OpenID profile access. Reconnect LinkedIn so we can request your profile permission."
+                : !canPostPersonal
+                    ? "LinkedIn is connected, but personal profile posting is unavailable until profile access is granted."
+                    : undefined,
         };
         
         console.log("[LinkedIn Status] Full response JSON:", JSON.stringify(responseData));
