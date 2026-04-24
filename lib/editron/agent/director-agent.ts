@@ -716,11 +716,13 @@ export async function executeDirectorPlan(
     // transitions. See pipeline_investigations.md 2026-04-18 for the regression
     // this protects against.
     const persistableOverlays = overlays.filter(
-      (o: any) => !o?.metadata?.inMemoryMarker,
+      (o: any) => !o?.metadata?.inMemoryMarker && (o.durationInFrames > 0),
     );
     const strippedCount = overlays.length - persistableOverlays.length;
     if (strippedCount > 0) {
-      console.log(`[Director] Stripped ${strippedCount} in-memory dedup marker(s) before save`);
+      const zeroDur = overlays.filter((o: any) => o.durationInFrames <= 0 && !o?.metadata?.inMemoryMarker).length;
+      const markers = strippedCount - zeroDur;
+      console.log(`[Director] Stripped ${strippedCount} overlay(s) before save (${markers} dedup markers, ${zeroDur} zero-duration)`);
     }
 
     await projectService.saveProject(userId, projectId, {
@@ -1177,7 +1179,7 @@ async function executeAction(
           // markers. See pipeline_investigations.md 2026-04-18 "Dual transition
           // system regression (A3.5.1/A3.5.2 returned)".
           if (result > 0) {
-            const transDurFrames = Math.round((effectiveDuration / 1000) * 30);
+            const transDurFrames = Math.max(1, Math.round((effectiveDuration / 1000) * 30));
             overlays.push({
               id: Date.now() + i,
               type: 'transition',

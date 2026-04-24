@@ -373,7 +373,7 @@ async function applyDecision(
       if (!cached) return null;
 
       const fps = DEFAULT_CONFIG.timing.fps;
-      const sfxDurFrames = Math.min(Math.round((cached.durationMs / 1000) * fps), 90);
+      const sfxDurFrames = Math.max(1, Math.min(Math.round((cached.durationMs / 1000) * fps), 90));
       const sfxId = deterministicOverlayId(idEpoch, 'sfx-trigger', decision.frame, decisionIndex);
 
       overlays.push({
