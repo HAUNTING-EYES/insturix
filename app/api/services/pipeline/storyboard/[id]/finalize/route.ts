@@ -130,6 +130,19 @@ export async function POST(
         console.log(`[Finalize] Scene ${scene.sceneIndex}: capping duration from ${sceneDurationSec.toFixed(1)}s to ${videoDurationSec.toFixed(1)}s (video shorter than script)`);
         sceneDurationSec = videoDurationSec;
       }
+      // Native audio buffer: Seedance/audio-capable models generate dialogue
+      // that can extend 0.2-0.5s past the script duration. Hard-cutting at
+      // scriptDurationSec chops words mid-syllable. Add 0.3s buffer when the
+      // clip has native audio AND the video is longer than the script duration,
+      // so the dialogue can finish naturally.
+      const sceneHasNativeAudio = (scene as any).hasNativeAudio || false;
+      if (sceneHasNativeAudio && videoDurationSec && videoDurationSec > sceneDurationSec) {
+        const buffer = Math.min(0.3, videoDurationSec - sceneDurationSec);
+        if (buffer > 0.05) {
+          sceneDurationSec += buffer;
+          console.log(`[Finalize] Scene ${scene.sceneIndex}: native audio buffer +${buffer.toFixed(2)}s (dialogue tail protection)`);
+        }
+      }
       const durationFrames = Math.round(sceneDurationSec * fps);
 
       // ─── Montage sub-shots with independent videos ─────────────
