@@ -1,0 +1,265 @@
+import { NextRequest, NextResponse } from "next/server";
+import connectToDatabase from "@/schemas/ConnectToDatabase";
+import { getLinkedInScopes } from "@/lib/uploaderx/linkedinScopes";
+import { getLinkedInDashboardUrl, getLinkedInRedirectUri } from "@/lib/uploaderx/linkedinUrl";
+
+function createPopupResponse(
+    request: NextRequest,
+    payload: Record<string, string | number | boolean | null | undefined>,
+    fallbackUrl: string
+) {
+    const origin = new URL(request.url).origin;
+    const serializedPayload = JSON.stringify(payload);
+    const escapedFallback = JSON.stringify(fallbackUrl);
+
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>LinkedIn Connection</title>
+  </head>
+  <body>
+    <script>
+      (function () {
+        var payload = ${serializedPayload};
+        var fallbackUrl = ${escapedFallback};
+        try {
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage({ source: "uploaderx-linkedin-oauth", payload: payload }, ${JSON.stringify(origin)});
+            window.close();
+            return;
+          }
+        } catch (error) {}
+        window.location.replace(fallbackUrl);
+      })();
+    </script>
+    <p>Completing LinkedIn connection...</p>
+  </body>
+</html>`;
+
+    return new NextResponse(html, {
+        headers: {
+            "Content-Type": "text/html; charset=utf-8",
+        },
+    });
+}
+
+/**
+ * GET /api/services/uploaderx/linkedin/callback
+ * Handles LinkedIn OAuth callback and exchanges code for tokens
+ */
+export async function GET(request: NextRequest) {
+    try {
+        const { searchParams } = new URL(request.url);
+        const code = searchParams.get("code");
+        const state = searchParams.get("state");
+        const error = searchParams.get("error");
+        const errorDescription = searchParams.get("error_description");
+
+        if (error) {
+            console.error("LinkedIn OAuth error:", error, errorDescription);
+            const fallbackUrl = getLinkedInDashboardUrl(`/dashboard/uploaderx?error=linkedin_auth_failed&message=${encodeURIComponent(errorDescription || error)}`, request);
+            return createPopupResponse(request, {
+                success: false,
+                error: "linkedin_auth_failed",
+                message: errorDescription || error,
+            }, fallbackUrl);
+        }
+
+        if (!code || !state) {
+            console.error("LinkedIn callback missing code or state. Code:", !!code, "State:", state);
+            const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_auth_invalid", request);
+            return createPopupResponse(request, {
+                success: false,
+                error: "linkedin_auth_invalid",
+            }, fallbackUrl);
+        }
+
+        const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
+        const clientSecret = process.env.LINKEDIN_CLIENT_SECRET?.trim();
+        const redirectUri = getLinkedInRedirectUri(request);
+
+        if (!clientId || !clientSecret) {
+            console.error("LinkedIn credentials not configured");
+            const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_config_error", request);
+            return createPopupResponse(request, {
+                success: false,
+                error: "linkedin_config_error",
+            }, fallbackUrl);
+        }
+
+        const tokenResponse = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+                grant_type: "authorization_code",
+                code,
+                client_id: clientId,
+                client_secret: clientSecret,
+                redirect_uri: redirectUri,
+            }),
+        });
+
+        const tokenData = await tokenResponse.json();
+
+        if (!tokenResponse.ok || tokenData.error) {
+            console.error("LinkedIn token exchange failed:", tokenData);
+            const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_token_exchange_failed", request);
+            return createPopupResponse(request, {
+                success: false,
+                error: "linkedin_token_exchange_failed",
+            }, fallbackUrl);
+        }
+
+        const { access_token, expires_in, refresh_token, id_token } = tokenData;
+        const { scopes, options } = getLinkedInScopes();
+        const missingScopes: string[] = [];
+
+        let profileData: any = {};
+        if (options.includeProfile) {
+            if (id_token) {
+                try {
+                    const [, payload] = id_token.split(".");
+                    if (payload) {
+                        const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+                        profileData = {
+                            id: decoded.sub,
+                            localizedFirstName: decoded.given_name,
+                            localizedLastName: decoded.family_name,
+                            name: decoded.name,
+                            picture: decoded.picture,
+                        };
+                    }
+                } catch (decodeError) {
+                    console.warn("LinkedIn ID token decode failed:", decodeError);
+                }
+            }
+
+            if (!profileData?.id) {
+                try {
+                    const userInfoResponse = await fetch("https://api.linkedin.com/v2/userinfo", {
+                        headers: {
+                            Authorization: `Bearer ${access_token}`,
+                        },
+                    });
+                    const userInfoData = await userInfoResponse.json();
+                    if (userInfoResponse.ok && userInfoData?.sub) {
+                        profileData = {
+                            id: userInfoData.sub,
+                            localizedFirstName: userInfoData.given_name,
+                            localizedLastName: userInfoData.family_name,
+                            name: userInfoData.name,
+                            picture: userInfoData.picture,
+                        };
+                    } else {
+                        console.warn("LinkedIn userinfo fetch failed:", userInfoData);
+                        missingScopes.push("profile");
+                    }
+                } catch (profileError) {
+                    console.warn("LinkedIn userinfo fetch failed:", profileError);
+                    missingScopes.push("profile");
+                }
+            }
+        }
+
+        if (options.includeEmail) {
+            try {
+                const emailResponse = await fetch("https://api.linkedin.com/v2/userinfo", {
+                    headers: {
+                        Authorization: `Bearer ${access_token}`,
+                    },
+                });
+                const emailData = await emailResponse.json();
+                if (!emailResponse.ok || !emailData?.email) {
+                    missingScopes.push("email");
+                }
+            } catch (emailError) {
+                console.warn("LinkedIn email fetch failed:", emailError);
+                missingScopes.push("email");
+            }
+        }
+
+        let organizations = [];
+        if (options.includeOrganizationAdmin || options.includeOrganizationSocial) {
+            try {
+                const orgsResponse = await fetch("https://api.linkedin.com/v2/organizations?q=organizations", {
+                    headers: {
+                        Authorization: `Bearer ${access_token}`,
+                        "X-Restli-Protocol-Version": "2.0.0",
+                    },
+                });
+
+                if (orgsResponse.ok) {
+                    const orgsData = await orgsResponse.json();
+                    organizations = orgsData.elements?.map((org: any) => ({
+                        id: org.id,
+                        name: org.localizedName,
+                        vanityName: org.vanityName,
+                    })) || [];
+                } else {
+                    console.warn("LinkedIn organizations fetch failed");
+                    if (options.includeOrganizationAdmin) {
+                        missingScopes.push("rw_organization_admin");
+                    }
+                    if (options.includeOrganizationSocial) {
+                        missingScopes.push("w_organization_social");
+                    }
+                }
+            } catch (orgError) {
+                console.warn("LinkedIn organizations fetch error:", orgError);
+                if (options.includeOrganizationAdmin) {
+                    missingScopes.push("rw_organization_admin");
+                }
+                if (options.includeOrganizationSocial) {
+                    missingScopes.push("w_organization_social");
+                }
+            }
+        }
+
+        await connectToDatabase();
+        const { User } = await import("@/schemas/user");
+
+        const expiresAt = new Date(Date.now() + expires_in * 1000);
+        const linkedinTokens: any = {
+            accessToken: access_token,
+            refreshToken: refresh_token,
+            expiresAt,
+            connectedAt: new Date(),
+            organizations,
+            scopes,
+            missingScopes: Array.from(new Set(missingScopes)),
+        };
+
+        if (profileData?.id) {
+            linkedinTokens.userId = profileData.id;
+            linkedinTokens.userName = `${profileData.localizedFirstName || ""} ${profileData.localizedLastName || ""}`.trim() || undefined;
+        }
+
+        await User.updateOne(
+            { clerkUserId: state },
+            {
+                $set: {
+                    linkedinTokens,
+                },
+            },
+            { upsert: true }
+        );
+
+        const redirectUrl = getLinkedInDashboardUrl(`/dashboard/uploaderx?success=linkedin_connected&t=${Date.now()}`, request);
+        return createPopupResponse(request, {
+            success: true,
+            connected: true,
+            provider: "linkedin",
+            t: Date.now(),
+        }, redirectUrl);
+    } catch (error) {
+        console.error("LinkedIn callback error:", error);
+        const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_callback_error", request);
+        return createPopupResponse(request, {
+            success: false,
+            error: "linkedin_callback_error",
+        }, fallbackUrl);
+    }
+}

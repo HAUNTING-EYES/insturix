@@ -3,7 +3,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // Define routes that require authentication
 const isProtectedRoute = createRouteMatcher([
   '/dashboard(.*)',
-  '/admin(.*)',
+  '/api/user(.*)',
+  '/api/services(.*)',
 ]);
 
 // Resolve authorized parties from env or dynamic Vercel URLs

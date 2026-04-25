@@ -38,6 +38,22 @@ export interface ISubscription {
   paymentMethod?: "card" | "upi" | "netbanking" | "wallet";
 }
 
+export interface ILinkedInTokens {
+  accessToken: string;
+  refreshToken?: string;
+  userId: string;
+  userName: string;
+  expiresAt: Date;
+  connectedAt: Date;
+  scopes?: string[];
+  missingScopes?: string[];
+  organizations?: Array<{
+    id: string;
+    name: string;
+    vanityName: string;
+  }>;
+}
+
 export interface IUiMessage {
   id: string; // Unique identifier for the message (e.g., a UUID)
   type: 'modal' | 'banner' | 'disclaimer'; // Type of UI element to display
@@ -99,6 +115,42 @@ interface IUser extends Document {
       paymentReminders: boolean;
     };
   };
+  facebookTokens?: {
+    userAccessToken: string;
+    userId: string;
+    userName: string;
+    pages: Array<{
+      pageId: string;
+      pageName: string;
+      pageAccessToken: string;
+    }>;
+    connectedAt: Date;
+  };
+  instagramTokens?: {
+    userAccessToken: string;
+    userId: string;
+    userName: string;
+    accounts: Array<{
+      instagramAccountId: string;
+      instagramUsername: string;
+      profilePictureUrl: string | null;
+      facebookPageId: string;
+      facebookPageName: string;
+      facebookPageAccessToken: string;
+    }>;
+    connectedAt: Date;
+  };
+  twitterTokens?: {
+    accessToken: string;
+    refreshToken: string;
+    userId: string;
+    userName: string;
+    expiresAt: Date;
+    connectedAt: Date;
+    scopes?: string[];
+    missingScopes?: string[];
+  };
+  linkedinTokens?: ILinkedInTokens;
 }
 
 const serviceLimitSchema = new Schema<IServiceLimit>({
@@ -339,6 +391,59 @@ const userSchema = new Schema<IUser>({
       paymentReminders: { type: Boolean, default: true },
     },
   },
+  facebookTokens: {
+    userAccessToken: String,
+    userId: String,
+    userName: String,
+    pages: [{
+      pageId: String,
+      pageName: String,
+      pageAccessToken: String,
+      _id: false
+    }],
+    connectedAt: Date,
+  },
+  instagramTokens: {
+    userAccessToken: String,
+    userId: String,
+    userName: String,
+    accounts: [{
+      instagramAccountId: String,
+      instagramUsername: String,
+      profilePictureUrl: String,
+      facebookPageId: String,
+      facebookPageName: String,
+      facebookPageAccessToken: String,
+      _id: false
+    }],
+    connectedAt: Date,
+  },
+  twitterTokens: {
+    accessToken: String,
+    refreshToken: String,
+    userId: String,
+    userName: String,
+    expiresAt: Date,
+    connectedAt: Date,
+    scopes: [String],
+    missingScopes: [String],
+  },
+  linkedinTokens: {
+    accessToken: String,
+    refreshToken: String,
+    userId: String,
+    userName: String,
+    expiresAt: Date,
+    connectedAt: Date,
+    scopes: [String],
+    missingScopes: [String],
+    organizations: [{
+      id: String,
+      name: String,
+      vanityName: String,
+      _id: false
+    }],
+  },
 }, {
   timestamps: true,
 });
@@ -348,7 +453,7 @@ userSchema.index({ "currentPlan.status": 1 });
 userSchema.index({ "subscriptions.subscriptionId": 1 });
 
 // Instance method to get current plan service limits from plans collection
-userSchema.methods.getCurrentPlanServiceLimits = async function() {
+userSchema.methods.getCurrentPlanServiceLimits = async function () {
   const Plan = mongoose.model('Plan');
   try {
     const currentPlan = await Plan.findById(this.currentPlan.planId);
@@ -369,15 +474,15 @@ userSchema.methods.getCurrentPlanServiceLimits = async function() {
 };
 
 // Instance method to get service limit usage info
-userSchema.methods.getServiceLimitUsage = function(serviceName: string, limitType: string) {
+userSchema.methods.getServiceLimitUsage = function (serviceName: string, limitType: string) {
   const serviceLimit = this.currentPlan.serviceLimits[serviceName]?.find(
     (limit: IServiceLimit) => limit.limitType === limitType
   );
-  
+
   if (!serviceLimit) {
     return { hasAccess: false, maxUsage: 0, currentUsage: 0, remaining: 0 };
   }
-  
+
   return {
     hasAccess: true,
     maxUsage: serviceLimit.maxUsage,
@@ -390,30 +495,30 @@ userSchema.methods.getServiceLimitUsage = function(serviceName: string, limitTyp
 };
 
 // Instance method to increment service limit usage
-userSchema.methods.incrementServiceLimitUsage = async function(serviceName: string, limitType: string, increment: number = 1) {
+userSchema.methods.incrementServiceLimitUsage = async function (serviceName: string, limitType: string, increment: number = 1) {
   const serviceLimit = this.currentPlan.serviceLimits[serviceName]?.find(
     (limit: IServiceLimit) => limit.limitType === limitType
   );
-  
+
   if (!serviceLimit) {
     throw new Error(`Service limit not found for: ${serviceName}.${limitType}`);
   }
-  
+
   if (serviceLimit.maxUsage !== -1 && serviceLimit.currentUsage + increment > serviceLimit.maxUsage) {
     throw new Error(`Service usage limit exceeded for: ${serviceName}.${limitType}`);
   }
-  
+
   serviceLimit.currentUsage += increment;
   this.markModified('currentPlan.serviceLimits');
   await this.save();
-  
+
   return serviceLimit.currentUsage;
 };
 
 // Instance method to reset service limit usage (for periodic resets)
-userSchema.methods.resetServiceLimitUsage = async function(serviceName?: string, limitType?: string) {
+userSchema.methods.resetServiceLimitUsage = async function (serviceName?: string, limitType?: string) {
   const now = new Date();
-  
+
   if (serviceName && limitType) {
     const serviceLimit = this.currentPlan.serviceLimits[serviceName]?.find(
       (limit: IServiceLimit) => limit.limitType === limitType
@@ -435,7 +540,7 @@ userSchema.methods.resetServiceLimitUsage = async function(serviceName?: string,
       });
     });
   }
-  
+
   this.markModified('currentPlan.serviceLimits');
   await this.save();
 };
