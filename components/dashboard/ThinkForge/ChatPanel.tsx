@@ -220,20 +220,35 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     setSuggestions(getContextualSuggestions(hasContent, chat.messages.length));
   }, [!!script?.content, chat.messages.length, selectedIdea]);
 
-  // Auto-starter script: when entering editor with no script, auto-generate a draft
+  // Auto-starter: generate a draft ONLY for genuinely new projects (no saved script).
+  // Ref tracks the latest script across re-renders so the timer reads fresh state.
   const autoStartFired = React.useRef(false);
+  const scriptRef = React.useRef(script);
+  scriptRef.current = script;
+
   useEffect(() => {
     if (autoStartFired.current) return;
     if (!sessionId) return;
-    if (script?.content) return; // Already has content
-    if (chat.messages.length > 0) return; // Chat already has messages (returning user)
-    if (chat.isStreaming) return;
     if (!selectedIdea?.idea) return;
+    if (chat.messages.length > 0) return;
+    if (chat.isStreaming) return;
 
-    autoStartFired.current = true;
+    // Check content AND blocks — ThinkForge stores scripts as Tiptap blocks,
+    // so content can be "" while blocks holds the actual data.
+    const hasData = !!(script?.content || (Array.isArray(script?.blocks) && script.blocks.length > 0));
+    if (hasData) return;
 
-    // Small delay so the UI settles first
+    // Wait long enough for the saved script to load from the server.
+    // Vercel cold starts can take 2-3s, so 800ms was too short and caused
+    // false auto-drafts on every project open. At fire time, re-read the
+    // latest script from the ref (the closure captures the stale value).
     const timer = setTimeout(() => {
+      if (autoStartFired.current) return;
+      const latest = scriptRef.current;
+      const latestHasData = !!(latest?.content || (Array.isArray(latest?.blocks) && latest.blocks.length > 0));
+      if (latestHasData) return;
+
+      autoStartFired.current = true;
       const autoPrompt = `Write a short starter draft for this idea: "${selectedIdea.idea}". Keep it concise — just enough to give me something to work with. Include a hook, a brief body, and a closing.`;
       const currentScriptId = scriptIdRef.current || undefined;
       chat.sendMessage(autoPrompt, {
@@ -250,7 +265,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
           lastUserAction: 'auto_start',
         },
       });
-    }, 800);
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [sessionId, selectedIdea?.idea]);
