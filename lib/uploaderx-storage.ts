@@ -42,11 +42,11 @@ export function getUploaderXR2Client() {
 }
 
 export function getUploaderXR2BucketName() {
-  return getRequiredEnv("R2_BUCKET_NAME");
+  return process.env.UPLOADERX_R2_BUCKET_NAME || getRequiredEnv("R2_BUCKET_NAME");
 }
 
 export function buildUploaderXPublicUrl(key: string) {
-  const baseUrl = getRequiredEnv("R2_PUBLIC_BASE_URL").replace(/\/+$/, "");
+  const baseUrl = (process.env.UPLOADERX_R2_PUBLIC_BASE_URL || getRequiredEnv("R2_PUBLIC_BASE_URL")).replace(/\/+$/, "");
   return `${baseUrl}/${key}`;
 }
 
