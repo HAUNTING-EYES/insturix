@@ -60,20 +60,24 @@ const DELIVERABLE_SUGGESTIONS = [
   "🔄 Create an alternative version of this script",
 ];
 
-function getContextualSuggestions(hasScript: boolean, messageCount: number = 0, count: number = 3): string[] {
-  // After some messages with a script, mix in deliverable suggestions
+function getContextualSuggestions(hasScript: boolean, messageCount: number = 0, count: number = 3, seed: string = ''): string[] {
+  // Deterministic selection seeded by idea text — prevents re-randomization on every render.
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+  const pick = (arr: readonly string[], n: number) => {
+    const out: string[] = [];
+    const idx = arr.map((_, i) => i);
+    for (let i = 0; i < Math.min(n, idx.length); i++) {
+      const j = Math.abs(h + i * 7) % idx.length;
+      out.push(arr[idx[j]]);
+      idx.splice(j, 1);
+    }
+    return out;
+  };
   if (hasScript && messageCount >= 3) {
-    const scriptPool = [...HAS_SCRIPT_SUGGESTIONS];
-    const deliverablePool = [...DELIVERABLE_SUGGESTIONS];
-    const combined = [
-      ...scriptPool.sort(() => Math.random() - 0.5).slice(0, 2),
-      ...deliverablePool.sort(() => Math.random() - 0.5).slice(0, 1),
-    ];
-    return combined.slice(0, count);
+    return [...pick(HAS_SCRIPT_SUGGESTIONS, 2), ...pick(DELIVERABLE_SUGGESTIONS, 1)].slice(0, count);
   }
-  const pool = hasScript ? HAS_SCRIPT_SUGGESTIONS : EMPTY_SCRIPT_SUGGESTIONS;
-  const shuffled = [...pool].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
+  return pick(hasScript ? HAS_SCRIPT_SUGGESTIONS : EMPTY_SCRIPT_SUGGESTIONS, count);
 }
 
 const STYLE_CORRECTION_RE = /\b(too formal|too casual|punchier|more concise|shorter|longer|simpler|friendlier|serious|tone|less wordy|rewrite|rephrase|sound more|sound less)\b/i;
@@ -217,7 +221,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   // Initialize context-aware suggestions
   useEffect(() => {
     const hasContent = !!script?.content;
-    setSuggestions(getContextualSuggestions(hasContent, chat.messages.length));
+    setSuggestions(getContextualSuggestions(hasContent, chat.messages.length, 3, selectedIdea?.idea || ''));
   }, [!!script?.content, chat.messages.length, selectedIdea]);
 
   // Auto-starter: generate a draft ONLY for genuinely new projects (no saved script).

@@ -1803,6 +1803,12 @@ export function ExportToEditronDialog({
               {error && (
                 <p className="text-xs text-amber-400 text-center mt-1">{error}</p>
               )}
+              <div className="flex justify-center pt-2">
+                <Button variant="ghost" size="sm" onClick={reset} className="text-zinc-500 hover:text-zinc-300 text-xs">
+                  <X className="h-3 w-3 mr-1" />
+                  Cancel Export
+                </Button>
+              </div>
             </motion.div>
           )}
 
