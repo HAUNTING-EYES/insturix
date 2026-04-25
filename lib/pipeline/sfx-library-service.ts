@@ -348,7 +348,9 @@ export function audioDescriptionToSearchQuery(audioDescription: string): string 
 
 /**
  * Check if any SFX library is available.
+ * Pixabay removed — their general API returns images, not audio.
+ * Only Freesound provides actual audio search.
  */
 export function isSFXLibraryAvailable(): boolean {
-  return !!(process.env.PIXABAY_API_KEY || process.env.FREESOUND_API_KEY);
+  return !!process.env.FREESOUND_API_KEY;
 }

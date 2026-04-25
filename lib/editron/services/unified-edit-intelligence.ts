@@ -61,6 +61,7 @@ export interface UnifiedContext {
 
 export interface SceneContext {
   sceneIndex: number;
+  assetId?: string;
   fromFrame: number;
   durationFrames: number;
 
@@ -239,6 +240,7 @@ export async function assembleUnifiedContext(
 
     scenes.push({
       sceneIndex: i,
+      assetId: (vo as any).assetId || '',
       fromFrame: vo.from,
       durationFrames: vo.durationInFrames,
       title: descriptor.title || `Scene ${i + 1}`,
@@ -613,12 +615,13 @@ export async function generateCreativeIntentPlan(
 
   const model = google(DEFAULT_CONFIG.aiModels.unifiedIntelligenceModel);
 
-  const { object } = await generateObject({
+  const { geminiRetry } = await import('@/lib/pipeline/gemini-retry');
+  const { object } = await geminiRetry(() => generateObject({
     model,
     schema: CreativeIntentPlanSchema,
     prompt: contextSummary,
     temperature: DEFAULT_CONFIG.aiModels.editingTemperature,
-  });
+  }));
 
   // Defensive: Vercel AI SDK's generateObject can return undefined for nested
   // arrays/objects when Gemini omits optional fields. Guard every access.
@@ -756,10 +759,10 @@ After high-intensity, the next scene MUST be low-intensity.
     prompt += `Narration: "${scene.narration || '(silent)'}"\n`;
     prompt += `Mood: ${scene.mood}\n`;
 
-    // Use compressed asset briefing if available, otherwise fall back to raw data
-    // Asset briefings are keyed by assetId — find the matching one for this scene's video
-    const briefing = options.assetBriefings?.values()
-      ? Array.from(options.assetBriefings.values()).find((_, idx) => idx === scene.sceneIndex)
+    // Use compressed asset briefing if available, otherwise fall back to raw data.
+    // Briefings Map is keyed by assetId. Match via scene.assetId (added to context).
+    const briefing = scene.assetId && options.assetBriefings
+      ? options.assetBriefings.get(scene.assetId) || null
       : null;
 
     if (briefing) {
