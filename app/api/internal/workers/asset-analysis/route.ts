@@ -203,6 +203,98 @@ Return JSON only:
 
     console.log(`[AssetAnalysis] ${assetId}: complete. ${tags.length} tags, embedding: ${!!embedding}`);
 
+    // ─── Enrich Neo4j Asset node via graph-sync worker ─────────
+    if (embedding) {
+      try {
+        const qstashToken = process.env.QSTASH_TOKEN;
+        const baseUrl = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+
+        if (qstashToken) {
+          const { compressAnalysisToBriefing } = await import('@/lib/editron/services/asset-briefing');
+          const analysisDoc = await db.collection('asset_analyses').findOne({ assetId });
+          const briefing = analysisDoc ? compressAnalysisToBriefing(analysisDoc as any) : null;
+
+          const dedupedTags = [...new Set(tags)];
+          const subjects = dedupedTags.filter(t =>
+            !['wide', 'medium', 'close-up', 'extreme-close-up', 'high-energy', 'medium-energy', 'calm', 'analysis-failed'].includes(t)
+          );
+          const shotTag = dedupedTags.find(t => ['wide', 'medium', 'close-up', 'extreme-close-up'].includes(t));
+          const energyTag = dedupedTags.find(t => ['high-energy', 'medium-energy', 'calm'].includes(t));
+          const energyLevel = energyTag === 'high-energy' ? 'high' : energyTag === 'medium-energy' ? 'medium' : 'low';
+
+          // Extract visual attributes from raw 5-Track keyframe data
+          const keyframes = (analysisDoc as any)?.keyframeAnalyses ?? [];
+          let colorTemp: 'warm' | 'neutral' | 'cold' | null = null;
+          let lighting: string | null = null;
+          let dominantColors: string[] = [];
+
+          if (keyframes.length > 0) {
+            // Color temperature: median Kelvin across keyframes → warm/neutral/cold
+            const kelvins = keyframes.map((kf: any) => kf.colorTemperatureK).filter(Boolean) as number[];
+            if (kelvins.length > 0) {
+              kelvins.sort((a: number, b: number) => a - b);
+              const medianK = kelvins[Math.floor(kelvins.length / 2)];
+              colorTemp = medianK < 4000 ? 'warm' : medianK > 6500 ? 'cold' : 'neutral';
+            }
+
+            // Lighting: derive from brightness distribution
+            const brightnesses = keyframes.map((kf: any) => kf.brightness ?? 0.5) as number[];
+            const avgBrightness = brightnesses.reduce((s: number, b: number) => s + b, 0) / brightnesses.length;
+            if (avgBrightness > 0.7) lighting = 'natural';
+            else if (avgBrightness > 0.5) lighting = 'studio';
+            else if (avgBrightness > 0.3) lighting = 'dramatic';
+            else lighting = 'low-key';
+
+            // Dominant colors: collect across keyframes, dedupe, take top 5
+            const allColors: string[] = [];
+            for (const kf of keyframes) {
+              if (kf.dominantColors) allColors.push(...(kf.dominantColors as string[]));
+            }
+            const colorCounts: Record<string, number> = {};
+            for (const c of allColors) colorCounts[c] = (colorCounts[c] || 0) + 1;
+            dominantColors = Object.entries(colorCounts)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 5)
+              .map(([c]) => c);
+          }
+
+          await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(`${baseUrl}/api/internal/workers/graph-sync`), {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${qstashToken}`,
+              'Content-Type': 'application/json',
+              'Upstash-Retries': '3',
+            },
+            body: JSON.stringify({
+              action: 'asset_enriched',
+              data: {
+                assetId,
+                enrichment: {
+                  briefing: briefing?.visualSummary ?? `${type} asset: ${filename}`,
+                  embedding,
+                  colorTemp,
+                  composition: shotTag ?? null,
+                  lighting,
+                  dominantColors,
+                  mood: briefing?.mood ?? null,
+                  energyLevel,
+                  subjects,
+                  hasAudio: briefing?.audioContent ?? null,
+                  qualityScore: briefing?.quality === 'high' ? 80 : briefing?.quality === 'medium' ? 60 : 40,
+                  slopFlags: briefing?.slopFlags?.map((f: any) => f.description) ?? [],
+                },
+              },
+            }),
+          });
+          console.log(`[AssetAnalysis] ${assetId}: dispatched graph enrichment`);
+        }
+      } catch (graphErr: any) {
+        console.warn(`[AssetAnalysis] ${assetId}: graph enrichment dispatch failed: ${graphErr.message}`);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       assetId,

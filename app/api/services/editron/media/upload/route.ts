@@ -141,10 +141,30 @@ export async function POST(request: NextRequest) {
           }),
         });
         console.log(`[Upload] Dispatched analysis worker for ${assetId}`);
+
+        // Graph sync: create Asset node in Neo4j (async, non-blocking)
+        await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(`${baseUrl}/api/internal/workers/graph-sync`), {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${qstashToken}`,
+            'Content-Type': 'application/json',
+            'Upstash-Retries': '3',
+          },
+          body: JSON.stringify({
+            action: 'asset_created',
+            data: {
+              assetId,
+              userId,
+              type: fileType,
+              duration: duration ? parseFloat(duration) : undefined,
+            },
+          }),
+        });
+        console.log(`[Upload] Dispatched graph-sync for ${assetId}`);
       }
     } catch (qErr: any) {
-      // Non-fatal — asset is uploaded even if analysis dispatch fails
-      console.warn(`[Upload] Analysis dispatch failed: ${qErr.message}`);
+      // Non-fatal — asset is uploaded even if analysis/graph dispatch fails
+      console.warn(`[Upload] Worker dispatch failed: ${qErr.message}`);
     }
 
     return NextResponse.json({
