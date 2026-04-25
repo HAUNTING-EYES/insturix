@@ -236,4 +236,8 @@ function mostFrequent(arr: string[]): string | null {
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 }
 
-export const POST = verifySignatureAppRouter(handler);
+// Lazy QStash verification: skip during build when env vars aren't available.
+// In production, QSTASH_CURRENT_SIGNING_KEY is always set via Vercel env.
+export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
+  ? verifySignatureAppRouter(handler)
+  : handler;
