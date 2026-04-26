@@ -46,6 +46,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Query required' }, { status: 400 });
     }
 
+    // Primary path: Neo4j graph-filtered vector search
+    try {
+      const { searchUserAssets } = await import('@/lib/editron/services/asset-search-service');
+      const graphResults = await searchUserAssets(userId, query, { type, minScore, limit });
+      if (graphResults.length > 0) {
+        return NextResponse.json({
+          success: true,
+          results: graphResults.map(r => ({ ...r, matchType: 'semantic' as const })),
+          total: graphResults.length,
+          query,
+          source: 'graph',
+        });
+      }
+    } catch { /* graph search failed — fall through to MongoDB */ }
+
+    // Fallback: direct MongoDB search
     const db = await getDatabase();
 
     // Build MongoDB filter
