@@ -762,47 +762,70 @@ export async function markAssetKept(
 
 /**
  * Penalize-not-exclude search: finds assets by embedding similarity,
- * boosts reused assets, penalizes (but doesn't blacklist) removed ones.
+ * with CONTEXTUAL scoring — not flat bonuses/penalties.
  *
  * The blue crayon was wrong for sand but right for ocean.
+ * A removal from a warm scene doesn't penalize for cold scenes.
+ * A "kept" in a published project scores higher than in a draft.
  */
 export async function searchAssets(
   userId: string,
   sceneEmbedding: number[],
   options: {
     moods?: Mood[];
+    sceneType?: string;
     brandId?: string;
     limit?: number;
     minSemanticScore?: number;
   } = {},
 ): Promise<AssetSearchHit[]> {
-  const { moods, brandId, limit = 5, minSemanticScore = 0.4 } = options;
+  const { moods, sceneType, brandId, limit = 5, minSemanticScore = 0.4 } = options;
 
-  // Build mood filter clause dynamically
   const moodClause = moods && moods.length > 0
     ? 'AND a.mood IN $moods'
     : '';
 
-  // Brand-scoped removal penalty
   const brandRemovalClause = brandId
-    ? 'AND p.brandId = $brandId'
+    ? 'AND removedProj.brandId = $brandId'
     : '';
 
   const cypher = `
     MATCH (a:Asset {userId: $userId})
     WHERE a.embedding IS NOT NULL
       ${moodClause}
-    OPTIONAL MATCH (a)-[kept:USED_IN]->(:Project)
+
+    OPTIONAL MATCH (a)-[kept:USED_IN]->(keptProj:Project)
     WHERE kept.wasKept = true
-    WITH a, count(kept) AS reuseCount
-    OPTIONAL MATCH (a)-[removed:REMOVED_FROM]->(p:Project)
+    WITH a, collect({
+      outcome: keptProj.outcome,
+      mood: kept.sceneId
+    }) AS keptEdges
+
+    OPTIONAL MATCH (a)-[removed:REMOVED_FROM]->(removedProj:Project)
     WHERE removed.sceneMood IN $searchMoods
+      AND removed.sceneType IN $searchTypes
       ${brandRemovalClause}
-    WITH a, reuseCount, count(removed) AS removalCount
-    WITH a, reuseCount, removalCount,
-         vector.similarity.cosine(a.embedding, $embedding) AS semanticScore
-    WITH a, semanticScore + (reuseCount * 0.05) - (removalCount * 0.08) AS finalScore,
-         reuseCount, removalCount, semanticScore
+    WITH a, keptEdges, count(removed) AS contextualRemovals
+
+    OPTIONAL MATCH (a)-[anyRemoved:REMOVED_FROM]->(:Project)
+    WHERE NOT (anyRemoved.sceneMood IN $searchMoods)
+    WITH a, keptEdges, contextualRemovals,
+         count(anyRemoved) AS irrelevantRemovals
+
+    WITH a, keptEdges, contextualRemovals,
+         vector.similarity.cosine(a.embedding, $embedding) AS semanticScore,
+         size([k IN keptEdges WHERE k.outcome = 'published']) AS publishedKeeps,
+         size(keptEdges) AS totalKeeps
+
+    WITH a, semanticScore,
+         semanticScore
+           + (publishedKeeps * 0.08)
+           + (totalKeeps * 0.03)
+           - (contextualRemovals * 0.12)
+         AS finalScore,
+         totalKeeps AS reuseCount,
+         contextualRemovals AS removalCount
+
     WHERE semanticScore > $minScore
     RETURN a.assetId AS assetId, a.briefing AS briefing,
            finalScore, reuseCount, removalCount
@@ -818,6 +841,7 @@ export async function searchAssets(
         embedding: sceneEmbedding,
         moods: moods ?? [],
         searchMoods: moods ?? [],
+        searchTypes: sceneType ? [sceneType] : ['continuous', 'montage', 'logo-reveal', 'text-card'],
         brandId: brandId ?? null,
         minScore: minSemanticScore,
         limit,

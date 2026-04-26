@@ -773,6 +773,24 @@ export async function executeDirectorPlan(
         });
 
         console.log(`[Director] Graph sync dispatched: project_director_complete v${currentVersion}`);
+
+        // Graphiti episode: project outcome for learning
+        const { addGraphitiEpisode } = await import('@/lib/editron/services/graph-service');
+        const sceneDescriptions = storyboardScenes
+          .map((s: any, i: number) => `scene ${i}: ${s.mood || 'neutral'} ${s.sceneType || 'continuous'}`)
+          .join(', ');
+
+        await addGraphitiEpisode({
+          type: 'project_outcome',
+          name: `director_complete_${projectId}_v${currentVersion}`,
+          body: `Director completed project ${projectId} using profile ${effectiveProfile.profileId} (${effectiveProfile.name}). `
+            + `${result.actionsExecuted} actions executed, ${result.actionsSkipped.length} skipped. `
+            + `${storyboardScenes.length} scenes: ${sceneDescriptions}. `
+            + `Duration: ${Math.round((project.durationInFrames || 0) / (project.fps || 30))}s. `
+            + `Profile was ${profile.profileId !== effectiveProfile.profileId ? `overridden from ${profile.profileId} to ${effectiveProfile.profileId}` : 'auto-detected'}.`,
+          sourceDescription: 'director_completion',
+          groupId: userId,
+        });
       }
     } catch (graphErr: any) {
       console.warn(`[Director] Graph sync dispatch failed: ${graphErr.message}`);
@@ -1039,8 +1057,28 @@ async function executeAction(
         console.log(`[Director] add_transition: ${gapCount} gaps without transitions, filling with profile default`);
       }
 
-      // Get transition type from params or profile default
+      // Get transition type: script param → Graphiti brand preference → profile default
       let transType: string = action.params.type || profile.defaultTransition || 'soft-cut';
+
+      if (!action.params.type) {
+        try {
+          const { searchGraphitiFacts } = await import('@/lib/editron/services/graph-service');
+          const brandFacts = await searchGraphitiFacts(
+            `What transitions work best for this content type and mood?`,
+            userId,
+            3,
+          );
+          if (brandFacts.length > 0) {
+            const validTypes = ['dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut', 'zoom-punch', 'whip-pan', 'glitch',
+              'match-cut', 'cutaway', 'smash-cut', 'iris', 'film-burn', 'light-leak'];
+            const preferred = validTypes.find(t => brandFacts.some(f => f.toLowerCase().includes(t)));
+            if (preferred) {
+              console.log(`[Director] Graphiti suggests transition: ${preferred} (from ${brandFacts.length} facts)`);
+              transType = preferred;
+            }
+          }
+        } catch { /* Graphiti unavailable — use profile default */ }
+      }
 
       // 'hard-cut' means no transition overlay — skip entirely
       if (transType === 'hard-cut' || transType === 'none') {
