@@ -735,6 +735,48 @@ export async function executeDirectorPlan(
 
     result.success = true;
     onProgress?.(totalSteps, totalSteps, 'Director Agent execution complete');
+
+    // ─── Graph sync: update Project + Scene nodes after Director ───
+    try {
+      const qstashToken = process.env.QSTASH_TOKEN;
+      if (qstashToken) {
+        const graphSyncUrl = (() => {
+          const base = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+          return `${base}/api/internal/workers/graph-sync`;
+        })();
+
+        const { Client } = await import('@upstash/qstash');
+        const qstash = new Client({ token: qstashToken, baseUrl: process.env.QSTASH_URL || undefined });
+
+        const currentVersion = ((project as any).directorVersion || 0) + 1;
+
+        await qstash.publishJSON({
+          url: graphSyncUrl,
+          body: {
+            action: 'project_director_complete',
+            data: {
+              projectId,
+              update: {
+                profileUsed: effectiveProfile.profileId,
+                profileOverridden: profile.profileId !== effectiveProfile.profileId,
+                overriddenTo: profile.profileId !== effectiveProfile.profileId ? effectiveProfile.profileId : undefined,
+                qualityScore: 0,
+                sceneCount: storyboardScenes.length,
+                durationSec: (project.durationInFrames || 0) / (project.fps || 30),
+                currentVersion,
+              },
+            },
+          },
+          retries: 3,
+        });
+
+        console.log(`[Director] Graph sync dispatched: project_director_complete v${currentVersion}`);
+      }
+    } catch (graphErr: any) {
+      console.warn(`[Director] Graph sync dispatch failed: ${graphErr.message}`);
+    }
   } catch (err: any) {
     result.warnings.push(`Director Agent failed: ${err.message}`);
     console.error('[Director] Execution failed:', err.message);

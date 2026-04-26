@@ -726,6 +726,59 @@ export async function POST(
       },
     );
 
+    // ─── Graph sync: create Project + Scene nodes in Neo4j ────────
+    try {
+      if (process.env.QSTASH_TOKEN) {
+        const graphSyncUrl = (() => {
+          const base = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+          return `${base}/api/internal/workers/graph-sync`;
+        })();
+        const qstashGraph = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
+
+        await qstashGraph.publishJSON({
+          url: graphSyncUrl,
+          body: {
+            action: 'project_created',
+            data: {
+              projectId: project.projectId,
+              userId,
+              contentType: (storyboard as any).suggestedProfileCategory || 'brand-ad',
+              sceneCount: storyboard.scenes.length,
+              durationSec: currentFrame / fps,
+            },
+          },
+          retries: 3,
+        });
+
+        const sceneInputs = storyboard.scenes.map((s: any, idx: number) => ({
+          sceneIndex: idx,
+          mood: s.mood || null,
+          sceneType: s.sceneType || 'continuous',
+          contentSummary: (s.visualDescription || '').slice(0, 200),
+          subjects: (s.subjects || []).slice(0, 10),
+        }));
+
+        await qstashGraph.publishJSON({
+          url: graphSyncUrl,
+          body: {
+            action: 'scene_batch',
+            data: {
+              projectId: project.projectId,
+              version: 1,
+              scenes: sceneInputs,
+            },
+          },
+          retries: 3,
+        });
+
+        console.log(`[Finalize] Graph sync dispatched: project + ${sceneInputs.length} scenes`);
+      }
+    } catch (graphErr: any) {
+      console.warn(`[Finalize] Graph sync dispatch failed: ${graphErr.message}`);
+    }
+
     // ─── Dispatch BGM + SFX workers via QStash (fire-and-forget) ────
     // These run asynchronously AFTER the project is created. Each worker
     // has its own 300s timeout. They add overlays to the project via
