@@ -326,11 +326,37 @@ export function ExportToEditronDialog({
     setError('');
 
     try {
+      // ─── Hydrate fresh script data from server ────────────────
+      // The in-memory blocks prop may be stale (Tiptap editor stores content
+      // in richText, not blocks). Fetch the latest from the DB so the export
+      // has access to content/plainText even if blocks are empty.
+      let exportBlocks = blocks;
+      let exportPlainText = plainText || '';
+      if (sessionId) {
+        try {
+          const freshRes = await fetch(
+            `/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(scriptId || 'default')}`,
+            { cache: 'no-store' },
+          );
+          if (freshRes.ok) {
+            const fresh = await freshRes.json();
+            if (fresh.content && fresh.content.trim().length > 0) {
+              exportPlainText = fresh.content;
+            }
+            if (Array.isArray(fresh.blocks) && fresh.blocks.length > 0) {
+              exportBlocks = fresh.blocks;
+            }
+          }
+        } catch {
+          // Fall through to props data
+        }
+      }
+
       // ─── Step 1: Parse script into scenes ─────────────────────
       const exportRes = await fetch('/api/services/thinkforge/script/export-for-editron', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blocks, plainText, sessionId, scriptId, aspectRatio, artStyle }),
+        body: JSON.stringify({ blocks: exportBlocks, plainText: exportPlainText, sessionId, scriptId, aspectRatio, artStyle }),
       });
 
       if (!exportRes.ok) {
