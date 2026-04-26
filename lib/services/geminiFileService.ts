@@ -5,11 +5,22 @@ import * as os from 'os';
 import axios from 'axios';
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
 
-if (!process.env.GEMINI_API_KEY) {
-  throw new Error("GEMINI_API_KEY environment variable is not set");
+let _fileManager: InstanceType<typeof GoogleAIFileManager> | null = null;
+
+function getFileManager(): InstanceType<typeof GoogleAIFileManager> {
+  if (_fileManager) return _fileManager;
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY environment variable is not set");
+  }
+  _fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
+  return _fileManager;
 }
 
-export const geminiFileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
+export const geminiFileManager = new Proxy({} as InstanceType<typeof GoogleAIFileManager>, {
+  get(_target, prop) {
+    return (getFileManager() as any)[prop];
+  },
+});
 
 /**
  * Downloads a file from a URL to a temporary local file, uploads it to Gemini File API,

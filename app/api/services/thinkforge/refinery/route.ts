@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { runRefineryAgent } from '@/lib/thinkforge/agents/refinery-agent';
+import { checkCredits } from '@/lib/services/creditsMiddleware';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -52,6 +53,10 @@ export async function POST(req: Request) {
     }
   }
 
+  const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message', { taskId: sessionId });
+  if (!creditCheck.allowed) return creditCheck.errorResponse;
+  await creditCheck.deduct();
+
   try {
     const result = await runRefineryAgent({
       userId,
@@ -63,6 +68,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ result }, { status: 200 });
   } catch (error: any) {
     console.error('[Refinery] Processing failed:', error);
+    await creditCheck.refund(error?.message || 'Refinery processing failed');
     return NextResponse.json(
       { error: 'Refinery processing failed', details: error?.message },
       { status: 500 },

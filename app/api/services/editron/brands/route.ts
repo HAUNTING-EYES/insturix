@@ -101,33 +101,6 @@ export async function POST(request: NextRequest) {
       });
     } catch { /* non-fatal */ }
 
-    // Neo4j: create Project-linkable brand reference
-    try {
-      const qstashToken = process.env.QSTASH_TOKEN;
-      if (qstashToken) {
-        const baseUrl = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-
-        await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(`${baseUrl}/api/internal/workers/graph-sync`), {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${qstashToken}`,
-            'Content-Type': 'application/json',
-            'Upstash-Retries': '3',
-          },
-          body: JSON.stringify({
-            action: 'project_created',
-            data: {
-              projectId: brandId,
-              userId,
-              contentType: industry || 'brand',
-            },
-          }),
-        });
-      }
-    } catch { /* non-fatal */ }
-
     return NextResponse.json({ success: true, brand });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);

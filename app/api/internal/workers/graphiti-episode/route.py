@@ -59,21 +59,23 @@ class handler(BaseHTTPRequestHandler):
             graphiti = Graphiti(
                 graph_driver=driver,
                 llm_client=GeminiClient(LLMConfig(api_key=api_key, model="gemini-2.5-flash")),
-                embedder=GeminiEmbedder(GeminiEmbedderConfig(api_key=api_key, embedding_model="gemini-embedding-001")),
+                embedder=GeminiEmbedder(GeminiEmbedderConfig(api_key=api_key, embedding_model="text-embedding-004")),
                 cross_encoder=GeminiRerankerClient(LLMConfig(api_key=api_key, model="gemini-2.5-flash")),
             )
 
             import asyncio
 
             async def ingest():
-                await graphiti.add_episode(
-                    name=name,
-                    episode_body=episode_body,
-                    source_description=source_description,
-                    reference_time=datetime.now(),
-                    group_id=group_id,
-                )
-                await graphiti.close()
+                try:
+                    await graphiti.add_episode(
+                        name=name,
+                        episode_body=episode_body,
+                        source_description=source_description,
+                        reference_time=datetime.now(),
+                        group_id=group_id,
+                    )
+                finally:
+                    await graphiti.close()
 
             asyncio.run(ingest())
 
