@@ -843,7 +843,7 @@ export async function searchAssets(
 export async function generateEmbedding(text: string): Promise<number[] | null> {
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
+    const apiKey = process.env.GRAPH_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
     if (!apiKey) return null;
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
