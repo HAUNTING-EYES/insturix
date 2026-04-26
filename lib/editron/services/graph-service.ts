@@ -855,44 +855,86 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// GRAPHITI CLIENT INTERFACE (Phase 3 implementation)
+// GRAPHITI CLIENT (dispatches to Python Vercel function via QStash)
 // ═══════════════════════════════════════════════════════════════════
-//
-// Graphiti is a Python library (graphiti-core). For the TypeScript pipeline,
-// episodes are dispatched via QStash to a Python worker endpoint.
-// Reads can go directly through Neo4j Cypher (Graphiti stores facts as nodes).
-//
-// Phase 1: Interface defined, no-op implementation.
-// Phase 3: Wire to deployed Graphiti server or Python Vercel function.
 
 /**
  * Add an episode to Graphiti for knowledge extraction.
- * In Phase 1 this is a no-op that logs the payload.
- * In Phase 3 this dispatches via QStash to a Python Graphiti worker.
+ * Dispatches via QStash to the Python Graphiti worker at
+ * /api/internal/workers/graphiti-episode. Non-blocking, retried.
  */
 export async function addGraphitiEpisode(
   episode: EpisodePayload,
 ): Promise<GraphWriteResult> {
-  // Phase 1: log + skip (Graphiti server not yet deployed)
-  console.log(
-    `[graph-service] Graphiti episode queued (Phase 1 stub): ${episode.type} — ${episode.name}`
-  );
-  return { ok: true };
+  try {
+    const qstashToken = process.env.QSTASH_TOKEN;
+    if (!qstashToken) {
+      console.log(`[graph-service] Graphiti episode skipped (no QStash): ${episode.type}`);
+      return { ok: true };
+    }
+
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+    const workerUrl = `${baseUrl}/api/internal/workers/graphiti-episode`;
+
+    await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(workerUrl), {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${qstashToken}`,
+        'Content-Type': 'application/json',
+        'Upstash-Retries': '2',
+      },
+      body: JSON.stringify({
+        type: episode.type,
+        name: episode.name,
+        body: episode.body,
+        sourceDescription: episode.sourceDescription,
+        groupId: episode.groupId,
+      }),
+    });
+
+    console.log(`[graph-service] Graphiti episode dispatched: ${episode.type} — ${episode.name}`);
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[graph-service] Graphiti episode dispatch failed: ${msg}`);
+    return { ok: false, error: msg };
+  }
 }
 
 /**
  * Search Graphiti for temporal facts (brand DNA, user preferences, patterns).
- * In Phase 1 returns empty (no episodes ingested yet).
- * In Phase 3 calls Graphiti search endpoint.
+ * Queries Neo4j directly for Graphiti-managed fact nodes.
  */
 export async function searchGraphitiFacts(
   query: string,
   groupId: string,
-  _limit = 5,
+  limit = 5,
 ): Promise<string[]> {
-  // Phase 1: no-op
-  console.log(`[graph-service] Graphiti search (Phase 1 stub): "${query}" for group ${groupId}`);
-  return [];
+  try {
+    const available = await isNeo4jAvailable();
+    if (!available) return [];
+
+    const queryEmbedding = await generateEmbedding(query);
+    if (!queryEmbedding) return [];
+
+    const rows = await runCypher<{ fact: string }>(
+      `MATCH (e:EpisodicNode)
+       WHERE e.group_id = $groupId AND e.valid_at IS NOT NULL
+       WITH e, vector.similarity.cosine(e.embedding, $embedding) AS score
+       WHERE score > 0.5
+       RETURN e.content AS fact
+       ORDER BY score DESC
+       LIMIT $limit`,
+      { groupId, embedding: queryEmbedding, limit },
+      'READ'
+    );
+
+    return rows.map((r) => r.fact).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
