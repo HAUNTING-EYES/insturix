@@ -492,41 +492,13 @@ export async function detectProfileWithEmbeddings(metadata: ThinkForgeMetadata):
  * Async variant of getAutoSelectedProfile that uses semantic embeddings.
  * Falls back to keyword-only if embeddings fail.
  */
-export async function getAutoSelectedProfileWithEmbeddings(metadata: ThinkForgeMetadata & { userId?: string }): Promise<{
+export async function getAutoSelectedProfileWithEmbeddings(metadata: ThinkForgeMetadata): Promise<{
   profile: EditProfile;
   detection: DetectionResult;
   autoSelected: boolean;
   suggestionsNeeded: boolean;
 }> {
   const results = await detectProfileWithEmbeddings(metadata);
-
-  // Graphiti preference boost: if the user has historically overridden to a specific profile,
-  // boost that profile's score so auto-detection learns from past behavior.
-  if (metadata.userId) {
-    try {
-      const { searchGraphitiFacts } = await import('./graph-service');
-      const facts = await searchGraphitiFacts(
-        'What editing profile does this user prefer or override to?',
-        metadata.userId,
-        3,
-      );
-      if (facts.length > 0) {
-        const profileIds = Object.keys(EDIT_PROFILES);
-        for (const fact of facts) {
-          const mentioned = profileIds.find(id => fact.includes(id));
-          if (mentioned) {
-            const match = results.find(r => r.profileId === mentioned);
-            if (match) {
-              match.confidence = Math.min(1.0, match.confidence + 0.15);
-              match.reasoning.push(`Graphiti: user historically prefers ${mentioned}`);
-            }
-          }
-        }
-        results.sort((a, b) => b.confidence - a.confidence);
-      }
-    } catch { /* Graphiti unavailable — proceed with detection scores */ }
-  }
-
   const top = results[0];
 
   if (!top || top.confidence < DETECTION.minConfidenceThreshold) {

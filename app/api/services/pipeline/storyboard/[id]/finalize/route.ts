@@ -1080,7 +1080,28 @@ export async function POST(
         suggestedProfileCategory: (storyboard as any).suggestedProfileCategory || undefined,
       };
       // Use embedding-enhanced detection (async, Gemini API). Falls back to keyword-only if unavailable.
-      const { profile: detectedProfile, autoSelected, detection } = await getAutoSelectedProfileWithEmbeddings(thinkforgeMetadata).catch(() => getAutoSelectedProfile(thinkforgeMetadata));
+      let { profile: detectedProfile, autoSelected, detection } = await getAutoSelectedProfileWithEmbeddings(thinkforgeMetadata).catch(() => getAutoSelectedProfile(thinkforgeMetadata));
+
+      // Phase 4b: Graphiti preference boost (server-side only)
+      try {
+        const { searchGraphitiFacts } = await import('@/lib/editron/services/graph-service');
+        const facts = await searchGraphitiFacts(
+          'What editing profile does this user prefer or override to?',
+          userId,
+          3,
+        );
+        if (facts.length > 0) {
+          const { EDIT_PROFILES } = await import('@/lib/editron/data/edit-profiles');
+          const profileIds = Object.keys(EDIT_PROFILES);
+          const preferred = profileIds.find(id => facts.some(f => f.includes(id)));
+          if (preferred && preferred !== detectedProfile.profileId) {
+            console.log(`[Finalize] Graphiti suggests profile ${preferred} over detected ${detectedProfile.profileId}`);
+            detectedProfile = EDIT_PROFILES[preferred as keyof typeof EDIT_PROFILES];
+            detection = { ...detection, confidence: Math.min(1.0, detection.confidence + 0.15), reasoning: [...detection.reasoning, `Graphiti: user historically prefers ${preferred}`] };
+          }
+        }
+      } catch { /* Graphiti unavailable */ }
+
       console.log(`[Finalize] Profile detection: ${detectedProfile.profileId} confidence=${detection.confidence.toFixed(2)} auto=${autoSelected} reasoning=[${detection.reasoning.slice(0, 3).join('; ')}]`);
       const profileId = detectedProfile.profileId;
       // Store on project so video worker can dispatch Director with correct profile
