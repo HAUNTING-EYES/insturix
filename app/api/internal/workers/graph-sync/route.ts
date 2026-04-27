@@ -127,10 +127,61 @@ async function handler(request: NextRequest) {
       }
 
       case 'asset_removed': {
-        const { assetId, projectId, props } = data as {
-          assetId: string; projectId: string; props: Parameters<typeof createRemovedFromEdge>[2];
+        // NEW: Worker enriches REMOVED_FROM edge with real Asset + Scene attributes from Neo4j.
+        // OLD: save route sent hardcoded neutral values (Rule 23N violation — contextual scoring was degenerate).
+        // NOW: save route sends assetId + sceneIndex only, worker queries Neo4j for real data.
+        const { assetId: removedAssetId, projectId: removedProjectId, sceneIndex, removedAt } = data as {
+          assetId: string; projectId: string; sceneIndex: number | null; removedAt: string;
         };
-        result = await createRemovedFromEdge(assetId, projectId, props);
+
+        // Query Asset node for real attributes
+        const { getAssetNode, getActiveScenes } = await import('@/lib/editron/services/graph-service');
+        const assetNode = await getAssetNode(removedAssetId);
+        const assetMood = assetNode?.mood ?? 'neutral';
+        const assetEnergy = assetNode?.energy ?? 0.5;
+        const assetColorTemp = assetNode?.colorTemp ?? 'neutral';
+
+        // Query Scene node for real context
+        let sceneMood = 'neutral';
+        let sceneEnergy = 0.5;
+        let sceneType = 'continuous';
+        let adjacentMood = 'neutral';
+        if (sceneIndex != null) {
+          const activeScenes = await getActiveScenes(removedProjectId);
+          const scene = activeScenes.find(s => s.sceneIndex === sceneIndex);
+          if (scene) {
+            sceneMood = scene.mood ?? 'neutral';
+            sceneEnergy = scene.energy ?? 0.5;
+            sceneType = scene.sceneType ?? 'continuous';
+          }
+          // Adjacent mood: the scene before or after
+          const adjacent = activeScenes.find(s => s.sceneIndex === (sceneIndex + 1))
+            || activeScenes.find(s => s.sceneIndex === (sceneIndex - 1));
+          if (adjacent) adjacentMood = adjacent.mood ?? 'neutral';
+        }
+
+        // Compute contrast flags (real math, not hardcoded false)
+        const colorTempContrast = assetColorTemp !== 'neutral' && assetColorTemp !== sceneMood;
+        const energyGap = Math.abs(assetEnergy - sceneEnergy);
+        const moodContrast = assetMood !== sceneMood && assetMood !== 'neutral' && sceneMood !== 'neutral';
+
+        const enrichedProps = {
+          sceneId: `${removedProjectId}_user_remove_${Date.now()}`,
+          sceneMood,
+          sceneEnergy,
+          sceneType,
+          adjacentMood,
+          assetColorTemp,
+          assetEnergy,
+          assetMood,
+          colorTempContrast,
+          energyGap,
+          moodContrast,
+          removedAt: removedAt || new Date().toISOString(),
+        };
+
+        console.log(`[GraphSync] asset_removed enriched: asset=${removedAssetId} mood=${assetMood} scene=${sceneMood} contrast=${moodContrast} gap=${energyGap.toFixed(2)}`);
+        result = await createRemovedFromEdge(removedAssetId, removedProjectId, enrichedProps);
         break;
       }
 

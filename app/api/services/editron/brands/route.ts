@@ -85,7 +85,9 @@ export async function POST(request: NextRequest) {
     const db = await getDatabase();
     await db.collection(BRANDS_COLLECTION).insertOne(brand);
 
-    // Graphiti episode: brand DNA (scoped to userId, will be queried per-brand)
+    // Graphiti episode: brand DNA — scoped to BRAND, not user.
+    // Rule 11N: agencies manage multiple brands (McDonald's, Nike). Using userId would
+    // blend all brand intelligence into one bucket. brandId ensures brand-specific patterns.
     try {
       const { addGraphitiEpisode } = await import('@/lib/editron/services/graph-service');
       await addGraphitiEpisode({
@@ -97,9 +99,12 @@ export async function POST(request: NextRequest) {
           + `Visual style: ${visualStyle || 'not set'}. `
           + `Typography: ${typography || 'not set'}.`,
         sourceDescription: 'brand_setup',
-        groupId: userId,
+        groupId: brandId,
       });
-    } catch { /* non-fatal */ }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[Brands] brand_created Graphiti dispatch failed: ${msg}`);
+    }
 
     return NextResponse.json({ success: true, brand });
   } catch (error: unknown) {

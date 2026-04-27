@@ -62,7 +62,7 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: 'Brand not found' }, { status: 404 });
     }
 
-    // Graphiti episode: brand DNA evolution
+    // Graphiti episode: brand DNA evolution — scoped to BRAND (Rule 11N).
     try {
       const { addGraphitiEpisode } = await import('@/lib/editron/services/graph-service');
       const changedFields = Object.keys(updateFields).filter(k => k !== 'updatedAt');
@@ -74,9 +74,12 @@ export async function PATCH(
           + (voiceDescription ? `New voice: ${voiceDescription}. ` : '')
           + (visualStyle ? `New visual style: ${visualStyle}. ` : ''),
         sourceDescription: 'brand_update',
-        groupId: userId,
+        groupId: brandId,
       });
-    } catch { /* non-fatal */ }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[Brands] brand_updated Graphiti dispatch failed for ${brandId}: ${msg}`);
+    }
 
     const updated = await db.collection(BRANDS_COLLECTION).findOne({ brandId, userId });
     return NextResponse.json({ success: true, brand: updated });
