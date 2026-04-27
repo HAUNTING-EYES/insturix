@@ -1828,7 +1828,7 @@ IMPORTANT: For image-to-video, describe ONLY motion — never re-describe the im
 5-element hierarchy: cinematography → setting → subject → action → optional dialogue.
 Use professional film terminology ("slow dolly forward", "crane descending", "Dutch angle").
 Lighting terms work well: "golden hour backlighting", "volumetric fog rays", "dappled light".
-DO NOT overload — one primary action per generation. 60-100 words MAX.`,
+DO NOT overload — one primary action per generation. Target 150-300 characters.`,
 
     seedance: `Seedance 1.5/2.0: 4-LAYER STRUCTURE (unique to Seedance — follow exactly):
 Layer 1: Primary action/subject — core visual element and movement.
@@ -1927,7 +1927,29 @@ ${modelGuide}
 80-150 words. ONE paragraph. No bullet points. Return in the prompt field.`,
   });
 
-  return object.prompt;
+  let finalPrompt = object.prompt;
+
+  // ─── Post-processing: Model-specific length enforcement ──────────
+  if (context.targetModel === 'veo') {
+    // [Video Gen] Veo length enforcement: 150-300 characters optimal.
+    // Quality degrades significantly above 400 chars.
+    if (finalPrompt.length > 300) {
+      console.log(`[VideoPromptMaster] Veo prompt too long (${finalPrompt.length} chars) — truncating to 300 chars`);
+      finalPrompt = finalPrompt.substring(0, 300);
+      // Try to end at a clean sentence or word boundary if possible within the 150-300 range
+      const lastPeriod = finalPrompt.lastIndexOf('.');
+      if (lastPeriod > 150) {
+        finalPrompt = finalPrompt.substring(0, lastPeriod + 1);
+      } else {
+        const lastSpace = finalPrompt.lastIndexOf(' ');
+        if (lastSpace > 150) {
+          finalPrompt = finalPrompt.substring(0, lastSpace);
+        }
+      }
+    }
+  }
+
+  return finalPrompt;
 }
 
 /**
