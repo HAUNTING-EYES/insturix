@@ -379,7 +379,7 @@ async function handler(request: NextRequest) {
             if (apiKey && kfAnalyses[0]?.description) {
               const { GoogleGenerativeAI } = await import('@google/generative-ai');
               const genAI = new GoogleGenerativeAI(apiKey);
-              const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+              const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
               const kfSummary = kfAnalyses.slice(0, 3).map((kf: any, i: number) =>
                 `Frame ${i + 1}: ${(kf.description || '').substring(0, 200)}`

@@ -177,7 +177,6 @@ export interface MusicConfig {
 // NOTE: 3.1 models use -preview suffix (e.g., gemini-3.1-pro-preview, NOT gemini-3.1-pro).
 const VALID_GOOGLE_AI_MODELS = [
   'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
-  'gemini-2.0-flash', 'gemini-2.0-flash-exp',
   'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview',
   'gemma-4-31b-it', 'gemma-4-26b-a4b-it',
 ];
