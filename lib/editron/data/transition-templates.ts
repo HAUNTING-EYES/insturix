@@ -125,13 +125,9 @@ const TRANSITION_FACTORIES: Record<string, (frames: number, w: number, h: number
 @keyframes softDip { 0%,100%{opacity:0} 40%{opacity:0.7} 60%{opacity:0.7} }
 </style>`,
 
-  // Alias dissolve to soft-cut until keyframe system enables true dissolve
-  'dissolve': (frames, w, h) => `
-<div style="position:absolute;inset:0;background:#000;animation:softDip ${frames / 30}s ease-in-out forwards;">
-</div>
-<style>
-@keyframes softDip { 0%,100%{opacity:0} 40%{opacity:0.6} 60%{opacity:0.6} }
-</style>`,
+  // Dissolve: transparent overlay (visual crossfade handled by clip opacity keyframes
+  // applied in edl-executor via createTrueDissolve). The tile exists for timeline visualization only.
+  'dissolve': () => `<div style="position:absolute;inset:0;pointer-events:none;"></div>`,
 
   'zoom-punch': (frames, w, h) => `
 <div style="position:absolute;inset:0;animation:zoomPunch ${frames / 30}s ease-out forwards;pointer-events:none;">
@@ -287,8 +283,8 @@ export const DEFAULT_TRANSITION_FRAMES: Record<TransitionType, number> = {
   'iris-wipe': 15,        // 0.5s
   'blur-transition': 15,  // 0.5s
   // Long transitions (smooth)
-  'soft-cut': 18,         // 0.6s
-  'dissolve': 18,         // 0.6s
+  'soft-cut': 24,         // 0.8s (was 0.6s — too abrupt per user feedback)
+  'dissolve': 36,         // 1.2s (real cross-dissolve needs more time to feel natural)
   'film-burn': 20,        // 0.67s
   'slide-up': 15,         // 0.5s
   'slide-down': 15,       // 0.5s

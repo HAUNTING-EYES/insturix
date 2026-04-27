@@ -539,6 +539,22 @@ function applyTransition(
 
   overlays.push(transitionOverlay as any);
 
+  // For dissolve: apply TRUE keyframe-based crossfade to the two clips.
+  // The HTML transition tile is transparent (timeline visualization only).
+  // The actual visual effect comes from clipA fading out + clipB fading in
+  // via opacity keyframes — a REAL cross-dissolve, not an HTML dip.
+  if (transType === 'dissolve') {
+    const { createTrueDissolve } = require('@/lib/editron/data/transition-templates');
+    const { outgoing, incoming } = createTrueDissolve(clipA, clipB, durationFrames);
+    // Apply keyframe tracks back to the live overlays
+    clipA.keyframeTracks = outgoing.keyframeTracks;
+    clipB.keyframeTracks = incoming.keyframeTracks;
+    clipB.from = incoming.from;
+    clipB.durationInFrames = incoming.durationInFrames;
+    console.log(`[EDL-Exec] True dissolve applied: clipA opacity fade-out over ${durationFrames} frames, clipB overlap + fade-in`);
+    return { created: 1, modified: 2 };
+  }
+
   // Clean up clip-overlap opacity keyframes that edit-direction-applier may
   // have placed on the adjacent clips at this boundary. Without this, both
   // the keyframe-based crossfade AND the transition tile render simultaneously
