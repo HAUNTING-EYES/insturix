@@ -352,11 +352,27 @@ export function ExportToEditronDialog({
         }
       }
 
+      // ─── Fetch Brand DNA for the export payload ────────────────
+      // Brand DNA (voice, niche, kill-list, etc.) travels with the export so the
+      // pipeline can use it for profile detection, color grading, and graphics.
+      let brandDNA: Record<string, unknown> | undefined;
+      try {
+        const dnaRes = await fetch('/api/services/thinkforge/brand-dna', { cache: 'no-store' });
+        if (dnaRes.ok) {
+          const dnaData = await dnaRes.json();
+          if (dnaData?.brandDNA && Object.keys(dnaData.brandDNA).length > 0) {
+            brandDNA = dnaData.brandDNA;
+          }
+        }
+      } catch {
+        // Brand DNA is optional — export proceeds without it
+      }
+
       // ─── Step 1: Parse script into scenes ─────────────────────
       const exportRes = await fetch('/api/services/thinkforge/script/export-for-editron', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blocks: exportBlocks, plainText: exportPlainText, sessionId, scriptId, aspectRatio, artStyle }),
+        body: JSON.stringify({ blocks: exportBlocks, plainText: exportPlainText, sessionId, scriptId, aspectRatio, artStyle, brandDNA }),
       });
 
       if (!exportRes.ok) {
