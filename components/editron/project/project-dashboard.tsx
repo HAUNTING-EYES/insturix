@@ -122,24 +122,56 @@ export default function ProjectDashboard() {
   const handleAutoEdit = async (file: File) => {
     try {
       setAutoEditing(true);
-      setAutoEditProgress('Uploading video...');
+      setAutoEditProgress('Getting upload URL...');
 
-      // Step 1: Upload the video via existing media upload flow
-      const formData = new FormData();
-      formData.append('file', file);
-      const uploadRes = await fetch('/api/services/editron/media/upload', {
+      // Step 1: Get a signed upload URL from GCS
+      const urlRes = await fetch('/api/services/editron/media/upload/url', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, contentType: file.type }),
+      });
+      if (!urlRes.ok) {
+        const err = await urlRes.json();
+        throw new Error(err.error || 'Failed to get upload URL');
+      }
+      const { uploadUrl, assetId, gcsPath, readUrl, readUrlExpiresAt } = await urlRes.json();
+
+      // Step 2: Upload the file directly to GCS via signed URL
+      setAutoEditProgress(`Uploading ${file.name}...`);
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
       });
       if (!uploadRes.ok) {
-        const err = await uploadRes.json();
-        throw new Error(err.error || 'Upload failed');
+        throw new Error(`GCS upload failed: ${uploadRes.status} ${uploadRes.statusText}`);
       }
-      const { assetId } = await uploadRes.json();
 
+      // Step 3: Register the asset metadata in MongoDB
+      setAutoEditProgress('Registering asset...');
+      const mediaType = file.type.startsWith('video/') ? 'video'
+        : file.type.startsWith('audio/') ? 'audio' : 'image';
+      const registerRes = await fetch('/api/services/editron/media/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assetId,
+          gcsPath,
+          readUrl,
+          readUrlExpiresAt,
+          filename: file.name,
+          contentType: file.type,
+          size: file.size,
+          type: mediaType,
+        }),
+      });
+      if (!registerRes.ok) {
+        const err = await registerRes.json();
+        throw new Error(err.error || 'Asset registration failed');
+      }
+
+      // Step 4: Trigger auto-edit on the uploaded asset
       setAutoEditProgress('AI is editing your video...');
-
-      // Step 2: Call the auto-edit-from-asset endpoint
       const editRes = await fetch('/api/services/editron/auto-edit/from-asset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
