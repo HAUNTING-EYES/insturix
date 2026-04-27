@@ -2092,7 +2092,22 @@ Use this to understand what exists. Then decide what to do based on user intent.
           return !(oEnd <= videoFrom || o.from >= videoEnd);
         });
 
-        // If voiceover exists, use its assetId for transcription instead of the silent video
+        // If voiceover exists, use its assetId for transcription instead of the silent video.
+        // If NO voiceover overlaps AND video is pipeline-generated (AI clip = no real speech),
+        // skip gracefully. User-uploaded footage (no generationUnitId) still falls through
+        // to video-based transcription for talking heads / lectures / interviews.
+        if (!voiceoverOverlay) {
+          const isPipelineGenerated = (overlay as any).metadata?.generationUnitId != null
+            || (overlay as any).metadata?.sceneIndex != null;
+          if (isPipelineGenerated) {
+            console.log(`[add_captions] Skipping AI-gen video ${overlay.id}: no voiceover in time range [${videoFrom}-${videoEnd}], AI videos have no captionable speech`);
+            return JSON.stringify({
+              status: 'skipped',
+              data: null,
+              message: `No voiceover covers this video's time range. AI-generated videos have no captionable speech.`,
+            });
+          }
+        }
         const transcriptionAssetId = voiceoverOverlay?.assetId || overlay.assetId;
         console.log(`[add_captions] Using ${voiceoverOverlay ? 'voiceover' : 'video'} asset for transcription: ${transcriptionAssetId}`);
 

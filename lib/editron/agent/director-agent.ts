@@ -1394,6 +1394,9 @@ async function invokeAITool(
           if (result.status === 'success') {
             captionCount++;
             console.log(`[Director] add_captions: video ${vo.id} SUCCESS — ${result.captionCount || 0} segments, row=${result.row || '?'}`);
+          } else if (result.status === 'skipped') {
+            // Expected: AI-gen video with no voiceover in range — not an error
+            console.log(`[Director] add_captions: video ${vo.id} skipped — ${result.message || 'no voiceover overlap'}`);
           } else {
             console.error(`[Director] add_captions: video ${vo.id} FAILED — ${result.message || JSON.stringify(result)}`);
           }
