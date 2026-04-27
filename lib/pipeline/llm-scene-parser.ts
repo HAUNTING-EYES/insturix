@@ -1870,7 +1870,7 @@ Weave these specific ambient/foley sounds into Layer 3: ${context.sfxDescription
   const { object } = await generateObject({
     model,
     schema: RefinedVideoPromptSchema,
-    temperature: 0.7,
+    temperature: 0.2,
     abortSignal: AbortSignal.timeout(60_000),
     prompt: `You are VideoPromptMaster — a prompt engineer for image-to-video AI models.
 
