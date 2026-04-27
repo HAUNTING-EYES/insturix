@@ -103,6 +103,27 @@ function inferRoleFromContext(projectSummary: string, userPrompt: string, explic
       defaultMedium: 'research_brief',
     };
   }
+  // V2: Video script — emit scene blocks with typed slots for Editron pipeline
+  if (docType === 'video_script' || /video|ad|commercial|reel|short[- ]?form|youtube|tiktok|brand[- ]?film|product[- ]?ad|ugc/i.test(combined)) {
+    return {
+      role: 'a Senior Creative Director and Video Scriptwriter',
+      executionTest: 'A video editor should be able to say: "I know exactly what to show, say, and hear in every second."',
+      outputFeeling: 'a professional video production script with scene-by-scene direction',
+      sectionGuidance: `- IMPORTANT: Use kind: "scene" blocks (NOT "paragraph") for each video scene.
+- Each scene block MUST include a "scene" field with typed slots:
+  - visualDescription: what the camera shows (a single frozen moment, no motion verbs like "zooms" or "pans")
+  - subjects: array of {name, category} for every person/product/location in the scene. category must be one of: person, product, location, object, brand, other
+  - mood: the emotional tone (e.g. "confident", "urgent", "warm")
+  - onScreenText: array of text strings that appear as graphics/titles on screen (NOT part of narration)
+- The scene block "content" field holds the NARRATION text (what the voiceover says)
+- Use kind: "editorial" blocks for production notes like Emotional Target, Instrumentation, Pacing Notes
+- Use kind: "header" with meta.level: 1 for the script title
+- Use kind: "header" with meta.level: 2 ONLY for act/section boundaries (not for every scene)
+- Do NOT use kind: "paragraph" for scene content — always use kind: "scene"`,
+      defaultVoice: 'voiceover',
+      defaultMedium: 'video_script',
+    };
+  }
   if (docType === 'shot_list' || /shot ?list|storyboard|pre-?viz|visual plan/i.test(combined)) {
     return {
       role: 'a Senior Storyboard Artist and Cinematographer',
