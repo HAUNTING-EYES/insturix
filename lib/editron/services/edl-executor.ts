@@ -532,6 +532,7 @@ function applyTransition(
     metadata: {
       isTransition: true,
       transitionType: transType,
+      keyframeBased: transType === 'dissolve',
       source: 'edl',
       edlReason: decision.reason,
     },
@@ -539,10 +540,10 @@ function applyTransition(
 
   overlays.push(transitionOverlay as any);
 
-  // For dissolve: apply TRUE keyframe-based crossfade to the two clips.
-  // The HTML transition tile is transparent (timeline visualization only).
-  // The actual visual effect comes from clipA fading out + clipB fading in
-  // via opacity keyframes — a REAL cross-dissolve, not an HTML dip.
+  // For dissolve: apply keyframe-based opacity crossfade to the two clips.
+  // The Remotion renderer (transition-layer-content.tsx:78-90) already returns
+  // { opacity: 0 } for dissolve — the visual comes from clip opacity keyframes,
+  // not an HTML overlay. The transition tile exists for timeline visualization only.
   if (transType === 'dissolve') {
     const { createTrueDissolve } = require('@/lib/editron/data/transition-templates');
     const { outgoing, incoming } = createTrueDissolve(clipA, clipB, durationFrames);

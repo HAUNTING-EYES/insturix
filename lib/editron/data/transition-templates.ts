@@ -125,9 +125,15 @@ const TRANSITION_FACTORIES: Record<string, (frames: number, w: number, h: number
 @keyframes softDip { 0%,100%{opacity:0} 40%{opacity:0.7} 60%{opacity:0.7} }
 </style>`,
 
-  // Dissolve: transparent overlay (visual crossfade handled by clip opacity keyframes
-  // applied in edl-executor via createTrueDissolve). The tile exists for timeline visualization only.
-  'dissolve': () => `<div style="position:absolute;inset:0;pointer-events:none;"></div>`,
+  // DEAD CODE: TRANSITION_FACTORIES are unused — EDL executor creates transitions directly,
+  // Remotion renderer (transition-layer-content.tsx) handles visuals via switch/case.
+  // Dissolve visual comes from clip opacity keyframes (createTrueDissolve in edl-executor).
+  'dissolve': (frames, w, h) => `
+<div style="position:absolute;inset:0;background:#000;animation:softDip ${frames / 30}s ease-in-out forwards;">
+</div>
+<style>
+@keyframes softDip { 0%,100%{opacity:0} 40%{opacity:0.6} 60%{opacity:0.6} }
+</style>`,
 
   'zoom-punch': (frames, w, h) => `
 <div style="position:absolute;inset:0;animation:zoomPunch ${frames / 30}s ease-out forwards;pointer-events:none;">
