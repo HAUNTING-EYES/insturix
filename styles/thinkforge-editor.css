@@ -384,6 +384,130 @@
 }
 
 /* =============================================================================
+   V2: SCENE BLOCK — Editron-ready structured scene
+   ============================================================================= */
+
+.tiptap-editor-dark .thinkforge-scene-block {
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 0.5rem;
+  margin: 0.75rem 0;
+  padding: 0;
+  background: rgba(239, 68, 68, 0.04);
+}
+
+.tiptap-editor-dark .thinkforge-scene-block.selected {
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
+}
+
+.tiptap-editor-dark .scene-block-container {
+  padding: 0.75rem;
+}
+
+.tiptap-editor-dark .scene-block-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tiptap-editor-dark .scene-block-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+}
+
+.tiptap-editor-dark .scene-block-mood {
+  font-size: 0.7rem;
+  color: #a3a3a3;
+  font-style: italic;
+}
+
+.tiptap-editor-dark .scene-block-duration {
+  font-size: 0.7rem;
+  color: #a3a3a3;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.tiptap-editor-dark .scene-block-slot {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.35rem;
+  color: #a3a3a3;
+}
+
+.tiptap-editor-dark .scene-block-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #737373;
+  min-width: 4.5rem;
+  padding-top: 0.1rem;
+}
+
+.tiptap-editor-dark .scene-block-value {
+  flex: 1;
+}
+
+.tiptap-editor-dark .scene-block-narration {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.tiptap-editor-dark .scene-block-content {
+  padding-left: 0;
+}
+
+/* =============================================================================
+   V2: EDITORIAL BLOCK — Production notes callout
+   ============================================================================= */
+
+.tiptap-editor-dark .thinkforge-editorial-block {
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  border-left: 3px solid rgba(168, 85, 247, 0.5);
+  border-radius: 0.375rem;
+  margin: 0.5rem 0;
+  background: rgba(168, 85, 247, 0.04);
+}
+
+.tiptap-editor-dark .thinkforge-editorial-block.selected {
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.15);
+}
+
+.tiptap-editor-dark .editorial-block-container {
+  padding: 0.6rem 0.75rem;
+}
+
+.tiptap-editor-dark .editorial-block-header {
+  margin-bottom: 0.35rem;
+}
+
+.tiptap-editor-dark .editorial-block-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #a855f7;
+  background: rgba(168, 85, 247, 0.12);
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+}
+
+.tiptap-editor-dark .editorial-block-content {
+  font-size: 0.85rem;
+  color: #d4d4d4;
+}
+
+/* =============================================================================
    PRINT STYLES
    ============================================================================= */
 
