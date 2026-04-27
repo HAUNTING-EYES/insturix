@@ -12,6 +12,7 @@ import type {
   ThinkForgeBlockKind,
   RichTextAST,
   RichTextNode,
+  EditorialType,
 } from '../schemas/thinkforge-block';
 import type {
   TiptapJSON,
@@ -172,9 +173,13 @@ function tiptapTypeToKind(type: string): ThinkForgeBlockKind {
     case 'exampleBlock':
       return 'example';
     case 'blockquote':
-      return 'why'; // Map blockquote to why block
+      return 'why';
     case 'codeBlock':
-      return 'example'; // Map code block to example
+      return 'example';
+    case 'sceneBlock':
+      return 'scene';
+    case 'editorialBlock':
+      return 'editorial';
     case 'paragraph':
     default:
       return 'paragraph';
@@ -225,7 +230,9 @@ function tiptapNodeToBlock(node: TiptapBlockContent, index: number): ThinkForgeB
     case 'actionBlock':
     case 'whyBlock':
     case 'exampleBlock':
-    case 'blockquote': {
+    case 'blockquote':
+    case 'sceneBlock':
+    case 'editorialBlock': {
       const blockContent = 'content' in node ? node.content : undefined;
       content = extractTextFromBlockContent(blockContent as TiptapBlockContent[] | undefined);
       break;
@@ -278,11 +285,44 @@ function tiptapNodeToBlock(node: TiptapBlockContent, index: number): ThinkForgeB
     }
   }
   
+  // V2: Reconstruct typed slots from Tiptap attrs for scene/editorial blocks
+  const attrs = ('attrs' in node && node.attrs) ? node.attrs as Record<string, unknown> : {};
+
+  let scene: ThinkForgeBlock['scene'];
+  if (kind === 'scene') {
+    const validCategories = ['person', 'product', 'location', 'object', 'brand', 'other'] as const;
+    type SubjectCategory = typeof validCategories[number];
+    let rawSubjects: Array<{ name: string; category: string }> = [];
+    try { rawSubjects = JSON.parse(String(attrs.subjects || '[]')); } catch { /* ignore */ }
+    const subjects = rawSubjects.map(s => ({
+      name: String(s.name || ''),
+      category: (validCategories.includes(s.category as SubjectCategory) ? s.category : 'other') as SubjectCategory,
+    }));
+    scene = {
+      visualDescription: String(attrs.visualDescription || ''),
+      subjects,
+      ...(attrs.duration != null ? { duration: Number(attrs.duration) } : {}),
+      ...(attrs.durationExplicit ? { durationExplicit: true } : {}),
+      ...(attrs.mood ? { mood: String(attrs.mood) } : {}),
+    };
+  }
+
+  let editorial: ThinkForgeBlock['editorial'];
+  if (kind === 'editorial') {
+    editorial = {
+      editorialType: (['emotional_target', 'instrumentation', 'production_note', 'style_guide', 'color_palette', 'pacing_note', 'custom'].includes(String(attrs.editorialType))
+        ? String(attrs.editorialType)
+        : 'custom') as EditorialType,
+    };
+  }
+
   return {
     id,
     kind,
     content,
     meta,
+    ...(scene ? { scene } : {}),
+    ...(editorial ? { editorial } : {}),
   };
 }
 
