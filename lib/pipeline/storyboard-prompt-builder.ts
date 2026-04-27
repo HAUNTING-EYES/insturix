@@ -6,10 +6,20 @@
  *
  * Image prompts describe STILL frames only — no camera movement.
  * Quality tokens are dynamic per art style, not hardcoded.
+ *
+ * Cinema hardware integration (camera body, lens, focal length, aperture/DoF)
+ * is wired in via cinema-prompt-config. When no explicit CinemaSettings are
+ * supplied, they are auto-derived from scene.mood + styleGuide.artStyle —
+ * the same derivation used by the video pipeline worker.
  */
 
 import type { SceneDescriptor } from './schemas/storyboard';
 import type { StyleGuide } from './schemas/storyboard';
+import {
+  type CinemaSettings,
+  buildCinemaFragment,
+  getCinemaSettingsFromContent,
+} from '@/lib/editron/data/cinema-prompt-config';
 
 /** Map art-style identifiers to descriptive prompt tokens for image generation. */
 const ART_STYLE_PROMPTS: Record<string, string> = {
@@ -67,12 +77,18 @@ const ART_STYLE_PROMPTS: Record<string, string> = {
  * Produces a STILL IMAGE prompt — no camera movement, no motion.
  * Quality tokens come from the LLM (scene.imageQualityTokens) when available,
  * falling back to style-mapped defaults.
+ *
+ * @param cinemaSettings - Explicit cinema hardware settings (camera, lens, focal
+ *   length, aperture). When omitted, auto-derived from scene.mood + styleGuide.artStyle
+ *   via getCinemaSettingsFromContent — the same derivation used by the video worker.
+ *   Pass `null` to explicitly disable cinema hardware injection.
  */
 export function buildStoryboardPrompt(
   scene: SceneDescriptor,
   styleGuide?: StyleGuide,
   sceneIndex?: number,
   totalScenes?: number,
+  cinemaSettings?: CinemaSettings | null,
 ): string {
   const parts: string[] = [];
 
@@ -156,6 +172,30 @@ export function buildStoryboardPrompt(
     }
   }
 
+  // ─── Cinema hardware injection ───────────────────────────────────────────
+  // Adds physical camera language (camera body, lens type, focal length, aperture)
+  // that significantly improves prompt adherence in Flux, SDXL, and Imagen models.
+  //
+  // Priority:
+  //   1. Explicit CinemaSettings passed by caller (profile-aware callers, e.g. storyboard-queue)
+  //   2. Auto-derived from scene.mood + styleGuide.artStyle (same as video worker)
+  //   3. Disabled if cinemaSettings === null (caller opted out explicitly)
+  //
+  // Placed AFTER art-style tokens so the art style description anchors the visual
+  // look, and the cinema hardware refines the technical rendering quality on top.
+  if (cinemaSettings !== null) {
+    const resolvedCinema: CinemaSettings =
+      cinemaSettings ??
+      getCinemaSettingsFromContent(
+        (scene as any).mood ?? undefined,
+        styleGuide?.artStyle ?? undefined,
+      );
+    const cinemaFragment = buildCinemaFragment(resolvedCinema);
+    if (cinemaFragment) {
+      parts.push(cinemaFragment);
+    }
+  }
+
   // LLM-generated quality tokens (dynamic per art style) — placed at the end
   const sceneAny = scene as any;
   if (sceneAny.imageQualityTokens) {
@@ -163,6 +203,23 @@ export function buildStoryboardPrompt(
   }
 
   return parts.join('. ').replace(/\.\./g, '.').replace(/\s{2,}/g, ' ');
+}
+
+/**
+ * Convenience wrapper — builds a storyboard prompt with EXPLICIT cinema settings.
+ * Use this when the caller already has a resolved CinemaSettings object (e.g., derived
+ * from an edit-profile ID in storyboard-queue-service).
+ *
+ * Equivalent to: buildStoryboardPrompt(scene, styleGuide, idx, total, cinemaSettings)
+ */
+export function buildStoryboardPromptWithCinema(
+  scene: SceneDescriptor,
+  cinemaSettings: CinemaSettings,
+  styleGuide?: StyleGuide,
+  sceneIndex?: number,
+  totalScenes?: number,
+): string {
+  return buildStoryboardPrompt(scene, styleGuide, sceneIndex, totalScenes, cinemaSettings);
 }
 
 /**
