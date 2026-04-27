@@ -147,7 +147,7 @@ export async function parseScriptWithLLM(
   const { object } = await geminiRetry(() => generateObject({
     model,
     schema: ParseResultSchema,
-    temperature: 0.3,
+    temperature: 0.05,
     // 2026-04-17: bumped 120s → 180s after witnessing cold-start timeouts on the
     // new GCP project (insturix-493414). First Gemini call of the day often takes
     // 120-150s (structured output on complex Zod schema). 180s gives headroom while
