@@ -368,10 +368,14 @@ async function handler(request: NextRequest) {
           (motionScore * 0.30 + stabilityScore * 0.25 + descOverlap * 0.25 + compositionScore * 0.20) * 10
         );
 
-        // ── Tier 2: Gemini Vision artifact check (only on borderline or low scores) ──
+        // ── Tier 2: Gemini Vision artifact check (runs on ALL videos per Fix 6) ──
+        // OLD: gated by `deterministicScore < 75` — most videos scored above 75 so
+        // vision check NEVER ran. Combined with the gemini-2.0-flash deprecation,
+        // this meant zero artifact detection for months.
+        // NEW: runs on every video with keyframe data. Cost: ~$0.003/video.
         let visionScore: number | null = null;
         let visionIssues: string[] = [];
-        const shouldRunVision = deterministicScore < 75 && kfAnalyses.length > 0;
+        const shouldRunVision = kfAnalyses.length > 0;
 
         if (shouldRunVision) {
           try {
