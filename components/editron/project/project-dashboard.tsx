@@ -40,6 +40,8 @@ export default function ProjectDashboard() {
   const [creating, setCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
+  const [autoEditing, setAutoEditing] = useState(false);
+  const [autoEditProgress, setAutoEditProgress] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -114,6 +116,57 @@ export default function ProjectDashboard() {
       });
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleAutoEdit = async (file: File) => {
+    try {
+      setAutoEditing(true);
+      setAutoEditProgress('Uploading video...');
+
+      // Step 1: Upload the video via existing media upload flow
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadRes = await fetch('/api/services/editron/media/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json();
+        throw new Error(err.error || 'Upload failed');
+      }
+      const { assetId } = await uploadRes.json();
+
+      setAutoEditProgress('AI is editing your video...');
+
+      // Step 2: Call the auto-edit-from-asset endpoint
+      const editRes = await fetch('/api/services/editron/auto-edit/from-asset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assetId,
+          title: file.name.replace(/\.[^.]+$/, ''),
+        }),
+      });
+
+      if (!editRes.ok) {
+        const err = await editRes.json();
+        throw new Error(err.error || 'Auto-edit failed');
+      }
+
+      const { projectId } = await editRes.json();
+      toast({ title: 'Video edited', description: 'Opening in editor...' });
+      router.push(`/dashboard/editron/project/${projectId}`);
+    } catch (error) {
+      console.error('Auto-edit error:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Auto-edit failed',
+        description: getUserFriendlyErrorMessage(error),
+      });
+    } finally {
+      setAutoEditing(false);
+      setAutoEditProgress('');
     }
   };
 
@@ -193,6 +246,54 @@ export default function ProjectDashboard() {
                 {creating ? 'Creating...' : 'Create Project'}
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Edit My Video — Mode 2 */}
+        <Card className="mb-8 border-dashed border-2 border-blue-300 dark:border-blue-700">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileVideo className="w-5 h-5" />
+              Edit My Video
+            </CardTitle>
+            <CardDescription>
+              Upload your footage and AI will edit it automatically
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {autoEditing ? (
+              <div className="flex items-center gap-3 py-4">
+                <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full" />
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">{autoEditProgress}</span>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="auto-edit-upload"
+                  className="flex items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg cursor-pointer hover:border-blue-400 dark:hover:border-blue-600 transition-colors"
+                >
+                  <Video className="w-5 h-5 text-zinc-500" />
+                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                    Drop a video file or click to upload
+                  </span>
+                  <input
+                    id="auto-edit-upload"
+                    type="file"
+                    accept="video/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleAutoEdit(file);
+                      e.target.value = '';
+                    }}
+                    disabled={autoEditing}
+                  />
+                </label>
+                <p className="text-xs text-zinc-500 dark:text-zinc-600">
+                  AI will analyze your video, detect the best editing style, and apply transitions, captions, color grading, and more.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

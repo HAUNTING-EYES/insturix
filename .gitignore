@@ -44,6 +44,7 @@ tsconfig.tsbuildinfo
 /cloud-run-renderer/package-lock.json
 .vercel
 .env*.local
+.env.neo4j
 
 # Claude Code context file (not part of codebase)
 CLAUDE.md
