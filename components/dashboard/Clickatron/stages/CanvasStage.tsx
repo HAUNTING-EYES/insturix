@@ -17,11 +17,14 @@ import { produce } from "immer";
 import { CanvasControls } from "../canvas/CanvasControls";
 import { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
 import { Settings, AlertTriangle } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import {
   downloadImageWithFineTuning,
   getImageUrl,
 } from "@/lib/frontend/services/clickatron-download";
 import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
+import type { ImageOverlayManagerHandle } from "../canvas/ImageOverlayManager";
+import type { SketchOverlayHandle } from "../canvas/SketchOverlay";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -149,6 +152,7 @@ const NoVariationSelected: React.FC<{ aspectRatio: string }> = ({
 
 export function CanvasStage({ videoIdea }: CanvasStageProps) {
   // All hooks must be called at the top level, before any early returns
+  const { toast } = useToast();
   const {
     task,
     updateCanvas,
@@ -167,6 +171,15 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const [mobilePanel, setMobilePanel] = useState<
     "none" | "gallery" | "fine-tune"
   >("none");
+  const [activeTool, setActiveTool] = useState<"sketch" | "image" | null>(null);
+  const [, setSketchTool] = useState<
+    "pencil" | "eraser" | "text" | null
+  >(null);
+  const [, setSelectedImageOverlayId] = useState<
+    string | null
+  >(null);
+
+  const [newVariationCreating, setNewVariationCreating] = useState(false);
 
   const panelVariants = {
     hidden: { y: "100%", opacity: 0 },
@@ -1284,7 +1297,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             {activeVariation?.status === "blank" ? (
               <NewVariationConsole
                 onGenerate={handleAIGenerate}
-                isGenerating={false}
+                isGenerating={newVariationCreating}
                 className="border-t border-zinc-800/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
@@ -1292,7 +1305,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             ) : (
               <AICommandConsole
                 onGenerate={handleAIGenerate}
-                isGenerating={false}
+                isGenerating={newVariationCreating}
                 className="border-t border-zinc-800/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
