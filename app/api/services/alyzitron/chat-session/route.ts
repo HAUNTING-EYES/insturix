@@ -10,6 +10,7 @@ import {
 } from "@/lib/alyzitron";
 import { transcribeAudio } from "@/lib/alyzitron/transcription/transcriptionService";
 import { GCSManager } from "../utils/gcs";
+import { AlyzitronR2Manager } from "../utils/r2-manager";
 import { extractMediaUri, streamUrlToGCS } from "@/lib/alyzitron/transcription/downloader";
 
 /**
@@ -81,8 +82,12 @@ async function triggerTranscription(
       const bucketName = process.env.GCS_BUCKET_NAME || "";
       const objectPath = videoUrl.replace(`gs://${bucketName}/`, "");
       deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
+    } else if (videoUrl.includes("r2.cloudflarestorage.com") || videoUrl.includes("r2.dev")) {
+      // Case B: File is in R2, get signed URL
+      console.log(`[ChatSession] Getting signed URL for R2 file: ${videoUrl}`);
+      deepgramUrl = await AlyzitronR2Manager.getSignedReadUrl(videoUrl);
     } else {
-      // Case B: External URL (YouTube, Instagram, etc) - Use Apify + Stream to GCS
+      // Case C: External URL (YouTube, Instagram, etc) - Use Apify + Stream to GCS
       console.log(`[ChatSession] Extracting and streaming media: ${videoUrl}`);
       
       // 1. Extract direct URI

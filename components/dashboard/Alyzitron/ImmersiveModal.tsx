@@ -96,7 +96,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
-  const [gcsPath, setGcsPath] = useState<string | null>(null);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
   const [analysisStarted, setAnalysisStarted] = useState(false);
   const [createdTaskId, setCreatedTaskId] = useState<string | null>(null);
   const [uploadCompleted, setUploadCompleted] = useState(false);
@@ -222,12 +222,12 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
         console.log("📤 Upload result:", uploadResult);
 
-        // Store the gcsPath for potential deletion
-        if (uploadResult?.gcsPath) {
-          console.log("💾 Setting gcsPath:", uploadResult.gcsPath);
-          setGcsPath(uploadResult.gcsPath);
+        // Store the storageKey for potential deletion
+        if (uploadResult?.storageKey) {
+          console.log("💾 Setting storageKey:", uploadResult.storageKey);
+          setStorageKey(uploadResult.storageKey);
         } else {
-          console.warn("⚠️ No gcsPath in upload result:", uploadResult);
+          console.warn("⚠️ No storageKey in upload result:", uploadResult);
           // If upload was cancelled or failed, don't proceed
           if (!uploadResult) {
             console.log("🚫 Upload was cancelled or returned undefined");
@@ -259,7 +259,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           // ignore if resetState unavailable or fails
         }
         setAnalysisId(null);
-        setGcsPath(null);
+        setStorageKey(null);
         setUploadCompleted(false);
         setUploadProgress({ progress: 0, status: "error" });
 
@@ -301,13 +301,13 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         );
 
         if (source.type === "file") {
-          // File should already be uploaded, use the actual GCS path
-          console.log("🔍 Checking gcsPath for file analysis:", {
-            gcsPath,
+          // File should already be uploaded, use the actual storage key
+          console.log("🔍 Checking storageKey for file analysis:", {
+            storageKey,
             uploadCompleted,
           });
-          if (!gcsPath) {
-            console.error("❌ No gcsPath available for file analysis");
+          if (!storageKey) {
+            console.error("❌ No storageKey available for file analysis");
             throw new Error("File upload not completed. Please try again.");
           }
 
@@ -319,7 +319,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           };
 
           const payload = {
-            videoUrl: gcsPath,
+            videoUrl: storageKey,
             submissionId: submissionId,
             context: contextForAnalysis,
             sourceType: "file",
@@ -330,7 +330,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
             JSON.stringify(payload, null, 2),
           );
           result = await startAnalysis(
-            gcsPath,
+            storageKey,
             submissionId,
             contextForAnalysis,
             metadata,
@@ -440,7 +440,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     },
     [
       analysisId,
-      gcsPath,
+      storageKey,
       onOpenChange,
       uploadCompleted,
       isYouTubeUrl,
@@ -487,7 +487,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
         // Reset modal state
         setAnalysisId(null);
-        setGcsPath(null);
+        setStorageKey(null);
         setUploadProgress(null);
       }
     },
@@ -596,14 +596,14 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
   // Reset state when modal closes and cleanup uploaded files
   useEffect(() => {
-    if (!open && gcsPath && !isCleaningUpRef.current) {
+    if (!open && storageKey && !isCleaningUpRef.current) {
       console.log("📝 Modal is closing, checking cleanup conditions...");
       isCleaningUpRef.current = true;
 
       // If we have an uploaded file that hasn't started analysis, delete it
       if (source.type === "file" && uploadCompleted && !analysisStarted) {
-        console.log("🗑️ Attempting to delete uploaded file:", gcsPath);
-        deleteUploadedFile(gcsPath)
+        console.log("🗑️ Attempting to delete uploaded file:", storageKey);
+        deleteUploadedFile(storageKey)
           .then(() => {
             console.log("✅ File and tracking record deleted successfully");
           })
@@ -615,7 +615,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           })
           .finally(() => {
             // Always reset state after cleanup attempt
-            setGcsPath(null);
+            setStorageKey(null);
             setAnalysisId(null);
             setAnalysisStarted(false);
             setUploadCompleted(false);
@@ -625,7 +625,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           });
       } else {
         console.log("⏭️ Skipping file deletion:", {
-          hasGcsPath: !!gcsPath,
+          hasStorageKey: !!storageKey,
           isFileType: source.type === "file",
           uploadCompleted,
           analysisStarted,
@@ -647,9 +647,9 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         setUploadProgress(null);
         isCleaningUpRef.current = false;
       }
-    } else if (!open && !gcsPath && !isCleaningUpRef.current) {
-      // Reset state if modal is closed but no gcsPath to delete
-      setGcsPath(null);
+    } else if (!open && !storageKey && !isCleaningUpRef.current) {
+      // Reset state if modal is closed but no storageKey to delete
+      setStorageKey(null);
       setAnalysisId(null);
       setCreatedTaskId(null);
       setAnalysisStarted(false);
@@ -659,7 +659,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     }
   }, [
     open,
-    gcsPath,
+    storageKey,
     source.type,
     uploadCompleted,
     analysisStarted,
@@ -728,7 +728,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     console.log("🚀 handleStartAnalysis called with context:", context);
     console.log("🔍 Current state:", {
       sourceType: source.type,
-      gcsPath,
+      storageKey,
       uploadCompleted,
       analysisStarted,
       uploadProgress: uploadProgress?.status,
@@ -774,8 +774,8 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
       try {
         // Then try to delete the uploaded file
-        if (deleteUploadedFile && gcsPath) {
-          await deleteUploadedFile(gcsPath);
+        if (deleteUploadedFile && storageKey) {
+          await deleteUploadedFile(storageKey);
         }
       } catch (error) {
         // Silently handle file deletion errors - the file might not exist or the server might be unavailable

@@ -2,7 +2,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { logger } from "../utils/logger";
 import { validateYouTubeVideo } from "../utils/youtube";
-import { GCSManager } from "../utils/gcs";
+import { AlyzitronR2Manager } from "../utils/r2-manager";
 import { checkCredits } from "@/lib/services/creditsMiddleware";
 import { getCollections } from "../utils/mongodb";
 import { ObjectId } from "mongodb";
@@ -12,6 +12,15 @@ function getGcsUrl(gcsPath: string): string {
   const bucketName = process.env.GCS_BUCKET_NAME;
   if (!bucketName) throw new Error("Server configuration error: GCS bucket name missing.");
   return `gs://${bucketName}/${gcsPath}`;
+}
+
+function detectStorageBackend(url: string): 'gcs' | 'r2' | 'youtube' | 'external' {
+  if (url.includes('r2.cloudflarestorage.com')) return 'r2';
+  if (process.env.R2_PUBLIC_BASE_URL && url.startsWith(process.env.R2_PUBLIC_BASE_URL.replace(/\/+$/, ''))) return 'r2';
+  if (url.startsWith('gs://')) return 'gcs';
+  if (url.includes('/alyzitron-uploads/')) return 'r2';
+  if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
+  return 'external';
 }
 
 const qstashBaseUrl = process.env.QSTASH_URL || (process.env.APP_ENV === 'development' ? 'http://127.0.0.1:8080' : undefined);
@@ -24,12 +33,14 @@ export async function POST(request: Request) {
 
     const { userId, orgId } = session;
     const body = await request.json();
-    const { video_url, context, metadata } = body;
+    const { video_url, context, metadata, storage } = body; // Added storage field
 
     if (!video_url) return NextResponse.json({ error: "Missing required field: video_url" }, { status: 400 });
 
-    const isGCS = video_url.startsWith("gs://") || video_url.includes("/alyzitron-uploads/");
-    const isMaybeYouTube = !isGCS && (video_url.includes("youtube.com") || video_url.includes("youtu.be"));
+    const backend = storage || detectStorageBackend(video_url);
+    const isGCS = backend === 'gcs';
+    const isR2 = backend === 'r2';
+    const isMaybeYouTube = backend === 'youtube';
 
     // Detect image by mimetype or extension
     const isImageFile = metadata?.mimeType?.startsWith('image/') || video_url.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i) !== null;
@@ -38,7 +49,7 @@ export async function POST(request: Request) {
 
     // Validate duration ONLY if it's not an image
     if (!isImageFile) {
-      if (isGCS) {
+      if (isGCS || isR2) {
         videoDuration = metadata?.duration || metadata?.videoDuration || 0;
         if (videoDuration <= 0) return NextResponse.json({ success: false, error: { type: "INVALID_VIDEO_DURATION", message: "Video duration invalid." } }, { status: 400 });
         videoDuration = Math.ceil(videoDuration);
@@ -49,7 +60,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, error: { type: "INVALID_VIDEO", message: "Invalid YouTube video." } }, { status: 400 });
           }
           videoDuration = Math.ceil(validationResult.duration);
-        } catch (e) {
+        } catch {
           return NextResponse.json({ success: false, error: { type: "YOUTUBE_API_ERROR", message: "Failed to validate YouTube video" } }, { status: 400 });
         }
       } else {
@@ -63,10 +74,23 @@ export async function POST(request: Request) {
     if (!creditCheck.allowed) return creditCheck.errorResponse;
     await creditCheck.deduct();
 
-    const finalVideoUrl = isGCS ? getGcsUrl(video_url) : video_url;
+    // Prepare final video URL for analysis
+    let finalVideoUrl: string;
+    if (isGCS) {
+      finalVideoUrl = getGcsUrl(video_url);
+    } else if (isR2) {
+      // For R2 uploads the browser still sends the legacy gcsPath field. Convert
+      // raw R2 keys to public URLs so reports, chat, and the processor can read them.
+      finalVideoUrl = video_url.startsWith('http')
+        ? video_url
+        : AlyzitronR2Manager.getPublicUrl(video_url);
+    } else {
+      // YouTube or external URLs
+      finalVideoUrl = video_url;
+    }
 
     let analyses: any;
-    let taskId = new ObjectId();
+    const taskId = new ObjectId();
 
     try {
       const collections = await getCollections();
@@ -78,25 +102,56 @@ export async function POST(request: Request) {
           const client = await clerkClient();
           const user = await client.users.getUser(userId);
           createdByName = user.firstName ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}` : user.username || 'Unknown';
-        } catch (e) { }
+        } catch { }
       }
 
       await analyses.insertOne({
-        _id: taskId, taskId: taskId.toString(), clerkUserId: userId, orgId: orgId || undefined, createdByName,
-        videoUrl: finalVideoUrl, context: context || {},
-        metadata: { ...metadata, mimeType: isImageFile ? (metadata?.mimeType || 'image/jpeg') : (metadata?.mimeType || 'video/mp4') },
-        status: "listed", unread: true, results: null, createdAt: new Date(), updatedAt: new Date(),
-        videoDuration: isImageFile ? 0 : videoDuration, usageMinutes,
+        _id: taskId,
+        taskId: taskId.toString(),
+        clerkUserId: userId,
+        orgId: orgId || undefined,
+        createdByName,
+        videoUrl: finalVideoUrl,
+        context: context || {},
+        metadata: {
+          ...metadata,
+          mimeType: isImageFile ? (metadata?.mimeType || 'image/jpeg') : (metadata?.mimeType || 'video/mp4'),
+          storage: backend, // Track which storage backend was used
+          storageBackend: backend
+        },
+        status: "listed",
+        unread: true,
+        results: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        videoDuration: isImageFile ? 0 : videoDuration,
+        usageMinutes,
       });
 
       const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
       await qstash.publishJSON({
         url: `${baseUrl}/api/services/alyzitron/processor`,
-        body: { taskId: taskId.toString(), userId, videoUrl: finalVideoUrl, context, metadata },
+        body: {
+          taskId: taskId.toString(),
+          userId,
+          videoUrl: finalVideoUrl,
+          context,
+          metadata: { ...metadata, storage: backend, storageBackend: backend }
+        },
         retries: 3,
         timeout: 120,
         headers: { "Content-Type": "application/json" },
+      });
+
+      logger.info('Queued Alyzitron analysis', {
+        data: {
+          taskId: taskId.toString(),
+          userId,
+          backend,
+          videoDuration,
+          isImageFile
+        }
       });
 
       return NextResponse.json({ success: true, taskId: taskId.toString() });

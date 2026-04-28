@@ -1,13 +1,11 @@
 import { useState, useCallback } from "react";
 import { useQueryClient } from '@tanstack/react-query';
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
-
 interface UploadState {
   progress: number;
   speed: number;
   remaining: number;
 }
-
 interface AnalysisState {
   status: "idle" | "uploading" | "analyzing" | "completed" | "failed";
   progress: number;
@@ -16,22 +14,23 @@ interface AnalysisState {
     action?: string;
   };
 }
-
 interface AnalysisUploadState {
   uploadState: UploadState | null;
   analysisState: AnalysisState;
   abortController: AbortController | null;
 }
-
-
+type UploadedMedia = {
+  storageKey: string;
+  publicUrl: string;
+  storage: "gcs" | "r2";
+  contentType: string;
+};
 export function useVideoAnalysis() {
   const queryClient = useQueryClient();
-
   // Track state for multiple analyses
   const [uploadStates, setUploadStates] = useState<
     Map<string, AnalysisUploadState>
   >(new Map());
-
   const resetState = useCallback((analysisId: string) => {
     setUploadStates((prev) => {
       const newStates = new Map(prev);
@@ -46,7 +45,6 @@ export function useVideoAnalysis() {
       return newStates;
     });
   }, []);
-
   const cancelUpload = useCallback(
     (analysisId: string) => {
       const state = uploadStates.get(analysisId);
@@ -69,13 +67,10 @@ export function useVideoAnalysis() {
     },
     [uploadStates]
   );
-
   const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1 GB
   const MAX_DURATION_SECONDS = 55 * 60; // 55 minutes
-
   const performUpload = useCallback(
-    async (file: File, analysisId: string, controller: AbortController): Promise<string> => {
-
+    async (file: File, analysisId: string, controller: AbortController): Promise<UploadedMedia | null> => {
       try {
         const signResponse = await fetch("/api/services/alyzitron/gcs/sign", {
           method: "POST",
@@ -84,40 +79,38 @@ export function useVideoAnalysis() {
           },
           body: JSON.stringify({
             filename: file.name,
-            contentType: file.type,
+            contentType: file.type || "application/octet-stream",
             fileSize: file.size,
           }),
         });
-
         if (!signResponse.ok) {
           const error = await signResponse.json();
           throw new Error(error.error?.message || "Failed to get upload URL");
         }
-
-        const { url, gcsPath, contentType } = await signResponse.json();
+        const { url, storageKey, publicUrl, contentType, storage } = await signResponse.json();
+        const resolvedStorageKey = storageKey;
+        const uploadContentType = contentType || file.type || "application/octet-stream";
+        const storageBackend = storage === "r2" ? "r2" : "gcs";
         logger.info("Starting file upload", {
           data: {
-            gcsPath,
+            storageKey: resolvedStorageKey,
             size: file.size,
-            contentType,
+            contentType: uploadContentType,
+            storage: storageBackend,
           },
         });
-
         await new Promise((resolve, reject) => {
           const startTime = Date.now();
           const xhr = new XMLHttpRequest();
-
           controller.signal.addEventListener("abort", () => {
             xhr.abort();
             reject(new Error("Upload cancelled"));
           });
-
           xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
               const progress = event.loaded / event.total;
               const speed = event.loaded / ((Date.now() - startTime) / 1000);
               const remaining = (file.size - event.loaded) / speed;
-
               setUploadStates((prev) => {
                 const newStates = new Map(prev);
                 const currentState = newStates.get(analysisId);
@@ -135,13 +128,11 @@ export function useVideoAnalysis() {
               });
             }
           };
-
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) {
               logger.info("File upload completed successfully", {
-                data: { gcsPath },
+                data: { storageKey: resolvedStorageKey },
               });
-
               // Update state to show upload is completed
               setUploadStates((prev) => {
                 const newStates = new Map(prev);
@@ -157,49 +148,44 @@ export function useVideoAnalysis() {
                 }
                 return newStates;
               });
-
-              resolve(gcsPath);
+              resolve(resolvedStorageKey);
             } else {
               const errorMessage = `Upload failed with status ${xhr.status}`;
               logger.error("Upload failed", {
                 data: {
                   status: xhr.status,
                   statusText: xhr.statusText,
-                  gcsPath,
+                  storageKey: resolvedStorageKey,
+                  storage: storageBackend,
                 },
               });
               reject(new Error(errorMessage));
             }
           };
-
           xhr.onerror = () => {
             logger.error("Upload failed", {
-              data: { gcsPath },
+              data: { storageKey: resolvedStorageKey, storage: storageBackend },
             });
             reject(new Error("Upload failed"));
           };
-
           xhr.onabort = () => {
             logger.info("Upload cancelled by user", {
-              data: { gcsPath },
+              data: { storageKey: resolvedStorageKey, storage: storageBackend },
             });
             reject(new Error("Upload cancelled"));
           };
-
           // Open and configure XHR
           xhr.open("PUT", url);
-          
           // CRITICAL: Only set Content-Type header to match signed URL
           // Do not set Content-Length as it's automatically set by the browser
-          // Setting extra headers will cause CORS preflight to fail
-          xhr.setRequestHeader("Content-Type", contentType);
-          
-          // Add custom metadata header that was included in signed URL
-          xhr.setRequestHeader("x-goog-meta-upload-source", "alyzitron-web");
-          
+          // Setting extra headers can cause CORS/preflight failures if not signed
+          xhr.setRequestHeader("Content-Type", uploadContentType);
+          // Only send the GCS metadata header when using the GCS signed URL path.
+          if (storageBackend === 'gcs') {
+            xhr.setRequestHeader("x-goog-meta-upload-source", "alyzitron-web");
+          }
           xhr.send(file);
         });
-
         // Track successful upload
         try {
           await fetch('/api/services/alyzitron/gcs/track-upload', {
@@ -207,10 +193,12 @@ export function useVideoAnalysis() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               uploadId: analysisId,
-              gcsPath,
+              storageKey: resolvedStorageKey,
               filename: file.name,
               fileSize: file.size,
               contentType: file.type,
+              storage: storageBackend,
+              publicUrl,
             }),
           });
         } catch (trackingError) {
@@ -218,12 +206,16 @@ export function useVideoAnalysis() {
             data: { error: trackingError instanceof Error ? trackingError.message : String(trackingError) },
           });
         }
-
-        return gcsPath;
+        return {
+          storageKey: resolvedStorageKey,
+          publicUrl: publicUrl || resolvedStorageKey,
+          storage: storageBackend,
+          contentType: uploadContentType,
+        };
       } catch (error) {
         if (error instanceof Error && error.message === "Upload cancelled") {
           logger.info("Upload cancelled successfully");
-          return "";
+          return null;
         }
         const errorMessage =
           error instanceof Error ? error.message : "Upload failed";
@@ -233,7 +225,6 @@ export function useVideoAnalysis() {
             filename: file.name,
           },
         });
-
         setUploadStates((prev) => {
           const newStates = new Map(prev);
           const currentState = newStates.get(analysisId);
@@ -252,7 +243,6 @@ export function useVideoAnalysis() {
           }
           return newStates;
         });
-
         throw error;
       } finally {
         setUploadStates((prev) => {
@@ -270,9 +260,8 @@ export function useVideoAnalysis() {
     },
     []
   );
-
   const uploadFile = useCallback(
-    async (file: File, analysisId: string): Promise<string> => {
+    async (file: File, analysisId: string): Promise<UploadedMedia | null> => {
       // Validate file size
       if (file.size > MAX_FILE_SIZE_BYTES) {
         setUploadStates((prev) => {
@@ -297,17 +286,14 @@ export function useVideoAnalysis() {
         });
         throw new Error("File size exceeds 1GB limit");
       }
-
       // Validate video duration
       const video = document.createElement('video');
       video.preload = 'metadata';
       const url = URL.createObjectURL(file);
-
-      return new Promise<string>((resolve, reject) => {
+      return new Promise<UploadedMedia | null>((resolve, reject) => {
         video.onloadedmetadata = () => {
           const duration = Math.ceil(video.duration);
           URL.revokeObjectURL(url);
-
           if (duration > MAX_DURATION_SECONDS) {
             setUploadStates((prev) => {
               const newStates = new Map(prev);
@@ -332,10 +318,8 @@ export function useVideoAnalysis() {
             reject(new Error("Video duration exceeds 55 minutes limit"));
             return;
           }
-
           // Duration is valid, proceed with upload
           const controller = new AbortController();
-
           setUploadStates((prev) => {
             const newStates = new Map(prev);
             const currentState = newStates.get(analysisId) || {
@@ -350,11 +334,9 @@ export function useVideoAnalysis() {
             });
             return newStates;
           });
-
           // Continue with upload logic
           void performUpload(file, analysisId, controller).then(resolve).catch(reject);
         };
-
         video.onerror = () => {
           URL.revokeObjectURL(url);
           setUploadStates((prev) => {
@@ -379,13 +361,11 @@ export function useVideoAnalysis() {
           });
           reject(new Error("Invalid video file"));
         };
-
         video.src = url;
       });
     },
     [MAX_DURATION_SECONDS, MAX_FILE_SIZE_BYTES, performUpload]
   );
-
   const startAnalysis = useCallback(
     async (
       videoUrl: string,
@@ -395,7 +375,11 @@ export function useVideoAnalysis() {
         duration?: number;
         fileSize?: number;
         filename?: string;
-      }
+        storage?: "gcs" | "r2";
+        gcsPath?: string;
+        publicUrl?: string;
+      },
+      storage?: "gcs" | "r2"
     ) => {
       try {
         setUploadStates((prev) => {
@@ -414,19 +398,17 @@ export function useVideoAnalysis() {
           });
           return newStates;
         });
-
         const requestData = {
           video_url: videoUrl,
           // Send context directly to match API expectations
           context: context,
           // Include metadata if provided
           ...(metadata && { metadata }),
+          ...(storage && { storage }),
         };
-
         logger.info("Submitting analysis request", {
           data: requestData,
         });
-
         const response = await fetch("/api/services/alyzitron/analyze", {
           method: "POST",
           headers: {
@@ -434,14 +416,11 @@ export function useVideoAnalysis() {
           },
           body: JSON.stringify(requestData),
         });
-
         const responseData = await response.json();
-
         if (!response.ok || !responseData.success) {
           const errorMessage = responseData.error?.message || "Failed to initiate analysis";
           throw new Error(errorMessage);
         }
-
         // The API returns taskId, not analysis object
         const newAnalysisData = {
           _id: responseData.taskId,
@@ -450,7 +429,6 @@ export function useVideoAnalysis() {
         logger.info("Analysis request submitted successfully", {
           data: { analysis: newAnalysisData },
         });
-
         // Mark upload as used for analysis
         try {
           await fetch('/api/services/alyzitron/gcs/track-upload', {
@@ -467,13 +445,10 @@ export function useVideoAnalysis() {
             data: { error: trackingError instanceof Error ? trackingError.message : String(trackingError) },
           });
         }
-
         // Unified pattern: invalidate canonical caches; RTDB will update history pages
         queryClient.invalidateQueries({ queryKey: ['alyzitron-tasks'], exact: false });
         queryClient.invalidateQueries({ queryKey: ['alyzitron-analytics'], exact: false });
-
         resetState(analysisId);
-
         return {
           analysisId: newAnalysisData._id,
           estimatedTime: newAnalysisData.estimatedTime
@@ -484,7 +459,6 @@ export function useVideoAnalysis() {
         logger.error("Analysis submission failed", {
           data: { error: errorMessage },
         });
-
         setUploadStates((prev) => {
           const newStates = new Map(prev);
           const currentState = newStates.get(analysisId);
@@ -503,33 +477,34 @@ export function useVideoAnalysis() {
           }
           return newStates;
         });
-
         throw error;
       }
     },
     [resetState, queryClient]
   );
-
   const uploadVideo = useCallback(
     async (file: File, analysisId: string) => {
       try {
-        const gcsPath = await uploadFile(file, analysisId);
-        return gcsPath ? { gcsPath, analysisId } : undefined;
+        const uploaded = await uploadFile(file, analysisId);
+        return uploaded
+          ? {
+              ...uploaded,
+              analysisId,
+              videoUrl: uploaded.storage === "r2" ? uploaded.publicUrl : uploaded.storageKey,
+            }
+          : undefined;
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Upload failed";
-
         if (errorMessage === "Upload cancelled") {
           return;
         }
-
         logger.error("File upload process failed", {
           data: {
             error: errorMessage,
             filename: file.name,
           },
         });
-
         setUploadStates((prev) => {
           const newStates = new Map(prev);
           const currentState = newStates.get(analysisId);
@@ -548,18 +523,14 @@ export function useVideoAnalysis() {
           }
           return newStates;
         });
-
         throw error;
       }
     },
     [uploadFile]
   );
-
-
   const deleteUploadedFile = useCallback(
-    async (gcsPath: string) => {
-      console.log('🗑️ deleteUploadedFile called with:', gcsPath);
-
+    async (storageKey: string, storage?: "gcs" | "r2") => {
+      console.log('🗑️ deleteUploadedFile called with:', storageKey);
       try {
         console.log('📡 Making delete API request...');
         // Call API to delete the uploaded file
@@ -568,75 +539,65 @@ export function useVideoAnalysis() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ gcsPath }),
+          body: JSON.stringify({ storageKey, storage }),
         });
-
         console.log('📡 Delete API response:', {
           status: response.status,
           ok: response.ok,
         });
-
         if (!response.ok) {
           const error = await response.json();
           console.error('❌ Delete API error:', error);
           throw new Error(error.error?.message || 'Failed to delete file');
         }
-
         const result = await response.json();
         console.log('✅ Delete API success:', result);
-
         // Delete tracking record since file was cancelled
         console.log('📡 Making delete tracking record API request...');
-        console.log('🔍 About to call tracking deletion for gcsPath:', gcsPath);
+        console.log('🔍 About to call tracking deletion for storageKey:', storageKey);
         try {
           const trackingResponse = await fetch('/api/services/alyzitron/gcs/track-upload', {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              gcsPath,
+              storageKey,
             }),
           });
-          
           console.log('📡 Delete tracking API response:', {
             status: trackingResponse.status,
             ok: trackingResponse.ok,
           });
-
           if (!trackingResponse.ok) {
             const trackingError = await trackingResponse.json();
             console.error('❌ Delete tracking API error:', trackingError);
             throw new Error(trackingError.error?.message || 'Failed to delete tracking record');
           }
-
           const trackingResult = await trackingResponse.json();
           console.log('✅ Tracking record deleted:', trackingResult);
         } catch (trackingError) {
           console.error('❌ Failed to delete tracking record:', trackingError);
           logger.error('Failed to delete tracking record', {
-            data: { error: trackingError instanceof Error ? trackingError.message : String(trackingError), gcsPath },
+            data: { error: trackingError instanceof Error ? trackingError.message : String(trackingError), storageKey },
           });
           // Re-throw the error so the caller knows deletion failed
           throw trackingError;
         }
-
         logger.info('File deleted successfully', {
-          data: { gcsPath },
+          data: { storageKey },
         });
-
         // Note: We don't have analysisId here, so we can't reset specific state
         // This is fine for cleanup operations
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Failed to delete file';
         console.error('❌ File deletion failed:', errorMessage);
         logger.error('File deletion failed', {
-          data: { error: errorMessage, gcsPath },
+          data: { error: errorMessage, storageKey },
         });
         throw error;
       }
     },
     []
   );
-
   return {
     uploadStates,
     uploadVideo,

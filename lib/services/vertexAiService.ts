@@ -304,26 +304,32 @@ Be specific and reference actual content from the video with precise timestamps.
 `;
 
     // Prepare request parts
+    // --- FIXED BLOCK ---
     const parts: any[] = [];
 
-    parts.push({
-      fileData: {
-        mimeType: "audio/mpeg",
-        fileUri: audioUri,
-      },
-    });
-
-    // If a separate audio track was provided, include it as an additional part
-    if (audioUri) {
+    // 1. Video file add karna compulsory hai (Iske bina Gemini video nahi dekh payega)
+    if (videoUrl) {
       parts.push({
         fileData: {
-          mimeType: 'audio/mpeg',
+          mimeType: "video/mp4",
+          fileUri: videoUrl,
+        },
+      });
+    }
+
+    // 2. Audio file sirf tabhi add hogi jab audioUri valid ho (Ye 400 error fix karega)
+    if (audioUri && audioUri.trim() !== "") {
+      parts.push({
+        fileData: {
+          mimeType: "audio/mpeg",
           fileUri: audioUri,
         },
       });
     }
 
+    // 3. Prompt text
     parts.push({ text: prompt });
+    // -------------------
 
 
     const request = {
