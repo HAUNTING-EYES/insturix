@@ -11,6 +11,16 @@
  * is wired in via cinema-prompt-config. When no explicit CinemaSettings are
  * supplied, they are auto-derived from scene.mood + styleGuide.artStyle —
  * the same derivation used by the video pipeline worker.
+ *
+ * Prompt slot order follows §2.5 of creative-production-knowledge-v2:
+ *   1. ENVIRONMENT + LIGHTING   — sets the world first
+ *   2. SUBJECT + STATE          — who/what is in the scene
+ *   3. COMPOSITION              — shot type and framing intent
+ *   4. CAMERA BEHAVIOR          — n/a for stills; explicit comment preserved
+ *   5. LENS + DEPTH             — cinema hardware (focal length, aperture, DoF)
+ *   6. MOOD + AESTHETIC         — color palette, film stock, art style
+ *   7. TECHNICAL QUALITY        — consistency, anti-artifact, scene index
+ *   8. NEGATIVE PROMPT          — handled by buildNegativePrompt()
  */
 
 import type { SceneDescriptor } from './schemas/storyboard';
@@ -75,8 +85,16 @@ const ART_STYLE_PROMPTS: Record<string, string> = {
 /**
  * Build an image generation prompt for a storyboard scene.
  * Produces a STILL IMAGE prompt — no camera movement, no motion.
- * Quality tokens come from the LLM (scene.imageQualityTokens) when available,
- * falling back to style-mapped defaults.
+ *
+ * Slot order follows §2.5 of creative-production-knowledge-v2:
+ *   1. ENVIRONMENT + LIGHTING
+ *   2. SUBJECT + STATE
+ *   3. COMPOSITION
+ *   4. CAMERA BEHAVIOR   (still image — omitted; reserved slot)
+ *   5. LENS + DEPTH
+ *   6. MOOD + AESTHETIC
+ *   7. TECHNICAL QUALITY
+ *   8. NEGATIVE PROMPT   (see buildNegativePrompt)
  *
  * @param cinemaSettings - Explicit cinema hardware settings (camera, lens, focal
  *   length, aperture). When omitted, auto-derived from scene.mood + styleGuide.artStyle
@@ -92,8 +110,18 @@ export function buildStoryboardPrompt(
 ): string {
   const parts: string[] = [];
 
-  // Core visual description — this is the most important part, placed FIRST
-  // IP-adapter consistency depends on the visual content being prominent in the prompt.
+  // ── SLOT 1: ENVIRONMENT + LIGHTING ──────────────────────────────────────
+  // Must come first — establishes the world the subject inhabits.
+  // IP-adapter consistency and lighting coherence both benefit from the
+  // environment being the first thing the model processes.
+  if (styleGuide?.environmentNotes) {
+    parts.push(`Environment: ${styleGuide.environmentNotes}`);
+  }
+
+  // ── SLOT 2: SUBJECT + STATE ──────────────────────────────────────────────
+  // Core visual description — who/what is in the scene and their state.
+  // "State" (expression, posture, position) is safer than "action" for stills:
+  // complex actions produce uncanny anatomy failures (§2.5 Artifact Prevention).
   if (scene.visualDescription) {
     // Clean up markdown artifacts and noise
     let cleanVisual = scene.visualDescription
@@ -108,17 +136,14 @@ export function buildStoryboardPrompt(
     // Strip camera movement phrases — only match explicit camera direction terms,
     // not standalone words like "follow", "track", "pan", "crane", "zoom" that
     // could be part of legitimate scene descriptions.
+    // Still image — no motion; movement language confuses image models.
     cleanVisual = cleanVisual
       .replace(/\b(dolly shot|camera pan|slow zoom|tracking shot|crane shot|steadicam shot|rack focus|whip pan|push[- ]in|pull[- ]back)\b/gi, '')
       .replace(/\b(camera|shot|slow|fast)\s+(dolly|pan|tilt|zoom|track|orbit|crane|steadicam|follow|whip)\w*\b/gi, '')
       .replace(/\s{2,}/g, ' ')
       .trim();
 
-    if (cleanVisual.length > 3000) {
-      parts.push(cleanVisual.substring(0, 3000));
-    } else {
-      parts.push(cleanVisual);
-    }
+    parts.push(cleanVisual.length > 3000 ? cleanVisual.substring(0, 3000) : cleanVisual);
   } else if (scene.narration) {
     // ONLY use narration as a last resort — extract visual hints, not the full text.
     // Narration is spoken words, NOT visual description. Using it raw produces
@@ -127,7 +152,7 @@ export function buildStoryboardPrompt(
     parts.push(`Scene context: ${visualHint}`);
   }
 
-  // Character descriptions come second — they add specific visual detail
+  // Character descriptions — additional subject definition, matched by name occurrence
   if (styleGuide?.characterDescriptions) {
     const sceneText = ((scene.narration || '') + ' ' + (scene.visualDescription || '')).toLowerCase();
     for (const [name, desc] of Object.entries(styleGuide.characterDescriptions)) {
@@ -137,52 +162,28 @@ export function buildStoryboardPrompt(
     }
   }
 
-  // Environment notes
-  if (styleGuide?.environmentNotes) {
-    parts.push(`Environment: ${styleGuide.environmentNotes}`);
-  }
-
-  // Color palette (only when non-empty)
-  if (styleGuide?.colorPalette && styleGuide.colorPalette.length > 0) {
-    parts.push(styleGuide.colorPalette.join(', '));
-  }
-
-  // Composition + quality tokens (from creative production knowledge)
-  // These enforce professional framing without adding too many tokens.
+  // ── SLOT 3: COMPOSITION ──────────────────────────────────────────────────
+  // Shot type and framing intent — enforces professional framing without
+  // consuming too many tokens.
   parts.push('rule of thirds composition, professional framing');
-  parts.push('consistent lighting, no exposure variation');
-  // Prevent AI from generating text in the image — text is added as overlays in post
-  parts.push('no visible text, no signs with legible writing, no watermarks');
 
-  // Consistency hint for multi-scene storyboards (kept short)
-  if (totalScenes && totalScenes > 1) {
-    parts.push(
-      `Scene ${(sceneIndex ?? 0) + 1}/${totalScenes}, consistent style`,
-    );
-  }
+  // ── SLOT 4: CAMERA BEHAVIOR ──────────────────────────────────────────────
+  // Reserved slot — intentionally empty for still image prompts.
+  // Camera movement tokens are suppressed (see SLOT 2 cleanup above) because
+  // movement language causes video-model artifacts in image generators.
+  // For VIDEO prompt generation, populate this slot with movement + motivation
+  // language from §2.5 Camera Movements (push-in, pan, orbit, etc.).
 
-  // Art style tokens — generic boilerplate, placed at the end
-  if (styleGuide) {
-    const artStyleKey = styleGuide.artStyle?.toLowerCase().replace(/\s+/g, '-');
-    const artStylePrompt = artStyleKey && ART_STYLE_PROMPTS[artStyleKey];
-    if (artStylePrompt) {
-      parts.push(artStylePrompt);
-    } else if (styleGuide.artStyle) {
-      parts.push(`Art style: ${styleGuide.artStyle}`);
-    }
-  }
-
-  // ─── Cinema hardware injection ───────────────────────────────────────────
-  // Adds physical camera language (camera body, lens type, focal length, aperture)
-  // that significantly improves prompt adherence in Flux, SDXL, and Imagen models.
+  // ── SLOT 5: LENS + DEPTH ─────────────────────────────────────────────────
+  // Cinema hardware: camera body, lens type, focal length, aperture/DoF.
+  // Placed immediately after composition because lens properties directly
+  // determine how the composition reads (compression, DOF, field of view).
+  // Significantly improves prompt adherence in Flux, SDXL, and Imagen models.
   //
   // Priority:
-  //   1. Explicit CinemaSettings passed by caller (profile-aware callers, e.g. storyboard-queue)
+  //   1. Explicit CinemaSettings from caller (profile-aware callers, e.g. storyboard-queue)
   //   2. Auto-derived from scene.mood + styleGuide.artStyle (same as video worker)
-  //   3. Disabled if cinemaSettings === null (caller opted out explicitly)
-  //
-  // Placed AFTER art-style tokens so the art style description anchors the visual
-  // look, and the cinema hardware refines the technical rendering quality on top.
+  //   3. Disabled when cinemaSettings === null (caller opted out)
   if (cinemaSettings !== null) {
     const resolvedCinema: CinemaSettings =
       cinemaSettings ??
@@ -196,11 +197,50 @@ export function buildStoryboardPrompt(
     }
   }
 
-  // LLM-generated quality tokens (dynamic per art style) — placed at the end
+  // ── SLOT 6: MOOD + AESTHETIC ─────────────────────────────────────────────
+  // Color palette (only when non-empty) — sets the color temperature and
+  // emotional register of the frame.
+  if (styleGuide?.colorPalette && styleGuide.colorPalette.length > 0) {
+    parts.push(styleGuide.colorPalette.join(', '));
+  }
+
+  // Art style tokens — film stock feel, rendering aesthetic, genre signature.
+  // Generic boilerplate placed at the end of the mood block so the palette
+  // tokens above anchor the specific color intent before the style description
+  // adds its own color/look language.
+  if (styleGuide) {
+    const artStyleKey = styleGuide.artStyle?.toLowerCase().replace(/\s+/g, '-');
+    const artStylePrompt = artStyleKey && ART_STYLE_PROMPTS[artStyleKey];
+    if (artStylePrompt) {
+      parts.push(artStylePrompt);
+    } else if (styleGuide.artStyle) {
+      parts.push(`Art style: ${styleGuide.artStyle}`);
+    }
+  }
+
+  // ── SLOT 7: TECHNICAL QUALITY ────────────────────────────────────────────
+  // Consistency constraints, anti-artifact tokens, and quality signals.
+  // Grouped at the end so they act as a final "filter" over the creative
+  // intent established in slots 1–6, not as early constraints on the world.
+  parts.push('consistent lighting, no exposure variation');
+
+  // Prevent AI from generating legible text — text is added as overlays in post
+  parts.push('no visible text, no signs with legible writing, no watermarks');
+
+  // Consistency hint for multi-scene storyboards (kept short)
+  if (totalScenes && totalScenes > 1) {
+    parts.push(`Scene ${(sceneIndex ?? 0) + 1}/${totalScenes}, consistent style`);
+  }
+
+  // LLM-generated quality tokens (dynamic per art style, from scene descriptor)
   const sceneAny = scene as any;
   if (sceneAny.imageQualityTokens) {
     parts.push(sceneAny.imageQualityTokens);
   }
+
+  // ── SLOT 8: NEGATIVE PROMPT ──────────────────────────────────────────────
+  // Handled separately by buildNegativePrompt() — passed to the image model
+  // as a distinct negative_prompt parameter, not appended here.
 
   return parts.join('. ').replace(/\.\./g, '.').replace(/\s{2,}/g, ' ');
 }
@@ -224,6 +264,8 @@ export function buildStoryboardPromptWithCinema(
 
 /**
  * Build a negative prompt from style guide (things to avoid).
+ * Corresponds to §2.5 SLOT 8 — passed as a separate parameter to the image
+ * model, never appended to the positive prompt built by buildStoryboardPrompt().
  */
 export function buildNegativePrompt(styleGuide?: StyleGuide): string {
   const base = [
