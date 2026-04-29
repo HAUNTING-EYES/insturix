@@ -6,7 +6,7 @@
  */
 
 import { OrgMember, IOrgMember, OrgRole } from '@/schemas/OrgMember';
-import { Organization } from '@/schemas/Organization';
+import { Organization as _Organization } from '@/schemas/Organization';
 import { User } from '@/schemas/user';
 import connectToDatabase from '@/schemas/ConnectToDatabase';
 import { organizationService } from './organizationService';

@@ -33,7 +33,7 @@ export const EMAIL_CONFIG = (() => {
       RETRY_DELAY_MS: config.retryDelayMs,
       MAX_RETRIES: config.maxRetries,
     } as const;
-  } catch (error) {
+  } catch (_error) {
     return {
       FROM_ADDRESS: process.env.AWS_SES_FROM_EMAIL ?? '',
       REGION: process.env.AWS_SES_REGION ?? 'ap-south-1',
@@ -56,7 +56,7 @@ export async function sendBatchEmails(messages: MailMessage[], options?: BatchOp
 export async function verifySESConfiguration(): Promise<boolean> {
   try {
     return await defaultMailer().verifyConfiguration();
-  } catch (error) {
+  } catch (_error) {
     return false;
   }
 }
