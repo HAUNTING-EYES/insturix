@@ -49,6 +49,8 @@ interface ExtractedSignals {
   title: string;
   sceneCount: number;
   totalDurationSec: number;
+  /** Fix 29: Cultural context detected from script content (indian/arabic/japanese/etc.) */
+  culturalContext: string;
 }
 
 interface ThinkForgeMetadata {
@@ -91,6 +93,33 @@ interface ThinkForgeMetadata {
   suggestedProfileCategory?: string;
 }
 
+// Fix 29: Detect cultural context from script text → influences profile selection.
+// Returns region hint string used as a signal field for keyword matching.
+function detectCulturalContext(text: string): string {
+  const t = text.toLowerCase();
+  const signals: string[] = [];
+
+  // Indian
+  if (/\b(diwali|namaste|bollywood|hindi|rupee|chai|rangoli|holi|puja|mandir|saree|kurta)\b/.test(t))
+    signals.push('indian');
+  // East Asian
+  if (/\b(anime|manga|sakura|samurai|kimono|kanji|zen|torii|matcha|hanami|origami)\b/.test(t))
+    signals.push('japanese');
+  if (/\b(k-pop|kpop|korean|hanbok|kimchi|seoul|hallyu)\b/.test(t))
+    signals.push('korean');
+  // Arabic / Middle Eastern
+  if (/\b(ramadan|eid|mosque|arabic|halal|souk|medina|hijab|abaya)\b/.test(t))
+    signals.push('arabic');
+  // Latin American
+  if (/\b(fiesta|quinceañera|salsa|reggaeton|carnaval|telenovela|mariachi)\b/.test(t))
+    signals.push('latin');
+  // African
+  if (/\b(afrobeat|jollof|dashiki|safari|ubuntu|kente|highlife)\b/.test(t))
+    signals.push('african');
+
+  return signals.join(' ');
+}
+
 function extractSignals(metadata: ThinkForgeMetadata): ExtractedSignals {
   const scenes = metadata.scenes || [];
 
@@ -126,6 +155,11 @@ function extractSignals(metadata: ThinkForgeMetadata): ExtractedSignals {
     title: (metadata.title || '').toLowerCase(),
     sceneCount: scenes.length,
     totalDurationSec: scenes.reduce((sum, s: any) => sum + (s.durationSeconds || 5), 0),
+    // Fix 29: Cultural context signal — detect region/language hints from content.
+    // Script text mentioning cultural keywords → boosts matching profiles.
+    culturalContext: detectCulturalContext(
+      scenes.map(s => s.narration || '').join(' ') + ' ' + (metadata.title || ''),
+    ),
   };
 }
 
