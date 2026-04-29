@@ -194,6 +194,36 @@ export async function searchAndDownloadSFX(
     const ext = found.url.includes('.wav') ? 'wav' : 'mp3';
     const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`, { customAssetId: assetId });
 
+    // Persist to media_assets so asset-resolver can find it later.
+    // Without this, SFX overlays reference assetIds that don't exist in MongoDB
+    // → "[AssetResolver] Asset NOT FOUND in media_assets: sfx_lib_*"
+    try {
+      const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+      const db = await getDatabase();
+      await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+        { assetId: uploadResult.assetId },
+        {
+          $setOnInsert: {
+            assetId: uploadResult.assetId,
+            userId,
+            type: 'audio',
+            filename: `${assetId}.${ext}`,
+            source: `freesound-${source}`,
+            cachedUrl: uploadResult.signedUrl,
+            gcsPath: uploadResult.gcsPath,
+            r2Key: uploadResult.r2Key,
+            duration: found.duration,
+            size: buffer.length,
+            uploadedAt: new Date(),
+          },
+        },
+        { upsert: true },
+      );
+    } catch (dbErr: unknown) {
+      const dbMsg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      console.warn(`[SFXLib] media_assets persist failed (non-fatal): ${dbMsg}`);
+    }
+
     return {
       audioUrl: uploadResult.signedUrl,
       gcsPath: uploadResult.gcsPath!,
