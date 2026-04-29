@@ -133,7 +133,7 @@ async function handler(request: NextRequest) {
           }),
           new Promise<string>((_, reject) => setTimeout(() => reject(new Error('LLM refinement timeout')), 30000)),
         ]);
-        console.log(`[VideoWorker] Scene ${sceneIndex}: prompt refined (${refinedPrompt.length} chars)`);
+        console.log(`[VideoWorker] Scene ${sceneIndex}: prompt refined (${refinedPrompt.length} chars): "${refinedPrompt.substring(0, 200)}"`);
       } catch (refineErr: any) {
         // Refinement failed — use the basic prompt. Still generates video, just less polished prompt.
         console.warn(`[VideoWorker] Scene ${sceneIndex}: refinement failed (${refineErr.message}), using basic prompt`);
@@ -431,7 +431,7 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
         console.log(`[VideoWorker] Quality ${qualityScore}/100 (${qualitySource}) for scene ${sceneIndex}${visionIssues.length > 0 ? ` — issues: ${visionIssues.join(', ')}` : ''}`);
 
         if (qualityScore < 40) {
-          console.warn(`[VideoWorker] LOW QUALITY (${qualityScore}/100) for scene ${sceneIndex}`);
+          console.warn(`[VideoWorker] LOW QUALITY (${qualityScore}/100) for scene ${sceneIndex}. Prompt sent: "${refinedPrompt?.substring(0, 150)}". Model: ${videoModel}`);
           await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
             { _id: jobId } as any,
             { $set: { qualityFlag: 'low', qualityShouldRegenerate: true } },
