@@ -15,6 +15,7 @@
  */
 
 import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { nanoid } from 'nanoid';
 
 // ─── Configuration ────────────────────────────────────────────────
@@ -157,6 +158,47 @@ export async function r2FileExists(r2Key: string): Promise<boolean> {
 }
 
 // ─── URL Helpers ──────────────────────────────────────────────────
+
+/**
+ * Generate a presigned PUT URL for direct client-side upload to R2.
+ * Used by Mode 2 "Edit My Video" when GCS is unavailable (Preview env).
+ * Returns the upload URL + assetId + public read URL (via CDN Worker).
+ * Client PUTs the file directly to this URL — no server proxy needed.
+ */
+export async function generateR2UploadUrl(
+  userId: string,
+  filename: string,
+  contentType: string,
+): Promise<{
+  uploadUrl: string;
+  assetId: string;
+  r2Key: string;
+  readUrl: string;
+  readUrlExpiresAt: Date;
+}> {
+  const client = getS3Client();
+  const assetId = `upload_${nanoid(12)}`;
+  const r2Key = assetId;
+
+  const command = new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: r2Key,
+    ContentType: contentType,
+    Metadata: {
+      userId,
+      filename,
+      uploadedAt: new Date().toISOString(),
+    },
+  });
+
+  const uploadUrl = await getSignedUrl(client, command, { expiresIn: 900 }); // 15 min
+  const readUrl = getR2PublicUrl(assetId);
+  const readUrlExpiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // R2 CDN URLs never expire
+
+  console.log(`[R2] Presigned upload URL for ${assetId} (${contentType}, user=${userId.slice(0, 12)})`);
+
+  return { uploadUrl, assetId, r2Key, readUrl, readUrlExpiresAt };
+}
 
 /**
  * Get the public CDN URL for an asset.
