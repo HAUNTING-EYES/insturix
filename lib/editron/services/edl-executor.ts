@@ -11,7 +11,7 @@
  */
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
-import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
+import { DEFAULT_TRANSITION_FRAMES, createTrueDissolve } from '@/lib/editron/data/transition-templates';
 import { projectService } from '@/lib/editron/services/project-service';
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
@@ -545,7 +545,6 @@ function applyTransition(
   // { opacity: 0 } for dissolve — the visual comes from clip opacity keyframes,
   // not an HTML overlay. The transition tile exists for timeline visualization only.
   if (transType === 'dissolve') {
-    const { createTrueDissolve } = require('@/lib/editron/data/transition-templates');
     const { outgoing, incoming } = createTrueDissolve(clipA, clipB, durationFrames);
     // Apply keyframe tracks back to the live overlays
     clipA.keyframeTracks = outgoing.keyframeTracks;
