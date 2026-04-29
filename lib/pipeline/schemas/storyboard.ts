@@ -254,6 +254,7 @@ export interface StoryboardScene {
 export interface VoiceoverConfig {
   voice: string;
   language: string;
+  contentType?: string;
   status: 'pending' | 'generating' | 'ready' | 'error';
 }
 

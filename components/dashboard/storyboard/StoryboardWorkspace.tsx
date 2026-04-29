@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useStoryboard } from "./hooks/useStoryboard";
+import { TTS_VOICES, TTS_PACING_OPTIONS } from "@/lib/pipeline/config/tts-config";
 
 interface StoryboardWorkspaceProps {
   storyboardId: string;
@@ -73,7 +74,16 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
 
   const [feedbackText, setFeedbackText] = useState("");
   const [showFinalizeDialog, setShowFinalizeDialog] = useState(false);
-  const [voiceoverVoice, setVoiceoverVoice] = useState("aura-asteria-en");
+  const [voiceoverVoice, setVoiceoverVoice] = useState("kokoro-heart");
+  const [voiceoverPacing, setVoiceoverPacing] = useState("narration");
+
+  // Sync settings when storyboard loads
+  useEffect(() => {
+    if (storyboard?.voiceoverConfig) {
+      if (storyboard.voiceoverConfig.voice) setVoiceoverVoice(storyboard.voiceoverConfig.voice);
+      if (storyboard.voiceoverConfig.contentType) setVoiceoverPacing(storyboard.voiceoverConfig.contentType);
+    }
+  }, [storyboard?.voiceoverConfig?.voice, storyboard?.voiceoverConfig?.contentType]);
   const [expandedSubShots, setExpandedSubShots] = useState<Set<number>>(new Set());
   const [collapsedScenes, setCollapsedScenes] = useState<Set<number>>(new Set());
 
@@ -138,16 +148,6 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
     });
   };
 
-  // Calculate total credits for all scenes
-  const totalCredits = scenes.reduce((sum: number, s: any) => sum + getSceneCredits(s), 0);
-  const totalVideoCredits = scenes.reduce((sum: number, s: any) => {
-    const assetRec = s.descriptor?.assetRecommendation;
-    if (assetRec === 'animated-still' || assetRec === 'stock' || assetRec === 'graphics-only') return sum;
-    const subs = getSubShots(s);
-    if (subs.length > 0 && !collapsedScenes.has(s.sceneIndex)) return sum + (subs.length * 3);
-    return sum + 3;
-  }, 0);
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
@@ -173,6 +173,16 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
   }
 
   const scenes = storyboard.scenes || [];
+
+  // Calculate total credits for all scenes
+  const totalCredits = scenes.reduce((sum: number, s: any) => sum + getSceneCredits(s), 0);
+  const totalVideoCredits = scenes.reduce((sum: number, s: any) => {
+    const assetRec = s.descriptor?.assetRecommendation;
+    if (assetRec === 'animated-still' || assetRec === 'stock' || assetRec === 'graphics-only') return sum;
+    const subs = getSubShots(s);
+    if (subs.length > 0 && !collapsedScenes.has(s.sceneIndex)) return sum + (subs.length * 3);
+    return sum + 3;
+  }, 0);
   const selectedScene = scenes.find((s: any) => s.sceneIndex === selectedSceneIndex);
   const approvedCount = scenes.filter((s: any) => s.status === "approved").length;
   const allApproved = approvedCount === scenes.length && scenes.length > 0;
@@ -246,7 +256,7 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
           <Button
             size="sm"
             variant="outline"
-            onClick={() => generateVoiceover(voiceoverVoice)}
+            onClick={() => generateVoiceover(voiceoverVoice, voiceoverPacing)}
             disabled={isVoiceoverGenerating || !allApproved}
             className="gap-2"
             title={!allApproved ? "Approve all scenes first" : ""}
@@ -693,32 +703,47 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
 
             {!hasVoiceover && (
               <div className="bg-muted/50 rounded-lg p-3 space-y-2">
-                <p className="text-sm font-medium">Generate voiceover first?</p>
-                <div className="flex items-center gap-2">
-                  <Select value={voiceoverVoice} onValueChange={setVoiceoverVoice}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="aura-asteria-en">Asteria (Female)</SelectItem>
-                      <SelectItem value="aura-luna-en">Luna (Female, warm)</SelectItem>
-                      <SelectItem value="aura-orion-en">Orion (Male)</SelectItem>
-                      <SelectItem value="aura-arcas-en">Arcas (Male, deep)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <Select value={voiceoverVoice} onValueChange={setVoiceoverVoice}>
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Select Voice" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TTS_VOICES.map(v => (
+                          <SelectItem key={v.id} value={v.id}>
+                            {v.name} ({v.gender}, {v.style})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select value={voiceoverPacing} onValueChange={setVoiceoverPacing}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Pacing" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TTS_PACING_OPTIONS.map(opt => (
+                          <SelectItem key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   <Button
                     size="sm"
-                    variant="outline"
-                    onClick={() => generateVoiceover(voiceoverVoice)}
+                    className="w-full gap-2"
+                    onClick={() => generateVoiceover(voiceoverVoice, voiceoverPacing)}
                     disabled={isVoiceoverGenerating}
-                    className="gap-1"
                   >
                     {isVoiceoverGenerating ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Mic className="h-4 w-4" />
                     )}
-                    Generate
+                    {hasVoiceover ? "Regenerate Voiceover" : "Generate Voiceover"}
                   </Button>
                 </div>
               </div>

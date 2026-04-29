@@ -121,7 +121,37 @@ export function buildMusicPrompt(
   // Prefer musicDescription (new, music-only), fall back to audioDescription (old, mixed)
   const musicDescriptions = scenes.map(s => s.musicDescription || s.audioDescription).filter(Boolean) as string[];
   const moods = [...new Set(scenes.map(s => s.mood).filter(Boolean))] as string[];
-  const hasFast = scenes.some(s => s.editDirections?.pacing === 'fast');
+  const pacingValues = scenes.map(s => s.editDirections?.pacing).filter(Boolean);
+  const isFast = pacingValues.some(p => p === 'fast' || p === 'beat-synced' || p === 'building');
+  const isSlow = pacingValues.some(p => p === 'slow');
+
+  // Determine BPM tier (0-6) based on pacing and mood
+  const bpmTiers = [
+    { range: '40-60 BPM', prompt: 'meditative, somber, ambient, drone, memorials, meditation' },
+    { range: '60-80 BPM', prompt: 'calm, nostalgic, lo-fi, brand story, testimonial' },
+    { range: '80-100 BPM', prompt: 'moderate, conversational, pop ballad, jazz, corporate, tutorial' },
+    { range: '100-120 BPM', prompt: 'upbeat, motivational, pop, indie, product launch, SaaS' },
+    { range: '120-140 BPM', prompt: 'energetic, driving, EDM, house, hype reel, fitness' },
+    { range: '140-160 BPM', prompt: 'intense, aggressive, D&B, dubstep, action, gaming' },
+    { range: '160+ BPM', prompt: 'extreme, chaotic, hardcore, extreme sports, comedy fast-forward' },
+  ];
+
+  let tierIndex = 2; // Default: 80-100 BPM
+  if (isFast) {
+    tierIndex = 4; // 120-140
+    if (moods.includes('energetic')) tierIndex = 5; // 140-160
+    if (moods.includes('energetic') && scenes.length > 5) tierIndex = 6; // 160+
+  } else if (isSlow) {
+    tierIndex = 1; // 60-80
+    if (moods.includes('calm') || moods.includes('mysterious')) tierIndex = 0; // 40-60
+  } else {
+    // Medium pacing
+    if (moods.includes('energetic')) tierIndex = 4;
+    else if (moods.includes('inspirational') || moods.includes('playful')) tierIndex = 3;
+    else if (moods.includes('calm')) tierIndex = 1;
+  }
+
+  const selectedBpm = bpmTiers[tierIndex];
   const hasVO = scenes.some(s => (s.narration?.length || 0) > 0);
   const duration = totalDurationSeconds || scenes.length * 5;
 
@@ -141,7 +171,7 @@ export function buildMusicPrompt(
     moods.length > 0 ? `${moods.join(' and ')} mood` : 'cinematic ambient',
     `${duration} seconds`,
     `energy: ${scenes.length > 4 ? 'builds to peak at 70% then resolves' : 'steady'}`,
-    hasFast ? 'tempo 120-140 BPM, driving rhythm' : 'tempo 80-100 BPM, relaxed',
+    `tempo ${selectedBpm.range}, ${selectedBpm.prompt}`,
     'instrumental only, no vocals, no lyrics, no humming',
     hasVO ? 'leave mid-range clear for speech' : 'full-range mix OK',
     'clean production, gentle fade-out in final 3 seconds',

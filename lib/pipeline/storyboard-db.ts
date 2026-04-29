@@ -135,6 +135,7 @@ export async function updateStoryboardVoiceover(
   voiceoverConfig: {
     voice?: string;
     language?: string;
+    contentType?: string;
     status?: string;
   },
 ): Promise<void> {
