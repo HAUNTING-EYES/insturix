@@ -163,9 +163,20 @@ export function buildStoryboardPrompt(
   }
 
   // ── SLOT 3: COMPOSITION ──────────────────────────────────────────────────
-  // Shot type and framing intent — enforces professional framing without
-  // consuming too many tokens.
-  parts.push('rule of thirds composition, professional framing');
+  // Fix 27: Cultural visual grammar — composition varies by art style/region.
+  // Bollywood → center framing, vibrant. Nordic → negative space, muted.
+  // Japanese → asymmetry, ma (間). Default → rule of thirds.
+  const artKey = styleGuide?.artStyle?.toLowerCase() || '';
+  const culturalComposition: Record<string, string> = {
+    'bollywood': 'center-framed composition, vibrant saturated colors, symmetrical staging',
+    'anime': 'asymmetric composition, dynamic diagonals, dramatic perspective, manga panel energy',
+    'ukiyo-e': 'asymmetric balance, deliberate negative space (間/ma), flat perspective layering',
+    'nordic': 'expansive negative space, muted desaturated tones, isolated subjects, minimalist framing',
+    'wes-anderson': 'perfect bilateral symmetry, centered subjects, pastel palette, planimetric framing',
+    'arabic-calligraphy': 'ornate geometric framing, intricate border patterns, center-weighted composition',
+  };
+  const matchedComposition = Object.entries(culturalComposition).find(([key]) => artKey.includes(key));
+  parts.push(matchedComposition ? matchedComposition[1] : 'rule of thirds composition, professional framing');
 
   // ── SLOT 4: CAMERA BEHAVIOR ──────────────────────────────────────────────
   // Reserved slot — intentionally empty for still image prompts.
