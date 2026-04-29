@@ -994,12 +994,20 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
 - S-002: AI-generated video: NEVER below 0.5x speed (artifacts become obvious).\n`;
 
   // ─── Part 9: SFX Pairing Rules ────────────────────────────────
-  prompt += `\n## SFX PAIRING RULES:
-- A-002: Zoom-punch and flash transitions MUST have impact-hit SFX (bass thud)
-- A-010: Before major reveals, add a riser SFX (1.5-2.0s ascending tone)
-- A-020: Graphic entrances get a subtle pop/notification SFX
-- A-021: Stat-counter completion gets a click SFX when landing on final number
-- A-032: Dramatic pause in voiceover → silence-beat (drop ALL audio for 0.5-0.8s)\n`;
+  prompt += `\n## SFX PAIRING TABLE (transition type → sound):
+| Transition | SFX | Volume | Rule |
+|------------|-----|--------|------|
+| dissolve, wipe-*, iris-wipe, blur, slide-* | whoosh (subtle swoosh) | -10dB | A-001 |
+| zoom-punch, flash, glitch | impact (bass thud) | -5dB | A-002 |
+| whip-pan | whoosh (fast) | -8dB | A-001 |
+| dip-to-black, dip-to-white, soft-cut | SILENCE (intentional) | — | — |
+| film-burn | NONE (crackle IS the transition) | — | — |
+
+OTHER SFX RULES:
+- A-010: Before major reveals → riser SFX (1.5-2.0s ascending tone)
+- A-020: Graphic entrance → subtle pop/notification
+- A-021: Stat-counter landing → click SFX
+- A-032: Dramatic VO pause → silence-beat (drop ALL audio 0.5-0.8s)\n`;
 
   prompt += `\n## SCENES (with ALL available context):\n\n`;
 
