@@ -41,6 +41,18 @@ export const TTS_SPEED_MAP: Record<string, number> = {
   social: 190 / 150,
 };
 
+/** Punctuation pause mapping (in seconds) */
+export const TTS_PAUSE_CONFIG = {
+  comma: { min: 0.2, max: 0.3 },
+  period: { min: 0.4, max: 0.6 },
+  emDash: { min: 0.3, max: 0.5 },
+  ellipsis: { min: 0.5, max: 0.8 },
+  questionMark: { min: 0.4, max: 0.6 },
+  exclamation: { min: 0.3, max: 0.5 },
+  paragraphBreak: { min: 0.8, max: 1.2 },
+  colon: { min: 0.3, max: 0.4 },
+};
+
 export const TTS_PACING_OPTIONS = [
   { id: 'dramatic', label: 'Dramatic (Slow)', wpm: 110 },
   { id: 'narration', label: 'Narration (Normal)', wpm: 140 },
