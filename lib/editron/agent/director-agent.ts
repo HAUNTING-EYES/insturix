@@ -102,6 +102,9 @@ export async function executeDirectorPlan(
     // Previously declared inside the { } block below → caused "storyboardScenes is not defined"
     // which silently killed captions, filters, transitions, and quality review.
     let storyboardScenes: any[] = [];
+    // Fix 24: Hoist per-asset analysis data to function scope so continuity scoring
+    // can use real 5-Track visual data (dominant colors, energy) instead of empty arrays.
+    const perAssetAnalysis = new Map<string, any>();
 
     const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
@@ -267,7 +270,10 @@ export async function executeDirectorPlan(
           // the creative intent translator and the EDL executor.
           const analysesMap = new Map<string, any>();
           for (const a of analyses) {
-            if (a.assetId) analysesMap.set(a.assetId, a);
+            if (a.assetId) {
+              analysesMap.set(a.assetId, a);
+              perAssetAnalysis.set(a.assetId, a); // Fix 24: hoist to function scope
+            }
           }
 
           // TRY: Creative Intent Intelligence (3-layer architecture)
@@ -507,13 +513,28 @@ export async function executeDirectorPlan(
     if (videoOverlaysForContinuity.length > 1 && storyboardScenes.length > 0) {
       try {
         const { analyzeAllScenePairs } = await import('@/lib/editron/services/continuity-service');
+        // Fix 24: Wire 5-Track visual data into continuity scoring.
+        // OLD: colorPalette was always [] (empty), mood from text-only storyboard.
+        // NEW: extract dominantColors + energyLevel from actual 5-Track keyframe analysis.
         const scenesForContinuity = videoOverlaysForContinuity.map((vo: any, idx: number) => {
           const sbScene = storyboardScenes.find((s: any) => s.sceneIndex === (vo.metadata?.sceneIndex ?? idx));
+          // Look up 5-Track analysis for this video's asset
+          // perAssetAnalysis is function-scope Map populated during 5-Track step
+          const assetAnalysis = vo.assetId ? perAssetAnalysis.get(vo.assetId) : null;
+          const kfAnalyses = assetAnalysis?.keyframeAnalyses || [];
+          // Extract actual dominant colors from keyframes (flattened + deduplicated)
+          const dominantColors = [...new Set(
+            kfAnalyses.flatMap((kf: any) => kf.dominantColors || []).filter(Boolean)
+          )] as string[];
+          // Use real energy from analysis if available, fall back to storyboard mood
+          const analysisEnergy = kfAnalyses.length > 0
+            ? kfAnalyses.reduce((sum: number, kf: any) => sum + (kf.energyLevel ?? 0.5), 0) / kfAnalyses.length
+            : null;
           return {
             sceneIndex: vo.metadata?.sceneIndex ?? idx,
-            visualDescription: sbScene?.visualDescription || '',
+            visualDescription: sbScene?.visualDescription || kfAnalyses.map((kf: any) => kf.description || '').join(' '),
             mood: sbScene?.mood || 'neutral',
-            colorPalette: [] as string[],
+            colorPalette: dominantColors,
             durationSeconds: (vo.durationInFrames || 150) / 30,
           };
         });
