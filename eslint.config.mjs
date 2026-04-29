@@ -15,6 +15,7 @@ const eslintConfig = [
       "app/api/services/thinkforge/**",
       "app/dashboard/thinkforge/**",
       "components/dashboard/ThinkForge/**",
+      "lib/thinkforge/**",
       "lib/middleware/services/thinkforge.ts",
       "./lib/utils/thinkforgeSession.ts",
       "./lib/utils/sessionMetadata.ts",

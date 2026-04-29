@@ -14,11 +14,12 @@ export function groupWordsIntoCaptions(
     wordsPerGroup: number;
     groupByPunctuation?: boolean;
     maxGroupDuration?: number; // max ms per group, optional
+    maxCharsPerLine?: number; // Fix 32: cap characters per caption line (default 42)
   }
 ): Caption[] {
   if (!words || words.length === 0) return [];
 
-  const { wordsPerGroup, groupByPunctuation = false, maxGroupDuration } = config;
+  const { wordsPerGroup, groupByPunctuation = false, maxGroupDuration, maxCharsPerLine = 42 } = config;
   const captions: Caption[] = [];
   
   let currentGroup: CaptionWord[] = [];
@@ -48,9 +49,14 @@ export function groupWordsIntoCaptions(
     const word = words[i];
     
     // Check if we should start a new group
-    const shouldBreak = 
+    const currentText = currentGroup.map(w => w.word).join(' ');
+    const wouldExceedChars = maxCharsPerLine > 0 && currentGroup.length > 0
+      && (currentText.length + 1 + word.word.length) > maxCharsPerLine;
+    const shouldBreak =
       // Reached word limit
       currentGroup.length >= wordsPerGroup ||
+      // Fix 32: character-per-line limit (default 42 chars)
+      wouldExceedChars ||
       // Break on punctuation if enabled
       (groupByPunctuation && currentGroup.length > 0 && /[.!?,;:]$/.test(currentGroup[currentGroup.length - 1].word)) ||
       // Max duration exceeded
