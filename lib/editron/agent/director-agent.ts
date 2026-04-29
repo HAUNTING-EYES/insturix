@@ -1404,16 +1404,36 @@ async function invokeAITool(
       }
       console.log(`[Director] add_captions: ${videoOverlays.length} videos, style=${captionStyle}`);
 
-      // Caption each video sequentially — tool.invoke handles transcription + caption creation
+      // Caption each video sequentially — tool.invoke handles transcription + caption creation.
+      // Track which voiceover assetIds already produced captions → prevent duplicates.
+      // Without this, 3 videos overlapping the same VO → 3 identical caption blocks.
       let captionCount = 0;
+      const captionedVoiceoverIds = new Set<string>();
       for (const vo of videoOverlays) {
         try {
+          // Dedup: check if this video's overlapping voiceover was already captioned
+          const voFrom = vo.from;
+          const voEnd = voFrom + (vo.durationInFrames || 0);
+          const overlappingVO = overlays.find((o: any) => {
+            if (o.type !== 'sound') return false;
+            const isVO = o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_');
+            if (!isVO) return false;
+            const oEnd = o.from + (o.durationInFrames || 0);
+            return !(oEnd <= voFrom || o.from >= voEnd);
+          });
+          if (overlappingVO?.assetId && captionedVoiceoverIds.has(overlappingVO.assetId)) {
+            console.log(`[Director] add_captions: video ${vo.id} skipped — voiceover ${overlappingVO.assetId} already captioned`);
+            continue;
+          }
+
           const captionParams = { videoOverlayId: vo.id, style: captionStyle, position: 'bottom', overwrite: true };
           console.log(`[Director] add_captions: video ${vo.id} (${captionCount + 1}/${videoOverlays.length}), type=${vo.type}, assetId=${vo.assetId}, from=${vo.from}`);
           const resultStr = await tool.invoke(captionParams);
           const result = JSON.parse(resultStr);
           if (result.status === 'success') {
             captionCount++;
+            // Mark VO as captioned → prevent duplicate captions from other videos overlapping same VO
+            if (overlappingVO?.assetId) captionedVoiceoverIds.add(overlappingVO.assetId);
             console.log(`[Director] add_captions: video ${vo.id} SUCCESS — ${result.captionCount || 0} segments, row=${result.row || '?'}`);
           } else if (result.status === 'skipped') {
             // Expected: AI-gen video with no voiceover in range — not an error
