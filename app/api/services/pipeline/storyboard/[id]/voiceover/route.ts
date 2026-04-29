@@ -29,12 +29,24 @@ export async function POST(
 
     const { id } = await params;
     const body = await req.json();
-    const { voice, language } = body;
+    const { voice, language, contentType: bodyContentType } = body;
 
     const storyboard = await getStoryboard(id, userId);
     if (!storyboard) {
       return NextResponse.json({ error: 'Storyboard not found' }, { status: 404 });
     }
+
+    // Determine contentType: body > global pacing > default
+    let contentType = bodyContentType;
+    if (!contentType && storyboard.globalEditDirections?.pacing) {
+      const pacing = storyboard.globalEditDirections.pacing.toLowerCase();
+      if (pacing.includes('fast') || pacing.includes('energy')) contentType = 'energetic';
+      else if (pacing.includes('slow') || pacing.includes('building') || pacing.includes('dramatic')) contentType = 'dramatic';
+      else if (pacing.includes('social')) contentType = 'social';
+      else if (pacing.includes('conversation')) contentType = 'conversational';
+    }
+    // Default to 'narration' if still not set
+    if (!contentType) contentType = 'narration';
 
     const scenesWithNarration = storyboard.scenes.filter(
       (s) => s.descriptor.narration?.trim(),
@@ -58,10 +70,11 @@ export async function POST(
     await updateStoryboardVoiceover(id, {
       voice: voice || 'aura-asteria-en',
       language: language || 'en',
+      contentType,
       status: 'generating',
     });
 
-    console.log(`[Voiceover] Generating for ${scenesWithNarration.length} scenes (parallel, batch=4)`);
+    console.log(`[Voiceover] Generating for ${scenesWithNarration.length} scenes (parallel, batch=4, type=${contentType})`);
 
     // ─── Parallel TTS generation (batches of 4) ─────────────
     // F5.4: Reduced from 8 to 4 to avoid overwhelming TTS provider with 429s
@@ -78,7 +91,7 @@ export async function POST(
           const result = await generateVoiceover(
             scene.descriptor.narration,
             userId,
-            { voice, language },
+            { voice, language, contentType },
           );
 
           await updateStoryboardScene(id, scene.sceneIndex, {

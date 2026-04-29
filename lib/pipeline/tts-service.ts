@@ -8,39 +8,9 @@
 import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
-
-// ─── Voice Catalog ──────────────────────────────────────────────
-
-export interface TTSVoice {
-  id: string;
-  name: string;
-  gender: 'male' | 'female';
-  style: string;
-  previewText: string;
-  provider: 'kokoro' | 'deepgram';
-  /** Kokoro voice ID (e.g., 'af_heart') or Deepgram model (e.g., 'aura-asteria-en') */
-  providerVoiceId: string;
-}
-
-/** Available voices — Kokoro first (more human), Deepgram as extras */
-export const TTS_VOICES: TTSVoice[] = [
-  // Kokoro voices (primary — more natural/human-sounding)
-  { id: 'kokoro-heart', name: 'Heart', gender: 'female', style: 'Warm, natural', previewText: 'Welcome to your story. Every scene tells something unique.', provider: 'kokoro', providerVoiceId: 'af_heart' },
-  { id: 'kokoro-bella', name: 'Bella', gender: 'female', style: 'Confident, clear', previewText: 'This is your vision, brought to life through words and motion.', provider: 'kokoro', providerVoiceId: 'af_bella' },
-  { id: 'kokoro-nova', name: 'Nova', gender: 'female', style: 'Bright, professional', previewText: 'Let me take you on a journey through this narrative.', provider: 'kokoro', providerVoiceId: 'af_nova' },
-  { id: 'kokoro-sarah', name: 'Sarah', gender: 'female', style: 'Calm, soothing', previewText: 'In every frame, there is a story waiting to be told.', provider: 'kokoro', providerVoiceId: 'af_sarah' },
-  { id: 'kokoro-jessica', name: 'Jessica', gender: 'female', style: 'Energetic, friendly', previewText: 'Hey there! Let me walk you through what we have here.', provider: 'kokoro', providerVoiceId: 'af_jessica' },
-  { id: 'kokoro-adam', name: 'Adam', gender: 'male', style: 'Deep, narrative', previewText: 'From the first frame to the last, this is your story.', provider: 'kokoro', providerVoiceId: 'am_adam' },
-  { id: 'kokoro-michael', name: 'Michael', gender: 'male', style: 'Authoritative, bold', previewText: 'Bold ideas deserve bold presentation. Let us begin.', provider: 'kokoro', providerVoiceId: 'am_michael' },
-  { id: 'kokoro-eric', name: 'Eric', gender: 'male', style: 'Warm, conversational', previewText: 'Every second counts. Let us make each moment matter.', provider: 'kokoro', providerVoiceId: 'am_eric' },
-  { id: 'kokoro-liam', name: 'Liam', gender: 'male', style: 'Clear, polished', previewText: 'Precision and clarity define the quality of narration.', provider: 'kokoro', providerVoiceId: 'am_liam' },
-  { id: 'kokoro-fenrir', name: 'Fenrir', gender: 'male', style: 'Rich, dramatic', previewText: 'In the realm of visual storytelling, every detail matters.', provider: 'kokoro', providerVoiceId: 'am_fenrir' },
-
-  // Deepgram voices removed from UI — robotic compared to Kokoro.
-  // Deepgram still works as internal fallback if Kokoro fails (provider logic in generateVoiceover).
-];
-
-export type TTSVoiceId = typeof TTS_VOICES[number]['id'];
+import { TTS_VOICES, TTS_SPEED_MAP } from './config/tts-config';
+export type { TTSVoice } from './config/tts-config';
+export { TTS_VOICES };
 
 // ─── Core Generation ────────────────────────────────────────────
 
@@ -62,6 +32,7 @@ export async function generateVoiceover(
   options: {
     voice?: string;
     language?: string;
+    contentType?: string; // New: content type for pacing
   } = {},
 ): Promise<TTSResult> {
   const voiceId = options.voice || 'kokoro-heart';
@@ -70,9 +41,12 @@ export async function generateVoiceover(
 
   console.log(`[TTS] Generating: provider=${provider}, voice=${voiceId}, text="${text.substring(0, 80)}..." (${text.length} chars)`);
 
+  // Determine TTS speed based on content type (default 1.0)
+  const contentType = options.contentType?.toLowerCase();
+  const ttsSpeed = contentType && TTS_SPEED_MAP[contentType] ? TTS_SPEED_MAP[contentType] : 1.0;
   if (provider === 'kokoro') {
     try {
-      return await generateWithKokoro(text, userId, voiceConfig?.providerVoiceId || 'af_heart');
+      return await generateWithKokoro(text, userId, voiceConfig?.providerVoiceId || 'af_heart', ttsSpeed);
     } catch (err: any) {
       console.warn(`[TTS] Kokoro failed (${err.message}), falling back to Deepgram`);
       return await generateWithDeepgram(text, userId, 'aura-asteria-en');
