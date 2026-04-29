@@ -42,8 +42,9 @@ export async function generateBackgroundMusic(
 
   const assetId = `bgm_${nanoid(12)}`;
 
-  // Build a music-specific prompt (instrumental, no vocals for BGM)
-  const musicPrompt = `${prompt}, instrumental only, no vocals, background music for video`.substring(0, 300);
+  // Prompt already built by buildMusicPrompt w/ structure+key+tempo tags.
+  // 500 chars to accommodate song structure arc (was 300 → truncated structure).
+  const musicPrompt = prompt.substring(0, 500);
 
   console.log(`[BGM] Generating with MiniMax Music v2: prompt="${musicPrompt.substring(0, 100)}", targetDuration=${durationSec}s`);
 
@@ -181,6 +182,15 @@ export function buildMusicPrompt(
     moody: 'Pentatonic Minor (Moody, powerful)',
     powerful: 'Pentatonic Minor (Moody, powerful)',
     intense: 'Pentatonic Minor (Moody, powerful)',
+    // Fix 28: Non-Western music systems
+    devotional: 'Raga Bhairavi (Indian devotional, morning raga, meditative)',
+    spiritual: 'Raga Yaman (Indian evening raga, serene, ascending)',
+    festive: 'Raga Bilawal (Indian festive, bright, celebratory)',
+    arabic: 'Maqam Hijaz (Arabic/Middle Eastern, ornamental, evocative)',
+    middleeastern: 'Maqam Bayati (Arabic warm, conversational)',
+    african: 'Polyrhythmic pattern (African cross-rhythm, layered percussion)',
+    latin: 'Clave-based rhythm (Latin, syncopated, danceable)',
+    celtic: 'Mixolydian/Dorian (Celtic, modal folk, drone-based)',
   };
   const mappedMode = moods.map(m => keyModeMap[m.toLowerCase()]).find(Boolean);
   if (!mappedMode && moods.length > 0) {
@@ -188,34 +198,46 @@ export function buildMusicPrompt(
   }
   const selectedKeyMode = mappedMode || 'Major';
 
-  // If ThinkForge provided detailed per-scene music direction, use it as energy arc
+  // Combined structure: percentage timing (adaptive to video length) + bar descriptions (musical intent).
+  // Merged from our Fix 19 (percentages) + Prateek's commit 99572355 (bar descriptions).
+  const structure = scenes.length > 4
+    ? [
+        'INTRO (0-10%, 2-4 bars): sparse, sets mood, matches opening',
+        'BUILD (10-40%, 4-8 bars): layers add, tension increases',
+        'PEAK (40-65%, 2-4 bars): full impact climax',
+        'SUSTAIN (65-85%): energy holds',
+        'RESOLVE (85-100%, 2-4 bars): settles, fadeout',
+      ].join(' | ')
+    : scenes.length > 2
+      ? [
+          'INTRO (0-15%): sparse, sets mood',
+          'BUILD (15-50%): layers add',
+          'PEAK (50-75%): climax',
+          'RESOLVE (75-100%): settles, fadeout',
+        ].join(' | ')
+      : 'ambient bed, steady energy, gentle fadeout final 3s';
+
+  // If ThinkForge provided per-scene music direction → use as energy arc
   if (musicDescriptions.length > 0) {
     return [
+      `structure: ${structure}`,
       `Per-scene energy arc: ${musicDescriptions.join(' → ')}`,
       `${duration} seconds`,
       `key/mode: ${selectedKeyMode}`,
-      'instrumental only, no vocals, no lyrics, no humming',
+      'instrumental only, no vocals, background music for video',
       hasVO ? 'leave mid-range clear for speech' : 'full-range mix OK',
       'clean production, gentle fade-out in final 3 seconds',
     ].join(', ');
   }
 
-  // Fix 19: Song structure — intro/build/peak/sustain/resolve percentages.
-  // Adapts based on video length and number of scenes.
-  const structure = scenes.length > 4
-    ? `structure: intro (0-10%), build (10-40%), peak (40-65%), sustain (65-85%), resolve+fadeout (85-100%)`
-    : scenes.length > 2
-      ? `structure: intro (0-15%), build (15-50%), peak (50-75%), resolve+fadeout (75-100%)`
-      : `structure: ambient bed, steady energy, gentle fadeout in final 3s`;
-
-  // Fallback: infer from moods and pacing
+  // Fallback: infer from moods + pacing
   return [
     moods.length > 0 ? `${moods.join(' and ')} mood` : 'cinematic ambient',
+    `structure: ${structure}`,
     `${duration} seconds`,
     `key/mode: ${selectedKeyMode}`,
-    structure,
     `tempo ${selectedBpm.range}, ${selectedBpm.prompt}`,
-    'instrumental only, no vocals, no lyrics, no humming',
+    'instrumental only, no vocals, background music for video',
     hasVO ? 'leave mid-range clear for speech' : 'full-range mix OK',
     'clean production',
   ].join(', ');
