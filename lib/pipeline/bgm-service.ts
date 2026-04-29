@@ -155,11 +155,41 @@ export function buildMusicPrompt(
   const hasVO = scenes.some(s => (s.narration?.length || 0) > 0);
   const duration = totalDurationSeconds || scenes.length * 5;
 
+  // Map moods to specific musical Key & Mode
+  const keyModeMap: Record<string, string> = {
+    happy: 'Major (Happy, triumphant)',
+    triumphant: 'Major (Happy, triumphant)',
+    inspirational: 'Major (Happy, triumphant)',
+    playful: 'Major (Happy, triumphant)',
+    energetic: 'Major (Happy, triumphant)',
+    sad: 'Minor (Sad, dramatic)',
+    dramatic: 'Minor (Sad, dramatic)',
+    somber: 'Minor (Sad, dramatic)',
+    tense: 'Minor (Sad, dramatic)',
+    sophisticated: 'Dorian (Sophisticated, jazzy)',
+    jazzy: 'Dorian (Sophisticated, jazzy)',
+    bluesy: 'Mixolydian (Bluesy, warm)',
+    warm: 'Mixolydian (Bluesy, warm)',
+    dreamy: 'Lydian (Dreamy, ethereal)',
+    ethereal: 'Lydian (Dreamy, ethereal)',
+    mysterious: 'Lydian (Dreamy, ethereal)',
+    simple: 'Pentatonic Major (Simple, universal, folk)',
+    universal: 'Pentatonic Major (Simple, universal, folk)',
+    folk: 'Pentatonic Major (Simple, universal, folk)',
+    calm: 'Pentatonic Major (Simple, universal, folk)',
+    nostalgic: 'Pentatonic Major (Simple, universal, folk)',
+    moody: 'Pentatonic Minor (Moody, powerful)',
+    powerful: 'Pentatonic Minor (Moody, powerful)',
+    intense: 'Pentatonic Minor (Moody, powerful)',
+  };
+  const selectedKeyMode = moods.map(m => keyModeMap[m.toLowerCase()]).find(Boolean) || 'Major';
+
   // If ThinkForge provided detailed per-scene music direction, use it as energy arc
   if (musicDescriptions.length > 0) {
     return [
       `Per-scene energy arc: ${musicDescriptions.join(' → ')}`,
       `${duration} seconds`,
+      `key/mode: ${selectedKeyMode}`,
       'instrumental only, no vocals, no lyrics, no humming',
       hasVO ? 'leave mid-range clear for speech' : 'full-range mix OK',
       'clean production, gentle fade-out in final 3 seconds',
@@ -170,6 +200,7 @@ export function buildMusicPrompt(
   return [
     moods.length > 0 ? `${moods.join(' and ')} mood` : 'cinematic ambient',
     `${duration} seconds`,
+    `key/mode: ${selectedKeyMode}`,
     `energy: ${scenes.length > 4 ? 'builds to peak at 70% then resolves' : 'steady'}`,
     `tempo ${selectedBpm.range}, ${selectedBpm.prompt}`,
     'instrumental only, no vocals, no lyrics, no humming',
