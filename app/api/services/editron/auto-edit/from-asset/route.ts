@@ -30,6 +30,12 @@ interface FromAssetRequest {
   assetId: string;
   title?: string;
   aspectRatio?: string;
+  // Item 2: Multi-path entry — all optional, each creates a different flow
+  script?: string;           // User-provided narration/script text → used as scene narration
+  referenceAssetId?: string; // Reference video → extract EditDNA (style transfer)
+  imageAssetIds?: string[];  // Reference images → IP-adapter consistency
+  userIntent?: string;       // "gym promo for Instagram" → guides content type + platform detection
+  platform?: string;         // Explicit platform override (youtube/instagram/tiktok/linkedin)
 }
 
 export async function POST(request: NextRequest) {
@@ -41,7 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: FromAssetRequest = await request.json();
-    const { assetId, title, aspectRatio = '16:9' } = body;
+    const { assetId, title, aspectRatio = '16:9', script, referenceAssetId, imageAssetIds, userIntent, platform } = body;
 
     if (!assetId) {
       return NextResponse.json({ success: false, error: 'assetId is required' }, { status: 400 });
@@ -116,7 +122,7 @@ export async function POST(request: NextRequest) {
     try {
       const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
       console.log(`[auto-edit/from-asset] Analyzing video for scene understanding...`);
-      syntheticStoryboard = await analyzeVideo(videoUrl, durationSec, title);
+      syntheticStoryboard = await analyzeVideo(videoUrl, durationSec, userIntent || title);
       if (syntheticStoryboard) {
         console.log(`[auto-edit/from-asset] SyntheticStoryboard: ${syntheticStoryboard.scenes.length} scenes, type=${syntheticStoryboard.contentType}`);
       }
@@ -125,7 +131,43 @@ export async function POST(request: NextRequest) {
       console.warn(`[auto-edit/from-asset] Video analysis failed (Director runs without scene context): ${msg}`);
     }
 
-    // 7. Store project metadata + SyntheticStoryboard
+    // 6b. Multi-path overrides (Item 2)
+    // Script provided → override narration in SyntheticStoryboard scenes
+    if (script && syntheticStoryboard?.scenes?.length) {
+      const sentences = script.split(/[.!?]+/).filter((s: string) => s.trim().length > 0);
+      for (let i = 0; i < syntheticStoryboard.scenes.length; i++) {
+        if (sentences[i]) {
+          syntheticStoryboard.scenes[i].descriptor.narration = sentences[i].trim();
+        }
+      }
+      console.log(`[auto-edit/from-asset] Script applied: ${sentences.length} sentences → ${syntheticStoryboard.scenes.length} scenes`);
+    }
+
+    // Platform override → explicit platform signal for profile detection
+    if (platform && syntheticStoryboard) {
+      syntheticStoryboard.platform = platform;
+    }
+
+    // Reference video → extract EditDNA for style transfer (stored on project, used by Director brief)
+    let editDNA: any = null;
+    if (referenceAssetId) {
+      try {
+        const refAsset = await assetResolver.getAsset(referenceAssetId, userId);
+        if (refAsset) {
+          const refUrl = await assetResolver.resolveAssetUrl(referenceAssetId, userId);
+          if (refUrl) {
+            const { extractEditDNA } = await import('@/lib/editron/services/style-transfer-service');
+            editDNA = await extractEditDNA({ videoUrl: refUrl, userId, projectId });
+            console.log(`[auto-edit/from-asset] EditDNA extracted from reference: pacing=${editDNA?.pacing?.overall}, transitions=${editDNA?.transitions?.dominant}`);
+          }
+        }
+      } catch (refErr: unknown) {
+        const msg = refErr instanceof Error ? refErr.message : String(refErr);
+        console.warn(`[auto-edit/from-asset] Reference style extraction failed: ${msg}`);
+      }
+    }
+
+    // 7. Store project metadata + SyntheticStoryboard + EditDNA
     await db.collection('projects').updateOne(
       { projectId },
       {
@@ -133,6 +175,9 @@ export async function POST(request: NextRequest) {
           autoEditMode: 'asset',
           sourceAssetId: assetId,
           ...(syntheticStoryboard && { syntheticStoryboard }),
+          ...(referenceAssetId && { referenceAssetId }),
+          ...(editDNA && { referenceEditDNA: editDNA }),
+          ...(imageAssetIds?.length && { referenceImageAssetIds: imageAssetIds }),
           updatedAt: new Date(),
         },
       },
@@ -162,13 +207,27 @@ export async function POST(request: NextRequest) {
       console.warn(`[auto-edit/from-asset] Profile detection failed, using default ${profileId}: ${msg}`);
     }
 
-    // 8. Run Director Agent
+    // 9. Build Director brief — EditDNA overrides if reference provided
+    let brief: any = undefined;
+    if (editDNA) {
+      brief = {
+        overrides: {
+          ...(editDNA.pacing?.overall && { pacing: editDNA.pacing.overall }),
+          ...(editDNA.cutRhythm?.avgCutsPerMinute && { cutsPerMinute: editDNA.cutRhythm.avgCutsPerMinute }),
+          ...(editDNA.transitions?.dominant && { defaultTransition: editDNA.transitions.dominant }),
+          ...(editDNA.graphicsDensity && { graphicsDensity: editDNA.graphicsDensity }),
+        },
+      };
+      console.log(`[auto-edit/from-asset] EditDNA brief overrides applied: ${JSON.stringify(brief.overrides)}`);
+    }
+
+    // 10. Run Director Agent
     const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
     const directorResult = await executeDirectorPlan(
       projectId,
       userId,
       profileId,
-      undefined, // no brief overrides for V1
+      brief,
       (step, total, desc) => {
         console.log(`[auto-edit/from-asset] Director ${step}/${total}: ${desc}`);
       },
