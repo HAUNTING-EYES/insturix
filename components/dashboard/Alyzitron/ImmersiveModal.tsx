@@ -18,15 +18,15 @@ type Source =
   | { type: "none" }
   | { type: "file"; file: File; duration: number }
   | {
-      type: "link";
-      url: string;
-      preview?: {
-        title: string;
-        thumbnail: string;
-        videoId: string;
-        duration: number;
-      };
+    type: "link";
+    url: string;
+    preview?: {
+      title: string;
+      thumbnail: string;
+      videoId: string;
+      duration: number;
     };
+  };
 
 interface ImmersiveModalProps {
   open: boolean;
@@ -831,20 +831,20 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           onOpenChange(newOpen);
         }}
       >
-        <DialogContent className="max-w-4xl w-[94vw] max-h-[88vh] p-0 rounded-2xl bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/70 shadow-[0_14px_60px_-20px_rgba(0,0,0,0.7)] ring-1 ring-white/5 overflow-hidden flex flex-col">
+        <DialogContent className="max-w-4xl w-[94vw] max-h-[88vh] p-0 rounded-2xl bg-[#0F0F0E] border border-[#282724] shadow-[0_14px_60px_-20px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col">
           <div className="relative flex min-h-[360px] max-h-[88vh] flex-col overflow-hidden">
             {/* Header */}
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, ease: "easeOut" }}
-              className="px-6 pt-5 pb-4 flex items-start justify-between shrink-0 border-b border-zinc-800/60 bg-gradient-to-b from-zinc-900/80 to-zinc-900/50 rounded-t-2xl"
+              className="px-6 pt-5 pb-4 flex items-start justify-between shrink-0 border-b border-[#1C1B19] bg-[#0F0F0E] rounded-t-2xl"
             >
               <div className="flex items-center gap-3">
-                <div className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-500/10 ring-1 ring-inset ring-blue-400/20">
-                  <Sparkles className="h-4 w-4 text-blue-400" />
+                <div className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#D4A652]/10 ring-1 ring-inset ring-[#D4A652]/20">
+                  <Sparkles className="h-4 w-4 text-[#D4A652]" />
                 </div>
-                <h3 className="text-zinc-100 font-semibold tracking-tight">
+                <h3 className="text-[#ECE9E1] text-lg font-bold tracking-tight">
                   Review & Start Analysis
                 </h3>
               </div>
@@ -856,17 +856,17 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, ease: "easeOut", delay: 0.05 }}
-              className="flex-1 overflow-y-auto scrollbar-thin scrollbar-track-zinc-900/50 scrollbar-thumb-zinc-700/70 hover:scrollbar-thumb-zinc-600/80"
+              className="flex-1 overflow-y-auto scrollbar-thin scrollbar-track-[#0B0B0A]/50 scrollbar-thumb-[#282724] hover:scrollbar-thumb-[#454340]"
               style={{
                 scrollbarWidth: "thin",
                 scrollbarColor:
-                  "rgba(113, 113, 122, 0.7) rgba(24, 24, 27, 0.5)",
+                  "rgba(40, 39, 36, 0.7) rgba(11, 11, 10, 0.5)",
               }}
             >
               <div className="px-6 pt-5 pb-4">
                 {/* Video Preview Section */}
-                <div className="flex items-start gap-4 mb-6 p-4 rounded-xl bg-zinc-950/50 border border-zinc-800/70 ring-1 ring-white/5">
-                  <div className="relative w-[120px] h-[67.5px] flex-shrink-0 rounded-lg overflow-hidden border border-zinc-800/60 bg-zinc-900/50">
+                <div className="flex items-start gap-4 mb-6 p-4 rounded-xl bg-[#131312] border border-[#1C1B19]">
+                  <div className="relative w-[120px] h-[67.5px] flex-shrink-0 rounded-lg overflow-hidden border border-[#282724] bg-[#0B0B0A]">
                     {source.type === "link" && source.preview?.thumbnail ? (
                       <div className="w-full h-full relative">
                         <Image
@@ -884,7 +884,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                         playsInline
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-zinc-500 text-xs">
+                      <div className="w-full h-full flex items-center justify-center text-[#5F5E5A] text-xs">
                         <Upload className="h-4 w-4" />
                       </div>
                     )}
@@ -904,7 +904,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                             {/* Futuristic circular progress indicator */}
                             <div className="relative w-14 h-14">
                               {/* Outer glow ring */}
-                              <div className="absolute inset-0 rounded-full bg-blue-500/20 blur-md animate-pulse"></div>
+                              <div className="absolute inset-0 rounded-full bg-[#D4A652]/20 blur-md animate-pulse"></div>
 
                               {/* Main progress ring */}
                               <svg
@@ -919,7 +919,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                                   stroke="currentColor"
                                   strokeWidth="4"
                                   fill="none"
-                                  className="text-zinc-700/50"
+                                  className="text-[#282724]"
                                 />
 
                                 {/* Progress circle with gradient */}
@@ -931,9 +931,9 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                                     x2="100%"
                                     y2="100%"
                                   >
-                                    <stop offset="0%" stopColor="#3b82f6" />
-                                    <stop offset="50%" stopColor="#06b6d4" />
-                                    <stop offset="100%" stopColor="#8b5cf6" />
+                                    <stop offset="0%" stopColor="#D4A652" />
+                                    <stop offset="50%" stopColor="#e0b765" />
+                                    <stop offset="100%" stopColor="#C49A47" />
                                   </linearGradient>
                                   <filter id="glow">
                                     <feGaussianBlur
@@ -969,7 +969,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                                   stroke="currentColor"
                                   strokeWidth="1"
                                   fill="none"
-                                  className="text-blue-400/30"
+                                  className="text-[#D4A652]/30"
                                 />
                               </svg>
 
@@ -990,8 +990,8 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                                 }}
                                 className="absolute inset-0"
                               >
-                                <div className="absolute top-0 left-1/2 w-1 h-1 bg-blue-400 rounded-full transform -translate-x-1/2 -translate-y-1"></div>
-                                <div className="absolute bottom-0 left-1/2 w-1 h-1 bg-cyan-400 rounded-full transform -translate-x-1/2 translate-y-1"></div>
+                                <div className="absolute top-0 left-1/2 w-1 h-1 bg-[#D4A652] rounded-full transform -translate-x-1/2 -translate-y-1"></div>
+                                <div className="absolute bottom-0 left-1/2 w-1 h-1 bg-[#e0b765] rounded-full transform -translate-x-1/2 translate-y-1"></div>
                               </motion.div>
                             </div>
                           </motion.div>
@@ -1044,8 +1044,8 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                   </div>
 
                   <div className="min-w-0 flex-1 overflow-hidden">
-                    <h4 
-                      className="text-sm text-zinc-200 font-medium break-all line-clamp-2"
+                    <h4
+                      className="text-base text-[#ECE9E1] font-bold break-all line-clamp-2"
                       title={source.type === "link" ? source.preview?.title || source.url : source.type === "file" ? source.file.name : ""}
                     >
                       {source.type === "link"
@@ -1067,7 +1067,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                           className="text-xs mt-1"
                         >
                           {uploadProgress.status === "uploading" && (
-                            <span className="text-blue-400 font-medium">
+                            <span className="text-[#D4A652] font-medium">
                               Uploading...
                             </span>
                           )}
@@ -1085,7 +1085,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                       )}
                     </AnimatePresence>
 
-                    <p className="text-xs text-zinc-500 mt-1">
+                    <p className="text-sm text-[#5F5E5A] mt-1.5">
                       {source.type === "file" && source.file
                         ? `${formatBytes(source.file.size)} • ${formatDuration(source.duration)}`
                         : source.type === "link"
@@ -1110,16 +1110,16 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                   />
 
                   {/* Credits Info */}
-                  <div className="text-xs text-zinc-400 space-y-1 p-3 bg-zinc-900/30 rounded-lg border border-zinc-800/40">
+                  <div className="text-sm text-[#7A776E] space-y-1.5 p-3 bg-[#131312] rounded-lg border border-[#1C1B19]">
                     <div>
                       Credits available:{" "}
-                      <span className="text-zinc-200 font-medium">
+                      <span className="text-[#ECE9E1] font-semibold">
                         {usageData?.creditsAvailable || 0}
                       </span>
                     </div>
-                    <div className="text-blue-400">
+                    <div className="text-[#D4A652]">
                       This analysis will cost{" "}
-                      <span className="text-blue-300 font-medium">
+                      <span className="text-[#e0b765] font-bold">
                         {creditsCost} credit{creditsCost !== 1 ? "s" : ""}
                       </span>
                       {" "}(~{getAnalysisCost()} min)
@@ -1128,7 +1128,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                 </div>
 
                 {/* Privacy Notice */}
-                <div className="mt-6 text-xs text-zinc-500 space-y-1">
+                <div className="mt-6 text-xs text-[#5F5E5A] space-y-1">
                   <p>
                     • We upload your video to generate analysis and suggestions
                   </p>
@@ -1145,32 +1145,32 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     exit={{ opacity: 0, y: 20, scale: 0.95 }}
                     className="absolute bottom-6 left-6 right-6 z-50"
                   >
-                    <div className="bg-zinc-900/90 backdrop-blur-xl border border-blue-500/30 rounded-xl p-4 shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/10 flex items-center justify-between gap-4">
+                    <div className="bg-[#131312]/95 backdrop-blur-xl border border-[#D4A652]/30 rounded-xl p-4 shadow-[0_8px_32px_rgba(0,0,0,0.4)] flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center ring-1 ring-blue-500/30">
-                          <Sparkles className="w-5 h-5 text-blue-400" />
+                        <div className="w-10 h-10 rounded-full bg-[#D4A652]/15 flex items-center justify-center ring-1 ring-[#D4A652]/30">
+                          <Sparkles className="w-5 h-5 text-[#D4A652]" />
                         </div>
                         <div className="flex flex-col">
-                          <h4 className="text-sm font-bold text-white tracking-tight">
+                          <h4 className="text-sm font-bold text-[#ECE9E1] tracking-tight">
                             Analysis Initiated
                           </h4>
-                          <p className="text-xs text-zinc-400">
+                          <p className="text-xs text-[#7A776E]">
                             Task ID:{" "}
-                            <span className="font-mono text-zinc-300">
+                            <span className="font-mono text-[#B5B2A8]">
                               {createdTaskId.slice(0, 8)}
                             </span>
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 ring-1 ring-inset ring-blue-500/20 uppercase tracking-tighter">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#D4A652]/10 text-[#D4A652] ring-1 ring-inset ring-[#D4A652]/20 uppercase tracking-tighter">
                           Queued
                         </span>
-                        <div className="h-4 w-[1px] bg-zinc-800 mx-1"></div>
+                        <div className="h-4 w-[1px] bg-[#282724] mx-1"></div>
                         <motion.div
                           animate={{ opacity: [1, 0.4, 1] }}
                           transition={{ duration: 1.5, repeat: Infinity }}
-                          className="text-[10px] text-zinc-500 font-medium whitespace-nowrap"
+                          className="text-[10px] text-[#5F5E5A] font-medium whitespace-nowrap"
                         >
                           Closing...
                         </motion.div>
@@ -1189,7 +1189,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.3 }}
-                  className="absolute bottom-16 left-0 right-0 h-8 bg-gradient-to-t from-zinc-900/80 to-transparent pointer-events-none z-10"
+                  className="absolute bottom-16 left-0 right-0 h-8 bg-gradient-to-t from-[#0F0F0E] to-transparent pointer-events-none z-10"
                 />
               )}
             </AnimatePresence>
@@ -1204,7 +1204,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                   transition={{ duration: 0.3, ease: "easeOut" }}
                   className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-10"
                 >
-                  <div className="flex flex-col items-center gap-2 px-2 py-2 bg-zinc-800/90 backdrop-blur-sm rounded-full border border-zinc-700/50 shadow-lg">
+                  <div className="flex flex-col items-center gap-2 px-2 py-2 bg-[#131312]/90 backdrop-blur-sm rounded-full border border-[#282724] shadow-lg">
                     <motion.div
                       animate={{ y: [0, 4, 0] }}
                       transition={{
@@ -1212,7 +1212,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                         repeat: Infinity,
                         ease: "easeInOut",
                       }}
-                      className="text-zinc-400"
+                      className="text-[#7A776E]"
                     >
                       <svg
                         className="w-4 h-4"
@@ -1238,7 +1238,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, ease: "easeOut", delay: 0.1 }}
-              className="shrink-0 px-6 py-4 border-t border-zinc-800/60 bg-gradient-to-t from-zinc-900/90 to-zinc-900/70 backdrop-blur-sm rounded-b-2xl"
+              className="shrink-0 px-6 py-4 border-t border-[#1C1B19] bg-[#0F0F0E] rounded-b-2xl"
             >
               {error && (
                 <div className="mb-4 p-3 rounded-lg border border-red-500/50 bg-red-500/10">
@@ -1262,7 +1262,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
                 <div className="flex items-center gap-3">
                   {source.type === "file" &&
-                  (uploadProgress?.status === "uploading" || isProcessing) ? (
+                    (uploadProgress?.status === "uploading" || isProcessing) ? (
                     <Button
                       variant="destructive"
                       onClick={handleCancel}
@@ -1274,7 +1274,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     <Button
                       variant="ghost"
                       onClick={handleCancel}
-                      className="text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/40 rounded-lg"
+                      className="text-[#B5B2A8] hover:text-[#ECE9E1] hover:bg-[#1C1B19] rounded-lg"
                     >
                       Cancel
                     </Button>
@@ -1283,11 +1283,10 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                   <Button
                     onClick={handleStartAnalysis}
                     disabled={!canSubmit || isProcessing || isModalClosing}
-                    className={`rounded-lg flex items-center gap-2 shadow-lg transition-all duration-200 ${
-                      hasInsufficientCredits
-                        ? "bg-orange-500/20 text-orange-300 border border-orange-500/30 hover:bg-orange-500/25 disabled:bg-orange-500/10 disabled:text-orange-400/60 disabled:border-orange-500/20"
-                        : "bg-zinc-100 text-zinc-900 hover:bg-zinc-200 disabled:opacity-60"
-                    }`}
+                    className={`rounded-lg flex items-center gap-2 shadow-lg transition-all duration-200 ${hasInsufficientCredits
+                      ? "bg-orange-500/20 text-orange-300 border border-orange-500/30 hover:bg-orange-500/25 disabled:bg-orange-500/10 disabled:text-orange-400/60 disabled:border-orange-500/20"
+                      : "bg-[#D4A652] text-[#0B0B0A] hover:bg-[#e0b765] disabled:opacity-60 font-extrabold"
+                      }`}
                     title={
                       hasInsufficientCredits
                         ? `Need ${creditsCost} credits but only ${availableCredits} available`
@@ -1329,7 +1328,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         open={showCloseConfirmation}
         onOpenChange={setShowCloseConfirmation}
       >
-        <DialogContent className="max-w-md p-0 rounded-xl bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/70 shadow-[0_14px_60px_-20px_rgba(0,0,0,0.7)] ring-1 ring-white/5">
+        <DialogContent className="max-w-md p-0 rounded-xl bg-[#0F0F0E] border border-[#282724] shadow-[0_14px_60px_-20px_rgba(0,0,0,0.7)]">
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -1344,10 +1343,10 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
               transition={{ delay: 0.05, duration: 0.3 }}
               className="flex items-center gap-3 mb-4"
             >
-              <div className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800/50 ring-1 ring-inset ring-zinc-700/50">
-                <Trash className="h-4 w-4 text-zinc-400" />
+              <div className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#131312] ring-1 ring-inset ring-[#282724]">
+                <Trash className="h-4 w-4 text-[#7A776E]" />
               </div>
-              <h3 className="text-lg font-semibold text-zinc-100 tracking-tight">
+              <h3 className="text-lg font-semibold text-[#ECE9E1] tracking-tight">
                 Discard upload?
               </h3>
             </motion.div>
@@ -1359,7 +1358,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
               transition={{ delay: 0.1, duration: 0.3 }}
               className="mb-6"
             >
-              <p className="text-sm text-zinc-400 leading-relaxed">
+              <p className="text-sm text-[#7A776E] leading-relaxed">
                 Your file upload will be lost and you&apos;ll need to start
                 over. Are you sure you want to continue?
               </p>
@@ -1375,7 +1374,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
               <Button
                 variant="ghost"
                 onClick={() => setShowCloseConfirmation(false)}
-                className="flex-1 h-10 rounded-lg text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/40 transition-colors duration-200"
+                className="flex-1 h-10 rounded-lg text-[#B5B2A8] hover:text-[#ECE9E1] hover:bg-[#1C1B19] transition-colors duration-200"
               >
                 Cancel
               </Button>
@@ -1384,7 +1383,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                   setShowCloseConfirmation(false);
                   onOpenChange(false);
                 }}
-                className="flex-1 h-10 rounded-lg bg-zinc-100 text-zinc-900 hover:bg-zinc-200 font-medium transition-colors duration-200"
+                className="flex-1 h-10 rounded-lg bg-[#D4A652] text-[#0B0B0A] hover:bg-[#e0b765] font-extrabold transition-colors duration-200"
               >
                 Discard
               </Button>

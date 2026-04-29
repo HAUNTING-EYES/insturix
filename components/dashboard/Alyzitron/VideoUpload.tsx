@@ -214,14 +214,14 @@ export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) 
           value={inputUrl}
           onChange={(e) => setInputUrl(e.target.value)}
           placeholder="Paste a URL or drag a file"
-          className="min-w-0 flex-1 bg-transparent py-2.5 text-sm text-[#ECE9E1] outline-none placeholder:text-[#5F5E5A]"
+          className="min-w-0 flex-1 bg-transparent py-2.5 text-base text-[#ECE9E1] outline-none placeholder:text-[#5F5E5A]"
           onClick={(e) => e.stopPropagation()}
           disabled={isPreviewLoading}
         />
         <Button
           type="submit"
           size="sm"
-          className="h-9 rounded-[7px] bg-[#D4A652] px-4 text-xs font-extrabold text-[#0B0B0A] hover:bg-[#e0b765] disabled:bg-[#131312] disabled:text-[#5F5E5A]"
+          className="h-9 rounded-[7px] bg-[#D4A652] px-4 text-sm font-extrabold text-[#0B0B0A] hover:bg-[#e0b765] disabled:bg-[#131312] disabled:text-[#5F5E5A]"
           onClick={(e) => e.stopPropagation()}
           disabled={isPreviewLoading || !inputUrl.trim()}
         >
@@ -234,7 +234,7 @@ export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) 
           e.stopPropagation();
           fileInputRef.current?.click();
         }}
-        className="mx-auto mt-4 flex items-center gap-2 font-mono text-[10px] tracking-[0.04em] text-[#454340] transition-colors hover:text-[#B5B2A8]"
+        className="mx-auto mt-4 flex items-center gap-2 font-mono text-xs tracking-[0.04em] text-[#454340] transition-colors hover:text-[#B5B2A8]"
         disabled={isPreviewLoading}
       >
         <Upload className="h-3 w-3" />
@@ -257,10 +257,10 @@ export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) 
         onDragOver={onDragOver}
         className="flex flex-col items-center px-0 py-16 text-center sm:py-20"
       >
-        <h1 className="m-0 text-balance text-[38px] font-extrabold leading-[1.05] tracking-[-0.035em] text-[#ECE9E1] sm:text-[44px]">
+        <h1 className="m-0 text-balance text-[42px] font-extrabold leading-[1.05] tracking-[-0.035em] text-[#ECE9E1] sm:text-[50px]">
           Let&apos;s analyze what you made.
         </h1>
-        <p className="mb-10 mt-3 text-[15px] text-[#7A776E]">
+        <p className="mb-10 mt-3 text-base text-[#7A776E]">
           Drop a link, or paste a file.
         </p>
         <AnimatePresence initial={false} mode="wait">
