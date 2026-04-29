@@ -387,7 +387,7 @@ async function applyDecision(
         content: cached.audioUrl,
         src: cached.audioUrl,
         assetId: cached.audioAssetId,
-        styles: { volume: 0.25, opacity: 1 },
+        styles: { volume: DEFAULT_CONFIG.audio.defaultSfxVolume, opacity: 1 },
         metadata: { source: 'edl-sfx-trigger', sfxType },
       } as any);
 
