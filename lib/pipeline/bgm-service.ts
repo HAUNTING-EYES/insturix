@@ -182,7 +182,11 @@ export function buildMusicPrompt(
     powerful: 'Pentatonic Minor (Moody, powerful)',
     intense: 'Pentatonic Minor (Moody, powerful)',
   };
-  const selectedKeyMode = moods.map(m => keyModeMap[m.toLowerCase()]).find(Boolean) || 'Major';
+  const mappedMode = moods.map(m => keyModeMap[m.toLowerCase()]).find(Boolean);
+  if (!mappedMode && moods.length > 0) {
+    console.warn(`[BGM] No key/mode mapping for moods: ${moods.join(', ')}. Defaulting to Major.`);
+  }
+  const selectedKeyMode = mappedMode || 'Major';
 
   // If ThinkForge provided detailed per-scene music direction, use it as energy arc
   if (musicDescriptions.length > 0) {
@@ -196,16 +200,24 @@ export function buildMusicPrompt(
     ].join(', ');
   }
 
+  // Fix 19: Song structure — intro/build/peak/sustain/resolve percentages.
+  // Adapts based on video length and number of scenes.
+  const structure = scenes.length > 4
+    ? `structure: intro (0-10%), build (10-40%), peak (40-65%), sustain (65-85%), resolve+fadeout (85-100%)`
+    : scenes.length > 2
+      ? `structure: intro (0-15%), build (15-50%), peak (50-75%), resolve+fadeout (75-100%)`
+      : `structure: ambient bed, steady energy, gentle fadeout in final 3s`;
+
   // Fallback: infer from moods and pacing
   return [
     moods.length > 0 ? `${moods.join(' and ')} mood` : 'cinematic ambient',
     `${duration} seconds`,
     `key/mode: ${selectedKeyMode}`,
-    `energy: ${scenes.length > 4 ? 'builds to peak at 70% then resolves' : 'steady'}`,
+    structure,
     `tempo ${selectedBpm.range}, ${selectedBpm.prompt}`,
     'instrumental only, no vocals, no lyrics, no humming',
     hasVO ? 'leave mid-range clear for speech' : 'full-range mix OK',
-    'clean production, gentle fade-out in final 3 seconds',
+    'clean production',
   ].join(', ');
 }
 
