@@ -460,7 +460,12 @@ function applyTransition(
   decisionIndex: number = 0,
 ): { created: number; modified: number } | null {
   const transType = (decision.params.transitionType || 'soft-cut') as string;
-  const durationFrames = decision.durationFrames || (DEFAULT_TRANSITION_FRAMES as any)[transType] || 15;
+  let durationFrames = decision.durationFrames || (DEFAULT_TRANSITION_FRAMES as any)[transType] || 15;
+  // Dissolve needs minimum duration to feel like a real crossfade, not a flash.
+  // Intelligence layer often sets 15 frames (0.5s) → too fast. Clamp to 30+ (1s).
+  if (transType === 'dissolve' && durationFrames < 30) {
+    durationFrames = Math.max(durationFrames, DEFAULT_TRANSITION_FRAMES['dissolve'] || 36);
+  }
 
   // hard-cut and editorial cuts don't produce visual transitions
   if (['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
