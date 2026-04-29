@@ -382,6 +382,9 @@ export function normalizeTransitionType(type: string): TransitionType {
     'wipe-left': 'whip-pan', // closest available
     'glitch': 'glitch',
     'soft-cut': 'soft-cut',
+    'invisible-cut': 'match-cut', // Fix 23: alias — invisible cut IS match-cut (compositions match so viewer doesn't notice)
+    'l-cut': 'hard-cut',         // L-cut is an AUDIO boundary edit (audioEndFrame), not a visual transition
+    'j-cut': 'hard-cut',         // J-cut is an AUDIO boundary edit (audioStartFrame), not a visual transition
     'fade': 'dip-to-black',
   };
   return map[type] || 'hard-cut';
