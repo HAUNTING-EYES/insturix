@@ -106,29 +106,54 @@ export async function POST(request: NextRequest) {
       durationInFrames,
     } as Parameters<typeof projectService.saveProject>[2]);
 
-    // 6. Mark project as asset-based auto-edit (for future SyntheticStoryboard path)
+    // 6. Analyze video → SyntheticStoryboard (Gemini Vision)
+    // Gives Director scene context: narration, mood, edit directions, content type.
+    // Without this, Director runs blind (5-Track only, no story understanding).
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
+
+    let syntheticStoryboard: any = null;
+    try {
+      const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
+      console.log(`[auto-edit/from-asset] Analyzing video for scene understanding...`);
+      syntheticStoryboard = await analyzeVideo(videoUrl, durationSec, title);
+      if (syntheticStoryboard) {
+        console.log(`[auto-edit/from-asset] SyntheticStoryboard: ${syntheticStoryboard.scenes.length} scenes, type=${syntheticStoryboard.contentType}`);
+      }
+    } catch (analyzeErr: unknown) {
+      const msg = analyzeErr instanceof Error ? analyzeErr.message : String(analyzeErr);
+      console.warn(`[auto-edit/from-asset] Video analysis failed (Director runs without scene context): ${msg}`);
+    }
+
+    // 7. Store project metadata + SyntheticStoryboard
     await db.collection('projects').updateOne(
       { projectId },
       {
         $set: {
           autoEditMode: 'asset',
           sourceAssetId: assetId,
+          ...(syntheticStoryboard && { syntheticStoryboard }),
           updatedAt: new Date(),
         },
       },
     );
 
-    // 7. Auto-detect edit profile from video metadata
-    let profileId = 'A-01'; // Default: YouTube Engaging
+    // 8. Auto-detect edit profile — use SyntheticStoryboard for richer signal
+    let profileId = 'A-01';
     try {
       const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
       const { profile } = getAutoSelectedProfile({
-        title: projectName,
-        contentType: 'video',
-        platform: 'youtube',
-        scenes: [],
+        title: syntheticStoryboard?.title || projectName,
+        contentType: syntheticStoryboard?.contentType || 'video',
+        platform: syntheticStoryboard?.platform || 'youtube',
+        scenes: syntheticStoryboard?.scenes?.map((s: any) => ({
+          narration: s.descriptor?.narration,
+          visualDescription: s.descriptor?.visualDescription,
+          mood: s.descriptor?.mood,
+          editDirections: s.descriptor?.editDirections,
+        })) || [],
+        globalEditDirections: syntheticStoryboard?.globalEditDirections,
+        overallMusicPrompt: syntheticStoryboard?.overallMusicPrompt,
       });
       if (profile?.profileId) profileId = profile.profileId;
       console.log(`[auto-edit/from-asset] Profile detected: ${profileId}`);
