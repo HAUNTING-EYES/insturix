@@ -993,6 +993,16 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
   This is the Hormozi signature: freeze → stat-counter animates → hold → unfreeze.
 - S-002: AI-generated video: NEVER below 0.5x speed (artifacts become obvious).\n`;
 
+  // ─── Part 8: Eisenstein Montage Vocabulary (Fix 21) ─────────
+  prompt += `\n## MONTAGE METHODS (Sergei Eisenstein — select the most appropriate for each scene's pacing):
+- **METRIC**: Fixed rhythmic cutting. Every N beats = a cut. For: music-driven montages, lyric videos, product reveals timed to BPM.
+- **RHYTHMIC**: Content-driven rhythm. Cut length follows the ACTION in frame (fast action = short cut, slow action = long cut). For: sports highlights, cooking, dance.
+- **TONAL**: Emotional tone determines cut timing. Sad = long holds, joyful = quick cuts, tense = accelerating. For: brand stories, testimonials, documentaries.
+- **OVERTONAL**: Multiple signals layered — motion + color + composition + sound all influence cuts simultaneously. For: cinematic trailers, luxury brand films, music videos.
+- **INTELLECTUAL**: Contrasting images juxtaposed to create NEW meaning neither has alone. For: social commentary, before/after, problem-solution ads.
+
+Select ONE method per scene based on content type and mood. Default to RHYTHMIC for most content.\n`;
+
   // ─── Part 9: SFX Pairing Rules ────────────────────────────────
   prompt += `\n## SFX PAIRING TABLE (transition type → sound):
 | Transition | SFX | Volume | Rule |
