@@ -122,23 +122,50 @@ export default function ProjectDashboard() {
   const handleAutoEdit = async (file: File) => {
     try {
       setAutoEditing(true);
-      setAutoEditProgress(`Uploading ${file.name}...`);
+      setAutoEditProgress('Preparing upload...');
 
-      // Step 1: Server-side proxy upload (avoids R2 CORS issues with presigned URLs).
-      // File goes: browser → Vercel server → R2. Server also registers in MongoDB.
-      const formData = new FormData();
-      formData.append('file', file);
-      const uploadRes = await fetch('/api/services/editron/media/upload/direct', {
+      // Step 1: Get R2 presigned upload URL
+      const urlRes = await fetch('/api/services/editron/media/upload/url', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, contentType: file.type }),
       });
-      if (!uploadRes.ok) {
-        const err = await uploadRes.json().catch(() => ({ error: `Upload failed: ${uploadRes.status}` }));
-        throw new Error(err.error || 'Upload failed');
+      if (!urlRes.ok) {
+        const err = await urlRes.json().catch(() => ({ error: 'Failed to get upload URL' }));
+        throw new Error(err.error || 'Failed to get upload URL');
       }
-      const { assetId } = await uploadRes.json();
+      const { uploadUrl, assetId, readUrl } = await urlRes.json();
 
-      // Step 2: Trigger auto-edit on the uploaded asset
+      // Step 2: PUT file directly to R2 (bypasses Vercel 4.5MB limit)
+      setAutoEditProgress(`Uploading ${file.name} (${Math.round(file.size / 1024 / 1024)}MB)...`);
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      if (!putRes.ok) {
+        throw new Error(`Upload failed: ${putRes.status}. Check R2 CORS config.`);
+      }
+
+      // Step 3: Register asset in MongoDB
+      setAutoEditProgress('Registering asset...');
+      const mediaType = file.type.startsWith('video/') ? 'video'
+        : file.type.startsWith('audio/') ? 'audio' : 'image';
+      const regRes = await fetch('/api/services/editron/media/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assetId, gcsPath: null, readUrl,
+          readUrlExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          filename: file.name, contentType: file.type, size: file.size, type: mediaType,
+        }),
+      });
+      if (!regRes.ok) {
+        const err = await regRes.json().catch(() => ({ error: 'Registration failed' }));
+        throw new Error(err.error || 'Asset registration failed');
+      }
+
+      // Step 4: Trigger auto-edit
       setAutoEditProgress('AI is analyzing and editing your video...');
       const editRes = await fetch('/api/services/editron/auto-edit/from-asset', {
         method: 'POST',
