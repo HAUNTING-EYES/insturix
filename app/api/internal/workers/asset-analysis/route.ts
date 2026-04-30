@@ -260,7 +260,7 @@ Return JSON only:
               .map(([c]) => c);
           }
 
-          await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(`${baseUrl}/api/internal/workers/graph-sync`), {
+          await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/` + encodeURIComponent(`${baseUrl}/api/internal/workers/graph-sync`), {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${qstashToken}`,

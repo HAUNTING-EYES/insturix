@@ -162,7 +162,7 @@ async function dispatchOverlayDiff(
 
   // Helper: dispatch to graph-sync worker via QStash
   const dispatchGraphSync = async (action: string, data: Record<string, unknown>) => {
-    await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(graphSyncUrl), {
+    await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/` + encodeURIComponent(graphSyncUrl), {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${qstashToken}`,

@@ -902,7 +902,7 @@ export async function addGraphitiEpisode(
       : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
     const workerUrl = `${baseUrl}/api/internal/workers/graphiti-episode`;
 
-    await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(workerUrl), {
+    await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/` + encodeURIComponent(workerUrl), {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${qstashToken}`,

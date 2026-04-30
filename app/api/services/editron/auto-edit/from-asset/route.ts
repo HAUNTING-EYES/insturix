@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
     const workerUrl = `${baseUrl}/api/internal/workers/video-analysis`;
 
     if (qstashToken) {
-      await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(workerUrl), {
+      await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/` + encodeURIComponent(workerUrl), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${qstashToken}`,

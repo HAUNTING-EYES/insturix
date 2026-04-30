@@ -182,7 +182,40 @@ export default function ProjectDashboard() {
       }
 
       const { projectId } = await editRes.json();
-      toast({ title: 'Video edited', description: 'Opening in editor...' });
+
+      // Poll autoEditStatus until complete (worker runs async)
+      setAutoEditProgress('AI is analyzing your video...');
+      const maxPolls = 60; // 5 min max (5s × 60)
+      for (let i = 0; i < maxPolls; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        try {
+          const statusRes = await fetch(`/api/services/editron/projects/${projectId}`);
+          if (statusRes.ok) {
+            const proj = await statusRes.json();
+            const status = proj.project?.autoEditStatus || proj.autoEditStatus;
+            if (status === 'complete') {
+              toast({ title: 'Video edited!', description: 'Opening in editor...' });
+              router.push(`/dashboard/editron/project/${projectId}`);
+              return;
+            }
+            if (status === 'failed') {
+              throw new Error(proj.project?.autoEditError || 'AI editing failed');
+            }
+            // Update progress based on status
+            const progressMap: Record<string, string> = {
+              queued: 'Queued for processing...',
+              analyzing: 'AI is analyzing your video...',
+              editing: 'Applying edits, transitions, captions...',
+            };
+            setAutoEditProgress(progressMap[status] || `Processing (${status})...`);
+          }
+        } catch (pollErr) {
+          // Non-fatal poll error — keep polling
+          if ((pollErr as Error).message?.includes('failed')) throw pollErr;
+        }
+      }
+      // Timeout — open project anyway (may be partially edited)
+      toast({ title: 'Processing taking longer than expected', description: 'Opening project — editing may still be in progress.' });
       router.push(`/dashboard/editron/project/${projectId}`);
     } catch (error) {
       console.error('Auto-edit error:', error);
