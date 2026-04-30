@@ -2,7 +2,6 @@ import { auth } from "@clerk/nextjs/server";
 import { ClientWrapper } from "@/components/dashboard/Alyzitron/ClientWrapper";
 import { CreditsBadge } from "@/components/shared/CreditsCard";
 
-// This is a Server Component. Do not use framer-motion primitives directly here.
 
 export const revalidate = 30;
 
@@ -15,10 +14,10 @@ export default async function AlyzitronDashboard() {
       <div className="mx-auto max-w-[1040px] px-4 sm:px-7">
         <div className="flex h-11 items-center justify-between border-b border-[#1C1B19]">
           <div className="flex items-center gap-3.5">
-            <span className="text-sm font-extrabold tracking-tight text-[#ECE9E1]">
+            <span className="text-[18px]  font-extrabold tracking-tight text-[#ECE9E1]">
               Insturix
             </span>
-            <span className="font-mono text-[11px] text-[#5F5E5A]">
+            <span className="font-mono text-[18px] text-[#5F5E5A]">
               Alyzitron
             </span>
           </div>

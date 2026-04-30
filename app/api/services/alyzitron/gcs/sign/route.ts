@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       );
     }
 
-    await AlyzitronR2Manager.ensureCorsConfigured();
+    // CORS is configured once via Cloudflare dashboard — not on every request
 
     const { url, r2Key, publicUrl } = await AlyzitronR2Manager.getSignedUploadUrl(
       session.userId.replace('user_', ''),
