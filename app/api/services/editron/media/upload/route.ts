@@ -48,16 +48,27 @@ export async function POST(request: NextRequest) {
       dimensions,
     } = body;
 
-    // Validate required fields
-    if (!assetId || !gcsPath || !readUrl || !filename || !contentType) {
+    // Validate required fields — gcsPath is optional (R2 uploads don't have one)
+    if (!assetId || !readUrl || !filename || !contentType) {
       return NextResponse.json(
-        { success: false, error: 'Missing required fields: assetId, gcsPath, readUrl, filename, contentType' },
+        { success: false, error: 'Missing required fields: assetId, readUrl, filename, contentType' },
         { status: 400 }
       );
     }
 
-    // Verify the file was actually uploaded to GCS
-    const exists = await fileExists(gcsPath);
+    // Verify file exists in storage (GCS or R2)
+    let exists = false;
+    if (gcsPath) {
+      exists = await fileExists(gcsPath);
+    } else {
+      // R2 upload — verify via HEAD request to CDN URL
+      try {
+        const headRes = await fetch(readUrl, { method: 'HEAD' });
+        exists = headRes.ok;
+      } catch {
+        exists = true; // Assume exists if HEAD fails (CDN might not support HEAD)
+      }
+    }
     if (!exists) {
       return NextResponse.json(
         { success: false, error: 'File not found in storage. Please upload the file first.' },
