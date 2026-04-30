@@ -167,7 +167,7 @@ async function importUploader() {
         const response = await fetch(videoUrl);
         if (!response.ok) return null;
         const buffer = Buffer.from(await response.arrayBuffer());
-        if (buffer.length > 100 * 1024 * 1024) return null;
+        if (buffer.length > 2 * 1024 * 1024 * 1024) return null; // Gemini Files API 2GB limit
 
         const { GoogleAIFileManager } = await import('@google/generative-ai/server');
         const fileManager = new GoogleAIFileManager(apiKey);

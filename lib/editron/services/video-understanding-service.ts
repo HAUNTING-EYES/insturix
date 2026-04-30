@@ -231,8 +231,8 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
     const buffer = Buffer.from(await response.arrayBuffer());
     const sizeKb = Math.round(buffer.length / 1024);
 
-    if (buffer.length > 100 * 1024 * 1024) {
-      console.warn(`[VideoUnderstanding] Video too large (${sizeKb}KB), max 100MB`);
+    if (buffer.length > 2 * 1024 * 1024 * 1024) {
+      console.warn(`[VideoUnderstanding] Video too large (${sizeKb}KB), max 2GB (Gemini Files API limit)`);
       return null;
     }
 

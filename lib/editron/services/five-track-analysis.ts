@@ -260,9 +260,9 @@ async function uploadToGeminiFiles(
     const sizeKb = Math.round(buffer.length / 1024);
     console.log(`[GeminiFiles] Downloaded ${sizeKb}KB, uploading to Gemini...`);
 
-    // Skip videos > 50MB (Gemini free tier practical limit for video)
-    if (buffer.length > 50 * 1024 * 1024) {
-      console.warn(`[GeminiFiles] Video too large (${sizeKb}KB), skipping`);
+    // Gemini Files API accepts up to 2GB per file
+    if (buffer.length > 2 * 1024 * 1024 * 1024) {
+      console.warn(`[GeminiFiles] Video too large (${sizeKb}KB), max 2GB`);
       return null;
     }
 
