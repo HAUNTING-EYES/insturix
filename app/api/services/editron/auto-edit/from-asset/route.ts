@@ -112,144 +112,82 @@ export async function POST(request: NextRequest) {
       durationInFrames,
     } as Parameters<typeof projectService.saveProject>[2]);
 
-    // 6. Analyze video → SyntheticStoryboard (Gemini Vision)
-    // Gives Director scene context: narration, mood, edit directions, content type.
-    // Without this, Director runs blind (5-Track only, no story understanding).
+    // 6. Mark project + dispatch heavy processing to QStash worker.
+    // Worker handles: video understanding → SyntheticStoryboard → profile detection → Director.
+    // Runs async — from-asset returns immediately with projectId.
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
 
-    let syntheticStoryboard: any = null;
-    try {
-      const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
-      console.log(`[auto-edit/from-asset] Analyzing video for scene understanding...`);
-      syntheticStoryboard = await analyzeVideo(videoUrl, durationSec, userIntent || title);
-      if (syntheticStoryboard) {
-        console.log(`[auto-edit/from-asset] SyntheticStoryboard: ${syntheticStoryboard.scenes.length} scenes, type=${syntheticStoryboard.contentType}`);
-      }
-    } catch (analyzeErr: unknown) {
-      const msg = analyzeErr instanceof Error ? analyzeErr.message : String(analyzeErr);
-      console.warn(`[auto-edit/from-asset] Video analysis failed (Director runs without scene context): ${msg}`);
-    }
-
-    // 6b. Multi-path overrides (Item 2)
-    // Script provided → override narration in SyntheticStoryboard scenes
-    if (script && syntheticStoryboard?.scenes?.length) {
-      // Split by sentence boundaries. Lookbehind avoids splitting on abbreviations
-      // (Dr., U.S., etc.) — split only after . ! ? followed by space + uppercase or end.
-      const sentences = script
-        .split(/(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])$/)
-        .filter((s: string) => s.trim().length > 5);
-      for (let i = 0; i < syntheticStoryboard.scenes.length; i++) {
-        if (sentences[i]) {
-          syntheticStoryboard.scenes[i].descriptor.narration = sentences[i].trim();
-        }
-      }
-      console.log(`[auto-edit/from-asset] Script applied: ${sentences.length} sentences → ${syntheticStoryboard.scenes.length} scenes`);
-    }
-
-    // Platform override → explicit platform signal for profile detection
-    if (platform && syntheticStoryboard) {
-      syntheticStoryboard.platform = platform;
-    }
-
-    // Reference video → extract EditDNA for style transfer (stored on project, used by Director brief)
-    let editDNA: any = null;
-    if (referenceAssetId) {
-      try {
-        const refAsset = await assetResolver.getAsset(referenceAssetId, userId);
-        if (refAsset) {
-          const refUrl = await assetResolver.resolveAssetUrl(referenceAssetId, userId);
-          if (refUrl) {
-            const { extractEditDNA } = await import('@/lib/editron/services/style-transfer-service');
-            editDNA = await extractEditDNA({ videoUrl: refUrl, userId, projectId });
-            console.log(`[auto-edit/from-asset] EditDNA extracted from reference: pacing=${editDNA?.pacing?.overall}, transitions=${editDNA?.transitions?.dominant}`);
-          }
-        }
-      } catch (refErr: unknown) {
-        const msg = refErr instanceof Error ? refErr.message : String(refErr);
-        console.warn(`[auto-edit/from-asset] Reference style extraction failed: ${msg}`);
-      }
-    }
-
-    // 7. Store project metadata + SyntheticStoryboard + EditDNA
     await db.collection('projects').updateOne(
       { projectId },
       {
         $set: {
           autoEditMode: 'asset',
+          autoEditStatus: 'queued',
           sourceAssetId: assetId,
-          ...(syntheticStoryboard && { syntheticStoryboard }),
           ...(referenceAssetId && { referenceAssetId }),
-          ...(editDNA && { referenceEditDNA: editDNA }),
           ...(imageAssetIds?.length && { referenceImageAssetIds: imageAssetIds }),
           updatedAt: new Date(),
         },
       },
     );
 
-    // 8. Auto-detect edit profile — use SyntheticStoryboard for richer signal
-    let profileId = 'A-01';
-    try {
-      const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
-      const { profile } = getAutoSelectedProfile({
-        title: syntheticStoryboard?.title || projectName,
-        contentType: syntheticStoryboard?.contentType || 'video',
-        platform: syntheticStoryboard?.platform || 'youtube',
-        scenes: syntheticStoryboard?.scenes?.map((s: any) => ({
-          narration: s.descriptor?.narration,
-          visualDescription: s.descriptor?.visualDescription,
-          mood: s.descriptor?.mood,
-          editDirections: s.descriptor?.editDirections,
-        })) || [],
-        globalEditDirections: syntheticStoryboard?.globalEditDirections,
-        overallMusicPrompt: syntheticStoryboard?.overallMusicPrompt,
-      });
-      if (profile?.profileId) profileId = profile.profileId;
-      console.log(`[auto-edit/from-asset] Profile detected: ${profileId}`);
-    } catch (profileErr: unknown) {
-      const msg = profileErr instanceof Error ? profileErr.message : String(profileErr);
-      console.warn(`[auto-edit/from-asset] Profile detection failed, using default ${profileId}: ${msg}`);
-    }
+    // Dispatch to video-analysis worker via QStash
+    const qstashToken = process.env.QSTASH_TOKEN;
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+    const workerUrl = `${baseUrl}/api/internal/workers/video-analysis`;
 
-    // 9. Build Director brief — EditDNA overrides if reference provided
-    let brief: any = undefined;
-    if (editDNA) {
-      brief = {
-        overrides: {
-          ...(editDNA.pacing?.overall && { pacing: editDNA.pacing.overall }),
-          ...(editDNA.cutRhythm?.avgCutsPerMinute && { cutsPerMinute: editDNA.cutRhythm.avgCutsPerMinute }),
-          ...(editDNA.transitions?.dominant && { defaultTransition: editDNA.transitions.dominant }),
-          ...(editDNA.graphicsDensity && { graphicsDensity: editDNA.graphicsDensity }),
+    if (qstashToken) {
+      await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(workerUrl), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${qstashToken}`,
+          'Content-Type': 'application/json',
+          'Upstash-Retries': '1',
         },
-      };
-      console.log(`[auto-edit/from-asset] EditDNA brief overrides applied: ${JSON.stringify(brief.overrides)}`);
+        body: JSON.stringify({
+          projectId,
+          userId,
+          assetId,
+          videoUrl,
+          durationSec,
+          title: projectName,
+          profileId: 'A-01',
+          userIntent,
+          referenceAssetId,
+          script,
+          platform,
+        }),
+      });
+      console.log(`[auto-edit/from-asset] Dispatched to video-analysis worker via QStash`);
+    } else {
+      // No QStash → run inline (dev mode)
+      console.warn(`[auto-edit/from-asset] No QSTASH_TOKEN — running analysis inline (slow)`);
+      const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
+      const ssb = await analyzeVideo(videoUrl, durationSec, userIntent || projectName);
+      if (ssb) {
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { syntheticStoryboard: ssb, autoEditStatus: 'editing' } },
+        );
+      }
+      const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
+      await executeDirectorPlan(projectId, userId, 'A-01');
+      await db.collection('projects').updateOne(
+        { projectId },
+        { $set: { autoEditStatus: 'complete' } },
+      );
     }
-
-    // 10. Run Director Agent
-    const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-    const directorResult = await executeDirectorPlan(
-      projectId,
-      userId,
-      profileId,
-      brief,
-      (step, total, desc) => {
-        console.log(`[auto-edit/from-asset] Director ${step}/${total}: ${desc}`);
-      },
-    );
 
     const totalMs = Date.now() - startMs;
-    console.log(`[auto-edit/from-asset] Complete: ${projectId} in ${totalMs}ms (${directorResult.actionsExecuted} actions)`);
 
     return NextResponse.json({
       success: true,
       projectId,
-      profileId,
-      directorResult: {
-        actionsExecuted: directorResult.actionsExecuted,
-        overlaysModified: directorResult.overlaysModified,
-        warnings: directorResult.warnings,
-        executionMs: directorResult.executionMs,
-      },
+      status: 'processing',
+      message: 'Video analysis + AI editing started. Check project for results.',
       totalMs,
     });
 
