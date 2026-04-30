@@ -72,8 +72,10 @@ export async function POST(request: NextRequest) {
           sfxAssetId = result.audioAssetId;
         }
       }
-    } catch {
-      // Non-fatal — still return suggestion without preview
+    } catch (sfxErr: unknown) {
+      // Fail visible (Rule 18N) — user still gets suggestion, just no preview audio
+      const sfxMsg = sfxErr instanceof Error ? sfxErr.message : String(sfxErr);
+      console.warn(`[suggest-sfx] Freesound lookup failed for "${mapping.query}": ${sfxMsg}. Suggestion returned without preview.`);
     }
 
     return NextResponse.json({

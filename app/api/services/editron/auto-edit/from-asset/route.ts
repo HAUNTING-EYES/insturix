@@ -134,7 +134,11 @@ export async function POST(request: NextRequest) {
     // 6b. Multi-path overrides (Item 2)
     // Script provided → override narration in SyntheticStoryboard scenes
     if (script && syntheticStoryboard?.scenes?.length) {
-      const sentences = script.split(/[.!?]+/).filter((s: string) => s.trim().length > 0);
+      // Split by sentence boundaries. Lookbehind avoids splitting on abbreviations
+      // (Dr., U.S., etc.) — split only after . ! ? followed by space + uppercase or end.
+      const sentences = script
+        .split(/(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])$/)
+        .filter((s: string) => s.trim().length > 5);
       for (let i = 0; i < syntheticStoryboard.scenes.length; i++) {
         if (sentences[i]) {
           syntheticStoryboard.scenes[i].descriptor.narration = sentences[i].trim();

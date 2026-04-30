@@ -5407,9 +5407,11 @@ All Pixabay content is free for commercial use.`,
         const input = coerceInput(rawInput);
         const project = await loadProject();
 
-        // Find video overlay for this scene
+        // Find video overlay for this scene.
+        // metadata.sceneIndex is set by scene-to-editron.ts on pipeline-generated overlays.
+        // Cast needed: base Overlay type doesn't include metadata (it's on the MongoDB doc, not the TS interface).
         const sceneOverlays = project.overlays.filter(
-          (o: any) => o.type === 'video' && ((o as any).metadata?.sceneIndex === input.sceneIndex)
+          (o: any) => o.type === 'video' && (o.metadata?.sceneIndex === input.sceneIndex)
         );
         if (sceneOverlays.length === 0) {
           return JSON.stringify({ status: 'error', message: `No video overlay found for scene ${input.sceneIndex}` });
