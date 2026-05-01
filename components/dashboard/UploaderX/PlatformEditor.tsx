@@ -15,6 +15,31 @@ import { Youtube, Instagram, Facebook, Save, Eye, EyeOff } from "lucide-react";
 
 type Platform = { key: string; label: string };
 
+interface PlatformData {
+  title: string;
+  description: string;
+  tags: string[];
+  isPublic: boolean;
+  thumbnail?: string;
+  category?: string;
+  language?: string;
+  youtube?: {
+    categoryId: string;
+    privacyStatus: string;
+    scheduledTime?: string;
+  };
+  instagram?: {
+    caption?: string;
+    location?: string;
+    altText?: string;
+  };
+  facebook?: {
+    message?: string;
+    privacy: string;
+    scheduledTime?: string;
+  };
+}
+
 interface PlatformEditorProps {
   platforms: Platform[];
   videoUuid?: string;
@@ -339,36 +364,23 @@ export function PlatformEditor({
       {/* Platform Tabs */}
       <Tabs value={activePlatform} onValueChange={setActivePlatform}>
         <TabsList className="bg-zinc-900/60 border border-zinc-800">
-          {platforms.map((platform) => {
-            const isDisabled = platform.key === 'instagram';
-            return (
+          {platforms.map((platform) => (
               <TabsTrigger 
                 key={platform.key} 
-                value={platform.key} 
-                disabled={isDisabled}
-                className={`flex items-center gap-2 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                value={platform.key}
+                className="flex items-center gap-2"
               >
                 {getPlatformIcon(platform.key)}
                 <span>{platform.label}</span>
-                {isDisabled && <span className="text-xs text-zinc-400">(Soon)</span>}
               </TabsTrigger>
-            );
-          })}
+          ))}
         </TabsList>
 
         {platforms.map((platform) => (
           <TabsContent key={platform.key} value={platform.key} className="mt-6">
             <Card className="bg-zinc-950/60 border-zinc-800">
               <CardContent className="p-6">
-                {platform.key === 'instagram' ? (
-                  <div className="text-center py-8">
-                    <Instagram className="h-12 w-12 text-pink-500 mx-auto mb-4 opacity-50" />
-                    <h3 className="text-lg font-medium text-zinc-200 mb-2">Instagram Integration</h3>
-                    <p className="text-zinc-400">Coming soon! We're working on Instagram integration.</p>
-                  </div>
-                ) : (
-                  renderPlatformContent(platform.key)
-                )}
+                {renderPlatformContent(platform.key)}
               </CardContent>
             </Card>
           </TabsContent>

@@ -28,7 +28,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, boolean>>({
     youtube: true,
-    instagram: false, // Disabled, coming soon
+    instagram: false,
     facebook: false,
     twitter: false,
     linkedin: false,
@@ -564,18 +564,17 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                 const icon = p.key === 'youtube' ? Youtube : p.key === 'instagram' ? Instagram : p.key === 'facebook' ? Facebook : p.key === 'twitter' ? Twitter : Linkedin;
                 const Icon = icon;
                 const colorClass = p.key === 'youtube' ? 'text-red-500' : p.key === 'instagram' ? 'text-pink-500' : p.key === 'facebook' ? 'text-blue-500' : p.key === 'twitter' ? 'text-sky-500' : 'text-blue-600';
-                const isDisabled = p.key === 'instagram'; // Disable Instagram as it's coming soon
+                const isDisabled = false;
                 return (
                   <button
                     key={p.key}
                     type="button"
                     disabled={isDisabled}
-                    onClick={() => !isDisabled && setSelectedPlatforms(s => ({ ...s, [p.key]: !s[p.key] }))}
-                    className={`h-20 rounded-lg border transition flex flex-col items-center justify-center gap-2 ${isActive && !isDisabled ? 'border-white/20 bg-white/5' : isDisabled ? 'border-zinc-700 bg-zinc-800/40 cursor-not-allowed opacity-50' : 'border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/60'}`}
+                    onClick={() => setSelectedPlatforms(s => ({ ...s, [p.key]: !s[p.key] }))}
+                    className={`h-20 rounded-lg border transition flex flex-col items-center justify-center gap-2 ${isActive ? 'border-white/20 bg-white/5' : 'border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/60'}`}
                   >
-                    <Icon className={`h-5 w-5 ${isDisabled ? 'text-zinc-500' : colorClass}`} />
-                    <span className={`text-sm ${isDisabled ? 'text-zinc-500' : 'text-zinc-200'}`}>{p.label}</span>
-                    {isDisabled && <span className="text-xs text-zinc-400">Soon</span>}
+                    <Icon className={`h-5 w-5 ${colorClass}`} />
+                    <span className="text-sm text-zinc-200">{p.label}</span>
                   </button>
                 );
               })}
@@ -638,5 +637,3 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
 }
 
 export default UploadForm;
-
-
