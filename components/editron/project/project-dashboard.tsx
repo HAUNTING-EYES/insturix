@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/editron/use-toast';
 import { getUserFriendlyErrorMessage } from '@/lib/editron/utils/error-handling';
+import { AutoEditDialog, type AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
 
 interface Project {
   projectId: string;
@@ -42,6 +43,8 @@ export default function ProjectDashboard() {
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
   const [autoEditing, setAutoEditing] = useState(false);
   const [autoEditProgress, setAutoEditProgress] = useState('');
+  // Mode 2 dialog: file selected but not yet confirmed
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -119,7 +122,13 @@ export default function ProjectDashboard() {
     }
   };
 
-  const handleAutoEdit = async (file: File) => {
+  // Dialog callback: user confirmed file + options → run the upload + auto-edit flow
+  const handleAutoEditConfirm = useCallback((file: File, options: AutoEditOptions) => {
+    setPendingFile(null);
+    handleAutoEdit(file, options);
+  }, []);
+
+  const handleAutoEdit = async (file: File, options: AutoEditOptions = {}) => {
     try {
       setAutoEditing(true);
       setAutoEditProgress('Preparing upload...');
@@ -165,7 +174,8 @@ export default function ProjectDashboard() {
         throw new Error(err.error || 'Asset registration failed');
       }
 
-      // Step 4: Trigger auto-edit
+      // Step 4: Trigger auto-edit — OLD: only sent assetId + title
+      // NEW: forward all user-selected options to the backend
       setAutoEditProgress('AI is analyzing and editing your video...');
       const editRes = await fetch('/api/services/editron/auto-edit/from-asset', {
         method: 'POST',
@@ -173,6 +183,10 @@ export default function ProjectDashboard() {
         body: JSON.stringify({
           assetId,
           title: file.name.replace(/\.[^.]+$/, ''),
+          ...(options.platform && { platform: options.platform }),
+          ...(options.aspectRatio && { aspectRatio: options.aspectRatio }),
+          ...(options.userIntent && { userIntent: options.userIntent }),
+          ...(options.script && { script: options.script }),
         }),
       });
 
@@ -343,7 +357,9 @@ export default function ProjectDashboard() {
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) handleAutoEdit(file);
+                      // OLD: handleAutoEdit(file) — skipped options dialog
+                      // NEW: open dialog so user can optionally set platform, intent, script
+                      if (file) setPendingFile(file);
                       e.target.value = '';
                     }}
                     disabled={autoEditing}
@@ -463,6 +479,13 @@ export default function ProjectDashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Mode 2 Options Dialog — opens after file pick, before upload */}
+      <AutoEditDialog
+        file={pendingFile}
+        onConfirm={handleAutoEditConfirm}
+        onCancel={() => setPendingFile(null)}
+      />
     </div>
   );
 }
