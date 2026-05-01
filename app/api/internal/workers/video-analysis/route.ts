@@ -110,6 +110,40 @@ async function handler(request: NextRequest) {
       }
     }
 
+    // ─── Step 1.5: Raw Footage Processing (transcribe → silence detect → best-take → classify) ──
+    let rawFootageAnalysis: any = null;
+    try {
+      await db.collection('projects').updateOne(
+        { projectId },
+        { $set: { autoEditStatus: 'transcribing' } },
+      );
+
+      const { processRawFootage } = await import('@/lib/editron/services/raw-footage-processor');
+      console.log(`[VideoAnalysisWorker] Processing raw footage (transcribe + silence detect + classify)...`);
+      rawFootageAnalysis = await processRawFootage(assetId, userId, durationSec, platform, userIntent);
+      console.log(`[VideoAnalysisWorker] Raw footage: ${rawFootageAnalysis.contentTypeDetection.contentType} (${rawFootageAnalysis.silenceRemovalPlan.length} removals, clean=${Math.round(rawFootageAnalysis.estimatedCleanDurationMs / 1000)}s)`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[VideoAnalysisWorker] Raw footage processing failed: ${msg}. Director runs without transcript intelligence.`);
+    }
+
+    // ─── Step 1.6: Execute Silence Removal (BEFORE Director) ─────
+    if (rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
+      try {
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'cleaning' } },
+        );
+
+        const { executeSilenceRemoval } = await import('@/lib/editron/services/silence-removal-executor');
+        const removalResult = await executeSilenceRemoval(projectId, userId, rawFootageAnalysis.silenceRemovalPlan);
+        console.log(`[VideoAnalysisWorker] Silence removed: ${removalResult.totalFramesRemoved} frames (${removalResult.actionsExecuted} actions, ${removalResult.overlaysDeleted} deleted)`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[VideoAnalysisWorker] Silence removal failed: ${msg}. Continuing with uncut footage.`);
+      }
+    }
+
     // ─── Step 4: Store results on project ─────────────────────────
     await db.collection('projects').updateOne(
       { projectId },
@@ -118,32 +152,74 @@ async function handler(request: NextRequest) {
           autoEditStatus: 'editing',
           ...(syntheticStoryboard && { syntheticStoryboard }),
           ...(editDNA && { referenceEditDNA: editDNA }),
+          ...(rawFootageAnalysis && { rawFootageAnalysis }),
           updatedAt: new Date(),
         },
       },
     );
 
-    // ─── Step 5: Profile detection with real scene data ───────────
+    // ─── Step 1.7: Dispatch graph-sync with transcript data ──────
+    if (rawFootageAnalysis) {
+      try {
+        const qstashToken = process.env.QSTASH_TOKEN;
+        const baseUrl = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+        if (qstashToken) {
+          await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/` + encodeURIComponent(`${baseUrl}/api/internal/workers/graph-sync`), {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${qstashToken}`,
+              'Content-Type': 'application/json',
+              'Upstash-Retries': '2',
+            },
+            body: JSON.stringify({
+              action: 'raw_footage_analyzed',
+              data: {
+                assetId,
+                userId,
+                contentType: rawFootageAnalysis.contentTypeDetection.contentType,
+                fillerRate: rawFootageAnalysis.fillerWords.length / Math.max(rawFootageAnalysis.transcription.words.length, 1),
+                silenceRatio: 1 - (rawFootageAnalysis.estimatedCleanDurationMs / rawFootageAnalysis.originalDurationMs),
+                segmentCount: rawFootageAnalysis.segments.length,
+                bestTakeCount: rawFootageAnalysis.bestTakeSelections.length,
+              },
+            }),
+          });
+        }
+      } catch {
+        // Non-fatal — graph enrichment is best-effort
+      }
+    }
+
+    // ─── Step 5: Profile detection ─────────────────────────────────
+    // Use content-type detector's profile (transcript-based, higher confidence)
+    // if available. Fall back to SyntheticStoryboard-based detection.
     let profileId = initialProfileId;
-    try {
-      const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
-      const { profile } = getAutoSelectedProfile({
-        title: syntheticStoryboard?.title || title,
-        contentType: syntheticStoryboard?.contentType || 'video',
-        platform: syntheticStoryboard?.platform || 'youtube',
-        scenes: syntheticStoryboard?.scenes?.map((s: any) => ({
-          narration: s.descriptor?.narration,
-          visualDescription: s.descriptor?.visualDescription,
-          mood: s.descriptor?.mood,
-          editDirections: s.descriptor?.editDirections,
-        })) || [],
-        globalEditDirections: syntheticStoryboard?.globalEditDirections,
-        overallMusicPrompt: syntheticStoryboard?.overallMusicPrompt,
-      });
-      if (profile?.profileId) profileId = profile.profileId;
-      console.log(`[VideoAnalysisWorker] Profile: ${profileId}`);
-    } catch {
-      console.warn(`[VideoAnalysisWorker] Profile detection failed, using ${profileId}`);
+    if (rawFootageAnalysis?.contentTypeDetection?.confidence >= 0.5) {
+      profileId = rawFootageAnalysis.contentTypeDetection.profileId;
+      console.log(`[VideoAnalysisWorker] Profile from content-type detector: ${profileId} (${rawFootageAnalysis.contentTypeDetection.contentType}, confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)})`);
+    } else {
+      try {
+        const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
+        const { profile } = getAutoSelectedProfile({
+          title: syntheticStoryboard?.title || title,
+          contentType: syntheticStoryboard?.contentType || 'video',
+          platform: syntheticStoryboard?.platform || 'youtube',
+          scenes: syntheticStoryboard?.scenes?.map((s: any) => ({
+            narration: s.descriptor?.narration,
+            visualDescription: s.descriptor?.visualDescription,
+            mood: s.descriptor?.mood,
+            editDirections: s.descriptor?.editDirections,
+          })) || [],
+          globalEditDirections: syntheticStoryboard?.globalEditDirections,
+          overallMusicPrompt: syntheticStoryboard?.overallMusicPrompt,
+        });
+        if (profile?.profileId) profileId = profile.profileId;
+        console.log(`[VideoAnalysisWorker] Profile from SyntheticStoryboard: ${profileId}`);
+      } catch {
+        console.warn(`[VideoAnalysisWorker] Profile detection failed, using ${profileId}`);
+      }
     }
 
     // ─── Step 6: Run Director ─────────────────────────────────────
