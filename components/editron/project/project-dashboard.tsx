@@ -274,6 +274,8 @@ export default function ProjectDashboard() {
             const progressMap: Record<string, string> = {
               queued: 'Queued for processing...',
               analyzing: 'AI is analyzing your video...',
+              transcribing: 'Transcribing speech...',
+              cleaning: 'Removing silence and fillers...',
               editing: 'Applying edits, transitions, captions...',
             };
             setAutoEditProgress(progressMap[status] || `Processing (${status})...`);

@@ -454,6 +454,53 @@ export function runQualityReview(
     }
   }
 
+  // ── Mode 2 raw footage quality checks ──
+  // These only fire when rawFootageAnalysis is available (Mode 2 with transcript intelligence).
+  // They validate that silence removal, filler handling, and pacing are correct.
+  // Passed via the analyses map under a special '__rawFootage' key by the Director.
+  const rawFootage = analyses?.get('__rawFootage') as any;
+  if (rawFootage?.silenceRemovalPlan) {
+    // Check: no long silences remain after removal
+    const remainingSilences = (rawFootage.silenceGaps || []).filter((g: any) => {
+      const threshold = rawFootage.contentTypeDetection?.silenceThreshold?.removeAboveMs || 1500;
+      // Check if this gap was removed by the plan
+      const wasRemoved = rawFootage.silenceRemovalPlan.some((a: any) =>
+        a.action === 'remove' && a.startMs <= g.startMs && a.endMs >= g.endMs
+      );
+      return !wasRemoved && g.durationMs > threshold;
+    });
+    if (remainingSilences.length > 0) {
+      allIssues.push({
+        type: 'remaining_silence' as any,
+        severity: 'warning',
+        description: `${remainingSilences.length} silence gap(s) above threshold remain after removal.`,
+        autoFixable: false,
+        suggestedFix: 'Re-run silence removal or manually trim remaining gaps',
+      });
+    }
+
+    // Check: pacing consistency — are cuts/min within the expected range for this content type?
+    if (rawFootage.contentTypeDetection?.contentType && totalDuration > 0) {
+      const { PACING_BY_CONTENT_TYPE } = require('@/lib/editron/data/creative-doc-rules');
+      const contentType = rawFootage.contentTypeDetection.contentType;
+      const pacingRule = PACING_BY_CONTENT_TYPE[contentType] || PACING_BY_CONTENT_TYPE['talking-head'];
+      if (pacingRule) {
+        const videoOverlayCount = overlays.filter(o => o.type === 'video').length;
+        const durationMin = (totalDuration / fps) / 60;
+        const actualCutsPerMin = durationMin > 0 ? (videoOverlayCount - 1) / durationMin : 0;
+        if (actualCutsPerMin < pacingRule.cutsPerMin[0] * 0.5) {
+          allIssues.push({
+            type: 'pacing_too_slow' as any,
+            severity: 'info',
+            description: `Pacing (${actualCutsPerMin.toFixed(1)} cuts/min) is below expected range for ${contentType} (${pacingRule.cutsPerMin[0]}-${pacingRule.cutsPerMin[1]}).`,
+            autoFixable: false,
+            suggestedFix: 'Consider more aggressive silence removal or adding B-roll cuts',
+          });
+        }
+      }
+    }
+  }
+
   // Calculate score: start at 100, deduct per issue
   let score = 100;
   for (const issue of allIssues) {
@@ -468,6 +515,7 @@ export function runQualityReview(
   if (score < 50) suggestions.push('Multiple issues detected. Consider re-running the Director Agent with a different profile.');
   if (allIssues.some(i => i.type === 'missing_bgm')) suggestions.push('Add background music to make the video feel complete.');
   if (allIssues.some(i => i.type === 'no_captions')) suggestions.push('Add captions — most social media viewers watch without sound.');
+  if (rawFootage) suggestions.push(`Content type: ${rawFootage.contentTypeDetection?.contentType || 'unknown'}. Clean duration: ${Math.round((rawFootage.estimatedCleanDurationMs || 0) / 1000)}s.`);
 
   return {
     overallScore: score,
