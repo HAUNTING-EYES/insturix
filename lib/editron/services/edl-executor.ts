@@ -80,6 +80,12 @@ export function snapToClipBoundary(
     .filter(o => o.type === 'video' || o.type === 'image')
     .sort((a, b) => a.from - b.from);
 
+  // Post-silence-removal projects have many small clips with potential tiny gaps.
+  // Increase tolerance to account for frame rounding gaps between consecutive clips.
+  const effectiveTolerance = visualOverlays.length > 20
+    ? Math.max(maxTolerance, 60)
+    : maxTolerance;
+
   let best: ClipBoundaryMatch | null = null;
 
   for (let i = 0; i < visualOverlays.length - 1; i++) {
@@ -88,7 +94,7 @@ export function snapToClipBoundary(
     const boundary = a.from + a.durationInFrames;
     const drift = Math.abs(boundary - decisionFrame);
 
-    if (drift <= maxTolerance && (!best || drift < best.drift)) {
+    if (drift <= effectiveTolerance && (!best || drift < best.drift)) {
       best = { boundaryFrame: boundary, clipA: a, clipB: b, drift };
     }
   }

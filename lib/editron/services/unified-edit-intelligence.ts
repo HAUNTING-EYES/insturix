@@ -57,6 +57,11 @@ export interface UnifiedContext {
   colorPalette?: string[];
   environmentNotes?: string;
   editProfileName?: string;
+
+  /** True when project is Mode 2 raw footage with transcript-driven scenes */
+  isRawFootage?: boolean;
+  /** Detected content type from transcript analysis */
+  rawFootageContentType?: string;
 }
 
 export interface SceneContext {
@@ -357,6 +362,28 @@ export async function assembleUnifiedContext(
 
   console.log(`[UnifiedIntel] Anchors: ${mergedAnchors.length} total (${mergedAnchors.filter(a => a.isCompound).length} compound), from ${anchors.length} raw sources`);
 
+  // Detect raw footage mode
+  const rfa = project.rawFootageAnalysis;
+  const isRawFootage = !!(rfa?.segments?.length > 0);
+
+  // For raw footage: enrich scenes with emphasis word positions as natural cut points
+  if (isRawFootage && rfa.transcription?.words) {
+    for (const scene of scenes) {
+      if (scene.voiceoverWords?.length > 0) continue; // Already has VO words
+      // Find transcript words that fall within this scene's time range
+      const sceneStartMs = (scene.fromFrame / fps) * 1000;
+      const sceneEndMs = ((scene.fromFrame + scene.durationFrames) / fps) * 1000;
+      const wordsInScene = rfa.transcription.words.filter(
+        (w: any) => w.startMs >= sceneStartMs && w.endMs <= sceneEndMs,
+      );
+      if (wordsInScene.length > 0) {
+        scene.voiceoverWords = wordsInScene.map((w: any) => ({
+          word: w.word, startMs: w.startMs - sceneStartMs, endMs: w.endMs - sceneStartMs,
+        }));
+      }
+    }
+  }
+
   return {
     projectId,
     fps,
@@ -368,6 +395,8 @@ export async function assembleUnifiedContext(
     overallMusicPrompt,
     colorPalette,
     environmentNotes,
+    isRawFootage,
+    rawFootageContentType: rfa?.contentTypeDetection?.contentType,
   };
 }
 

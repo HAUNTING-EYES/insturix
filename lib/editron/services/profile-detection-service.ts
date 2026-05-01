@@ -387,6 +387,38 @@ export function getAutoSelectedProfile(metadata: ThinkForgeMetadata): {
   };
 }
 
+// ─── Raw Footage Profile Mapping (Mode 2) ────────────────────────
+
+/**
+ * Deterministic profile mapping for raw footage based on content type.
+ * Bypasses keyword scoring entirely — content-type-detector already classified.
+ */
+export function getProfileForRawFootage(
+  contentType: string,
+  platform?: string,
+): { profile: EditProfile; profileId: string } {
+  // Import content-type → profile mapping (same as content-type-detector.ts)
+  const MAPPING: Record<string, Record<string, string>> = {
+    'talking-head': { default: 'C-08', youtube: 'A-01', linkedin: 'C-01', tiktok: 'A-04', instagram: 'A-03' },
+    'tutorial':     { default: 'C-02' },
+    'interview':    { default: 'C-05' },
+    'vlog':         { default: 'C-08', tiktok: 'A-04', instagram: 'A-03' },
+    'corporate':    { default: 'C-01' },
+    'podcast':      { default: 'C-09' },
+    'ad':           { default: 'E-01', instagram: 'A-03', tiktok: 'A-04' },
+    'product-demo': { default: 'E-01' },
+    'documentary':  { default: 'C-03' },
+    'comedy':       { default: 'C-08' },
+  };
+
+  const platformMap = MAPPING[contentType] || {};
+  const profileId = (platform && platformMap[platform]) || platformMap['default'] || 'G-01';
+  const profile = EDIT_PROFILES[profileId as keyof typeof EDIT_PROFILES] || EDIT_PROFILES['G-01'];
+
+  console.log(`[ProfileDetection] Raw footage: ${contentType} + ${platform || 'default'} → ${profileId}`);
+  return { profile, profileId };
+}
+
 // ─── Semantic Embedding Functions ────────────────────────────────
 
 /** Build a semantic text string for a profile (used as embedding input). */
