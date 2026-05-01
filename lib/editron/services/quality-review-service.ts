@@ -9,6 +9,7 @@
 
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import type { AssetAnalysis } from './five-track-analysis';
+import { PACING_BY_CONTENT_TYPE } from '@/lib/editron/data/creative-doc-rules';
 
 export interface QualityIssue {
   type: IssueType;
@@ -428,7 +429,7 @@ export function runQualityReview(
     let criticalConfidenceFailures = 0;
     const total = analyses.size;
 
-    for (const [assetId, analysis] of analyses) {
+    for (const [_assetId, analysis] of analyses) {
       const quality = analysis.analysisQuality || 'unknown';
       if (quality === 'fallback' || quality === 'low') {
         fallbackCount++;
@@ -481,7 +482,6 @@ export function runQualityReview(
 
     // Check: pacing consistency — are cuts/min within the expected range for this content type?
     if (rawFootage.contentTypeDetection?.contentType && totalDuration > 0) {
-      const { PACING_BY_CONTENT_TYPE } = require('@/lib/editron/data/creative-doc-rules');
       const contentType = rawFootage.contentTypeDetection.contentType;
       const pacingRule = PACING_BY_CONTENT_TYPE[contentType] || PACING_BY_CONTENT_TYPE['talking-head'];
       if (pacingRule) {
