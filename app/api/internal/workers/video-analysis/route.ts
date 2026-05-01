@@ -124,7 +124,9 @@ async function handler(request: NextRequest) {
       console.log(`[VideoAnalysisWorker] Raw footage: ${rawFootageAnalysis.contentTypeDetection.contentType} (${rawFootageAnalysis.silenceRemovalPlan.length} removals, clean=${Math.round(rawFootageAnalysis.estimatedCleanDurationMs / 1000)}s)`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[VideoAnalysisWorker] Raw footage processing failed: ${msg}. Director runs without transcript intelligence.`);
+      const stack = err instanceof Error ? err.stack : '';
+      console.error(`[VideoAnalysisWorker] Raw footage processing FAILED: ${msg}`);
+      console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
     }
 
     // ─── Step 1.6: Execute Silence Removal (BEFORE Director) ─────
@@ -140,7 +142,9 @@ async function handler(request: NextRequest) {
         console.log(`[VideoAnalysisWorker] Silence removed: ${removalResult.totalFramesRemoved} frames (${removalResult.actionsExecuted} actions, ${removalResult.overlaysDeleted} deleted)`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[VideoAnalysisWorker] Silence removal failed: ${msg}. Continuing with uncut footage.`);
+        const stack = err instanceof Error ? err.stack : '';
+        console.error(`[VideoAnalysisWorker] Silence removal FAILED: ${msg}`);
+        console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
       }
     }
 
