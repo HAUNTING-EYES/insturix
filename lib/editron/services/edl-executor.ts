@@ -12,7 +12,6 @@
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
 import { DEFAULT_TRANSITION_FRAMES, createTrueDissolve } from '@/lib/editron/data/transition-templates';
-import { projectService } from '@/lib/editron/services/project-service';
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -812,7 +811,7 @@ function applyGraphic(
   // DEDUP: Don't create graphic if one already exists at this frame range.
   // Multiple systems (finalize, EDL, Director, chat) can create graphics.
   // First one wins — no visual clutter from overlapping graphics.
-  const graphicCheckDur = decision.durationFrames || 90;
+  const _graphicCheckDur = decision.durationFrames || 90;
   const existingGraphic = overlays.find(o =>
     (o.type === 'html-scene' || (o as any).type === 'sticker') &&
     o.from <= decision.frame + 15 &&
@@ -843,7 +842,7 @@ function applyGraphic(
 
   // Aspect-ratio-aware positioning
   const isPortrait = canvas.height > canvas.width;
-  const isSquare = Math.abs(canvas.width - canvas.height) < 100;
+  const _isSquare = Math.abs(canvas.width - canvas.height) < 100;
   const safeMargin = canvas.width * 0.05;
 
   // Position + dimensions per graphic type (responsive)
@@ -1065,7 +1064,7 @@ function applyAudioDuck(
   return { created: 0, modified: 1 };
 }
 
-function applyFilterChange(
+function _applyFilterChange(
   decision: EditDecision,
   overlays: Overlay[],
 ): { created: number; modified: number } | null {

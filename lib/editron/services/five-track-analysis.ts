@@ -325,7 +325,7 @@ async function uploadToGeminiFiles(
 
 // ─── Layer 1: Shot Detection ─────────────────────────────────────
 
-async function detectShots(videoUrl: string, durationMs: number, fps: number): Promise<Shot[]> {
+async function _detectShots(videoUrl: string, durationMs: number, fps: number): Promise<Shot[]> {
   // Use Gemini Vision to detect scene changes (server-side PySceneDetect not available on Vercel)
   // This gives ~90% accuracy vs pixel-diff algorithms
   try {

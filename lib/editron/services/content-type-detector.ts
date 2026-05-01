@@ -13,7 +13,7 @@
  *   - Pacing rules from creative doc v2 §3
  */
 
-import { DEFAULT_CONFIG, type RawFootageConfig } from '@/lib/editron/config/editron-config';
+import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import type { TranscriptionWord } from '@/lib/editron/services/media/types';
 
 // ─── Types ───────────────────────────────────────────────────────

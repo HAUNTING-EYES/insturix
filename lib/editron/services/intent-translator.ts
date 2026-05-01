@@ -16,14 +16,11 @@
 
 import type { AssetAnalysis, FrameAnalysis } from './five-track-analysis';
 import type {
-  SceneIntent,
   CreativeIntentPlan,
   ZoomIntent,
-  PacingIntent,
   TransitionIntent,
-  ShakeIntent,
 } from './unified-edit-intelligence';
-import { snapToClipBoundary, findClipAtFrame } from './edl-executor';
+import { snapToClipBoundary } from './edl-executor';
 
 // ─── Types ───────────────────────────────────────────────────────
 
