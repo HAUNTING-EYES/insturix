@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       thumbnail,
       duration,
       dimensions,
+      isProxy,
     } = body;
 
     // Validate required fields — gcsPath is optional (R2 uploads don't have one)
@@ -119,6 +120,7 @@ export async function POST(request: NextRequest) {
       duration: duration ? parseFloat(duration) : undefined,
       dimensions: parsedDimensions,
       uploadedAt: new Date(),
+      ...(isProxy && { isProxy: true }),
     };
 
     const db = await getDatabase();

@@ -41,6 +41,8 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@fal-ai/client": "^1.7.2",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffmpeg/ffmpeg": "^0.12.10",
+    "@ffmpeg/util": "^0.12.1",
     "@google-cloud/pubsub": "^5.2.0",
     "@google-cloud/storage": "^7.17.3",
     "@google-cloud/vertexai": "^1.10.0",

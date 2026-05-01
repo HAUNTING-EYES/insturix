@@ -131,6 +131,13 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
           </div>
         </div>
 
+        {/* Large file proxy notice */}
+        {file && file.size > 100 * 1024 * 1024 && (
+          <div className="rounded-md border border-blue-800/50 bg-blue-950/30 px-3 py-2 text-xs text-blue-300">
+            Large file — editor will open with a preview-quality version while the full resolution uploads in the background. Final render uses the original.
+          </div>
+        )}
+
         {/* Quick edit CTA */}
         <Button
           onClick={handleQuickEdit}

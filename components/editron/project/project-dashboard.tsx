@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useReducer } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,10 @@ import {
 import { useToast } from '@/hooks/editron/use-toast';
 import { getUserFriendlyErrorMessage } from '@/lib/editron/utils/error-handling';
 import { AutoEditDialog, type AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
+import { UploadProgressBar } from '@/components/editron/project/upload-progress-bar';
+import { uploadReducer, INITIAL_UPLOAD_STATE } from '@/lib/editron/client/upload-types';
+import { shouldCompress, compressToProxy } from '@/lib/editron/client/video-compressor';
+import { MultipartUploader } from '@/lib/editron/client/multipart-uploader';
 
 interface Project {
   projectId: string;
@@ -43,8 +47,8 @@ export default function ProjectDashboard() {
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
   const [autoEditing, setAutoEditing] = useState(false);
   const [autoEditProgress, setAutoEditProgress] = useState('');
-  // Mode 2 dialog: file selected but not yet confirmed
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploadState, dispatchUpload] = useReducer(uploadReducer, INITIAL_UPLOAD_STATE);
 
   useEffect(() => {
     if (user) {
@@ -131,13 +135,30 @@ export default function ProjectDashboard() {
   const handleAutoEdit = async (file: File, options: AutoEditOptions = {}) => {
     try {
       setAutoEditing(true);
-      setAutoEditProgress('Preparing upload...');
+      dispatchUpload({ type: 'RESET' });
 
-      // Step 1: Get R2 presigned upload URL
+      const useProxy = shouldCompress(file);
+      let uploadFile = file;
+
+      // Step 1: Compress to proxy if large file
+      if (useProxy) {
+        setAutoEditProgress('Compressing preview version...');
+        dispatchUpload({ type: 'START_COMPRESS' });
+        uploadFile = await compressToProxy(file, (ratio) => {
+          dispatchUpload({
+            type: 'PROXY_PROGRESS',
+            progress: { loaded: ratio * file.size, total: file.size, percent: Math.round(ratio * 100), bytesPerSecond: 0, estimatedSecondsRemaining: 0 },
+          });
+        });
+        dispatchUpload({ type: 'COMPRESS_DONE' });
+      }
+
+      // Step 2: Upload proxy (or original if small) via presigned URL
+      setAutoEditProgress(`Uploading ${useProxy ? 'preview' : file.name} (${Math.round(uploadFile.size / 1024 / 1024)}MB)...`);
       const urlRes = await fetch('/api/services/editron/media/upload/url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: file.name, contentType: file.type }),
+        body: JSON.stringify({ filename: uploadFile.name, contentType: uploadFile.type }),
       });
       if (!urlRes.ok) {
         const err = await urlRes.json().catch(() => ({ error: 'Failed to get upload URL' }));
@@ -145,18 +166,16 @@ export default function ProjectDashboard() {
       }
       const { uploadUrl, assetId, readUrl } = await urlRes.json();
 
-      // Step 2: PUT file directly to R2 (bypasses Vercel 4.5MB limit)
-      setAutoEditProgress(`Uploading ${file.name} (${Math.round(file.size / 1024 / 1024)}MB)...`);
       const putRes = await fetch(uploadUrl, {
         method: 'PUT',
-        headers: { 'Content-Type': file.type },
-        body: file,
+        headers: { 'Content-Type': uploadFile.type },
+        body: uploadFile,
       });
       if (!putRes.ok) {
-        throw new Error(`Upload failed: ${putRes.status}. Check R2 CORS config.`);
+        throw new Error(`Upload failed: ${putRes.status}`);
       }
 
-      // Step 3: Register asset in MongoDB
+      // Step 3: Register asset
       setAutoEditProgress('Registering asset...');
       const mediaType = file.type.startsWith('video/') ? 'video'
         : file.type.startsWith('audio/') ? 'audio' : 'image';
@@ -167,6 +186,7 @@ export default function ProjectDashboard() {
           assetId, gcsPath: null, readUrl,
           readUrlExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
           filename: file.name, contentType: file.type, size: file.size, type: mediaType,
+          ...(useProxy && { isProxy: true }),
         }),
       });
       if (!regRes.ok) {
@@ -174,8 +194,7 @@ export default function ProjectDashboard() {
         throw new Error(err.error || 'Asset registration failed');
       }
 
-      // Step 4: Trigger auto-edit — OLD: only sent assetId + title
-      // NEW: forward all user-selected options to the backend
+      // Step 4: Trigger auto-edit
       setAutoEditProgress('AI is analyzing and editing your video...');
       const editRes = await fetch('/api/services/editron/auto-edit/from-asset', {
         method: 'POST',
@@ -189,7 +208,6 @@ export default function ProjectDashboard() {
           ...(options.script && { script: options.script }),
         }),
       });
-
       if (!editRes.ok) {
         const err = await editRes.json();
         throw new Error(err.error || 'Auto-edit failed');
@@ -197,9 +215,47 @@ export default function ProjectDashboard() {
 
       const { projectId } = await editRes.json();
 
-      // Poll autoEditStatus until complete (worker runs async)
+      // Step 5: Start background original upload if using proxy
+      if (useProxy) {
+        dispatchUpload({ type: 'START_ORIGINAL_UPLOAD', uploadId: '', r2Key: '', assetId });
+        const uploader = new MultipartUploader({
+          file,
+          assetId,
+          onProgress: (progress) => dispatchUpload({ type: 'ORIGINAL_PROGRESS', progress }),
+          onPartComplete: (part) => dispatchUpload({ type: 'PART_COMPLETED', part }),
+          onComplete: async () => {
+            dispatchUpload({ type: 'ORIGINAL_DONE' });
+            // Swap proxy → original
+            const r2Key = uploader.getR2Key();
+            try {
+              const swapRes = await fetch('/api/services/editron/media/upload/swap', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  assetId,
+                  originalUrl: `${window.location.origin}/api/services/editron/assets/url/${r2Key || assetId}`,
+                  originalR2Key: r2Key,
+                }),
+              });
+              if (swapRes.ok) {
+                dispatchUpload({ type: 'SWAP_DONE' });
+                toast({ title: 'Full quality ready', description: 'Original video uploaded successfully.' });
+              }
+            } catch {
+              console.warn('[Dashboard] Swap failed — cron will auto-heal');
+            }
+          },
+          onError: (err) => {
+            dispatchUpload({ type: 'ERROR', error: err.message });
+            console.error('[Dashboard] Background upload failed:', err);
+          },
+        });
+        uploader.start();
+      }
+
+      // Step 6: Poll autoEditStatus until complete
       setAutoEditProgress('AI is analyzing your video...');
-      const maxPolls = 60; // 5 min max (5s × 60)
+      const maxPolls = 60;
       for (let i = 0; i < maxPolls; i++) {
         await new Promise(r => setTimeout(r, 5000));
         try {
@@ -215,7 +271,6 @@ export default function ProjectDashboard() {
             if (status === 'failed') {
               throw new Error(proj.project?.autoEditError || 'AI editing failed');
             }
-            // Update progress based on status
             const progressMap: Record<string, string> = {
               queued: 'Queued for processing...',
               analyzing: 'AI is analyzing your video...',
@@ -224,15 +279,14 @@ export default function ProjectDashboard() {
             setAutoEditProgress(progressMap[status] || `Processing (${status})...`);
           }
         } catch (pollErr) {
-          // Non-fatal poll error — keep polling
           if ((pollErr as Error).message?.includes('failed')) throw pollErr;
         }
       }
-      // Timeout — open project anyway (may be partially edited)
       toast({ title: 'Processing taking longer than expected', description: 'Opening project — editing may still be in progress.' });
       router.push(`/dashboard/editron/project/${projectId}`);
     } catch (error) {
       console.error('Auto-edit error:', error);
+      dispatchUpload({ type: 'ERROR', error: getUserFriendlyErrorMessage(error) });
       toast({
         variant: 'destructive',
         title: 'Auto-edit failed',
@@ -335,6 +389,13 @@ export default function ProjectDashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {/* Background upload progress bar */}
+            {uploadState.status !== 'idle' && uploadState.status !== 'complete' && (
+              <div className="mb-3">
+                <UploadProgressBar state={uploadState} />
+              </div>
+            )}
+
             {autoEditing ? (
               <div className="flex items-center gap-3 py-4">
                 <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full" />
