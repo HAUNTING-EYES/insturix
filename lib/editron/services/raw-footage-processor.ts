@@ -75,7 +75,7 @@ export interface RawFootageAnalysis {
 // ─── Constants ───────────────────────────────────────────────────
 
 const SENTENCE_END_REGEX = /[.!?]$/;
-const MIN_VIDEO_DURATION_SEC = 10; // Skip processing for very short clips
+const MIN_VIDEO_DURATION_SEC = 3; // Only skip for clips too short to have meaningful speech
 
 // ─── Step 1: Transcription (delegates to existing service) ───────
 
