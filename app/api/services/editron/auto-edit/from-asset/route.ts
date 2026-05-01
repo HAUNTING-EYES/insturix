@@ -21,7 +21,6 @@ import { auth } from '@clerk/nextjs/server';
 import { projectService } from '@/lib/editron/services/project-service';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
-import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -140,7 +139,10 @@ export async function POST(request: NextRequest) {
     const workerUrl = `${baseUrl}/api/internal/workers/video-analysis`;
 
     if (qstashToken) {
-      await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/` + encodeURIComponent(workerUrl), {
+      const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${encodeURIComponent(workerUrl)}`;
+      console.log(`[auto-edit/from-asset] QStash dispatch: URL=${qstashUrl}, workerUrl=${workerUrl}`);
+
+      const qstashRes = await fetch(qstashUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${qstashToken}`,
@@ -161,7 +163,21 @@ export async function POST(request: NextRequest) {
           platform,
         }),
       });
-      console.log(`[auto-edit/from-asset] Dispatched to video-analysis worker via QStash`);
+
+      if (!qstashRes.ok) {
+        const errBody = await qstashRes.text().catch(() => 'no body');
+        const errMsg = `QStash dispatch failed: HTTP ${qstashRes.status} — ${errBody}`;
+        console.error(`[auto-edit/from-asset] ${errMsg}`);
+        // Mark project as failed so dashboard shows error instead of infinite polling
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'failed', autoEditError: errMsg } },
+        );
+        return NextResponse.json({ success: false, error: errMsg }, { status: 502 });
+      }
+
+      const qstashData = await qstashRes.json().catch(() => ({}));
+      console.log(`[auto-edit/from-asset] QStash dispatched: messageId=${qstashData.messageId || 'unknown'}`);
     } else {
       // No QStash → run inline (dev mode)
       console.warn(`[auto-edit/from-asset] No QSTASH_TOKEN — running analysis inline (slow)`);
