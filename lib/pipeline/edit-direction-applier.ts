@@ -45,9 +45,9 @@ export async function applyEditDirections(
   globalDirections: GlobalEditDirections | undefined,
   width: number,
   height: number,
-  fps: number = 30,
+  _fps: number = 30,
 ): Promise<{ overlays: any[]; totalFrameShift: number }> {
-  let nextOverlayId = Math.max(...overlays.map(o => o.id || 0), 0) + 1;
+  const _nextOverlayId = Math.max(...overlays.map(o => o.id || 0), 0) + 1;
   let totalFrameShift = 0;
 
   // ─── Mood → filter fallback mapping ─────────────────────────

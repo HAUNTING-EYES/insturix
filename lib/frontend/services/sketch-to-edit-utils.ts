@@ -35,7 +35,7 @@ export async function imageUrlToBase64(
             setTimeout(() => reject(new Error('Fetch timeout')), timeout)
           ),
         ]);
-      } catch (error) {
+      } catch (_error) {
         console.log("[imageUrlToBase64] Direct fetch failed, trying through API proxy");
         // Fallback to API proxy
         const proxyUrl = new URL(imageUrl);

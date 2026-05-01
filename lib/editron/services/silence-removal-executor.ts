@@ -80,7 +80,7 @@ export async function executeSilenceRemoval(
   const originalDuration = project.durationInFrames;
 
   // Work on a mutable copy of overlays
-  let overlays = JSON.parse(JSON.stringify(project.overlays)) as any[];
+  const overlays = JSON.parse(JSON.stringify(project.overlays)) as any[];
   let nextId = Math.max(...overlays.map((o: any) => o.id), 0) + 1;
   let overlaysCreated = 0;
   let overlaysDeleted = 0;
