@@ -68,6 +68,19 @@ export async function getGeneralModel() {
  */
 export { getGenAI };
 
+/**
+ * Get a model bound to the cached creative production knowledge doc.
+ * Creative doc rules (~10K tokens) are cached via Gemini Context Caching
+ * with cache ID stored in Upstash Redis (survives Vercel cold starts).
+ *
+ * Falls back to uncached model with inline system instruction on any failure.
+ * Used by: video-understanding-service (Mode 2 analysis).
+ */
+export async function getCreativeDocModel() {
+  const { getCreativeDocCachedModel } = await import('@/lib/editron/services/gemini-context-cache');
+  return getCreativeDocCachedModel();
+}
+
 // ─── Error Classification ────────────────────────────────────────
 
 /**

@@ -75,7 +75,9 @@ export async function analyzeVideo(
   durationSec: number,
   userIntent?: string,
 ): Promise<SyntheticStoryboard | null> {
-  const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+  // Use creative doc cached model — gives Gemini professional editing knowledge
+  // Falls back to uncached analysis model on any cache failure
+  const { getCreativeDocModel } = await import('@/lib/editron/utils/gemini-model-factory');
 
   try {
     // Download video → upload to Gemini Files API for vision analysis
@@ -85,7 +87,7 @@ export async function analyzeVideo(
       return null;
     }
 
-    const model = await getAnalysisModel();
+    const model = await getCreativeDocModel();
 
     const intentContext = userIntent
       ? `\nUser intent: "${userIntent}" — use this to inform content type, platform, and edit style.\n`
