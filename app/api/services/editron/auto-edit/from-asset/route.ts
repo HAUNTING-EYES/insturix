@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
     const workerUrl = `${baseUrl}/api/internal/workers/video-analysis`;
 
     if (qstashToken) {
-      const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${encodeURIComponent(workerUrl)}`;
+      const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${workerUrl}`;
       console.log(`[auto-edit/from-asset] QStash dispatch: URL=${qstashUrl}, workerUrl=${workerUrl}`);
 
       const qstashRes = await fetch(qstashUrl, {

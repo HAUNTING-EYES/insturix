@@ -166,7 +166,7 @@ async function handler(request: NextRequest) {
           ? `https://${process.env.VERCEL_URL}`
           : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
         if (qstashToken) {
-          await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/` + encodeURIComponent(`${baseUrl}/api/internal/workers/graph-sync`), {
+          await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${qstashToken}`,

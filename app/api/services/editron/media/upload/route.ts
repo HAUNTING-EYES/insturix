@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
         : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
       if (qstashToken) {
-        await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/` + encodeURIComponent(`${baseUrl}/api/internal/workers/asset-analysis`), {
+        await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-analysis`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${qstashToken}`,
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
         console.log(`[Upload] Dispatched analysis worker for ${assetId}`);
 
         // Graph sync: create Asset node in Neo4j (async, non-blocking)
-        await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/` + encodeURIComponent(`${baseUrl}/api/internal/workers/graph-sync`), {
+        await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${qstashToken}`,
