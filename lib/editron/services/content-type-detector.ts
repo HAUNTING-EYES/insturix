@@ -131,8 +131,12 @@ function extractFeatures(
     };
   }
 
-  const speechDurationMs = words.reduce((sum, w) => sum + (w.endMs - w.startMs), 0);
-  const speechCoverage = speechDurationMs / (videoDurationSec * 1000);
+  // Use span from first to last word, not sum of individual durations
+  // (individual word durations can overlap or include gaps, causing >100%)
+  const firstWordMs = words[0].startMs;
+  const lastWordMs = words[words.length - 1].endMs;
+  const speechSpanMs = lastWordMs - firstWordMs;
+  const speechCoverage = Math.min(1.0, speechSpanMs / (videoDurationSec * 1000));
 
   let fillerCount = 0;
   for (const w of words) {
@@ -142,7 +146,7 @@ function extractFeatures(
   }
   const fillerRate = words.length > 0 ? fillerCount / words.length : 0;
 
-  const speechDurationMin = speechDurationMs / 60000;
+  const speechDurationMin = speechSpanMs / 60000;
   const wpm = speechDurationMin > 0 ? words.length / speechDurationMin : 0;
 
   let longPauseCount = 0;

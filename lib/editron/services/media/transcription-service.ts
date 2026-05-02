@@ -133,7 +133,7 @@ async function generateTranscription(
   // Better than Gemma/Gemini for transcription (dedicated speech model).
   try {
     const { fal } = await import('@fal-ai/client');
-    const whisperResult = await fal.subscribe('fal-ai/whisper', {
+    const whisperResult = await fal.subscribe('fal-ai/wizper', {
       input: {
         audio_url: mediaUrl,
         task: 'transcribe',

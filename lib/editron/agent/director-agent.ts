@@ -105,6 +105,7 @@ export async function executeDirectorPlan(
     // Fix 24: Hoist per-asset analysis data to function scope so continuity scoring
     // can use real 5-Track visual data (dominant colors, energy) instead of empty arrays.
     const perAssetAnalysis = new Map<string, any>();
+    let projectDoc: any = null;
 
     const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
@@ -121,7 +122,7 @@ export async function executeDirectorPlan(
       const analyses: any[] = [];
       try {
         const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-        const projectDoc = await db.collection('projects').findOne({ projectId }) as any;
+        projectDoc = await db.collection('projects').findOne({ projectId }) as any;
         const storyboardId = projectDoc?.sourceStoryboardId;
         if (storyboardId) {
           // Path A: ThinkForge storyboard (Mode 1: script → AI video)
@@ -538,7 +539,7 @@ export async function executeDirectorPlan(
     }
 
     const actions = profileActions
-      .filter(action => checkCondition(action.condition, overlays))
+      .filter(action => checkCondition(action.condition, overlays, projectDoc))
       .sort((a, b) => a.order - b.order);
 
     // ─── Step 2.5: Continuity analysis (pure, zero-cost) ─────
@@ -1568,17 +1569,23 @@ async function invokeAITool(
 
 // ─── Condition Checker ───────────────────────────────────────────
 
-function checkCondition(condition: string | undefined, overlays: any[]): boolean {
+function checkCondition(condition: string | undefined, overlays: any[], projectDoc?: any): boolean {
   if (!condition) return true;
+
+  // Mode 2: raw footage has speech IN the video, not as separate voiceover overlay
+  const isRawFootage = !!(projectDoc?.rawFootageAnalysis?.segments?.length > 0);
 
   switch (condition) {
     case 'hasVideoOverlays':
       return overlays.some(o => o.type === 'video');
     case 'hasSpeech':
-      return overlays.some(o => o.type === 'sound' && (o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_')));
     case 'hasVoiceover':
+      // Mode 2: video itself contains speech — treat as having voiceover
+      if (isRawFootage) return true;
       return overlays.some(o => o.type === 'sound' && (o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_')));
     case 'hasMultipleScenes':
+      // Mode 2: transcript segments count as multiple scenes even with 1 video clip
+      if (isRawFootage && (projectDoc.rawFootageAnalysis.segments.length > 1)) return true;
       return overlays.filter(o => o.type === 'image' || o.type === 'video').length > 1;
     case 'hasBGM':
       return overlays.some(o => o.type === 'sound' && (o.row === ROW.BGM || (o.assetId || '').startsWith('bgm_')));
