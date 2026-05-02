@@ -134,9 +134,11 @@ interface IUser extends Document {
       instagramAccountId: string;
       instagramUsername: string;
       profilePictureUrl: string | null;
-      facebookPageId: string;
-      facebookPageName: string;
-      facebookPageAccessToken: string;
+    }>;
+    pageTokens?: Array<{
+      pageId: string;
+      instagramAccountId: string;
+      pageAccessToken: string;
     }>;
     connectedAt: Date;
   };

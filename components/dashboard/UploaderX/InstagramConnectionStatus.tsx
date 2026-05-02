@@ -8,7 +8,6 @@ import { Instagram, CheckCircle, XCircle, Settings, ExternalLink, Loader2 } from
 interface InstagramAccount {
     instagramAccountId: string;
     instagramUsername: string;
-    facebookPageName: string;
 }
 
 interface InstagramStatus {
@@ -108,7 +107,6 @@ export function InstagramConnectionStatus() {
                                             <span className="w-1.5 h-1.5 rounded-full bg-pink-400 inline-block" />
                                             <span className="font-medium">@{account.instagramUsername}</span>
                                         </div>
-                                        <span className="text-zinc-500 pl-3">via {account.facebookPageName}</span>
                                     </div>
                                 ))}
                             </div>

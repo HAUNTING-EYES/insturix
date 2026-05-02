@@ -28,25 +28,23 @@ export async function GET(req: Request) {
     const appId = process.env.FACEBOOK_APP_ID!;
     const appSecret = process.env.FACEBOOK_APP_SECRET!;
 
-    // ✅ MUST match /auth exactly
+    // MUST match /auth exactly
     const redirectUri = `${baseUrl}/api/services/uploaderx/instagram/callback`;
 
     console.log("[IG Callback] Redirect URI:", redirectUri);
 
-    // 🔄 Exchange code → token
-    const tokenUrl = new URL(
-      "https://graph.facebook.com/v21.0/oauth/access_token"
-    );
+    // Exchange code for Facebook access token
+    const tokenUrl = new URL("https://graph.facebook.com/v21.0/oauth/access_token");
     tokenUrl.searchParams.set("client_id", appId);
     tokenUrl.searchParams.set("client_secret", appSecret);
     tokenUrl.searchParams.set("redirect_uri", redirectUri);
-    tokenUrl.searchParams.set("code", code);
+    tokenUrl.searchParams.set("code", code!);
 
     const tokenRes = await fetch(tokenUrl.toString());
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
-      console.error("❌ Token error:", tokenData.error);
+      console.error("❌ Token exchange error:", tokenData.error);
       return NextResponse.redirect(
         `${baseUrl}/dashboard/uploaderx?ig_error=token_exchange`
       );
@@ -54,10 +52,8 @@ export async function GET(req: Request) {
 
     const shortToken = tokenData.access_token;
 
-    // 🔄 Long-lived token
-    const longUrl = new URL(
-      "https://graph.facebook.com/v21.0/oauth/access_token"
-    );
+    // Exchange for long-lived token
+    const longUrl = new URL("https://graph.facebook.com/v21.0/oauth/access_token");
     longUrl.searchParams.set("grant_type", "fb_exchange_token");
     longUrl.searchParams.set("client_id", appId);
     longUrl.searchParams.set("client_secret", appSecret);
@@ -68,50 +64,63 @@ export async function GET(req: Request) {
 
     const userAccessToken = longData.access_token || shortToken;
 
-    // 📄 Fetch pages + IG accounts
+    // Fetch Facebook Pages with Instagram accounts
     const pagesRes = await fetch(
       `https://graph.facebook.com/v21.0/me/accounts?access_token=${userAccessToken}&fields=id,name,access_token,instagram_business_account{id,username,profile_picture_url}`
     );
-
     const pagesData = await pagesRes.json();
 
     if (pagesData.error) {
-      console.error("❌ Pages error:", pagesData.error);
+      console.error("❌ Pages fetch error:", pagesData.error);
       return NextResponse.redirect(
         `${baseUrl}/dashboard/uploaderx?ig_error=pages_fetch`
       );
     }
 
-    const igAccounts: any[] = [];
+    // Extract Instagram Business accounts from Pages
+    const accounts: Array<{
+      instagramAccountId: string;
+      instagramUsername: string;
+      profilePictureUrl: string | null;
+      pageId: string;
+      pageAccessToken: string;
+    }> = [];
 
-    for (const page of pagesData.data || []) {
-      if (page.instagram_business_account) {
-        igAccounts.push({
-          instagramAccountId: page.instagram_business_account.id,
-          instagramUsername:
-            page.instagram_business_account.username || "Unknown",
-          profilePictureUrl:
-            page.instagram_business_account.profile_picture_url || null,
-          facebookPageId: page.id,
-          facebookPageName: page.name,
-          facebookPageAccessToken: page.access_token,
-        });
+    let primaryUserName = "Unknown";
+
+    if (pagesData.data) {
+      for (const page of pagesData.data) {
+        if (page.instagram_business_account) {
+          const igAccount = page.instagram_business_account;
+          accounts.push({
+            instagramAccountId: igAccount.id,
+            instagramUsername: igAccount.username || "Unknown",
+            profilePictureUrl: igAccount.profile_picture_url || null,
+            pageId: page.id,
+            pageAccessToken: page.access_token,
+          });
+
+          if (primaryUserName === "Unknown" && igAccount.username) {
+            primaryUserName = igAccount.username;
+          }
+        }
       }
     }
 
-    if (igAccounts.length === 0) {
+    if (accounts.length === 0) {
+      console.error("❌ No Instagram Business accounts found");
       return NextResponse.redirect(
-        `${baseUrl}/dashboard/uploaderx?ig_error=no_accounts`
+        `${baseUrl}/dashboard/uploaderx?ig_error=no_instagram_account`
       );
     }
 
-    // 👤 User info
+    // Fetch user info
     const meRes = await fetch(
       `https://graph.facebook.com/v21.0/me?access_token=${userAccessToken}`
     );
     const meData = await meRes.json();
 
-    // 💾 Save
+    // Save to database
     await connectToDatabase();
     const { User } = await import("@/schemas/user");
 
@@ -122,8 +131,17 @@ export async function GET(req: Request) {
           instagramTokens: {
             userAccessToken,
             userId: meData.id,
-            userName: meData.name,
-            accounts: igAccounts,
+            userName: primaryUserName,
+            accounts: accounts.map((acc) => ({
+              instagramAccountId: acc.instagramAccountId,
+              instagramUsername: acc.instagramUsername,
+              profilePictureUrl: acc.profilePictureUrl,
+            })),
+            pageTokens: accounts.map((acc) => ({
+              pageId: acc.pageId,
+              instagramAccountId: acc.instagramAccountId,
+              pageAccessToken: acc.pageAccessToken,
+            })),
             connectedAt: new Date(),
           },
         },
