@@ -1,0 +1,2924 @@
+{
+  "part": 3,
+  "name": "Technique Reference",
+  "sourceLines": [3436, 4701],
+  "nodes": [
+    {
+      "id": "technique:zoom.zoom_push",
+      "type": "Technique",
+      "category": "zoom",
+      "name": "Zoom Push",
+      "summary": "Gradually scales into subject to increase intimacy and narrow focus, mimicking physically leaning forward.",
+      "details": {
+        "what": "Scale keyframe animation from current scale to 1.05x-1.15x over 2-6 seconds with ease-out easing",
+        "feels": "Increasing intimacy, focus narrowing, leaning in, growing importance",
+        "parameters": {
+          "start_scale": "current scale (typically 1.0x)",
+          "end_scale": "1.05x-1.15x",
+          "duration": "2-6s",
+          "easing": "ease-out"
+        },
+        "edlDecisionType": "zoom",
+        "neverUseWhen": [
+          "content is mundane (false importance)",
+          "already zoomed past 1.2x (no room)",
+          "too fast on calm content (urgency mismatch)"
+        ],
+        "duration": "2-6s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3452, 3468]
+    },
+    {
+      "id": "technique:zoom.zoom_pull_back",
+      "type": "Technique",
+      "category": "zoom",
+      "name": "Zoom Pull Back",
+      "summary": "Scales out from subject to release tension and reveal context, mimicking stepping back for perspective.",
+      "details": {
+        "what": "Scale keyframe animation from current zoomed scale back to 1.0x or 0.95x over 3-6 seconds with ease-in easing",
+        "feels": "Releasing tension, revealing context, stepping back, resolution, departure",
+        "parameters": {
+          "start_scale": "current scale (typically 1.05-1.15x)",
+          "end_scale": "1.0x or 0.95x",
+          "duration": "3-6s",
+          "easing": "ease-in"
+        },
+        "edlDecisionType": "zoom",
+        "neverUseWhen": [
+          "content is building energy (fights the build)",
+          "too fast (feels like retreat not resolution)"
+        ],
+        "duration": "3-6s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3470, 3487]
+    },
+    {
+      "id": "technique:zoom.zoom_punch",
+      "type": "Technique",
+      "category": "zoom",
+      "name": "Zoom Punch",
+      "summary": "Rapid snap-zoom with overshoot creating a visual exclamation mark effect and triggering mild startle response.",
+      "details": {
+        "what": "Fast scale keyframe from 1.0x to 1.15x-1.35x in 0.2-0.5s with overshoot (102-105%) and settle",
+        "feels": "Impact, visual exclamation, startling, energizing, emphatic, punch",
+        "parameters": {
+          "start_scale": "current scale (typically 1.0x)",
+          "end_scale": "1.15x-1.35x",
+          "duration": "0.2-0.5s",
+          "easing": "ease-out with overshoot",
+          "overshoot": "102-105% of end_scale for 2-3 frames then settle"
+        },
+        "edlDecisionType": "zoom",
+        "neverUseWhen": [
+          "formality > 0.7",
+          "too frequent (exceeds zoom_budget)",
+          "during calm/reflective moments",
+          "during speech wind-down"
+        ],
+        "duration": "0.2-0.5s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3489, 3507]
+    },
+    {
+      "id": "technique:zoom.zoom_drift",
+      "type": "Technique",
+      "category": "zoom",
+      "name": "Zoom Drift",
+      "summary": "Imperceptible slow scale change that prevents visual habituation on static shots without the viewer noticing movement.",
+      "details": {
+        "what": "Very slow linear scale change of 3-5% over 5-10 seconds, imperceptible to viewer, prevents neural habituation",
+        "feels": "None consciously; keeps static shots alive by preventing visual cortex habituation",
+        "parameters": {
+          "start_scale": "current scale",
+          "end_scale": "+/-3-5% from start",
+          "duration": "5-10s",
+          "easing": "linear or very gentle ease"
+        },
+        "edlDecisionType": "zoom",
+        "neverUseWhen": [
+          "applied to already-moving footage",
+          "too fast (becomes noticeable)",
+          "exceeds 5% (visible as a zoom)"
+        ],
+        "duration": "5-10s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3509, 3526]
+    },
+    {
+      "id": "technique:zoom.zoom_reset",
+      "type": "Technique",
+      "category": "zoom",
+      "name": "Zoom Reset",
+      "summary": "Returns scale to neutral 1.0x as a perceptual clean slate signaling topic or section boundary.",
+      "details": {
+        "what": "Keyframe animation returning to 1.0x neutral scale over 1-2 seconds with ease-out",
+        "feels": "Perceptual clean slate, breathing room, event segmentation boundary",
+        "parameters": {
+          "target_scale": "1.0x",
+          "duration": "1-2s",
+          "easing": "ease-out"
+        },
+        "edlDecisionType": "zoom",
+        "neverUseWhen": [
+          "mid-peak (undercuts emphasis moment)",
+          "abrupt reset (feels like technical error)"
+        ],
+        "duration": "1-2s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3528, 3543]
+    },
+    {
+      "id": "technique:transition.hard_cut",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Hard Cut",
+      "summary": "Instantaneous splice between shots; the invisible default transition comprising 80-90% of all professional cuts.",
+      "details": {
+        "what": "Timeline splice at cut frame with zero transition duration; ambient crossfade 0.1-0.3s overlap for audio",
+        "feels": "Forward momentum, continuity, invisible when well-placed",
+        "parameters": {},
+        "edlDecisionType": "transition",
+        "neverUseWhen": [],
+        "duration": "0 frames"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3552, 3560]
+    },
+    {
+      "id": "technique:transition.dissolve",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Dissolve",
+      "summary": "Opacity crossfade blending two shots to communicate time passing, states blending, or dreamlike connection.",
+      "details": {
+        "what": "Outgoing clip fades 100-0% while incoming fades 0-100% simultaneously over duration",
+        "feels": "Time passing, states blending, dreamlike connection, two realities overlapping",
+        "parameters": {
+          "duration_subtle": "0.3-0.5s",
+          "duration_standard": "0.5-1.0s",
+          "duration_dreamy": "1.0-2.0s"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "color_temperature delta > 1000K",
+          "motion_intensity > 0.5 in either clip",
+          "same speaker both clips"
+        ],
+        "duration": "0.3-2.0s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3562, 3575]
+    },
+    {
+      "id": "technique:transition.fade_to_black",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Fade to Black (Dip-to-Black)",
+      "summary": "Fades video and audio to black/silence, holds, then fades in new content to signal chapter ending or major boundary.",
+      "details": {
+        "what": "Opacity fade out (0.3-0.8s), hold on black (0.3-0.5s), fade in (0.3-0.5s); audio fades to silence",
+        "feels": "Gravity, conclusion, chapter ending, stop-process-begin-again",
+        "parameters": {
+          "fade_out": "0.3-0.8s",
+          "hold_on_black": "0.3-0.5s",
+          "fade_in": "0.3-0.5s"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "more than 2-3 per video (fragmented feel)"
+        ],
+        "duration": "0.9-1.8s total"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3577, 3591]
+    },
+    {
+      "id": "technique:transition.fade_from_black",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Fade from Black",
+      "summary": "Incoming clip emerges from black, signaling awakening or new beginning.",
+      "details": {
+        "what": "Incoming clip opacity animates 0-100% over duration; audio fades in with or slightly before picture",
+        "feels": "Awakening, new beginning, emergence, first moment of awareness",
+        "parameters": {
+          "duration": "0.3-0.8s"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [],
+        "duration": "0.3-0.8s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3593, 3602]
+    },
+    {
+      "id": "technique:transition.dip_to_white",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Dip to White",
+      "summary": "Fades to white then back, communicating transcendence, brightness, and aspiration; the optimistic counterpart to dip-to-black.",
+      "details": {
+        "what": "Fade out to white (0.2-0.5s), hold (0.1-0.3s), fade in from white (0.2-0.5s); white overlay with opacity keyframes",
+        "feels": "Transcendence, brightness, aspiration, dream, entering a brighter world",
+        "parameters": {
+          "fade_out": "0.2-0.5s",
+          "hold_on_white": "0.1-0.3s",
+          "fade_in": "0.2-0.5s"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "more than 1-2 per video",
+          "violates flash limits (< 3 flashes/sec, < 25% screen area)"
+        ],
+        "duration": "0.5-1.3s total"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3604, 3617]
+    },
+    {
+      "id": "technique:transition.wipe",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Wipe",
+      "summary": "Animated mask reveals incoming clip in a specified direction; explicitly visible, playful, references early cinema.",
+      "details": {
+        "what": "Animated mask revealing incoming clip from a direction; hard or soft edge (10-20px feather)",
+        "feels": "New different energy, playful, retro, explicitly produced, fun",
+        "parameters": {
+          "direction": "left-to-right | right-to-left | top-to-bottom | bottom-to-top",
+          "duration": "0.3-0.6s",
+          "edge": "hard | soft (feathered 10-20px)"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "can feel dated in Western corporate content"
+        ],
+        "duration": "0.3-0.6s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3619, 3630]
+    },
+    {
+      "id": "technique:transition.whip_pan",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Whip Pan",
+      "summary": "Ultra-fast directional blur transition simulating rapid head turn; requires mandatory whoosh sound.",
+      "details": {
+        "what": "Directional Gaussian blur (15-30px) on outgoing last frames + incoming first frames, cut at peak blur",
+        "feels": "Quick urgency, energy, comedy, fastest non-cut transition, physically turning head",
+        "parameters": {
+          "direction": "left | right | up | down",
+          "duration": "0.2-0.4s",
+          "blur_intensity": "15-30px directional Gaussian blur"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "formality > 0.7",
+          "during dialogue",
+          "more than 3-4 per video outside montage"
+        ],
+        "duration": "0.2-0.4s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3632, 3644]
+    },
+    {
+      "id": "technique:transition.flash",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Flash (White Flash)",
+      "summary": "2-4 frame white flash at cut boundary creating maximum visual force in minimum time; requires accessibility compliance.",
+      "details": {
+        "what": "Insert white frame(s) at cut boundary; 2-4 frames (66-133ms at 30fps) at 80-100% white intensity",
+        "feels": "Impact, snapshot, memory flash, maximum visual force in minimum time",
+        "parameters": {
+          "duration": "2-4 frames (66-133ms at 30fps)",
+          "intensity": "80-100% white"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "more than 2-3 per video outside montage",
+          "violates WCAG flash limits (> 3 flashes/sec, > 25% screen area)"
+        ],
+        "duration": "66-133ms"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3646, 3656]
+    },
+    {
+      "id": "technique:transition.film_burn",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Film Burn",
+      "summary": "Animated warm light-leak overlay referencing physical film stock burning from projector heat; analog nostalgia.",
+      "details": {
+        "what": "Animated film burn overlay (pre-rendered texture) at 60-80% opacity with warm orange/yellow light leak gradient",
+        "feels": "Analog nostalgia, vintage warmth, memory, physical film stock reference",
+        "parameters": {
+          "duration": "0.5-1.0s",
+          "color": "warm (orange/yellow light leak gradient)",
+          "opacity": "60-80%"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "overall aesthetic is not warm/analog/vintage",
+          "isolated use in clean modern content (reads as random)"
+        ],
+        "duration": "0.5-1.0s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3658, 3668]
+    },
+    {
+      "id": "technique:transition.iris_wipe",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Iris Wipe",
+      "summary": "Circular mask animation closing or opening on subject; theatrical and playful, references early cinema and cartoons.",
+      "details": {
+        "what": "Circular mask animation centered on face position or frame center; iris-in (closing) or iris-out (opening)",
+        "feels": "Theatrical, playful, spotlight, early cinema reference",
+        "parameters": {
+          "direction": "iris-in (closing) | iris-out (opening)",
+          "center": "face_present position or frame center",
+          "duration": "0.3-0.6s"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "formality > 0.3",
+          "non-playful content",
+          "no deliberate retro aesthetic"
+        ],
+        "duration": "0.3-0.6s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3670, 3680]
+    },
+    {
+      "id": "technique:transition.blur_transition",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Blur Transition",
+      "summary": "Outgoing clip blurs to peak then incoming resolves from blur; simulates eye defocus and hides color temperature mismatches.",
+      "details": {
+        "what": "Gaussian blur keyframes: outgoing 0 to max, incoming max to 0, cut at peak blur (15-30px)",
+        "feels": "Dreamy, shifting focus, entering/leaving a mental state",
+        "parameters": {
+          "blur_out_duration": "0.3-0.6s",
+          "blur_in_duration": "0.3-0.6s",
+          "blur_amount": "15-30px Gaussian at peak"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [],
+        "duration": "0.6-1.2s total"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3682, 3692]
+    },
+    {
+      "id": "technique:transition.slide_transition",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Slide Transition",
+      "summary": "Clips slide on/off screen simultaneously or as cover; most presentation-like transition for sequential content.",
+      "details": {
+        "what": "Position keyframes: outgoing slides off-screen while incoming slides on from opposite direction",
+        "feels": "Sequential, progressive, the next item, presentation-like",
+        "parameters": {
+          "direction": "left-to-right | right-to-left | up | down",
+          "duration": "0.3-0.5s",
+          "style": "push (both move) | cover (incoming slides over)"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "emotional/narrative transitions (too mechanical)",
+          "non-sequential content"
+        ],
+        "duration": "0.3-0.5s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3694, 3704]
+    },
+    {
+      "id": "technique:transition.soft_cut",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Soft Cut",
+      "summary": "3-5 frame micro-dissolve removing single-frame brightness shock of hard cut without temporal weight of a real dissolve.",
+      "details": {
+        "what": "3-5 frame opacity crossfade (identical to dissolve but extremely short, 100-167ms at 30fps)",
+        "feels": "Smoother than hard cut but viewer cannot identify why; invisible polish",
+        "parameters": {
+          "duration": "3-5 frames (100-167ms at 30fps)"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "fast pacing (brief blend creates ghost images)",
+          "very different compositions between shots"
+        ],
+        "duration": "100-167ms"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3706, 3715]
+    },
+    {
+      "id": "technique:transition.match_cut",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Match Cut",
+      "summary": "Hard cut where visual content provides the transition through shared shape, motion, composition, or color between shots.",
+      "details": {
+        "what": "Standard hard cut where outgoing and incoming share visual similarity (shape, motion trajectory, composition, color); Eisenstein's intellectual montage",
+        "feels": "Intelligence, visual poetry, connection, the most meaningful transition",
+        "parameters": {
+          "requirement": "outgoing and incoming must share visual similarity"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "more than 1-2 per video (prestige technique, overuse trivializes)"
+        ],
+        "duration": "0 frames (hard cut)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3717, 3726]
+    },
+    {
+      "id": "technique:transition.smash_cut",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Smash Cut",
+      "summary": "Hard cut with maximum emotional/energetic contrast between shots; weaponized whiplash for shock or comedy.",
+      "details": {
+        "what": "Hard cut with ambient crossfade disabled; outgoing and incoming must be emotionally/energetically opposite; optional 0.1-0.2s silence before incoming",
+        "feels": "Shock, comedy, weaponized whiplash, the cut itself is the joke or scare",
+        "parameters": {
+          "requirement": "maximum contrast between shots (calm to chaotic, quiet to loud, bright to dark)",
+          "no_ambient_crossfade": true
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "formality > 0.7 (jarring reads as error)",
+          "shots are not truly contrasting",
+          "more than 2 per video"
+        ],
+        "duration": "0 frames (hard cut)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3728, 3737]
+    },
+    {
+      "id": "technique:transition.jump_cut",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Jump Cut",
+      "summary": "Time segment removal from continuous shot with optional zoom offset to mask the visual jump; YouTube/TikTok native language.",
+      "details": {
+        "what": "Remove time segment from continuous shot; optional 5-7% scale offset keyframe at cut to mask the jump",
+        "feels": "Energy, time compression, cutting the fat, every second earns its place",
+        "parameters": {
+          "zoom_offset": "+/-5-7% scale change (optional)"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "formality > 0.6 without zoom offset (looks like error)",
+          "during continuous physical actions"
+        ],
+        "duration": "0 frames"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3739, 3749]
+    },
+    {
+      "id": "technique:transition.invisible_cut",
+      "type": "Technique",
+      "category": "transition",
+      "name": "Invisible Cut",
+      "summary": "Cut hidden behind screen obstruction (object, motion blur, darkness, whip) creating seamless one-take illusion.",
+      "details": {
+        "what": "Identify obstruction frames in both clips, align them, cut during full obstruction; audio and color must be continuous",
+        "feels": "Seamless, one-take illusion, magic, the cut exists but viewer does not see it",
+        "parameters": {
+          "hide_method": "behind_object | motion_blur | darkness | whip",
+          "requirement": "both clips must have a frame where full screen is obscured"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [
+          "audio discontinuity exists (reveals splice)",
+          "color shift exists across cut (reveals it)"
+        ],
+        "duration": "0 frames visible"
+      },
+      "tags": ["DETERMINISTIC", "MODE_2_ONLY"],
+      "sourceLines": [3751, 3760]
+    },
+    {
+      "id": "technique:transition.j_cut",
+      "type": "Technique",
+      "category": "transition",
+      "name": "J-Cut",
+      "summary": "Incoming audio starts before incoming video creating anticipation via predictive processing.",
+      "details": {
+        "what": "Offset incoming clip's audio track earlier than video by lead duration (0.3-0.8s); sound pulls viewer into next scene",
+        "feels": "Anticipation, what am I about to see, sound pulls viewer forward",
+        "parameters": {
+          "audio_lead": "0.3-0.8s"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [],
+        "duration": "0.3-0.8s audio lead"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3762, 3769]
+    },
+    {
+      "id": "technique:transition.l_cut",
+      "type": "Technique",
+      "category": "transition",
+      "name": "L-Cut",
+      "summary": "Outgoing audio lingers after outgoing video ends, extending emotional impact past visual boundary.",
+      "details": {
+        "what": "Extend outgoing clip's audio track past its video endpoint by linger duration (0.3-1.0s); sound extends the moment",
+        "feels": "Lingering, echo, previous moment stays with you, emotional extension",
+        "parameters": {
+          "audio_linger": "0.3-1.0s"
+        },
+        "edlDecisionType": "transition",
+        "neverUseWhen": [],
+        "duration": "0.3-1.0s audio linger"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3770, 3778]
+    },
+    {
+      "id": "technique:speed.slow_motion",
+      "type": "Technique",
+      "category": "speed",
+      "name": "Slow Motion",
+      "summary": "Temporal stretching to 50-80% speed conveying weight, beauty, and savoring; brain interprets slowed time as peak experience.",
+      "details": {
+        "what": "Speed property reduction to 50-80% on overlay; original audio replaced with music swell or etherealized ambient",
+        "feels": "Weight, beauty, savoring, this moment matters, temporal importance",
+        "parameters": {
+          "speed": "50-80% (never below 50% without frame interpolation)",
+          "duration": "1.5-4s of slow-mo content"
+        },
+        "edlDecisionType": "speed-change",
+        "neverUseWhen": [
+          "AI footage (temporal artifacts become extremely visible)",
+          "source fps too low (30fps at 50% = 15fps stuttery)"
+        ],
+        "duration": "1.5-4s screen time"
+      },
+      "tags": ["DETERMINISTIC", "MODE_2_ONLY"],
+      "sourceLines": [3785, 3796]
+    },
+    {
+      "id": "technique:speed.speed_ramp",
+      "type": "Technique",
+      "category": "speed",
+      "name": "Speed Ramp",
+      "summary": "Dynamic speed changes within a shot (normal to slow to normal, or normal to fast to normal) creating vestibular response.",
+      "details": {
+        "what": "Speed keyframes with easing: ramp from normal to slow (50-75%) and back, or normal to fast (130-150%) and back, over 0.3-0.5s transitions",
+        "feels": "Dynamic emphasis, viewer physically feels deceleration/acceleration, Disney squash-and-stretch applied to time",
+        "parameters": {
+          "pattern": "normal-slow-normal (emphasis) | normal-fast-normal (compression)",
+          "slow_point": "50-75% speed",
+          "fast_point": "130-150% speed",
+          "ramp_duration": "0.3-0.5s each transition",
+          "easing": "ease-in/ease-out (never linear)"
+        },
+        "edlDecisionType": "speed-change",
+        "neverUseWhen": [
+          "ramp TO SLOWER on AI footage (amplifies artifacts)"
+        ],
+        "duration": "varies"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3798, 3811]
+    },
+    {
+      "id": "technique:speed.time_lapse",
+      "type": "Technique",
+      "category": "speed",
+      "name": "Time Lapse",
+      "summary": "Speed multiplier of 200-1000% compressing 15-120 seconds of real time into 3-8 seconds of screen time.",
+      "details": {
+        "what": "Uniform speed multiplier (2x-10x) on overlay with audio entirely replaced; hard cut entry/exit",
+        "feels": "Time compression, process visualization, this took time but we are not making you wait",
+        "parameters": {
+          "speed": "200-1000% (2x-10x)",
+          "duration": "3-8s screen time (compressing 15-120s real time)"
+        },
+        "edlDecisionType": "speed-change",
+        "neverUseWhen": [
+          "speech during time-lapse",
+          "faces in close-up (comical at high speed)"
+        ],
+        "duration": "3-8s screen time"
+      },
+      "tags": ["DETERMINISTIC", "MODE_2_ONLY"],
+      "sourceLines": [3813, 3823]
+    },
+    {
+      "id": "technique:color.color_warm_shift",
+      "type": "Technique",
+      "category": "color",
+      "name": "Color Warm Shift",
+      "summary": "Increases color temperature +100K to +400K creating golden/amber warmth evoking comfort, nostalgia, and intimacy.",
+      "details": {
+        "what": "Color temperature increase applied per scene or ramped over 1-3s; skin tones must stay on vectorscope I-line",
+        "feels": "Comfort, nostalgia, intimacy, safety, golden/amber world, home, memory, love",
+        "parameters": {
+          "amount": "+100K to +400K",
+          "duration": "per scene or ramped over 1-3s"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [
+          "skin tones pushed off vectorscope I-line (reduce amount)"
+        ],
+        "duration": "per scene"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3831, 3839]
+    },
+    {
+      "id": "technique:color.color_cool_shift",
+      "type": "Technique",
+      "category": "color",
+      "name": "Color Cool Shift",
+      "summary": "Decreases color temperature -100K to -300K creating blue/teal clinical quality evoking distance, authority, or melancholy.",
+      "details": {
+        "what": "Color temperature decrease applied per scene or ramped; skin tone protection required",
+        "feels": "Clinical, professional, melancholy, distance, blue/teal world, authority, sadness, modernity",
+        "parameters": {
+          "amount": "-100K to -300K",
+          "duration": "per scene or ramped"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [
+          "skin tones pushed off vectorscope I-line"
+        ],
+        "duration": "per scene"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3840, 3848]
+    },
+    {
+      "id": "technique:color.desaturate",
+      "type": "Technique",
+      "category": "color",
+      "name": "Desaturate",
+      "summary": "Reduces color saturation 10-40% (or full B&W at 0%) for seriousness, documentary feel, or to hide AI color inconsistencies.",
+      "details": {
+        "what": "Saturation reduction from -10% to -40% or full black-and-white (0%); can unify clips from different AI generation runs",
+        "feels": "Seriousness, documentary, timelessness (B&W), vintage (partial desat), content stands on own",
+        "parameters": {
+          "amount": "-10% to -40%",
+          "full_bw": "boolean (0% saturation)"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [],
+        "duration": "per scene"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3849, 3856]
+    },
+    {
+      "id": "technique:color.grade_change",
+      "type": "Technique",
+      "category": "color",
+      "name": "Grade Change (Full Grade)",
+      "summary": "Complete color grading with lift/gamma/gain, saturation, contrast, temperature and tint defining the emotional world of the video.",
+      "details": {
+        "what": "Full color processing pipeline: per-channel RGB lift/gamma/gain, saturation (-40% to +20%), contrast (-20% to +30%), temperature (+/-500K), tint (+/-10 green-magenta); applied at 50% on AI footage",
+        "feels": "Defines the emotional WORLD of the video; the first thing viewer feels before processing content",
+        "parameters": {
+          "lift_gamma_gain": "per-channel RGB adjustments",
+          "saturation": "-40% to +20%",
+          "contrast": "-20% to +30%",
+          "temperature": "+/-500K",
+          "tint": "+/-10 (green-magenta axis)"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [
+          "skin tone pushed off I-line (skin accuracy > creative grade)",
+          "heavy grading on AI footage without 50% reduction"
+        ],
+        "duration": "per scene"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3857, 3868]
+    },
+    {
+      "id": "technique:graphic.stat_counter",
+      "type": "Technique",
+      "category": "graphic",
+      "name": "Stat Counter",
+      "summary": "Animated numeric display (count-up, pop, or fade) reinforcing spoken statistics with dual-coding for 2x retention.",
+      "details": {
+        "what": "HTML overlay or Remotion component displaying exact number from transcript with animation; enters 0.3s after spoken",
+        "feels": "Authority, proof, data visualization, see it AND hear it",
+        "parameters": {
+          "value": "exact number from transcript",
+          "format": "numeric (300%) | currency ($49) | count (10x)",
+          "size": "small | medium | large",
+          "animation": "count-up | pop | fade",
+          "accent_color": "brand palette or default gold",
+          "duration": "2-4s"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "overlapping caption zone",
+          "overlapping other active overlays"
+        ],
+        "duration": "2-4s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3878, 3891]
+    },
+    {
+      "id": "technique:graphic.callout",
+      "type": "Technique",
+      "category": "graphic",
+      "name": "Callout",
+      "summary": "Arrow/line/circle pointing to specific frame location bridging verbal reference to visual target.",
+      "details": {
+        "what": "Label positioned to not overlap target; arrow/line/circle connects label to referenced (x,y) position in frame",
+        "feels": "Look HERE specifically, bridges verbal to visual location",
+        "parameters": {
+          "text": "feature/part name from transcript",
+          "target": "(x, y) position of referenced area",
+          "style": "arrow + label | line + label | circle + label",
+          "duration": "2-4s"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "2-4s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3892, 3901]
+    },
+    {
+      "id": "technique:graphic.lower_third",
+      "type": "Technique",
+      "category": "graphic",
+      "name": "Lower Third",
+      "summary": "Name/title identification overlay for speakers or brands, shown on first mention only.",
+      "details": {
+        "what": "Slide-in or fade-in name+title overlay in lower portion of frame; first mention only, no repeat within 60s",
+        "feels": "Identification, authority, context, this is who is speaking",
+        "parameters": {
+          "name": "person/brand name from transcript or brief",
+          "title": "role/description (optional)",
+          "position": "lower left (standard) | lower right | lower center",
+          "duration": "3-5s",
+          "animation": "slide-in from left | fade-in"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "repeat for same name within 60s"
+        ],
+        "duration": "3-5s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3902, 3912]
+    },
+    {
+      "id": "technique:graphic.quote_card",
+      "type": "Technique",
+      "category": "graphic",
+      "name": "Quote Card",
+      "summary": "Visual pull-quote displaying cleaned assertion from transcript with attribution; max 2-3 per video.",
+      "details": {
+        "what": "Quotation marks + text + attribution line overlay; text from transcript (cleaned phrasing, same fact)",
+        "feels": "Emphasis, authority, this was said and it matters, visual pull-quote",
+        "parameters": {
+          "text": "cleaned assertion from transcript",
+          "attribution": "speaker name",
+          "position": "center or lower third",
+          "duration": "3-5s",
+          "style": "quotation marks + text + attribution line"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "more than 2-3 per video (quote fatigue)",
+          "AI editorializing (text must come from transcript)"
+        ],
+        "duration": "3-5s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3913, 3924]
+    },
+    {
+      "id": "technique:graphic.keyword_highlight",
+      "type": "Technique",
+      "category": "graphic",
+      "name": "Keyword Highlight",
+      "summary": "Single word/phrase from transcript displayed with accent color to reinforce branded or technical vocabulary.",
+      "details": {
+        "what": "Exact word/phrase from transcript with pop or fade animation in accent color background or outline",
+        "feels": "This term matters, visual bold text, vocabulary reinforcement",
+        "parameters": {
+          "text": "exact word/phrase from transcript",
+          "position": "near speaker or center",
+          "duration": "1.5-2.5s",
+          "animation": "pop | fade",
+          "style": "accent color background or outline"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "more than 1 per 15 seconds"
+        ],
+        "duration": "1.5-2.5s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3925, 3934]
+    },
+    {
+      "id": "technique:graphic.logo_reveal",
+      "type": "Technique",
+      "category": "graphic",
+      "name": "Logo Reveal",
+      "summary": "Brand logo display with fade-in or scale-up animation; deterministic clear space, minimum size, and contrast requirements.",
+      "details": {
+        "what": "Uploaded brand logo (NEVER AI-generated) with fade-in or scale-up; 1 intro + 1 outro max; deterministic sizing rules",
+        "feels": "Brand signature, clean, clear, professional",
+        "parameters": {
+          "asset": "uploaded brand logo",
+          "position": "center (end card) | lower-left (watermark) | lower-right (watermark)",
+          "duration_intro": "1-2s",
+          "duration_outro": "2-4s",
+          "animation": "fade-in | scale-up",
+          "clear_space": "height of tallest letter on all sides",
+          "min_size": "48px wide",
+          "contrast": "3:1 against background"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "mid-content unless requested",
+          "AI-generated logo"
+        ],
+        "duration": "1-4s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3935, 3947]
+    },
+    {
+      "id": "technique:caption.word_by_word",
+      "type": "Technique",
+      "category": "caption",
+      "name": "Word by Word",
+      "summary": "Each word appears individually synced to speech timing with key words scaled or color-popped; social-native Hormozi style.",
+      "details": {
+        "what": "Per-word overlay with timestamps from Whisper; word appears at word_start - 0.1s; max 3-5 visible at once; emphasis words scale 120-140% or accent color",
+        "feels": "Forced reading engagement, active participation, social-native",
+        "parameters": {
+          "reveal": "word_start - 0.1s",
+          "hold": "visible until next word",
+          "emphasis": "key words scale 120-140% or accent color",
+          "max_visible_words": "3-5"
+        },
+        "edlDecisionType": "caption",
+        "neverUseWhen": [
+          "speaking_rate > 180 WPM (flashes too fast)",
+          "formality > 0.7 (feels gimmicky)"
+        ],
+        "duration": "continuous"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3955, 3966]
+    },
+    {
+      "id": "technique:caption.phrase_display",
+      "type": "Technique",
+      "category": "caption",
+      "name": "Phrase Display",
+      "summary": "3-5 word groups appear together at clause boundaries, balancing word-by-word energy with subtitle formality.",
+      "details": {
+        "what": "Group words into 3-5 word phrases at clause/pause boundaries; display as unit with 0.08s gap between consecutive",
+        "feels": "Readable, moderate engagement, balanced energy/formality",
+        "parameters": {
+          "chunk_size": "3-5 words per group",
+          "display_duration": "word_count * 0.3s min, speech timing max",
+          "min_display": "1.0s",
+          "gap": "0.08s between phrases"
+        },
+        "edlDecisionType": "caption",
+        "neverUseWhen": [],
+        "duration": "continuous"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3967, 3977]
+    },
+    {
+      "id": "technique:caption.subtitle_mode",
+      "type": "Technique",
+      "category": "caption",
+      "name": "Subtitle Mode",
+      "summary": "Standard broadcast-quality 1-2 line subtitle display at 37-42 chars per line with semi-transparent background.",
+      "details": {
+        "what": "1-2 lines centered at bottom within 80% safe zone; semi-transparent box (60-80% black) or text outline (2-3px); 160-180 WPM reading speed",
+        "feels": "Formal, broadcast-quality, accessible, standard subtitling",
+        "parameters": {
+          "max_lines": 2,
+          "max_chars": "42 per line",
+          "position": "bottom center, 80% safe zone",
+          "background": "semi-transparent box (60-80% black) or outline (2-3px)",
+          "display_duration": "min 1.0s, max 7.0s",
+          "reading_speed": "160-180 WPM target"
+        },
+        "edlDecisionType": "caption",
+        "neverUseWhen": [],
+        "duration": "continuous"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3978, 3990]
+    },
+    {
+      "id": "technique:caption.karaoke_mode",
+      "type": "Technique",
+      "category": "caption",
+      "name": "Karaoke Mode",
+      "summary": "Text progressively highlights word-by-word in sync with audio playback like lyric display.",
+      "details": {
+        "what": "Word-level highlighting synced to Whisper timestamps; accent color highlights progress through text",
+        "feels": "Musical, performative, lyric content, the audio itself is the performance",
+        "parameters": {
+          "highlight_color": "accent color from brand palette",
+          "unhighlighted": "white or light gray",
+          "sync": "word-level timing from Whisper"
+        },
+        "edlDecisionType": "caption",
+        "neverUseWhen": [
+          "non-musical content without deliberate intent"
+        ],
+        "duration": "continuous"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [3991, 3999]
+    },
+    {
+      "id": "technique:caption.caption_emphasis",
+      "type": "Technique",
+      "category": "caption",
+      "name": "Caption Emphasis",
+      "summary": "Per-word style override on caption overlay (scale, color, bold, underline, box, glow) for visual stress on specific words.",
+      "details": {
+        "what": "Per-word style override: scale (120-150%), color_pop, bold, underline, box_highlight, or glow; triggered by emphasis_word signal or entity_number",
+        "feels": "Visual stress on specific words, same as vocal emphasis but in text",
+        "parameters": {
+          "type": "scale (120-150%) | color_pop | bold | underline | box_highlight | glow",
+          "target": "specific word(s) flagged by emphasis signal",
+          "duration": "aligned to word timing",
+          "animation": "pop (overshoot + settle) | instant"
+        },
+        "edlDecisionType": "caption",
+        "neverUseWhen": [
+          "more than 1 emphasis per 8-10 seconds"
+        ],
+        "duration": "per word"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4000, 4009]
+    },
+    {
+      "id": "technique:sound.sfx_impact",
+      "type": "Technique",
+      "category": "sound",
+      "name": "SFX Impact",
+      "summary": "Bass drop, boom, hit, thud, or slam sound at -8 to -14dB synced frame-accurate to visual event for physical force.",
+      "details": {
+        "what": "Impact sound effect at frame-accurate timing (within +/-1 frame, 40ms); felt in the body",
+        "feels": "Physical force, viewer FEELS the impact, visceral, startling, emphatic",
+        "parameters": {
+          "type": "bass_drop | boom | hit | thud | slam",
+          "level": "-8 to -14dB",
+          "timing": "frame-accurate to visual event (+/- 1 frame max)"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [
+          "more than 3-4 per video (impact fatigue)",
+          "without a visual event to earn it"
+        ],
+        "duration": "instantaneous"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4017, 4026]
+    },
+    {
+      "id": "technique:sound.sfx_whoosh",
+      "type": "Technique",
+      "category": "sound",
+      "name": "SFX Whoosh",
+      "summary": "Directional movement sound accompanying transitions; starts 2-3 frames before, peaks at midpoint, ends 2-3 frames after.",
+      "details": {
+        "what": "Whoosh sound (soft/medium/hard) aligned to transition start-peak-end; direction-matched to visual movement",
+        "feels": "Movement, speed, transition energy, makes visual motion feel physical",
+        "parameters": {
+          "type": "soft | medium | hard",
+          "direction": "left-to-right | right-to-left | bidirectional | radial",
+          "level": "-10 to -16dB",
+          "timing": "starts 2-3 frames before, peaks at midpoint, ends 2-3 frames after"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [],
+        "duration": "transition-length"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4027, 4035]
+    },
+    {
+      "id": "technique:sound.sfx_ambient_bed",
+      "type": "Technique",
+      "category": "sound",
+      "name": "SFX Ambient Bed",
+      "summary": "Continuous low-level ambient sound (-20 to -30dB) providing place and reality; never optional, true silence is technical error.",
+      "details": {
+        "what": "Continuous ambient at -20 to -30dB throughout scene, crossfading 0.1-0.3s at boundaries; viewer should feel not hear it",
+        "feels": "Place, reality, world-building; without ambient, video exists in a void",
+        "parameters": {
+          "type": "room_tone | outdoor_wind | outdoor_city | outdoor_nature | crowd | mechanical | studio",
+          "level": "-20 to -30dB",
+          "duration": "continuous throughout scene",
+          "crossfade": "0.1-0.3s at scene boundaries"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [
+          "NEVER omit ambient (true silence = technical error, minimum room tone at -35dB)"
+        ],
+        "duration": "continuous"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4036, 4044]
+    },
+    {
+      "id": "technique:sound.sfx_spot",
+      "type": "Technique",
+      "category": "sound",
+      "name": "SFX Spot (Foley)",
+      "summary": "Frame-accurate sound for visible actions (footsteps, objects, fabric) providing tactility via Chion's materializing sound indices.",
+      "details": {
+        "what": "Spot sound effect at -12 to -18dB frame-accurate to visible action; only for clearly visible actions",
+        "feels": "Reality, tactility, viewer touches what they see through sound, physical presence",
+        "parameters": {
+          "type": "footstep | door | object_handle | pour | typing | fabric | click | tap | nature_specific",
+          "level": "-12 to -18dB",
+          "timing": "frame-accurate to visible action"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [
+          "ambiguous AI motion (draws attention to the ambiguity)",
+          "action not clearly visible"
+        ],
+        "duration": "instantaneous"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4045, 4053]
+    },
+    {
+      "id": "technique:sound.music_duck",
+      "type": "Technique",
+      "category": "sound",
+      "name": "Music Duck",
+      "summary": "Automated music volume reduction during speech via sidechain compression; always applied when speech and music coexist.",
+      "details": {
+        "what": "Sidechain compression or automated volume keyframes: duck -6 to -12dB with 200-400ms attack, 400-800ms release, 100-200ms look-ahead",
+        "feels": "Speech clarity, music steps back for voice then returns",
+        "parameters": {
+          "duck_amount": "-6 to -12dB relative to music solo",
+          "attack": "200-400ms",
+          "release": "400-800ms",
+          "look_ahead": "100-200ms",
+          "music_under_speech": "-18 to -24dB target",
+          "music_solo": "-12 to -6dB target"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [
+          "NEVER skip when speech and music coexist"
+        ],
+        "duration": "continuous"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4054, 4065]
+    },
+    {
+      "id": "technique:sound.music_swell",
+      "type": "Technique",
+      "category": "sound",
+      "name": "Music Swell",
+      "summary": "Music volume rises +3 to +6dB over 2-5 seconds aligned to content emotional peak, cinematic moment, or CTA.",
+      "details": {
+        "what": "Music level increase of +3 to +6dB above current level building over 2-5 seconds to align with content peak",
+        "feels": "Emotional amplification, music rises to match content peak, goosebumps territory",
+        "parameters": {
+          "swell_amount": "+3 to +6dB above current",
+          "duration": "2-5s build",
+          "target_moment": "cinematic_moment | CTA | emotional peak"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [
+          "during mundane content (feels random)",
+          "not aligned with a content peak"
+        ],
+        "duration": "2-5s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4066, 4074]
+    },
+    {
+      "id": "technique:sound.silence_beat",
+      "type": "Technique",
+      "category": "sound",
+      "name": "Silence Beat",
+      "summary": "Strategic 0.3-1.5 seconds of near-silence amplifying what came before and building anticipation for what follows.",
+      "details": {
+        "what": "Near-silence (ambient at -35 to -40dB only) for 0.3-1.5s placed after strong claims, before reveals, between emotional states",
+        "feels": "Weight, anticipation, processing time, the rest is as important as the note",
+        "parameters": {
+          "duration": "0.3-1.5s",
+          "ambient_level": "-35 to -40dB",
+          "placement": "after strong claim | before reveal | between emotional states"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [
+          "narrative_pressure < 0.5 (silence becomes dead air not a beat)"
+        ],
+        "duration": "0.3-1.5s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4075, 4082]
+    },
+    {
+      "id": "technique:animation.fade_in_out",
+      "type": "Technique",
+      "category": "animation",
+      "name": "Fade In / Fade Out",
+      "summary": "Default overlay animation for formal content; entrance 0.3-0.5s ease-out, exit 20% faster with ease-in.",
+      "details": {
+        "what": "Opacity animation: entrance 0-100% over 0.3-0.5s (ease-out), exit 100-0% over 0.25-0.4s (ease-in, 20% faster)",
+        "feels": "Professional, clean, neutral, animation should not draw attention",
+        "parameters": {
+          "entrance_duration": "0.3-0.5s",
+          "exit_duration": "0.25-0.4s",
+          "easing": "ease-out entrance, ease-in exit"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "0.3-0.5s entrance"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4092, 4099]
+    },
+    {
+      "id": "technique:animation.scale_pop",
+      "type": "Technique",
+      "category": "animation",
+      "name": "Scale Pop",
+      "summary": "Element scales from 0% to 105% then settles to 100% with overshoot creating energetic arrival with physical weight.",
+      "details": {
+        "what": "Scale from 0% to 105% to 100% over 0.2-0.4s (overshoot 3-5% + settle 0.1s); exit 100% to 0% over 0.15-0.3s",
+        "feels": "Energetic, attention-grabbing, playful, element arrives with personality",
+        "parameters": {
+          "entrance": "0% to 105% to 100% over 0.2-0.4s",
+          "exit": "100% to 0% over 0.15-0.3s",
+          "overshoot": "3-5% past target"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "formality > 0.5"
+        ],
+        "duration": "0.2-0.4s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4100, 4108]
+    },
+    {
+      "id": "technique:animation.slide_in_out",
+      "type": "Technique",
+      "category": "animation",
+      "name": "Slide In / Slide Out",
+      "summary": "Element enters from off-screen in specified direction, decelerating into position; good for sequential content.",
+      "details": {
+        "what": "Position animation from 100% off-screen to final position over 0.3-0.5s with ease-out; exit reverses",
+        "feels": "Sequential, directional, element comes from somewhere, step-by-step",
+        "parameters": {
+          "direction": "from-left | from-right | from-bottom | from-top",
+          "distance": "starts 100% off-screen",
+          "entrance_duration": "0.3-0.5s",
+          "exit_duration": "0.25-0.4s",
+          "easing": "ease-out (decelerate into position)"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "0.3-0.5s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4109, 4117]
+    },
+    {
+      "id": "technique:animation.bounce",
+      "type": "Technique",
+      "category": "animation",
+      "name": "Bounce",
+      "summary": "Element drops from above and bounces 2-3 times with decreasing amplitude; playful physical weight.",
+      "details": {
+        "what": "Drops from above, bounces 2-3 times (15%, 5%, 2% of position offset) over 0.4-0.6s",
+        "feels": "Playful, lighthearted, fun, element has physical weight and personality",
+        "parameters": {
+          "duration": "0.4-0.6s",
+          "bounce_heights": "first 15%, second 5%, third 2%"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "formality > 0.3"
+        ],
+        "duration": "0.4-0.6s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4118, 4125]
+    },
+    {
+      "id": "technique:animation.typewriter",
+      "type": "Technique",
+      "category": "animation",
+      "name": "Typewriter",
+      "summary": "Characters appear one at a time at 30-50ms per character with optional blinking cursor; technical/code aesthetic.",
+      "details": {
+        "what": "Per-character reveal at 30-50ms intervals with optional blinking cursor during typing",
+        "feels": "Technical, deliberate, code-like, each character appears individually",
+        "parameters": {
+          "speed": "30-50ms per character",
+          "cursor": "optional blinking cursor"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "long text (takes too long)",
+          "formal content (feels gimmicky)"
+        ],
+        "duration": "varies by text length"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4126, 4133]
+    },
+    {
+      "id": "technique:animation.blur_in",
+      "type": "Technique",
+      "category": "animation",
+      "name": "Blur In",
+      "summary": "Element starts blurred (20px Gaussian) and transparent then resolves to sharp and opaque; materializing from thought.",
+      "details": {
+        "what": "Element starts at 20px Gaussian blur + transparent, resolves to sharp + opaque over 0.4-0.6s",
+        "feels": "Dreamy, materializing, emerging from thought, coming into focus",
+        "parameters": {
+          "blur_start": "20px Gaussian",
+          "duration": "0.4-0.6s"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "0.4-0.6s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4134, 4140]
+    },
+    {
+      "id": "technique:animation.drop_in",
+      "type": "Technique",
+      "category": "animation",
+      "name": "Drop In",
+      "summary": "Element falls from above frame edge to target position with ease-in acceleration and optional landing bounce.",
+      "details": {
+        "what": "Element falls from above frame to target over 0.4-0.6s; ease-in (accelerate during fall) + ease-out (decelerate on landing); optional 1-2% bounce",
+        "feels": "Weight, arrival, element has mass and falls into place",
+        "parameters": {
+          "duration": "0.4-0.6s",
+          "easing": "ease-in (fall) + ease-out (landing)",
+          "optional_bounce": "1-2% position overshoot"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "0.4-0.6s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4141, 4149]
+    },
+    {
+      "id": "technique:animation.cut_entrance",
+      "type": "Technique",
+      "category": "animation",
+      "name": "Cut Entrance",
+      "summary": "Element appears instantly with no animation; sharp and immediate for fast-paced montage mode.",
+      "details": {
+        "what": "No animation; element appears at full opacity/scale/position instantly",
+        "feels": "Sharp, immediate, aggressive, no transition",
+        "parameters": {},
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "formality > 0.3 (looks like a bug)"
+        ],
+        "duration": "0 frames"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4150, 4155]
+    },
+    {
+      "id": "technique:other.camera_shake",
+      "type": "Technique",
+      "category": "other",
+      "name": "Camera Shake",
+      "summary": "Rapid 3-5px random position offsets decaying over 2-4 frames creating physical impact sensation; requires mandatory sound.",
+      "details": {
+        "what": "Position offset keyframes on all overlays simultaneously: 3-5px random offset per frame, each frame 60% of previous (rapid decay)",
+        "feels": "Physical impact, screen shook from force, most visceral editing technique",
+        "parameters": {
+          "displacement": "3-5px random per frame",
+          "duration": "0.1-0.2s (2-4 frames, decaying)",
+          "decay": "60% of previous frame",
+          "direction": "random within range, seeded for determinism"
+        },
+        "edlDecisionType": "shake",
+        "neverUseWhen": [
+          "during speech (captions jump, unreadable)",
+          "formality > 0.6",
+          "more than 1-2 per video",
+          "without impact sound (feels like glitch)"
+        ],
+        "duration": "0.1-0.2s"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4174, 4187]
+    },
+    {
+      "id": "technique:other.film_grain",
+      "type": "Technique",
+      "category": "other",
+      "name": "Film Grain",
+      "summary": "Subtle 2-5% grain overlay unifying AI footage that is mathematically smooth; adds organic cinematic texture.",
+      "details": {
+        "what": "Grain texture overlay composited at low opacity uniformly across video track (not on graphics); same pattern all clips",
+        "feels": "Organic texture, cinematic character, fills the too-clean void of digital/AI video",
+        "parameters": {
+          "intensity": "2-5%",
+          "type": "fine (35mm emulation) | medium (general cinematic)",
+          "consistency": "same grain pattern across ALL clips"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [
+          "formality < 0.5 (social/UGC should feel clean)",
+          "on graphics overlays"
+        ],
+        "duration": "entire video"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4188, 4197]
+    },
+    {
+      "id": "technique:other.vignette",
+      "type": "Technique",
+      "category": "other",
+      "name": "Vignette",
+      "summary": "Very subtle edge darkening (0.1-0.2 stops) directing eye toward brighter center/subject without conscious awareness.",
+      "details": {
+        "what": "Radial gradient overlay: 0.1-0.2 stops darkening at edges, 60-80% feather, centered on face or frame center",
+        "feels": "Subtle focus direction, darkened edges push eye toward brighter subject",
+        "parameters": {
+          "amount": "0.1-0.2 stops darkening",
+          "shape": "oval, centered on face_present or frame center",
+          "feather": "60-80% of frame before full effect"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [
+          "formality < 0.6 (social/UGC not vignetted)"
+        ],
+        "duration": "per scene"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4198, 4206]
+    },
+    {
+      "id": "technique:sound-theory.causal_listening",
+      "type": "Technique",
+      "category": "sound-theory",
+      "name": "Causal Listening (Chion)",
+      "summary": "Listening mode where viewer identifies what made a sound; requires precise timing and character matching for reality test.",
+      "details": {
+        "what": "Cognitive mode where viewer asks 'What made that sound?' — engaged by sfx_spot, sfx_impact, sfx_whoosh; timing within 2-3 frames, material character must match visible object",
+        "feels": "Reality verification; brain tests if the sound source matches the visual",
+        "parameters": {
+          "timing_tolerance": "2-3 frames",
+          "character_matching": "glass sounds like glass, not plastic"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [
+          "mismatch between sound and visible action breaks suspension of disbelief"
+        ],
+        "duration": "N/A (cognitive mode)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4218, 4226]
+    },
+    {
+      "id": "technique:sound-theory.semantic_listening",
+      "type": "Technique",
+      "category": "sound-theory",
+      "name": "Semantic Listening (Chion)",
+      "summary": "Listening mode where viewer interprets sound's emotional meaning independent of source; how sound SETS mood for AI footage.",
+      "details": {
+        "what": "Cognitive mode where viewer asks 'What does this mean?' — engaged by music (key, mode, tempo), music_swell, silence_beat, narrative signal SFX; meaning must align with emotional target",
+        "feels": "Meaning interpretation; minor key = sadness regardless of instrument",
+        "parameters": {
+          "alignment": "semantic meaning must match content emotional target"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [
+          "semantic meaning contradicts content emotion"
+        ],
+        "duration": "N/A (cognitive mode)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4227, 4237]
+    },
+    {
+      "id": "technique:sound-theory.reduced_listening",
+      "type": "Technique",
+      "category": "sound-theory",
+      "name": "Reduced Listening (Chion)",
+      "summary": "Listening mode where viewer appreciates sound texture/tone/spatial quality without identifying source or meaning; creates atmosphere.",
+      "details": {
+        "what": "Cognitive mode where viewer absorbs tonal quality without asking 'what' or 'what it means' — engaged by ambient beds, room tone, atmospheric drones, textural sound design",
+        "feels": "Atmosphere absorption; rich layered ambient = detailed real world, thin sparse = empty clinical",
+        "parameters": {
+          "richness": "layered = real, sparse = clinical"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [],
+        "duration": "N/A (cognitive mode)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4238, 4247]
+    },
+    {
+      "id": "technique:sound-theory.materializing_indices",
+      "type": "Technique",
+      "category": "sound-theory",
+      "name": "Materializing Sound Indices (Chion)",
+      "summary": "Sounds giving objects physical presence (weight, texture, temperature, hardness); crosses the uncanny valley for AI footage.",
+      "details": {
+        "what": "Sounds that communicate physical properties at -15 to -20dB: thunk of mug (weight+hardness), fabric rustle (texture+movement), leather squeak (material+pressure), breath (proximity+life); ECU/CU benefit most",
+        "feels": "Tactility, physical mass, real objects with weight and texture vs weightless video-game cutscene",
+        "parameters": {
+          "level": "-15 to -20dB (subconscious register)",
+          "priority_by_shot": "ECU > CU > MS > WS (closer = more tactile detail expected)"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [
+          "wide shots (distance = less detail audible)"
+        ],
+        "duration": "per action"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4249, 4274]
+    },
+    {
+      "id": "technique:sound-theory.added_value",
+      "type": "Technique",
+      "category": "sound-theory",
+      "name": "Added Value (Chion)",
+      "summary": "Foundational principle that sound does not illustrate image but TRANSFORMS its meaning; identical footage becomes different content based on sound design.",
+      "details": {
+        "what": "Sound transforms image meaning: same AI hallway footage becomes welcoming (warm music, soft footsteps) OR threatening (tense drone, sharp footsteps) OR abandoned (heavy footsteps, echo, dripping); music and ambient are PRIMARY CREATIVE DECISIONS not post-production polish",
+        "feels": "The emotion is entirely from sound; video is identical but content is different",
+        "parameters": {
+          "principle": "music selection and ambient design have same creative weight as narrative structure"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [],
+        "duration": "N/A (design principle)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4276, 4295]
+    },
+    {
+      "id": "technique:music-knowledge.tempo_mood_mapping",
+      "type": "Technique",
+      "category": "music-knowledge",
+      "name": "Tempo-Mood Mapping",
+      "summary": "BPM ranges mapped to emotional states: 40-60 meditative, 60-80 calm, 80-100 moderate, 100-120 upbeat, 120-140 energetic, 140-160 intense, 160+ extreme.",
+      "details": {
+        "what": "Deterministic BPM-to-mood reference: 40-60 (meditative/ambient), 60-80 (calm/ballads), 80-100 (moderate/jazz), 100-120 (upbeat/pop), 120-140 (energetic/EDM), 140-160 (intense/DnB), 160+ (extreme/hardcore)",
+        "feels": "BPM directly maps to perceived energy level and emotional register",
+        "parameters": {
+          "40-60_bpm": "meditative, somber, introspective",
+          "60-80_bpm": "calm, nostalgic, reflective",
+          "80-100_bpm": "moderate, conversational, warm",
+          "100-120_bpm": "upbeat, motivational, forward-moving",
+          "120-140_bpm": "energetic, driving, exciting",
+          "140-160_bpm": "intense, aggressive, relentless",
+          "160+_bpm": "extreme, chaotic, overwhelming"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [],
+        "duration": "N/A (selection reference)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4302, 4326]
+    },
+    {
+      "id": "technique:music-knowledge.key_mode_emotion",
+      "type": "Technique",
+      "category": "music-knowledge",
+      "name": "Key + Mode Emotional Color",
+      "summary": "Musical modes mapped to emotions: Major=happy, Minor=sad, Dorian=sophisticated, Mixolydian=bluesy, Lydian=dreamy, Pentatonic=simple/moody.",
+      "details": {
+        "what": "Mode-to-emotion mapping: Major (happy, triumphant), Minor (sad, dramatic), Dorian (sophisticated, jazzy), Mixolydian (bluesy, warm), Lydian (dreamy, ethereal), Pentatonic Major (simple, folk), Pentatonic Minor (moody, powerful)",
+        "feels": "Musical mode directly determines emotional color of the video",
+        "parameters": {
+          "major": "happy, triumphant, resolved, bright",
+          "minor": "sad, dramatic, tense, introspective",
+          "dorian": "sophisticated, jazzy, bittersweet, urban",
+          "mixolydian": "bluesy, warm, earthy, laid-back",
+          "lydian": "dreamy, ethereal, floating, wonder",
+          "pentatonic_major": "simple, universal, folk, innocent",
+          "pentatonic_minor": "moody, powerful, primal, Eastern-influenced"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [],
+        "duration": "N/A (selection reference)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4328, 4338]
+    },
+    {
+      "id": "technique:music-knowledge.song_structure_alignment",
+      "type": "Technique",
+      "category": "music-knowledge",
+      "name": "Song Structure Alignment",
+      "summary": "Maps music structure sections (intro, build, peak/drop, resolve) to video sections with cuts on downbeats and transitions on phrase boundaries.",
+      "details": {
+        "what": "Intro (2-4 bars, sparse) = video opening; Build (4-8 bars, layers add) = content build; Peak/Drop (2-4 bars) = climax/CTA; Resolve (2-4 bars) = closing. Sync: cuts on beat 1, transitions every 4/8 bars",
+        "feels": "Music and video feel unified rather than separate tracks",
+        "parameters": {
+          "intro": "2-4 bars, sparse, sets mood = video opening",
+          "build": "4-8 bars, tension increases = content build",
+          "peak_drop": "2-4 bars, full energy = climax/CTA",
+          "resolve": "2-4 bars, settles = closing zone",
+          "sync_cuts": "on downbeats (beat 1)",
+          "sync_transitions": "on phrase boundaries (every 4 or 8 bars)"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [],
+        "duration": "full video"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4340, 4353]
+    },
+    {
+      "id": "technique:music-knowledge.non_western_systems",
+      "type": "Technique",
+      "category": "music-knowledge",
+      "name": "Non-Western Musical Systems",
+      "summary": "Reference for Indian Raga (time/emotion), Arabic Maqam (quarter-tones), West African polyrhythm, and Gamelan structures.",
+      "details": {
+        "what": "Indian Classical: Bhairav=dawn/devotion, Yaman=evening/romance, Teental (16 beats). Arabic Maqam: quarter-tone intervals, Hijaz=longing, Rast=joy. West African: polyrhythm, hip-hop foundation. Gamelan: cyclical, metallic, meditative",
+        "feels": "Cultural specificity in music selection beyond Western 12-tone system",
+        "parameters": {
+          "indian_classical": "raga = time-of-day + emotion, taal = non-Western rhythmic cycles",
+          "arabic_maqam": "quarter-tone intervals, Hijaz=longing, Rast=joy",
+          "west_african": "polyrhythm, multiple time signatures",
+          "gamelan": "cyclical, metallic timbres, meditative pacing"
+        },
+        "edlDecisionType": "sfx",
+        "neverUseWhen": [],
+        "duration": "N/A (selection reference)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4355, 4370]
+    },
+    {
+      "id": "technique:voice-pacing.voice_pacing_reference",
+      "type": "Technique",
+      "category": "voice-pacing",
+      "name": "Voice Pacing by Tone",
+      "summary": "WPM ranges by speaking tone: Dramatic 100-120, Narration 130-150, Conversational 140-160, Energetic 160-180, Rapid-fire 180-200.",
+      "details": {
+        "what": "Deterministic WPM ranges informing TTS config and caption mode: Dramatic (100-120), Narration (130-150), Conversational (140-160), Energetic (160-180), Rapid-fire (180-200). Caption mode threshold: <160 word-by-word OK, >180 phrase/subtitle only",
+        "feels": "Speaking rate directly maps to perceived urgency and engagement level",
+        "parameters": {
+          "dramatic": "100-120 WPM",
+          "narration": "130-150 WPM",
+          "conversational": "140-160 WPM",
+          "energetic": "160-180 WPM",
+          "rapid_fire": "180-200 WPM",
+          "caption_threshold_word_by_word": "<160 WPM",
+          "caption_threshold_phrase_only": ">180 WPM"
+        },
+        "edlDecisionType": "caption",
+        "neverUseWhen": [],
+        "duration": "N/A (reference)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4377, 4390]
+    },
+    {
+      "id": "technique:voice-pacing.punctuation_pause_durations",
+      "type": "Technique",
+      "category": "voice-pacing",
+      "name": "Punctuation Pause Durations",
+      "summary": "Deterministic pause lengths per punctuation mark for TTS and caption timing: comma 0.2-0.3s, period 0.4-0.6s, paragraph 0.8-1.2s.",
+      "details": {
+        "what": "Deterministic timing values for TTS rendering and caption display: comma (0.2-0.3s), period (0.4-0.6s), em-dash (0.3-0.5s), ellipsis (0.5-0.8s), question (0.4-0.6s), exclamation (0.3-0.5s), paragraph (0.8-1.2s), colon (0.3-0.4s)",
+        "feels": "Natural breathing rhythm in synthesized speech",
+        "parameters": {
+          "comma": "0.2-0.3s",
+          "period": "0.4-0.6s",
+          "em_dash": "0.3-0.5s",
+          "ellipsis": "0.5-0.8s",
+          "question_mark": "0.4-0.6s",
+          "exclamation": "0.3-0.5s",
+          "paragraph_break": "0.8-1.2s",
+          "colon": "0.3-0.4s"
+        },
+        "edlDecisionType": "caption",
+        "neverUseWhen": [],
+        "duration": "N/A (reference)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4392, 4403]
+    },
+    {
+      "id": "technique:typography.sans_serif",
+      "type": "Technique",
+      "category": "typography",
+      "name": "Sans-Serif Typography",
+      "summary": "Modern, clean, neutral, approachable; default for all captions and tech/corporate/social content.",
+      "details": {
+        "what": "Font category (Inter, Roboto, SF Pro): modern, clean, neutral, approachable. Maximum screen readability. Default for all caption modes",
+        "feels": "Modern, clean, neutral, approachable",
+        "parameters": {
+          "examples": "Inter, Roboto, SF Pro",
+          "best_for": "tech, corporate, social captions, maximum readability"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (font selection)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4413, 4416]
+    },
+    {
+      "id": "technique:typography.serif",
+      "type": "Technique",
+      "category": "typography",
+      "name": "Serif Typography",
+      "summary": "Traditional, authoritative, literary, trustworthy; best for finance, luxury, editorial, heritage brands.",
+      "details": {
+        "what": "Font category (Playfair, Garamond, Georgia): traditional, authoritative, literary, trustworthy",
+        "feels": "Traditional, authoritative, literary, trustworthy",
+        "parameters": {
+          "examples": "Playfair, Garamond, Georgia",
+          "best_for": "finance, luxury, editorial, heritage brands"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (font selection)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4418, 4420]
+    },
+    {
+      "id": "technique:typography.slab_serif",
+      "type": "Technique",
+      "category": "typography",
+      "name": "Slab Serif Typography",
+      "summary": "Bold, confident, industrial, commanding; best for headlines, CTAs, sports, impact moments.",
+      "details": {
+        "what": "Font category (Rockwell, Roboto Slab): bold, confident, industrial, commanding",
+        "feels": "Bold, confident, industrial, commanding",
+        "parameters": {
+          "examples": "Rockwell, Roboto Slab",
+          "best_for": "headlines, CTAs, sports, impact moments"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (font selection)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4422, 4424]
+    },
+    {
+      "id": "technique:typography.script",
+      "type": "Technique",
+      "category": "typography",
+      "name": "Script Typography",
+      "summary": "Personal, feminine, artisanal, handmade; headlines ONLY, never in captions, never below 36px.",
+      "details": {
+        "what": "Font category (Pacifico, Dancing Script): personal, feminine, artisanal, handmade. Headlines only due to readability",
+        "feels": "Personal, feminine, artisanal, handmade",
+        "parameters": {
+          "examples": "Pacifico, Dancing Script",
+          "best_for": "headlines only",
+          "min_size": "36px"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "in captions (readability failure at speed)",
+          "below 36px (illegible)"
+        ],
+        "duration": "N/A (font selection)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4426, 4429]
+    },
+    {
+      "id": "technique:typography.monospace",
+      "type": "Technique",
+      "category": "typography",
+      "name": "Monospace Typography",
+      "summary": "Technical, precise, systematic, code-native; best for developer tools, data, terminal aesthetic.",
+      "details": {
+        "what": "Font category (JetBrains Mono, Fira Code): technical, precise, systematic, code-native",
+        "feels": "Technical, precise, systematic, code-native",
+        "parameters": {
+          "examples": "JetBrains Mono, Fira Code",
+          "best_for": "developer tools, data, terminal aesthetic, typewriter effect"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (font selection)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4431, 4433]
+    },
+    {
+      "id": "technique:typography.geometric_sans",
+      "type": "Technique",
+      "category": "typography",
+      "name": "Geometric Sans Typography",
+      "summary": "Minimal, premium, architectural, designed; best for fashion, design, art, contemporary luxury.",
+      "details": {
+        "what": "Font category (Futura, Poppins): minimal, premium, architectural, designed",
+        "feels": "Minimal, premium, architectural, designed",
+        "parameters": {
+          "examples": "Futura, Poppins",
+          "best_for": "fashion, design, art, contemporary luxury"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (font selection)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4435, 4437]
+    },
+    {
+      "id": "technique:typography.type_personality_theory",
+      "type": "Technique",
+      "category": "typography",
+      "name": "Type Personality Theory (Bouba/Kiki)",
+      "summary": "Rounded letterforms read as friendly/warm (bouba), angular letterforms read as aggressive/sharp (kiki); maps to sound symbolism.",
+      "details": {
+        "what": "Doyle & Bottomley 2006: rounded letterforms = friendly, approachable, warm (bouba). Angular letterforms = aggressive, sharp, authoritative (kiki). Maps to phonological bouba/kiki sound symbolism",
+        "feels": "Letterform shape directly influences perceived brand personality",
+        "parameters": {
+          "rounded": "friendly, approachable, warm (bouba)",
+          "angular": "aggressive, sharp, authoritative (kiki)"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (design principle)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4445, 4451]
+    },
+    {
+      "id": "technique:shot-type.ecu",
+      "type": "Technique",
+      "category": "shot-type",
+      "name": "Extreme Close-Up (ECU)",
+      "summary": "Single feature fills frame (eye, hand, product detail); intensity, intimacy, obsession, paired with amplified ambient.",
+      "details": {
+        "what": "Single feature fills entire frame: eye, hand, product detail. AI prompt: 'extreme close-up of [feature], filling entire frame, macro detail'",
+        "feels": "Intensity, intimacy, obsession, discomfort at extremes",
+        "parameters": {
+          "framing": "single feature fills frame",
+          "sound_pairing": "amplified ambient (breath, fabric, texture)"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (shot type)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4461, 4465]
+    },
+    {
+      "id": "technique:shot-type.cu",
+      "type": "Technique",
+      "category": "shot-type",
+      "name": "Close-Up (CU)",
+      "summary": "Face from chin to forehead; emotional connection, empathy, character focus with intimate audio.",
+      "details": {
+        "what": "Face from chin to forehead with soft background blur. AI prompt: 'close-up, chin to forehead, soft background blur'",
+        "feels": "Emotional connection, empathy, character focus",
+        "parameters": {
+          "framing": "chin to forehead",
+          "sound_pairing": "intimate audio, clear dialogue, subtle room tone"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (shot type)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4467, 4470]
+    },
+    {
+      "id": "technique:shot-type.mcu",
+      "type": "Technique",
+      "category": "shot-type",
+      "name": "Medium Close-Up (MCU)",
+      "summary": "Chest to head; conversational intimacy, professional presence; default for talking head and interview.",
+      "details": {
+        "what": "Chest to head with shallow depth of field. AI prompt: 'medium close-up, chest to head, shallow depth of field'. Default for talking head, interview, tutorial",
+        "feels": "Conversational intimacy, professional presence",
+        "parameters": {
+          "framing": "chest to head",
+          "sound_pairing": "standard dialogue, balanced ambient",
+          "default_for": "talking head, interview, tutorial"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (shot type)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4472, 4476]
+    },
+    {
+      "id": "technique:shot-type.ms",
+      "type": "Technique",
+      "category": "shot-type",
+      "name": "Medium Shot (MS)",
+      "summary": "Waist to head; person AND environment visible providing context with connection; best for demonstrations.",
+      "details": {
+        "what": "Waist to head, environment partially visible. AI prompt: 'medium shot, waist up, environment partially visible'. Best for demonstrations, product-in-use, gestures",
+        "feels": "Context with connection, person and environment both visible",
+        "parameters": {
+          "framing": "waist to head",
+          "sound_pairing": "balanced between intimate and environmental",
+          "best_for": "demonstrations, product-in-use, gestures visible"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (shot type)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4478, 4482]
+    },
+    {
+      "id": "technique:shot-type.ws",
+      "type": "Technique",
+      "category": "shot-type",
+      "name": "Wide Shot (WS)",
+      "summary": "Full body with environment; context, place, action in space, establishing; wider ambient beds.",
+      "details": {
+        "what": "Full body visible with surrounding environment. AI prompt: 'wide shot, full body visible, environment surrounding subject'",
+        "feels": "Context, place, action in space, establishing",
+        "parameters": {
+          "framing": "full body with environment",
+          "sound_pairing": "wider ambient beds, environmental audio"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (shot type)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4484, 4488]
+    },
+    {
+      "id": "technique:shot-type.ews",
+      "type": "Technique",
+      "category": "shot-type",
+      "name": "Extreme Wide Shot (EWS)",
+      "summary": "Environment dominates with subject small; scale, grandeur, insignificance, world-building; expansive stereo ambient.",
+      "details": {
+        "what": "Vast environment dominates, subject small. AI prompt: 'extreme wide establishing shot, vast environment, subject small'",
+        "feels": "Scale, grandeur, insignificance, world-building",
+        "parameters": {
+          "framing": "environment dominates, subject small",
+          "sound_pairing": "expansive ambient (wind, city, nature), wide stereo"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (shot type)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4489, 4492]
+    },
+    {
+      "id": "technique:camera-movement.static",
+      "type": "Technique",
+      "category": "camera-movement",
+      "name": "Static (Locked Tripod)",
+      "summary": "No movement; stability, observation, confidence, gravity; moment is complete, just observe it.",
+      "details": {
+        "what": "Locked tripod, no camera movement. Motivation: this moment is complete, observe it",
+        "feels": "Stability, observation, confidence, gravity",
+        "parameters": {
+          "when": "emotional moments where stillness = respect, dialogue, product hero shots"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (camera movement)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4497, 4501]
+    },
+    {
+      "id": "technique:camera-movement.push_in",
+      "type": "Technique",
+      "category": "camera-movement",
+      "name": "Push-In (Dolly In)",
+      "summary": "Camera moves physically forward; increasing intimacy, growing tension; slow=growing intimacy, fast=urgency/shock.",
+      "details": {
+        "what": "Physical camera movement toward subject (dolly in). Viewer feels forward movement kinesthetically (Pearlman). Slow = intimacy, Fast = urgency",
+        "feels": "Increasing intimacy, growing tension, leaning in, becoming important",
+        "parameters": {
+          "speed_slow": "growing intimacy",
+          "speed_fast": "urgency/shock"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (camera movement)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4503, 4507]
+    },
+    {
+      "id": "technique:camera-movement.pull_back",
+      "type": "Technique",
+      "category": "camera-movement",
+      "name": "Pull-Back (Dolly Out)",
+      "summary": "Camera moves physically backward; reveal, release, the bigger picture; viewer feels spatial expansion.",
+      "details": {
+        "what": "Physical camera movement away from subject (dolly out). Viewer feels spatial expansion kinesthetically",
+        "feels": "Reveal, release, the bigger picture, more here than you realized",
+        "parameters": {},
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (camera movement)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4509, 4512]
+    },
+    {
+      "id": "technique:camera-movement.pan",
+      "type": "Technique",
+      "category": "camera-movement",
+      "name": "Pan (Horizontal Rotation)",
+      "summary": "Horizontal rotation scanning, following, or connecting two points; slow=contemplative, fast=energy/transition (whip pan).",
+      "details": {
+        "what": "Horizontal rotation connecting two points. Slow = contemplative. Fast (whip pan) = energy/transition",
+        "feels": "Scanning, following, connecting two points, something else happening over there",
+        "parameters": {
+          "speed_slow": "contemplative",
+          "speed_fast": "energy/transition (whip pan)"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (camera movement)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4514, 4517]
+    },
+    {
+      "id": "technique:camera-movement.tilt",
+      "type": "Technique",
+      "category": "camera-movement",
+      "name": "Tilt (Vertical Rotation)",
+      "summary": "Vertical rotation revealing height/scale, power shift, and awe.",
+      "details": {
+        "what": "Vertical rotation revealing height or scale. Motivation: see how tall/grand this is",
+        "feels": "Reveal of height/scale, power shift, awe",
+        "parameters": {},
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (camera movement)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4519, 4521]
+    },
+    {
+      "id": "technique:camera-movement.tracking",
+      "type": "Technique",
+      "category": "camera-movement",
+      "name": "Tracking (Lateral Movement)",
+      "summary": "Lateral movement alongside subject; companionship, journey, walking-together feeling.",
+      "details": {
+        "what": "Lateral camera movement alongside subject. Motivation: we are going with them",
+        "feels": "Companionship, journey, walking-together",
+        "parameters": {},
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (camera movement)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4523, 4525]
+    },
+    {
+      "id": "technique:camera-movement.crane",
+      "type": "Technique",
+      "category": "camera-movement",
+      "name": "Crane (Vertical Position)",
+      "summary": "Vertical position change; epic scale, grandeur, emotional lift, step back and see the full picture.",
+      "details": {
+        "what": "Vertical camera position change. Motivation: step back and see the full picture",
+        "feels": "Epic scale, grandeur, emotional lift",
+        "parameters": {},
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (camera movement)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4527, 4529]
+    },
+    {
+      "id": "technique:camera-movement.handheld",
+      "type": "Technique",
+      "category": "camera-movement",
+      "name": "Handheld",
+      "summary": "Unsteady deliberate camera; urgency, authenticity, documentary, rawness; anti-corporate branding.",
+      "details": {
+        "what": "Handheld camera with natural shake. For documentary, BTS, UGC-style, authentic/anti-corporate branding",
+        "feels": "Urgency, authenticity, documentary, rawness, this is real happening right now",
+        "parameters": {
+          "when": "documentary, BTS, UGC-style, authentic, anti-corporate"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (camera movement)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4531, 4534]
+    },
+    {
+      "id": "technique:camera-movement.orbit",
+      "type": "Technique",
+      "category": "camera-movement",
+      "name": "Orbit (360-Degree Arc)",
+      "summary": "Camera arcs around subject; examination, reverence, spectacle, hero introduction; signature of Bollywood intros.",
+      "details": {
+        "what": "360-degree arc around subject. Motivation: look at this from every angle. Very common in Bollywood hero introductions",
+        "feels": "Examination, reverence, spectacle, hero introduction",
+        "parameters": {},
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (camera movement)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4536, 4539]
+    },
+    {
+      "id": "technique:camera-movement.zoom_optical",
+      "type": "Technique",
+      "category": "camera-movement",
+      "name": "Zoom (Optical, Not Dolly)",
+      "summary": "Optical zoom compresses space unlike dolly; fast crash zoom = energy/comedy/impact; signature of Indian and Hong Kong cinema.",
+      "details": {
+        "what": "Optical lens zoom (compresses space, different from dolly which changes perspective). Fast = crash zoom = energy/comedy/impact",
+        "feels": "Emphasis, energy (fast), comedy (crash zoom), impact",
+        "parameters": {
+          "note": "zoom COMPRESSES space, different from dolly"
+        },
+        "edlDecisionType": "zoom",
+        "neverUseWhen": [],
+        "duration": "N/A (camera movement)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4541, 4544]
+    },
+    {
+      "id": "technique:shot-type.rule_of_thirds",
+      "type": "Technique",
+      "category": "shot-type",
+      "name": "Rule of Thirds Composition",
+      "summary": "Subject at grid intersections; balanced, natural, professional framing.",
+      "details": {
+        "what": "Subject placed at rule-of-thirds grid intersections for balanced, natural framing",
+        "feels": "Balanced, natural, professional",
+        "parameters": {},
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (composition)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4549, 4549]
+    },
+    {
+      "id": "technique:shot-type.center_framing",
+      "type": "Technique",
+      "category": "shot-type",
+      "name": "Center Framing Composition",
+      "summary": "Subject dead center; confrontation, intensity, power; more common in Indian cinema and Middle Eastern traditions.",
+      "details": {
+        "what": "Subject placed dead center for confrontation, intensity, power. More common in Indian cinema and Middle Eastern visual traditions",
+        "feels": "Confrontation, intensity, power",
+        "parameters": {},
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (composition)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4550, 4551]
+    },
+    {
+      "id": "technique:shot-type.depth_layering",
+      "type": "Technique",
+      "category": "shot-type",
+      "name": "Depth Layering Composition",
+      "summary": "Foreground + middle + background elements creating immersion and cinematic quality.",
+      "details": {
+        "what": "Compose with foreground + middle ground + background elements for depth and immersion",
+        "feels": "Immersion, cinematic quality, visual depth",
+        "parameters": {},
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (composition)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4553, 4553]
+    },
+    {
+      "id": "technique:ai-prompt.prompt_structure",
+      "type": "Technique",
+      "category": "ai-prompt",
+      "name": "AI Prompt Structure",
+      "summary": "Recommended 8-section prompt order: environment+lighting, subject+state, composition, camera, lens+depth, mood, technical quality, negative prompt.",
+      "details": {
+        "what": "8-section prompt structure: 1) Environment+Lighting, 2) Subject+State (not complex action), 3) Composition (shot type+framing), 4) Camera Behavior (movement+motivation), 5) Lens+Depth (focal length+DOF), 6) Mood+Aesthetic (color temp, film stock), 7) Technical Quality (resolution, consistency), 8) Negative Prompt (what to avoid)",
+        "feels": "Systematic prompt construction maximizing AI video quality",
+        "parameters": {
+          "section_1": "environment + lighting",
+          "section_2": "subject + state (not action)",
+          "section_3": "composition (shot type + framing)",
+          "section_4": "camera behavior (movement + motivation)",
+          "section_5": "lens + depth (focal length + DOF)",
+          "section_6": "mood + aesthetic (color temperature, film stock)",
+          "section_7": "technical quality (resolution, temporal consistency)",
+          "section_8": "negative prompt (what to avoid)"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (prompt engineering)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4570, 4580]
+    },
+    {
+      "id": "technique:ai-prompt.artifact_prevention_hands",
+      "type": "Technique",
+      "category": "ai-prompt",
+      "name": "Artifact Prevention: Melted Hands",
+      "summary": "Hide hands or keep simple; never prompt complex hand-object interactions like writing, cooking, manipulating.",
+      "details": {
+        "what": "Prevention of melted/extra hand artifacts: hide hands ('hands not in frame') or keep simple ('hands at sides'). Model cannot resolve 3D hand geometry with object interaction",
+        "feels": "Prevents uncanny hand artifacts in AI footage",
+        "parameters": {
+          "cause": "model cannot resolve 3D hand geometry with object interaction",
+          "prevention": "hide hands or keep simple poses"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "never prompt hands doing complex tasks (writing, cooking, manipulating)"
+        ],
+        "duration": "N/A (prompt rule)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4584, 4590]
+    },
+    {
+      "id": "technique:ai-prompt.artifact_prevention_face_drift",
+      "type": "Technique",
+      "category": "ai-prompt",
+      "name": "Artifact Prevention: Face Morphing",
+      "summary": "Use reference images, add consistency prompts, keep clips 3-5s to prevent temporal facial identity drift.",
+      "details": {
+        "what": "Prevention of face morphing/identity drift: use IP-adapter reference images, add 'consistent facial features, no morphing, stable identity', keep clips 3-5s (less drift)",
+        "feels": "Maintains character consistency across frames",
+        "parameters": {
+          "cause": "temporal inconsistency in facial features across frames",
+          "prevention": "reference images, consistency prompts, shorter clips (3-5s)"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (prompt rule)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4592, 4596]
+    },
+    {
+      "id": "technique:ai-prompt.artifact_prevention_text",
+      "type": "Technique",
+      "category": "ai-prompt",
+      "name": "Artifact Prevention: Text Hallucination",
+      "summary": "NEVER include readable text in video prompts; all text added as graphic overlays in post-production.",
+      "details": {
+        "what": "Prevention of text hallucination: never include readable text in video prompts. Models attempt to render text and fail producing gibberish. All text added as graphic overlays in post",
+        "feels": "Eliminates gibberish text artifacts",
+        "parameters": {
+          "cause": "models attempt to render text and fail",
+          "prevention": "NEVER include readable text in prompts"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "never include readable text in video prompts"
+        ],
+        "duration": "N/A (prompt rule)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4598, 4602]
+    },
+    {
+      "id": "technique:ai-prompt.artifact_prevention_eating",
+      "type": "Technique",
+      "category": "ai-prompt",
+      "name": "Artifact Prevention: Eating/Drinking",
+      "summary": "Prompt 'smiling near food' not 'actively eating'; cut to different angle before bite/sip to avoid uncanny mouth-food interaction.",
+      "details": {
+        "what": "Prevention of uncanny eating/drinking: prompt 'smiling near food' not 'actively eating'. Cut to different angle before the bite/sip",
+        "feels": "Avoids uncanny mouth-food-hand interaction",
+        "parameters": {
+          "cause": "complex mouth-food-hand interaction exceeds model capability",
+          "prevention": "state near food rather than action of eating"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [
+          "never prompt active eating/drinking"
+        ],
+        "duration": "N/A (prompt rule)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4604, 4608]
+    },
+    {
+      "id": "technique:ai-prompt.artifact_prevention_phasing",
+      "type": "Technique",
+      "category": "ai-prompt",
+      "name": "Artifact Prevention: Object Phasing",
+      "summary": "Add 'natural physics, objects have weight, solid surfaces, no clipping' to prevent objects passing through each other.",
+      "details": {
+        "what": "Prevention of object phasing: add 'natural physics, objects have weight, solid surfaces, no clipping' to prompt",
+        "feels": "Prevents physics-defying object interactions",
+        "parameters": {
+          "cause": "model does not understand physics",
+          "prevention": "prompt natural physics, weight, solid surfaces"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (prompt rule)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4610, 4612]
+    },
+    {
+      "id": "technique:ai-prompt.artifact_prevention_flicker",
+      "type": "Technique",
+      "category": "ai-prompt",
+      "name": "Artifact Prevention: Temporal Flicker",
+      "summary": "Add 'temporally consistent, no flickering, smooth motion, consistent lighting' to prevent frame-to-frame inconsistency.",
+      "details": {
+        "what": "Prevention of temporal flicker: add 'temporally consistent, no flickering, smooth motion, consistent lighting'",
+        "feels": "Ensures stable visual output across frames",
+        "parameters": {
+          "cause": "frame-to-frame inconsistency in lighting/color",
+          "prevention": "temporal consistency prompts"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (prompt rule)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4614, 4616]
+    },
+    {
+      "id": "technique:ai-prompt.artifact_prevention_background_warp",
+      "type": "Technique",
+      "category": "ai-prompt",
+      "name": "Artifact Prevention: Background Warp",
+      "summary": "Add 'static background, locked environment, no background distortion' to prevent background geometry shifting between frames.",
+      "details": {
+        "what": "Prevention of background warp: add 'static background, locked environment, no background distortion'",
+        "feels": "Maintains spatial stability in generated video",
+        "parameters": {
+          "cause": "background geometry shifts between frames",
+          "prevention": "prompt static/locked background"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (prompt rule)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4618, 4620]
+    },
+    {
+      "id": "technique:ai-prompt.negative_prompt_template",
+      "type": "Technique",
+      "category": "ai-prompt",
+      "name": "Negative Prompt Template",
+      "summary": "Standard negative prompt covering blur, anatomy, text, flicker, uncanny valley, physics, and background issues.",
+      "details": {
+        "what": "Standard negative prompt: blur, out of focus, low quality, pixelated, distorted, deformed, bad anatomy, extra limbs/fingers, melted hands, text overlay, watermark, temporal flickering, color banding, jittery motion, uncanny valley, plastic skin, dead eyes, face morphing, objects phasing, floating objects, background warping, inconsistent lighting",
+        "feels": "Comprehensive quality floor for AI video generation",
+        "parameters": {
+          "template": "blur, out of focus, low quality, pixelated, distorted, deformed, bad anatomy, extra limbs, extra fingers, missing fingers, fused fingers, melted hands, text overlay, watermark, logo, subtitles, UI elements, readable text, temporal flickering, color banding, jittery motion, strobing, uncanny valley, plastic skin, dead eyes, face morphing, identity drift, objects phasing through each other, floating objects, gravity defiance, background warping, environment shifting, inconsistent lighting"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (prompt template)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4618, 4627]
+    },
+    {
+      "id": "technique:ai-prompt.model_specific_notes",
+      "type": "Technique",
+      "category": "ai-prompt",
+      "name": "Model-Specific Prompt Notes",
+      "summary": "Per-model prompt guidance: Kling (cinematic, 100-150 words), Seedance (visual+audio), Veo (complex camera), Wan (simpler, 80-120 words).",
+      "details": {
+        "what": "Kling 2.1/2.6: cinema-specific language, 100-150 words, hands weak. Seedance 1.5/2.0: native audio, describe visual+audio, 100-150 words. Veo 3.1: complex camera paths, 100-150 words. Wan 2.2: simpler prompts 80-120 words, fast, reliable",
+        "feels": "Each model has different strengths and prompt requirements",
+        "parameters": {
+          "kling": "cinema language, lens types, film stock, 100-150 words",
+          "seedance": "native audio generation, describe visual AND audio, 100-150 words",
+          "veo": "complex camera paths (orbits, crane), more expensive, 100-150 words",
+          "wan": "fast, natural motion, simpler prompts 80-120 words"
+        },
+        "edlDecisionType": "graphic",
+        "neverUseWhen": [],
+        "duration": "N/A (model reference)"
+      },
+      "tags": ["AI_GEN_ONLY"],
+      "sourceLines": [4630, 4639]
+    },
+    {
+      "id": "technique:color-theory.simultaneous_contrast",
+      "type": "Technique",
+      "category": "color-theory",
+      "name": "Simultaneous Contrast (Albers)",
+      "summary": "Colors change meaning based on adjacency; blue feels cold next to orange but warm next to white; grade per-sequence not per-shot.",
+      "details": {
+        "what": "Albers principle: same color has different emotional meaning depending on adjacent colors. After 10s warm footage, neutral reads as COOL. Grade shifts must be larger than expected to register. Color grading is per-SEQUENCE not per-shot",
+        "feels": "Color emotional meaning is relational not absolute",
+        "parameters": {
+          "principle": "color meaning depends on adjacency",
+          "adaptation": "after 10s of one temperature, neutral reads as opposite",
+          "implication": "grade per-sequence, shifts must exceed perceptual adaptation"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [],
+        "duration": "N/A (design principle)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4644, 4655]
+    },
+    {
+      "id": "technique:color-theory.complementary_harmony",
+      "type": "Technique",
+      "category": "color-theory",
+      "name": "Complementary Color Harmony",
+      "summary": "Opposite colors on wheel create maximum contrast; vibrant and dramatic (e.g., teal-orange Hollywood standard).",
+      "details": {
+        "what": "Colors opposite on wheel: maximum contrast, vibrant, dramatic. Example: teal-orange (Hollywood cinematic standard, overused)",
+        "feels": "Maximum contrast, vibrant, dramatic",
+        "parameters": {
+          "type": "complementary",
+          "example": "teal-orange"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [],
+        "duration": "N/A (color theory)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4660, 4662]
+    },
+    {
+      "id": "technique:color-theory.analogous_harmony",
+      "type": "Technique",
+      "category": "color-theory",
+      "name": "Analogous Color Harmony",
+      "summary": "Adjacent colors on wheel create harmonious, cohesive, calming palette (e.g., blue-teal-green).",
+      "details": {
+        "what": "Colors adjacent on wheel: harmonious, cohesive, calming. Example: blue-teal-green (nature, technology, calm)",
+        "feels": "Harmonious, cohesive, calming",
+        "parameters": {
+          "type": "analogous",
+          "example": "blue-teal-green"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [],
+        "duration": "N/A (color theory)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4663, 4664]
+    },
+    {
+      "id": "technique:color-theory.triadic_harmony",
+      "type": "Technique",
+      "category": "color-theory",
+      "name": "Triadic Color Harmony",
+      "summary": "Three evenly spaced colors create vibrant, balanced, playful palette; hard to manage (e.g., red-blue-yellow).",
+      "details": {
+        "what": "Colors evenly spaced on wheel: vibrant, balanced, playful. Hard to manage. Example: red-blue-yellow (primary palette, children's content)",
+        "feels": "Vibrant, balanced, playful",
+        "parameters": {
+          "type": "triadic",
+          "example": "red-blue-yellow"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [],
+        "duration": "N/A (color theory)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4665, 4666]
+    },
+    {
+      "id": "technique:color-theory.split_complementary_harmony",
+      "type": "Technique",
+      "category": "color-theory",
+      "name": "Split-Complementary Color Harmony",
+      "summary": "Contrast without harshness using one base plus two adjacent-to-complement colors (e.g., blue + yellow-orange + red-orange).",
+      "details": {
+        "what": "One base color plus two colors adjacent to its complement: contrast without harshness. Example: blue + yellow-orange + red-orange",
+        "feels": "Contrast without harshness",
+        "parameters": {
+          "type": "split-complementary",
+          "example": "blue + yellow-orange + red-orange"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [],
+        "duration": "N/A (color theory)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4667, 4668]
+    },
+    {
+      "id": "technique:color-theory.monochromatic_harmony",
+      "type": "Technique",
+      "category": "color-theory",
+      "name": "Monochromatic Color Harmony",
+      "summary": "Single hue with varied saturation creating elegant, unified, minimal palette (e.g., various blues for corporate).",
+      "details": {
+        "what": "Single hue with varied saturation: elegant, unified, minimal. Example: various blues (corporate, tech, trustworthy)",
+        "feels": "Elegant, unified, minimal",
+        "parameters": {
+          "type": "monochromatic",
+          "example": "various blues"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [],
+        "duration": "N/A (color theory)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4669, 4670]
+    },
+    {
+      "id": "technique:color-theory.skin_tone_protection",
+      "type": "Technique",
+      "category": "color-theory",
+      "name": "Skin Tone Protection",
+      "summary": "Non-negotiable constraint: all skin tones on vectorscope I-line (~123 degrees); skin accuracy always trumps creative grade.",
+      "details": {
+        "what": "All skin tones must fall along vectorscope I-line (~123 degrees). If creative grade pushes off I-line, reduce intensity. Check after any color technique. Deviation > 5 degrees = reduce grade. Skin tone accuracy > creative grade intensity ALWAYS",
+        "feels": "Natural skin tones are the non-negotiable priority in any grade",
+        "parameters": {
+          "i_line_angle": "~123 degrees on vectorscope",
+          "max_deviation": "5 degrees",
+          "priority": "skin accuracy > creative grade"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [
+          "NEVER skip: this is non-negotiable"
+        ],
+        "duration": "always active"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4673, 4680]
+    },
+    {
+      "id": "technique:color-theory.cultural_color_associations",
+      "type": "Technique",
+      "category": "color-theory",
+      "name": "Cultural Color Associations",
+      "summary": "Where Western color defaults break: white=mourning (East Asia), red=luck (Chinese), gold=divinity (Indian/Chinese/Middle Eastern).",
+      "details": {
+        "what": "Culture-specific color meanings: Bollywood (rich golds, magentas, deep reds), K-drama (soft desaturated naturalism), Anime (high saturation, pure colors), Nordic (desaturated, cool), Latin American (warm, saturated), African (vibrant purples, golds), Middle Eastern (desert warmth, gold, turquoise). White=mourning (East Asia), Red=luck (Chinese), Gold=prosperity (Indian/Chinese/Middle Eastern)",
+        "feels": "Color associations are culturally contingent, not universal",
+        "parameters": {
+          "bollywood": "rich golds, magentas, deep reds, emeralds",
+          "kdrama": "soft, slightly desaturated, golden hour romance",
+          "anime": "high saturation, pure colors, dramatic shifts",
+          "nordic": "desaturated, low-contrast, cool-dominant, gray",
+          "latin_american": "warm, saturated, high-contrast, earth tones",
+          "african": "warm natural light, vibrant purples, golds, earth",
+          "middle_eastern": "desert warmth, geometric, gold, deep blue, turquoise"
+        },
+        "edlDecisionType": "filter-change",
+        "neverUseWhen": [
+          "applying Western color assumptions to non-Western content"
+        ],
+        "duration": "N/A (reference)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4683, 4696]
+    }
+  ],
+  "edges": [
+    {
+      "from": "technique:zoom.zoom_push",
+      "to": "technique:zoom.zoom_pull_back",
+      "type": "alternative_to",
+      "label": "opposite emotional direction"
+    },
+    {
+      "from": "technique:zoom.zoom_punch",
+      "to": "technique:zoom.zoom_push",
+      "type": "alternative_to",
+      "label": "punch is aggressive version of push"
+    },
+    {
+      "from": "technique:zoom.zoom_punch",
+      "to": "technique:sound.sfx_impact",
+      "type": "composes_with",
+      "label": "punch REQUIRES impact SFX (synchresis)"
+    },
+    {
+      "from": "technique:zoom.zoom_punch",
+      "to": "technique:other.camera_shake",
+      "type": "composes_with",
+      "label": "compound impact effect"
+    },
+    {
+      "from": "technique:zoom.zoom_punch",
+      "to": "technique:transition.flash",
+      "type": "composes_with",
+      "label": "flash 1-2 frames before shake"
+    },
+    {
+      "from": "technique:zoom.zoom_drift",
+      "to": "technique:zoom.zoom_push",
+      "type": "alternative_to",
+      "label": "drift is imperceptible, push is intentional"
+    },
+    {
+      "from": "technique:zoom.zoom_reset",
+      "to": "technique:zoom.zoom_pull_back",
+      "type": "derives_from",
+      "label": "reset is a specific pull-back to neutral"
+    },
+    {
+      "from": "technique:transition.hard_cut",
+      "to": "technique:transition.soft_cut",
+      "type": "alternative_to",
+      "label": "soft cut is smoother version"
+    },
+    {
+      "from": "technique:transition.dissolve",
+      "to": "technique:transition.blur_transition",
+      "type": "alternative_to",
+      "label": "blur hides color mismatches dissolve exposes"
+    },
+    {
+      "from": "technique:transition.fade_to_black",
+      "to": "technique:transition.fade_from_black",
+      "type": "composes_with",
+      "label": "fade-to includes fade-from on the other side"
+    },
+    {
+      "from": "technique:transition.fade_to_black",
+      "to": "technique:transition.dip_to_white",
+      "type": "alternative_to",
+      "label": "black=conclusive, white=transcendent"
+    },
+    {
+      "from": "technique:transition.wipe",
+      "to": "technique:transition.iris_wipe",
+      "type": "derives_from",
+      "label": "iris is circular variant of wipe"
+    },
+    {
+      "from": "technique:transition.whip_pan",
+      "to": "technique:sound.sfx_whoosh",
+      "type": "composes_with",
+      "label": "whip pan REQUIRES whoosh (mandatory)"
+    },
+    {
+      "from": "technique:transition.whip_pan",
+      "to": "technique:transition.wipe",
+      "type": "alternative_to",
+      "label": "both are energetic visible transitions"
+    },
+    {
+      "from": "technique:transition.match_cut",
+      "to": "technique:transition.smash_cut",
+      "type": "alternative_to",
+      "label": "match=similarity between shots, smash=maximum contrast"
+    },
+    {
+      "from": "technique:transition.j_cut",
+      "to": "technique:transition.l_cut",
+      "type": "alternative_to",
+      "label": "j=audio leads, l=audio lingers"
+    },
+    {
+      "from": "technique:transition.jump_cut",
+      "to": "technique:transition.hard_cut",
+      "type": "derives_from",
+      "label": "jump cut is hard cut within same continuous shot"
+    },
+    {
+      "from": "technique:transition.slide_transition",
+      "to": "technique:transition.wipe",
+      "type": "alternative_to",
+      "label": "both reveal directionally"
+    },
+    {
+      "from": "technique:transition.film_burn",
+      "to": "technique:other.film_grain",
+      "type": "composes_with",
+      "label": "both contribute to analog aesthetic"
+    },
+    {
+      "from": "technique:speed.slow_motion",
+      "to": "technique:speed.speed_ramp",
+      "type": "alternative_to",
+      "label": "ramp is dynamic version of static slow-mo"
+    },
+    {
+      "from": "technique:speed.time_lapse",
+      "to": "technique:speed.slow_motion",
+      "type": "alternative_to",
+      "label": "opposite temporal directions"
+    },
+    {
+      "from": "technique:color.color_warm_shift",
+      "to": "technique:color.color_cool_shift",
+      "type": "alternative_to",
+      "label": "opposite temperature directions"
+    },
+    {
+      "from": "technique:color.desaturate",
+      "to": "technique:color.grade_change",
+      "type": "derives_from",
+      "label": "desat is one component of full grade"
+    },
+    {
+      "from": "technique:color.grade_change",
+      "to": "technique:color-theory.skin_tone_protection",
+      "type": "conflicts_with",
+      "label": "grade yields to skin accuracy"
+    },
+    {
+      "from": "technique:graphic.stat_counter",
+      "to": "technique:animation.scale_pop",
+      "type": "composes_with",
+      "label": "stat counters often use scale pop entrance"
+    },
+    {
+      "from": "technique:graphic.lower_third",
+      "to": "technique:animation.slide_in_out",
+      "type": "composes_with",
+      "label": "lower thirds typically slide in from left"
+    },
+    {
+      "from": "technique:graphic.keyword_highlight",
+      "to": "technique:caption.caption_emphasis",
+      "type": "alternative_to",
+      "label": "both emphasize specific words visually"
+    },
+    {
+      "from": "technique:caption.word_by_word",
+      "to": "technique:caption.phrase_display",
+      "type": "alternative_to",
+      "label": "phrase is more readable at higher WPM"
+    },
+    {
+      "from": "technique:caption.phrase_display",
+      "to": "technique:caption.subtitle_mode",
+      "type": "escalates_to",
+      "label": "subtitle for highest formality"
+    },
+    {
+      "from": "technique:caption.word_by_word",
+      "to": "technique:caption.karaoke_mode",
+      "type": "alternative_to",
+      "label": "karaoke is musical variant of word-by-word"
+    },
+    {
+      "from": "technique:sound.sfx_impact",
+      "to": "technique:other.camera_shake",
+      "type": "composes_with",
+      "label": "shake REQUIRES impact sound (mandatory)"
+    },
+    {
+      "from": "technique:sound.sfx_whoosh",
+      "to": "technique:transition.whip_pan",
+      "type": "composes_with",
+      "label": "whoosh mandatory for whip pan"
+    },
+    {
+      "from": "technique:sound.sfx_whoosh",
+      "to": "technique:speed.speed_ramp",
+      "type": "composes_with",
+      "label": "whoosh aligned to speed change"
+    },
+    {
+      "from": "technique:sound.sfx_ambient_bed",
+      "to": "technique:sound-theory.reduced_listening",
+      "type": "derives_from",
+      "label": "ambient engages reduced listening mode"
+    },
+    {
+      "from": "technique:sound.sfx_spot",
+      "to": "technique:sound-theory.materializing_indices",
+      "type": "derives_from",
+      "label": "spot SFX implements materializing indices"
+    },
+    {
+      "from": "technique:sound.sfx_spot",
+      "to": "technique:sound-theory.causal_listening",
+      "type": "derives_from",
+      "label": "Foley engages causal listening mode"
+    },
+    {
+      "from": "technique:sound.music_duck",
+      "to": "technique:sound.music_swell",
+      "type": "conflicts_with",
+      "label": "cannot duck and swell simultaneously"
+    },
+    {
+      "from": "technique:sound.silence_beat",
+      "to": "technique:sound.music_swell",
+      "type": "composes_with",
+      "label": "silence before swell amplifies the swell"
+    },
+    {
+      "from": "technique:sound.music_swell",
+      "to": "technique:sound-theory.semantic_listening",
+      "type": "derives_from",
+      "label": "swell engages semantic listening for emotional meaning"
+    },
+    {
+      "from": "technique:sound-theory.added_value",
+      "to": "technique:sound-theory.semantic_listening",
+      "type": "derives_from",
+      "label": "added value works through semantic listening"
+    },
+    {
+      "from": "technique:sound-theory.materializing_indices",
+      "to": "technique:sound-theory.causal_listening",
+      "type": "derives_from",
+      "label": "materializing indices trigger causal listening"
+    },
+    {
+      "from": "technique:animation.bounce",
+      "to": "technique:animation.drop_in",
+      "type": "alternative_to",
+      "label": "both arrive from above with physical weight"
+    },
+    {
+      "from": "technique:animation.fade_in_out",
+      "to": "technique:animation.blur_in",
+      "type": "alternative_to",
+      "label": "both are subtle materializing animations"
+    },
+    {
+      "from": "technique:animation.scale_pop",
+      "to": "technique:animation.bounce",
+      "type": "alternative_to",
+      "label": "both are playful energetic entrances"
+    },
+    {
+      "from": "technique:animation.cut_entrance",
+      "to": "technique:animation.fade_in_out",
+      "type": "conflicts_with",
+      "label": "cut is no-animation, fade is always-animation"
+    },
+    {
+      "from": "technique:other.camera_shake",
+      "to": "technique:zoom.zoom_punch",
+      "type": "composes_with",
+      "label": "compound impact (shake + punch)"
+    },
+    {
+      "from": "technique:other.film_grain",
+      "to": "technique:other.vignette",
+      "type": "composes_with",
+      "label": "both contribute to cinematic treatment"
+    },
+    {
+      "from": "technique:other.film_grain",
+      "to": "technique:color.desaturate",
+      "type": "composes_with",
+      "label": "grain + desat = vintage aesthetic"
+    },
+    {
+      "from": "technique:music-knowledge.tempo_mood_mapping",
+      "to": "technique:music-knowledge.key_mode_emotion",
+      "type": "composes_with",
+      "label": "BPM + mode together define full emotional color"
+    },
+    {
+      "from": "technique:music-knowledge.song_structure_alignment",
+      "to": "technique:sound.music_swell",
+      "type": "composes_with",
+      "label": "swell aligned to song peak/drop section"
+    },
+    {
+      "from": "technique:voice-pacing.voice_pacing_reference",
+      "to": "technique:caption.word_by_word",
+      "type": "composes_with",
+      "label": "WPM determines if word-by-word is viable"
+    },
+    {
+      "from": "technique:voice-pacing.punctuation_pause_durations",
+      "to": "technique:caption.phrase_display",
+      "type": "composes_with",
+      "label": "punctuation pauses define phrase boundaries"
+    },
+    {
+      "from": "technique:typography.type_personality_theory",
+      "to": "technique:typography.sans_serif",
+      "type": "derives_from",
+      "label": "sans-serif tends toward rounded/friendly"
+    },
+    {
+      "from": "technique:typography.type_personality_theory",
+      "to": "technique:typography.slab_serif",
+      "type": "derives_from",
+      "label": "slab serif tends toward angular/commanding"
+    },
+    {
+      "from": "technique:color-theory.simultaneous_contrast",
+      "to": "technique:color.grade_change",
+      "type": "composes_with",
+      "label": "simultaneous contrast governs grade sequencing"
+    },
+    {
+      "from": "technique:color-theory.skin_tone_protection",
+      "to": "technique:color.color_warm_shift",
+      "type": "conflicts_with",
+      "label": "warm shift constrained by skin I-line"
+    },
+    {
+      "from": "technique:color-theory.skin_tone_protection",
+      "to": "technique:color.color_cool_shift",
+      "type": "conflicts_with",
+      "label": "cool shift constrained by skin I-line"
+    },
+    {
+      "from": "technique:shot-type.ecu",
+      "to": "technique:sound-theory.materializing_indices",
+      "type": "composes_with",
+      "label": "ECU benefits most from materializing indices"
+    },
+    {
+      "from": "technique:shot-type.ews",
+      "to": "technique:sound.sfx_ambient_bed",
+      "type": "composes_with",
+      "label": "EWS needs expansive stereo ambient"
+    },
+    {
+      "from": "technique:camera-movement.push_in",
+      "to": "technique:zoom.zoom_push",
+      "type": "alternative_to",
+      "label": "push-in is physical camera version of zoom push"
+    },
+    {
+      "from": "technique:camera-movement.pull_back",
+      "to": "technique:zoom.zoom_pull_back",
+      "type": "alternative_to",
+      "label": "pull-back is physical camera version of zoom pull"
+    },
+    {
+      "from": "technique:camera-movement.handheld",
+      "to": "technique:other.camera_shake",
+      "type": "alternative_to",
+      "label": "handheld is continuous vs shake is impact-only"
+    },
+    {
+      "from": "technique:ai-prompt.prompt_structure",
+      "to": "technique:ai-prompt.negative_prompt_template",
+      "type": "composes_with",
+      "label": "negative prompt is section 8 of prompt structure"
+    },
+    {
+      "from": "technique:color-theory.cultural_color_associations",
+      "to": "technique:color.grade_change",
+      "type": "composes_with",
+      "label": "cultural context must inform grade decisions"
+    }
+  ]
+}

@@ -1,0 +1,1182 @@
+{
+  "part": 0,
+  "name": "Creative Intent Schema",
+  "sourceLines": [63, 383],
+  "nodes": [
+    {
+      "id": "intent:mode.script_to_video",
+      "type": "ModeSpec",
+      "category": "computation-mode",
+      "name": "Mode 1: Script to Video",
+      "summary": "User provides a script or brief; LLM reads text and infers intent from language, structure, and stated goals.",
+      "details": {
+        "definition": "The Unified Intelligence reads the script text, the brand context (from Graphiti if available), and the project brief. It outputs genre_parameters and moment_weights directly from understanding the written content.",
+        "rationale": "This is the simpler case — the LLM reads text and infers intent from language, structure, and stated goals.",
+        "modulates": "Outputs CreativeIntent (genre_parameters + moment_weights + narrative_strategy)"
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [73, 77]
+    },
+    {
+      "id": "intent:mode.raw_footage_to_video",
+      "type": "ModeSpec",
+      "category": "computation-mode",
+      "name": "Mode 2: Raw Footage to Edited Video",
+      "summary": "User uploads footage with no script; computation must happen in stages (clean before measuring) to avoid garbage from filler/false-starts/warm-up.",
+      "details": {
+        "definition": "Raw footage is a mess: repeated takes, fillers, false starts, warm-up energy, no music, no structure. Computing genre_parameters from raw footage directly would produce garbage — the measurements include all the bad parts that will be cut. The computation must happen in STAGES, cleaning before measuring.",
+        "rationale": "When no script exists, the clean transcript BECOMES the retroactive script. The system doesn't need a user-written script — it needs to understand what the content says and how it should feel. The transcript provides that.",
+        "modulates": "Outputs CreativeIntent via 5-stage pipeline"
+      },
+      "tags": ["LLM_REQUIRED", "DETERMINISTIC"],
+      "sourceLines": [79, 117]
+    },
+    {
+      "id": "intent:stage.transcribe_and_clean",
+      "type": "ComputationStage",
+      "category": "computation-stage",
+      "name": "Stage 1 — Transcribe and Clean",
+      "summary": "Whisper transcription, filler detection, false-start detection, best-take selection (fuzzy Jaccard) producing clean transcript + segment map.",
+      "details": {
+        "definition": "Input: Raw video file(s). Action: Whisper transcription → filler detection → false start detection → best-take selection (fuzzy Jaccard). Output: Clean transcript (only the good parts) + segment map (which timestamps to keep).",
+        "rationale": "This pipeline already exists in raw-footage-processor.ts",
+        "examples": ["raw-footage-processor.ts"]
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [86, 90]
+    },
+    {
+      "id": "intent:stage.analyze_content",
+      "type": "ComputationStage",
+      "category": "computation-stage",
+      "name": "Stage 2 — Analyze CONTENT from Clean Transcript",
+      "summary": "NLP analysis on clean transcript text to identify topics, claims, questions, and CTA presence — independent of audio delivery quality.",
+      "details": {
+        "definition": "Input: Clean transcript text. Action: NLP analysis — entity extraction, topic structure, vocabulary analysis, sentence classification. Output: What the content is ABOUT: topics discussed, claims made, questions asked, CTA presence.",
+        "rationale": "Text analysis only. Independent of audio delivery quality"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [92, 96]
+    },
+    {
+      "id": "intent:stage.analyze_visual_setup",
+      "type": "ComputationStage",
+      "category": "computation-stage",
+      "name": "Stage 3 — Analyze VISUAL SETUP from Footage",
+      "summary": "Scene classification, face detection, shot scale, lighting analysis on raw video keyframes — observations stable across edits.",
+      "details": {
+        "definition": "Input: Raw video keyframes. Action: Scene classification, face detection, shot scale analysis, lighting analysis. Output: Visual context — indoor/outdoor, single/multi person, shot types available, production quality.",
+        "rationale": "These observations don't change after editing — studio shot stays studio shot"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [98, 102]
+    },
+    {
+      "id": "intent:stage.compute_speech_signals_best_takes",
+      "type": "ComputationStage",
+      "category": "computation-stage",
+      "name": "Stage 4 — Compute Speech Signals on BEST TAKES ONLY",
+      "summary": "Speech energy, speaking rate, pitch analysis on best-take segments only (the dish, not the raw ingredients).",
+      "details": {
+        "definition": "Input: Audio from best-take segments (not the full raw audio). Action: Speech energy, speaking rate, pitch analysis — but ONLY on the segments that will be used. Output: Accurate speech characteristics of the final content.",
+        "rationale": "Critical difference from naive approach — measuring the dish, not the raw ingredients"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [104, 108]
+    },
+    {
+      "id": "intent:stage.unified_intelligence_dials",
+      "type": "ComputationStage",
+      "category": "computation-stage",
+      "name": "Stage 5 — Unified Intelligence Sets the Dials",
+      "summary": "Single Gemini call reads cleaned content + visual setup + speech signals + brand context and outputs CreativeIntent object.",
+      "details": {
+        "definition": "Input: Clean transcript content (Stage 2) + visual setup (Stage 3) + speech signals from best takes (Stage 4) + brand context from Graphiti. Action: Single Gemini call reads all inputs and outputs the CreativeIntent object. Output: genre_parameters + moment_weights + narrative_strategy.",
+        "rationale": "The LLM is computing dials from cleaned, selected, representative data — not from raw mess"
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [110, 115]
+    },
+    {
+      "id": "intent:mode.brand_context",
+      "type": "ModeSpec",
+      "category": "computation-mode",
+      "name": "Brand Context from Graphiti (Both Modes)",
+      "summary": "If brand has been edited before (project #10+), Graphiti provides learned preferences that OVERRIDE computed defaults.",
+      "details": {
+        "definition": "If this brand has been edited before (project #10+), Graphiti provides learned preferences: which genre_parameter values the user kept vs overrode for this brand, which techniques the user consistently rejects, visual style preferences (warm/cool, high/low graphics density). These learned preferences OVERRIDE the computed defaults.",
+        "rationale": "By project #50, the system has essentially memorized how this brand should be edited.",
+        "overridable": true
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [119, 126]
+    },
+
+    {
+      "id": "intent:param.pacing_tolerance",
+      "type": "IntentParameter",
+      "category": "genre-parameter",
+      "name": "pacing_tolerance",
+      "summary": "Seconds before a hold becomes 'too long'. Sets the threshold for when to consider cutting.",
+      "details": {
+        "definition": "seconds before 'too long'",
+        "range": "float 2-15",
+        "computedFrom": "speech_coverage, visual_complexity_avg, formality",
+        "modulates": "time_since_last_cut threshold and all pacing-related signal triggers",
+        "examples": [
+          "Product launch: pacing_tolerance = 3, time_since_last_cut > 3.0 → consider cutting",
+          "Luxury brand film: pacing_tolerance = 8, time_since_last_cut > 8.0 → consider cutting",
+          "UGC/social: pacing_tolerance = 2, time_since_last_cut > 2.0 → consider cutting"
+        ],
+        "rationale": "The same doc handles every content type without content-type-specific sections. Content type is EMERGENT from genre_parameters.",
+        "overridable": true
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [134, 196]
+    },
+    {
+      "id": "intent:param.energy_baseline",
+      "type": "IntentParameter",
+      "category": "genre-parameter",
+      "name": "energy_baseline",
+      "summary": "What 'normal' energy means for this project. Anything above is 'energetic', below is 'reflective'.",
+      "details": {
+        "definition": "what 'normal' energy means",
+        "range": "float 0.2-0.8",
+        "computedFrom": "speech_energy_avg_on_best_takes, motion_intensity_avg",
+        "modulates": "Energy thresholds — system treats anything above as 'energetic' and below as 'reflective'",
+        "rationale": "Literally the average of observed energy in the good takes. If speech_energy averages 0.5 across best takes, baseline IS 0.5.",
+        "overridable": true
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [135, 261]
+    },
+    {
+      "id": "intent:param.transition_density",
+      "type": "IntentParameter",
+      "category": "genre-parameter",
+      "name": "transition_density",
+      "summary": "Target transitions per minute.",
+      "details": {
+        "definition": "target transitions per minute",
+        "range": "float 2-25",
+        "computedFrom": "pacing_tolerance, music_bpm, speech_coverage",
+        "modulates": "Transition placement and frequency",
+        "rationale": "Roughly: 60 / pacing_tolerance = transitions per minute baseline. Music-driven content (low speech, high music): transitions sync to beats, density from BPM. Speech-driven content: transitions at topic boundaries and energy shifts.",
+        "overridable": true
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [136, 266]
+    },
+    {
+      "id": "intent:param.graphic_density",
+      "type": "IntentParameter",
+      "category": "genre-parameter",
+      "name": "graphic_density",
+      "summary": "Target graphics per minute (stat graphics, callouts, lower thirds).",
+      "details": {
+        "definition": "target graphics per minute",
+        "range": "float 0-8",
+        "computedFrom": "entity_number_count / duration, formality",
+        "modulates": "Graphic placement and frequency",
+        "rationale": "If the speaker mentions 8 numbers in 2 minutes → up to 4 graphics/min is justified. High formality → fewer, more restrained graphics. Low formality → more, punchier graphics (social style).",
+        "overridable": true
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [137, 271]
+    },
+    {
+      "id": "intent:param.silence_tolerance",
+      "type": "IntentParameter",
+      "category": "genre-parameter",
+      "name": "silence_tolerance",
+      "summary": "Seconds before silence is treated as error / dead air.",
+      "details": {
+        "definition": "seconds before silence = error",
+        "range": "float 0.3-5.0",
+        "computedFrom": "formality, speech_coverage, speaking_rate_avg",
+        "modulates": "Silence removal triggers",
+        "rationale": "Formal + slow speaker → tolerance up to 2-3 seconds (pauses are deliberate). Casual + fast speaker → tolerance 0.3-0.5 seconds (pauses are dead air).",
+        "overridable": true
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [138, 275]
+    },
+    {
+      "id": "intent:param.zoom_budget",
+      "type": "IntentParameter",
+      "category": "genre-parameter",
+      "name": "zoom_budget",
+      "summary": "Max zoom moves per video.",
+      "details": {
+        "definition": "max zoom moves per video",
+        "range": "int 1-15",
+        "computedFrom": "duration, entity_number_count, emphasis_word_count",
+        "modulates": "Zoom decision frequency",
+        "rationale": "More emphasis moments → more zoom opportunities. But capped: roughly 1 zoom per 15-30 seconds max, diminishing returns after that.",
+        "overridable": true
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [139, 279]
+    },
+    {
+      "id": "intent:param.caption_style",
+      "type": "IntentParameter",
+      "category": "genre-parameter",
+      "name": "caption_style",
+      "summary": "Caption rendering style — word-by-word, phrase, subtitle, or karaoke.",
+      "details": {
+        "definition": "caption rendering style",
+        "range": "enum: word-by-word | phrase | subtitle | karaoke",
+        "modulates": "Caption renderer behavior and timing granularity",
+        "overridable": true
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [140, 140]
+    },
+    {
+      "id": "intent:param.color_temperature",
+      "type": "IntentParameter",
+      "category": "genre-parameter",
+      "name": "color_temperature",
+      "summary": "Color grade temperature target.",
+      "details": {
+        "definition": "color grade temperature target",
+        "range": "enum: warm | neutral | cool | match-source",
+        "modulates": "Color grade pipeline target",
+        "overridable": true
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [141, 141]
+    },
+    {
+      "id": "intent:param.formality",
+      "type": "IntentParameter",
+      "category": "genre-parameter",
+      "name": "formality",
+      "summary": "0=raw/UGC, 1=broadcast/cinematic. Influences pace, silence tolerance, graphic restraint.",
+      "details": {
+        "definition": "0=raw/ugc, 1=broadcast/cinematic",
+        "range": "float 0-1",
+        "computedFrom": "speech_formality, scene_type, visual_quality",
+        "modulates": "pacing_tolerance, silence_tolerance, graphic_density restraint",
+        "rationale": "Studio + formal speech + high production value → formality 0.7-0.9. Handheld + casual speech + raw look → formality 0.1-0.3.",
+        "overridable": true
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [142, 283]
+    },
+
+    {
+      "id": "intent:moment_weights.schema",
+      "type": "IntentSchema",
+      "category": "moment-weight",
+      "name": "moment_weight_map Schema",
+      "summary": "Per-segment narrative importance map. Each entry has segment_id and weight (0-1). 0.8+ amplifies, 0.3- suppresses, 0.5 default.",
+      "details": {
+        "definition": "moment_weights: [ { segment_id: string, weight: float } ] // 0-1, where 0.8+ = amplify, 0.3- = suppress",
+        "modulates": "Technique intensity. Each Part 2 mapping includes a weight_response field showing how moment_weight scales the technique.",
+        "examples": [
+          "weight 0.9 + zoom_push → zoom_punch (amplified)",
+          "weight 0.3 + zoom_push → skip or gentle drift (suppressed)",
+          "weight 0.5 = default, no modification",
+          "weight 0.9: stat_graphic (large, animated counter, with zoom_push and SFX)",
+          "weight 0.5: stat_graphic (standard size, fade-in, no complement)",
+          "weight 0.2: caption_emphasis only (highlight number in accent color, no separate graphic)"
+        ],
+        "rationale": "The moment_weight_map is a per-segment intensity multiplier. Each Part 2 mapping includes a weight_response field showing how moment_weight scales the technique."
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [145, 213]
+    },
+    {
+      "id": "intent:narrative_strategy.schema",
+      "type": "IntentSchema",
+      "category": "narrative-strategy",
+      "name": "narrative_strategy Schema (optional)",
+      "summary": "Optional structural metadata for complex content — structure, cross-cut detection, emotional arc, loop structure.",
+      "details": {
+        "definition": "narrative_strategy: { structure: string (three-act | hook-value-cta | kishōtenketsu | etc.), cross_cut: boolean (parallel storylines detected?), cross_cut_segments: array (which segments intercut, if applicable), emotional_arc: string (building | declining | wave | sustained | shock), loop_structure: boolean (end connects to beginning? for social replay) }",
+        "rationale": "Optional, for complex content"
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [154, 161]
+    },
+
+    {
+      "id": "intent:content.has_speaker",
+      "type": "ContentSignal",
+      "category": "content-signal",
+      "name": "has_speaker",
+      "summary": "Boolean — does the content feature a speaker?",
+      "details": {
+        "definition": "has_speaker: boolean",
+        "modulates": "Whether speech-driven techniques (subtitles, audio ducking, transcript-driven graphics) apply"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [165, 165]
+    },
+    {
+      "id": "intent:content.has_multiple_speakers",
+      "type": "ContentSignal",
+      "category": "content-signal",
+      "name": "has_multiple_speakers",
+      "summary": "Boolean — multiple speakers detected (interview, panel, dialogue).",
+      "details": {
+        "definition": "has_multiple_speakers: boolean",
+        "modulates": "Speaker labeling, lower-third placement, dialogue cutting strategy"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [166, 166]
+    },
+    {
+      "id": "intent:content.has_narration",
+      "type": "ContentSignal",
+      "category": "content-signal",
+      "name": "has_narration",
+      "summary": "Boolean — voiceover narration present.",
+      "details": {
+        "definition": "has_narration: boolean",
+        "modulates": "VO ducking, music bed levels, subtitle policy"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [167, 167]
+    },
+    {
+      "id": "intent:content.has_music_primary",
+      "type": "ContentSignal",
+      "category": "content-signal",
+      "name": "has_music_primary",
+      "summary": "Boolean — music IS the content (music video, montage).",
+      "details": {
+        "definition": "has_music_primary: boolean — music IS the content (music video, montage)",
+        "modulates": "Beat-sync vs speech-sync transitions; whether transitions use BPM-driven density"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [168, 168]
+    },
+    {
+      "id": "intent:content.has_product",
+      "type": "ContentSignal",
+      "category": "content-signal",
+      "name": "has_product",
+      "summary": "Boolean — product visible / featured in content.",
+      "details": {
+        "definition": "has_product: boolean",
+        "modulates": "Product callouts, hero shot weighting, brand placement strategies"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [169, 169]
+    },
+    {
+      "id": "intent:content.has_demonstration",
+      "type": "ContentSignal",
+      "category": "content-signal",
+      "name": "has_demonstration",
+      "summary": "Boolean — demonstration/how-to content detected.",
+      "details": {
+        "definition": "has_demonstration: boolean",
+        "modulates": "Step graphics, slow-pacing on demo segments, before/after framing"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [170, 170]
+    },
+    {
+      "id": "intent:content.has_testimonial",
+      "type": "ContentSignal",
+      "category": "content-signal",
+      "name": "has_testimonial",
+      "summary": "Boolean — customer testimonial detected.",
+      "details": {
+        "definition": "has_testimonial: boolean",
+        "modulates": "Lower-thirds with name/role, quote graphics, B-roll under VO strategy"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [171, 171]
+    },
+    {
+      "id": "intent:content.target_platform",
+      "type": "ContentSignal",
+      "category": "content-signal",
+      "name": "target_platform",
+      "summary": "Target delivery platform — affects aspect ratio, length, captioning style, LUFS target.",
+      "details": {
+        "definition": "target_platform: enum",
+        "range": "enum: youtube | reels | tiktok | linkedin | etc.",
+        "modulates": "Aspect ratio, length, caption style defaults, LUFS normalization target"
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [172, 172]
+    },
+    {
+      "id": "intent:content.target_culture",
+      "type": "ContentSignal",
+      "category": "content-signal",
+      "name": "target_culture",
+      "summary": "Target audience culture — affects color grade defaults, density expectations.",
+      "details": {
+        "definition": "target_culture: enum",
+        "range": "enum: western-default | east-asian | indian | middle-eastern | etc.",
+        "modulates": "Color grade defaults, density expectations, narrative pacing conventions"
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [173, 173]
+    },
+
+    {
+      "id": "intent:principle.signal_threshold_relative",
+      "type": "OverridePrinciple",
+      "category": "override",
+      "name": "Signal Thresholds Are Relative to Genre Parameters",
+      "summary": "Every signal threshold in Part 2 is RELATIVE to genre_parameters, not absolute. Same doc handles every content type without content-type-specific sections.",
+      "details": {
+        "definition": "Every signal threshold in Part 2 is RELATIVE to genre_parameters, not absolute. The mapping in Part 2 says: time_since_last_cut > pacing_tolerance → consider_cut. The genre_parameters say what pacing_tolerance IS for this project.",
+        "rationale": "This means the same doc handles every content type without content-type-specific sections. Content type is EMERGENT from genre_parameters.",
+        "examples": [
+          "time_since_last_cut > pacing_tolerance → consider_cut"
+        ]
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [178, 198]
+    },
+
+    {
+      "id": "intent:principle.weight_modulates_technique",
+      "type": "OverridePrinciple",
+      "category": "override",
+      "name": "Moment Weights Modulate Technique Intensity",
+      "summary": "Moment weight is a per-segment intensity multiplier; each Part 2 mapping has a weight_response field showing how it scales the technique.",
+      "details": {
+        "definition": "The moment_weight_map is a per-segment intensity multiplier. Each Part 2 mapping includes a weight_response field showing how moment_weight scales the technique.",
+        "examples": [
+          "weight 0.9: stat_graphic (large, animated counter, with zoom_push and SFX)",
+          "weight 0.5: stat_graphic (standard size, fade-in, no complement)",
+          "weight 0.2: caption_emphasis only (highlight number in accent color, no separate graphic)"
+        ]
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [200, 213]
+    },
+    {
+      "id": "intent:weight.section_level",
+      "type": "MomentWeightLevel",
+      "category": "moment-weight",
+      "name": "Section-level Weights (10+ minute content)",
+      "summary": "For long content. Content divided into 5-8 major sections; each section gets a weight. Scenes inherit unless overridden.",
+      "details": {
+        "definition": "Long content (10+ minutes): Section-level weights. The content is divided into 5-8 major sections. Each section gets a weight. Scenes within sections inherit the section weight unless explicitly overridden.",
+        "examples": [
+          "{ level: 'section', id: 'product-demo', weight: 0.9 }",
+          "{ level: 'section', id: 'intro-context', weight: 0.4 }"
+        ]
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [223, 229]
+    },
+    {
+      "id": "intent:weight.scene_level",
+      "type": "MomentWeightLevel",
+      "category": "moment-weight",
+      "name": "Scene-level Weights (3-10 minute content)",
+      "summary": "For medium content. Each scene (5-15 scenes) gets a weight; signal system handles moment-by-moment within scene.",
+      "details": {
+        "definition": "Medium content (3-10 minutes): Scene-level weights. Each scene (typically 5-15 scenes) gets a weight. Within each scene, the signal system handles moment-by-moment decisions autonomously. The weight tells it 'this scene is the climax, amplify everything' vs 'this scene is transition, keep it subtle.'",
+        "examples": [
+          "{ level: 'scene', id: 'scene-7', weight: 0.85, parent: 'product-demo' }"
+        ]
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [221, 232]
+    },
+    {
+      "id": "intent:weight.moment_level",
+      "type": "MomentWeightLevel",
+      "category": "moment-weight",
+      "name": "Moment-level Weights (under 3 minute content)",
+      "summary": "For short content or critical moments in any length. LLM marks specific sentences/timestamps with fine-grained reasoning.",
+      "details": {
+        "definition": "Short content (under 3 minutes): Moment-level weights. The LLM can mark specific sentences or timestamps. 'The claim at 0:47 is weight 0.9.' Fine-grained enough for the LLM to reason about every significant moment.",
+        "examples": [
+          "{ level: 'moment', timestamp_ms: 47000, weight: 1.0, parent: 'scene-7' }"
+        ]
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [219, 236]
+    },
+    {
+      "id": "intent:weight.resolution_rules",
+      "type": "OverridePrinciple",
+      "category": "moment-weight",
+      "name": "Weight Resolution Rules",
+      "summary": "Resolution chain: moment-level weight > parent scene weight > parent section weight > 0.5 default.",
+      "details": {
+        "definition": "If a moment-level weight exists for the current timestamp, use it. Otherwise, use the parent scene-level weight. Otherwise, use the parent section-level weight. If no weight data at all, use 0.5 (neutral, no modification).",
+        "examples": [
+          "moment > scene > section > 0.5"
+        ]
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [239, 243]
+    },
+
+    {
+      "id": "intent:cold_start.fallback_values",
+      "type": "ConfidenceLevel",
+      "category": "computation-mode",
+      "name": "Cold-Start Fallback Values",
+      "summary": "Conservative middle-ground defaults used ONLY when signal computation fails (e.g., text brief only, no footage or script). Thompson Sampling moves away quickly.",
+      "details": {
+        "definition": "In rare cases where no signals are available yet (e.g., user provides only a text brief with no footage or script), these FALLBACK values are used. They are intentionally conservative middle-ground values. Thompson Sampling will move away from these quickly.",
+        "fallback": "pacing=5, energy=0.45, transitions=10, graphics=3, silence=1.0, zooms=5, formality=0.5",
+        "rationale": "These are NOT content-type presets. There is deliberately ONE fallback, not eight. The system should compute from signals whenever possible."
+      },
+      "tags": ["COLD_START_FALLBACK", "DETERMINISTIC"],
+      "sourceLines": [286, 295]
+    },
+    {
+      "id": "intent:confidence.high",
+      "type": "ConfidenceLevel",
+      "category": "computation-mode",
+      "name": "HIGH Confidence",
+      "summary": "Computed from 5+ minutes of clean footage with speech + visual analysis. Most reliable training signal for Thompson Sampling.",
+      "details": {
+        "definition": "HIGH confidence: Computed from 5+ minutes of clean footage with speech + visual analysis",
+        "rationale": "Thompson Sampling weighs its learning rate by confidence — high-confidence computations are more reliable training signals than low-confidence guesses."
+      },
+      "tags": ["LEARNING_TARGET"],
+      "sourceLines": [302, 307]
+    },
+    {
+      "id": "intent:confidence.medium",
+      "type": "ConfidenceLevel",
+      "category": "computation-mode",
+      "name": "MEDIUM Confidence",
+      "summary": "Computed from transcript only (Mode 1 with script, no footage yet).",
+      "details": {
+        "definition": "MEDIUM confidence: Computed from transcript only (Mode 1 with script, no footage yet)"
+      },
+      "tags": ["LEARNING_TARGET"],
+      "sourceLines": [303, 303]
+    },
+    {
+      "id": "intent:confidence.low",
+      "type": "ConfidenceLevel",
+      "category": "computation-mode",
+      "name": "LOW Confidence",
+      "summary": "Computed from brief/title only, or cold-start fallback. Least reliable training signal.",
+      "details": {
+        "definition": "LOW confidence: Computed from brief/title only, or cold-start fallback"
+      },
+      "tags": ["LEARNING_TARGET", "COLD_START_FALLBACK"],
+      "sourceLines": [304, 304]
+    },
+
+    {
+      "id": "intent:principle.universal_override",
+      "type": "OverridePrinciple",
+      "category": "override",
+      "name": "Universal Override Principle",
+      "summary": "Every decision the system makes is manually overridable. The automatic car model: auto mode drives, but the human can grab the wheel without crashing. Every override logged to Graphiti.",
+      "details": {
+        "definition": "Every decision the system makes is manually overridable. Changing one decision does not break others. The automatic car model: auto mode drives, but the human can grab the wheel at any point without crashing.",
+        "rationale": "Every override gets logged to Graphiti as a learning signal for Thompson Sampling. 'User overrode zoom_punch to zoom_push for this brand' → system adjusts future behavior.",
+        "examples": [
+          "Genre parameters? User can adjust any dial manually",
+          "Moment weights? User can reweight any moment/scene/section",
+          "Signal→technique mappings? User can disable specific techniques ('no stat graphics in this video')",
+          "Compositional constraints? User can override ('I know these color temps clash, I want the dissolve anyway')",
+          "Technical constants? User can override LUFS target, safe zones, caption timing for specific creative reasons",
+          "Any individual edit decision? User can change one zoom without re-running the pipeline"
+        ],
+        "overridable": true,
+        "overrideLogged": true
+      },
+      "tags": ["OVERRIDABLE", "LEARNING_TARGET"],
+      "sourceLines": [313, 324]
+    },
+
+    {
+      "id": "intent:authority.decides",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "System DECIDES",
+      "summary": "Always automatic, even in manual mode. Mostly technical compliance / physics.",
+      "details": {
+        "definition": "System DECIDES (always automatic, even in manual mode)",
+        "authorityLevel": "DECIDES"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [328, 336]
+    },
+    {
+      "id": "intent:authority.lufs_normalization",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "LUFS Normalization to Platform Target",
+      "summary": "System always normalizes loudness to platform target. Overridable.",
+      "details": {
+        "definition": "LUFS normalization to platform target [overridable]",
+        "authorityLevel": "DECIDES",
+        "overridable": true
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [329, 329]
+    },
+    {
+      "id": "intent:authority.true_peak_limiting",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "True Peak Limiting (< -1.0 dBTP)",
+      "summary": "System always applies true peak limiting. Overridable.",
+      "details": {
+        "definition": "True peak limiting (< -1.0 dBTP) [overridable]",
+        "authorityLevel": "DECIDES",
+        "overridable": true
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [330, 330]
+    },
+    {
+      "id": "intent:authority.safe_zone_enforcement",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Safe Zone Enforcement for Text/Graphics",
+      "summary": "System enforces safe zones for text and graphics. Overridable.",
+      "details": {
+        "definition": "Safe zone enforcement for text/graphics [overridable]",
+        "authorityLevel": "DECIDES",
+        "overridable": true
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [331, 331]
+    },
+    {
+      "id": "intent:authority.frame_timing_accuracy",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Frame Timing Accuracy",
+      "summary": "Frame-accurate timing — NOT overridable, this is physics.",
+      "details": {
+        "definition": "Frame timing accuracy [not overridable — physics]",
+        "authorityLevel": "DECIDES",
+        "overridable": false
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [332, 332]
+    },
+    {
+      "id": "intent:authority.audio_ducking",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Audio Ducking Under Speech",
+      "summary": "System ducks music/native audio under speech automatically. Overridable.",
+      "details": {
+        "definition": "Audio ducking under speech [overridable]",
+        "authorityLevel": "DECIDES",
+        "overridable": true
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [333, 333]
+    },
+    {
+      "id": "intent:authority.silence_removal",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Silence Removal (default-on)",
+      "summary": "System removes silence unless user disables it.",
+      "details": {
+        "definition": "Silence removal (unless user disables) [overridable]",
+        "authorityLevel": "DECIDES",
+        "overridable": true
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [334, 334]
+    },
+    {
+      "id": "intent:authority.codec_bitrate",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Codec/Bitrate for Platform Delivery",
+      "summary": "System picks codec and bitrate for delivery target. Overridable.",
+      "details": {
+        "definition": "Codec/bitrate for platform delivery [overridable]",
+        "authorityLevel": "DECIDES",
+        "overridable": true
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [335, 335]
+    },
+    {
+      "id": "intent:authority.caption_timing_sync",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Caption Timing Sync to Word Timestamps",
+      "summary": "System syncs caption timing to word-level transcript timestamps. Overridable.",
+      "details": {
+        "definition": "Caption timing sync to word timestamps [overridable]",
+        "authorityLevel": "DECIDES",
+        "overridable": true
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [336, 336]
+    },
+
+    {
+      "id": "intent:authority.suggests",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "System SUGGESTS",
+      "summary": "Auto mode applies, manual mode shows as recommendation. All creative defaults live here.",
+      "details": {
+        "definition": "System SUGGESTS (auto mode applies, manual mode shows as recommendation)",
+        "authorityLevel": "SUGGESTS"
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [338, 346]
+    },
+    {
+      "id": "intent:authority.genre_parameters",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Genre Parameters (all dials)",
+      "summary": "All genre dials are SUGGESTED — auto mode applies, manual mode shows as recommendation.",
+      "details": {
+        "definition": "Genre parameters (all dials)",
+        "authorityLevel": "SUGGESTS",
+        "overridable": true
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [339, 339]
+    },
+    {
+      "id": "intent:authority.transitions",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Transition Types and Placement",
+      "summary": "System suggests transition types and placement. Overridable.",
+      "details": {
+        "definition": "Transition types and placement",
+        "authorityLevel": "SUGGESTS",
+        "overridable": true
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [340, 340]
+    },
+    {
+      "id": "intent:authority.zoom_decisions",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Zoom Decisions",
+      "summary": "System suggests zoom moves and placement. Overridable.",
+      "details": {
+        "definition": "Zoom decisions",
+        "authorityLevel": "SUGGESTS",
+        "overridable": true
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [341, 341]
+    },
+    {
+      "id": "intent:authority.color_grade",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Color Grade / Filter",
+      "summary": "System suggests color grade / filter selection. Overridable.",
+      "details": {
+        "definition": "Color grade / filter",
+        "authorityLevel": "SUGGESTS",
+        "overridable": true
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [342, 342]
+    },
+    {
+      "id": "intent:authority.music_mood_energy",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Music Mood and Energy",
+      "summary": "System suggests music mood/energy selection. Overridable.",
+      "details": {
+        "definition": "Music mood and energy",
+        "authorityLevel": "SUGGESTS",
+        "overridable": true
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [343, 343]
+    },
+    {
+      "id": "intent:authority.graphic_placement_timing",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Graphic Placement and Timing",
+      "summary": "System suggests graphic placement and timing. Overridable.",
+      "details": {
+        "definition": "Graphic placement and timing",
+        "authorityLevel": "SUGGESTS",
+        "overridable": true
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [344, 344]
+    },
+    {
+      "id": "intent:authority.sfx_selection_placement",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "SFX Selection and Placement",
+      "summary": "System suggests SFX selection and placement. Overridable.",
+      "details": {
+        "definition": "SFX selection and placement",
+        "authorityLevel": "SUGGESTS",
+        "overridable": true
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [345, 345]
+    },
+    {
+      "id": "intent:authority.pacing_shot_duration",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Pacing / Shot Duration",
+      "summary": "System suggests pacing and shot duration. Overridable.",
+      "details": {
+        "definition": "Pacing / shot duration",
+        "authorityLevel": "SUGGESTS",
+        "overridable": true
+      },
+      "tags": ["LLM_REQUIRED", "OVERRIDABLE"],
+      "sourceLines": [346, 346]
+    },
+
+    {
+      "id": "intent:authority.user_decides",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "User DECIDES",
+      "summary": "Never automated without explicit instruction. Brand voice, narrative structure, content selection, audience targeting.",
+      "details": {
+        "definition": "User DECIDES (never automated without explicit instruction)",
+        "authorityLevel": "USER_DECIDES"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [348, 354]
+    },
+    {
+      "id": "intent:authority.brand_voice",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Brand Voice and Identity",
+      "summary": "User decides brand voice and identity — never automated without explicit instruction.",
+      "details": {
+        "definition": "Brand voice and identity",
+        "authorityLevel": "USER_DECIDES"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [349, 349]
+    },
+    {
+      "id": "intent:authority.narrative_structure",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Narrative Structure and Story",
+      "summary": "User decides narrative structure and story — never automated without explicit instruction.",
+      "details": {
+        "definition": "Narrative structure and story",
+        "authorityLevel": "USER_DECIDES"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [350, 350]
+    },
+    {
+      "id": "intent:authority.content_inclusion",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "What Content to Include vs Exclude",
+      "summary": "User decides content inclusion/exclusion — never automated without explicit instruction.",
+      "details": {
+        "definition": "What content to include vs exclude",
+        "authorityLevel": "USER_DECIDES"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [351, 351]
+    },
+    {
+      "id": "intent:authority.tone_mood",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Overall Tone and Mood",
+      "summary": "User decides overall tone and mood — never automated without explicit instruction.",
+      "details": {
+        "definition": "Overall tone and mood",
+        "authorityLevel": "USER_DECIDES"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [352, 352]
+    },
+    {
+      "id": "intent:authority.target_audience",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Target Audience",
+      "summary": "User decides target audience — never automated without explicit instruction.",
+      "details": {
+        "definition": "Target audience",
+        "authorityLevel": "USER_DECIDES"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [353, 353]
+    },
+    {
+      "id": "intent:authority.target_platform_choice",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Which Platform(s) to Target",
+      "summary": "User decides target platform(s) — never automated without explicit instruction.",
+      "details": {
+        "definition": "Which platform(s) to target",
+        "authorityLevel": "USER_DECIDES"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [354, 354]
+    },
+
+    {
+      "id": "intent:authority.never_automated",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "NEVER Automated",
+      "summary": "Hallucination risk or legal liability — must follow uploaded guidelines/instructions.",
+      "details": {
+        "definition": "NEVER automated (hallucination risk or legal liability)",
+        "authorityLevel": "NEVER_AUTOMATED"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [356, 360]
+    },
+    {
+      "id": "intent:authority.brand_logo_placement",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Brand Logo Placement Rules",
+      "summary": "Follow uploaded brand guidelines only — NEVER automated.",
+      "details": {
+        "definition": "Brand logo placement rules — follow uploaded brand guidelines only",
+        "authorityLevel": "NEVER_AUTOMATED"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [357, 357]
+    },
+    {
+      "id": "intent:authority.legal_compliance",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Legal Compliance (disclaimers, disclosures)",
+      "summary": "Disclaimers, disclosures — NEVER automated due to legal liability.",
+      "details": {
+        "definition": "Legal compliance (disclaimers, disclosures)",
+        "authorityLevel": "NEVER_AUTOMATED"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [358, 358]
+    },
+    {
+      "id": "intent:authority.music_licensing",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Music Licensing Decisions",
+      "summary": "Music licensing decisions — NEVER automated due to legal liability.",
+      "details": {
+        "definition": "Music licensing decisions",
+        "authorityLevel": "NEVER_AUTOMATED"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [359, 359]
+    },
+    {
+      "id": "intent:authority.product_claims",
+      "type": "AuthorityDecision",
+      "category": "authority",
+      "name": "Claims About Product Performance",
+      "summary": "Product performance claims — NEVER automated due to hallucination risk and legal liability.",
+      "details": {
+        "definition": "Claims about product performance",
+        "authorityLevel": "NEVER_AUTOMATED"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [360, 360]
+    },
+
+    {
+      "id": "intent:text_source.priority_1_brand_brief",
+      "type": "TextSourceRule",
+      "category": "text-source",
+      "name": "Priority 1: User's Project Brief / Brand Guidelines",
+      "summary": "If user provided specific text to display, use it. Highest priority for on-screen text.",
+      "details": {
+        "definition": "Priority 1: User's project brief / brand guidelines (if they provided specific text to display)"
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [367, 367]
+    },
+    {
+      "id": "intent:text_source.priority_2_cleaned_transcript",
+      "type": "TextSourceRule",
+      "category": "text-source",
+      "name": "Priority 2: Cleaned Transcript",
+      "summary": "Same fact, professional phrasing. Number/fact must come from transcript; phrasing can be cleaned. No added claims.",
+      "details": {
+        "definition": "Priority 2: Cleaned transcript — same fact, professional phrasing. Rule: The NUMBER/FACT must come from the transcript. The PHRASING can be cleaned up. Allowed: Remove fillers, abbreviate, format numbers, add units. Not allowed: Add claims ('Industry Leading'), change the number, editorialize",
+        "examples": [
+          "Speaker says 'um we actually grew like three hundred percent year over year'",
+          "Graphic shows: '300% YoY Growth'"
+        ]
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [368, 373]
+    },
+    {
+      "id": "intent:text_source.priority_3_exact_transcript",
+      "type": "TextSourceRule",
+      "category": "text-source",
+      "name": "Priority 3: Exact Transcript (verbatim)",
+      "summary": "Verbatim what was said — safest fallback when cleaning is risky.",
+      "details": {
+        "definition": "Priority 3: Exact transcript — verbatim what was said (safest fallback)"
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [374, 374]
+    },
+    {
+      "id": "intent:text_source.never_ai_claims",
+      "type": "TextSourceRule",
+      "category": "text-source",
+      "name": "NEVER: AI-generated Claims",
+      "summary": "NEVER add superlatives, characterizations, or claims not in source material. If the speaker didn't say it, it doesn't go on screen.",
+      "details": {
+        "definition": "NEVER: AI-generated claims, superlatives, or characterizations not in the source material. If the speaker didn't say it, it doesn't go on screen."
+      },
+      "tags": ["NOT_OVERRIDABLE"],
+      "sourceLines": [376, 377]
+    }
+  ],
+  "edges": [
+    { "from": "intent:mode.script_to_video", "to": "intent:stage.unified_intelligence_dials", "type": "resolves_to", "label": "Mode 1 produces CreativeIntent in single LLM call", "sourceLines": [73, 77] },
+
+    { "from": "intent:mode.raw_footage_to_video", "to": "intent:stage.transcribe_and_clean", "type": "implements", "label": "Stage 1", "sourceLines": [86, 90] },
+    { "from": "intent:mode.raw_footage_to_video", "to": "intent:stage.analyze_content", "type": "implements", "label": "Stage 2", "sourceLines": [92, 96] },
+    { "from": "intent:mode.raw_footage_to_video", "to": "intent:stage.analyze_visual_setup", "type": "implements", "label": "Stage 3", "sourceLines": [98, 102] },
+    { "from": "intent:mode.raw_footage_to_video", "to": "intent:stage.compute_speech_signals_best_takes", "type": "implements", "label": "Stage 4", "sourceLines": [104, 108] },
+    { "from": "intent:mode.raw_footage_to_video", "to": "intent:stage.unified_intelligence_dials", "type": "implements", "label": "Stage 5", "sourceLines": [110, 115] },
+
+    { "from": "intent:stage.transcribe_and_clean", "to": "intent:stage.analyze_content", "type": "resolves_to", "label": "clean transcript feeds NLP", "sourceLines": [89, 95] },
+    { "from": "intent:stage.transcribe_and_clean", "to": "intent:stage.compute_speech_signals_best_takes", "type": "resolves_to", "label": "best-take segments feed speech analysis", "sourceLines": [89, 105] },
+    { "from": "intent:stage.analyze_content", "to": "intent:stage.unified_intelligence_dials", "type": "computes_from", "sourceLines": [110, 115] },
+    { "from": "intent:stage.analyze_visual_setup", "to": "intent:stage.unified_intelligence_dials", "type": "computes_from", "sourceLines": [110, 115] },
+    { "from": "intent:stage.compute_speech_signals_best_takes", "to": "intent:stage.unified_intelligence_dials", "type": "computes_from", "sourceLines": [110, 115] },
+    { "from": "intent:mode.brand_context", "to": "intent:stage.unified_intelligence_dials", "type": "computes_from", "label": "Graphiti brand context feeds final dials", "sourceLines": [111, 126] },
+    { "from": "intent:mode.brand_context", "to": "intent:cold_start.fallback_values", "type": "overrides", "label": "Learned brand prefs override defaults", "sourceLines": [121, 126] },
+
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:param.pacing_tolerance", "type": "computes_from", "sourceLines": [113, 142] },
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:param.energy_baseline", "type": "computes_from", "sourceLines": [113, 142] },
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:param.transition_density", "type": "computes_from", "sourceLines": [113, 142] },
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:param.graphic_density", "type": "computes_from", "sourceLines": [113, 142] },
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:param.silence_tolerance", "type": "computes_from", "sourceLines": [113, 142] },
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:param.zoom_budget", "type": "computes_from", "sourceLines": [113, 142] },
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:param.caption_style", "type": "computes_from", "sourceLines": [113, 142] },
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:param.color_temperature", "type": "computes_from", "sourceLines": [113, 142] },
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:param.formality", "type": "computes_from", "sourceLines": [113, 142] },
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:moment_weights.schema", "type": "computes_from", "sourceLines": [113, 152] },
+    { "from": "intent:stage.unified_intelligence_dials", "to": "intent:narrative_strategy.schema", "type": "computes_from", "sourceLines": [113, 161] },
+
+    { "from": "intent:param.pacing_tolerance", "to": "signal:speech.coverage", "type": "computes_from", "label": "speech_coverage 70%/30% thresholds steer pacing", "sourceLines": [252, 254] },
+    { "from": "intent:param.pacing_tolerance", "to": "signal:visual.complexity_avg", "type": "computes_from", "sourceLines": [255, 255] },
+    { "from": "intent:param.pacing_tolerance", "to": "intent:param.formality", "type": "computes_from", "sourceLines": [256, 256] },
+    { "from": "intent:param.energy_baseline", "to": "signal:speech.energy_avg_on_best_takes", "type": "computes_from", "sourceLines": [258, 261] },
+    { "from": "intent:param.energy_baseline", "to": "signal:visual.motion_intensity_avg", "type": "computes_from", "sourceLines": [258, 258] },
+    { "from": "intent:param.transition_density", "to": "intent:param.pacing_tolerance", "type": "computes_from", "sourceLines": [263, 266] },
+    { "from": "intent:param.transition_density", "to": "signal:audio.music_bpm", "type": "computes_from", "sourceLines": [263, 266] },
+    { "from": "intent:param.transition_density", "to": "signal:speech.coverage", "type": "computes_from", "sourceLines": [263, 266] },
+    { "from": "intent:param.graphic_density", "to": "signal:content.entity_number_count", "type": "computes_from", "sourceLines": [268, 271] },
+    { "from": "intent:param.graphic_density", "to": "intent:param.formality", "type": "computes_from", "sourceLines": [268, 271] },
+    { "from": "intent:param.silence_tolerance", "to": "intent:param.formality", "type": "computes_from", "sourceLines": [273, 275] },
+    { "from": "intent:param.silence_tolerance", "to": "signal:speech.coverage", "type": "computes_from", "sourceLines": [273, 275] },
+    { "from": "intent:param.silence_tolerance", "to": "signal:speech.speaking_rate_avg", "type": "computes_from", "sourceLines": [273, 275] },
+    { "from": "intent:param.zoom_budget", "to": "signal:content.duration", "type": "computes_from", "sourceLines": [277, 279] },
+    { "from": "intent:param.zoom_budget", "to": "signal:content.entity_number_count", "type": "computes_from", "sourceLines": [277, 279] },
+    { "from": "intent:param.zoom_budget", "to": "signal:content.emphasis_word_count", "type": "computes_from", "sourceLines": [277, 279] },
+    { "from": "intent:param.formality", "to": "signal:speech.formality", "type": "computes_from", "sourceLines": [281, 283] },
+    { "from": "intent:param.formality", "to": "signal:visual.scene_type", "type": "computes_from", "sourceLines": [281, 283] },
+    { "from": "intent:param.formality", "to": "signal:visual.quality", "type": "computes_from", "sourceLines": [281, 283] },
+
+    { "from": "intent:principle.signal_threshold_relative", "to": "intent:param.pacing_tolerance", "type": "applies_to", "sourceLines": [180, 196] },
+    { "from": "intent:principle.signal_threshold_relative", "to": "intent:param.energy_baseline", "type": "applies_to", "sourceLines": [180, 196] },
+    { "from": "intent:principle.signal_threshold_relative", "to": "intent:param.transition_density", "type": "applies_to", "sourceLines": [180, 196] },
+    { "from": "intent:principle.signal_threshold_relative", "to": "intent:param.graphic_density", "type": "applies_to", "sourceLines": [180, 196] },
+    { "from": "intent:principle.signal_threshold_relative", "to": "intent:param.silence_tolerance", "type": "applies_to", "sourceLines": [180, 196] },
+    { "from": "intent:principle.signal_threshold_relative", "to": "intent:param.zoom_budget", "type": "applies_to", "sourceLines": [180, 196] },
+
+    { "from": "intent:param.pacing_tolerance", "to": "signal:structural.time_since_last_cut", "type": "modulates", "label": "time_since_last_cut > pacing_tolerance → consider_cut", "sourceLines": [186, 196] },
+
+    { "from": "intent:moment_weights.schema", "to": "intent:weight.section_level", "type": "implements", "sourceLines": [223, 229] },
+    { "from": "intent:moment_weights.schema", "to": "intent:weight.scene_level", "type": "implements", "sourceLines": [221, 232] },
+    { "from": "intent:moment_weights.schema", "to": "intent:weight.moment_level", "type": "implements", "sourceLines": [219, 236] },
+    { "from": "intent:weight.moment_level", "to": "intent:weight.scene_level", "type": "resolves_to", "label": "scene parent fallback", "sourceLines": [240, 243] },
+    { "from": "intent:weight.scene_level", "to": "intent:weight.section_level", "type": "resolves_to", "label": "section parent fallback", "sourceLines": [240, 243] },
+    { "from": "intent:weight.section_level", "to": "intent:weight.resolution_rules", "type": "applies_to", "sourceLines": [239, 243] },
+    { "from": "intent:weight.resolution_rules", "to": "intent:moment_weights.schema", "type": "applies_to", "sourceLines": [239, 243] },
+    { "from": "intent:principle.weight_modulates_technique", "to": "intent:moment_weights.schema", "type": "applies_to", "sourceLines": [200, 213] },
+
+    { "from": "intent:cold_start.fallback_values", "to": "intent:confidence.low", "type": "applies_to", "sourceLines": [288, 305] },
+    { "from": "intent:confidence.high", "to": "intent:stage.compute_speech_signals_best_takes", "type": "computes_from", "label": "5+ min clean footage = HIGH", "sourceLines": [302, 302] },
+    { "from": "intent:confidence.medium", "to": "intent:mode.script_to_video", "type": "applies_to", "label": "Mode 1 transcript only = MEDIUM", "sourceLines": [303, 303] },
+
+    { "from": "intent:principle.universal_override", "to": "intent:authority.decides", "type": "applies_to", "sourceLines": [313, 336] },
+    { "from": "intent:principle.universal_override", "to": "intent:authority.suggests", "type": "applies_to", "sourceLines": [313, 346] },
+    { "from": "intent:principle.universal_override", "to": "intent:moment_weights.schema", "type": "applies_to", "sourceLines": [313, 324] },
+    { "from": "intent:principle.universal_override", "to": "intent:param.pacing_tolerance", "type": "applies_to", "sourceLines": [313, 324] },
+
+    { "from": "intent:authority.decides", "to": "intent:authority.lufs_normalization", "type": "implements", "sourceLines": [329, 329] },
+    { "from": "intent:authority.decides", "to": "intent:authority.true_peak_limiting", "type": "implements", "sourceLines": [330, 330] },
+    { "from": "intent:authority.decides", "to": "intent:authority.safe_zone_enforcement", "type": "implements", "sourceLines": [331, 331] },
+    { "from": "intent:authority.decides", "to": "intent:authority.frame_timing_accuracy", "type": "implements", "sourceLines": [332, 332] },
+    { "from": "intent:authority.decides", "to": "intent:authority.audio_ducking", "type": "implements", "sourceLines": [333, 333] },
+    { "from": "intent:authority.decides", "to": "intent:authority.silence_removal", "type": "implements", "sourceLines": [334, 334] },
+    { "from": "intent:authority.decides", "to": "intent:authority.codec_bitrate", "type": "implements", "sourceLines": [335, 335] },
+    { "from": "intent:authority.decides", "to": "intent:authority.caption_timing_sync", "type": "implements", "sourceLines": [336, 336] },
+
+    { "from": "intent:authority.suggests", "to": "intent:authority.genre_parameters", "type": "implements", "sourceLines": [339, 339] },
+    { "from": "intent:authority.suggests", "to": "intent:authority.transitions", "type": "implements", "sourceLines": [340, 340] },
+    { "from": "intent:authority.suggests", "to": "intent:authority.zoom_decisions", "type": "implements", "sourceLines": [341, 341] },
+    { "from": "intent:authority.suggests", "to": "intent:authority.color_grade", "type": "implements", "sourceLines": [342, 342] },
+    { "from": "intent:authority.suggests", "to": "intent:authority.music_mood_energy", "type": "implements", "sourceLines": [343, 343] },
+    { "from": "intent:authority.suggests", "to": "intent:authority.graphic_placement_timing", "type": "implements", "sourceLines": [344, 344] },
+    { "from": "intent:authority.suggests", "to": "intent:authority.sfx_selection_placement", "type": "implements", "sourceLines": [345, 345] },
+    { "from": "intent:authority.suggests", "to": "intent:authority.pacing_shot_duration", "type": "implements", "sourceLines": [346, 346] },
+
+    { "from": "intent:authority.user_decides", "to": "intent:authority.brand_voice", "type": "implements", "sourceLines": [349, 349] },
+    { "from": "intent:authority.user_decides", "to": "intent:authority.narrative_structure", "type": "implements", "sourceLines": [350, 350] },
+    { "from": "intent:authority.user_decides", "to": "intent:authority.content_inclusion", "type": "implements", "sourceLines": [351, 351] },
+    { "from": "intent:authority.user_decides", "to": "intent:authority.tone_mood", "type": "implements", "sourceLines": [352, 352] },
+    { "from": "intent:authority.user_decides", "to": "intent:authority.target_audience", "type": "implements", "sourceLines": [353, 353] },
+    { "from": "intent:authority.user_decides", "to": "intent:authority.target_platform_choice", "type": "implements", "sourceLines": [354, 354] },
+
+    { "from": "intent:authority.never_automated", "to": "intent:authority.brand_logo_placement", "type": "implements", "sourceLines": [357, 357] },
+    { "from": "intent:authority.never_automated", "to": "intent:authority.legal_compliance", "type": "implements", "sourceLines": [358, 358] },
+    { "from": "intent:authority.never_automated", "to": "intent:authority.music_licensing", "type": "implements", "sourceLines": [359, 359] },
+    { "from": "intent:authority.never_automated", "to": "intent:authority.product_claims", "type": "implements", "sourceLines": [360, 360] },
+
+    { "from": "intent:text_source.priority_1_brand_brief", "to": "intent:text_source.priority_2_cleaned_transcript", "type": "resolves_to", "label": "fallback if no brief text", "sourceLines": [367, 374] },
+    { "from": "intent:text_source.priority_2_cleaned_transcript", "to": "intent:text_source.priority_3_exact_transcript", "type": "resolves_to", "label": "fallback if cleaning risky", "sourceLines": [368, 374] },
+    { "from": "intent:text_source.never_ai_claims", "to": "intent:text_source.priority_1_brand_brief", "type": "applies_to", "sourceLines": [376, 377] },
+    { "from": "intent:text_source.never_ai_claims", "to": "intent:text_source.priority_2_cleaned_transcript", "type": "applies_to", "sourceLines": [376, 377] },
+    { "from": "intent:text_source.never_ai_claims", "to": "intent:text_source.priority_3_exact_transcript", "type": "applies_to", "sourceLines": [376, 377] },
+
+    { "from": "intent:authority.brand_logo_placement", "to": "intent:text_source.priority_1_brand_brief", "type": "applies_to", "label": "brand guidelines source", "sourceLines": [357, 367] },
+
+    { "from": "intent:content.has_speaker", "to": "intent:param.pacing_tolerance", "type": "modulates", "label": "speaker presence shifts speech_coverage", "sourceLines": [165, 254] },
+    { "from": "intent:content.has_music_primary", "to": "intent:param.transition_density", "type": "modulates", "label": "music-primary syncs transitions to BPM", "sourceLines": [168, 266] },
+    { "from": "intent:content.has_narration", "to": "intent:authority.audio_ducking", "type": "modulates", "label": "narration → duck music under VO", "sourceLines": [167, 333] },
+    { "from": "intent:content.target_platform", "to": "intent:authority.lufs_normalization", "type": "modulates", "label": "platform sets LUFS target", "sourceLines": [172, 329] },
+    { "from": "intent:content.target_platform", "to": "intent:param.caption_style", "type": "modulates", "sourceLines": [172, 140] },
+    { "from": "intent:content.target_culture", "to": "intent:param.color_temperature", "type": "modulates", "sourceLines": [173, 141] }
+  ]
+}
