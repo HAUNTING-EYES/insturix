@@ -76,6 +76,30 @@ const MIN_GRAPHIC_GAP_FRAMES = 90;     // 3s between graphics
 const MIN_CUT_GAP_FRAMES = 15;         // 0.5s minimum between cuts
 const MAX_TRANSITIONS_PER_TYPE = 4;    // max 4 of same transition type per video
 const BUDGET_OVERRIDE_WEIGHT = 0.9;    // weight > 0.9 can override ONE budget limit
+const MAX_DECISIONS_PER_WINDOW = 3;    // max 3 decisions per 15-frame window (prevent flooding)
+const SIGNAL_ACTIVATION_THRESHOLD = 0.25; // signals below this don't trigger mappings
+
+// Mappings that should fire ONCE per project (not per sample point)
+const ONCE_PER_PROJECT_CATEGORIES = new Set([
+  'sound-design',  // ambient_bed_construction, spot_sfx, etc.
+  'color',         // initial_grade_selection, grade_shift
+  'caption',       // caption_activation, caption_position
+  'visual-finishing', // film_grain, vignette, color_consistency
+]);
+
+// Mappings that require clip boundaries (useless with single clip)
+const REQUIRES_CLIP_BOUNDARY = new Set([
+  'mapping:transition.dissolve', 'mapping:transition.fade_to_black',
+  'mapping:transition.whip_pan', 'mapping:transition.flash',
+  'mapping:transition.wipe', 'mapping:transition.j_cut',
+  'mapping:transition.l_cut', 'mapping:transition.match_cut',
+  'mapping:transition.smash_cut', 'mapping:transition.jump_cut',
+  'mapping:transition.invisible_cut', 'mapping:transition.dip_to_white',
+  'mapping:transition.film_burn', 'mapping:transition.iris_wipe',
+  'mapping:transition.blur', 'mapping:transition.slide',
+  'mapping:transition.soft_cut', 'mapping:transition.default_hard_cut',
+  'mapping:cross_domain.eye_trace_continuity_across_cuts',
+]);
 
 // ─── Main Executor ──────────────────────────────────────────────────────────
 
@@ -106,6 +130,20 @@ export function executeSignalDrivenEdit(
     transitionCounts: new Map(),
   };
 
+  // ── Structural guards ─────────────────────────────────────────────
+
+  // Single-clip guard: if only 1 video overlay, transitions are impossible
+  const videoOverlayCount = overlays.filter(o => o.type === 'video').length;
+  const hasSingleClip = videoOverlayCount <= 1;
+
+  // Track once-per-project mappings that already fired
+  const firedOnceCategories = new Set<string>();
+  const firedOnceMappings = new Set<string>();
+
+  // Per-window decision counter (prevents flooding)
+  let decisionsInCurrentWindow = 0;
+  let currentWindowFrame = -999;
+
   // ── Evaluate grid-based signals (continuous, every 15 frames) ───────
 
   const gridFrames = Array.from(timeline.gridSignals.keys()).sort((a, b) => a - b);
@@ -115,14 +153,40 @@ export function executeSignalDrivenEdit(
     const timestampMs = snapshot.timestampMs;
     const momentWeight = getWeightAtTimestamp(weightMap, timestampMs);
 
+    // Reset per-window counter
+    if (frame - currentWindowFrame >= 15) {
+      decisionsInCurrentWindow = 0;
+      currentWindowFrame = frame;
+    }
+
     // Build combined signal values (grid + global)
     const signals: SignalValues = { ...timeline.globalSignals, ...snapshot };
 
-    // Get all mappings that could fire at this point
+    // Get candidate mappings — only for signals ABOVE activation threshold
     const candidateMappings = getCandidateMappings(signals, graphIndex);
     mappingsEvaluated += candidateMappings.length;
 
     for (const mapping of candidateMappings) {
+      // Per-window limit: prevent decision flooding (max 3 per 0.5s)
+      if (decisionsInCurrentWindow >= MAX_DECISIONS_PER_WINDOW) {
+        decisionsSuppressed++;
+        continue;
+      }
+
+      // Single-clip guard: skip transition mappings when no clip boundaries exist
+      if (hasSingleClip && REQUIRES_CLIP_BOUNDARY.has(mapping.id)) {
+        decisionsSuppressed++;
+        continue;
+      }
+
+      // Once-per-project guard: sound-design, color, caption, finishing fire once
+      if (ONCE_PER_PROJECT_CATEGORIES.has(mapping.category)) {
+        if (firedOnceCategories.has(mapping.category) || firedOnceMappings.has(mapping.id)) {
+          decisionsSuppressed++;
+          continue;
+        }
+      }
+
       // Evaluate trigger condition
       if (!evaluateMapping(graphIndex, mapping.id, signals, genreParams)) {
         continue;
@@ -157,6 +221,13 @@ export function executeSignalDrivenEdit(
 
       // Update budget state
       updateBudget(decision, frame, budget);
+
+      // Track per-window and once-per-project
+      decisionsInCurrentWindow++;
+      if (ONCE_PER_PROJECT_CATEGORIES.has(mapping.category)) {
+        firedOnceCategories.add(mapping.category);
+        firedOnceMappings.add(mapping.id);
+      }
 
       decisions.push(decision);
 
@@ -246,9 +317,18 @@ export function executeSignalDrivenEdit(
 function getCandidateMappings(signals: SignalValues, graphIndex: GraphIndex): MappingNode[] {
   const candidates = new Set<MappingNode>();
 
-  // For each active signal, get its triggered mappings
+  // For each active signal ABOVE activation threshold, get its triggered mappings.
+  // This prevents low-energy signals (speech_energy = 0.1) from pulling in all speech mappings.
   for (const [key, value] of Object.entries(signals)) {
-    if (value === null || value === undefined || value === 0 || value === false) continue;
+    if (value === null || value === undefined || value === false) continue;
+
+    // Numeric signals must exceed threshold to activate
+    if (typeof value === 'number') {
+      if (value < SIGNAL_ACTIVATION_THRESHOLD) continue;
+    }
+    // String signals (like "none") don't activate
+    if (typeof value === 'string' && (value === 'none' || value === 'unknown' || value === '')) continue;
+
     const signalId = key.startsWith('signal:') ? key : `signal:${key}`;
     const mappings = getMappingsForSignal(graphIndex, signalId);
     for (const m of mappings) candidates.add(m);

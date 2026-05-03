@@ -701,12 +701,24 @@ export async function executeDirectorPlan(
       }
     }
 
-    const totalSteps = actions.length;
+    // Path D: suppress fancy_captions (creates non-editable html-scene overlays).
+    // Instead, keep standard add_captions which creates proper caption overlays.
+    const filteredActions = pathDConstraintViolations
+      ? actions.map(a => {
+          if (a.tool === 'add_fancy_captions') {
+            // Replace with standard captions for Mode 2 (editable, proper timeline row)
+            return { ...a, tool: 'add_captions' as const, description: 'Add captions from transcript' };
+          }
+          return a;
+        })
+      : actions;
+
+    const totalSteps = filteredActions.length;
     onProgress?.(0, totalSteps, 'Starting Director Agent execution...');
 
     // ─── Step 3: Execute actions sequentially ────────────────
-    for (let i = 0; i < actions.length; i++) {
-      const action = actions[i];
+    for (let i = 0; i < filteredActions.length; i++) {
+      const action = filteredActions[i];
       onProgress?.(i + 1, totalSteps, action.description);
 
       try {

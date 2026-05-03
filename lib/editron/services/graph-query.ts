@@ -475,7 +475,7 @@ function compileTrigger(triggerStr: string): TriggerEvaluator {
   return (signals: SignalValues, genreParams: GenreParameters) => {
     for (const comp of comparisons) {
       const signalValue = resolveSignalValue(comp.signal, signals, genreParams);
-      if (signalValue === null || signalValue === undefined) continue; // Missing signal — skip check
+      if (signalValue === null || signalValue === undefined) return false; // Missing signal = condition cannot be verified = trigger FAILS (strict AND)
 
       if (!evaluateComparison(signalValue, comp.operator, comp.value, genreParams)) {
         return false;
@@ -527,16 +527,26 @@ function resolveSignalValue(
   signals: SignalValues,
   genreParams: GenreParameters
 ): number | boolean | string | null {
-  // Check signal values first
-  const directKey = Object.keys(signals).find(k =>
-    k === signalName || k.endsWith('.' + signalName) || k.includes(signalName)
-  );
-  if (directKey && signals[directKey] !== undefined) return signals[directKey] as number | boolean | string;
+  // STRICT matching: exact key match or exact dotted suffix match ONLY.
+  // Previous `includes()` was too loose — "energy" matched "speech.energy",
+  // "audio.music_energy", "speech.energy_delta" causing 400+ false trigger fires.
+  const exactKey = signals[signalName];
+  if (exactKey !== undefined && exactKey !== null) return exactKey as number | boolean | string;
 
-  // Check genre params
+  // Try with dotted prefix: "speech_energy" → "speech.energy"
+  const dottedName = signalName.replace('_', '.');
+  const dottedKey = signals[dottedName];
+  if (dottedKey !== undefined && dottedKey !== null) return dottedKey as number | boolean | string;
+
+  // Try exact suffix match: "energy_delta" → find key ending in ".energy_delta"
+  const suffixKey = Object.keys(signals).find(k => k.endsWith('.' + signalName));
+  if (suffixKey && signals[suffixKey] !== undefined) return signals[suffixKey] as number | boolean | string;
+
+  // Check genre params (pacing_tolerance, energy_baseline, etc.)
   const gpKey = signalName as keyof GenreParameters;
   if (gpKey in genreParams) return genreParams[gpKey];
 
+  // NOT FOUND — return null (this mapping condition cannot be evaluated → condition fails)
   return null;
 }
 
