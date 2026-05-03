@@ -129,6 +129,33 @@ async function handler(request: NextRequest) {
       console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
     }
 
+    // ─── Step 1.55: Fix video duration if transcription reveals actual length ──
+    // The from-asset route uses asset.duration which may be missing (defaults to 30s).
+    // Transcription timestamps reveal the REAL video length. If mismatch > 5s, fix it.
+    if (rawFootageAnalysis?.transcription?.words?.length > 0) {
+      const lastWord = rawFootageAnalysis.transcription.words[rawFootageAnalysis.transcription.words.length - 1];
+      const actualDurationMs = lastWord.endMs;
+      const actualDurationSec = actualDurationMs / 1000;
+      const reportedDuration = durationSec;
+
+      if (Math.abs(actualDurationSec - reportedDuration) > 5) {
+        const actualFrames = Math.round(actualDurationSec * 30);
+        console.log(`[VideoAnalysisWorker] Duration mismatch: reported=${reportedDuration}s, actual=${actualDurationSec.toFixed(1)}s (from transcript). Correcting overlay + project.`);
+
+        // Fix: update the video overlay duration AND project durationInFrames
+        await db.collection('projects').updateOne(
+          { projectId },
+          {
+            $set: {
+              durationInFrames: actualFrames,
+              'overlays.$[vid].durationInFrames': actualFrames,
+            },
+          },
+          { arrayFilters: [{ 'vid.type': 'video' }] },
+        );
+      }
+    }
+
     // ─── Step 1.6: Execute Silence Removal (BEFORE Director) ─────
     if (rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
       try {
