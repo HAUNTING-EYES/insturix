@@ -7,7 +7,7 @@ import { Variation } from '@/types/clickatron';
 import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatron-jobs';
 import { z } from 'zod';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 
 const GenerativeFillRequestSchema = z.object({

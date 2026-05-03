@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { connectToDatabase } from '@/lib/editron/db/mongodb';
 import { IClickatronTask, Variation } from '@/types/clickatron';
 import { ObjectId } from 'mongodb';

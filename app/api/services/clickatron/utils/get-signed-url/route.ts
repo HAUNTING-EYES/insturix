@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { z } from 'zod';
 
 const requestSchema = z.object({

@@ -1142,12 +1142,11 @@ export async function processParentVariationImage(
   let imageUrl = parentVariation.imageRef;
 
   // If it's a raw GCS URL (not containing signature parameters), get a fresh signed URL
-  if (imageUrl.includes('storage.googleapis.com') &&
-    !imageUrl.includes('GoogleAccessId') &&
+  if (imageUrl && !imageUrl.includes('GoogleAccessId') &&
     !imageUrl.includes('Signature')) {
     try {
-      console.log('Getting fresh signed URL for GCS image:', imageUrl);
-      imageUrl = await ClickatronGCSManager.getSignedUrl(imageUrl);
+      console.log('Getting fresh signed URL for R2 image:', imageUrl);
+      imageUrl = await ClickatronR2Manager.getSignedUrl(imageUrl);
       console.log('Got signed URL:', imageUrl);
     } catch (error) {
       console.error('Failed to get signed URL for parent image:', error);
@@ -1159,27 +1158,26 @@ export async function processParentVariationImage(
 }
 
 /**
-* Process reference images from job payload
+ * Process reference images from job payload
  * @param referenceImageRefs - The reference image URIs
-* @param ClickatronGCSManager - The GCS manager instance
-* @returns Array of processed image URLs
+ * @param ClickatronR2Manager - The R2 manager instance
+ * @returns Array of processed image URLs
  */
 export async function processReferenceImages(
   referenceImageRefs: string[] | undefined,
-  ClickatronGCSManager: any
+  ClickatronR2Manager: any
 ): Promise<string[]> {
   if (!referenceImageRefs || referenceImageRefs.length === 0) return [];
 
   // Get fresh signed URLs for all reference images
   const signedImageUrls = await Promise.all(
-    referenceImageRefs.map(async (gcsUri: string) => {
+    referenceImageRefs.map(async (uri: string) => {
       try {
-        // If it's a raw GCS URL (not containing signature parameters), get a fresh signed URL
-        if (gcsUri.includes('storage.googleapis.com') &&
-          !gcsUri.includes('GoogleAccessId') &&
-          !gcsUri.includes('Signature')) {
-          console.log('Getting fresh signed URL for GCS image:', gcsUri);
-          const signedUrl = await ClickatronGCSManager.getSignedUrl(gcsUri);
+        // If it's a raw R2 URL (not containing signature parameters), get a fresh signed URL
+        if (uri && !uri.includes('GoogleAccessId') &&
+          !uri.includes('Signature')) {
+          console.log('Getting fresh signed URL for R2 image:', uri);
+          const signedUrl = await ClickatronR2Manager.getSignedUrl(uri);
           console.log('Got signed URL:', signedUrl);
           return signedUrl;
         }

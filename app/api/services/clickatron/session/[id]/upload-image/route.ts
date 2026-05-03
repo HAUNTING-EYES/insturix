@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB

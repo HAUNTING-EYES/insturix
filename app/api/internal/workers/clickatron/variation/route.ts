@@ -2,7 +2,7 @@ import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
 import { getJob, completeJob, failJob, startJob } from '@/lib/clickatron-jobs';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { z } from 'zod';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { NextResponse } from 'next/server';
@@ -33,9 +33,9 @@ const workerRequestSchema = z.object({
     saturation: z.number(),
   }).optional(),
   metadata: z.record(z.string(), z.any()).optional(),
-  referenceImageRefs: z.array(z.string()).optional(), // GCS URIs of reference images
+      referenceImageRefs: z.array(z.string()).optional(), // R2 URIs of reference images
   aspectRatio: z.string().optional(),
-  maskUrl: z.string().optional(), // GCS URI for generative fill mask
+  maskUrl: z.string().optional(), // R2 URI for generative fill mask
 });
 
 // Parse aspect ratio string to width and height
@@ -179,7 +179,7 @@ async function handler(req: Request) {
       };
 
       // Process parent variation image if it exists (for image-to-image)
-      const parentImageUrl = await processParentVariationImage(body.parentVariationId, task.details.canvas.variations, ClickatronGCSManager);
+      const parentImageUrl = await processParentVariationImage(body.parentVariationId, task.details.canvas.variations, ClickatronR2Manager);
       
       // Validate parent image URL for generative fill
       if (body.maskUrl && parentImageUrl) {
@@ -198,7 +198,7 @@ async function handler(req: Request) {
       }
       
       // Process reference images from job payload if they exist (for image-to-image)
-      const referenceImageUrls = await processReferenceImages(body.referenceImageRefs, ClickatronGCSManager);
+      const referenceImageUrls = await processReferenceImages(body.referenceImageRefs, ClickatronR2Manager);
 
       // Check if this is a sketch-to-edit job
       const isSketchToEdit = body.metadata?.inputMode === 'sketchToEdit';
@@ -225,12 +225,11 @@ async function handler(req: Request) {
       let maskUrl: string | null = null;
       if (body.maskUrl) {
         try {
-          // If it's a raw GCS URL, get a fresh signed URL
-          if (body.maskUrl.includes('storage.googleapis.com') &&
-            !body.maskUrl.includes('GoogleAccessId') &&
+          // If it's a raw R2 URL (not containing signature parameters), get a fresh signed URL
+          if (body.maskUrl && !body.maskUrl.includes('GoogleAccessId') &&
             !body.maskUrl.includes('Signature')) {
             console.log('Worker: Getting fresh signed URL for mask:', body.maskUrl);
-            maskUrl = await ClickatronGCSManager.getSignedUrl(body.maskUrl);
+              maskUrl = await ClickatronR2Manager.getSignedUrl(body.maskUrl);
             console.log('Worker: Got signed URL for mask:', maskUrl);
           } else {
             maskUrl = body.maskUrl;
@@ -390,15 +389,16 @@ async function handler(req: Request) {
           if (!imageResponse.ok) {
             console.error('Worker: Image URL returned non-200 status:', imageResponse.status, imageResponse.statusText);
 
-            // If this is a GCS URL that might have expired, try to regenerate the signed URL
-            if (generationParams.image_url.includes('storage.googleapis.com')) {
+            // If this is a URL that might have expired, try to regenerate the signed URL
+                if (generationParams.image_url && !generationParams.image_url.includes('GoogleAccessId') &&
+                  !generationParams.image_url.includes('Signature')) {
               try {
-                // Extract the base GCS URL (without signature parameters)
+                // Extract the base URL (without signature parameters)
                 const urlObj = new URL(generationParams.image_url);
                 const baseUrl = `${urlObj.origin}${urlObj.pathname}`;
 
                 // Get a fresh signed URL
-                const freshSignedUrl = await ClickatronGCSManager.getSignedUrl(baseUrl);
+                const freshSignedUrl = await ClickatronR2Manager.getSignedUrl(baseUrl);
 
                 // Update the generation parameters with the fresh URL
                 generationParams.image_url = freshSignedUrl;
@@ -440,15 +440,15 @@ async function handler(req: Request) {
             if (!imageResponse.ok) {
               console.error(`Worker: Image URL ${i + 1} returned non-200 status:`, imageResponse.status, imageResponse.statusText);
 
-              // If this is a GCS URL that might have expired, try to regenerate the signed URL
+            // If this is a URL that might have expired, try to regenerate the signed URL
               if (imageUrl.includes('storage.googleapis.com')) {
                 try {
-                  // Extract the base GCS URL (without signature parameters)
+                // Extract the base R2 URL (without signature parameters)
                   const urlObj = new URL(imageUrl);
                   const baseUrl = `${urlObj.origin}${urlObj.pathname}`;
 
                   // Get a fresh signed URL
-                  const freshSignedUrl = await ClickatronGCSManager.getSignedUrl(baseUrl);
+                  const freshSignedUrl = await ClickatronR2Manager.getSignedUrl(baseUrl);
 
                   // Update the generation parameters with the fresh URL
                   generationParams.image_urls[i] = freshSignedUrl;
@@ -503,18 +503,21 @@ async function handler(req: Request) {
 
       const generatedImageUrl = result.data.images[0].url;
 
-      // Upload image to GCS
-      const gcsUrl = await ClickatronGCSManager.uploadImageFromUrl(
+      // Upload image to R2
+      const r2Url = await ClickatronR2Manager.uploadImageFromUrl(
         job.userId,
         job.sessionId,
         job.variationId,
         generatedImageUrl
       );
 
-      // Store the raw GCS URL without query parameters for long-term storage
-      const rawGcsUrl = gcsUrl.split('?')[0];
+      // Store the raw R2 URL without query parameters for long-term storage
+      const rawR2Url = r2Url.split('?')[0];
 
-      const imageResponse = await fetch(gcsUrl);
+      // Get a signed URL for fetching the image from R2
+      const signedUrl = await ClickatronR2Manager.getSignedUrl(rawR2Url);
+
+      const imageResponse = await fetch(signedUrl);
       if (!imageResponse.ok) {
         throw new Error('Failed to download image for thumbnail creation');
       }
@@ -531,8 +534,8 @@ async function handler(req: Request) {
         })
         .toBuffer();
 
-      // Upload thumbnail to GCS
-      const thumbnailGcsUrl = await ClickatronGCSManager.uploadThumbnailBuffer(
+      // Upload thumbnail to R2
+      const thumbnailR2Url = await ClickatronR2Manager.uploadThumbnailBuffer(
         job.userId,
         job.sessionId,
         job.variationId,
@@ -541,8 +544,8 @@ async function handler(req: Request) {
 
       // Update variation with generated image
       variation.status = 'completed';
-      variation.imageRef = rawGcsUrl;
-      variation.thumbnailRef = thumbnailGcsUrl;
+      variation.imageRef = rawR2Url;
+      variation.thumbnailRef = thumbnailR2Url;
       variation.updatedAt = new Date();
       variation.modelId = selectedModelId; // Use the (possibly updated) selected model ID
       // Only store seed for models that support it
@@ -555,7 +558,7 @@ async function handler(req: Request) {
       task.markModified('details');
       await task.save();
 
-      await completeJob(jobId, gcsUrl);
+      await completeJob(jobId, rawR2Url);
     } catch (generationError: any) {
       console.error('Worker: Image generation failed:', generationError);
 

@@ -10,7 +10,7 @@ import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { Types } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 
 /**
  * Convert a data URL (base64) to a Buffer

@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 
 // DELETE /api/services/clickatron/session/:id/delete - Delete a session and all associated images
 export async function DELETE(
