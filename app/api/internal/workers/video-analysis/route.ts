@@ -148,6 +148,30 @@ async function handler(request: NextRequest) {
       }
     }
 
+    // ─── Step 3: Compute Genre Parameters (signal-driven, no profiles) ──
+    let genreParameters: any = null;
+    if (rawFootageAnalysis) {
+      try {
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'computing_params' } },
+        );
+        const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
+        const genreOutput = computeGenreParameters({
+          rawFootage: rawFootageAnalysis,
+          analyses: [],
+          videoDurationSec: durationSec,
+          userPlatform: platform,
+          userIntent: userIntent,
+        });
+        genreParameters = genreOutput.genreParams;
+        console.log(`[VideoAnalysisWorker] Genre params: pacing=${genreOutput.genreParams.pacing_tolerance.toFixed(1)}, formality=${genreOutput.genreParams.formality.toFixed(2)}, zoom_budget=${genreOutput.genreParams.zoom_budget} (${genreOutput.confidence})`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[VideoAnalysisWorker] Genre param computation failed (non-fatal): ${msg}`);
+      }
+    }
+
     // ─── Step 4: Store results on project ─────────────────────────
     await db.collection('projects').updateOne(
       { projectId },
@@ -157,6 +181,7 @@ async function handler(request: NextRequest) {
           ...(syntheticStoryboard && { syntheticStoryboard }),
           ...(editDNA && { referenceEditDNA: editDNA }),
           ...(rawFootageAnalysis && { rawFootageAnalysis }),
+          ...(genreParameters && { genreParameters }),
           updatedAt: new Date(),
         },
       },

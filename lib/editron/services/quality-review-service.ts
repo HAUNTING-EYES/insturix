@@ -396,6 +396,10 @@ export function runQualityReview(
   projectDuration?: number,
   /** Optional: analysis results map (assetId → AssetAnalysis) */
   analyses?: Map<string, AssetAnalysis>,
+  /** Optional: constraint violations from signal-driven executor (Mode 2 Path D) */
+  constraintViolations?: Array<{ constraintId: string; constraintName: string; severity: 'blocker' | 'warning' | 'info'; description: string; autoCorrected: boolean; deduction: number }>,
+  /** Optional: computed genre parameters (Mode 2 — replaces content-type pacing lookup) */
+  genreParameters?: { pacing_tolerance: number; transition_density: number },
 ): QualityReport {
   const totalDuration = projectDuration || Math.max(...overlays.map(o => o.from + o.durationInFrames), 0);
 
@@ -480,24 +484,58 @@ export function runQualityReview(
       });
     }
 
-    // Check: pacing consistency — are cuts/min within the expected range for this content type?
-    if (rawFootage.contentTypeDetection?.contentType && totalDuration > 0) {
-      const contentType = rawFootage.contentTypeDetection.contentType;
-      const pacingRule = PACING_BY_CONTENT_TYPE[contentType] || PACING_BY_CONTENT_TYPE['talking-head'];
-      if (pacingRule) {
-        const videoOverlayCount = overlays.filter(o => o.type === 'video').length;
-        const durationMin = (totalDuration / fps) / 60;
-        const actualCutsPerMin = durationMin > 0 ? (videoOverlayCount - 1) / durationMin : 0;
-        if (actualCutsPerMin < pacingRule.cutsPerMin[0] * 0.5) {
-          allIssues.push({
-            type: 'pacing_too_slow' as any,
-            severity: 'info',
-            description: `Pacing (${actualCutsPerMin.toFixed(1)} cuts/min) is below expected range for ${contentType} (${pacingRule.cutsPerMin[0]}-${pacingRule.cutsPerMin[1]}).`,
-            autoFixable: false,
-            suggestedFix: 'Consider more aggressive silence removal or adding B-roll cuts',
-          });
+    // Check: pacing consistency — are cuts/min within the expected range?
+    // Mode 2 with genre_parameters: use computed transition_density (signal-driven, no content-type labels)
+    // Fallback: use PACING_BY_CONTENT_TYPE (v2 legacy for Mode 1)
+    if (totalDuration > 0) {
+      const videoOverlayCount = overlays.filter(o => o.type === 'video').length;
+      const durationMin = (totalDuration / fps) / 60;
+      const actualCutsPerMin = durationMin > 0 ? (videoOverlayCount - 1) / durationMin : 0;
+
+      let expectedMin = 4;
+      let expectedMax = 12;
+      let pacingSource = 'default';
+
+      if (genreParameters) {
+        // Signal-computed: transition_density IS the target cuts/min
+        expectedMin = genreParameters.transition_density * 0.5;
+        expectedMax = genreParameters.transition_density * 1.5;
+        pacingSource = 'genre_parameters';
+      } else if (rawFootage.contentTypeDetection?.contentType) {
+        // Legacy fallback: content-type lookup
+        const contentType = rawFootage.contentTypeDetection.contentType;
+        const pacingRule = PACING_BY_CONTENT_TYPE[contentType] || PACING_BY_CONTENT_TYPE['talking-head'];
+        if (pacingRule) {
+          expectedMin = pacingRule.cutsPerMin[0];
+          expectedMax = pacingRule.cutsPerMin[1];
+          pacingSource = contentType;
         }
       }
+
+      if (actualCutsPerMin < expectedMin * 0.5) {
+        allIssues.push({
+          type: 'pacing_too_slow' as any,
+          severity: 'info',
+          description: `Pacing (${actualCutsPerMin.toFixed(1)} cuts/min) is below expected range (${expectedMin.toFixed(0)}-${expectedMax.toFixed(0)}, source: ${pacingSource}).`,
+          autoFixable: false,
+          suggestedFix: 'Consider more aggressive silence removal or adding B-roll cuts',
+        });
+      }
+    }
+  }
+
+  // ── Constraint violations from signal-driven executor (Mode 2 Path D) ──
+  // Uncorrectable violations are real quality issues; auto-corrected ones are already fixed.
+  if (constraintViolations?.length) {
+    for (const cv of constraintViolations) {
+      if (cv.autoCorrected) continue; // Already fixed — no penalty
+      allIssues.push({
+        type: cv.constraintId.includes('accessibility') ? 'audio_clipping' : 'transition_collision' as IssueType,
+        severity: cv.severity === 'blocker' ? 'critical' : cv.severity === 'warning' ? 'warning' : 'info',
+        description: `[Constraint] ${cv.constraintName}: ${cv.description}`,
+        autoFixable: false,
+        suggestedFix: `Constraint ${cv.constraintId} violated — manual review needed`,
+      });
     }
   }
 

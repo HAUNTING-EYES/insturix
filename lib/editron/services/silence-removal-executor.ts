@@ -18,6 +18,31 @@ import type { SilenceRemovalAction } from '@/lib/editron/services/raw-footage-pr
 
 // ─── Types ───────────────────────────────────────────────────────
 
+/**
+ * Ghost Segment (FLAG 9) — reversible silence removal.
+ * Instead of permanently deleting footage, store the removed sections as
+ * "ghosts" that the user can restore. Implements the Automatic Car Principle:
+ * "every decision the system makes is manually overridable."
+ */
+export interface GhostSegment {
+  id: string;
+  /** Source video time range (absolute, in original footage) */
+  sourceStartMs: number;
+  sourceEndMs: number;
+  /** Why this segment was removed */
+  removalReason: 'silence' | 'filler' | 'false_start' | 'duplicate_take' | 'low_quality';
+  /** How confident are we this removal is correct (0-1) */
+  removalConfidence: number;
+  /** For duplicate_take: ID of the segment that was kept instead */
+  alternativeTo?: string;
+  /** What was said in this segment (if speech existed) */
+  transcriptText?: string;
+  /** Always true — ghosts are restorable by design */
+  restorable: true;
+  /** Original overlay data snapshot (for restoration) */
+  originalOverlay?: any;
+}
+
 export interface SilenceRemovalResult {
   /** Number of silence actions executed */
   actionsExecuted: number;
@@ -31,6 +56,8 @@ export interface SilenceRemovalResult {
   overlaysCreated: number;
   /** Overlays deleted (dead air chunks) */
   overlaysDeleted: number;
+  /** Ghost segments stored for potential restoration */
+  ghostSegments: GhostSegment[];
   /** Warnings from execution */
   warnings: string[];
 }
@@ -67,6 +94,7 @@ export async function executeSilenceRemoval(
       originalDurationInFrames: 0,
       overlaysCreated: 0,
       overlaysDeleted: 0,
+      ghostSegments: [],
       warnings: ['Empty plan — no silence to remove'],
     };
   }
@@ -85,6 +113,9 @@ export async function executeSilenceRemoval(
   let overlaysCreated = 0;
   let overlaysDeleted = 0;
   let totalFramesRemoved = 0;
+
+  // Ghost segments (FLAG 9): store removed content for potential restoration
+  const ghostSegments: GhostSegment[] = [];
 
   // Process in REVERSE chronological order to prevent frame drift
   const reversedPlan = [...plan].sort((a, b) => b.startMs - a.startMs);
@@ -131,9 +162,22 @@ export async function executeSilenceRemoval(
         continue;
       }
 
-      // Overlay is entirely inside the cut — delete it
+      // Overlay is entirely inside the cut — delete it (but store as ghost)
       if (ovStart >= cutStart && ovEnd <= cutEnd) {
         toDelete.push(i);
+        // Ghost: preserve the removed overlay for potential restoration
+        const reasonMap: Record<string, GhostSegment['removalReason']> = {
+          'silence': 'silence', 'filler': 'filler', 'inferior-take': 'duplicate_take',
+        };
+        ghostSegments.push({
+          id: `ghost_${projectId}_${action.startMs}_${action.endMs}`,
+          sourceStartMs: action.startMs,
+          sourceEndMs: action.endMs,
+          removalReason: reasonMap[action.reason] || 'silence',
+          removalConfidence: 0.8,  // Default confidence for automated removal
+          restorable: true,
+          originalOverlay: JSON.parse(JSON.stringify(ov)),
+        });
         continue;
       }
 
@@ -228,12 +272,13 @@ export async function executeSilenceRemoval(
     ? Math.max(...overlays.map((o: any) => o.from + o.durationInFrames))
     : 0;
 
-  // Save updated project
+  // Save updated project (including ghost segments for restoration)
   project.overlays = overlays;
   project.durationInFrames = newDuration;
+  (project as any).ghostSegments = ghostSegments;
   await projectService.saveProject(userId, projectId, project);
 
-  console.log(`[SilenceRemoval] Executed ${reversedPlan.length} actions: removed ${totalFramesRemoved} frames (${Math.round(totalFramesRemoved / fps)}s), ${overlaysCreated} created, ${overlaysDeleted} deleted. Duration: ${originalDuration} → ${newDuration} frames`);
+  console.log(`[SilenceRemoval] Executed ${reversedPlan.length} actions: removed ${totalFramesRemoved} frames (${Math.round(totalFramesRemoved / fps)}s), ${overlaysCreated} created, ${overlaysDeleted} deleted, ${ghostSegments.length} ghosts stored. Duration: ${originalDuration} → ${newDuration} frames`);
 
   return {
     actionsExecuted: reversedPlan.length,
@@ -242,6 +287,7 @@ export async function executeSilenceRemoval(
     originalDurationInFrames: originalDuration,
     overlaysCreated,
     overlaysDeleted,
+    ghostSegments,
     warnings,
   };
 }

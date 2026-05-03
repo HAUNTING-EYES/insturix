@@ -106,6 +106,9 @@ export async function executeDirectorPlan(
     // can use real 5-Track visual data (dominant colors, energy) instead of empty arrays.
     const perAssetAnalysis = new Map<string, any>();
     let projectDoc: any = null;
+    // Path D: hoisted constraint violations + genre params for quality review step 11
+    let pathDConstraintViolations: any[] | undefined;
+    let pathDGenreParams: any | undefined;
 
     const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
@@ -298,8 +301,122 @@ export async function executeDirectorPlan(
         }
       }
 
+      // ── PATH D: Signal-Driven Execution (Mode 2 + v3 Knowledge Graph) ──
+      // When raw footage analysis exists AND the creative knowledge graph loads,
+      // bypass LLM-based intelligence entirely. The signal executor evaluates
+      // 95 mappings from the graph against detected signals to produce EDL decisions.
+      // Falls through to Unified Intelligence / Reactive Engine if Path D fails.
+      let pathDHandled = false;
+      if (projectDoc?.rawFootageAnalysis?.segments?.length > 0 && analyses.length > 0) {
+        try {
+          const { loadGraph } = await import('@/lib/editron/services/graph-query');
+          const graphIndex = loadGraph();
+
+          if (graphIndex) {
+            onProgress?.(0, 0, 'Signal-driven editing (v3 knowledge graph)...');
+            console.log(`[Director] Path D: Signal-driven execution (${graphIndex.mappings.size} mappings, ${graphIndex.constraints.size} constraints)`);
+
+            const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
+            const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
+            const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+            const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+            const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
+            const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
+
+            // Use project fps (not hardcoded 30 — real footage may be 24/29.97/60)
+            const pathDFps = project.fps || 30;
+
+            // Step D.1: Compute genre parameters from signals
+            const genreOutput = computeGenreParameters({
+              rawFootage: projectDoc.rawFootageAnalysis,
+              analyses,
+              videoDurationSec: (project.durationInFrames || 900) / pathDFps,
+              userPlatform: brief?.platform,
+              userIntent: brief?.intent,
+            });
+            console.log(`[Director] Path D: Genre params computed (confidence: ${genreOutput.confidence}, fps: ${pathDFps})`);
+
+            // Step D.2: Build moment weight map (flat weights without Gemini, or with if available)
+            const weightMap = buildMomentWeightMap(null, projectDoc.rawFootageAnalysis);
+
+            // Step D.3: Build signal timeline (dual timing: grid + event)
+            const overlayInfos = overlays.map((o: any) => ({
+              id: o.id, type: o.type, from: o.from,
+              durationInFrames: o.durationInFrames, row: o.row, assetId: o.assetId,
+            }));
+            const signalTimeline = buildSignalTimeline(analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps);
+
+            // Step D.4: Execute signal-driven edit (evaluate 95 mappings)
+            const signalEdl = executeSignalDrivenEdit(
+              signalTimeline, genreOutput.genreParams, weightMap, graphIndex, overlayInfos
+            );
+            console.log(`[Director] Path D: ${signalEdl.metadata.totalMappingsFired} mappings fired → ${signalEdl.metadata.totalDecisionsGenerated} decisions (${signalEdl.metadata.totalDecisionsSuppressed} suppressed) in ${signalEdl.metadata.executionTimeMs}ms`);
+
+            // Step D.5: Humanize pass (organic imperfection injection)
+            const humanizedEdl = humanizeEdl(signalEdl, projectId, projectDoc.rawFootageAnalysis, pathDFps);
+
+            // Step D.6: Constraint enforcement (8-pass ordered)
+            const constraintResult = enforceConstraints(
+              humanizedEdl.decisions, overlayInfos, graphIndex, projectDoc.rawFootageAnalysis, pathDFps
+            );
+            if (constraintResult.totalViolations > 0) {
+              console.log(`[Director] Path D: ${constraintResult.totalViolations} constraint violations (${constraintResult.totalAutoCorrected} auto-corrected, ${constraintResult.totalUncorrectable} uncorrectable)`);
+            }
+            // Hoist for quality review step 11
+            pathDConstraintViolations = constraintResult.violations;
+            pathDGenreParams = genreOutput.genreParams;
+
+            // Convert to standard EDL format for executeEDL (backward compatible)
+            edlSummary.totalDecisions = humanizedEdl.decisions.length;
+            const edl = {
+              projectId,
+              generatedAt: new Date().toISOString(),
+              totalDecisions: humanizedEdl.decisions.length,
+              decisions: humanizedEdl.decisions.map(d => ({
+                type: d.type,
+                frame: d.frame,
+                durationFrames: Number(d.params['duration_frames'] ?? (d.params['duration_s'] ? Number(d.params['duration_s']) * pathDFps : pathDFps)),
+                priority: d.confidence > 0.8 ? 2 : d.confidence > 0.6 ? 3 : 4,
+                source: d.source,
+                signal: d.type,
+                reason: d.reason ?? '',
+                params: d.params,
+                confidence: d.confidence,
+              })),
+              stats: {
+                totalDecisions: humanizedEdl.decisions.length,
+                cutsPerMinute: 0,
+                transitionCount: humanizedEdl.decisions.filter(d => d.type === 'transition').length,
+                graphicCount: humanizedEdl.decisions.filter(d => d.type === 'graphic').length,
+                zoomCount: humanizedEdl.decisions.filter(d => d.type === 'zoom').length,
+                averageConfidence: humanizedEdl.decisions.length > 0
+                  ? humanizedEdl.decisions.reduce((s, d) => s + d.confidence, 0) / humanizedEdl.decisions.length
+                  : 0,
+              },
+            };
+
+            // Execute EDL (same as other paths)
+            const { executeEDL: executeEDLPathD } = await import('@/lib/editron/services/edl-executor');
+            const canvas = project.playerDimensions || { width: 1920, height: 1080 };
+            const analysesMap = new Map<string, any>();
+            for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
+            await executeEDLPathD(edl, projectId, userId, overlays, canvas, analysesMap);
+
+            for (const d of edl.decisions) {
+              edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
+            }
+
+            pathDHandled = true;
+            console.log(`[Director] Path D: Signal-driven execution COMPLETE — ${edl.totalDecisions} decisions applied`);
+          }
+        } catch (pathDErr: any) {
+          console.warn(`[Director] Path D failed (${pathDErr.message}), falling through to Unified Intelligence`);
+          // Fall through to existing paths below
+        }
+      }
+
       // ── Generate Edit Plan — prefer Unified Intelligence, fallback to old EDL ──
-      if (analyses.length > 0) {
+      if (!pathDHandled && analyses.length > 0) {
         try {
           onProgress?.(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
 
@@ -593,7 +710,7 @@ export async function executeDirectorPlan(
       onProgress?.(i + 1, totalSteps, action.description);
 
       try {
-        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis);
+        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, pathDConstraintViolations, pathDGenreParams);
         result.overlaysModified += modified;
         result.actionsExecuted++;
 
@@ -884,6 +1001,10 @@ async function executeAction(
   profile: EditProfile,
   storyboardScenes: any[] = [],
   scenePairAnalysis: Array<{ sceneA: number; sceneB: number; score: { overall: number; visualSimilarity: number; energyMatch?: number }; recommendedTransition: string; flagForReview: boolean }> = [],
+  /** Path D: constraint violations for quality review scoring */
+  constraintViolations?: any[],
+  /** Path D: computed genre params for pacing validation */
+  genreParams?: any,
 ): Promise<number> {
   let modified = 0;
 
@@ -1348,7 +1469,7 @@ async function executeAction(
       try {
         const { runQualityReview } = await import('@/lib/editron/services/quality-review-service');
         const fps = 30; // Standard
-        const report = runQualityReview(overlays, fps);
+        const report = runQualityReview(overlays, fps, undefined, undefined, constraintViolations, genreParams);
         console.log(`[Director] Quality review: score=${report.overallScore}/100, issues=${report.issues.length}`);
         if (report.issues.length > 0) {
           const criticalCount = report.issues.filter(i => i.severity === 'critical').length;
