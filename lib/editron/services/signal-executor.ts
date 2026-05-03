@@ -133,8 +133,17 @@ export function executeSignalDrivenEdit(
   // ── Structural guards ─────────────────────────────────────────────
 
   // Single-clip guard: if only 1 video overlay, transitions are impossible
-  const videoOverlayCount = overlays.filter(o => o.type === 'video').length;
+  const videoOverlays = overlays.filter(o => o.type === 'video');
+  const videoOverlayCount = videoOverlays.length;
   const hasSingleClip = videoOverlayCount <= 1;
+
+  // CRITICAL: Clamp decisions to actual video overlay extent.
+  // The transcript may be longer than the video on timeline (e.g., 17 min transcript
+  // but only 28s video overlay due to upload truncation). Decisions placed beyond
+  // the video's frame range are garbage — they land in empty timeline space.
+  const maxVideoFrame = videoOverlays.length > 0
+    ? Math.max(...videoOverlays.map(o => o.from + o.durationInFrames))
+    : timeline.totalFrames;
 
   // Track once-per-project mappings that already fired
   const firedOnceCategories = new Set<string>();
@@ -149,6 +158,9 @@ export function executeSignalDrivenEdit(
   const gridFrames = Array.from(timeline.gridSignals.keys()).sort((a, b) => a - b);
 
   for (const frame of gridFrames) {
+    // CLAMP: skip sample points beyond the actual video extent on timeline
+    if (frame > maxVideoFrame) break;
+
     const snapshot = timeline.gridSignals.get(frame)!;
     const timestampMs = snapshot.timestampMs;
     const momentWeight = getWeightAtTimestamp(weightMap, timestampMs);
@@ -241,6 +253,10 @@ export function executeSignalDrivenEdit(
 
   for (const event of timeline.eventSignals) {
     const { frame, signal, value, context } = event;
+
+    // CLAMP: skip events beyond the actual video extent on timeline
+    if (frame > maxVideoFrame) continue;
+
     const timestampMs = event.timestampMs;
     const momentWeight = getWeightAtTimestamp(weightMap, timestampMs);
 

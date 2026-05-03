@@ -1196,6 +1196,17 @@ async function executeAction(
     case 'add_captions':
     case 'add_fancy_captions':
     case 'sync_cuts_to_beats': {
+      // For add_captions with Path D: compute caption style from signals BEFORE delegation
+      if (action.tool === 'add_captions' && genreParams && !action.params?.style) {
+        const formality = genreParams.formality ?? 0.5;
+        const speakingRate = Math.max(100, 220 - (genreParams.pacing_tolerance * 10));
+        let signalStyle = 'minimal';
+        if (formality > 0.7 && speakingRate < 160) signalStyle = 'subtitle';
+        else if (speakingRate > 180) signalStyle = 'minimal';
+        else if (formality < 0.4) signalStyle = 'bold';
+        console.log(`[Director] Caption style from signals: formality=${formality.toFixed(2)}, rate~${Math.round(speakingRate)}WPM → "${signalStyle}"`);
+        action = { ...action, params: { ...action.params, style: signalStyle } };
+      }
       // These are AI tools — delegate to invokeAITool which handles per-video iteration
       modified = await invokeAITool(action, userId, projectId, profile, overlays);
       break;
@@ -1548,8 +1559,8 @@ async function invokeAITool(
         console.log(`[Director] add_captions: no video overlays found, skipping`);
         return 0;
       }
-      // Map profile/action style to valid add_captions enum.
-      // Valid: tiktok | minimal | bold | karaoke | subtitle | hormozi | mrbeast | ali-abdaal | corporate
+      // Caption style: already computed by executeAction from signals (if Path D active)
+      // or from profile mapping. params.style is set upstream. Map any remaining invalid values.
       const CAPTION_STYLE_MAP: Record<string, string> = {
         'creator': 'bold', 'fancy': 'bold', 'word-by-word': 'bold',
         'kinetic': 'bold', 'none': 'subtitle',
