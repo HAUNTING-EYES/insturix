@@ -1609,8 +1609,15 @@ async function invokeAITool(
     case 'add_fancy_captions': {
       const videoOverlays = overlays.filter(o => o.type === 'video');
       if (videoOverlays.length === 0) return 0;
-      const fancyStyle = params.style || 'kinetic';
-      console.log(`[Director] add_fancy_captions: ${videoOverlays.length} videos, style=${fancyStyle}`);
+      // Map profile caption styles to valid fancy_captions enum values
+      // Valid: bento | scattered | minimal | static | kinetic
+      const FANCY_STYLE_MAP: Record<string, string> = {
+        'creator': 'kinetic', 'word-by-word': 'kinetic', 'fancy': 'kinetic',
+        'hormozi': 'bento', 'mrbeast': 'scattered', 'corporate': 'minimal',
+      };
+      const rawStyle = params.style || 'kinetic';
+      const fancyStyle = FANCY_STYLE_MAP[rawStyle] || rawStyle;
+      console.log(`[Director] add_fancy_captions: ${videoOverlays.length} videos, style=${fancyStyle}${rawStyle !== fancyStyle ? ` (mapped from "${rawStyle}")` : ''}`);
 
       let fancyCaptionCount = 0;
       for (const vo of videoOverlays) {

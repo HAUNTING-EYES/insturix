@@ -201,9 +201,36 @@ export function loadGraph(): GraphIndex | null {
   if (cachedIndex) return cachedIndex;
 
   try {
-    const graphPath = join(process.cwd(), 'lib', 'editron', 'data', 'creative-knowledge-graph.json');
-    const raw = readFileSync(graphPath, 'utf8');
-    const graph = JSON.parse(raw);
+    // Try multiple paths — Vercel serverless bundles files differently than local dev.
+    // Attempt order: __dirname relative → process.cwd() → require() (webpack-bundled)
+    let graph: any;
+    const attempts = [
+      join(__dirname, '..', 'data', 'creative-knowledge-graph.json'),
+      join(process.cwd(), 'lib', 'editron', 'data', 'creative-knowledge-graph.json'),
+      join(process.cwd(), '.next', 'server', 'lib', 'editron', 'data', 'creative-knowledge-graph.json'),
+    ];
+    let loaded = false;
+    for (const attempt of attempts) {
+      try {
+        const raw = readFileSync(attempt, 'utf8');
+        graph = JSON.parse(raw);
+        loaded = true;
+        break;
+      } catch {
+        // Try next path
+      }
+    }
+    if (!loaded) {
+      // Final fallback: dynamic import-style require (eslint-disable for this line only)
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        graph = require('../data/creative-knowledge-graph.json');
+        loaded = true;
+      } catch {
+        console.error(`[GraphQuery] Failed to load graph from any path. Tried: ${attempts.join(', ')} + require()`);
+        return null;
+      }
+    }
 
     const index: GraphIndex = {
       version: graph.version,

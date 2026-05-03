@@ -632,6 +632,22 @@ function applyZoom(
   }
   const videoOverlay = clipMatch.clip;
 
+  // Guard: never zoom at frame 0 — no baseline established, viewer just arrived.
+  // Per creative doc v3 mapping:structural.hook_zone_treatment: "first frame must be
+  // visually compelling" but zoom needs a starting reference. Shift to first motion peak
+  // or skip entirely if within first 1 second.
+  if (decision.frame <= videoOverlay.from + 30) { // within first 1s of clip
+    const analysis = analyses?.get(videoOverlay.assetId);
+    const peaks = (analysis as any)?.motionPeaks || [];
+    if (peaks.length > 0 && peaks[0] > 30) {
+      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} too early (hook zone) — shifted to first motion peak at frame ${videoOverlay.from + peaks[0]}`);
+      decision.frame = videoOverlay.from + peaks[0];
+    } else {
+      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} too early (hook zone) — SKIPPED (no suitable motion peak)`);
+      return null;
+    }
+  }
+
   // Validate zoom placement against 5-Track motion data when available.
   // Reject zoom decisions not near a motion peak or natural cut point (±10 frames).
   // This enforces Rule Z-010: "zoom-punch MUST be synced to emphasis word or visual impact."
