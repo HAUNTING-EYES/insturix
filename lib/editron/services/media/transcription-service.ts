@@ -140,25 +140,44 @@ async function generateTranscription(
         audio_url: mediaUrl,
         task: 'transcribe',
         language: (language || undefined) as any,
-        chunk_level: 'word' as const, // word-level timestamps for captions
+        // chunk_level: only "segment" is valid per fal.ai/wizper docs.
+        // Word-level timestamps are derived by splitting segments below.
+        chunk_level: 'segment',
       },
       logs: false,
     });
     const data = whisperResult.data as any;
     if (data?.chunks && data.chunks.length > 0) {
-      const words: TranscriptionWord[] = data.chunks.map((chunk: any) => ({
-        word: chunk.text?.trim() || '',
-        startMs: Math.round((chunk.timestamp?.[0] || 0) * 1000),
-        endMs: Math.round((chunk.timestamp?.[1] || 0) * 1000),
-        confidence: 0.95, // Whisper doesn't return per-word confidence
-      })).filter((w: any) => w.word);
+      // Wizper returns segment-level chunks. Split each segment into word-level
+      // timestamps by distributing the segment duration proportionally by word length.
+      const words: TranscriptionWord[] = [];
+      for (const chunk of data.chunks) {
+        const segText = (chunk.text || '').trim();
+        const segStart = (chunk.timestamp?.[0] || 0) * 1000;
+        const segEnd = (chunk.timestamp?.[1] || 0) * 1000;
+        const segWords = segText.split(/\s+/).filter(Boolean);
+        if (segWords.length === 0) continue;
 
-      console.log(`[Transcription] Whisper: ${words.length} words for ${asset.assetId}`);
+        const totalChars = segWords.reduce((sum: number, w: string) => sum + w.length, 0);
+        let cursor = segStart;
+        for (const w of segWords) {
+          const wordDuration = ((w.length / totalChars) * (segEnd - segStart));
+          words.push({
+            word: w,
+            startMs: Math.round(cursor),
+            endMs: Math.round(cursor + wordDuration),
+            confidence: 0.9,
+          });
+          cursor += wordDuration;
+        }
+      }
+
+      console.log(`[Transcription] Whisper: ${words.length} words (from ${data.chunks.length} segments) for ${asset.assetId}`);
       return {
         words,
         transcript: data.text || words.map((w: any) => w.word).join(' '),
         language: data.inferred_languages?.[0] || language || 'en',
-        confidence: 0.95,
+        confidence: 0.9,
         generatedAt: new Date(),
       };
     }
