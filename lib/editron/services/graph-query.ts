@@ -210,14 +210,16 @@ export function loadGraph(): GraphIndex | null {
       join(process.cwd(), '.next', 'server', 'lib', 'editron', 'data', 'creative-knowledge-graph.json'),
     ];
     let loaded = false;
+    const failReasons: string[] = [];
     for (const attempt of attempts) {
       try {
         const raw = readFileSync(attempt, 'utf8');
         graph = JSON.parse(raw);
         loaded = true;
+        console.log(`[GraphQuery] Loaded from: ${attempt}`);
         break;
-      } catch {
-        // Try next path
+      } catch (e: any) {
+        failReasons.push(`${attempt}: ${e.code || e.message}`);
       }
     }
     if (!loaded) {
@@ -226,8 +228,10 @@ export function loadGraph(): GraphIndex | null {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         graph = require('../data/creative-knowledge-graph.json');
         loaded = true;
-      } catch {
-        console.error(`[GraphQuery] Failed to load graph from any path. Tried: ${attempts.join(', ')} + require()`);
+        console.log('[GraphQuery] Loaded via require() fallback');
+      } catch (e: any) {
+        failReasons.push(`require(): ${e.code || e.message}`);
+        console.error(`[GraphQuery] FAILED ALL PATHS:\n  ${failReasons.join('\n  ')}`);
         return null;
       }
     }

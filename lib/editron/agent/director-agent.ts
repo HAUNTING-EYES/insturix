@@ -1548,7 +1548,14 @@ async function invokeAITool(
         console.log(`[Director] add_captions: no video overlays found, skipping`);
         return 0;
       }
-      const captionStyle = params.style || profile.captionStyle || 'subtitle';
+      // Map profile/action style to valid add_captions enum.
+      // Valid: tiktok | minimal | bold | karaoke | subtitle | hormozi | mrbeast | ali-abdaal | corporate
+      const CAPTION_STYLE_MAP: Record<string, string> = {
+        'creator': 'bold', 'fancy': 'bold', 'word-by-word': 'bold',
+        'kinetic': 'bold', 'none': 'subtitle',
+      };
+      const rawCaptionStyle = params.style || profile.captionStyle || 'subtitle';
+      const captionStyle = CAPTION_STYLE_MAP[rawCaptionStyle] || rawCaptionStyle;
 
       // Pre-warm transcription cache for all voiceover assets.
       // The add_captions tool needs word-level timing from voiceover audio.
