@@ -3,7 +3,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { JobError } from "../types/clickatron";
 
 // Validate required R2 configuration
-if (!process.env.R2_ACCOUNT_ID || !process.env.R2_ACCESS_KEY_ID || !process.env.R2_SECRET_ACCESS_KEY || !process.env.R2_BUCKET_NAME) {
+if (!process.env.R2_ACCOUNT_ID_CLICKATRON || !process.env.R2_ACCESS_KEY_ID_CLICKATRON || !process.env.R2_SECRET_ACCESS_KEY_CLICKATRON || !process.env.R2_BUCKET_NAME_CLICKATRON) {
   console.warn(
     "R2 configuration missing for Clickatron. Image storage will be disabled.",
   );
@@ -12,14 +12,14 @@ if (!process.env.R2_ACCOUNT_ID || !process.env.R2_ACCESS_KEY_ID || !process.env.
 // Initialize R2 client if credentials are available
 let s3Client: S3Client | null = null;
 
-if (process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_BUCKET_NAME) {
+if (process.env.R2_ACCOUNT_ID_CLICKATRON && process.env.R2_ACCESS_KEY_ID_CLICKATRON && process.env.R2_SECRET_ACCESS_KEY_CLICKATRON && process.env.R2_BUCKET_NAME_CLICKATRON) {
   try {
     s3Client = new S3Client({
       region: "auto",
-      endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      endpoint: `https://${process.env.R2_ACCOUNT_ID_CLICKATRON}.r2.cloudflarestorage.com`,
       credentials: {
-        accessKeyId: process.env.R2_ACCESS_KEY_ID,
-        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+        accessKeyId: process.env.R2_ACCESS_KEY_ID_CLICKATRON,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY_CLICKATRON,
       },
     });
     if (process.env.NODE_ENV === "development") {
@@ -87,7 +87,7 @@ export class ClickatronR2Manager {
       // Create R2 path following service convention
       const timestamp = Date.now();
       const r2Path = `user_${userId}/clickatron-thumbnails/session_${sessionId}/variation_${variationId}/${timestamp}.jpg`;
-      const bucketName = process.env.R2_BUCKET_NAME!;
+      const bucketName = process.env.R2_BUCKET_NAME_CLICKATRON!;
 
       // Upload buffer to R2 with retry logic
       await this.withRetry(async () => {
@@ -99,12 +99,12 @@ export class ClickatronR2Manager {
         }));
       });
 
-      // Return the public URL
-      const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
-      if (!publicBaseUrl) {
-        throw new Error("R2_PUBLIC_BASE_URL not configured");
+      // Return the public URL via Cloudflare Worker (with CORS headers)
+      const workerUrl = process.env.CLICKATRON_R2_WORKER_URL || process.env.R2_PUBLIC_BASE_URL_CLICKATRON;
+      if (!workerUrl) {
+        throw new Error("CLICKATRON_R2_WORKER_URL or R2_PUBLIC_BASE_URL_CLICKATRON not configured");
       }
-      return `${publicBaseUrl}/${r2Path}`;
+      return `${workerUrl}/clickatron/${r2Path}`;
     } catch (error) {
       console.error(
         "Failed to upload image to R2 (after retries if applicable):",
@@ -180,7 +180,7 @@ export class ClickatronR2Manager {
       `user_${userId}/clickatron-thumbnails/` +
       `session_${sessionId}/variation_${variationId}/${timestamp}.webp`;
 
-    const bucketName = process.env.R2_BUCKET_NAME!;
+    const bucketName = process.env.R2_BUCKET_NAME_CLICKATRON!;
 
     try {
       await this.withRetry(async () => {
@@ -192,12 +192,12 @@ export class ClickatronR2Manager {
         }));
       });
 
-      // Return the public URL
-      const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
-      if (!publicBaseUrl) {
-        throw new Error("R2_PUBLIC_BASE_URL not configured");
+      // Return the public URL via Cloudflare Worker (with CORS headers)
+      const workerUrl = process.env.CLICKATRON_R2_WORKER_URL || process.env.R2_PUBLIC_BASE_URL_CLICKATRON;
+      if (!workerUrl) {
+        throw new Error("CLICKATRON_R2_WORKER_URL or R2_PUBLIC_BASE_URL_CLICKATRON not configured");
       }
-      return `${publicBaseUrl}/${r2Path}`;
+      return `${workerUrl}/clickatron/${r2Path}`;
     } catch (error) {
       console.error('Failed to upload thumbnail to R2 (after retries):', error);
       throw {
@@ -227,7 +227,7 @@ export class ClickatronR2Manager {
     try {
       const timestamp = Date.now();
       const r2Path = `user_${userId}/clickatron-masks/session_${sessionId}/variation_${variationId}/mask_${timestamp}.png`;
-      const bucketName = process.env.R2_BUCKET_NAME!;
+      const bucketName = process.env.R2_BUCKET_NAME_CLICKATRON!;
 
       await this.withRetry(async () => {
         await s3Client!.send(new PutObjectCommand({
@@ -238,11 +238,12 @@ export class ClickatronR2Manager {
         }));
       });
 
-      const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
-      if (!publicBaseUrl) {
-        throw new Error("R2_PUBLIC_BASE_URL not configured");
+      // Return the public URL via Cloudflare Worker (with CORS headers)
+      const workerUrl = process.env.CLICKATRON_R2_WORKER_URL || process.env.R2_PUBLIC_BASE_URL_CLICKATRON;
+      if (!workerUrl) {
+        throw new Error("CLICKATRON_R2_WORKER_URL or R2_PUBLIC_BASE_URL_CLICKATRON not configured");
       }
-      return `${publicBaseUrl}/${r2Path}`;
+      return `${workerUrl}/clickatron/${r2Path}`;
     } catch (error) {
       console.error("Failed to upload mask image to R2:", error);
       throw {
@@ -273,14 +274,14 @@ export class ClickatronR2Manager {
       }
 
       // Extract path from full URL
-      const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
+      const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL_CLICKATRON;
       if (publicBaseUrl && relativePath.startsWith(publicBaseUrl)) {
         relativePath = relativePath.replace(`${publicBaseUrl}/`, "");
       }
 
       console.log("Deleting R2 file with path:", relativePath);
 
-      const bucketName = process.env.R2_BUCKET_NAME!;
+      const bucketName = process.env.R2_BUCKET_NAME_CLICKATRON!;
       await s3Client!.send(new DeleteObjectCommand({
         Bucket: bucketName,
         Key: relativePath,
@@ -316,7 +317,7 @@ export class ClickatronR2Manager {
       console.log("Getting signed URL for R2 URL:", r2Url);
       let filePath = r2Url;
 
-      const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
+      const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL_CLICKATRON;
       if (publicBaseUrl && r2Url.startsWith(publicBaseUrl)) {
         filePath = r2Url.replace(`${publicBaseUrl}/`, "");
       }
@@ -328,7 +329,7 @@ export class ClickatronR2Manager {
       filePath = decodeURIComponent(filePath);
 
       console.log("Extracted file path:", filePath);
-      const bucketName = process.env.R2_BUCKET_NAME!;
+      const bucketName = process.env.R2_BUCKET_NAME_CLICKATRON!;
       const command = new GetObjectCommand({
         Bucket: bucketName,
         Key: filePath,
