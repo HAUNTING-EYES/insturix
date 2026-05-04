@@ -266,7 +266,7 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
     try {
       const now = Date.now();
       for (const f of fs.readdirSync(os.tmpdir())) {
-        if (f.startsWith('vu_') && f.endsWith('.mp4')) {
+        if ((f.startsWith('vu_') || f.startsWith('gemini_')) && f.endsWith('.mp4')) {
           try {
             const stat = fs.statSync(path.join(os.tmpdir(), f));
             if (now - stat.mtimeMs > 60000) fs.unlinkSync(path.join(os.tmpdir(), f));

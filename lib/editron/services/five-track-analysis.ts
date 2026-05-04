@@ -289,12 +289,15 @@ async function uploadToGeminiFiles(
     const path = await import('path');
     const fs = await import('fs');
 
-    // Clean orphaned temp files from previous invocations
+    // Clean ALL video temp files — both gemini_* AND vu_* (from video-understanding-service).
+    // VideoUnderstanding runs BEFORE 5-Track in the worker pipeline. If it crashes
+    // with ENOSPC, its vu_*.mp4 file stays on /tmp. Then 5-Track tries to write
+    // another 260MB → 260 + 260 = 520 > 512MB /tmp limit → ENOSPC again.
     try {
       const tmpDir = os.tmpdir();
       const now = Date.now();
       for (const f of fs.readdirSync(tmpDir)) {
-        if (f.startsWith('gemini_') && f.endsWith('.mp4')) {
+        if ((f.startsWith('gemini_') || f.startsWith('vu_')) && f.endsWith('.mp4')) {
           try {
             const stat = fs.statSync(path.join(tmpDir, f));
             if (now - stat.mtimeMs > 60000) fs.unlinkSync(path.join(tmpDir, f));
