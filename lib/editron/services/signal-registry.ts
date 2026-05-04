@@ -205,12 +205,37 @@ export function buildSignalTimeline(
     timeline.gridSignals.set(frame, snapshot);
   }
 
-  // ── PASS 2: Composite signals (read from Pass 1 results) ──────────────
+  // ── PASS 2: Composite + temporal-smoothed signals ───────────────────────
+  // The creative doc marks some triggers with temporal modifiers:
+  //   "speech_energy_delta > 0.15 over 2s window" → check rolling average, not instant
+  //   "motion_intensity > 0.7 sustained 2+ seconds" → check minimum over window
+  //   "music_energy delta > 0.2 over 4s window" → check rolling delta
+  // These smoothed values replace the instantaneous values in the snapshot
+  // so the trigger evaluator automatically uses the correct temporal semantics.
 
   const gridFrames = Array.from(timeline.gridSignals.keys()).sort((a, b) => a - b);
   for (const frame of gridFrames) {
     const snapshot = timeline.gridSignals.get(frame)!;
     const neighbors = getNeighborSnapshots(timeline.gridSignals, frame, GRID_INTERVAL_FRAMES, 4);
+
+    // Temporal smoothing: replace instantaneous values with rolling window values.
+    // "over 2s" = 4 sample points at 0.5s intervals
+    // "sustained 2+" = minimum across 4 points (ALL must exceed threshold)
+    // "over 4s" = 8 sample points
+    const prevPoints = getNeighborSnapshots(timeline.gridSignals, frame, GRID_INTERVAL_FRAMES, 4)
+      .filter(n => n.frame < frame); // only PREVIOUS points
+
+    if (prevPoints.length >= 3) {
+      // speech.energy_delta: doc says "over 2s window" → rolling average
+      const deltaValues = prevPoints.map(n => (n['speech.energy_delta'] as number) ?? 0);
+      deltaValues.push((snapshot['speech.energy_delta'] as number) ?? 0);
+      snapshot['speech.energy_delta'] = deltaValues.reduce((s, v) => s + v, 0) / deltaValues.length;
+
+      // visual.motion_intensity: doc says "sustained 2+ seconds" → minimum (all must be high)
+      const motionValues = prevPoints.map(n => (n['visual.motion_intensity'] as number) ?? 0);
+      motionValues.push((snapshot['visual.motion_intensity'] as number) ?? 0);
+      snapshot['visual.motion_intensity_sustained'] = Math.min(...motionValues);
+    }
 
     // narrative_pressure: high speech energy + rising delta + low silence = building pressure
     snapshot['composite.narrative_pressure'] = computeNarrativePressure(snapshot, neighbors);
