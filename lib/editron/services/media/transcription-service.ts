@@ -124,17 +124,20 @@ async function generateTranscription(
 
         console.log(`[Transcription] Grok STT: transcribing ${asset.assetId} via URL...`);
 
+        // xAI STT API expects FormData (multipart/form-data), NOT JSON.
+        // Sending JSON causes 400: "Invalid boundary for multipart/form-data request"
+        const formData = new FormData();
+        formData.append('url', mediaUrl);
+        formData.append('language', language || 'en');
+        formData.append('format', 'true');
+
         const response = await fetch('https://api.x.ai/v1/stt', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${xaiKey}`,
-            'Content-Type': 'application/json',
+            // No Content-Type header — fetch sets it automatically with boundary for FormData
           },
-          body: JSON.stringify({
-            url: mediaUrl,
-            language: language || 'en',
-            format: true,
-          }),
+          body: formData,
         });
 
         if (!response.ok) {
