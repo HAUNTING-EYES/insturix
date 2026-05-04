@@ -24,7 +24,9 @@ import {
 } from "@/lib/frontend/services/clickatron-download";
 import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
 import type { ImageOverlayManagerHandle } from "../canvas/ImageOverlayManager";
-import type { SketchOverlayHandle } from "../canvas/SketchOverlay";
+import { SketchOverlay, type SketchOverlayHandle, type SketchTool, type PencilColor, type EraserSize } from "../canvas/SketchOverlay";
+import { SelectionTool } from "../canvas/SelectionTool";
+import { GenerativeFillInline } from "../canvas/GenerativeFillInline";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -172,12 +174,46 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     "none" | "gallery" | "fine-tune"
   >("none");
   const [activeTool, setActiveTool] = useState<"sketch" | "image" | null>(null);
-  const [, setSketchTool] = useState<
+  const [sketchTool, setSketchTool] = useState<
     "pencil" | "eraser" | "text" | null
   >(null);
-  const [, setSelectedImageOverlayId] = useState<
+  const [pencilColor, setPencilColor] = useState<PencilColor>("black");
+  const [eraserSize, setEraserSize] = useState<EraserSize>("medium");
+  const [inputMode, setInputMode] = useState<"editCanvas" | "sketchToEdit">(
+    "editCanvas",
+  );
+  const [selectedImageOverlayId, setSelectedImageOverlayId] = useState<
     string | null
   >(null);
+
+  const imageContainerRef = useRef<HTMLDivElement>(null);
+  const [imageContainerSize, setImageContainerSize] = useState<{
+    width: number;
+    height: number;
+  }>({ width: 0, height: 0 });
+  const [imageNaturalSize, setImageNaturalSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+
+  const [isSelectionActive, setIsSelectionActive] = useState(false);
+  const [selectionMode, setSelectionMode] = useState<"rectangle" | "lasso">(
+    "rectangle",
+  );
+  const [selectionBounds, setSelectionBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [selectionMaskDataUrl, setSelectionMaskDataUrl] = useState<string | null>(
+    null,
+  );
+  const [inlinePromptPos, setInlinePromptPos] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [isGenerativeFillGenerating, setIsGenerativeFillGenerating] =
+    useState(false);
 
   const [newVariationCreating, setNewVariationCreating] = useState(false);
 
@@ -194,6 +230,28 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     useState(activeVariationId);
   const [referenceImageCount, setReferenceImageCount] = useState<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!imageContainerRef.current) return;
+
+    const updateSize = () => {
+      const rect = imageContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setImageContainerSize({
+        width: Math.max(0, Math.round(rect.width)),
+        height: Math.max(0, Math.round(rect.height)),
+      });
+    };
+
+    updateSize();
+    const ro = new ResizeObserver(() => updateSize());
+    ro.observe(imageContainerRef.current);
+    window.addEventListener("resize", updateSize);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", updateSize);
+    };
+  }, []);
 
   // Debug: Track re-renders (only warn if excessive)
   renderCount.current += 1;
@@ -617,6 +675,113 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       setNewVariationCreating(false);
     }
   }, [task?._id, activeVariation, loadSession, toast]);
+
+  const handleGenerativeFillToggle = useCallback(
+    (mode?: "rectangle" | "lasso") => {
+      if (!activeVariation?.imageRef || activeVariation.status !== "completed") {
+        toast({
+          title: "Error",
+          description: "Select a completed image first",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!mode) {
+        setIsSelectionActive(false);
+        setSelectionBounds(null);
+        setSelectionMaskDataUrl(null);
+        setInlinePromptPos(null);
+        return;
+      }
+
+      setSelectionMode(mode);
+      setIsSelectionActive(true);
+      setSelectionBounds(null);
+      setSelectionMaskDataUrl(null);
+      setInlinePromptPos(null);
+    },
+    [activeVariation, toast],
+  );
+
+  const handleGenerativeFillGenerate = useCallback(
+    async (prompt: string, modelId: string) => {
+      if (!task?._id || !activeVariation?.id) return;
+      if (!selectionBounds || !selectionMaskDataUrl) {
+        toast({
+          title: "Error",
+          description: "Make a selection first",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      try {
+        setIsGenerativeFillGenerating(true);
+
+        const maskRes = await fetch(selectionMaskDataUrl);
+        const maskBlob = await maskRes.blob();
+        const maskFile = new File([maskBlob], `mask_${Date.now()}.png`, {
+          type: "image/png",
+        });
+
+        const formData = new FormData();
+        formData.append("prompt", prompt);
+        formData.append("modelId", modelId);
+        formData.append("variationId", activeVariation.id);
+        formData.append("selectionBounds", JSON.stringify(selectionBounds));
+        formData.append("mask", maskFile);
+
+        const apiResponse = await fetch(
+          `/api/services/clickatron/session/${task._id}/generative-fill`,
+          { method: "POST", body: formData },
+        );
+
+        if (!apiResponse.ok) {
+          const errorData = await apiResponse.json().catch(() => ({}));
+          throw new Error(errorData.error || "Failed to submit generative fill");
+        }
+
+        const data = await apiResponse.json();
+
+        setIsSelectionActive(false);
+        setSelectionBounds(null);
+        setSelectionMaskDataUrl(null);
+        setInlinePromptPos(null);
+
+        await pollVariationCompletion(
+          task._id,
+          data.variationId,
+          loadSession,
+          () => useClickatronStore.getState().task,
+          () => window.dispatchEvent(new CustomEvent("clickatron-usage-updated")),
+          2000,
+          abortControllerRef.current?.signal,
+        );
+
+        setLocalActiveVariation(data.variationId);
+        setActiveVariationId(data.variationId);
+      } catch (error) {
+        console.error("Error in handleGenerativeFillGenerate:", error);
+        toast({
+          title: "Error",
+          description:
+            error instanceof Error ? error.message : "Generative fill failed",
+          variant: "destructive",
+        });
+      } finally {
+        setIsGenerativeFillGenerating(false);
+      }
+    },
+    [
+      task?._id,
+      activeVariation?.id,
+      selectionBounds,
+      selectionMaskDataUrl,
+      loadSession,
+      toast,
+    ],
+  );
 
   const handleUploadImage = useCallback(
     async (file: File) => {
@@ -1128,13 +1293,18 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   onZoomOut={() => imageRef.current?.zoomOut(0.3)}
                   onResetZoom={() => imageRef.current?.resetTransform()}
                   onDownload={handleDownload}
+                  onGenerativeFill={handleGenerativeFillToggle}
+                  isGenerativeFillActive={isSelectionActive}
                   // onShare={() => console.log("Share")}
                 />
               </div>
             )}
 
             {/* Image Display with proper sizing */}
-            <div className="relative w-full h-full flex items-center justify-center">
+            <div
+              ref={imageContainerRef}
+              className="relative w-full h-full flex items-center justify-center"
+            >
               {!activeVariation ? (
                 // No variation selected
                 <NoVariationSelected aspectRatio={currentAspectRatio} />
@@ -1191,16 +1361,57 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   </div>
                 </div>
               ) : (
-                <ImageDisplay
-                  key={localActiveVariation}
-                  ref={imageRef}
-                  imageRef={activeVariation.imageRef}
-                  status={activeVariation.status}
-                  variationId={localActiveVariation!}
-                  fineTuning={activeVariation.fineTuning}
-                  aspectRatio={aspectRatio}
-                  className="max-w-[90%] max-h-[90%] object-contain rounded-lg shadow-2xl"
-                />
+                <>
+                  <ImageDisplay
+                    key={localActiveVariation}
+                    ref={imageRef}
+                    imageRef={activeVariation.imageRef}
+                    status={activeVariation.status}
+                    variationId={localActiveVariation!}
+                    fineTuning={activeVariation.fineTuning}
+                    aspectRatio={aspectRatio}
+                    className="max-w-[90%] max-h-[90%] object-contain rounded-lg shadow-2xl"
+                    onImageLoad={(dims) => setImageNaturalSize(dims)}
+                    isFillGenerating={isGenerativeFillGenerating}
+                  />
+
+                  <SketchOverlay
+                    ref={sketchOverlayRef}
+                    width={Math.max(1, imageContainerSize.width)}
+                    height={Math.max(1, imageContainerSize.height)}
+                    tool={(sketchTool || "pencil") as SketchTool}
+                    pencilColor={pencilColor}
+                    eraserSize={eraserSize}
+                    isActive={activeTool === "sketch" && inputMode === "sketchToEdit"}
+                  />
+
+                  <SelectionTool
+                    imageWidth={Math.max(1, imageContainerSize.width)}
+                    imageHeight={Math.max(1, imageContainerSize.height)}
+                    originalWidth={imageNaturalSize?.width}
+                    originalHeight={imageNaturalSize?.height}
+                    isActive={isSelectionActive}
+                    selectionMode={selectionMode}
+                    onSelectionModeChange={setSelectionMode}
+                    onCancel={() => handleGenerativeFillToggle(undefined)}
+                    onSelectionComplete={(sel, maskDataUrl, pos) => {
+                      setSelectionBounds(sel);
+                      setSelectionMaskDataUrl(maskDataUrl);
+                      setInlinePromptPos(pos || null);
+                    }}
+                  />
+
+                  {inlinePromptPos && selectionBounds && selectionMaskDataUrl && (
+                    <GenerativeFillInline
+                      position={inlinePromptPos}
+                      isGenerating={isGenerativeFillGenerating}
+                      imageWidth={Math.max(1, imageContainerSize.width)}
+                      imageHeight={Math.max(1, imageContainerSize.height)}
+                      onCancel={() => handleGenerativeFillToggle(undefined)}
+                      onGenerate={handleGenerativeFillGenerate}
+                    />
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1305,11 +1516,30 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             ) : (
               <AICommandConsole
                 onGenerate={handleAIGenerate}
+                onSketchToEditSubmit={handleSketchToEditSubmit}
                 isGenerating={newVariationCreating}
                 className="border-t border-zinc-800/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
                 currentImageUrl={activeVariation?.imageRef || ''}
+                inputMode={inputMode}
+                onInputModeChange={(mode) => {
+                  setInputMode(mode);
+                  if (mode === "sketchToEdit") {
+                    setActiveTool("sketch");
+                    setSketchTool((prev) => prev || "pencil");
+                  } else {
+                    setActiveTool(null);
+                    setSketchTool(null);
+                  }
+                }}
+                sketchTool={sketchTool || "pencil"}
+                onSketchToolChange={handleSketchToolChange}
+                pencilColor={pencilColor}
+                onPencilColorChange={setPencilColor}
+                eraserSize={eraserSize}
+                onEraserSizeChange={setEraserSize}
+                onAddOverlayImage={handleAddOverlayImage}
               />
             )}
           </div>
