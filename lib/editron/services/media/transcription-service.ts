@@ -106,28 +106,64 @@ async function generateTranscription(
     return generateSyntheticTimings(narrationText, asset);
   }
 
-  // ─── Mode 2 fast path: Deepgram first for real footage ──────────
-  // Deepgram returns ACTUAL word-level timestamps (not character-proportion estimates).
-  // Wizper returns segment-level chunks that drift 10-30s on long videos.
-  // For Mode 2 caption sync, Deepgram's accuracy is critical.
+  // ─── Mode 2: Grok STT for real footage (word-level timestamps) ──
+  // Grok STT: $0.10/hr (3.6x cheaper than Deepgram), word-level timestamps,
+  // accepts URL directly (no download), 500MB max, speaker diarization.
   // Per v3 constraint:overlay.caption_timing_drift — "max 0.5s before speech onset."
+  // Wizper only returns segment-level → 10-30s drift on long videos.
   if (options?.preferWordLevel) {
-    try {
-      const { transcribeMedia } = await import('../deepgram-service');
-      let mediaUrl = asset.cachedUrl;
-      if (!mediaUrl && asset.gcsPath) {
-        const signed = await refreshSignedUrl(asset.gcsPath);
-        mediaUrl = signed.url;
+    const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
+    if (xaiKey) {
+      try {
+        let mediaUrl = asset.cachedUrl;
+        if (!mediaUrl && asset.gcsPath) {
+          const signed = await refreshSignedUrl(asset.gcsPath);
+          mediaUrl = signed.url;
+        }
+        if (!mediaUrl) throw new Error('No URL for asset');
+
+        console.log(`[Transcription] Grok STT: transcribing ${asset.assetId} via URL...`);
+
+        const response = await fetch('https://api.x.ai/v1/stt', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${xaiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            url: mediaUrl,
+            language: language || 'en',
+            format: true,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Grok STT returned ${response.status}: ${await response.text().catch(() => 'no body')}`);
+        }
+
+        const data = await response.json();
+        if (data.words && data.words.length > 0) {
+          const words: TranscriptionWord[] = data.words.map((w: any) => ({
+            word: w.text || '',
+            startMs: Math.round((w.start || 0) * 1000),
+            endMs: Math.round((w.end || 0) * 1000),
+            confidence: 0.95,
+            ...(w.speaker !== undefined && { speaker: w.speaker }),
+          }));
+
+          console.log(`[Transcription] Grok STT: ${words.length} words, duration=${data.duration?.toFixed(1)}s for ${asset.assetId}`);
+          return {
+            words,
+            transcript: data.text || words.map((w: any) => w.word).join(' '),
+            language: data.language || language || 'en',
+            confidence: 0.95,
+            generatedAt: new Date(),
+          };
+        }
+        console.warn(`[Transcription] Grok STT returned 0 words for ${asset.assetId}, falling through`);
+      } catch (grokErr: any) {
+        console.warn(`[Transcription] Grok STT failed for ${asset.assetId}: ${grokErr.message}, falling through to Wizper`);
       }
-      if (!mediaUrl) throw new Error('No URL for asset');
-      const result = await transcribeMedia(mediaUrl, { language: language || undefined });
-      const words: TranscriptionWord[] = result.words.map(w => ({
-        word: w.word, startMs: w.startMs, endMs: w.endMs, confidence: w.confidence,
-      }));
-      console.log(`[Transcription] Deepgram (word-level): ${words.length} words for ${asset.assetId}`);
-      return { words, transcript: result.transcript, language: result.detectedLanguage, confidence: result.confidence, generatedAt: new Date() };
-    } catch (dgErr: any) {
-      console.warn(`[Transcription] Deepgram failed for ${asset.assetId}: ${dgErr.message}, falling through to Wizper`);
     }
   }
 
