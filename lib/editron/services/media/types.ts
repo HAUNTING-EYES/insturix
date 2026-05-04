@@ -38,6 +38,8 @@ export interface TranscriptionData {
 export interface TranscriptionOptions {
   forceRefresh?: boolean;
   language?: string;
+  /** Mode 2: try Deepgram first for accurate word-level timestamps (vs Wizper segment-level) */
+  preferWordLevel?: boolean;
 }
 
 // ============================================================================

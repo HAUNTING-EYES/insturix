@@ -129,20 +129,23 @@ async function handler(request: NextRequest) {
       console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
     }
 
-    // ─── Step 1.55: Fix video duration if transcription reveals actual length ──
+    // ─── Step 1.55: Fix video duration + register asset if missing ──
     // The from-asset route uses asset.duration which may be missing (defaults to 30s).
-    // Transcription timestamps reveal the REAL video length. If mismatch > 5s, fix it.
+    // Transcription timestamps reveal the REAL video length.
+    // Also: multipart upload may have failed to register the asset in media_assets.
+    // If asset is missing from DB, register it here (fixes "video disappears on refresh"
+    // and ensures future lookups find the correct duration).
     if (rawFootageAnalysis?.transcription?.words?.length > 0) {
       const lastWord = rawFootageAnalysis.transcription.words[rawFootageAnalysis.transcription.words.length - 1];
       const actualDurationMs = lastWord.endMs;
       const actualDurationSec = actualDurationMs / 1000;
       const reportedDuration = durationSec;
 
-      if (Math.abs(actualDurationSec - reportedDuration) > 5) {
+      // Fix duration if transcript reveals different length (guard: actualDuration must be > 10s)
+      if (actualDurationSec > 10 && Math.abs(actualDurationSec - reportedDuration) > 5) {
         const actualFrames = Math.round(actualDurationSec * 30);
-        console.log(`[VideoAnalysisWorker] Duration mismatch: reported=${reportedDuration}s, actual=${actualDurationSec.toFixed(1)}s (from transcript). Correcting overlay + project.`);
+        console.log(`[VideoAnalysisWorker] Duration mismatch: reported=${reportedDuration}s, actual=${actualDurationSec.toFixed(1)}s. Correcting.`);
 
-        // Fix: update the video overlay duration AND project durationInFrames
         await db.collection('projects').updateOne(
           { projectId },
           {
@@ -153,6 +156,44 @@ async function handler(request: NextRequest) {
           },
           { arrayFilters: [{ 'vid.type': 'video' }] },
         );
+
+        // Also fix rawFootageAnalysis.originalDurationMs so silence removal math works
+        rawFootageAnalysis.originalDurationMs = actualDurationMs;
+        rawFootageAnalysis.estimatedCleanDurationMs = actualDurationMs -
+          (rawFootageAnalysis.silenceRemovalPlan || []).reduce((sum: number, a: any) => {
+            if (a.action === 'remove') return sum + (a.endMs - a.startMs);
+            if (a.action === 'shorten') return sum + (a.endMs - a.startMs) - (a.shortenToMs || 0);
+            return sum;
+          }, 0);
+        console.log(`[VideoAnalysisWorker] Fixed originalDurationMs=${actualDurationMs}, cleanDuration=${rawFootageAnalysis.estimatedCleanDurationMs}ms`);
+      }
+
+      // Register asset in media_assets if missing (multipart upload may have failed to register)
+      try {
+        const existingAsset = await db.collection('media_assets').findOne({ assetId });
+        if (!existingAsset) {
+          await db.collection('media_assets').insertOne({
+            assetId,
+            userId,
+            type: 'video',
+            source: 'user-upload',
+            filename: `${assetId}.mp4`,
+            cachedUrl: videoUrl,
+            duration: actualDurationSec,
+            uploadedAt: new Date(),
+          });
+          console.log(`[VideoAnalysisWorker] Registered missing asset ${assetId} in media_assets (duration=${actualDurationSec.toFixed(1)}s)`);
+        } else if (!existingAsset.duration && actualDurationSec > 0) {
+          // Asset exists but duration missing — update it
+          await db.collection('media_assets').updateOne(
+            { assetId },
+            { $set: { duration: actualDurationSec } },
+          );
+          console.log(`[VideoAnalysisWorker] Updated asset ${assetId} duration to ${actualDurationSec.toFixed(1)}s`);
+        }
+      } catch (assetErr: unknown) {
+        const msg = assetErr instanceof Error ? assetErr.message : String(assetErr);
+        console.warn(`[VideoAnalysisWorker] Asset registration failed (non-fatal): ${msg}`);
       }
     }
 

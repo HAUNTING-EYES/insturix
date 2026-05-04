@@ -53,7 +53,7 @@ export async function getTranscription(
   }
   
   // Generate new transcription
-  const transcription = await generateTranscription(asset, options.language);
+  const transcription = await generateTranscription(asset, options.language, { preferWordLevel: options.preferWordLevel });
   
   // Cache to database
   await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
@@ -92,7 +92,8 @@ export async function hasTranscription(
  */
 async function generateTranscription(
   asset: MediaAsset,
-  language?: string
+  language?: string,
+  options?: { preferWordLevel?: boolean }
 ): Promise<TranscriptionData> {
   const { refreshSignedUrl } = await import('../gcs-service');
 
@@ -103,6 +104,31 @@ async function generateTranscription(
   if (narrationText) {
     console.log(`[Transcription] Using synthetic timings from narration text for ${asset.assetId}`);
     return generateSyntheticTimings(narrationText, asset);
+  }
+
+  // ─── Mode 2 fast path: Deepgram first for real footage ──────────
+  // Deepgram returns ACTUAL word-level timestamps (not character-proportion estimates).
+  // Wizper returns segment-level chunks that drift 10-30s on long videos.
+  // For Mode 2 caption sync, Deepgram's accuracy is critical.
+  // Per v3 constraint:overlay.caption_timing_drift — "max 0.5s before speech onset."
+  if (options?.preferWordLevel) {
+    try {
+      const { transcribeMedia } = await import('../deepgram-service');
+      let mediaUrl = asset.cachedUrl;
+      if (!mediaUrl && asset.gcsPath) {
+        const signed = await refreshSignedUrl(asset.gcsPath);
+        mediaUrl = signed.url;
+      }
+      if (!mediaUrl) throw new Error('No URL for asset');
+      const result = await transcribeMedia(mediaUrl, { language: language || undefined });
+      const words: TranscriptionWord[] = result.words.map(w => ({
+        word: w.word, startMs: w.startMs, endMs: w.endMs, confidence: w.confidence,
+      }));
+      console.log(`[Transcription] Deepgram (word-level): ${words.length} words for ${asset.assetId}`);
+      return { words, transcript: result.transcript, language: result.detectedLanguage, confidence: result.confidence, generatedAt: new Date() };
+    } catch (dgErr: any) {
+      console.warn(`[Transcription] Deepgram failed for ${asset.assetId}: ${dgErr.message}, falling through to Wizper`);
+    }
   }
 
   // ─── Get accessible URL for external transcription ──────────────

@@ -80,7 +80,10 @@ const MIN_VIDEO_DURATION_SEC = 3; // Only skip for clips too short to have meani
 // ─── Step 1: Transcription (delegates to existing service) ───────
 
 async function transcribe(assetId: string, userId: string): Promise<TranscriptionData> {
-  return getTranscription(assetId, userId, { forceRefresh: false });
+  // Mode 2: prefer Deepgram for accurate word-level timestamps (caption sync).
+  // Wizper returns segment-level → character-proportion drift of 10-30s on long videos.
+  // Per v3 constraint:overlay.caption_timing_drift — max 0.5s before speech onset.
+  return getTranscription(assetId, userId, { forceRefresh: false, preferWordLevel: true });
 }
 
 // ─── Step 2: Silence Detection ───────────────────────────────────

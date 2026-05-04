@@ -267,6 +267,31 @@ export async function executeSilenceRemoval(
   // Sort overlays by position for consistency
   overlays.sort((a: any, b: any) => a.from - b.from || a.row - b.row);
 
+  // Dedup: merge overlapping video overlays on the same row.
+  // Silence removal with wrong originalDurationMs can create overlapping segments
+  // (e.g., two overlays both starting at frame 2264 with different durations).
+  // The browser plays BOTH simultaneously → doubled audio. Fix: keep the longer one.
+  const videoOverlaysBefore = overlays.filter((o: any) => o.type === 'video').length;
+  for (let i = overlays.length - 1; i > 0; i--) {
+    const curr = overlays[i];
+    const prev = overlays[i - 1];
+    if (curr.type !== 'video' || prev.type !== 'video') continue;
+    if (curr.row !== prev.row) continue;
+
+    const prevEnd = prev.from + prev.durationInFrames;
+    // Overlapping: curr starts before prev ends
+    if (curr.from < prevEnd) {
+      // Merge: extend prev to cover both, remove curr
+      const currEnd = curr.from + curr.durationInFrames;
+      prev.durationInFrames = Math.max(prevEnd, currEnd) - prev.from;
+      overlays.splice(i, 1);
+    }
+  }
+  const videoOverlaysAfter = overlays.filter((o: any) => o.type === 'video').length;
+  if (videoOverlaysBefore !== videoOverlaysAfter) {
+    console.log(`[SilenceRemoval] Merged ${videoOverlaysBefore - videoOverlaysAfter} overlapping video overlays (${videoOverlaysBefore} → ${videoOverlaysAfter})`);
+  }
+
   // Recalculate project duration
   const newDuration = overlays.length > 0
     ? Math.max(...overlays.map((o: any) => o.from + o.durationInFrames))
