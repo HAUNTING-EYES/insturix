@@ -236,6 +236,8 @@ export async function saveAnalysis(analysis: AssetAnalysis): Promise<void> {
  * Downloads from GCS signed URL → uploads to Gemini → returns fileUri.
  * Files are retained for 48 hours by Google.
  */
+const GEMINI_EXTERNAL_URL_LIMIT = 100 * 1024 * 1024; // 100MB — Gemini fetches directly from URL
+
 async function uploadToGeminiFiles(
   videoUrl: string,
   assetId: string,
@@ -248,8 +250,24 @@ async function uploadToGeminiFiles(
   }
 
   try {
-    // Download video from GCS signed URL
-    console.log(`[GeminiFiles] Downloading video ${assetId} (${Math.round(durationMs / 1000)}s)...`);
+    // Check file size via HEAD request (no download needed)
+    const headResp = await fetch(videoUrl, { method: 'HEAD' });
+    const contentLength = Number(headResp.headers.get('content-length') || 0);
+    const sizeMb = Math.round(contentLength / 1024 / 1024);
+
+    // ── PATH A: External URL (≤100MB) ─────────────────────────────────
+    // Gemini generateContent accepts public HTTPS URLs as file_uri.
+    // Zero download, zero /tmp, zero upload. Gemini fetches directly.
+    if (contentLength > 0 && contentLength <= GEMINI_EXTERNAL_URL_LIMIT) {
+      console.log(`[GeminiFiles] External URL path: ${sizeMb}MB ≤ 100MB — passing CDN URL directly to Gemini (no download/upload)`);
+      return videoUrl;
+    }
+
+    // ── PATH B: Files API upload (>100MB or unknown size) ─────────────
+    // Download → /tmp → upload to Gemini Files API → poll for ACTIVE.
+    // Only used for very large files that exceed Gemini's external URL limit.
+    console.log(`[GeminiFiles] Files API path: ${sizeMb > 0 ? sizeMb + 'MB' : 'unknown size'} — downloading + uploading to Gemini`);
+
     const response = await fetch(videoUrl);
     if (!response.ok) {
       console.error(`[GeminiFiles] Download failed: ${response.status}`);
@@ -258,52 +276,38 @@ async function uploadToGeminiFiles(
 
     const buffer = Buffer.from(await response.arrayBuffer());
     const sizeKb = Math.round(buffer.length / 1024);
-    console.log(`[GeminiFiles] Downloaded ${sizeKb}KB, uploading to Gemini...`);
 
-    // Gemini Files API accepts up to 2GB per file
     if (buffer.length > 2 * 1024 * 1024 * 1024) {
       console.warn(`[GeminiFiles] Video too large (${sizeKb}KB), max 2GB`);
       return null;
     }
 
-    // Upload via @google/generative-ai SDK — more reliable than manual multipart
     const { GoogleAIFileManager } = await import('@google/generative-ai/server');
     const fileManager = new GoogleAIFileManager(apiKey);
 
-    // Write buffer to temp file (SDK needs a file path)
     const os = await import('os');
     const path = await import('path');
     const fs = await import('fs');
 
-    // PRODUCTION FIX: Clean up orphaned temp files from previous invocations.
-    // Vercel serverless /tmp is 512MB shared. If a previous invocation was killed
-    // before its finally{} cleanup ran (timeout, OOM, cold start), orphaned files
-    // accumulate until ENOSPC. Clean ALL gemini_* files older than 60s.
+    // Clean orphaned temp files from previous invocations
     try {
       const tmpDir = os.tmpdir();
       const now = Date.now();
-      const files = fs.readdirSync(tmpDir);
-      let cleaned = 0;
-      for (const f of files) {
+      for (const f of fs.readdirSync(tmpDir)) {
         if (f.startsWith('gemini_') && f.endsWith('.mp4')) {
-          const fullPath = path.join(tmpDir, f);
           try {
-            const stat = fs.statSync(fullPath);
-            if (now - stat.mtimeMs > 60000) { // older than 60s = orphaned
-              fs.unlinkSync(fullPath);
-              cleaned++;
-            }
-          } catch {} // ignore individual file errors
+            const stat = fs.statSync(path.join(tmpDir, f));
+            if (now - stat.mtimeMs > 60000) fs.unlinkSync(path.join(tmpDir, f));
+          } catch {}
         }
       }
-      if (cleaned > 0) console.log(`[GeminiFiles] Cleaned ${cleaned} orphaned temp files from /tmp`);
-    } catch {} // non-fatal — best effort cleanup
+    } catch {}
 
     const tmpPath = path.join(os.tmpdir(), `gemini_${assetId}_${Date.now()}.mp4`);
 
     try {
       fs.writeFileSync(tmpPath, buffer);
-      console.log(`[GeminiFiles] Wrote temp file: ${tmpPath} (${sizeKb}KB)`);
+      console.log(`[GeminiFiles] Wrote temp: ${tmpPath} (${sizeKb}KB)`);
 
       const uploadResult = await fileManager.uploadFile(tmpPath, {
         mimeType: 'video/mp4',
@@ -314,13 +318,13 @@ async function uploadToGeminiFiles(
       const fileName = uploadResult?.file?.name;
 
       if (!fileUri) {
-        console.error('[GeminiFiles] No URI in upload response:', JSON.stringify(uploadResult).substring(0, 300));
+        console.error('[GeminiFiles] No URI in upload response');
         return null;
       }
 
       console.log(`[GeminiFiles] Uploaded: ${fileUri.substring(0, 80)}...`);
 
-      // Wait for ACTIVE state (Gemini processes the video)
+      // Wait for ACTIVE state
       let fileState = uploadResult?.file?.state;
       let retries = 0;
       while (fileState !== 'ACTIVE' && retries < 15) {
@@ -328,22 +332,21 @@ async function uploadToGeminiFiles(
         try {
           const checkResult = await fileManager.getFile(fileName!);
           fileState = checkResult?.state;
-        } catch {} // Ignore check errors, keep polling
+        } catch {}
         retries++;
       }
 
       if (fileState !== 'ACTIVE') {
-        console.error(`[GeminiFiles] File not ACTIVE after ${retries * 2}s (state: ${fileState}). Aborting.`);
+        console.error(`[GeminiFiles] Not ACTIVE after ${retries * 2}s (state: ${fileState})`);
         return null;
       }
 
       return fileUri;
     } finally {
-      // Clean up temp file
       try { fs.unlinkSync(tmpPath); } catch {}
     }
   } catch (err: any) {
-    console.error(`[GeminiFiles] Upload failed: ${err.message}`);
+    console.error(`[GeminiFiles] Failed: ${err.message}`);
     return null;
   }
 }
