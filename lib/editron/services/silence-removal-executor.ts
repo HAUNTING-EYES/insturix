@@ -251,15 +251,20 @@ export async function executeSilenceRemoval(
       overlaysDeleted++;
     }
 
-    // Add new overlays from splits
-    overlays.push(...newOverlays);
-
-    // Shift all overlays after cutStart left by framesToRemove
+    // Shift existing overlays after cutEnd left by framesToRemove.
+    // MUST run BEFORE pushing newOverlays — the new "after" pieces are already
+    // placed at cutStart (correct position after gap closure). Shifting them
+    // too would push them into the "before" piece → overlap.
+    // Bug was: shift ran AFTER push, with >= cutStart condition, which caught
+    // the new pieces and shifted them left into overlapping territory.
     for (const ov of overlays) {
-      if (ov.from >= cutStart) {
+      if (ov.from >= cutEnd) {
         ov.from = Math.max(0, ov.from - framesToRemove);
       }
     }
+
+    // Add new overlays from splits (already correctly positioned at cutStart)
+    overlays.push(...newOverlays);
 
     totalFramesRemoved += framesToRemove;
   }
