@@ -23,7 +23,9 @@ import {
   getImageUrl,
 } from "@/lib/frontend/services/clickatron-download";
 import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
-import type { ImageOverlayManagerHandle } from "../canvas/ImageOverlayManager";
+import ImageOverlayManager, {
+  type ImageOverlayManagerHandle,
+} from "../canvas/ImageOverlayManager";
 import { SketchOverlay, type SketchOverlayHandle, type SketchTool, type PencilColor, type EraserSize } from "../canvas/SketchOverlay";
 import { SelectionTool } from "../canvas/SelectionTool";
 import { GenerativeFillInline } from "../canvas/GenerativeFillInline";
@@ -1383,6 +1385,15 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                     pencilColor={pencilColor}
                     eraserSize={eraserSize}
                     isActive={activeTool === "sketch" && inputMode === "sketchToEdit"}
+                  />
+
+                  <ImageOverlayManager
+                    ref={imageOverlayManagerRef}
+                    width={Math.max(1, imageContainerSize.width)}
+                    height={Math.max(1, imageContainerSize.height)}
+                    isActive={activeTool === "image" && inputMode === "sketchToEdit"}
+                    onImageSelected={setSelectedImageOverlayId}
+                    onImageAdded={() => setActiveTool("image")}
                   />
 
                   <SelectionTool
