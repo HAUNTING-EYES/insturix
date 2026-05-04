@@ -82,6 +82,22 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
     [getCoordsFromClient]
   );
 
+  const toSameOriginImageUrl = useCallback((url: string): string => {
+    if (!url) return "";
+    if (url.startsWith("/")) return url;
+    try {
+      const u = new URL(url);
+      if (u.protocol === "http:" || u.protocol === "https:") {
+        return `/api/services/clickatron/utils/image-proxy?url=${encodeURIComponent(
+          url,
+        )}`;
+      }
+    } catch {
+      // ignore
+    }
+    return url;
+  }, []);
+
   const redrawTextLayer = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -243,7 +259,7 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
             return;
           }
 
-          const proxyBaseUrl = baseImageUrl;
+          const proxyBaseUrl = toSameOriginImageUrl(baseImageUrl);
           
           if (!proxyBaseUrl) {
             reject(new Error('Invalid base image URL'));
@@ -264,7 +280,7 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
                   const overlayImg = new Image();
                   overlayImg.crossOrigin = 'anonymous';
                   
-                  const proxyOverlayUrl = overlay.src;
+                  const proxyOverlayUrl = toSameOriginImageUrl(overlay.src);
                   
                   await new Promise((resolveOverlay, rejectOverlay) => {
                     overlayImg.onload = () => resolveOverlay(true);
@@ -397,7 +413,9 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
 
   return (
     <div
-      className="absolute inset-0 z-[45] pointer-events-auto touch-none"
+      className={`absolute inset-0 z-[45] touch-none ${
+        isActive ? "pointer-events-auto" : "pointer-events-none"
+      }`}
       style={{ width, height }}
     >
       <canvas
