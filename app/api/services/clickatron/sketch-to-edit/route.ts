@@ -199,38 +199,38 @@ export async function POST(request: Request) {
     task.markModified('details');
     await task.save();
 
-    // 6.5 Upload images to GCS instead of storing base64 in metadata (prevents Redis/QStash bloat)
-    console.log('[SketchToEdit] Uploading images to GCS...');
+    // 6.5 Upload images to R2 instead of storing base64 in metadata (prevents Redis/QStash bloat)
+    console.log('[SketchToEdit] Uploading images to R2...');
     
     let originalImageRef: string;
     let annotatedImageRef: string;
     
     try {
-      // Convert data URLs to buffers and upload to GCS
+      // Convert data URLs to buffers and upload to R2
       const originalImageData = dataUrlToBuffer(originalImage);
       const annotatedImageData = dataUrlToBuffer(annotatedImage);
       
-      const originalGcsUri = await ClickatronGCSManager.uploadImageBuffer(
+      const originalR2Url = await ClickatronR2Manager.uploadImageBuffer(
         userId,
         finalTaskId,
         `sketch_original_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         originalImageData.buffer,
         originalImageData.mimeType
       );
-      originalImageRef = originalGcsUri.split('?')[0]; // Strip query params for storage
+      originalImageRef = originalR2Url.split('?')[0]; // Strip query params for storage
       
-      const annotatedGcsUri = await ClickatronGCSManager.uploadImageBuffer(
+      const annotatedR2Url = await ClickatronR2Manager.uploadImageBuffer(
         userId,
         finalTaskId,
         `sketch_annotated_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         annotatedImageData.buffer,
         annotatedImageData.mimeType
       );
-      annotatedImageRef = annotatedGcsUri.split('?')[0]; // Strip query params for storage
+      annotatedImageRef = annotatedR2Url.split('?')[0]; // Strip query params for storage
       
-      console.log('[SketchToEdit] Images uploaded to GCS:', { originalImageRef, annotatedImageRef });
+      console.log('[SketchToEdit] Images uploaded to R2:', { originalImageRef, annotatedImageRef });
     } catch (uploadError) {
-      console.error('[SketchToEdit] Failed to upload images to GCS:', uploadError);
+      console.error('[SketchToEdit] Failed to upload images to R2:', uploadError);
       await creditCheck.refund('Failed to upload images');
       return NextResponse.json({ 
         error: 'Failed to upload images', 
@@ -240,8 +240,8 @@ export async function POST(request: Request) {
 
     const jobMetadata = {
       sketchToEdit: true,
-      originalImageRef, // GCS URI instead of base64
-      annotatedImageRef, // GCS URI instead of base64
+      originalImageRef,
+      annotatedImageRef,
       sessionId: finalTaskId,
     };
 

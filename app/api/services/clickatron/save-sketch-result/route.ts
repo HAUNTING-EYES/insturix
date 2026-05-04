@@ -27,16 +27,16 @@ export async function POST(request: Request) {
       : imageB64;
     const buffer = Buffer.from(base64Content, 'base64');
 
-    // 2. Upload to GCS
+    // 2. Upload to R2
     const variationId = `var_${Date.now()}`;
-    const gcsUri = await ClickatronGCSManager.uploadImageBuffer(
+    const r2Url = await ClickatronR2Manager.uploadImageBuffer(
       userId,
       sessionId,
       variationId,
       buffer,
       'image/png'
     );
-    const imageUrl = gcsUri.split('?')[0];
+    const imageUrl = r2Url.split('?')[0];
 
     // 3. Create Variation Object
     const now = new Date();

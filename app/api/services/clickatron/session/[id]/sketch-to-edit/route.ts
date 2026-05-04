@@ -70,31 +70,31 @@ export async function POST(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    console.log('[SketchToEdit] Starting GCS upload, file size:', img2File.size, 'type:', img2File.type);
+    console.log('[SketchToEdit] Starting R2 upload, file size:', img2File.size, 'type:', img2File.type);
 
-    // Upload img2 to GCS
+    // Upload img2 to R2
     const arrayBuffer = await img2File.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     console.log('[SketchToEdit] Buffer created, size:', buffer.length);
     
-    let gcsUri: string;
+    let r2Url: string;
     try {
       // Use parentVariationId as the variationId for consistent path structure
-      gcsUri = await ClickatronGCSManager.uploadImageBuffer(
+      r2Url = await ClickatronR2Manager.uploadImageBuffer(
         userId,
         id,
         parentVariationId,
         buffer,
         img2File.type
       );
-      console.log('[SketchToEdit] GCS upload successful:', gcsUri);
+      console.log('[SketchToEdit] R2 upload successful:', r2Url);
     } catch (uploadError) {
-      console.error('[SketchToEdit] GCS upload failed:', uploadError);
-      await creditCheck.refund('GCS upload failed');
+      console.error('[SketchToEdit] R2 upload failed:', uploadError);
+      await creditCheck.refund('R2 upload failed');
       throw uploadError;
     }
     
-    const rawImg2Ref = gcsUri.split('?')[0];
+    const rawImg2Ref = r2Url.split('?')[0];
     console.log('[SketchToEdit] Raw img2 ref:', rawImg2Ref);
 
     // Get original variation to inherit aspect ratio and other data

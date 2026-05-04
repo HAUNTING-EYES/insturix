@@ -93,7 +93,7 @@ export async function POST(
     const aspectRatio =
       (formData.get('aspectRatio') as string) || task.details.aspectRatio;
 
-    // Upload image to GCS
+    // Upload image to R2
     const variationId =
       updateExistingBlank && parentVariationId
         ? parentVariationId
@@ -102,7 +102,7 @@ export async function POST(
     const arrayBuffer = await imageFile.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const gcsUri = await ClickatronGCSManager.uploadImageBuffer(
+    const r2Url = await ClickatronR2Manager.uploadImageBuffer(
       userId,
       id,
       variationId,
@@ -110,14 +110,14 @@ export async function POST(
       imageFile.type
     );
 
-    const rawGcsUri = gcsUri.split('?')[0];
+    const rawR2Url = r2Url.split('?')[0];
 
     const now = new Date();
     const newVariation = {
       id: variationId,
       prompt: 'Uploaded image',
       status: 'completed' as const,
-      imageRef: rawGcsUri,
+      imageRef: rawR2Url,
       thumbnailRef: '',
       aspectRatio,
       fineTuning: {

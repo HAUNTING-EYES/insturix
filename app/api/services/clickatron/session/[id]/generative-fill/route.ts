@@ -109,19 +109,19 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // Upload mask to GCS
+    // Upload mask to R2
     const maskArrayBuffer = await maskFile.arrayBuffer();
     const maskBuffer = Buffer.from(maskArrayBuffer);
     
     const newVariationId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    const maskUrl = await ClickatronGCSManager.uploadMaskImage(
+    const maskUrl = await ClickatronR2Manager.uploadMaskImage(
       userId,
       id,
       newVariationId,
       maskBuffer
     );
 
-    // Store raw GCS URL without query parameters
+    // Store raw URL without query parameters
     const rawMaskUrl = maskUrl.split('?')[0];
 
     // Create new variation based on parent

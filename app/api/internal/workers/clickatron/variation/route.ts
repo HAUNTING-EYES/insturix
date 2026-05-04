@@ -441,9 +441,9 @@ async function handler(req: Request) {
               console.error(`Worker: Image URL ${i + 1} returned non-200 status:`, imageResponse.status, imageResponse.statusText);
 
             // If this is a URL that might have expired, try to regenerate the signed URL
-              if (imageUrl.includes('storage.googleapis.com')) {
+              if (imageUrl.includes('X-Amz-Algorithm=') || imageUrl.includes('X-Amz-Signature=') || imageUrl.includes('r2.cloudflarestorage.com')) {
                 try {
-                // Extract the base R2 URL (without signature parameters)
+                // Extract the base URL (without signature parameters)
                   const urlObj = new URL(imageUrl);
                   const baseUrl = `${urlObj.origin}${urlObj.pathname}`;
 

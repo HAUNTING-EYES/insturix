@@ -243,27 +243,7 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
             return;
           }
 
-          // Convert GCS URL to proxy URL to avoid CORS issues
-          const getProxyUrl = (url: string): string => {
-            console.log('[SketchOverlay] Converting URL:', url);
-            if (!url) {
-              console.error('[SketchOverlay] Empty URL provided');
-              return '';
-            }
-            if (url.startsWith('https://storage.googleapis.com/')) {
-              const pathAfterDomain = url.substring('https://storage.googleapis.com/'.length);
-              const pathSegments = pathAfterDomain.split('/');
-              const pathWithinBucket = pathSegments.slice(1).join('/');
-              const cleanPath = pathWithinBucket.split('?')[0];
-              const proxyUrl = `/api/proxy/image?path=${encodeURIComponent(cleanPath)}`;
-              console.log('[SketchOverlay] Converted to proxy URL:', proxyUrl);
-              return proxyUrl;
-            }
-            console.log('[SketchOverlay] Using original URL:', url);
-            return url;
-          };
-
-          const proxyBaseUrl = getProxyUrl(baseImageUrl);
+          const proxyBaseUrl = baseImageUrl;
           
           if (!proxyBaseUrl) {
             reject(new Error('Invalid base image URL'));
@@ -284,7 +264,7 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
                   const overlayImg = new Image();
                   overlayImg.crossOrigin = 'anonymous';
                   
-                  const proxyOverlayUrl = getProxyUrl(overlay.src);
+                  const proxyOverlayUrl = overlay.src;
                   
                   await new Promise((resolveOverlay, rejectOverlay) => {
                     overlayImg.onload = () => resolveOverlay(true);
