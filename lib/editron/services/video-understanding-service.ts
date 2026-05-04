@@ -223,22 +223,37 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
     return null;
   }
 
+  const EXTERNAL_URL_LIMIT = 100 * 1024 * 1024; // 100MB
+
   try {
+    // Check file size via HEAD (no download)
+    const headResp = await fetch(videoUrl, { method: 'HEAD' });
+    const contentLength = Number(headResp.headers.get('content-length') || 0);
+    const sizeMb = Math.round(contentLength / 1024 / 1024);
+
+    // PATH A: ≤100MB — pass CDN URL directly to Gemini (zero download/disk/upload)
+    if (contentLength > 0 && contentLength <= EXTERNAL_URL_LIMIT) {
+      console.log(`[VideoUnderstanding] External URL path: ${sizeMb}MB — passing CDN URL directly`);
+      return videoUrl;
+    }
+
+    // PATH B: >100MB — Files API upload (download → /tmp → upload → poll)
+    console.log(`[VideoUnderstanding] Files API path: ${sizeMb > 0 ? sizeMb + 'MB' : 'unknown'} — downloading + uploading`);
+
     const response = await fetch(videoUrl);
     if (!response.ok) {
-      console.error(`[VideoUnderstanding] Video download failed: ${response.status}`);
+      console.error(`[VideoUnderstanding] Download failed: ${response.status}`);
       return null;
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
-    const sizeKb = Math.round(buffer.length / 1024);
 
     if (buffer.length > 2 * 1024 * 1024 * 1024) {
-      console.warn(`[VideoUnderstanding] Video too large (${sizeKb}KB), max 2GB (Gemini Files API limit)`);
+      console.warn(`[VideoUnderstanding] Too large (${Math.round(buffer.length / 1024 / 1024)}MB), max 2GB`);
       return null;
     }
 
-    console.log(`[VideoUnderstanding] Downloaded ${sizeKb}KB, uploading to Gemini Files...`);
+    console.log(`[VideoUnderstanding] Downloaded ${Math.round(buffer.length / 1024)}KB, uploading...`);
 
     const { GoogleAIFileManager } = await import('@google/generative-ai/server');
     const fileManager = new GoogleAIFileManager(apiKey);
@@ -246,6 +261,20 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
     const os = await import('os');
     const path = await import('path');
     const fs = await import('fs');
+
+    // Clean orphaned temp files
+    try {
+      const now = Date.now();
+      for (const f of fs.readdirSync(os.tmpdir())) {
+        if (f.startsWith('vu_') && f.endsWith('.mp4')) {
+          try {
+            const stat = fs.statSync(path.join(os.tmpdir(), f));
+            if (now - stat.mtimeMs > 60000) fs.unlinkSync(path.join(os.tmpdir(), f));
+          } catch {}
+        }
+      }
+    } catch {}
+
     const tmpPath = path.join(os.tmpdir(), `vu_${Date.now()}.mp4`);
 
     try {
@@ -259,7 +288,6 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
       const fileUri = uploadResult?.file?.uri;
       if (!fileUri) return null;
 
-      // Wait for ACTIVE state
       let state = uploadResult?.file?.state;
       const fileName = uploadResult?.file?.name;
       let retries = 0;
@@ -273,7 +301,7 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
       }
 
       if (state !== 'ACTIVE') {
-        console.error(`[VideoUnderstanding] File not ACTIVE after ${retries * 2}s`);
+        console.error(`[VideoUnderstanding] Not ACTIVE after ${retries * 2}s`);
         return null;
       }
 
@@ -283,7 +311,7 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[VideoUnderstanding] Upload failed: ${msg}`);
+    console.error(`[VideoUnderstanding] Failed: ${msg}`);
     return null;
   }
 }
