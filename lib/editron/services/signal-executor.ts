@@ -101,6 +101,18 @@ const REQUIRES_CLIP_BOUNDARY = new Set([
   'mapping:cross_domain.eye_trace_continuity_across_cuts',
 ]);
 
+// Mode 2: Structural-positional mappings SKIPPED for raw footage.
+// These are Mode 1 assembly rules (timers, position zones, density targets).
+// Mode 2 content already has inherent flow from the speaker's pacing, energy,
+// and topic structure. Imposing structural rules fights the content.
+// Content-driven mappings (speech, entity, visual, audio, composite) handle
+// everything: energy peaks → zooms, entities → graphics, topic shifts → cuts.
+const MODE_2_SKIP_CATEGORIES = new Set([
+  'structural',       // pacing_tolerance_exceeded, hook_zone, closing_zone, edit_density_correction, etc.
+  'title-card',       // chapter markers (Mode 1 concept — topic_boundary handles this for Mode 2)
+  'music-editing',    // music_duration_fit, music_climax_alignment (Mode 2 has production audio)
+]);
+
 // ─── Main Executor ──────────────────────────────────────────────────────────
 
 /**
@@ -187,6 +199,13 @@ export function executeSignalDrivenEdit(
 
       // Single-clip guard: skip transition mappings when no clip boundaries exist
       if (hasSingleClip && REQUIRES_CLIP_BOUNDARY.has(mapping.id)) {
+        decisionsSuppressed++;
+        continue;
+      }
+
+      // Mode 2: skip structural-positional mappings (timer/position rules).
+      // Raw footage has inherent flow from the speaker. Content signals drive editing.
+      if (MODE_2_SKIP_CATEGORIES.has(mapping.category)) {
         decisionsSuppressed++;
         continue;
       }
