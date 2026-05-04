@@ -8,6 +8,63 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      // ─── Insturix Design System v1.0 ───
+      // These map CSS custom properties from design-tokens.css to Tailwind utility classes.
+      // Usage: bg-surface-raised, text-ds-muted, border-ds-subtle, etc.
+      // Prefixed with "surface-", "ds-", "status-", "category-" to avoid collisions with Tailwind defaults.
+
+      colors: {
+        // Surfaces
+        surface: {
+          canvas: 'var(--bg-canvas)',
+          raised: 'var(--bg-raised)',
+          deeper: 'var(--bg-deeper)',
+          well: 'var(--bg-well)',
+        },
+        // Borders
+        ds: {
+          subtle: 'var(--border-subtle)',
+          emphasis: 'var(--border-emphasis)',
+          // Text
+          primary: 'var(--text-primary)',
+          secondary: 'var(--text-secondary)',
+          muted: 'var(--text-muted)',
+          dim: 'var(--text-dim)',
+          faint: 'var(--text-faint)',
+        },
+        // Accent
+        gold: 'var(--accent-gold)',
+        // Status
+        status: {
+          success: 'var(--status-success)',
+          warning: 'var(--status-warning)',
+          danger: 'var(--status-danger)',
+        },
+        // Category
+        category: {
+          purple: 'var(--category-purple)',
+          pink: 'var(--category-pink)',
+          cyan: 'var(--category-cyan)',
+        },
+      },
+      fontFamily: {
+        sans: ['var(--font-sans)'],
+        mono: ['var(--font-mono)'],
+      },
+      borderRadius: {
+        tag: 'var(--radius-tag)',
+        button: 'var(--radius-button)',
+        card: 'var(--radius-card)',
+      },
+      transitionTimingFunction: {
+        'out-expo': 'cubic-bezier(0.16, 1, 0.3, 1)',
+      },
+      transitionDuration: {
+        micro: 'var(--motion-micro)',
+        response: 'var(--motion-response)',
+        atmosphere: 'var(--motion-atmosphere)',
+      },
+      // Existing extensions preserved below
       screens: {
         'xs': '475px',
         'mobile': { 'max': '640px' },
