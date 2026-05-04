@@ -218,6 +218,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     useState(false);
 
   const [newVariationCreating, setNewVariationCreating] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   const panelVariants = {
     hidden: { y: "100%", opacity: 0 },
@@ -1533,6 +1534,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
                 currentImageUrl={activeVariation?.imageRef || ''}
+                onUploadImage={handleUploadImage}
+                isUploadingImage={isUploadingImage}
                 inputMode={inputMode}
                 onInputModeChange={(mode) => {
                   setInputMode(mode);
