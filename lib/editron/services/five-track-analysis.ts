@@ -274,6 +274,31 @@ async function uploadToGeminiFiles(
     const os = await import('os');
     const path = await import('path');
     const fs = await import('fs');
+
+    // PRODUCTION FIX: Clean up orphaned temp files from previous invocations.
+    // Vercel serverless /tmp is 512MB shared. If a previous invocation was killed
+    // before its finally{} cleanup ran (timeout, OOM, cold start), orphaned files
+    // accumulate until ENOSPC. Clean ALL gemini_* files older than 60s.
+    try {
+      const tmpDir = os.tmpdir();
+      const now = Date.now();
+      const files = fs.readdirSync(tmpDir);
+      let cleaned = 0;
+      for (const f of files) {
+        if (f.startsWith('gemini_') && f.endsWith('.mp4')) {
+          const fullPath = path.join(tmpDir, f);
+          try {
+            const stat = fs.statSync(fullPath);
+            if (now - stat.mtimeMs > 60000) { // older than 60s = orphaned
+              fs.unlinkSync(fullPath);
+              cleaned++;
+            }
+          } catch {} // ignore individual file errors
+        }
+      }
+      if (cleaned > 0) console.log(`[GeminiFiles] Cleaned ${cleaned} orphaned temp files from /tmp`);
+    } catch {} // non-fatal — best effort cleanup
+
     const tmpPath = path.join(os.tmpdir(), `gemini_${assetId}_${Date.now()}.mp4`);
 
     try {
