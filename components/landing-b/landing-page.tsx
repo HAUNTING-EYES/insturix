@@ -677,9 +677,9 @@ function Preview({ phase, pct }: { phase: Phase; pct: number }) {
                 marginBottom: 16,
               }}
             >
-              One prompt.
+              Prompt or footage.
               <br />
-              <span style={{ color: C.gold }}>Entire production.</span>
+              <span style={{ color: C.gold }}>Professional either way.</span>
             </h1>
             <p
               style={{
@@ -1290,7 +1290,7 @@ function Preview({ phase, pct }: { phase: Phase; pct: number }) {
                 opacity: 0,
               }}
             >
-              One prompt. Entire production.
+              Prompt or footage. Professional either way.
             </h2>
             <p
               style={{

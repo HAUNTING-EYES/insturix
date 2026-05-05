@@ -162,7 +162,7 @@ const MSGS: { at: number; side: string; text: string; color?: string }[] = [
   { at: 0.73, side: "status", text: "Generating thumbnails...", color: C.pink },
   { at: 0.83, side: "done", text: "Variant B wins — 5.1% predicted CTR" },
   { at: 0.87, side: "status", text: "Publishing...", color: C.green },
-  { at: 0.96, side: "complete", text: "Live on 6 platforms.\nOne prompt. Full production. Done." },
+  { at: 0.96, side: "complete", text: "Live on 6 platforms.\nPrompt or footage. Professional either way." },
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -666,7 +666,7 @@ function Preview({ phase, pct, sub }: { phase: string; pct: number; sub: (lo: nu
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke={C.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity=".35" /></svg>
             </div>
             <h1 style={{ fontSize: 44, fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.035em", marginBottom: 16 }}>
-              One prompt.<br /><span style={{ color: C.accent }}>Entire production.</span>
+              Prompt or footage.<br /><span style={{ color: C.accent }}>Professional either way.</span>
             </h1>
             <p style={{ fontSize: 18, color: C.muted, lineHeight: 1.55, marginBottom: 32 }}>
               Watch a complete video get produced as you scroll.
@@ -931,7 +931,7 @@ function Preview({ phase, pct, sub }: { phase: string; pct: number; sub: (lo: nu
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ strokeDasharray: 20, animation: "checkDraw .4s ease .3s both" }} /></svg>
               </div>
               <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1.1, marginBottom: 12, animation: `slideUp .5s ${EASE} .2s both` }}>
-                One prompt. Entire production.
+                Prompt or footage. Professional either way.
               </h2>
               <p style={{ fontSize: 18, fontWeight: 800, color: C.green, marginBottom: 8, animation: `slideUp .5s ${EASE} .35s both` }}>
                 8 minutes. $47 spent. $2,353 saved.
