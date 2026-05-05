@@ -102,7 +102,7 @@ export function ProductsPage() {
       // How far into the sticky section we've scrolled
       const rawPct = Math.max(0, Math.min(1, -rect.top / scrollableHeight));
       setScrollPct(rawPct);
-      setActiveRoom(Math.min(ROOM_COUNT - 1, Math.floor(rawPct * ROOM_COUNT)));
+      setActiveRoom(Math.min(ROOM_COUNT - 1, Math.round(rawPct * (ROOM_COUNT - 1))));
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
@@ -121,12 +121,12 @@ export function ProductsPage() {
         <h1 style={{ fontSize: 44, fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.05, marginBottom: 16, color: "var(--text-primary)" }}>
           Six rooms. One production floor.
         </h1>
-        <p style={{ fontSize: 18, color: "var(--text-muted)", lineHeight: 1.55, maxWidth: 520, margin: "0 auto 48px" }}>
+        <p style={{ fontSize: 18, color: "var(--text-muted)", lineHeight: 1.55, maxWidth: 520, margin: "0 auto 32px" }}>
           Scroll to walk through each workspace.
         </p>
 
         {/* Room nav pills */}
-        <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 48 }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 32 }}>
           {rooms.map((room, i) => (
             <button
               key={room.verb}
@@ -277,10 +277,10 @@ function RoomPanel({
   isActive: boolean;
   scrollPct: number;
 }) {
-  // Per-room progress: 0→1 as this room scrolls through
-  const roomPct = Math.max(0, Math.min(1, scrollPct * ROOM_COUNT - index));
-  // Distance from center: 0 when active, grows when room is past/future
-  const distFromActive = Math.abs(scrollPct * ROOM_COUNT - index - 0.5);
+  // Per-room progress: aligned with translateX so each room gets equal scroll
+  const roomPosition = scrollPct * (ROOM_COUNT - 1);
+  const roomPct = Math.max(0, Math.min(1, roomPosition - index + 0.5));
+  const distFromActive = Math.abs(roomPosition - index);
   const isNear = distFromActive < 1.2; // within 1 room of active
   // Depth effects — more dramatic for visible "walking into room" feel
   const roomScale = isActive ? 1 : isNear ? 0.88 : 0.78;

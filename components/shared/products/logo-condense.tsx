@@ -97,7 +97,7 @@ export function LogoCondense({ rooms }: { rooms: RoomInfo[] }) {
 
         {/* Layer 2: Logo paths drawing themselves via pathLength */}
         <svg
-          width="220" height="220" viewBox="0 0 1080 1080"
+          width="184" height="184" viewBox="0 0 1080 1080"
           style={{ position: "absolute", zIndex: 2 }}
         >
           <motion.path
