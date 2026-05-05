@@ -11,6 +11,7 @@ import { ContextSelector } from './ContextSelector';
 import { ContextValues } from '@/app/api/services/alyzitron/types';
 import { ImmersiveModal } from './ImmersiveModal';
 import { useToast } from '@/hooks/use-toast';
+import { BorderBeam } from '@/components/ui/border-beam';
 import { useCredits } from '@/hooks/useCredits';
 interface VideoUploadProps {
   onSubmit: (analysisId: string, analysis: Analysis) => void;
@@ -202,13 +203,15 @@ export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) 
   // Helper render function for the identical states
   const renderUploadState = () => (
     <motion.div {...fadeIn} className="w-full">
+
       <form
         onSubmit={(event) => {
           event.preventDefault();
           if (!isPreviewLoading) openImmersive();
         }}
-        className="mx-auto flex w-full max-w-xl items-center gap-3 rounded-[10px] border border-[#282724] bg-[#0F0F0E] py-1.5 pl-4 pr-1.5 transition-colors focus-within:border-[#D4A652]/50"
+        className="relative mx-auto flex w-full max-w-xl items-center gap-3 rounded-[10px] border border-[#282724] bg-[#0F0F0E] py-1.5 pl-4 pr-1.5 transition-colors focus-within:border-[#D4A652]/50"
       >
+        <BorderBeam size={400} duration={12} delay={4} colorFrom="#D4A652" colorTo="#D4A652" borderWidth={6.5} />
         <Link2 className="h-3.5 w-3.5 shrink-0 text-[#7A776E]" />
         <input
           value={inputUrl}

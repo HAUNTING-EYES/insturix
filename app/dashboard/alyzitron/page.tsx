@@ -17,7 +17,7 @@ export default async function AlyzitronDashboard() {
             <span className="text-[18px]  font-extrabold tracking-tight text-[#ECE9E1]">
               Insturix
             </span>
-            <span className="font-mono text-[18px] text-[#5F5E5A]">
+            <span className="font-mono text-[18px] text-[#D4A652]">
               Alyzitron
             </span>
           </div>
