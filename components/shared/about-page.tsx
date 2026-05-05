@@ -18,7 +18,7 @@
  */
 
 import React, { useRef, useEffect, useState } from "react";
-import { motion, useInView } from "framer-motion";
+import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
@@ -26,13 +26,24 @@ const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 // ─── The broken workflow steps ─────────────────────────────────
 const BROKEN_STEPS = [
-  { label: "Brief", time: "Day 1", tool: "Google Docs" },
-  { label: "Script", time: "3–5 days", tool: "Freelancer" },
-  { label: "Shoot / Generate", time: "1–2 weeks", tool: "Camera / Runway" },
-  { label: "Edit", time: "3–5 days", tool: "Adobe Premiere / DaVinci" },
-  { label: "Review", time: "2–4 rounds", tool: "Frame.io / Email" },
-  { label: "Thumbnail", time: "1 day", tool: "Canva / Photoshop" },
-  { label: "Upload", time: "Manual × 6", tool: "Each platform" },
+  { label: "Brief", time: "Day 1", tool: "Google Docs", days: 1, color: "var(--text-dim)" },
+  { label: "Script", time: "3–5 days", tool: "Freelancer", days: 4, color: "var(--accent-gold)" },
+  { label: "Shoot / Generate", time: "1–2 weeks", tool: "Camera / Runway", days: 10, color: "var(--status-danger)" },
+  { label: "Edit", time: "3–5 days", tool: "Adobe Premiere / DaVinci", days: 4, color: "var(--category-purple)" },
+  { label: "Review", time: "2–4 rounds", tool: "Frame.io / Email", days: 3, color: "var(--category-cyan)" },
+  { label: "Thumbnail", time: "1 day", tool: "Canva / Photoshop", days: 1, color: "var(--category-pink)" },
+  { label: "Upload", time: "Manual × 6", tool: "Each platform", days: 0.5, color: "var(--status-success)" },
+];
+const MAX_DAYS = Math.max(...BROKEN_STEPS.map((s) => s.days));
+
+// ─── The 6 rooms (for pipeline visualization) ─────────────────
+const ROOMS = [
+  { verb: "Script", color: "var(--accent-gold)" },
+  { verb: "Edit", color: "var(--status-danger)" },
+  { verb: "Analyze", color: "var(--category-purple)" },
+  { verb: "Design", color: "var(--category-cyan)" },
+  { verb: "Distribute", color: "var(--status-success)" },
+  { verb: "Share", color: "var(--category-pink)" },
 ];
 
 // ─── The beliefs ──────────────────────────────────────────────
@@ -91,32 +102,6 @@ const fadeIn = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.5, ease: EASE },
-  },
-};
-
-const slideFromLeft = {
-  hidden: { opacity: 0, x: -32 },
-  visible: {
-    opacity: 1,
-    x: 0,
-    transition: { duration: 0.5, ease: EASE },
-  },
-};
-
-const slideFromRight = {
-  hidden: { opacity: 0, x: 32 },
-  visible: {
-    opacity: 1,
-    x: 0,
-    transition: { duration: 0.5, ease: EASE },
-  },
-};
-
-const drawLine = {
-  hidden: { scaleX: 0 },
-  visible: {
-    scaleX: 1,
     transition: { duration: 0.5, ease: EASE },
   },
 };
@@ -204,59 +189,95 @@ export function AboutPage() {
           Seven steps. Five tools. Three weeks. For one video.
         </motion.p>
 
-        {/* Staggered pipeline table */}
+        {/* Staggered pipeline with time bars */}
         <motion.div
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, margin: "-32px" }}
           variants={staggerContainer}
-          style={{ maxWidth: 640, margin: "0 auto" }}
+          style={{ maxWidth: 680, margin: "0 auto" }}
         >
-          {BROKEN_STEPS.map((step, i) => (
-            <motion.div
-              key={step.label}
-              variants={fadeUp}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "80px 1fr 120px",
-                alignItems: "center",
-                padding: "16px 0",
-                borderBottom:
-                  i < BROKEN_STEPS.length - 1
-                    ? "1px solid var(--border-subtle)"
-                    : "none",
-              }}
-            >
-              <span
+          {BROKEN_STEPS.map((step, i) => {
+            const barPct = Math.max(5, (step.days / MAX_DAYS) * 100);
+            return (
+              <motion.div
+                key={step.label}
+                variants={fadeUp}
                 style={{
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: "var(--text-primary)",
+                  display: "grid",
+                  gridTemplateColumns: "100px 1fr",
+                  gap: 16,
+                  alignItems: "center",
+                  padding: "12px 0",
+                  borderBottom:
+                    i < BROKEN_STEPS.length - 1
+                      ? "1px solid var(--border-subtle)"
+                      : "none",
                 }}
               >
-                {step.label}
-              </span>
-              <span
-                style={{
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {step.tool}
-              </span>
-              <span
-                style={{
-                  fontSize: 11,
-                  color: "var(--text-secondary)",
-                  fontFamily: "var(--font-mono)",
-                  textAlign: "right",
-                }}
-              >
-                {step.time}
-              </span>
-            </motion.div>
-          ))}
+                {/* Left: label */}
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  {step.label}
+                </span>
+
+                {/* Right: bar + tool + time */}
+                <div>
+                  {/* Time bar */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      marginBottom: 4,
+                    }}
+                  >
+                    <motion.div
+                      initial={{ scaleX: 0 }}
+                      whileInView={{ scaleX: 1 }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 0.5, delay: i * 0.08, ease: EASE }}
+                      style={{
+                        width: `${barPct}%`,
+                        height: 4,
+                        borderRadius: 4,
+                        background: step.color,
+                        opacity: 0.6,
+                        transformOrigin: "left center",
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: "var(--text-secondary)",
+                        fontFamily: "var(--font-mono)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {step.time}
+                    </span>
+                  </div>
+                  {/* Tool label */}
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-dim)",
+                      fontFamily: "var(--font-mono)",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    {step.tool}
+                  </span>
+                </div>
+              </motion.div>
+            );
+          })}
 
           {/* Total */}
           <motion.div
@@ -293,13 +314,12 @@ export function AboutPage() {
         </motion.div>
       </section>
 
-      {/* ── Section 2: The Collapse (animated) ─────────────── */}
+      {/* ── Section 2: The Replacement (mini pipeline demo) ── */}
       <section
         style={{
           maxWidth: 960,
           margin: "0 auto",
           padding: "64px 24px",
-          textAlign: "center",
         }}
       >
         <motion.div
@@ -308,14 +328,13 @@ export function AboutPage() {
           viewport={{ once: true, margin: "-64px" }}
           variants={scaleFadeIn}
           style={{
-            padding: "64px 32px",
+            padding: "48px 32px",
             border: "1px solid var(--border-subtle)",
             borderRadius: 12,
             background: "var(--bg-raised)",
             overflow: "hidden",
           }}
         >
-          {/* Staggered inner content */}
           <motion.div
             initial="hidden"
             whileInView="visible"
@@ -333,88 +352,133 @@ export function AboutPage() {
                 textTransform: "uppercase",
                 color: "var(--text-dim)",
                 marginBottom: 32,
+                textAlign: "center",
               }}
             >
               THE REPLACEMENT
             </motion.span>
 
-            <div
+            {/* Input prompt mockup */}
+            <motion.div
+              variants={fadeUp}
               style={{
+                maxWidth: 480,
+                margin: "0 auto 32px",
+                padding: "12px 16px",
+                background: "var(--bg-deeper)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 7,
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
-                gap: 0,
-                marginBottom: 32,
+                gap: 12,
               }}
             >
-              {/* Brief slides from left */}
-              <motion.span
-                variants={slideFromLeft}
+              <span
                 style={{
-                  fontSize: 14,
-                  color: "var(--text-secondary)",
-                  padding: "0 12px",
-                }}
-              >
-                Brief
-              </motion.span>
-
-              {/* Arrow 1 draws */}
-              <motion.div
-                variants={drawLine}
-                style={{
-                  width: 48,
-                  height: 1,
-                  background: "var(--text-dim)",
-                  transformOrigin: "left center",
-                }}
-              />
-
-              {/* Insturix scales in with gold */}
-              <motion.span
-                variants={scaleFadeIn}
-                style={{
-                  fontSize: 24,
-                  fontWeight: 800,
+                  fontSize: 11,
+                  fontFamily: "var(--font-mono)",
+                  fontWeight: 500,
                   color: "var(--accent-gold)",
-                  letterSpacing: "-0.02em",
-                  padding: "0 16px",
+                  whiteSpace: "nowrap",
                 }}
               >
-                Insturix
-              </motion.span>
-
-              {/* Arrow 2 draws */}
-              <motion.div
-                variants={drawLine}
+                PROMPT
+              </span>
+              <span
                 style={{
-                  width: 48,
-                  height: 1,
-                  background: "var(--text-dim)",
-                  transformOrigin: "left center",
-                }}
-              />
-
-              {/* Done slides from right */}
-              <motion.span
-                variants={slideFromRight}
-                style={{
-                  fontSize: 14,
+                  fontSize: 13,
                   color: "var(--text-secondary)",
-                  padding: "0 12px",
+                  fontStyle: "italic",
                 }}
               >
-                Done
-              </motion.span>
-            </div>
+                &quot;Launch video for premium coffee brand&quot;
+              </span>
+            </motion.div>
 
+            {/* Pipeline flow — 6 rooms */}
+            <motion.div
+              variants={fadeUp}
+              style={{
+                maxWidth: 480,
+                margin: "0 auto 16px",
+                display: "flex",
+                gap: 4,
+              }}
+            >
+              {ROOMS.map((room, i) => (
+                <motion.div
+                  key={room.verb}
+                  initial={{ scaleX: 0, opacity: 0 }}
+                  whileInView={{ scaleX: 1, opacity: 1 }}
+                  viewport={{ once: true }}
+                  transition={{
+                    duration: 0.35,
+                    delay: 0.4 + i * 0.12,
+                    ease: EASE,
+                  }}
+                  style={{
+                    flex: 1,
+                    height: 4,
+                    borderRadius: 4,
+                    background: room.color,
+                    opacity: 0.7,
+                    transformOrigin: "left center",
+                  }}
+                />
+              ))}
+            </motion.div>
+
+            {/* Room labels */}
+            <motion.div
+              variants={fadeUp}
+              style={{
+                maxWidth: 480,
+                margin: "0 auto 32px",
+                display: "flex",
+                gap: 4,
+              }}
+            >
+              {ROOMS.map((room) => (
+                <span
+                  key={room.verb}
+                  style={{
+                    flex: 1,
+                    fontSize: 10,
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--text-dim)",
+                    textAlign: "center",
+                  }}
+                >
+                  {room.verb}
+                </span>
+              ))}
+            </motion.div>
+
+            {/* Output summary */}
+            <motion.div
+              variants={fadeUp}
+              style={{
+                maxWidth: 480,
+                margin: "0 auto 32px",
+                display: "flex",
+                justifyContent: "center",
+                gap: 24,
+              }}
+            >
+              <OutputStat label="TIME" value="8 min" />
+              <OutputStat label="SCORE" value="91/100" color="var(--status-success)" />
+              <OutputStat label="PLATFORMS" value="6" />
+              <OutputStat label="COST" value="~$2" color="var(--accent-gold)" />
+            </motion.div>
+
+            {/* Tagline */}
             <motion.p
               variants={fadeUp}
               style={{
                 fontSize: 14,
                 color: "var(--text-secondary)",
-                maxWidth: 360,
-                margin: "0 auto",
+                textAlign: "center",
+                margin: 0,
                 lineHeight: 1.6,
               }}
             >
@@ -707,6 +771,38 @@ export function AboutPage() {
         </motion.div>
       </section>
     </main>
+  );
+}
+
+// ─── Output stat pill ────────────────────────────────────────
+
+function OutputStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div style={{ textAlign: "center" }}>
+      <span
+        style={{
+          display: "block",
+          fontSize: 10,
+          fontFamily: "var(--font-mono)",
+          fontWeight: 500,
+          letterSpacing: "0.08em",
+          color: "var(--text-dim)",
+          marginBottom: 4,
+        }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          fontSize: 14,
+          fontWeight: 500,
+          fontFamily: "var(--font-mono)",
+          color: color ?? "var(--text-primary)",
+        }}
+      >
+        {value}
+      </span>
+    </div>
   );
 }
 
