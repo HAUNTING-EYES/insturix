@@ -130,7 +130,7 @@ export function PricingPage() {
                 background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 marginBottom: 8,
-                filter: `brightness(${0.5 + (tierIndex / 3) * 0.5})`,
+                filter: `brightness(${0.3 + (tierIndex / 3) * 0.7})`,
                 transition: `filter 0.35s ${EASE_CSS}`,
               }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={room.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -389,7 +389,7 @@ function CostAccumulation() {
             {/* Receipt footer */}
             {showTotal && (
               <div style={{ borderTop: "1px dashed var(--border-emphasis)", marginTop: 16, paddingTop: 12, textAlign: "center" }}>
-                <span style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.04em" }}>THANK YOU FOR OVERPAYING</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--status-danger)", letterSpacing: "0.08em" }}>THANK YOU FOR OVERPAYING</span>
               </div>
             )}
           </div>
@@ -450,7 +450,6 @@ function BadgeCard({ plan, tierIndex }: { plan: SubscriptionPlan; tierIndex: num
 
         {/* Price with micro scale */}
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8, marginBottom: 8 }}>
-          <MicroScale />
           <span style={{ fontSize: 44, fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.03em" }}>
             ${plan.price}
           </span>
@@ -568,19 +567,3 @@ function Barcode() {
   );
 }
 
-function MicroScale() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.4 }}>
-      {/* Fulcrum */}
-      <line x1="12" y1="20" x2="12" y2="8" stroke="var(--text-dim)" strokeWidth="1.5" />
-      {/* Beam — tilted left (old costs heavy) */}
-      <line x1="4" y1="10" x2="20" y2="6" stroke="var(--text-dim)" strokeWidth="1.5" strokeLinecap="round" />
-      {/* Left pan (heavy) */}
-      <circle cx="4" cy="10" r="2" fill="var(--status-danger)" opacity="0.5" />
-      {/* Right pan (light — Insturix) */}
-      <circle cx="20" cy="6" r="2" fill="var(--accent-gold)" opacity="0.5" />
-      {/* Base */}
-      <line x1="8" y1="20" x2="16" y2="20" stroke="var(--text-dim)" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
