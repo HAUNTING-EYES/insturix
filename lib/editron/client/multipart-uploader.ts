@@ -86,11 +86,12 @@ export class MultipartUploader {
     this.registerBeforeUnload();
 
     try {
-      // 1. Init multipart on server
+      // 1. Init multipart on server (pass assetId so part-url can find the record)
       const initRes = await fetch('/api/services/editron/media/upload/multipart/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          assetId: this.assetId,
           filename: this.file.name,
           contentType: this.file.type,
           totalSize: this.file.size,

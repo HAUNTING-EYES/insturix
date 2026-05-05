@@ -237,23 +237,14 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
       return videoUrl;
     }
 
-    // PATH B: >100MB — Files API upload (download → /tmp → upload → poll)
-    console.log(`[VideoUnderstanding] Files API path: ${sizeMb > 0 ? sizeMb + 'MB' : 'unknown'} — downloading + uploading`);
+    // PATH B: >100MB — Files API upload (stream to disk → upload → poll)
+    // CRITICAL: Stream to /tmp instead of buffering in RAM to avoid OOM on 2048MB functions
+    console.log(`[VideoUnderstanding] Files API path: ${sizeMb > 0 ? sizeMb + 'MB' : 'unknown'} — streaming to disk + uploading`);
 
-    const response = await fetch(videoUrl);
-    if (!response.ok) {
-      console.error(`[VideoUnderstanding] Download failed: ${response.status}`);
+    if (contentLength > 2 * 1024 * 1024 * 1024) {
+      console.warn(`[VideoUnderstanding] Too large (${sizeMb}MB), max 2GB`);
       return null;
     }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-
-    if (buffer.length > 2 * 1024 * 1024 * 1024) {
-      console.warn(`[VideoUnderstanding] Too large (${Math.round(buffer.length / 1024 / 1024)}MB), max 2GB`);
-      return null;
-    }
-
-    console.log(`[VideoUnderstanding] Downloaded ${Math.round(buffer.length / 1024)}KB, uploading...`);
 
     const { GoogleAIFileManager } = await import('@google/generative-ai/server');
     const fileManager = new GoogleAIFileManager(apiKey);
@@ -261,8 +252,10 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
     const os = await import('os');
     const path = await import('path');
     const fs = await import('fs');
+    const { Readable } = await import('stream');
+    const { pipeline } = await import('stream/promises');
 
-    // Clean orphaned temp files
+    // Clean orphaned temp files (>60s old)
     try {
       const now = Date.now();
       for (const f of fs.readdirSync(os.tmpdir())) {
@@ -278,7 +271,19 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
     const tmpPath = path.join(os.tmpdir(), `vu_${Date.now()}.mp4`);
 
     try {
-      fs.writeFileSync(tmpPath, buffer);
+      // Stream download to disk — peak RAM usage is just the stream buffer (~64KB)
+      const response = await fetch(videoUrl);
+      if (!response.ok || !response.body) {
+        console.error(`[VideoUnderstanding] Download failed: ${response.status}`);
+        return null;
+      }
+
+      const writeStream = fs.createWriteStream(tmpPath);
+      const readable = Readable.fromWeb(response.body as any);
+      await pipeline(readable, writeStream);
+
+      const fileSize = fs.statSync(tmpPath).size;
+      console.log(`[VideoUnderstanding] Streamed ${Math.round(fileSize / 1024)}KB to disk, uploading to Gemini...`);
 
       const uploadResult = await fileManager.uploadFile(tmpPath, {
         mimeType: 'video/mp4',
@@ -291,8 +296,8 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
       let state = uploadResult?.file?.state;
       const fileName = uploadResult?.file?.name;
       let retries = 0;
-      while (state !== 'ACTIVE' && retries < 20) {
-        await new Promise(r => setTimeout(r, 2000));
+      while (state !== 'ACTIVE' && retries < 30) {
+        await new Promise(r => setTimeout(r, 3000));
         try {
           const check = await fileManager.getFile(fileName!);
           state = check?.state;
@@ -301,7 +306,7 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
       }
 
       if (state !== 'ACTIVE') {
-        console.error(`[VideoUnderstanding] Not ACTIVE after ${retries * 2}s`);
+        console.error(`[VideoUnderstanding] File not ACTIVE after ${retries * 3}s (state=${state})`);
         return null;
       }
 

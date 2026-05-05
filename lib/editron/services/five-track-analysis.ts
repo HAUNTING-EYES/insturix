@@ -264,21 +264,12 @@ async function uploadToGeminiFiles(
     }
 
     // ── PATH B: Files API upload (>100MB or unknown size) ─────────────
-    // Download → /tmp → upload to Gemini Files API → poll for ACTIVE.
-    // Only used for very large files that exceed Gemini's external URL limit.
-    console.log(`[GeminiFiles] Files API path: ${sizeMb > 0 ? sizeMb + 'MB' : 'unknown size'} — downloading + uploading to Gemini`);
+    // Stream to /tmp → upload to Gemini Files API → poll for ACTIVE.
+    // CRITICAL: Stream instead of buffer to avoid OOM on 2048MB serverless functions.
+    console.log(`[GeminiFiles] Files API path: ${sizeMb > 0 ? sizeMb + 'MB' : 'unknown size'} — streaming to disk + uploading to Gemini`);
 
-    const response = await fetch(videoUrl);
-    if (!response.ok) {
-      console.error(`[GeminiFiles] Download failed: ${response.status}`);
-      return null;
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const sizeKb = Math.round(buffer.length / 1024);
-
-    if (buffer.length > 2 * 1024 * 1024 * 1024) {
-      console.warn(`[GeminiFiles] Video too large (${sizeKb}KB), max 2GB`);
+    if (contentLength > 2 * 1024 * 1024 * 1024) {
+      console.warn(`[GeminiFiles] Video too large (${sizeMb}MB), max 2GB`);
       return null;
     }
 
@@ -288,11 +279,10 @@ async function uploadToGeminiFiles(
     const os = await import('os');
     const path = await import('path');
     const fs = await import('fs');
+    const { Readable } = await import('stream');
+    const { pipeline } = await import('stream/promises');
 
     // Clean ALL video temp files — both gemini_* AND vu_* (from video-understanding-service).
-    // VideoUnderstanding runs BEFORE 5-Track in the worker pipeline. If it crashes
-    // with ENOSPC, its vu_*.mp4 file stays on /tmp. Then 5-Track tries to write
-    // another 260MB → 260 + 260 = 520 > 512MB /tmp limit → ENOSPC again.
     try {
       const tmpDir = os.tmpdir();
       const now = Date.now();
@@ -309,8 +299,19 @@ async function uploadToGeminiFiles(
     const tmpPath = path.join(os.tmpdir(), `gemini_${assetId}_${Date.now()}.mp4`);
 
     try {
-      fs.writeFileSync(tmpPath, buffer);
-      console.log(`[GeminiFiles] Wrote temp: ${tmpPath} (${sizeKb}KB)`);
+      // Stream download to disk — peak RAM usage ~64KB vs 260MB+ with buffer approach
+      const response = await fetch(videoUrl);
+      if (!response.ok || !response.body) {
+        console.error(`[GeminiFiles] Download failed: ${response.status}`);
+        return null;
+      }
+
+      const writeStream = fs.createWriteStream(tmpPath);
+      const readable = Readable.fromWeb(response.body as any);
+      await pipeline(readable, writeStream);
+
+      const fileSize = fs.statSync(tmpPath).size;
+      console.log(`[GeminiFiles] Streamed ${Math.round(fileSize / 1024)}KB to disk, uploading to Gemini...`);
 
       const uploadResult = await fileManager.uploadFile(tmpPath, {
         mimeType: 'video/mp4',
@@ -327,11 +328,11 @@ async function uploadToGeminiFiles(
 
       console.log(`[GeminiFiles] Uploaded: ${fileUri.substring(0, 80)}...`);
 
-      // Wait for ACTIVE state
+      // Wait for ACTIVE state — large files need more time
       let fileState = uploadResult?.file?.state;
       let retries = 0;
-      while (fileState !== 'ACTIVE' && retries < 15) {
-        await new Promise(r => setTimeout(r, 2000));
+      while (fileState !== 'ACTIVE' && retries < 30) {
+        await new Promise(r => setTimeout(r, 3000));
         try {
           const checkResult = await fileManager.getFile(fileName!);
           fileState = checkResult?.state;
@@ -340,7 +341,7 @@ async function uploadToGeminiFiles(
       }
 
       if (fileState !== 'ACTIVE') {
-        console.error(`[GeminiFiles] Not ACTIVE after ${retries * 2}s (state: ${fileState})`);
+        console.error(`[GeminiFiles] Not ACTIVE after ${retries * 3}s (state: ${fileState})`);
         return null;
       }
 

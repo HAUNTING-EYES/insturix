@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { filename, contentType, totalSize, totalParts } = body;
+    const { filename, contentType, totalSize, totalParts, assetId: clientAssetId } = body;
 
     if (!filename || !contentType || !totalSize || !totalParts) {
       return NextResponse.json(
@@ -36,7 +36,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'File too large. Maximum size is 3GB.' }, { status: 413 });
     }
 
-    const { uploadId, r2Key, assetId } = await initiateMultipartUpload(userId, filename, contentType);
+    const { uploadId, r2Key, assetId: generatedAssetId } = await initiateMultipartUpload(userId, filename, contentType);
+    const assetId = clientAssetId || generatedAssetId;
     const readUrl = getR2PublicUrl(assetId);
 
     // Track the upload in MongoDB for resumability and cleanup

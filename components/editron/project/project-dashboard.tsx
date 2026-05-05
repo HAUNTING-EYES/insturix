@@ -24,7 +24,7 @@ import { getUserFriendlyErrorMessage } from '@/lib/editron/utils/error-handling'
 import { AutoEditDialog, type AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
 import { UploadProgressBar } from '@/components/editron/project/upload-progress-bar';
 import { uploadReducer, INITIAL_UPLOAD_STATE } from '@/lib/editron/client/upload-types';
-import { shouldCompress, compressToProxy } from '@/lib/editron/client/video-compressor';
+import { shouldCompress, compressToProxy, getVideoDuration } from '@/lib/editron/client/video-compressor';
 import { MultipartUploader } from '@/lib/editron/client/multipart-uploader';
 
 interface Project {
@@ -137,20 +137,32 @@ export default function ProjectDashboard() {
       setAutoEditing(true);
       dispatchUpload({ type: 'RESET' });
 
-      const useProxy = shouldCompress(file);
+      const wantsProxy = shouldCompress(file);
       let uploadFile = file;
+      let useProxy = false;
+      let videoDuration = 0;
 
       // Step 1: Compress to proxy if large file
-      if (useProxy) {
-        setAutoEditProgress('Compressing preview version...');
+      if (wantsProxy) {
+        setAutoEditProgress('Analyzing video...');
         dispatchUpload({ type: 'START_COMPRESS' });
-        uploadFile = await compressToProxy(file, (ratio) => {
+        const result = await compressToProxy(file, (ratio) => {
           dispatchUpload({
             type: 'PROXY_PROGRESS',
             progress: { loaded: ratio * file.size, total: file.size, percent: Math.round(ratio * 100), bytesPerSecond: 0, estimatedSecondsRemaining: 0 },
           });
         });
-        dispatchUpload({ type: 'COMPRESS_DONE' });
+        videoDuration = result.durationSeconds;
+        if (result.compressed) {
+          uploadFile = result.file;
+          useProxy = true;
+          dispatchUpload({ type: 'COMPRESS_DONE' });
+        } else {
+          // Compression failed or skipped (video too long for client-side) — upload original directly
+          dispatchUpload({ type: 'COMPRESS_DONE' });
+        }
+      } else {
+        videoDuration = await getVideoDuration(file);
       }
 
       // Step 2: Upload proxy (or original if small) via presigned URL
@@ -187,6 +199,7 @@ export default function ProjectDashboard() {
           readUrlExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
           filename: file.name, contentType: file.type, size: file.size, type: mediaType,
           ...(useProxy && { isProxy: true }),
+          ...(videoDuration > 0 && { duration: String(videoDuration) }),
         }),
       });
       if (!regRes.ok) {
