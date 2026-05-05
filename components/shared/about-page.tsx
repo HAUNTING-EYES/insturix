@@ -142,7 +142,7 @@ export function AboutPage() {
         >
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-32px" }} variants={staggerContainer}>
             <motion.span variants={fadeIn} style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 32, textAlign: "center" }}>
-              THE REPLACEMENT
+              THE REVOLUTION
             </motion.span>
 
             {/* Dual input — two paths, one pipeline */}
@@ -196,7 +196,6 @@ export function AboutPage() {
               <OutputStat label="TIME" value="8 min" />
               <OutputStat label="SCORE" value="91/100" color="var(--status-success)" />
               <OutputStat label="PLATFORMS" value="6" />
-              <OutputStat label="COST" value="~$2" color="var(--accent-gold)" />
             </motion.div>
 
             <motion.p variants={fadeUp} style={{ fontSize: 14, color: "var(--text-secondary)", textAlign: "center", margin: 0, lineHeight: 1.6 }}>
@@ -320,32 +319,43 @@ function ToolAccumulation() {
       >
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 64, width: "100%", alignItems: "center" }}>
           {/* Left: Tool cards stacking */}
-          <div style={{ position: "relative", height: 320 }}>
+          <div style={{ position: "relative", height: 420 }}>
             {TOOLS.map((tool, i) => {
               const isVisible = i < visibleCount;
-              const stackOffset = i * 8;
+              const stackOffset = i * 12;
               return (
                 <div
                   key={tool.name}
                   style={{
                     position: "absolute",
                     top: stackOffset,
-                    left: (i % 2) * 8,
-                    right: 0,
-                    padding: "16px 24px",
+                    left: (i % 2) * 12,
+                    right: (i % 3) * 4,
+                    padding: "20px 24px",
                     background: "var(--bg-raised)",
-                    border: "1px solid var(--border-subtle)",
+                    border: `1px solid ${isVisible ? "var(--border-emphasis)" : "var(--border-subtle)"}`,
                     borderRadius: 12,
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: "var(--text-primary)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 16,
                     opacity: isVisible ? 1 : 0,
-                    transform: isVisible ? "translateY(0)" : "translateY(24px)",
-                    transition: `all 0.35s ${EASE}`,
+                    transform: isVisible ? "translateX(0) scale(1)" : "translateX(-32px) scale(0.95)",
+                    transition: `all 0.5s ${EASE}`,
                     zIndex: i,
                   }}
                 >
-                  {tool.name}
+                  {/* Step number */}
+                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--text-dim)", minWidth: 24 }}>
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  {/* Tool name */}
+                  <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)", flex: 1 }}>
+                    {tool.name}
+                  </span>
+                  {/* Day badge */}
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--text-muted)", background: "var(--bg-deeper)", padding: "4px 8px", borderRadius: 4 }}>
+                    +{i === 0 ? tool.cumDays : tool.cumDays - TOOLS[i - 1].cumDays}d
+                  </span>
                 </div>
               );
             })}
@@ -406,7 +416,7 @@ function ToolAccumulation() {
                 display: "block",
                 fontSize: 18,
                 fontWeight: 500,
-                color: "var(--text-muted)",
+                color: "var(--text-secondary)",
                 marginTop: 8,
               }}
             >
@@ -417,9 +427,9 @@ function ToolAccumulation() {
             <span
               style={{
                 display: "block",
-                fontSize: 11,
+                fontSize: 13,
                 fontFamily: "var(--font-mono)",
-                color: "var(--text-dim)",
+                color: "var(--text-secondary)",
                 marginTop: 24,
                 opacity: visibleCount > 0 ? 1 : 0,
                 transition: `opacity 0.25s ${EASE}`,
