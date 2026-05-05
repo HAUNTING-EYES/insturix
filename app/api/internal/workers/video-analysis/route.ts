@@ -20,7 +20,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300; // 5 min — large video analysis can be slow
+export const maxDuration = 800; // Vercel Pro max — 20min videos need: VU ~5min + transcription ~1min + silence removal + Director + 5-Track
 
 interface VideoAnalysisPayload {
   projectId: string;
