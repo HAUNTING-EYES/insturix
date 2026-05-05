@@ -490,7 +490,7 @@ export function LandingPageA() {
       <div
         style={{
           position: "fixed",
-          top: 56, // 48px navbar + 8px breathing gap (space-2)
+          top: 64, // 48px navbar + 16px breathing gap
           left: 0,
           right: 0,
           bottom: 0,

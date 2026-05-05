@@ -78,7 +78,8 @@ export function ContactPage() {
         {/* Left — context */}
         <motion.div
           initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ margin: "-48px" }}
           transition={{ duration: 0.5, ease: EASE }}
         >
           <span className="mono-label" style={{ display: "block", marginBottom: 24, color: "var(--accent-gold)" }}>
@@ -99,7 +100,7 @@ export function ContactPage() {
           <p
             style={{
               fontSize: 18,
-              color: "var(--text-muted)",
+              color: "var(--text-secondary)",
               lineHeight: 1.55,
               marginBottom: 48,
             }}
