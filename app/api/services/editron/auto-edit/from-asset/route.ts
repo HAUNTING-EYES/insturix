@@ -99,6 +99,19 @@ export async function POST(request: NextRequest) {
     console.log(`[auto-edit/from-asset] Created project ${projectId}`);
 
     // 5. Add the video as a single overlay spanning the full duration
+    // Use CDN Worker URL for overlay src (never expires, has CORS).
+    // resolveAssetUrl can return stale/expiring GCS URLs or Vercel proxy URLs
+    // that fail when the browser tries to load the video.
+    let overlaySrc = videoUrl;
+    try {
+      const { isR2Available, getR2PublicUrl } = await import('@/lib/editron/services/r2-service');
+      if (isR2Available()) {
+        overlaySrc = getR2PublicUrl(assetId);
+      }
+    } catch {
+      // R2 not available — use resolveAssetUrl result
+    }
+
     const videoOverlay = {
       id: Date.now(),
       type: 'video' as const,
@@ -111,8 +124,12 @@ export async function POST(request: NextRequest) {
       height: h,
       isDragging: false,
       rotation: 0,
-      src: videoUrl,
+      src: overlaySrc,
       assetId,
+      // videoStartTime: 0 is explicit — silence removal uses this to calculate
+      // source offsets when splitting the overlay into segments.
+      // Without it, every segment plays from frame 0 (start of video).
+      videoStartTime: 0,
       styles: { opacity: 1, objectFit: 'cover' as const },
     };
 

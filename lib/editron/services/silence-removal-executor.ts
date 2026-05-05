@@ -202,10 +202,12 @@ export async function executeSilenceRemoval(
           afterOverlay.id = nextId++;
           afterOverlay.from = cutStart; // Will be at cutStart after removal (shifted left below)
           afterOverlay.durationInFrames = afterDuration;
-          // Adjust source offset if the overlay has one (for trimmed video clips)
-          if (typeof afterOverlay.sourceStartFrame === 'number') {
-            afterOverlay.sourceStartFrame += (cutEnd - ovStart);
-          }
+          // Set source offset so the video player knows where to start in the source file.
+          // Without this, every segment plays from frame 0 (repeating the start of the video).
+          // cutEnd - ovStart = how far into the original overlay the after-cut portion begins.
+          const currentSourceOffset = (typeof ov.sourceStartFrame === 'number' ? ov.sourceStartFrame : 0);
+          afterOverlay.sourceStartFrame = currentSourceOffset + (cutEnd - ovStart);
+          afterOverlay.videoStartTime = afterOverlay.sourceStartFrame;
           newOverlays.push(afterOverlay);
           overlaysCreated++;
         } else {
