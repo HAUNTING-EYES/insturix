@@ -225,7 +225,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     name: 'Plus',
     description: 'Perfect for growing creators',
     credits: 100,
-    price: 9.99,
+    price: 20,
     currency: 'USD',
     features: [
       '100 Monthly Credits',
