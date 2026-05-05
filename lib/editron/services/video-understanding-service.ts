@@ -54,6 +54,8 @@ export interface SyntheticStoryboard {
   };
   scenes: SyntheticScene[];
   analyzedAt: string;
+  /** Gemini file URI from VU upload — reusable by 5-Track to skip redundant CDN download */
+  geminiFileUri?: string;
 }
 
 // ─── Main Entry ─────────────────────────────────────────────────
@@ -202,6 +204,8 @@ Rules:
       },
       scenes,
       analyzedAt: new Date().toISOString(),
+      // Carry the Gemini file URI so 5-Track can reuse it (avoids redundant CDN download + 429s)
+      geminiFileUri: fileUri.startsWith('http') ? undefined : fileUri,
     };
 
     console.log(`[VideoUnderstanding] Done: ${scenes.length} scenes, type=${storyboard.contentType}, platform=${storyboard.platform}`);

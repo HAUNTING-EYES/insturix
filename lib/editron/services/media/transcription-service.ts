@@ -125,23 +125,40 @@ async function generateTranscription(
         console.log(`[Transcription] Grok STT: transcribing ${asset.assetId} via URL...`);
 
         // xAI STT API expects FormData (multipart/form-data), NOT JSON.
-        // Sending JSON causes 400: "Invalid boundary for multipart/form-data request"
-        const formData = new FormData();
-        formData.append('url', mediaUrl);
-        formData.append('language', language || 'en');
-        formData.append('format', 'true');
+        // Retry on 429 — CDN rate-limits when multiple services download simultaneously
+        // (VideoUnderstanding + multipart upload + Grok all hit CDN around the same time)
+        let response: Response | null = null;
+        const maxRetries = 3;
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          const formData = new FormData();
+          formData.append('url', mediaUrl);
+          formData.append('language', language || 'en');
+          formData.append('format', 'true');
 
-        const response = await fetch('https://api.x.ai/v1/stt', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${xaiKey}`,
-            // No Content-Type header — fetch sets it automatically with boundary for FormData
-          },
-          body: formData,
-        });
+          response = await fetch('https://api.x.ai/v1/stt', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${xaiKey}`,
+            },
+            body: formData,
+          });
 
-        if (!response.ok) {
-          throw new Error(`Grok STT returned ${response.status}: ${await response.text().catch(() => 'no body')}`);
+          if (response.ok) break;
+
+          const bodyText = await response.text().catch(() => 'no body');
+          const is429 = response.status === 429 || bodyText.includes('429');
+          if (is429 && attempt < maxRetries - 1) {
+            const delayMs = (attempt + 1) * 5000; // 5s, 10s backoff
+            console.warn(`[Transcription] Grok STT 429 (attempt ${attempt + 1}/${maxRetries}), retrying in ${delayMs / 1000}s...`);
+            await new Promise(r => setTimeout(r, delayMs));
+            continue;
+          }
+
+          throw new Error(`Grok STT returned ${response.status}: ${bodyText}`);
+        }
+
+        if (!response || !response.ok) {
+          throw new Error('Grok STT: all retry attempts failed');
         }
 
         const data = await response.json();

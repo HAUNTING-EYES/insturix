@@ -974,9 +974,11 @@ export async function runFullAnalysis(
     /** 'ai-generated' skips shot detection, uses storyboard metadata.
      *  'real-footage' runs full pipeline including clip matching. */
     sourceType?: 'ai-generated' | 'real-footage';
+    /** Pre-existing Gemini file URI from VideoUnderstanding — avoids redundant CDN download + upload */
+    geminiFileUri?: string;
   },
 ): Promise<AssetAnalysis> {
-  const { videoUrl, audioUrl, durationMs, transcript, words, storyboardScene, sourceType = 'ai-generated' } = options;
+  const { videoUrl, audioUrl, durationMs, transcript, words, storyboardScene, sourceType = 'ai-generated', geminiFileUri: preloadedFileUri } = options;
 
   const isAIVideo = sourceType === 'ai-generated';
   const analysisStartMs = Date.now();
@@ -1036,19 +1038,23 @@ export async function runFullAnalysis(
       } else {
         t0.ok();
 
-        // Upload video to Gemini Files API
+        // Upload video to Gemini Files API (skip if VU already uploaded)
         const t1 = traceStep('gemini_upload');
-        let geminiFileUri: string | null = null;
-        try {
-          geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
-          if (geminiFileUri) {
-            t1.ok(`uri=${geminiFileUri.substring(0, 60)}...`);
-          } else {
-            t1.fail('returned null — check GCS URL accessibility or Gemini API key');
+        let geminiFileUri: string | null = preloadedFileUri || null;
+        if (geminiFileUri) {
+          t1.ok(`reused VU uri=${geminiFileUri.substring(0, 60)}...`);
+        } else {
+          try {
+            geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
+            if (geminiFileUri) {
+              t1.ok(`uri=${geminiFileUri.substring(0, 60)}...`);
+            } else {
+              t1.fail('returned null — check GCS URL accessibility or Gemini API key');
+            }
+          } catch (uploadErr: any) {
+            t1.fail(uploadErr.message);
+            console.error(`[Analysis] Upload failed:`, uploadErr.message);
           }
-        } catch (uploadErr: any) {
-          t1.fail(uploadErr.message);
-          console.error(`[Analysis] Upload failed:`, uploadErr.message);
         }
 
         if (geminiFileUri && !isOverBudget()) {

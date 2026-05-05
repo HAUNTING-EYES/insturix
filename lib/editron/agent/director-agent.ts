@@ -178,6 +178,10 @@ export async function executeDirectorPlan(
             cameraDirection: s.descriptor?.cameraDirection || 'static',
             editDirections: s.descriptor?.editDirections,
           }));
+          // Carry Gemini file URI from VideoUnderstanding so 5-Track can skip redundant CDN download
+          if (ssb.geminiFileUri) {
+            (projectDoc as any)._vuGeminiFileUri = ssb.geminiFileUri;
+          }
           console.log(`[Director] Found SyntheticStoryboard with ${storyboardScenes.length} scenes (Mode 2 — vision-based fallback)`);
         }
       } catch (sbErr: any) {
@@ -278,6 +282,7 @@ export async function executeDirectorPlan(
             words,
             storyboardScene,
             sourceType: isAIProject ? 'ai-generated' : 'real-footage',
+            geminiFileUri: (projectDoc as any)?._vuGeminiFileUri,
           });
 
           if (analysis) {
