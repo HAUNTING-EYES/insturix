@@ -32,8 +32,8 @@ export default function PreviewPage() {
             color: "var(--text-primary)",
           }}
         >
-          Prompt or footage.{" "}
-          <span style={{ color: "var(--accent-gold)" }}>Professional either way.</span>
+          One platform.{" "}
+          <span style={{ color: "var(--accent-gold)" }}>Entire production.</span>
         </h1>
         <p
           style={{

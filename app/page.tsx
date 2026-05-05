@@ -5,14 +5,14 @@ import { SiteNavbar } from "@/components/shared/site-navbar";
 import { LandingPageA } from "@/components/landing-a/landing-page-a";
 
 export const metadata: Metadata = {
-  title: "Insturix | Prompt or footage. Professional either way.",
+  title: "Insturix | One platform. Entire production.",
   description:
     "Replace your entire video production workflow. Script, edit, analyze, and publish — from a single prompt. Built for agencies producing content at scale.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "Insturix | Prompt or footage. Professional either way.",
+    title: "Insturix | One platform. Entire production.",
     description:
       "Replace your entire video production workflow. Script, edit, analyze, and publish — from a single prompt.",
     images: [
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
         url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "Insturix — Prompt or footage. Professional either way.",
+        alt: "Insturix — One platform. Entire production.",
       },
     ],
   },

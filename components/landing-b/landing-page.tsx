@@ -677,9 +677,9 @@ function Preview({ phase, pct }: { phase: Phase; pct: number }) {
                 marginBottom: 16,
               }}
             >
-              Prompt or footage.
+              One platform.
               <br />
-              <span style={{ color: C.gold }}>Professional either way.</span>
+              <span style={{ color: C.gold }}>Entire production.</span>
             </h1>
             <p
               style={{
@@ -1290,7 +1290,7 @@ function Preview({ phase, pct }: { phase: Phase; pct: number }) {
                 opacity: 0,
               }}
             >
-              Prompt or footage. Professional either way.
+              One platform. Entire production.
             </h2>
             <p
               style={{

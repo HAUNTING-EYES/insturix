@@ -4,7 +4,7 @@
  * About Page — v6
  *
  * Phase A: Bigger cards with falling/chaos animation, repeatable viewport animations
- * Phase B: Tagline updated to "Prompt or footage. Professional either way."
+ * Phase B: Tagline updated to "One platform. Entire production."
  */
 
 import React, { useRef, useEffect, useState } from "react";
@@ -16,13 +16,13 @@ const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 const EASE_CSS = "cubic-bezier(0.16, 1, 0.3, 1)";
 
 const TOOLS = [
-  { name: "Google Docs", desc: "Briefing, planning, and alignment across stakeholders", cumDays: 1, icon: FileText, color: "var(--accent-gold)" },
-  { name: "Freelancer", desc: "Back-and-forth scripting with external writers", cumDays: 5, icon: Users, color: "var(--accent-gold)" },
-  { name: "Camera / Runway", desc: "Shooting raw footage or generating AI clips", cumDays: 15, icon: Video, color: "var(--status-danger)" },
-  { name: "Adobe Premiere", desc: "Manual cuts, color grading, audio sync, titles", cumDays: 19, icon: Film, color: "var(--category-purple)" },
-  { name: "Frame.io", desc: "Review rounds, timestamp comments, re-exports", cumDays: 22, icon: MessageSquare, color: "var(--category-cyan)" },
-  { name: "Canva", desc: "Thumbnail design, A/B variants, brand compliance", cumDays: 23, icon: Palette, color: "var(--category-pink)" },
-  { name: "Manual upload ×6", desc: "Reformat and publish to each platform individually", cumDays: 23, icon: Globe, color: "var(--status-success)" },
+  { name: "Write the brief", desc: "Align stakeholders, scope the project, define deliverables", cumDays: 1, icon: FileText, color: "var(--accent-gold)" },
+  { name: "Hire a scriptwriter", desc: "Back-and-forth drafts with an external writer", cumDays: 5, icon: Users, color: "var(--accent-gold)" },
+  { name: "Shoot or generate", desc: "Book a crew or wrestle with AI generation tools", cumDays: 15, icon: Video, color: "var(--status-danger)" },
+  { name: "Edit in a timeline", desc: "Manual cuts, color grading, audio sync, titling", cumDays: 19, icon: Film, color: "var(--category-purple)" },
+  { name: "Review and revise", desc: "Rounds of timestamp feedback, re-exports, approvals", cumDays: 22, icon: MessageSquare, color: "var(--category-cyan)" },
+  { name: "Design thumbnails", desc: "A/B variants, brand compliance checks, click optimization", cumDays: 23, icon: Palette, color: "var(--category-pink)" },
+  { name: "Publish manually", desc: "Reformat and upload to each platform one by one", cumDays: 23, icon: Globe, color: "var(--status-success)" },
 ];
 
 const ROOMS = [
@@ -169,7 +169,7 @@ export function AboutPage() {
             </motion.div>
 
             <motion.p variants={fadeUp} style={{ fontSize: 14, color: "var(--text-secondary)", textAlign: "center", margin: 0, lineHeight: 1.6 }}>
-              Prompt or footage. Professional either way.
+              One platform. Entire production.
             </motion.p>
           </motion.div>
         </motion.div>
@@ -222,7 +222,7 @@ export function AboutPage() {
         <motion.div initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={staggerContainer}
           style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 32 }}>
           <motion.h2 variants={fadeUp} style={{ fontSize: 24, fontWeight: 500, letterSpacing: "-0.02em", color: "var(--text-primary)", margin: 0 }}>
-            Prompt or footage.<br />Professional either way.
+            One platform.<br />Entire production.
           </motion.h2>
           <motion.div variants={fadeUp} style={{ display: "flex", gap: 16 }}>
             <Link href="/products" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", background: "var(--accent-gold)", color: "var(--bg-canvas)", fontSize: 13, fontWeight: 500, borderRadius: 7, textDecoration: "none", transition: `opacity 0.25s ${EASE_CSS}` }}

@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import { LandingPage } from "@/components/landing-b/landing-page";
 
 export const metadata: Metadata = {
-  title: "Insturix | Prompt or footage. Professional either way.",
+  title: "Insturix | One platform. Entire production.",
   description:
     "Replace your entire video production workflow. Script, edit, analyze, and publish — from a single prompt. Built for agencies producing content at scale.",
   openGraph: {
-    title: "Insturix | Prompt or footage. Professional either way.",
+    title: "Insturix | One platform. Entire production.",
     description:
       "Replace your entire video production workflow. Script, edit, analyze, and publish — from a single prompt.",
     images: [{ url: "/icons/og-image.jpg", width: 1200, height: 630 }],

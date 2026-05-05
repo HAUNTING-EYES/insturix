@@ -162,7 +162,7 @@ const MSGS: { at: number; side: string; text: string; color?: string }[] = [
   { at: 0.73, side: "status", text: "Generating thumbnails...", color: C.pink },
   { at: 0.83, side: "done", text: "Variant B wins — 5.1% predicted CTR" },
   { at: 0.87, side: "status", text: "Publishing...", color: C.green },
-  { at: 0.96, side: "complete", text: "Live on 6 platforms.\nPrompt or footage. Professional either way." },
+  { at: 0.96, side: "complete", text: "Live on 6 platforms.\nOne platform. Entire production." },
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -666,7 +666,7 @@ function Preview({ phase, pct, sub }: { phase: string; pct: number; sub: (lo: nu
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke={C.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity=".35" /></svg>
             </div>
             <h1 style={{ fontSize: 44, fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.035em", marginBottom: 16 }}>
-              Prompt or footage.<br /><span style={{ color: C.accent }}>Professional either way.</span>
+              One platform.<br /><span style={{ color: C.accent }}>Entire production.</span>
             </h1>
             <p style={{ fontSize: 18, color: C.muted, lineHeight: 1.55, marginBottom: 32 }}>
               Watch a complete video get produced as you scroll.
@@ -931,7 +931,7 @@ function Preview({ phase, pct, sub }: { phase: string; pct: number; sub: (lo: nu
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ strokeDasharray: 20, animation: "checkDraw .4s ease .3s both" }} /></svg>
               </div>
               <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1.1, marginBottom: 12, animation: `slideUp .5s ${EASE} .2s both` }}>
-                Prompt or footage. Professional either way.
+                One platform. Entire production.
               </h2>
               <p style={{ fontSize: 18, fontWeight: 800, color: C.green, marginBottom: 8, animation: `slideUp .5s ${EASE} .35s both` }}>
                 8 minutes. $47 spent. $2,353 saved.
@@ -1156,6 +1156,75 @@ function Marketing() {
 
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
+      {/* Approach A: AI editing callout — moved here for visibility */}
+      <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, alignItems: "center",
+          background: C.s1, border: `1px solid ${C.cyan}18`, borderRadius: 12, padding: "48px 48px", overflow: "hidden",
+        }}>
+          <div>
+            <span className="m" style={{ fontSize: 10, letterSpacing: "0.08em", color: C.cyan, display: "block", marginBottom: 16 }}>
+              AI EDITING
+            </span>
+            <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.1, marginBottom: 16 }}>
+              Already have footage?
+            </h2>
+            <p style={{ fontSize: 14, color: C.soft, lineHeight: 1.65, marginBottom: 24 }}>
+              Upload your raw video. AI applies professional cuts, color grading, pacing, and audio mixing — the same decisions a senior editor makes.
+            </p>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {["Auto-cut to music", "Color grade", "Caption sync", "Audio mix", "Hook-body-CTA"].map((tag) => (
+                <span key={tag} style={{
+                  fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: C.cyan,
+                  background: `${C.cyan}10`, border: `1px solid ${C.cyan}18`,
+                  padding: "4px 12px", borderRadius: 4,
+                }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ background: C.s2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "16px 20px" }}>
+              <span className="m" style={{ fontSize: 10, color: C.dim, display: "block", marginBottom: 8 }}>RAW FOOTAGE</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[1, 2, 3, 4].map((n) => (
+                  <div key={n} style={{
+                    flex: 1, aspectRatio: "16/9", borderRadius: 4,
+                    background: `linear-gradient(135deg, ${C.s3}, ${C.s2})`,
+                    border: `1px solid ${C.border}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <span className="m" style={{ fontSize: 9, color: C.dim }}>clip_{n}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="m" style={{ fontSize: 10, color: C.dim, marginTop: 8 }}>4 clips · 12 min raw · unedited</div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <span style={{ fontSize: 13, color: C.cyan }}>{"↓ AI edits in 8 minutes"}</span>
+            </div>
+            <div style={{ background: C.s2, border: `1px solid ${C.cyan}18`, borderRadius: 8, padding: "16px 20px" }}>
+              <span className="m" style={{ fontSize: 10, color: C.cyan, display: "block", marginBottom: 8 }}>FINAL CUT</span>
+              <div style={{
+                aspectRatio: "16/9", borderRadius: 4,
+                background: `linear-gradient(135deg, rgb(18,16,14), rgb(24,20,16))`,
+                border: `1px solid ${C.cyan}24`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: C.cyan }}>91</div>
+                  <div className="m" style={{ fontSize: 9, color: C.muted }}>quality score</div>
+                </div>
+              </div>
+              <div className="m" style={{ fontSize: 10, color: C.cyan, marginTop: 8 }}>0:38 final · color graded · captions synced · music matched</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
+
       {/* Before/After */}
       <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
         <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", textAlign: "center", marginBottom: 48 }}>The old way vs. <span style={{ color: C.accent }}>Insturix</span></h2>
@@ -1187,79 +1256,6 @@ function Marketing() {
 
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
-      {/* Approach A: "Already have footage?" callout — AI editing moat */}
-      <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
-        <div style={{
-          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, alignItems: "center",
-          background: C.s1, border: `1px solid ${C.border}`, borderRadius: 12, padding: "48px 48px", overflow: "hidden",
-        }}>
-          {/* Left: copy */}
-          <div>
-            <span className="m" style={{ fontSize: 10, letterSpacing: "0.08em", color: C.cyan, display: "block", marginBottom: 16 }}>
-              AI EDITING
-            </span>
-            <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.1, marginBottom: 16 }}>
-              Already have footage?
-            </h2>
-            <p style={{ fontSize: 14, color: C.soft, lineHeight: 1.65, marginBottom: 24 }}>
-              Upload your raw video. AI applies professional cuts, color grading, pacing, and audio mixing — the same decisions a senior editor makes. No prompting required.
-            </p>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              {["Auto-cut to music", "Color grade", "Caption sync", "Audio mix", "Hook-body-CTA structure"].map((tag) => (
-                <span key={tag} style={{
-                  fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: C.cyan,
-                  background: `${C.cyan}10`, border: `1px solid ${C.cyan}18`,
-                  padding: "4px 12px", borderRadius: 4,
-                }}>
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
-          {/* Right: before/after mini mockup */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {/* Before */}
-            <div style={{ background: C.s2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "16px 20px" }}>
-              <span className="m" style={{ fontSize: 10, color: C.dim, display: "block", marginBottom: 8 }}>RAW FOOTAGE</span>
-              <div style={{ display: "flex", gap: 8 }}>
-                {[1, 2, 3, 4].map((n) => (
-                  <div key={n} style={{
-                    flex: 1, aspectRatio: "16/9", borderRadius: 4,
-                    background: `linear-gradient(135deg, ${C.s3}, ${C.s2})`,
-                    border: `1px solid ${C.border}`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}>
-                    <span className="m" style={{ fontSize: 9, color: C.dim }}>clip_{n}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="m" style={{ fontSize: 10, color: C.dim, marginTop: 8 }}>4 clips · 12 min raw · unedited</div>
-            </div>
-            {/* Arrow */}
-            <div style={{ textAlign: "center" }}>
-              <span style={{ fontSize: 13, color: C.cyan }}>{"↓ AI edits in 8 minutes"}</span>
-            </div>
-            {/* After */}
-            <div style={{ background: C.s2, border: `1px solid ${C.cyan}18`, borderRadius: 8, padding: "16px 20px" }}>
-              <span className="m" style={{ fontSize: 10, color: C.cyan, display: "block", marginBottom: 8 }}>FINAL CUT</span>
-              <div style={{
-                aspectRatio: "16/9", borderRadius: 4, position: "relative",
-                background: `linear-gradient(135deg, rgb(18,16,14), rgb(24,20,16))`,
-                border: `1px solid ${C.cyan}24`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: C.cyan }}>91</div>
-                  <div className="m" style={{ fontSize: 9, color: C.muted }}>quality score</div>
-                </div>
-              </div>
-              <div className="m" style={{ fontSize: 10, color: C.cyan, marginTop: 8 }}>0:38 final · color graded · captions synced · music matched</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
       {/* Paths — FIX #12: CSS class hover instead of inline JS */}
       <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>

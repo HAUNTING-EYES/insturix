@@ -63,14 +63,14 @@ export function EditMockup() {
           <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{"·"}</span>
           {/* Mode toggle */}
           <span style={{
-            fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)",
-            padding: "2px 6px", borderRadius: 4,
+            fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-faint)",
+            padding: "3px 8px", borderRadius: 4, letterSpacing: "0.04em",
           }}>
-            From prompt
+            Generate
           </span>
           <span style={{
-            fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--category-cyan)", fontWeight: 500,
-            padding: "2px 6px", borderRadius: 4, background: "var(--bg-well)",
+            fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--bg-canvas)", fontWeight: 500,
+            padding: "3px 8px", borderRadius: 4, background: "var(--category-cyan)", letterSpacing: "0.04em",
           }}>
             Your footage
           </span>
