@@ -39,9 +39,9 @@ const rooms = [
   {
     label: "02",
     verb: "Edit",
-    heading: "Your script becomes\na finished video.",
-    description: "AI generates video clips, layers captions, syncs music to beat drops, applies transitions, and color-grades — all following professional editing rules.",
-    output: "Complete video with captions, music, and transitions",
+    heading: "From script or footage.\nA finished video.",
+    description: "Generate from a prompt or upload your own footage. AI handles cuts, captions, music sync, transitions, and color grading — the same decisions a professional editor makes.",
+    output: "Professional video from any starting point",
     color: "var(--status-danger)",
     mockup: <EditMockup />,
   },

@@ -96,7 +96,7 @@ const LAYERS = [
 ];
 
 const PIPELINE = [
-  { label: "Prompt / Upload", phase: "prompt", c: C.accent },
+  { label: "Input", phase: "prompt", c: C.accent },
   { label: "Script", phase: "script", c: C.accent },
   { label: "Edit", phase: "edit", c: C.red },
   { label: "Analyze", phase: "analyze", c: C.purple },
