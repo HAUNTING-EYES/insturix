@@ -17,6 +17,7 @@
 import {
   S3Client,
   PutObjectCommand,
+  GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
   CreateMultipartUploadCommand,
@@ -219,6 +220,28 @@ export function getR2PublicUrl(assetId: string): string {
   }
   // Fallback: direct R2 URL (no CORS, not ideal)
   return `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET_NAME}/${assetId}`;
+}
+
+/**
+ * Generate a presigned GET URL for direct R2 access (bypasses Cloudflare Worker).
+ *
+ * Use this for SERVER-TO-SERVER downloads (Gemini, xAI, fal.ai, Deepgram).
+ * The Worker URL is for BROWSER access only (CORS, edge caching).
+ *
+ * Why: The Worker proxies files through a JS invocation. Multiple concurrent
+ * 91MB downloads saturate Worker concurrency → 429 rate limits. Presigned
+ * GETs go direct to R2 storage — no Worker, no concurrency limit, no 429.
+ *
+ * @param r2Key The R2 object key (usually same as assetId)
+ * @param expiresIn Seconds until URL expires (default 1 hour)
+ */
+export async function getR2PresignedReadUrl(r2Key: string, expiresIn = 3600): Promise<string> {
+  const client = getS3Client();
+  const command = new GetObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: r2Key,
+  });
+  return getSignedUrl(client, command, { expiresIn });
 }
 
 // ─── Multipart Upload ────────────────────────────────────────────

@@ -64,10 +64,23 @@ export async function POST(request: NextRequest) {
 
     console.log(`[auto-edit/from-asset] Starting for asset ${assetId} (${asset.filename}, ${asset.duration}s)`);
 
-    // 2. Get playable URL for the video overlay
+    // 2. Get playable URL for the video overlay (Worker URL for browser)
     const videoUrl = await assetResolver.resolveAssetUrl(assetId, userId);
     if (!videoUrl) {
       return NextResponse.json({ success: false, error: 'Could not resolve video URL' }, { status: 500 });
+    }
+
+    // 2b. Get server-side URL for AI services (presigned direct R2 — bypasses Cloudflare Worker)
+    // Worker URL causes 429 when Gemini, xAI, fal.ai all download simultaneously through the proxy.
+    // Presigned GET goes direct to R2 storage — no Worker concurrency limit, no 429.
+    let serverVideoUrl = videoUrl; // default: same as browser URL
+    try {
+      const { isR2Available, getR2PresignedReadUrl } = await import('@/lib/editron/services/r2-service');
+      if (isR2Available()) {
+        serverVideoUrl = await getR2PresignedReadUrl(assetId, 3600); // 1hr expiry
+      }
+    } catch {
+      // R2 not configured — use Worker URL (existing behavior)
     }
 
     // 3. Compute dimensions from aspect ratio
@@ -153,7 +166,7 @@ export async function POST(request: NextRequest) {
           projectId,
           userId,
           assetId,
-          videoUrl,
+          videoUrl: serverVideoUrl,
           durationSec,
           title: projectName,
           profileId: 'A-01',
@@ -182,7 +195,7 @@ export async function POST(request: NextRequest) {
       // No QStash → run inline (dev mode)
       console.warn(`[auto-edit/from-asset] No QSTASH_TOKEN — running analysis inline (slow)`);
       const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
-      const ssb = await analyzeVideo(videoUrl, durationSec, userIntent || projectName);
+      const ssb = await analyzeVideo(serverVideoUrl, durationSec, userIntent || projectName);
       if (ssb) {
         await db.collection('projects').updateOne(
           { projectId },
