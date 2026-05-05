@@ -1,39 +1,32 @@
 "use client";
 
 /**
- * About Page — "The Scroll Manifesto" v4
+ * About Page — "The Scroll Manifesto" v5
  *
  * RAMS: Every animation communicates — tool stack = fragmentation, counter = time waste.
  * JOBS: User FEELS the waste before reading a single number.
  * IVE: The counter is the only thing on the right. Emptiness = focus.
  * VIGNELLI: All tokens. All durations. No one-offs.
  * MÜLLER-BROCKMANN: ONE focal point = the day counter. Everything else is context.
- *
- * Flow:
- *  1. Hero heading
- *  2. Scroll-driven accumulation (sticky: tool cards stack left + day counter right)
- *  3. The replacement (dual input: prompt OR upload → same pipeline)
- *  4. Beliefs (includes AI editing as flagship)
- *  5. Journey
- *  6. Close
  */
 
 import React, { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Upload } from "lucide-react";
+import { ArrowRight, Upload, FileText, Users, Video, Film, MessageSquare, Palette, Globe } from "lucide-react";
 import Link from "next/link";
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
+const EASE_CSS = "cubic-bezier(0.16, 1, 0.3, 1)";
 
 // ─── Tools in the broken workflow (cumulative days) ───────────
 const TOOLS = [
-  { name: "Google Docs", cumDays: 1 },
-  { name: "Freelancer", cumDays: 5 },
-  { name: "Camera / Runway", cumDays: 15 },
-  { name: "Adobe Premiere", cumDays: 19 },
-  { name: "Frame.io", cumDays: 22 },
-  { name: "Canva", cumDays: 23 },
-  { name: "Manual upload ×6", cumDays: 23 },
+  { name: "Google Docs", desc: "Brief & planning", cumDays: 1, icon: FileText, color: "var(--accent-gold)" },
+  { name: "Freelancer", desc: "Scriptwriting", cumDays: 5, icon: Users, color: "var(--accent-gold)" },
+  { name: "Camera / Runway", desc: "Shooting & generation", cumDays: 15, icon: Video, color: "var(--status-danger)" },
+  { name: "Adobe Premiere", desc: "Video editing", cumDays: 19, icon: Film, color: "var(--category-purple)" },
+  { name: "Frame.io", desc: "Review & feedback", cumDays: 22, icon: MessageSquare, color: "var(--category-cyan)" },
+  { name: "Canva", desc: "Thumbnail design", cumDays: 23, icon: Palette, color: "var(--category-pink)" },
+  { name: "Manual upload ×6", desc: "Distribution", cumDays: 23, icon: Globe, color: "var(--status-success)" },
 ];
 
 // ─── The 6 rooms ──────────────────────────────────────────────
@@ -66,7 +59,7 @@ const BELIEFS = [
   {
     statement: "Reliable means predictable.",
     supporting:
-      "Same input, same output. Every single time. No randomness, no surprises — that's the standard for production-grade tools.",
+      "Same input, same output. Every single time. No randomness, no surprises — that’s the standard for production-grade tools.",
   },
 ];
 
@@ -97,15 +90,15 @@ const scaleFadeIn = {
   visible: { opacity: 1, scale: 1, transition: { duration: 0.5, ease: EASE } },
 };
 
-// ═══════════════════════════════════════════════════════════════
+// =====================================================================
 // PAGE
-// ═══════════════════════════════════════════════════════════════
+// =====================================================================
 
 export function AboutPage() {
   return (
     <main style={{ background: "var(--bg-canvas)", minHeight: "100vh", fontFamily: "var(--font-sans)" }}>
 
-      {/* ── Hero heading ───────────────────────────────────── */}
+      {/* Hero heading */}
       <section style={{ maxWidth: 960, margin: "0 auto", padding: "96px 24px 48px", textAlign: "center" }}>
         <motion.span
           initial="hidden" whileInView="visible"
@@ -130,10 +123,10 @@ export function AboutPage() {
         </motion.p>
       </section>
 
-      {/* ── Scroll-driven accumulation ─────────────────────── */}
+      {/* Scroll-driven accumulation */}
       <ToolAccumulation />
 
-      {/* ── The Replacement (dual input → pipeline) ────────── */}
+      {/* The Revolution (dual input -> pipeline) */}
       <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px" }}>
         <motion.div
           initial="hidden" whileInView="visible"
@@ -141,24 +134,21 @@ export function AboutPage() {
           style={{ padding: "48px 32px", border: "1px solid var(--border-subtle)", borderRadius: 12, background: "var(--bg-raised)", overflow: "hidden" }}
         >
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-32px" }} variants={staggerContainer}>
-            <motion.span variants={fadeIn} style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 32, textAlign: "center" }}>
-              THE REVOLUTION
-            </motion.span>
+            <motion.h2 variants={fadeIn} style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.02em", color: "var(--text-primary)", marginBottom: 32, textAlign: "center" }}>
+              The Revolution
+            </motion.h2>
 
-            {/* Dual input — two paths, one pipeline */}
+            {/* Dual input */}
             <motion.div variants={fadeUp} style={{ maxWidth: 520, margin: "0 auto 24px", display: "flex", flexDirection: "column", gap: 8 }}>
-              {/* Path 1: Prompt */}
               <div style={{ padding: "12px 16px", background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)", borderRadius: 7, display: "flex", alignItems: "center", gap: 12 }}>
                 <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--accent-gold)", letterSpacing: "0.08em" }}>PROMPT</span>
                 <span style={{ fontSize: 13, color: "var(--text-secondary)", fontStyle: "italic" }}>&quot;Launch video for premium coffee brand&quot;</span>
               </div>
-              {/* Divider */}
               <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 16px" }}>
                 <div style={{ flex: 1, height: 1, background: "var(--border-subtle)" }} />
                 <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>OR</span>
                 <div style={{ flex: 1, height: 1, background: "var(--border-subtle)" }} />
               </div>
-              {/* Path 2: Upload */}
               <div style={{ padding: "12px 16px", background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)", borderRadius: 7, display: "flex", alignItems: "center", gap: 12 }}>
                 <Upload size={14} style={{ color: "var(--category-cyan)", flexShrink: 0 }} />
                 <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--category-cyan)", letterSpacing: "0.08em" }}>UPLOAD</span>
@@ -167,9 +157,8 @@ export function AboutPage() {
               </div>
             </motion.div>
 
-            {/* Converging arrow */}
             <motion.div variants={fadeUp} style={{ textAlign: "center", marginBottom: 24 }}>
-              <span style={{ fontSize: 14, color: "var(--text-dim)" }}>↓</span>
+              <span style={{ fontSize: 14, color: "var(--text-dim)" }}>{"↓"}</span>
             </motion.div>
 
             {/* Pipeline flow */}
@@ -205,7 +194,7 @@ export function AboutPage() {
         </motion.div>
       </section>
 
-      {/* ── Beliefs ────────────────────────────────────────── */}
+      {/* Beliefs */}
       <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px" }}>
         <motion.span initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-48px" }} variants={fadeIn}
           style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 48, textAlign: "center" }}>
@@ -225,7 +214,7 @@ export function AboutPage() {
         </div>
       </section>
 
-      {/* ── Journey ────────────────────────────────────────── */}
+      {/* Journey */}
       <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px" }}>
         <motion.span initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-48px" }} variants={fadeIn}
           style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 48, textAlign: "center" }}>
@@ -247,7 +236,7 @@ export function AboutPage() {
         </div>
       </section>
 
-      {/* ── Close ──────────────────────────────────────────── */}
+      {/* Close */}
       <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px 96px", textAlign: "center" }}>
         <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-48px" }} variants={staggerContainer}
           style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 32 }}>
@@ -255,12 +244,12 @@ export function AboutPage() {
             We&apos;re building the production floor<br />the industry deserves.
           </motion.h2>
           <motion.div variants={fadeUp} style={{ display: "flex", gap: 16 }}>
-            <Link href="/products" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", background: "var(--accent-gold)", color: "var(--bg-canvas)", fontSize: 13, fontWeight: 500, borderRadius: 7, textDecoration: "none", transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }}
+            <Link href="/products" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", background: "var(--accent-gold)", color: "var(--bg-canvas)", fontSize: 13, fontWeight: 500, borderRadius: 7, textDecoration: "none", transition: `opacity 0.25s ${EASE_CSS}` }}
               onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
               onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}>
               See the floor <ArrowRight size={14} />
             </Link>
-            <Link href="/careers" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", border: "1px solid var(--border-emphasis)", background: "transparent", color: "var(--text-primary)", fontSize: 13, fontWeight: 500, borderRadius: 7, textDecoration: "none", transition: "background 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }}
+            <Link href="/careers" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", border: "1px solid var(--border-emphasis)", background: "transparent", color: "var(--text-primary)", fontSize: 13, fontWeight: 500, borderRadius: 7, textDecoration: "none", transition: `background 0.25s ${EASE_CSS}, border-color 0.25s ${EASE_CSS}` }}
               onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-deeper)"; e.currentTarget.style.borderColor = "var(--text-dim)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "var(--border-emphasis)"; }}>
               Build with us <ArrowRight size={14} />
@@ -272,9 +261,9 @@ export function AboutPage() {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════
+// =====================================================================
 // TOOL ACCUMULATION — scroll-driven sticky section
-// ═══════════════════════════════════════════════════════════════
+// =====================================================================
 
 function ToolAccumulation() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -284,54 +273,58 @@ function ToolAccumulation() {
     const onScroll = () => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const scrollableHeight = containerRef.current.offsetHeight - window.innerHeight;
-      const pct = Math.max(0, Math.min(1, -rect.top / scrollableHeight));
+      const scrollable = containerRef.current.offsetHeight - window.innerHeight;
+      const pct = Math.max(0, Math.min(1, -rect.top / scrollable));
       setScrollPct(pct);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // How many tools are visible (0–7)
-  const visibleCount = Math.min(TOOLS.length, Math.floor(scrollPct * (TOOLS.length + 1)));
-  // Current day count
-  const currentDay = visibleCount > 0 ? TOOLS[Math.min(visibleCount - 1, TOOLS.length - 1)].cumDays : 0;
-  // Show cost at the end
+  const toolCount = TOOLS.length;
+  // How many tools visible (0-7)
+  const visibleCount = Math.min(toolCount, Math.floor(scrollPct * (toolCount + 1)));
+
+  // Smooth day counter: interpolate between cumDays milestones
+  const progress = scrollPct * (toolCount + 1);
+  const idx = Math.max(0, Math.min(toolCount - 1, Math.floor(progress)));
+  const frac = Math.min(1, progress - idx);
+  let smoothDay = 0;
+  if (visibleCount > 0) {
+    const prev = idx > 0 ? TOOLS[idx - 1].cumDays : 0;
+    const curr = TOOLS[idx].cumDays;
+    smoothDay = Math.round(prev + frac * (curr - prev));
+  }
+
   const showCost = scrollPct > 0.92;
 
   return (
-    <div
-      ref={containerRef}
-      style={{ height: "350vh", position: "relative" }}
-    >
-      <div
-        style={{
-          position: "sticky",
-          top: 64,
-          height: "calc(100vh - 128px)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          maxWidth: 960,
-          margin: "0 auto",
-          padding: "0 24px",
-        }}
-      >
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 64, width: "100%", alignItems: "center" }}>
+    <div ref={containerRef} style={{ height: "400vh", position: "relative" }}>
+      <div style={{
+        position: "sticky", top: 64,
+        height: "calc(100vh - 128px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        maxWidth: 1080, margin: "0 auto", padding: "0 24px",
+      }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, width: "100%", alignItems: "center" }}>
+
           {/* Left: Tool cards stacking */}
-          <div style={{ position: "relative", height: 420 }}>
+          <div style={{ position: "relative", minHeight: 520 }}>
             {TOOLS.map((tool, i) => {
               const isVisible = i < visibleCount;
-              const stackOffset = i * 12;
+              const stackY = i * 16;
+              const stackX = (i % 2) * 8;
+              const Icon = tool.icon;
+              const dayDelta = i === 0 ? tool.cumDays : tool.cumDays - TOOLS[i - 1].cumDays;
               return (
                 <div
                   key={tool.name}
                   style={{
                     position: "absolute",
-                    top: stackOffset,
-                    left: (i % 2) * 12,
-                    right: (i % 3) * 4,
-                    padding: "20px 24px",
+                    top: stackY,
+                    left: stackX,
+                    right: ((i + 1) % 3) * 4,
+                    padding: "16px 24px",
                     background: "var(--bg-raised)",
                     border: `1px solid ${isVisible ? "var(--border-emphasis)" : "var(--border-subtle)"}`,
                     borderRadius: 12,
@@ -339,102 +332,90 @@ function ToolAccumulation() {
                     alignItems: "center",
                     gap: 16,
                     opacity: isVisible ? 1 : 0,
-                    transform: isVisible ? "translateX(0) scale(1)" : "translateX(-32px) scale(0.95)",
-                    transition: `all 0.5s ${EASE}`,
+                    transform: isVisible ? "translateX(0) scale(1)" : "translateX(-48px) scale(0.92)",
+                    transition: `all 0.5s ${EASE_CSS}`,
                     zIndex: i,
                   }}
                 >
-                  {/* Step number */}
-                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--text-dim)", minWidth: 24 }}>
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  {/* Tool name */}
-                  <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)", flex: 1 }}>
-                    {tool.name}
-                  </span>
+                  {/* Icon */}
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 7,
+                    background: "var(--bg-deeper)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    flexShrink: 0,
+                  }}>
+                    <Icon size={18} style={{ color: tool.color }} />
+                  </div>
+                  {/* Name + desc */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+                      {tool.name}
+                    </span>
+                    <span style={{ display: "block", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                      {tool.desc}
+                    </span>
+                  </div>
                   {/* Day badge */}
-                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--text-muted)", background: "var(--bg-deeper)", padding: "4px 8px", borderRadius: 4 }}>
-                    +{i === 0 ? tool.cumDays : tool.cumDays - TOOLS[i - 1].cumDays}d
+                  <span style={{
+                    fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500,
+                    color: tool.color,
+                    background: "var(--bg-deeper)",
+                    padding: "4px 12px", borderRadius: 4, whiteSpace: "nowrap",
+                  }}>
+                    +{dayDelta}{dayDelta === 1 ? " day" : " days"}
                   </span>
                 </div>
               );
             })}
 
-            {/* Cost label appears at end */}
-            <div
-              style={{
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                right: 0,
-                textAlign: "center",
-                opacity: showCost ? 1 : 0,
-                transform: showCost ? "translateY(0)" : "translateY(8px)",
-                transition: `all 0.35s ${EASE}`,
-              }}
-            >
-              <span style={{ fontSize: 14, fontWeight: 500, color: "var(--status-danger)", fontFamily: "var(--font-mono)" }}>
+            {/* Cost label */}
+            <div style={{
+              position: "absolute", bottom: -8, left: 0, right: 0, textAlign: "center",
+              opacity: showCost ? 1 : 0,
+              transform: showCost ? "translateY(0)" : "translateY(8px)",
+              transition: `all 0.35s ${EASE_CSS}`,
+            }}>
+              <span style={{ fontSize: 18, fontWeight: 800, color: "var(--status-danger)", fontFamily: "var(--font-mono)" }}>
                 $2,000+
               </span>
             </div>
           </div>
 
-          {/* Right: Day counter */}
+          {/* Right: Day counter (smooth) */}
           <div style={{ textAlign: "center" }}>
-            <span
-              style={{
-                display: "block",
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                fontWeight: 500,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color: "var(--text-dim)",
-                marginBottom: 16,
-              }}
-            >
-              {visibleCount > 0 ? "TIME ELAPSED" : " "}
+            <span style={{
+              display: "block", fontFamily: "var(--font-mono)",
+              fontSize: 10, fontWeight: 500, letterSpacing: "0.08em",
+              textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 16,
+              opacity: visibleCount > 0 ? 1 : 0,
+              transition: `opacity 0.25s ${EASE_CSS}`,
+            }}>
+              TIME ELAPSED
             </span>
 
-            <span
-              style={{
-                display: "block",
-                fontSize: 110,
-                fontWeight: 800,
-                fontFamily: "var(--font-mono)",
-                letterSpacing: "-0.06em",
-                lineHeight: 1,
-                color: currentDay > 15 ? "var(--status-danger)" : currentDay > 5 ? "var(--text-primary)" : "var(--text-secondary)",
-                transition: `color 0.35s ${EASE}`,
-              }}
-            >
-              {currentDay}
+            <span style={{
+              display: "block", fontSize: 110, fontWeight: 800,
+              fontFamily: "var(--font-mono)", letterSpacing: "-0.06em", lineHeight: 1,
+              color: smoothDay > 15 ? "var(--status-danger)" : smoothDay > 5 ? "var(--text-primary)" : "var(--text-secondary)",
+              transition: `color 0.5s ${EASE_CSS}`,
+            }}>
+              {smoothDay}
             </span>
 
-            <span
-              style={{
-                display: "block",
-                fontSize: 18,
-                fontWeight: 500,
-                color: "var(--text-secondary)",
-                marginTop: 8,
-              }}
-            >
-              {visibleCount > 0 ? (currentDay === 1 ? "day" : "days") : " "}
+            <span style={{
+              display: "block", fontSize: 18, fontWeight: 500,
+              color: "var(--text-secondary)", marginTop: 8,
+              opacity: visibleCount > 0 ? 1 : 0,
+            }}>
+              {smoothDay === 1 ? "day" : "days"}
             </span>
 
-            {/* Tool count */}
-            <span
-              style={{
-                display: "block",
-                fontSize: 13,
-                fontFamily: "var(--font-mono)",
-                color: "var(--text-secondary)",
-                marginTop: 24,
-                opacity: visibleCount > 0 ? 1 : 0,
-                transition: `opacity 0.25s ${EASE}`,
-              }}
-            >
+            <span style={{
+              display: "block", fontSize: 13, fontFamily: "var(--font-mono)",
+              color: "var(--text-secondary)", marginTop: 24,
+              opacity: visibleCount > 0 ? 1 : 0,
+              transition: `opacity 0.25s ${EASE_CSS}`,
+            }}>
               {visibleCount} {visibleCount === 1 ? "tool" : "tools"}
             </span>
           </div>
@@ -444,9 +425,9 @@ function ToolAccumulation() {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════
-// HELPER COMPONENTS
-// ═══════════════════════════════════════════════════════════════
+// =====================================================================
+// HELPERS
+// =====================================================================
 
 function OutputStat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
