@@ -1,42 +1,42 @@
 "use client";
 
 /**
- * About Page — "The Scroll Manifesto" v2
+ * About Page — "The Scroll Manifesto" v4
  *
- * RAMS: Every animation communicates transformation — nothing decorative.
- * JOBS: User understands the value prop in 3 seconds through animation, not text.
- * IVE: Breathing room between sections lets each land.
- * VIGNELLI: All values from design system. All motion from the three durations.
- * MÜLLER-BROCKMANN: ONE focal point per viewport.
+ * RAMS: Every animation communicates — tool stack = fragmentation, counter = time waste.
+ * JOBS: User FEELS the waste before reading a single number.
+ * IVE: The counter is the only thing on the right. Emptiness = focus.
+ * VIGNELLI: All tokens. All durations. No one-offs.
+ * MÜLLER-BROCKMANN: ONE focal point = the day counter. Everything else is context.
  *
  * Flow:
- *  1. Hero — the broken workflow (staggered table)
- *  2. The collapse — animated pipeline compression
- *  3. Beliefs — scroll-revealed with staggered heading/body
- *  4. Journey — vertical timeline with drawing line
- *  5. Close — CTA
+ *  1. Hero heading
+ *  2. Scroll-driven accumulation (sticky: tool cards stack left + day counter right)
+ *  3. The replacement (dual input: prompt OR upload → same pipeline)
+ *  4. Beliefs (includes AI editing as flagship)
+ *  5. Journey
+ *  6. Close
  */
 
 import React, { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Upload } from "lucide-react";
 import Link from "next/link";
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
-// ─── The broken workflow steps ─────────────────────────────────
-const BROKEN_STEPS = [
-  { label: "Brief", time: "Day 1", tool: "Google Docs", days: 1, color: "var(--text-dim)" },
-  { label: "Script", time: "3–5 days", tool: "Freelancer", days: 4, color: "var(--accent-gold)" },
-  { label: "Shoot / Generate", time: "1–2 weeks", tool: "Camera / Runway", days: 10, color: "var(--status-danger)" },
-  { label: "Edit", time: "3–5 days", tool: "Adobe Premiere / DaVinci", days: 4, color: "var(--category-purple)" },
-  { label: "Review", time: "2–4 rounds", tool: "Frame.io / Email", days: 3, color: "var(--category-cyan)" },
-  { label: "Thumbnail", time: "1 day", tool: "Canva / Photoshop", days: 1, color: "var(--category-pink)" },
-  { label: "Upload", time: "Manual × 6", tool: "Each platform", days: 0.5, color: "var(--status-success)" },
+// ─── Tools in the broken workflow (cumulative days) ───────────
+const TOOLS = [
+  { name: "Google Docs", cumDays: 1 },
+  { name: "Freelancer", cumDays: 5 },
+  { name: "Camera / Runway", cumDays: 15 },
+  { name: "Adobe Premiere", cumDays: 19 },
+  { name: "Frame.io", cumDays: 22 },
+  { name: "Canva", cumDays: 23 },
+  { name: "Manual upload ×6", cumDays: 23 },
 ];
-const MAX_DAYS = Math.max(...BROKEN_STEPS.map((s) => s.days));
 
-// ─── The 6 rooms (for pipeline visualization) ─────────────────
+// ─── The 6 rooms ──────────────────────────────────────────────
 const ROOMS = [
   { verb: "Script", color: "var(--accent-gold)" },
   { verb: "Edit", color: "var(--status-danger)" },
@@ -46,7 +46,7 @@ const ROOMS = [
   { verb: "Share", color: "var(--category-pink)" },
 ];
 
-// ─── The beliefs ──────────────────────────────────────────────
+// ─── Beliefs ──────────────────────────────────────────────────
 const BELIEFS = [
   {
     statement: "One platform. Not ten.",
@@ -54,9 +54,9 @@ const BELIEFS = [
       "Everything your team needs to produce content. Six rooms, one production floor — script to publish without switching tools.",
   },
   {
-    statement: "Your tool should think.",
+    statement: "Edit your footage. Not just generate.",
     supporting:
-      "Not a canvas waiting for instructions. A partner that understands the brief, makes editorial decisions, and delivers production-ready output.",
+      "Upload raw footage. AI applies professional cuts, color grading, pacing, audio mixing — the same decisions a senior editor makes. Generate from scratch or edit what you already shot.",
   },
   {
     statement: "Built for businesses. Built for scale.",
@@ -70,7 +70,7 @@ const BELIEFS = [
   },
 ];
 
-// ─── Journey milestones ───────────────────────────────────────
+// ─── Journey ──────────────────────────────────────────────────
 const JOURNEY = [
   { date: "2024", title: "The idea", description: "Watched teams spend weeks producing what should take minutes." },
   { date: "Early 2025", title: "First prototype", description: "Built the first AI-native editing pipeline. Script to video in one pass." },
@@ -80,483 +80,145 @@ const JOURNEY = [
 ];
 
 // ─── Animation variants ───────────────────────────────────────
-
 const staggerContainer = {
   hidden: {},
-  visible: {
-    transition: { staggerChildren: 0.12, delayChildren: 0.1 },
-  },
+  visible: { transition: { staggerChildren: 0.12, delayChildren: 0.1 } },
 };
-
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5, ease: EASE },
-  },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
 };
-
 const fadeIn = {
   hidden: { opacity: 0, y: 16 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5, ease: EASE },
-  },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
 };
-
 const scaleFadeIn = {
   hidden: { opacity: 0, scale: 0.92 },
-  visible: {
-    opacity: 1,
-    scale: 1,
-    transition: { duration: 0.5, ease: EASE },
-  },
+  visible: { opacity: 1, scale: 1, transition: { duration: 0.5, ease: EASE } },
 };
 
-// ─── Component ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// PAGE
+// ═══════════════════════════════════════════════════════════════
 
 export function AboutPage() {
   return (
-    <main
-      style={{
-        background: "var(--bg-canvas)",
-        minHeight: "100vh",
-        fontFamily: "var(--font-sans)",
-      }}
-    >
-      {/* ── Section 1: The Broken Workflow ──────────────────── */}
-      <section
-        style={{
-          maxWidth: 960,
-          margin: "0 auto",
-          padding: "96px 24px 64px",
-        }}
-      >
+    <main style={{ background: "var(--bg-canvas)", minHeight: "100vh", fontFamily: "var(--font-sans)" }}>
+
+      {/* ── Hero heading ───────────────────────────────────── */}
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "96px 24px 48px", textAlign: "center" }}>
         <motion.span
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-48px" }}
-          variants={fadeIn}
-          style={{
-            display: "block",
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            fontWeight: 500,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "var(--text-dim)",
-            marginBottom: 24,
-            textAlign: "center",
-          }}
+          initial="hidden" whileInView="visible"
+          viewport={{ once: true, margin: "-48px" }} variants={fadeIn}
+          style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 24 }}
         >
           THE PROBLEM
         </motion.span>
-
         <motion.h1
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-48px" }}
-          variants={fadeIn}
-          style={{
-            fontSize: 44,
-            fontWeight: 800,
-            letterSpacing: "-0.035em",
-            lineHeight: 1.05,
-            color: "var(--text-primary)",
-            textAlign: "center",
-            margin: "0 0 16px",
-          }}
+          initial="hidden" whileInView="visible"
+          viewport={{ once: true, margin: "-48px" }} variants={fadeIn}
+          style={{ fontSize: 44, fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.05, color: "var(--text-primary)", margin: "0 0 16px" }}
         >
           Content production is broken.
         </motion.h1>
-
         <motion.p
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-48px" }}
-          variants={fadeIn}
-          style={{
-            fontSize: 14,
-            color: "var(--text-secondary)",
-            textAlign: "center",
-            maxWidth: 480,
-            margin: "0 auto 64px",
-            lineHeight: 1.6,
-          }}
+          initial="hidden" whileInView="visible"
+          viewport={{ once: true, margin: "-48px" }} variants={fadeIn}
+          style={{ fontSize: 14, color: "var(--text-secondary)", maxWidth: 480, margin: "0 auto", lineHeight: 1.6 }}
         >
-          Seven steps. Five tools. Three weeks. For one video.
+          Seven tools. Three weeks. Thousands of dollars. For one video.
         </motion.p>
-
-        {/* Staggered pipeline with time bars */}
-        <motion.div
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-32px" }}
-          variants={staggerContainer}
-          style={{ maxWidth: 680, margin: "0 auto" }}
-        >
-          {BROKEN_STEPS.map((step, i) => {
-            const barPct = Math.max(5, (step.days / MAX_DAYS) * 100);
-            return (
-              <motion.div
-                key={step.label}
-                variants={fadeUp}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "100px 1fr",
-                  gap: 16,
-                  alignItems: "center",
-                  padding: "12px 0",
-                  borderBottom:
-                    i < BROKEN_STEPS.length - 1
-                      ? "1px solid var(--border-subtle)"
-                      : "none",
-                }}
-              >
-                {/* Left: label */}
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  {step.label}
-                </span>
-
-                {/* Right: bar + tool + time */}
-                <div>
-                  {/* Time bar */}
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      marginBottom: 4,
-                    }}
-                  >
-                    <motion.div
-                      initial={{ scaleX: 0 }}
-                      whileInView={{ scaleX: 1 }}
-                      viewport={{ once: true }}
-                      transition={{ duration: 0.5, delay: i * 0.08, ease: EASE }}
-                      style={{
-                        width: `${barPct}%`,
-                        height: 4,
-                        borderRadius: 4,
-                        background: step.color,
-                        opacity: 0.6,
-                        transformOrigin: "left center",
-                      }}
-                    />
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 500,
-                        color: "var(--text-secondary)",
-                        fontFamily: "var(--font-mono)",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {step.time}
-                    </span>
-                  </div>
-                  {/* Tool label */}
-                  <span
-                    style={{
-                      fontSize: 10,
-                      color: "var(--text-dim)",
-                      fontFamily: "var(--font-mono)",
-                      letterSpacing: "0.04em",
-                    }}
-                  >
-                    {step.tool}
-                  </span>
-                </div>
-              </motion.div>
-            );
-          })}
-
-          {/* Total */}
-          <motion.div
-            variants={fadeUp}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: "24px 0 0",
-              marginTop: 16,
-              borderTop: "1px solid var(--border-emphasis)",
-            }}
-          >
-            <span
-              style={{
-                fontSize: 14,
-                fontWeight: 500,
-                color: "var(--text-primary)",
-              }}
-            >
-              Total
-            </span>
-            <span
-              style={{
-                fontSize: 14,
-                fontWeight: 500,
-                color: "var(--status-danger)",
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              2–3 weeks · $2,000+
-            </span>
-          </motion.div>
-        </motion.div>
       </section>
 
-      {/* ── Section 2: The Replacement (mini pipeline demo) ── */}
-      <section
-        style={{
-          maxWidth: 960,
-          margin: "0 auto",
-          padding: "64px 24px",
-        }}
-      >
+      {/* ── Scroll-driven accumulation ─────────────────────── */}
+      <ToolAccumulation />
+
+      {/* ── The Replacement (dual input → pipeline) ────────── */}
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px" }}>
         <motion.div
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-64px" }}
-          variants={scaleFadeIn}
-          style={{
-            padding: "48px 32px",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: 12,
-            background: "var(--bg-raised)",
-            overflow: "hidden",
-          }}
+          initial="hidden" whileInView="visible"
+          viewport={{ once: true, margin: "-64px" }} variants={scaleFadeIn}
+          style={{ padding: "48px 32px", border: "1px solid var(--border-subtle)", borderRadius: 12, background: "var(--bg-raised)", overflow: "hidden" }}
         >
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: "-32px" }}
-            variants={staggerContainer}
-          >
-            <motion.span
-              variants={fadeIn}
-              style={{
-                display: "block",
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                fontWeight: 500,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color: "var(--text-dim)",
-                marginBottom: 32,
-                textAlign: "center",
-              }}
-            >
+          <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-32px" }} variants={staggerContainer}>
+            <motion.span variants={fadeIn} style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 32, textAlign: "center" }}>
               THE REPLACEMENT
             </motion.span>
 
-            {/* Input prompt mockup */}
-            <motion.div
-              variants={fadeUp}
-              style={{
-                maxWidth: 480,
-                margin: "0 auto 32px",
-                padding: "12px 16px",
-                background: "var(--bg-deeper)",
-                border: "1px solid var(--border-subtle)",
-                borderRadius: 7,
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 11,
-                  fontFamily: "var(--font-mono)",
-                  fontWeight: 500,
-                  color: "var(--accent-gold)",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                PROMPT
-              </span>
-              <span
-                style={{
-                  fontSize: 13,
-                  color: "var(--text-secondary)",
-                  fontStyle: "italic",
-                }}
-              >
-                &quot;Launch video for premium coffee brand&quot;
-              </span>
+            {/* Dual input — two paths, one pipeline */}
+            <motion.div variants={fadeUp} style={{ maxWidth: 520, margin: "0 auto 24px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* Path 1: Prompt */}
+              <div style={{ padding: "12px 16px", background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)", borderRadius: 7, display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--accent-gold)", letterSpacing: "0.08em" }}>PROMPT</span>
+                <span style={{ fontSize: 13, color: "var(--text-secondary)", fontStyle: "italic" }}>&quot;Launch video for premium coffee brand&quot;</span>
+              </div>
+              {/* Divider */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 16px" }}>
+                <div style={{ flex: 1, height: 1, background: "var(--border-subtle)" }} />
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>OR</span>
+                <div style={{ flex: 1, height: 1, background: "var(--border-subtle)" }} />
+              </div>
+              {/* Path 2: Upload */}
+              <div style={{ padding: "12px 16px", background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)", borderRadius: 7, display: "flex", alignItems: "center", gap: 12 }}>
+                <Upload size={14} style={{ color: "var(--category-cyan)", flexShrink: 0 }} />
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--category-cyan)", letterSpacing: "0.08em" }}>UPLOAD</span>
+                <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>product-shoot-raw.mp4</span>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginLeft: "auto" }}>260 MB</span>
+              </div>
             </motion.div>
 
-            {/* Pipeline flow — 6 rooms */}
-            <motion.div
-              variants={fadeUp}
-              style={{
-                maxWidth: 480,
-                margin: "0 auto 16px",
-                display: "flex",
-                gap: 4,
-              }}
-            >
+            {/* Converging arrow */}
+            <motion.div variants={fadeUp} style={{ textAlign: "center", marginBottom: 24 }}>
+              <span style={{ fontSize: 14, color: "var(--text-dim)" }}>↓</span>
+            </motion.div>
+
+            {/* Pipeline flow */}
+            <motion.div variants={fadeUp} style={{ maxWidth: 480, margin: "0 auto 16px", display: "flex", gap: 4 }}>
               {ROOMS.map((room, i) => (
                 <motion.div
                   key={room.verb}
                   initial={{ scaleX: 0, opacity: 0 }}
                   whileInView={{ scaleX: 1, opacity: 1 }}
                   viewport={{ once: true }}
-                  transition={{
-                    duration: 0.35,
-                    delay: 0.4 + i * 0.12,
-                    ease: EASE,
-                  }}
-                  style={{
-                    flex: 1,
-                    height: 4,
-                    borderRadius: 4,
-                    background: room.color,
-                    opacity: 0.7,
-                    transformOrigin: "left center",
-                  }}
+                  transition={{ duration: 0.35, delay: 0.4 + i * 0.12, ease: EASE }}
+                  style={{ flex: 1, height: 4, borderRadius: 4, background: room.color, opacity: 0.7, transformOrigin: "left center" }}
                 />
               ))}
             </motion.div>
-
-            {/* Room labels */}
-            <motion.div
-              variants={fadeUp}
-              style={{
-                maxWidth: 480,
-                margin: "0 auto 32px",
-                display: "flex",
-                gap: 4,
-              }}
-            >
+            <motion.div variants={fadeUp} style={{ maxWidth: 480, margin: "0 auto 32px", display: "flex", gap: 4 }}>
               {ROOMS.map((room) => (
-                <span
-                  key={room.verb}
-                  style={{
-                    flex: 1,
-                    fontSize: 10,
-                    fontFamily: "var(--font-mono)",
-                    color: "var(--text-dim)",
-                    textAlign: "center",
-                  }}
-                >
-                  {room.verb}
-                </span>
+                <span key={room.verb} style={{ flex: 1, fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-dim)", textAlign: "center" }}>{room.verb}</span>
               ))}
             </motion.div>
 
-            {/* Output summary */}
-            <motion.div
-              variants={fadeUp}
-              style={{
-                maxWidth: 480,
-                margin: "0 auto 32px",
-                display: "flex",
-                justifyContent: "center",
-                gap: 24,
-              }}
-            >
+            {/* Output stats */}
+            <motion.div variants={fadeUp} style={{ maxWidth: 480, margin: "0 auto 32px", display: "flex", justifyContent: "center", gap: 24 }}>
               <OutputStat label="TIME" value="8 min" />
               <OutputStat label="SCORE" value="91/100" color="var(--status-success)" />
               <OutputStat label="PLATFORMS" value="6" />
               <OutputStat label="COST" value="~$2" color="var(--accent-gold)" />
             </motion.div>
 
-            {/* Tagline */}
-            <motion.p
-              variants={fadeUp}
-              style={{
-                fontSize: 14,
-                color: "var(--text-secondary)",
-                textAlign: "center",
-                margin: 0,
-                lineHeight: 1.6,
-              }}
-            >
-              One prompt. Six rooms. Minutes, not weeks.
+            <motion.p variants={fadeUp} style={{ fontSize: 14, color: "var(--text-secondary)", textAlign: "center", margin: 0, lineHeight: 1.6 }}>
+              From prompt or footage. Six rooms. Minutes, not weeks.
             </motion.p>
           </motion.div>
         </motion.div>
       </section>
 
-      {/* ── Section 3: The Beliefs ─────────────────────────── */}
-      <section
-        style={{
-          maxWidth: 960,
-          margin: "0 auto",
-          padding: "64px 24px",
-        }}
-      >
-        <motion.span
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-48px" }}
-          variants={fadeIn}
-          style={{
-            display: "block",
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            fontWeight: 500,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "var(--text-dim)",
-            marginBottom: 48,
-            textAlign: "center",
-          }}
-        >
+      {/* ── Beliefs ────────────────────────────────────────── */}
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px" }}>
+        <motion.span initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-48px" }} variants={fadeIn}
+          style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 48, textAlign: "center" }}>
           WHAT WE BELIEVE
         </motion.span>
-
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 64,
-            maxWidth: 640,
-            margin: "0 auto",
-          }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", gap: 64, maxWidth: 640, margin: "0 auto" }}>
           {BELIEFS.map((belief) => (
-            <motion.div
-              key={belief.statement}
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-48px" }}
-              variants={staggerContainer}
-              style={{ textAlign: "center" }}
-            >
-              <motion.h2
-                variants={fadeUp}
-                style={{
-                  fontSize: 32,
-                  fontWeight: 500,
-                  letterSpacing: "-0.02em",
-                  lineHeight: 1.2,
-                  color: "var(--text-primary)",
-                  margin: "0 0 16px",
-                }}
-              >
+            <motion.div key={belief.statement} initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-48px" }} variants={staggerContainer} style={{ textAlign: "center" }}>
+              <motion.h2 variants={fadeUp} style={{ fontSize: 32, fontWeight: 500, letterSpacing: "-0.02em", lineHeight: 1.2, color: "var(--text-primary)", margin: "0 0 16px" }}>
                 {belief.statement}
               </motion.h2>
-              <motion.p
-                variants={fadeUp}
-                style={{
-                  fontSize: 14,
-                  color: "var(--text-secondary)",
-                  lineHeight: 1.6,
-                  maxWidth: 480,
-                  margin: "0 auto",
-                }}
-              >
+              <motion.p variants={fadeUp} style={{ fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.6, maxWidth: 480, margin: "0 auto" }}>
                 {belief.supporting}
               </motion.p>
             </motion.div>
@@ -564,208 +226,45 @@ export function AboutPage() {
         </div>
       </section>
 
-      {/* ── Section 4: Journey ─────────────────────────────── */}
-      <section
-        style={{
-          maxWidth: 960,
-          margin: "0 auto",
-          padding: "64px 24px",
-        }}
-      >
-        <motion.span
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-48px" }}
-          variants={fadeIn}
-          style={{
-            display: "block",
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            fontWeight: 500,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "var(--text-dim)",
-            marginBottom: 48,
-            textAlign: "center",
-          }}
-        >
+      {/* ── Journey ────────────────────────────────────────── */}
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px" }}>
+        <motion.span initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-48px" }} variants={fadeIn}
+          style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 48, textAlign: "center" }}>
           THE JOURNEY
         </motion.span>
-
-        <div
-          style={{
-            maxWidth: 480,
-            margin: "0 auto",
-            position: "relative",
-          }}
-        >
-          {/* Vertical timeline line */}
+        <div style={{ maxWidth: 480, margin: "0 auto", position: "relative" }}>
           <JourneyLine />
-
-          {JOURNEY.map((milestone, i) => (
-            <motion.div
-              key={milestone.date}
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-32px" }}
-              variants={staggerContainer}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "80px 16px 1fr",
-                gap: 16,
-                alignItems: "start",
-                marginBottom: i < JOURNEY.length - 1 ? 48 : 0,
-                position: "relative",
-              }}
-            >
-              {/* Date */}
-              <motion.span
-                variants={fadeUp}
-                style={{
-                  fontSize: 11,
-                  fontWeight: 500,
-                  fontFamily: "var(--font-mono)",
-                  color: "var(--text-dim)",
-                  textAlign: "right",
-                  paddingTop: 4,
-                }}
-              >
-                {milestone.date}
-              </motion.span>
-
-              {/* Dot */}
-              <motion.div
-                variants={scaleFadeIn}
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: "var(--accent-gold)",
-                  marginTop: 8,
-                  position: "relative",
-                  zIndex: 2,
-                }}
-              />
-
-              {/* Content */}
+          {JOURNEY.map((m, i) => (
+            <motion.div key={m.date} initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-32px" }} variants={staggerContainer}
+              style={{ display: "grid", gridTemplateColumns: "80px 16px 1fr", gap: 16, alignItems: "start", marginBottom: i < JOURNEY.length - 1 ? 48 : 0, position: "relative" }}>
+              <motion.span variants={fadeUp} style={{ fontSize: 11, fontWeight: 500, fontFamily: "var(--font-mono)", color: "var(--text-dim)", textAlign: "right", paddingTop: 4 }}>{m.date}</motion.span>
+              <motion.div variants={scaleFadeIn} style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent-gold)", marginTop: 8, position: "relative", zIndex: 2 }} />
               <motion.div variants={fadeUp}>
-                <h3
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 500,
-                    color: "var(--text-primary)",
-                    margin: "0 0 4px",
-                  }}
-                >
-                  {milestone.title}
-                </h3>
-                <p
-                  style={{
-                    fontSize: 13,
-                    color: "var(--text-secondary)",
-                    lineHeight: 1.5,
-                    margin: 0,
-                  }}
-                >
-                  {milestone.description}
-                </p>
+                <h3 style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)", margin: "0 0 4px" }}>{m.title}</h3>
+                <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5, margin: 0 }}>{m.description}</p>
               </motion.div>
             </motion.div>
           ))}
         </div>
       </section>
 
-      {/* ── Section 5: Close ───────────────────────────────── */}
-      <section
-        style={{
-          maxWidth: 960,
-          margin: "0 auto",
-          padding: "64px 24px 96px",
-          textAlign: "center",
-        }}
-      >
-        <motion.div
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-48px" }}
-          variants={staggerContainer}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 32,
-          }}
-        >
-          <motion.h2
-            variants={fadeUp}
-            style={{
-              fontSize: 24,
-              fontWeight: 500,
-              letterSpacing: "-0.02em",
-              color: "var(--text-primary)",
-              margin: 0,
-            }}
-          >
-            We&apos;re building the production floor
-            <br />
-            the industry deserves.
+      {/* ── Close ──────────────────────────────────────────── */}
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px 96px", textAlign: "center" }}>
+        <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-48px" }} variants={staggerContainer}
+          style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 32 }}>
+          <motion.h2 variants={fadeUp} style={{ fontSize: 24, fontWeight: 500, letterSpacing: "-0.02em", color: "var(--text-primary)", margin: 0 }}>
+            We&apos;re building the production floor<br />the industry deserves.
           </motion.h2>
-
           <motion.div variants={fadeUp} style={{ display: "flex", gap: 16 }}>
-            <Link
-              href="/products"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "12px 24px",
-                background: "var(--accent-gold)",
-                color: "var(--bg-canvas)",
-                fontSize: 13,
-                fontWeight: 500,
-                borderRadius: 7,
-                textDecoration: "none",
-                transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "0.85";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "1";
-              }}
-            >
-              See the floor
-              <ArrowRight size={14} />
+            <Link href="/products" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", background: "var(--accent-gold)", color: "var(--bg-canvas)", fontSize: 13, fontWeight: 500, borderRadius: 7, textDecoration: "none", transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}>
+              See the floor <ArrowRight size={14} />
             </Link>
-
-            <Link
-              href="/careers"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "12px 24px",
-                border: "1px solid var(--border-emphasis)",
-                background: "transparent",
-                color: "var(--text-primary)",
-                fontSize: 13,
-                fontWeight: 500,
-                borderRadius: 7,
-                textDecoration: "none",
-                transition:
-                  "background 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-deeper)";
-                e.currentTarget.style.borderColor = "var(--text-dim)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.borderColor = "var(--border-emphasis)";
-              }}
-            >
-              Build with us
-              <ArrowRight size={14} />
+            <Link href="/careers" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", border: "1px solid var(--border-emphasis)", background: "transparent", color: "var(--text-primary)", fontSize: 13, fontWeight: 500, borderRadius: 7, textDecoration: "none", transition: "background 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-deeper)"; e.currentTarget.style.borderColor = "var(--text-dim)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "var(--border-emphasis)"; }}>
+              Build with us <ArrowRight size={14} />
             </Link>
           </motion.div>
         </motion.div>
@@ -774,44 +273,183 @@ export function AboutPage() {
   );
 }
 
-// ─── Output stat pill ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// TOOL ACCUMULATION — scroll-driven sticky section
+// ═══════════════════════════════════════════════════════════════
 
-function OutputStat({ label, value, color }: { label: string; value: string; color?: string }) {
+function ToolAccumulation() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollPct, setScrollPct] = useState(0);
+
+  useEffect(() => {
+    const onScroll = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const scrollableHeight = containerRef.current.offsetHeight - window.innerHeight;
+      const pct = Math.max(0, Math.min(1, -rect.top / scrollableHeight));
+      setScrollPct(pct);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // How many tools are visible (0–7)
+  const visibleCount = Math.min(TOOLS.length, Math.floor(scrollPct * (TOOLS.length + 1)));
+  // Current day count
+  const currentDay = visibleCount > 0 ? TOOLS[Math.min(visibleCount - 1, TOOLS.length - 1)].cumDays : 0;
+  // Show cost at the end
+  const showCost = scrollPct > 0.92;
+
   return (
-    <div style={{ textAlign: "center" }}>
-      <span
+    <div
+      ref={containerRef}
+      style={{ height: "350vh", position: "relative" }}
+    >
+      <div
         style={{
-          display: "block",
-          fontSize: 10,
-          fontFamily: "var(--font-mono)",
-          fontWeight: 500,
-          letterSpacing: "0.08em",
-          color: "var(--text-dim)",
-          marginBottom: 4,
+          position: "sticky",
+          top: 64,
+          height: "calc(100vh - 128px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          maxWidth: 960,
+          margin: "0 auto",
+          padding: "0 24px",
         }}
       >
-        {label}
-      </span>
-      <span
-        style={{
-          fontSize: 14,
-          fontWeight: 500,
-          fontFamily: "var(--font-mono)",
-          color: color ?? "var(--text-primary)",
-        }}
-      >
-        {value}
-      </span>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 64, width: "100%", alignItems: "center" }}>
+          {/* Left: Tool cards stacking */}
+          <div style={{ position: "relative", height: 320 }}>
+            {TOOLS.map((tool, i) => {
+              const isVisible = i < visibleCount;
+              const stackOffset = i * 8;
+              return (
+                <div
+                  key={tool.name}
+                  style={{
+                    position: "absolute",
+                    top: stackOffset,
+                    left: (i % 2) * 8,
+                    right: 0,
+                    padding: "16px 24px",
+                    background: "var(--bg-raised)",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: 12,
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: "var(--text-primary)",
+                    opacity: isVisible ? 1 : 0,
+                    transform: isVisible ? "translateY(0)" : "translateY(24px)",
+                    transition: `all 0.35s ${EASE}`,
+                    zIndex: i,
+                  }}
+                >
+                  {tool.name}
+                </div>
+              );
+            })}
+
+            {/* Cost label appears at end */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                textAlign: "center",
+                opacity: showCost ? 1 : 0,
+                transform: showCost ? "translateY(0)" : "translateY(8px)",
+                transition: `all 0.35s ${EASE}`,
+              }}
+            >
+              <span style={{ fontSize: 14, fontWeight: 500, color: "var(--status-danger)", fontFamily: "var(--font-mono)" }}>
+                $2,000+
+              </span>
+            </div>
+          </div>
+
+          {/* Right: Day counter */}
+          <div style={{ textAlign: "center" }}>
+            <span
+              style={{
+                display: "block",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                fontWeight: 500,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--text-dim)",
+                marginBottom: 16,
+              }}
+            >
+              {visibleCount > 0 ? "TIME ELAPSED" : " "}
+            </span>
+
+            <span
+              style={{
+                display: "block",
+                fontSize: 110,
+                fontWeight: 800,
+                fontFamily: "var(--font-mono)",
+                letterSpacing: "-0.06em",
+                lineHeight: 1,
+                color: currentDay > 15 ? "var(--status-danger)" : currentDay > 5 ? "var(--text-primary)" : "var(--text-secondary)",
+                transition: `color 0.35s ${EASE}`,
+              }}
+            >
+              {currentDay}
+            </span>
+
+            <span
+              style={{
+                display: "block",
+                fontSize: 18,
+                fontWeight: 500,
+                color: "var(--text-muted)",
+                marginTop: 8,
+              }}
+            >
+              {visibleCount > 0 ? (currentDay === 1 ? "day" : "days") : " "}
+            </span>
+
+            {/* Tool count */}
+            <span
+              style={{
+                display: "block",
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+                color: "var(--text-dim)",
+                marginTop: 24,
+                opacity: visibleCount > 0 ? 1 : 0,
+                transition: `opacity 0.25s ${EASE}`,
+              }}
+            >
+              {visibleCount} {visibleCount === 1 ? "tool" : "tools"}
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-// ─── Journey line (draws on scroll) ──────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// HELPER COMPONENTS
+// ═══════════════════════════════════════════════════════════════
+
+function OutputStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div style={{ textAlign: "center" }}>
+      <span style={{ display: "block", fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, letterSpacing: "0.08em", color: "var(--text-dim)", marginBottom: 4 }}>{label}</span>
+      <span style={{ fontSize: 14, fontWeight: 500, fontFamily: "var(--font-mono)", color: color ?? "var(--text-primary)" }}>{value}</span>
+    </div>
+  );
+}
 
 function JourneyLine() {
   const lineRef = useRef<HTMLDivElement>(null);
   const [drawPct, setDrawPct] = useState(0);
-
   useEffect(() => {
     const onScroll = () => {
       if (!lineRef.current) return;
@@ -824,29 +462,9 @@ function JourneyLine() {
     onScroll();
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
   return (
-    <div
-      ref={lineRef}
-      style={{
-        position: "absolute",
-        left: 99, // aligned with dot column center (80 + 16/2 + 8/2 = 99)
-        top: 8,
-        bottom: 8,
-        width: 1,
-        background: "var(--border-subtle)",
-        zIndex: 1,
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          height: `${drawPct * 100}%`,
-          background: "var(--accent-gold)",
-          transition: "height 0.1s linear",
-          opacity: 0.4,
-        }}
-      />
+    <div ref={lineRef} style={{ position: "absolute", left: 99, top: 8, bottom: 8, width: 1, background: "var(--border-subtle)", zIndex: 1 }}>
+      <div style={{ width: "100%", height: `${drawPct * 100}%`, background: "var(--accent-gold)", transition: "height 0.1s linear", opacity: 0.4 }} />
     </div>
   );
 }
