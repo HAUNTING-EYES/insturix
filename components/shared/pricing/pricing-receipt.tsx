@@ -123,20 +123,20 @@ export function PricingReceipt() {
   const activePlan = SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId);
   const isEnterprise = activePlanId === "enterprise";
 
-  // Receipt folds away when the total has been visible then user scrolls past
+  // Receipt folds away once the total has been seen and scrolls out
   const totalRef = useRef<HTMLDivElement>(null);
   const totalSeen = useRef(false);
-  const totalInView = useInView(totalRef, {});
+  const totalInView = useInView(totalRef, { margin: "-64px" });
   const [receiptFolded, setReceiptFolded] = useState(false);
 
   useEffect(() => {
     if (totalInView) {
       totalSeen.current = true;
     }
-    if (totalSeen.current && !totalInView && !receiptInView) {
+    if (totalSeen.current && !totalInView) {
       setReceiptFolded(true);
     }
-    if (receiptInView) {
+    if (receiptInView && !totalInView) {
       setReceiptFolded(false);
       totalSeen.current = false;
     }
