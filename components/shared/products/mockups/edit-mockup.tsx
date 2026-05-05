@@ -3,14 +3,11 @@
 /**
  * Editron (Edit) Interface Mockup
  *
- * Shows the video editor workspace:
- * - Topbar with project name + status
- * - Left: layers panel
- * - Center: video preview with overlays
- * - Right: AI chat
- * - Bottom: timeline with colored tracks
+ * Shows the video editor workspace with MODE TOGGLE:
+ * - "From prompt" (dimmed) | "Your footage" (active)
+ * - Communicates that Insturix edits uploaded footage, not just generates
  *
- * Based on the actual Editron editor layout.
+ * Layout: topbar + layers + preview + AI chat + timeline
  */
 
 import React from "react";
@@ -19,6 +16,7 @@ import { motion } from "framer-motion";
 const EASE = [0.16, 1, 0.3, 1] as const;
 
 const layers = [
+  { name: "Raw footage", color: "var(--category-cyan)", active: true },
   { name: "Video", color: "var(--status-danger)", active: true },
   { name: "Captions", color: "var(--status-success)", active: true },
   { name: "Music", color: "var(--category-pink)", active: false },
@@ -26,15 +24,15 @@ const layers = [
 ];
 
 const tracks = [
-  { label: "V", color: "var(--status-danger)", width: "100%" },
-  { label: "C", color: "var(--status-success)", width: "85%" },
-  { label: "M", color: "var(--category-pink)", width: "70%" },
-  { label: "G", color: "var(--category-purple)", width: "45%" },
+  { label: "R", color: "var(--category-cyan)", width: "100%" },
+  { label: "V", color: "var(--status-danger)", width: "85%" },
+  { label: "C", color: "var(--status-success)", width: "70%" },
+  { label: "M", color: "var(--category-pink)", width: "55%" },
 ];
 
 const chatMsgs = [
-  { role: "ai" as const, text: "Video ready. Score 91/100. Captions synced to voiceover." },
-  { role: "ai" as const, text: "Cuts locked to beat drops at 0:08 and 0:22." },
+  { text: "Analyzing footage… detected 14 usable clips across 260 MB." },
+  { text: "Applied hook-body-CTA structure. Cuts synced to audio peaks." },
 ];
 
 export function EditMockup() {
@@ -42,7 +40,7 @@ export function EditMockup() {
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-40px" }}
+      viewport={{ margin: "-40px" }}
       transition={{ duration: 0.6, ease: EASE }}
       style={{
         width: "100%",
@@ -55,19 +53,31 @@ export function EditMockup() {
         flexDirection: "column",
       }}
     >
-      {/* Topbar */}
+      {/* Topbar with mode toggle */}
       <div style={{
         height: 32, background: "var(--bg-deeper)", borderBottom: "1px solid var(--border-subtle)",
         display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", flexShrink: 0,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-dim)" }}>Edit</span>
-          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>·</span>
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Q1 Product Launch</span>
+          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{"·"}</span>
+          {/* Mode toggle */}
+          <span style={{
+            fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)",
+            padding: "2px 6px", borderRadius: 4,
+          }}>
+            From prompt
+          </span>
+          <span style={{
+            fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--category-cyan)", fontWeight: 500,
+            padding: "2px 6px", borderRadius: 4, background: "var(--bg-well)",
+          }}>
+            Your footage
+          </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--status-success)" }}>● Saved</span>
-          <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>0:30</span>
+          <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--status-success)" }}>{"●"} Saved</span>
+          <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>0:38</span>
         </div>
       </div>
 
@@ -94,14 +104,14 @@ export function EditMockup() {
 
         {/* Preview */}
         <div style={{ flex: 1, background: "#060605", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
-          {/* Video preview area */}
           <div style={{
             width: "82%", aspectRatio: "16/9", borderRadius: 6, position: "relative", overflow: "hidden",
             background: "linear-gradient(135deg, rgb(18,16,14), rgb(24,20,16))",
           }}>
-            {/* Brand overlay */}
-            <div style={{ position: "absolute", top: 8, left: 10, padding: "3px 8px", background: "rgba(0,0,0,0.6)", borderRadius: 4 }}>
-              <span style={{ fontSize: 8, fontWeight: 800, color: "#fff" }}>Insturix</span>
+            {/* Upload indicator */}
+            <div style={{ position: "absolute", top: 8, left: 10, padding: "3px 8px", background: "rgba(0,0,0,0.6)", borderRadius: 4, display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 4, height: 4, borderRadius: 2, background: "var(--category-cyan)" }} />
+              <span style={{ fontSize: 7, fontFamily: "var(--font-mono)", color: "var(--category-cyan)" }}>YOUR FOOTAGE</span>
             </div>
             {/* Caption overlay */}
             <div style={{ position: "absolute", bottom: 24, left: 10, right: 10 }}>
@@ -112,13 +122,8 @@ export function EditMockup() {
               </div>
             </div>
             {/* Play button */}
-            <div style={{
-              position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              <div style={{
-                width: 24, height: 24, borderRadius: "50%", background: "rgba(0,0,0,0.4)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <svg width="8" height="8" viewBox="0 0 24 24" fill="var(--text-primary)"><path d="M8 5v14l11-7z" /></svg>
               </div>
             </div>
