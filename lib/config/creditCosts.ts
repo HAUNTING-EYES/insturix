@@ -239,7 +239,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     name: 'Pro',
     description: 'For professional content creators',
     credits: 400,
-    price: 29.99,
+    price: 49,
     currency: 'USD',
     popular: true,
     features: [
@@ -254,7 +254,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     name: 'Premium',
     description: 'Ultimate creator experience',
     credits: 1000,
-    price: 79.99,
+    price: 99,
     currency: 'USD',
     features: [
       '1,000 Monthly Credits',
