@@ -279,8 +279,6 @@ async function uploadToGeminiFiles(
     const os = await import('os');
     const path = await import('path');
     const fs = await import('fs');
-    const { Readable } = await import('stream');
-    const { pipeline } = await import('stream/promises');
 
     // Clean ALL video temp files — both gemini_* AND vu_* (from video-understanding-service).
     try {
@@ -299,7 +297,8 @@ async function uploadToGeminiFiles(
     const tmpPath = path.join(os.tmpdir(), `gemini_${assetId}_${Date.now()}.mp4`);
 
     try {
-      // Stream download to disk — peak RAM usage ~64KB vs 260MB+ with buffer approach
+      // Stream download to disk — uses getReader() for Node 18+ compat
+      // (Readable.fromWeb not available in all Vercel Node builds)
       const response = await fetch(videoUrl);
       if (!response.ok || !response.body) {
         console.error(`[GeminiFiles] Download failed: ${response.status}`);
@@ -307,8 +306,20 @@ async function uploadToGeminiFiles(
       }
 
       const writeStream = fs.createWriteStream(tmpPath);
-      const readable = Readable.fromWeb(response.body as any);
-      await pipeline(readable, writeStream);
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          writeStream.write(Buffer.from(value));
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      await new Promise<void>((resolve, reject) => {
+        writeStream.end(() => resolve());
+        writeStream.on('error', reject);
+      });
 
       const fileSize = fs.statSync(tmpPath).size;
       console.log(`[GeminiFiles] Streamed ${Math.round(fileSize / 1024)}KB to disk, uploading to Gemini...`);

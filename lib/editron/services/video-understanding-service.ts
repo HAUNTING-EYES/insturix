@@ -256,8 +256,6 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
     const os = await import('os');
     const path = await import('path');
     const fs = await import('fs');
-    const { Readable } = await import('stream');
-    const { pipeline } = await import('stream/promises');
 
     // Clean orphaned temp files (>60s old)
     try {
@@ -275,7 +273,9 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
     const tmpPath = path.join(os.tmpdir(), `vu_${Date.now()}.mp4`);
 
     try {
-      // Stream download to disk — peak RAM usage is just the stream buffer (~64KB)
+      // Stream download to disk — peak RAM usage is just the chunk buffer (~64KB)
+      // Uses for-await iteration on Web ReadableStream (Node 18+ compatible,
+      // avoids Readable.fromWeb which isn't available in all Node builds)
       const response = await fetch(videoUrl);
       if (!response.ok || !response.body) {
         console.error(`[VideoUnderstanding] Download failed: ${response.status}`);
@@ -283,8 +283,20 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
       }
 
       const writeStream = fs.createWriteStream(tmpPath);
-      const readable = Readable.fromWeb(response.body as any);
-      await pipeline(readable, writeStream);
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          writeStream.write(Buffer.from(value));
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      await new Promise<void>((resolve, reject) => {
+        writeStream.end(() => resolve());
+        writeStream.on('error', reject);
+      });
 
       const fileSize = fs.statSync(tmpPath).size;
       console.log(`[VideoUnderstanding] Streamed ${Math.round(fileSize / 1024)}KB to disk, uploading to Gemini...`);
