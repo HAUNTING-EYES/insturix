@@ -154,7 +154,15 @@ export class AssetResolver {
 
     for (const asset of assets) {
       try {
-        if (cdnBaseUrl && (asset.gcsPath || asset.r2Key || asset.cachedUrl?.includes(cdnBaseUrl))) {
+        // CDN Worker URL is the canonical path for R2 assets.
+        // The assetId IS the R2 key — CDN Worker resolves it directly.
+        // Old code: only used CDN if asset had gcsPath/r2Key/cachedUrl-with-CDN.
+        // Bug: R2 assets registered by the worker had no r2Key field, so they fell
+        // through to "existing non-GCS URL" which returned the expired presigned URL.
+        // Guard: GCS-only assets (have gcsPath but no R2 key) must NOT go through CDN
+        // Worker — the Worker only serves R2 objects, not GCS.
+        const isGcsOnly = !!asset.gcsPath && !asset.r2Key && !asset.cachedUrl?.includes(cdnBaseUrl);
+        if (cdnBaseUrl && asset.assetId && !isGcsOnly) {
           assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${asset.assetId}`);
           console.log(`[AssetResolver] ${asset.assetId}: CDN proxy URL`);
         } else if (cdnBaseUrl && asset.cachedUrl && !asset.cachedUrl.includes('storage.googleapis.com')) {
