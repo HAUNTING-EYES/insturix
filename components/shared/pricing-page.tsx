@@ -324,12 +324,11 @@ function CostAccumulation() {
           <div style={{
             background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
             borderRadius: 4, padding: "24px 24px", fontFamily: "var(--font-mono)",
-            opacity: showInsturix ? 0.15 : 1,
-            transform: showInsturix
-              ? "perspective(600px) rotateX(12deg) rotateZ(2deg) scale(0.85) translateY(24px)"
-              : "perspective(600px) rotateX(0deg) rotateZ(0deg) scale(1) translateY(0)",
+            animation: showInsturix ? `paperCrumple 1.2s ${EASE_CSS} forwards` : "none",
+            opacity: showInsturix ? undefined : 1,
+            transform: showInsturix ? undefined : "none",
+            clipPath: showInsturix ? undefined : "inset(0)",
             transformOrigin: "center bottom",
-            transition: `opacity 0.8s ${EASE_CSS}, transform 0.8s ${EASE_CSS}`,
           }}>
             {/* Receipt header */}
             <div style={{ borderBottom: "1px dashed var(--border-emphasis)", paddingBottom: 16, marginBottom: 16, textAlign: "center" }}>
@@ -425,6 +424,12 @@ function CostAccumulation() {
         @keyframes strikeIn { from { transform: scaleX(0); transform-origin: left; } to { transform: scaleX(1); transform-origin: left; } }
         @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes meterShimmer { 0% { opacity: 0.5; } 50% { opacity: 0.7; } 100% { opacity: 0.5; } }
+        @keyframes paperCrumple {
+          0% { transform: none; opacity: 1; clip-path: inset(0); }
+          25% { transform: perspective(600px) rotateX(6deg) scaleY(0.88); opacity: 0.8; clip-path: polygon(1% 3%, 99% 0%, 100% 97%, 0% 100%); }
+          55% { transform: perspective(600px) rotateX(14deg) scaleY(0.55) scaleX(1.04) rotate(2deg); opacity: 0.35; clip-path: polygon(6% 12%, 50% 4%, 94% 10%, 96% 58%, 50% 64%, 4% 55%); }
+          100% { transform: perspective(600px) rotateX(22deg) scaleY(0.3) scaleX(0.88) rotate(4deg) translateY(32px); opacity: 0.04; clip-path: polygon(10% 18%, 48% 6%, 90% 15%, 93% 52%, 52% 60%, 8% 48%); }
+        }
       `}</style>
     </div>
   );
