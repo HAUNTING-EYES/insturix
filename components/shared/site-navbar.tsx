@@ -55,7 +55,7 @@ const menuItems = [
     ],
   },
   { title: "Pricing", href: "/upgrade" },
-  { title: "Agency", href: "/insturix-creatives-agency" },
+  { title: "Showcase", href: "/showcase" },
 ];
 
 // ─── Animation config ───────────────────────────────────────────
