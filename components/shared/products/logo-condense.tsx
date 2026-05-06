@@ -32,14 +32,15 @@ export function LogoCondense({ rooms }: { rooms: RoomInfo[] }) {
     return () => window.removeEventListener("scroll", onScroll);
   }, [scrollProgress]);
 
-  // Choreography: arcs spiral in → STAY as outer shell while logo draws → fade together with stroke when fill appears
-  // 0.00–0.40: arcs spiral in (fade in, 2 rotations, scale 2.0→1.0)
-  // 0.35–0.65: logo paths draw INSIDE the arcs (arcs stay visible = outer shell)
-  // 0.60–0.78: filled logo fades in, arcs + stroked outline fade out TOGETHER
+  // Choreography: arcs spiral in → scale to match logo outer circle → STAY as permanent outer shell
+  // 0.00–0.40: arcs spiral in (fade in, 2 rotations, scale 2.0→0.84)
+  // 0.35–0.65: logo paths draw INSIDE the settled arcs
+  // 0.60–0.78: filled logo fades in, stroke fades out, arcs DIM but STAY (they ARE the outer circle)
   // 0.72–0.90: text appears
-  const arcOpacityVal = useTransform(scrollProgress, [0, 0.15, 0.35, 0.60, 0.78], [0, 1, 1, 1, 0]);
+  // Arc scale 0.84 = arcs diameter (220px * 0.84 = 185px) aligns with logo PNG (180px + edge padding)
+  const arcOpacityVal = useTransform(scrollProgress, [0, 0.15, 0.35, 0.60, 0.85], [0, 1, 1, 0.7, 0.35]);
   const arcSpin = useTransform(scrollProgress, [0, 0.40], [0, 720]);
-  const arcScaleVal = useTransform(scrollProgress, [0, 0.40], [2.0, 1]);
+  const arcScaleVal = useTransform(scrollProgress, [0, 0.40], [2.0, 0.84]);
 
   const p1Draw = useTransform(scrollProgress, [0.35, 0.60], [0, 1]);
   const p2Draw = useTransform(scrollProgress, [0.40, 0.63], [0, 1]);
