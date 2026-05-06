@@ -324,9 +324,12 @@ function CostAccumulation() {
           <div style={{
             background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
             borderRadius: 4, padding: "24px 24px", fontFamily: "var(--font-mono)",
-            opacity: showInsturix ? 0 : 1,
-            transform: showInsturix ? "scale(0.9) translateY(-32px)" : "scale(1) translateY(0)",
-            transition: `opacity 0.5s ${EASE_CSS}, transform 0.5s ${EASE_CSS}`,
+            opacity: showInsturix ? 0.15 : 1,
+            transform: showInsturix
+              ? "perspective(600px) rotateX(12deg) rotateZ(2deg) scale(0.85) translateY(24px)"
+              : "perspective(600px) rotateX(0deg) rotateZ(0deg) scale(1) translateY(0)",
+            transformOrigin: "center bottom",
+            transition: `opacity 0.8s ${EASE_CSS}, transform 0.8s ${EASE_CSS}`,
           }}>
             {/* Receipt header */}
             <div style={{ borderBottom: "1px dashed var(--border-emphasis)", paddingBottom: 16, marginBottom: 16, textAlign: "center" }}>
