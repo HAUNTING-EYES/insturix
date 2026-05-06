@@ -274,14 +274,15 @@ export async function executeSilenceRemoval(
   // Sort overlays by position for consistency
   overlays.sort((a: any, b: any) => a.from - b.from || a.row - b.row);
 
-  // Dedup: merge overlapping video overlays on same row until none remain.
-  // The split algorithm can create overlaps when reverse-order processing
-  // and shift operations interact across adjacent silence gaps.
-  // Loop until stable — merging A+B may create new overlap with C.
+  // Fix tiny frame-rounding overlaps (1-3 frames) by snapping, not merging.
+  // Only merge if the overlap is significant (>30 frames = 1 second).
+  // The old code merged ANY overlap — 33 segments collapsed to 2, destroying
+  // all clip boundaries that transitions/captions/graphics need.
+  const MERGE_THRESHOLD_FRAMES = 30; // Only merge if >1s overlap (real duplicate, not rounding)
   const videoOverlaysBefore = overlays.filter((o: any) => o.type === 'video').length;
-  let mergedThisPass = true;
-  while (mergedThisPass) {
-    mergedThisPass = false;
+  let fixedThisPass = true;
+  while (fixedThisPass) {
+    fixedThisPass = false;
     for (let i = overlays.length - 1; i > 0; i--) {
       const curr = overlays[i];
       const prev = overlays[i - 1];
@@ -289,17 +290,26 @@ export async function executeSilenceRemoval(
       if (curr.row !== prev.row) continue;
 
       const prevEnd = prev.from + prev.durationInFrames;
-      if (curr.from < prevEnd) {
-        const currEnd = curr.from + curr.durationInFrames;
-        prev.durationInFrames = Math.max(prevEnd, currEnd) - prev.from;
-        overlays.splice(i, 1);
-        mergedThisPass = true;
+      const overlap = prevEnd - curr.from;
+      if (overlap > 0) {
+        if (overlap > MERGE_THRESHOLD_FRAMES) {
+          // Large overlap = real duplicate from a bug. Merge.
+          const currEnd = curr.from + curr.durationInFrames;
+          prev.durationInFrames = Math.max(prevEnd, currEnd) - prev.from;
+          overlays.splice(i, 1);
+          fixedThisPass = true;
+        } else {
+          // Small overlap = frame rounding artifact. Snap instead of merge.
+          // Trim the previous overlay to end exactly where the next starts.
+          prev.durationInFrames -= overlap;
+          fixedThisPass = true;
+        }
       }
     }
   }
   const videoOverlaysAfter = overlays.filter((o: any) => o.type === 'video').length;
   if (videoOverlaysBefore !== videoOverlaysAfter) {
-    console.log(`[SilenceRemoval] Merged ${videoOverlaysBefore - videoOverlaysAfter} overlapping video overlays (${videoOverlaysBefore} → ${videoOverlaysAfter})`);
+    console.log(`[SilenceRemoval] Merged ${videoOverlaysBefore - videoOverlaysAfter} truly-overlapping video overlays (${videoOverlaysBefore} → ${videoOverlaysAfter})`);
   }
 
   // Recalculate project duration
