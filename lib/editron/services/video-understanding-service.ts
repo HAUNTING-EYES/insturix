@@ -1,21 +1,41 @@
 /**
- * Video Understanding Service — "Reverse Storyboard"
+ * Video Understanding Service — Stage 3: Analyze Visual Setup
  *
- * Accepts a video URL → Gemini Vision analyzes the full video →
- * produces a SyntheticStoryboard that mimics ThinkForge's output.
+ * Watches the full video via Gemini Vision and extracts HOLISTIC visual
+ * observations that are stable across edits (don't change after cutting).
  *
- * The key insight: if you can fake a storyboard from a real video,
- * the entire Director pipeline runs as-is (Plan 2 architecture).
+ * Per creative doc v3 (intent:stage.analyze_visual_setup):
+ *   "Scene classification, face detection, shot scale, lighting analysis
+ *    on raw video keyframes — observations stable across edits."
  *
- * Output shape matches StoryboardScene.descriptor so Director,
- * profile-detection, and all downstream consumers work unchanged.
+ * Does NOT decompose into scenes. Scene boundaries come from the transcript
+ * (Stage 1) and signal executor (Path D). VU provides the visual CONTEXT
+ * that modulates how those signals are interpreted.
  *
- * Cost: 1 Gemini call (~$0.05-0.15 depending on video length).
+ * A professional editor's first watch: What's the setup? How many people?
+ * What's the production quality? What shot types are available? What's the
+ * visual tone? — NOT "here are 125 timestamped scenes."
+ *
+ * Cost: 1 Gemini call (~$0.03-0.05 — much less output than scene decomposition).
  */
 
-import type { SceneEditDirections } from '@/lib/pipeline/schemas/storyboard';
-
 // ─── Types ──────────────────────────────────────────────────────
+
+export interface VisualSetup {
+  environment: 'indoor-studio' | 'indoor-casual' | 'outdoor' | 'mixed' | 'screen-recording' | 'other';
+  subjectCount: number;
+  hasFace: boolean;
+  dominantShotScale: 'close-up' | 'medium' | 'wide' | 'mix';
+  availableShotTypes: string[];
+  lightingQuality: 'professional' | 'natural-good' | 'natural-poor' | 'artificial' | 'mixed';
+  productionQuality: 'professional' | 'prosumer' | 'casual' | 'low';
+  colorTemperature: 'warm' | 'cool' | 'neutral' | 'mixed';
+  hasBRoll: boolean;
+  cameraMovement: 'static' | 'handheld' | 'tripod-pan' | 'tracking' | 'mixed';
+  visualComplexity: number;
+  backgroundDescription: string;
+  notableVisualElements: string[];
+}
 
 export interface SyntheticScene {
   sceneIndex: number;
@@ -52,6 +72,8 @@ export interface SyntheticStoryboard {
     musicMood: string;
     narrativeArc: string;
   };
+  /** Visual setup from Stage 3 — holistic observations stable across edits */
+  visualSetup?: VisualSetup;
   scenes: SyntheticScene[];
   analyzedAt: string;
   /** Gemini file URI from VU upload — reusable by 5-Track to skip redundant CDN download */
@@ -95,16 +117,18 @@ export async function analyzeVideo(
       ? `\nUser intent: "${userIntent}" — use this to inform content type, platform, and edit style.\n`
       : '';
 
-    const prompt = `You are a professional video editor analyzing raw footage to plan its edit.
+    const prompt = `You are a professional video editor watching raw footage for the first time.
 
-Watch the full video and output a structured JSON analysis.${intentContext}
+Your job: understand the VISUAL SETUP of this footage — what kind of space, who's in it,
+how it's shot, what the production quality is. You are NOT breaking it into scenes.
+Scene boundaries come from the transcript, not from you.${intentContext}
 
-Return ONLY valid JSON matching this exact shape:
+Watch the full ${Math.round(durationSec)}s video and output ONLY valid JSON:
 {
   "contentType": "tutorial|vlog|ad|interview|product-demo|sports|corporate|testimonial|music-video|documentary",
   "platform": "youtube|instagram|tiktok|linkedin|general",
-  "title": "AI-generated descriptive title",
-  "overallMusicPrompt": "mood and style for background music",
+  "title": "descriptive title for this content",
+  "overallMusicPrompt": "mood and style for background music that fits this footage",
   "globalEditDirections": {
     "colorGrade": "warm|cool|neutral|cinematic|vibrant",
     "pacing": "fast|medium|slow",
@@ -112,37 +136,32 @@ Return ONLY valid JSON matching this exact shape:
     "musicMood": "one-line music mood description",
     "narrativeArc": "three-act|hook-value-cta|before-after|testimonial-arc|day-in-the-life"
   },
-  "scenes": [
-    {
-      "sceneIndex": 0,
-      "startSec": 0.0,
-      "endSec": 5.0,
-      "sceneType": "continuous|montage|talking-head|text-card|logo-reveal",
-      "descriptor": {
-        "narration": "exact speech transcript if any, empty string if silent",
-        "visualDescription": "one sentence: who/what is on screen, what is happening",
-        "mood": "energetic|calm|dramatic|playful|serious|inspirational|mysterious",
-        "cameraDirection": "static|pan-left|pan-right|zoom-in|tracking|handheld",
-        "audioDescription": "what audio is present (speech, music, ambient)",
-        "musicDescription": "music mood for this scene",
-        "sfxDescription": "ambient sounds + spot effects",
-        "editDirections": {
-          "transition": { "type": "dissolve|hard-cut|dip-to-black" },
-          "pacing": "fast|medium|slow",
-          "onScreenText": ["any text that should appear as graphics"]
-        },
-        "durationSeconds": 5.0
-      }
-    }
-  ]
+  "visualSetup": {
+    "environment": "indoor-studio|indoor-casual|outdoor|mixed|screen-recording|other",
+    "subjectCount": 1,
+    "hasFace": true,
+    "dominantShotScale": "close-up|medium|wide|mix",
+    "availableShotTypes": ["medium-shot", "close-up"],
+    "lightingQuality": "professional|natural-good|natural-poor|artificial|mixed",
+    "productionQuality": "professional|prosumer|casual|low",
+    "colorTemperature": "warm|cool|neutral|mixed",
+    "hasBRoll": false,
+    "cameraMovement": "static|handheld|tripod-pan|tracking|mixed",
+    "visualComplexity": 0.3,
+    "backgroundDescription": "what is behind the subject — one sentence",
+    "notableVisualElements": ["props or objects that could be referenced in graphics"]
+  },
+  "briefSummary": "2-3 sentence summary of what this video is about and who the speaker/subject is"
 }
 
 Rules:
-- Detect scene boundaries from visual changes (new location, new subject, camera angle change)
-- For each scene: narration = exact transcript of speech. Empty string if silent.
-- Minimum scene duration: 2 seconds. Maximum: 15 seconds.
-- Video is ${durationSec} seconds long. Produce ${Math.max(2, Math.ceil(durationSec / 8))} to ${Math.max(4, Math.ceil(durationSec / 4))} scenes.
-- Content type and platform: infer from visual style, subjects, aspect ratio, length.
+- Watch the ENTIRE video before answering.
+- visualSetup describes what is STABLE across the footage — the room doesn't change, the lighting doesn't change, the number of people doesn't change. Report what persists.
+- availableShotTypes: list ALL distinct shot framings you observe (close-up, medium, wide, over-shoulder, etc.)
+- visualComplexity: 0.0 = static talking head with plain background, 1.0 = fast-moving multi-subject scene with complex background
+- hasBRoll: true ONLY if there are non-primary shots (cutaways, product shots, B-roll inserts). NOT if the speaker just moves.
+- contentType and platform: infer from visual style, subjects, aspect ratio, length.
+- Do NOT list scenes or timestamps. Do NOT transcribe speech. Just describe the visual setup.
 - Return ONLY the JSON object. No markdown, no explanation.`;
 
     console.log(`[VideoUnderstanding] Analyzing ${durationSec}s video...`);
@@ -161,33 +180,23 @@ Rules:
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    // Validate + normalize
-    const scenes: SyntheticScene[] = (parsed.scenes || []).map((s: any, i: number) => ({
-      sceneIndex: s.sceneIndex ?? i,
-      startSec: s.startSec ?? 0,
-      endSec: s.endSec ?? durationSec,
-      sceneType: s.sceneType || 'continuous',
-      descriptor: {
-        narration: s.descriptor?.narration || '',
-        visualDescription: s.descriptor?.visualDescription || '',
-        mood: s.descriptor?.mood || 'neutral',
-        cameraDirection: s.descriptor?.cameraDirection || 'static',
-        audioDescription: s.descriptor?.audioDescription || '',
-        musicDescription: s.descriptor?.musicDescription || '',
-        sfxDescription: s.descriptor?.sfxDescription || '',
-        editDirections: {
-          transition: { type: s.descriptor?.editDirections?.transition?.type || 'hard-cut' },
-          pacing: s.descriptor?.editDirections?.pacing || 'medium',
-          onScreenText: s.descriptor?.editDirections?.onScreenText || [],
-        },
-        durationSeconds: (s.endSec ?? durationSec) - (s.startSec ?? 0),
-      },
-    }));
-
-    if (scenes.length === 0) {
-      console.error('[VideoUnderstanding] Gemini returned 0 scenes');
-      return null;
-    }
+    // Parse visual setup (Stage 3 — holistic observations, no scenes)
+    const vs = parsed.visualSetup || {};
+    const visualSetup: VisualSetup = {
+      environment: vs.environment || 'other',
+      subjectCount: typeof vs.subjectCount === 'number' ? vs.subjectCount : 1,
+      hasFace: vs.hasFace !== false,
+      dominantShotScale: vs.dominantShotScale || 'medium',
+      availableShotTypes: Array.isArray(vs.availableShotTypes) ? vs.availableShotTypes : [],
+      lightingQuality: vs.lightingQuality || 'natural-good',
+      productionQuality: vs.productionQuality || 'casual',
+      colorTemperature: vs.colorTemperature || 'neutral',
+      hasBRoll: vs.hasBRoll === true,
+      cameraMovement: vs.cameraMovement || 'static',
+      visualComplexity: typeof vs.visualComplexity === 'number' ? Math.max(0, Math.min(1, vs.visualComplexity)) : 0.3,
+      backgroundDescription: vs.backgroundDescription || '',
+      notableVisualElements: Array.isArray(vs.notableVisualElements) ? vs.notableVisualElements : [],
+    };
 
     const storyboard: SyntheticStoryboard = {
       sourceVideoUrl: videoUrl,
@@ -202,13 +211,13 @@ Rules:
         musicMood: parsed.globalEditDirections?.musicMood || '',
         narrativeArc: parsed.globalEditDirections?.narrativeArc || 'three-act',
       },
-      scenes,
+      visualSetup,
+      scenes: [],
       analyzedAt: new Date().toISOString(),
-      // Carry the Gemini file URI so 5-Track can reuse it (avoids redundant CDN download + 429s)
       geminiFileUri: fileUri.startsWith('http') ? undefined : fileUri,
     };
 
-    console.log(`[VideoUnderstanding] Done: ${scenes.length} scenes, type=${storyboard.contentType}, platform=${storyboard.platform}`);
+    console.log(`[VideoUnderstanding] Done: type=${storyboard.contentType}, platform=${storyboard.platform}, setup=${visualSetup.environment}/${visualSetup.dominantShotScale}/${visualSetup.productionQuality}`);
     return storyboard;
 
   } catch (err: unknown) {

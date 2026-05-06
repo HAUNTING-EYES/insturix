@@ -62,30 +62,52 @@ async function handler(request: NextRequest) {
       { $set: { autoEditStatus: 'analyzing', autoEditStartedAt: new Date() } },
     );
 
-    // ─── Step 1: Video Understanding → SyntheticStoryboard ────────
+    // ─── Step 1: Visual Setup + Transcription IN PARALLEL ──────────
+    // Per creative doc v3: Stage 1 (transcribe) and Stage 3 (visual setup) are
+    // independent. VU watches video (visual), raw footage processes audio (transcript).
+    // Running sequentially wasted 4.75 min blocking on VU before transcription started.
     let syntheticStoryboard: any = null;
-    try {
-      const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
-      console.log(`[VideoAnalysisWorker] Analyzing ${Math.round(durationSec)}s video (${assetId})...`);
-      syntheticStoryboard = await analyzeVideo(videoUrl, durationSec, userIntent || title);
-      if (syntheticStoryboard) {
-        console.log(`[VideoAnalysisWorker] SyntheticStoryboard: ${syntheticStoryboard.scenes.length} scenes, type=${syntheticStoryboard.contentType}`);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[VideoAnalysisWorker] Video understanding failed: ${msg}. Director runs without scene context.`);
+    let rawFootageAnalysis: any = null;
+
+    console.log(`[VideoAnalysisWorker] Analyzing ${Math.round(durationSec)}s video (${assetId}) — VU + transcription in parallel...`);
+
+    const [vuResult, rawResult] = await Promise.allSettled([
+      // Stage 3: Visual setup analysis (Gemini Vision — watches video)
+      (async () => {
+        const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
+        return analyzeVideo(videoUrl, durationSec, userIntent || title);
+      })(),
+      // Stage 1: Transcribe + silence detect + best-take + classify (audio processing)
+      (async () => {
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'transcribing' } },
+        );
+        const { processRawFootage } = await import('@/lib/editron/services/raw-footage-processor');
+        return processRawFootage(assetId, userId, durationSec, platform, userIntent);
+      })(),
+    ]);
+
+    // Handle VU result
+    if (vuResult.status === 'fulfilled' && vuResult.value) {
+      syntheticStoryboard = vuResult.value;
+      const setup = syntheticStoryboard.visualSetup;
+      console.log(`[VideoAnalysisWorker] VU: type=${syntheticStoryboard.contentType}, setup=${setup?.environment || 'unknown'}/${setup?.dominantShotScale || 'unknown'}/${setup?.productionQuality || 'unknown'}`);
+    } else {
+      const msg = vuResult.status === 'rejected' ? vuResult.reason?.message || String(vuResult.reason) : 'returned null';
+      console.warn(`[VideoAnalysisWorker] VU failed: ${msg}. Continuing without visual setup.`);
     }
 
-    // ─── Step 2: Script override (if provided) ────────────────────
-    if (script && syntheticStoryboard?.scenes?.length) {
-      const sentences = script
-        .split(/(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])$/)
-        .filter((s: string) => s.trim().length > 5);
-      for (let i = 0; i < syntheticStoryboard.scenes.length; i++) {
-        if (sentences[i]) {
-          syntheticStoryboard.scenes[i].descriptor.narration = sentences[i].trim();
-        }
-      }
+    // Handle raw footage result
+    if (rawResult.status === 'fulfilled' && rawResult.value) {
+      rawFootageAnalysis = rawResult.value;
+      console.log(`[VideoAnalysisWorker] Raw footage: ${rawFootageAnalysis.contentTypeDetection.contentType} (${rawFootageAnalysis.silenceRemovalPlan.length} removals, clean=${Math.round(rawFootageAnalysis.estimatedCleanDurationMs / 1000)}s)`);
+    } else {
+      const err = rawResult.status === 'rejected' ? rawResult.reason : null;
+      const msg = err instanceof Error ? err.message : String(err || 'returned null');
+      const stack = err instanceof Error ? err.stack : '';
+      console.error(`[VideoAnalysisWorker] Raw footage processing FAILED: ${msg}`);
+      if (stack) console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
     }
 
     // Platform override
@@ -93,7 +115,7 @@ async function handler(request: NextRequest) {
       syntheticStoryboard.platform = platform;
     }
 
-    // ─── Step 3: Reference style transfer (if provided) ───────────
+    // ─── Reference style transfer (if provided) ───────────────────
     let editDNA: any = null;
     if (referenceAssetId) {
       try {
@@ -108,25 +130,6 @@ async function handler(request: NextRequest) {
         const msg = refErr instanceof Error ? refErr.message : String(refErr);
         console.warn(`[VideoAnalysisWorker] Reference extraction failed: ${msg}`);
       }
-    }
-
-    // ─── Step 1.5: Raw Footage Processing (transcribe → silence detect → best-take → classify) ──
-    let rawFootageAnalysis: any = null;
-    try {
-      await db.collection('projects').updateOne(
-        { projectId },
-        { $set: { autoEditStatus: 'transcribing' } },
-      );
-
-      const { processRawFootage } = await import('@/lib/editron/services/raw-footage-processor');
-      console.log(`[VideoAnalysisWorker] Processing raw footage (transcribe + silence detect + classify)...`);
-      rawFootageAnalysis = await processRawFootage(assetId, userId, durationSec, platform, userIntent);
-      console.log(`[VideoAnalysisWorker] Raw footage: ${rawFootageAnalysis.contentTypeDetection.contentType} (${rawFootageAnalysis.silenceRemovalPlan.length} removals, clean=${Math.round(rawFootageAnalysis.estimatedCleanDurationMs / 1000)}s)`);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error ? err.stack : '';
-      console.error(`[VideoAnalysisWorker] Raw footage processing FAILED: ${msg}`);
-      console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
     }
 
     // ─── Step 1.55: Fix video duration + register asset if missing ──
