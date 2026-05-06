@@ -273,7 +273,7 @@ export function ContactPage() {
                   animation: "contactPulse 2.1s infinite ease-out 1.4s",
                 }}
               />
-              <HeadsetIcon />
+              <HeadsetIcon size={120} />
             </div>
 
             {/* CTA text */}
