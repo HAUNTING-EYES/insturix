@@ -33,12 +33,12 @@ interface JobPosition {
 /* ------------------------------------------------------------------ */
 
 const rooms: Room[] = [
-  { key: "script", label: "Script", color: "var(--accent-gold)", staffed: true, teamSize: "3 team members" },
-  { key: "edit", label: "Edit", color: "var(--status-danger)", staffed: false },
-  { key: "analyze", label: "Analyze", color: "var(--category-purple)", staffed: false },
-  { key: "design", label: "Design", color: "var(--category-cyan)", staffed: false },
-  { key: "distribute", label: "Distribute", color: "var(--status-success)", staffed: false },
-  { key: "share", label: "Share", color: "var(--category-pink)", staffed: true, teamSize: "2 team members" },
+  { key: "script", label: "Content", color: "var(--accent-gold)", staffed: true, teamSize: "3 team members" },
+  { key: "edit", label: "Platform", color: "var(--status-danger)", staffed: false },
+  { key: "analyze", label: "Intelligence", color: "var(--category-purple)", staffed: false },
+  { key: "design", label: "Creative", color: "var(--category-cyan)", staffed: false },
+  { key: "distribute", label: "Growth", color: "var(--status-success)", staffed: false },
+  { key: "share", label: "Community", color: "var(--category-pink)", staffed: true, teamSize: "2 team members" },
 ];
 
 const jobPositions: JobPosition[] = [

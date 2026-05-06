@@ -201,7 +201,7 @@ export function ShowcaseGallery() {
           transition={{ duration: 0.5, ease: EASE }}
           viewport={{ margin: "-48px" }}
         >
-          The gallery.
+          See what&apos;s possible.
         </motion.h2>
         <motion.p
           style={{
@@ -217,7 +217,7 @@ export function ShowcaseGallery() {
           transition={{ duration: 0.5, ease: EASE, delay: 0.08 }}
           viewport={{ margin: "-48px" }}
         >
-          Productions made with Insturix. One at a time.
+          Real productions. From prompt or footage. Scored, analyzed, shipped.
         </motion.p>
       </div>
 
