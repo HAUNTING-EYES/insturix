@@ -296,7 +296,16 @@ function CostAccumulation() {
                 opacity: 0.6,
                 borderRadius: "0 0 12px 12px",
                 transition: `height 0.15s linear, background 0.5s ${EASE_CSS}`,
+                animation: fillPct > 0.7 ? `meterShimmer 1.5s ease-in-out infinite` : "none",
               }} />
+              {/* Tick marks at 25%, 50%, 75% */}
+              {[0.25, 0.5, 0.75].map((pct) => (
+                <div key={pct} style={{
+                  position: "absolute", right: 0, bottom: `${pct * 100}%`,
+                  width: 8, height: 1,
+                  background: "var(--border-emphasis)",
+                }} />
+              ))}
               {/* Overflow glow */}
               {fillPct > 1 && (
                 <div style={{
@@ -315,8 +324,8 @@ function CostAccumulation() {
           <div style={{
             background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
             borderRadius: 4, padding: "24px 24px", fontFamily: "var(--font-mono)",
-            opacity: showInsturix ? 0.2 : 1,
-            transform: showInsturix ? "scale(0.96)" : "scale(1)",
+            opacity: showInsturix ? 0 : 1,
+            transform: showInsturix ? "scale(0.9) translateY(-32px)" : "scale(1) translateY(0)",
             transition: `opacity 0.5s ${EASE_CSS}, transform 0.5s ${EASE_CSS}`,
           }}>
             {/* Receipt header */}
@@ -412,6 +421,7 @@ function CostAccumulation() {
       <style>{`
         @keyframes strikeIn { from { transform: scaleX(0); transform-origin: left; } to { transform: scaleX(1); transform-origin: left; } }
         @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes meterShimmer { 0% { opacity: 0.5; } 50% { opacity: 0.7; } 100% { opacity: 0.5; } }
       `}</style>
     </div>
   );
