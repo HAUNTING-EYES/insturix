@@ -1,15 +1,46 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { SiteNavbar } from "@/components/shared/site-navbar";
 import { SiteFooter } from "@/components/shared/site-footer";
 
-const jobPositions = [
+type RoomKey = "script" | "edit" | "analyze" | "design" | "distribute" | "share";
+
+const roomColors: Record<RoomKey, string> = {
+  script: "var(--accent-gold)",
+  edit: "var(--status-danger)",
+  analyze: "var(--category-purple)",
+  design: "var(--category-cyan)",
+  distribute: "var(--status-success)",
+  share: "var(--category-pink)",
+};
+
+const rooms: { key: RoomKey; label: string }[] = [
+  { key: "script", label: "Script" },
+  { key: "edit", label: "Edit" },
+  { key: "analyze", label: "Analyze" },
+  { key: "design", label: "Design" },
+  { key: "distribute", label: "Distribute" },
+  { key: "share", label: "Share" },
+];
+
+interface JobPosition {
+  title: string;
+  room: RoomKey;
+  location: string;
+  type: string;
+  experience: string;
+  description: string;
+  skills: string[];
+}
+
+const jobPositions: JobPosition[] = [
   {
     title: "Marketing Lead",
-    department: "Marketing",
+    room: "distribute",
     location: "Remote / Hybrid",
     type: "Full-time",
     experience: "3-5 years",
@@ -19,7 +50,7 @@ const jobPositions = [
   },
   {
     title: "Branding Manager",
-    department: "Marketing",
+    room: "design",
     location: "Remote / Hybrid",
     type: "Full-time",
     experience: "2-4 years",
@@ -29,7 +60,7 @@ const jobPositions = [
   },
   {
     title: "Full Stack Developer",
-    department: "Engineering",
+    room: "edit",
     location: "Remote / On-site",
     type: "Full-time",
     experience: "2-5 years",
@@ -39,7 +70,7 @@ const jobPositions = [
   },
   {
     title: "AI Engineer",
-    department: "Engineering",
+    room: "analyze",
     location: "Remote / On-site",
     type: "Full-time",
     experience: "3-6 years",
@@ -49,7 +80,7 @@ const jobPositions = [
   },
   {
     title: "MLOps Engineer",
-    department: "Engineering",
+    room: "edit",
     location: "Remote / On-site",
     type: "Full-time",
     experience: "3-5 years",
@@ -59,7 +90,7 @@ const jobPositions = [
   },
   {
     title: "Go-To-Market Strategist",
-    department: "Strategy",
+    room: "distribute",
     location: "Remote / Hybrid",
     type: "Full-time",
     experience: "4-7 years",
@@ -69,9 +100,20 @@ const jobPositions = [
   },
 ];
 
-const heroPills = ["Remote-first", "6 open roles", "Production-grade culture"];
+function getRoleCount(roomKey: RoomKey): number {
+  return jobPositions.filter((j) => j.room === roomKey).length;
+}
+
+const ease = [0.16, 1, 0.3, 1] as const;
 
 export default function Careers() {
+  const [selectedRoom, setSelectedRoom] = useState<string>("all");
+
+  const filteredJobs =
+    selectedRoom === "all"
+      ? jobPositions
+      : jobPositions.filter((j) => j.room === selectedRoom);
+
   return (
     <>
       <SiteNavbar />
@@ -94,7 +136,7 @@ export default function Careers() {
           <motion.h1
             initial={{ opacity: 0, y: 24 }}
             whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.5, ease }}
             viewport={{ amount: 0.3 }}
             style={{
               fontSize: 44,
@@ -111,7 +153,7 @@ export default function Careers() {
           <motion.p
             initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.5, delay: 0.1, ease }}
             viewport={{ amount: 0.3 }}
             style={{
               fontSize: 14,
@@ -125,46 +167,117 @@ export default function Careers() {
               lineHeight: 1.6,
             }}
           >
-            We&apos;re looking for people who think in systems, ship with precision,
-            and care about craft.
+            Every room needs a crew. Find yours.
           </motion.p>
+        </section>
 
+        {/* Room selector strip */}
+        <section
+          style={{
+            maxWidth: 960,
+            margin: "0 auto",
+            padding: "0 24px 48px",
+          }}
+        >
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.5, delay: 0.15, ease }}
             viewport={{ amount: 0.3 }}
             style={{
               display: "flex",
-              justifyContent: "center",
-              gap: 12,
-              marginTop: 32,
+              gap: 8,
               flexWrap: "wrap",
             }}
           >
-            {heroPills.map((label) => (
-              <span
-                key={label}
-                style={{
-                  fontSize: 10,
-                  fontFamily: "var(--font-mono)",
-                  fontWeight: 500,
-                  color: "var(--text-muted)",
-                  backgroundColor: "var(--bg-deeper)",
-                  border: "1px solid var(--border-subtle)",
-                  borderRadius: 4,
-                  padding: "4px 12px",
-                  letterSpacing: "0.03em",
-                  textTransform: "uppercase",
-                }}
-              >
-                {label}
-              </span>
-            ))}
+            {/* All rooms pill */}
+            <button
+              onClick={() => setSelectedRoom("all")}
+              style={{
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+                fontWeight: 500,
+                color:
+                  selectedRoom === "all"
+                    ? "var(--text-primary)"
+                    : "var(--text-muted)",
+                backgroundColor:
+                  selectedRoom === "all"
+                    ? "var(--bg-well)"
+                    : "var(--bg-raised)",
+                border:
+                  selectedRoom === "all"
+                    ? "1px solid var(--border-emphasis)"
+                    : "1px solid var(--border-subtle)",
+                borderRadius: 7,
+                padding: "8px 16px",
+                cursor: "pointer",
+                letterSpacing: "0.03em",
+                transition:
+                  "border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1), color 0.25s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+              }}
+            >
+              All rooms
+            </button>
+
+            {rooms.map((room) => {
+              const count = getRoleCount(room.key);
+              const isActive = selectedRoom === room.key;
+              return (
+                <button
+                  key={room.key}
+                  onClick={() => setSelectedRoom(room.key)}
+                  style={{
+                    fontSize: 11,
+                    fontFamily: "var(--font-mono)",
+                    fontWeight: 500,
+                    color: isActive
+                      ? "var(--text-primary)"
+                      : "var(--text-muted)",
+                    backgroundColor: isActive
+                      ? "var(--bg-well)"
+                      : "var(--bg-raised)",
+                    border: isActive
+                      ? `1px solid ${roomColors[room.key]}`
+                      : "1px solid var(--border-subtle)",
+                    borderRadius: 7,
+                    padding: "8px 16px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    letterSpacing: "0.03em",
+                    transition:
+                      "border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1), color 0.25s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      backgroundColor: roomColors[room.key],
+                      display: "inline-block",
+                      flexShrink: 0,
+                    }}
+                  />
+                  {room.label}
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-dim)",
+                      fontWeight: 400,
+                    }}
+                  >
+                    {count} {count === 1 ? "role" : "roles"}
+                  </span>
+                </button>
+              );
+            })}
           </motion.div>
         </section>
 
-        {/* Open Roles */}
+        {/* Role cards */}
         <section
           style={{
             maxWidth: 960,
@@ -172,186 +285,149 @@ export default function Careers() {
             padding: "0 24px 64px",
           }}
         >
-          <motion.h2
-            initial={{ opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            viewport={{ amount: 0.3 }}
-            style={{
-              fontSize: 24,
-              fontWeight: 500,
-              fontFamily: "var(--font-sans)",
-              color: "var(--text-primary)",
-              marginBottom: 32,
-            }}
-          >
-            Open roles
-          </motion.h2>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, 1fr)",
-              gap: 16,
-            }}
-          >
-            {jobPositions.map((job, i) => (
-              <motion.div
-                key={job.title}
-                initial={{ opacity: 0, y: 24 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{
-                  duration: 0.45,
-                  delay: i * 0.07,
-                  ease: [0.16, 1, 0.3, 1],
-                }}
-                viewport={{ amount: 0.15 }}
-                style={{
-                  backgroundColor: "var(--bg-raised)",
-                  border: "1px solid var(--border-subtle)",
-                  borderRadius: 12,
-                  padding: 24,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 16,
-                }}
-              >
-                {/* Top: department + hiring dot */}
-                <div
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={selectedRoom}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.35, ease }}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, 1fr)",
+                gap: 16,
+              }}
+            >
+              {filteredJobs.map((job, i) => (
+                <motion.div
+                  key={job.title}
+                  initial={{ opacity: 0, y: 24 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  transition={{
+                    duration: 0.45,
+                    delay: i * 0.06,
+                    ease,
+                  }}
+                  viewport={{ amount: 0.15 }}
                   style={{
+                    backgroundColor: "var(--bg-raised)",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: 12,
+                    padding: 24,
+                    borderLeft: `4px solid ${roomColors[job.room]}`,
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
+                    flexDirection: "column",
+                    gap: 12,
                   }}
                 >
+                  {/* Room label */}
                   <span
                     style={{
                       fontSize: 10,
                       fontFamily: "var(--font-mono)",
                       fontWeight: 500,
-                      color: "var(--text-dim)",
+                      color: roomColors[job.room],
                       letterSpacing: "0.04em",
                       textTransform: "uppercase",
                     }}
                   >
-                    {job.department}
+                    {rooms.find((r) => r.key === job.room)?.label}
                   </span>
-                  <span
+
+                  {/* Title */}
+                  <h3
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontSize: 10,
-                      fontFamily: "var(--font-mono)",
+                      fontSize: 18,
                       fontWeight: 500,
-                      color: "var(--status-success)",
-                      letterSpacing: "0.03em",
+                      fontFamily: "var(--font-sans)",
+                      color: "var(--text-primary)",
+                      margin: 0,
+                      lineHeight: 1.3,
                     }}
                   >
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: "50%",
-                        backgroundColor: "var(--status-success)",
-                        display: "inline-block",
-                      }}
-                    />
-                    Hiring
-                  </span>
-                </div>
+                    {job.title}
+                  </h3>
 
-                {/* Title */}
-                <h3
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 500,
-                    fontFamily: "var(--font-sans)",
-                    color: "var(--text-primary)",
-                    margin: 0,
-                    lineHeight: 1.3,
-                  }}
-                >
-                  {job.title}
-                </h3>
+                  {/* Description */}
+                  <p
+                    style={{
+                      fontSize: 13,
+                      fontFamily: "var(--font-sans)",
+                      fontWeight: 400,
+                      color: "var(--text-secondary)",
+                      margin: 0,
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    {job.description}
+                  </p>
 
-                {/* Description */}
-                <p
-                  style={{
-                    fontSize: 13,
-                    fontFamily: "var(--font-sans)",
-                    fontWeight: 400,
-                    color: "var(--text-secondary)",
-                    margin: 0,
-                    lineHeight: 1.55,
-                  }}
-                >
-                  {job.description}
-                </p>
+                  {/* Skills */}
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 8,
+                    }}
+                  >
+                    {job.skills.map((skill) => (
+                      <span
+                        key={skill}
+                        style={{
+                          fontSize: 10,
+                          fontFamily: "var(--font-mono)",
+                          fontWeight: 400,
+                          color: "var(--text-muted)",
+                          backgroundColor: "var(--bg-deeper)",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: 4,
+                          padding: "4px 12px",
+                        }}
+                      >
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
 
-                {/* Skills */}
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 8,
-                  }}
-                >
-                  {job.skills.map((skill) => (
-                    <span
-                      key={skill}
-                      style={{
-                        fontSize: 10,
-                        fontFamily: "var(--font-mono)",
-                        fontWeight: 400,
-                        color: "var(--text-muted)",
-                        backgroundColor: "var(--bg-deeper)",
-                        border: "1px solid var(--border-subtle)",
-                        borderRadius: 4,
-                        padding: "4px 12px",
-                      }}
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
+                  {/* Meta row */}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 16,
+                      fontSize: 11,
+                      fontFamily: "var(--font-mono)",
+                      fontWeight: 400,
+                      color: "var(--text-dim)",
+                    }}
+                  >
+                    <span>{job.location}</span>
+                    <span>&middot;</span>
+                    <span>{job.type}</span>
+                    <span>&middot;</span>
+                    <span>{job.experience}</span>
+                  </div>
 
-                {/* Meta row */}
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 16,
-                    fontSize: 11,
-                    fontFamily: "var(--font-mono)",
-                    fontWeight: 400,
-                    color: "var(--text-dim)",
-                  }}
-                >
-                  <span>{job.location}</span>
-                  <span>{job.type}</span>
-                  <span>{job.experience}</span>
-                </div>
-
-                {/* Apply CTA */}
-                <Link
-                  href="/contactus"
-                  style={{
-                    fontSize: 13,
-                    fontFamily: "var(--font-sans)",
-                    fontWeight: 500,
-                    color: "var(--accent-gold)",
-                    textDecoration: "none",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                    marginTop: "auto",
-                  }}
-                >
-                  Apply <ArrowRight size={13} />
-                </Link>
-              </motion.div>
-            ))}
-          </div>
+                  {/* Apply CTA */}
+                  <Link
+                    href="/contactus"
+                    style={{
+                      fontSize: 13,
+                      fontFamily: "var(--font-sans)",
+                      fontWeight: 500,
+                      color: "var(--accent-gold)",
+                      textDecoration: "none",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      marginTop: "auto",
+                    }}
+                  >
+                    Apply <ArrowRight size={13} />
+                  </Link>
+                </motion.div>
+              ))}
+            </motion.div>
+          </AnimatePresence>
         </section>
 
         {/* Bottom CTA */}
@@ -366,7 +442,7 @@ export default function Careers() {
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.5, ease }}
             viewport={{ amount: 0.3 }}
             style={{
               backgroundColor: "var(--bg-raised)",
@@ -384,11 +460,11 @@ export default function Careers() {
                 margin: 0,
               }}
             >
-              Don&apos;t see your role?
+              Don&apos;t see your room?
             </h2>
             <p
               style={{
-                fontSize: 14,
+                fontSize: 13,
                 fontFamily: "var(--font-sans)",
                 fontWeight: 400,
                 color: "var(--text-secondary)",
@@ -396,60 +472,30 @@ export default function Careers() {
                 marginBottom: 32,
               }}
             >
-              Send us a note — we read every application.
+              We&apos;re always expanding the floor. Tell us where you fit.
             </p>
-            <div
+            <Link
+              href="/contactus"
               style={{
-                display: "flex",
-                justifyContent: "center",
-                gap: 12,
-                flexWrap: "wrap",
+                fontSize: 13,
+                fontFamily: "var(--font-sans)",
+                fontWeight: 500,
+                color: "var(--bg-canvas)",
+                backgroundColor: "var(--accent-gold)",
+                border: "none",
+                borderRadius: 7,
+                padding: "12px 24px",
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                cursor: "pointer",
+                transition: "opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
               }}
             >
-              <Link
-                href="/contactus"
-                style={{
-                  fontSize: 13,
-                  fontFamily: "var(--font-sans)",
-                  fontWeight: 500,
-                  color: "var(--bg-canvas)",
-                  backgroundColor: "var(--accent-gold)",
-                  border: "none",
-                  borderRadius: 7,
-                  padding: "12px 24px",
-                  textDecoration: "none",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  cursor: "pointer",
-                  transition: "opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-                }}
-              >
-                Get in touch
-                <ArrowRight size={14} />
-              </Link>
-              <Link
-                href="/about"
-                style={{
-                  fontSize: 13,
-                  fontFamily: "var(--font-sans)",
-                  fontWeight: 500,
-                  color: "var(--text-primary)",
-                  backgroundColor: "transparent",
-                  border: "1px solid var(--border-emphasis)",
-                  borderRadius: 7,
-                  padding: "12px 24px",
-                  textDecoration: "none",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  cursor: "pointer",
-                  transition: "border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-                }}
-              >
-                Learn about us
-              </Link>
-            </div>
+              Get in touch
+              <ArrowRight size={14} />
+            </Link>
           </motion.div>
         </section>
       </main>
