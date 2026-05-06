@@ -76,37 +76,34 @@ function FlipLabel({ text, delayBase = 0 }: { text: string; delayBase?: number }
 }
 
 /* ---------- Headset SVG (hand-drawn, no lucide) ---------- */
-function HeadsetIcon() {
+function HeadsetIcon({ size = 64 }: { size?: number }) {
   return (
     <svg
-      width={64}
-      height={64}
-      viewBox="0 0 64 64"
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
       fill="none"
-      xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Headband arc */}
+      {/* Headband — wide arc */}
       <path
-        d="M12 36 C12 20, 52 20, 52 36"
-        stroke="var(--accent-gold)"
-        strokeWidth={3}
-        strokeLinecap="round"
-        fill="none"
-      />
-      {/* Left earpiece */}
-      <rect x={8} y={32} width={8} height={16} rx={4} fill="var(--accent-gold)" />
-      {/* Right earpiece */}
-      <rect x={48} y={32} width={8} height={16} rx={4} fill="var(--accent-gold)" />
-      {/* Mic arm */}
-      <path
-        d="M48 44 C48 52, 38 54, 34 54"
+        d="M8 28 C8 14, 40 14, 40 28"
         stroke="var(--accent-gold)"
         strokeWidth={2.5}
         strokeLinecap="round"
-        fill="none"
+      />
+      {/* Left earpiece */}
+      <rect x={5} y={26} width={7} height={14} rx={3.5} fill="var(--accent-gold)" />
+      {/* Right earpiece */}
+      <rect x={36} y={26} width={7} height={14} rx={3.5} fill="var(--accent-gold)" />
+      {/* Mic arm from right earpiece */}
+      <path
+        d="M40 36 C40 42, 32 44, 28 44"
+        stroke="var(--accent-gold)"
+        strokeWidth={2}
+        strokeLinecap="round"
       />
       {/* Mic tip */}
-      <circle cx={34} cy={54} r={3} fill="var(--accent-gold)" />
+      <circle cx={28} cy={44} r={2.5} fill="var(--accent-gold)" />
     </svg>
   );
 }
@@ -508,7 +505,7 @@ export function ContactPage() {
                     color: "var(--text-dim)",
                   }}
                 >
-                  contact@insturix.com
+                  support@insturix.com
                 </span>
                 <button
                   type="submit"
