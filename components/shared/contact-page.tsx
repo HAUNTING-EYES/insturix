@@ -1,21 +1,19 @@
 "use client";
 
 /**
- * Contact Page — Insturix Design System v1.0
+ * Contact Page — D2 Hotline + Status Board
  *
- * RAMS: The form IS the page. Nothing decorative.
- * JOBS: User wants to send a message → form → done.
- * MÜLLER-BROCKMANN: ONE focal point — the submit button.
+ * Phase 1: Ringing hotline with pulsing rings and "Pick up" CTA
+ * Phase 2: Departure-board style form after pickup
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { useFormik } from "formik";
 import * as Yup from "yup";
 import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { toast } from "@/hooks/use-toast";
-import { Send, Mail, MapPin, Clock } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -26,33 +24,165 @@ const validationSchema = Yup.object({
   message: Yup.string().required("Message is required"),
 });
 
-async function sendContactForm(data: { name: string; email: string; subject: string; message: string }) {
+async function sendContactForm(data: {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+}) {
   const res = await axios.post("/api/contact", data);
   return res.data;
 }
 
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "12px 16px",
-  background: "var(--bg-deeper)",
-  border: "1px solid var(--border-emphasis)",
-  borderRadius: 7,
-  fontSize: 14,
-  color: "var(--text-primary)",
-  outline: "none",
-  fontFamily: "var(--font-sans)",
-  transition: "border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
-};
+/* ---------- Pulsing ring keyframes (injected once) ---------- */
+const pulseKeyframes = `
+@keyframes contactPulse {
+  0% { transform: scale(1); opacity: 0.4; }
+  100% { transform: scale(2); opacity: 0; }
+}
+`;
 
+/* ---------- Departure-board character flip ---------- */
+function FlipLabel({ text, delayBase = 0 }: { text: string; delayBase?: number }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        fontFamily: "var(--font-mono)",
+        fontSize: 10,
+        fontWeight: 500,
+        letterSpacing: "0.08em",
+        color: "var(--text-dim)",
+        textTransform: "uppercase" as const,
+      }}
+    >
+      {text.split("").map((char, i) => (
+        <motion.span
+          key={`${char}-${i}`}
+          initial={{ opacity: 0, y: -12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{
+            duration: 0.35,
+            delay: delayBase + i * 0.03,
+            ease: EASE,
+          }}
+          style={{ display: "inline-block", minWidth: char === " " ? 4 : undefined }}
+        >
+          {char}
+        </motion.span>
+      ))}
+    </span>
+  );
+}
+
+/* ---------- Headset SVG (hand-drawn, no lucide) ---------- */
+function HeadsetIcon() {
+  return (
+    <svg
+      width={64}
+      height={64}
+      viewBox="0 0 64 64"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Headband arc */}
+      <path
+        d="M12 36 C12 20, 52 20, 52 36"
+        stroke="var(--accent-gold)"
+        strokeWidth={3}
+        strokeLinecap="round"
+        fill="none"
+      />
+      {/* Left earpiece */}
+      <rect x={8} y={32} width={8} height={16} rx={4} fill="var(--accent-gold)" />
+      {/* Right earpiece */}
+      <rect x={48} y={32} width={8} height={16} rx={4} fill="var(--accent-gold)" />
+      {/* Mic arm */}
+      <path
+        d="M48 44 C48 52, 38 54, 34 54"
+        stroke="var(--accent-gold)"
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        fill="none"
+      />
+      {/* Mic tip */}
+      <circle cx={34} cy={54} r={3} fill="var(--accent-gold)" />
+    </svg>
+  );
+}
+
+/* ---------- Form field row ---------- */
+function FormRow({
+  label,
+  children,
+  index,
+}: {
+  label: string;
+  children: React.ReactNode;
+  index: number;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--bg-canvas)",
+        borderBottom: "1px solid var(--border-subtle)",
+        padding: "16px 24px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <FlipLabel text={label} delayBase={0.15 + index * 0.12} />
+      {children}
+    </div>
+  );
+}
+
+/* ---------- Pipeline step ---------- */
+function PipelineStep({
+  text,
+  delay,
+}: {
+  text: string;
+  delay: number;
+}) {
+  return (
+    <motion.span
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.4, delay, ease: EASE }}
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: 10,
+        color: "var(--text-dim)",
+      }}
+    >
+      {text}
+    </motion.span>
+  );
+}
+
+/* ---------- Main component ---------- */
 export function ContactPage() {
+  const [answered, setAnswered] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
   const mutation = useMutation({
     mutationFn: sendContactForm,
     onSuccess: () => {
-      toast({ title: "Message sent", description: "We'll get back to you within 24 hours." });
+      toast({
+        title: "Message sent",
+        description: "We'll get back to you within 4 hours.",
+      });
+      setSubmitted(true);
       formik.resetForm();
     },
     onError: () => {
-      toast({ title: "Error", description: "Something went wrong. Try again.", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Something went wrong. Try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -62,213 +192,358 @@ export function ContactPage() {
     onSubmit: (values) => mutation.mutate(values),
   });
 
+  const inputBaseStyle: React.CSSProperties = {
+    width: "100%",
+    background: "transparent",
+    border: "none",
+    outline: "none",
+    fontSize: 14,
+    color: "var(--text-primary)",
+    fontFamily: "var(--font-sans)",
+    caretColor: "var(--accent-gold)",
+    padding: 0,
+  };
+
   return (
-    <div style={{ background: "var(--bg-canvas)", minHeight: "100vh" }}>
-      <div
-        style={{
-          maxWidth: 1080,
-          margin: "0 auto",
-          padding: "96px 48px 120px",
-          display: "grid",
-          gridTemplateColumns: "1fr 1.2fr",
-          gap: 64,
-          alignItems: "start",
-        }}
-      >
-        {/* Left — context */}
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ margin: "-48px" }}
-          transition={{ duration: 0.5, ease: EASE }}
-        >
-          <span className="mono-label" style={{ display: "block", marginBottom: 24, color: "var(--accent-gold)" }}>
-            CONTACT
-          </span>
-          <h1
-            style={{
-              fontSize: 44,
-              fontWeight: 800,
-              letterSpacing: "-0.035em",
-              lineHeight: 1.05,
-              marginBottom: 16,
-              color: "var(--text-primary)",
-            }}
-          >
-            Get in touch.
-          </h1>
-          <p
-            style={{
-              fontSize: 18,
-              color: "var(--text-secondary)",
-              lineHeight: 1.55,
-              marginBottom: 48,
-            }}
-          >
-            Have a question, a partnership idea, or need support? We respond within 24 hours.
-          </p>
+    <div
+      style={{
+        background: "var(--bg-canvas)",
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {/* Inject pulse keyframes */}
+      <style dangerouslySetInnerHTML={{ __html: pulseKeyframes }} />
 
-          {/* Info cards */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {[
-              { icon: Mail, label: "Email", value: "contact@insturix.com" },
-              { icon: MapPin, label: "Location", value: "India" },
-              { icon: Clock, label: "Response time", value: "Under 24 hours" },
-            ].map(({ icon: Icon, label, value }) => (
-              <div
-                key={label}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 16,
-                  padding: "16px",
-                  background: "var(--bg-raised)",
-                  borderRadius: 12,
-                  border: "1px solid var(--border-subtle)",
-                }}
-              >
-                <div
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 7,
-                    background: "var(--bg-deeper)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Icon size={14} style={{ color: "var(--text-dim)" }} />
-                </div>
-                <div>
-                  <span className="mono-label" style={{ display: "block", marginBottom: 4 }}>
-                    {label}
-                  </span>
-                  <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>{value}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Right — form */}
-        <motion.form
-          onSubmit={formik.handleSubmit}
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1, ease: EASE }}
-          style={{
-            background: "var(--bg-raised)",
-            borderRadius: 12,
-            border: "1px solid var(--border-subtle)",
-            padding: 32,
-            display: "flex",
-            flexDirection: "column",
-            gap: 24,
-          }}
-        >
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div>
-              <label className="mono-label" style={{ display: "block", marginBottom: 8 }}>Name</label>
-              <input
-                type="text"
-                placeholder="Your name"
-                {...formik.getFieldProps("name")}
-                style={{
-                  ...inputStyle,
-                  borderColor: formik.touched.name && formik.errors.name ? "var(--status-danger)" : "var(--border-emphasis)",
-                }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = "rgba(212,166,82,0.4)"; }}
-                onBlur={(e) => { formik.handleBlur(e); e.currentTarget.style.borderColor = "var(--border-emphasis)"; }}
-              />
-              {formik.touched.name && formik.errors.name && (
-                <span style={{ fontSize: 11, color: "var(--status-danger)", marginTop: 4, display: "block" }}>{formik.errors.name}</span>
-              )}
-            </div>
-            <div>
-              <label className="mono-label" style={{ display: "block", marginBottom: 8 }}>Email</label>
-              <input
-                type="email"
-                placeholder="you@company.com"
-                {...formik.getFieldProps("email")}
-                style={{
-                  ...inputStyle,
-                  borderColor: formik.touched.email && formik.errors.email ? "var(--status-danger)" : "var(--border-emphasis)",
-                }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = "rgba(212,166,82,0.4)"; }}
-                onBlur={(e) => { formik.handleBlur(e); e.currentTarget.style.borderColor = "var(--border-emphasis)"; }}
-              />
-              {formik.touched.email && formik.errors.email && (
-                <span style={{ fontSize: 11, color: "var(--status-danger)", marginTop: 4, display: "block" }}>{formik.errors.email}</span>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label className="mono-label" style={{ display: "block", marginBottom: 8 }}>Subject</label>
-            <input
-              type="text"
-              placeholder="What's this about?"
-              {...formik.getFieldProps("subject")}
-              style={{
-                ...inputStyle,
-                borderColor: formik.touched.subject && formik.errors.subject ? "var(--status-danger)" : "var(--border-emphasis)",
-              }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = "rgba(212,166,82,0.4)"; }}
-              onBlur={(e) => { formik.handleBlur(e); e.currentTarget.style.borderColor = "var(--border-emphasis)"; }}
-            />
-            {formik.touched.subject && formik.errors.subject && (
-              <span style={{ fontSize: 11, color: "var(--status-danger)", marginTop: 4, display: "block" }}>{formik.errors.subject}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="mono-label" style={{ display: "block", marginBottom: 8 }}>Message</label>
-            <textarea
-              placeholder="Tell us more..."
-              rows={5}
-              {...formik.getFieldProps("message")}
-              style={{
-                ...inputStyle,
-                resize: "vertical" as const,
-                minHeight: 120,
-                borderColor: formik.touched.message && formik.errors.message ? "var(--status-danger)" : "var(--border-emphasis)",
-              }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = "rgba(212,166,82,0.4)"; }}
-              onBlur={(e) => { formik.handleBlur(e); e.currentTarget.style.borderColor = "var(--border-emphasis)"; }}
-            />
-            {formik.touched.message && formik.errors.message && (
-              <span style={{ fontSize: 11, color: "var(--status-danger)", marginTop: 4, display: "block" }}>{formik.errors.message}</span>
-            )}
-          </div>
-
-          <button
-            type="submit"
-            disabled={mutation.isPending}
+      <AnimatePresence mode="wait">
+        {/* ========== PHASE 1: Ringing ========== */}
+        {!answered && (
+          <motion.div
+            key="ringing"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35, ease: EASE }}
+            onClick={() => setAnswered(true)}
             style={{
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              width: "100%",
-              padding: "14px 24px",
-              background: "var(--accent-gold)",
-              color: "var(--bg-canvas)",
-              border: "none",
-              borderRadius: 7,
-              fontSize: 14,
-              fontWeight: 800,
-              cursor: mutation.isPending ? "wait" : "pointer",
-              fontFamily: "var(--font-sans)",
-              opacity: mutation.isPending ? 0.7 : 1,
-              transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+              gap: 24,
+              cursor: "pointer",
+              userSelect: "none",
             }}
           >
-            <Send size={14} />
-            {mutation.isPending ? "Sending..." : "Send message"}
-          </button>
-        </motion.form>
-      </div>
+            {/* Icon + pulsing rings */}
+            <div
+              style={{
+                position: "relative",
+                width: 160,
+                height: 160,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {/* Ring 1 */}
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: "50%",
+                  border: "1px solid var(--accent-gold)",
+                  animation: "contactPulse 2.1s infinite ease-out 0s",
+                }}
+              />
+              {/* Ring 2 */}
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: "50%",
+                  border: "1px solid var(--accent-gold)",
+                  animation: "contactPulse 2.1s infinite ease-out 0.7s",
+                }}
+              />
+              {/* Ring 3 */}
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: "50%",
+                  border: "1px solid var(--accent-gold)",
+                  animation: "contactPulse 2.1s infinite ease-out 1.4s",
+                }}
+              />
+              <HeadsetIcon />
+            </div>
+
+            {/* CTA text */}
+            <div style={{ textAlign: "center" }}>
+              <div
+                style={{
+                  fontSize: 32,
+                  fontWeight: 800,
+                  color: "var(--text-primary)",
+                  lineHeight: 1.2,
+                  marginBottom: 8,
+                }}
+              >
+                Pick up.
+              </div>
+              <div
+                style={{
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                }}
+              >
+                We're ready to talk.
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ========== PHASE 2: Connected / Status Board Form ========== */}
+        {answered && (
+          <motion.div
+            key="form"
+            initial={{ opacity: 0, y: 48 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, ease: EASE }}
+            style={{
+              width: "100%",
+              maxWidth: 600,
+              background: "var(--bg-raised)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          >
+            {/* Status board header */}
+            <div
+              style={{
+                background: "var(--bg-deeper)",
+                height: 48,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0 24px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "var(--status-success)",
+                  }}
+                />
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    fontWeight: 500,
+                    color: "var(--status-success)",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  {submitted ? "MESSAGE DELIVERED" : "CONNECTED"}
+                </span>
+              </div>
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  color: "var(--text-dim)",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                AVG RESPONSE &middot; 4H
+              </span>
+            </div>
+
+            {/* Post-submit pipeline */}
+            {submitted && (
+              <div
+                style={{
+                  background: "var(--bg-deeper)",
+                  borderTop: "1px solid var(--border-subtle)",
+                  padding: "8px 24px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <PipelineStep text="Received" delay={0} />
+                <PipelineStep text="→" delay={0.2} />
+                <PipelineStep text="Routing" delay={0.4} />
+                <PipelineStep text="→" delay={0.6} />
+                <PipelineStep text="ETA: 4h" delay={0.8} />
+              </div>
+            )}
+
+            {/* Form body — status board rows */}
+            <form onSubmit={formik.handleSubmit}>
+              <FormRow label="Name" index={0}>
+                <input
+                  type="text"
+                  placeholder="Your name"
+                  {...formik.getFieldProps("name")}
+                  style={{
+                    ...inputBaseStyle,
+                    borderBottom:
+                      formik.touched.name && formik.errors.name
+                        ? "1px solid var(--status-danger)"
+                        : undefined,
+                  }}
+                />
+                {formik.touched.name && formik.errors.name && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "var(--status-danger)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {formik.errors.name}
+                  </span>
+                )}
+              </FormRow>
+
+              <FormRow label="Email" index={1}>
+                <input
+                  type="email"
+                  placeholder="you@company.com"
+                  {...formik.getFieldProps("email")}
+                  style={{
+                    ...inputBaseStyle,
+                    borderBottom:
+                      formik.touched.email && formik.errors.email
+                        ? "1px solid var(--status-danger)"
+                        : undefined,
+                  }}
+                />
+                {formik.touched.email && formik.errors.email && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "var(--status-danger)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {formik.errors.email}
+                  </span>
+                )}
+              </FormRow>
+
+              <FormRow label="Subject" index={2}>
+                <input
+                  type="text"
+                  placeholder="What is this about?"
+                  {...formik.getFieldProps("subject")}
+                  style={{
+                    ...inputBaseStyle,
+                    borderBottom:
+                      formik.touched.subject && formik.errors.subject
+                        ? "1px solid var(--status-danger)"
+                        : undefined,
+                  }}
+                />
+                {formik.touched.subject && formik.errors.subject && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "var(--status-danger)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {formik.errors.subject}
+                  </span>
+                )}
+              </FormRow>
+
+              <FormRow label="Message" index={3}>
+                <textarea
+                  placeholder="Tell us more..."
+                  rows={4}
+                  {...formik.getFieldProps("message")}
+                  style={{
+                    ...inputBaseStyle,
+                    resize: "vertical" as const,
+                    borderBottom:
+                      formik.touched.message && formik.errors.message
+                        ? "1px solid var(--status-danger)"
+                        : undefined,
+                  }}
+                />
+                {formik.touched.message && formik.errors.message && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "var(--status-danger)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {formik.errors.message}
+                  </span>
+                )}
+              </FormRow>
+
+              {/* Footer row */}
+              <div
+                style={{
+                  background: "var(--bg-deeper)",
+                  padding: "16px 24px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--text-dim)",
+                  }}
+                >
+                  contact@insturix.com
+                </span>
+                <button
+                  type="submit"
+                  disabled={mutation.isPending || submitted}
+                  style={{
+                    background: submitted
+                      ? "var(--status-success)"
+                      : "var(--accent-gold)",
+                    color: submitted
+                      ? "#fff"
+                      : "var(--bg-canvas)",
+                    border: "none",
+                    borderRadius: 7,
+                    padding: "8px 24px",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    fontFamily: "var(--font-sans)",
+                    cursor:
+                      mutation.isPending || submitted ? "default" : "pointer",
+                    opacity: mutation.isPending ? 0.7 : 1,
+                    transition:
+                      "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+                  }}
+                >
+                  {submitted
+                    ? "Sent ✓"
+                    : mutation.isPending
+                      ? "Sending..."
+                      : "Transmit"}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
