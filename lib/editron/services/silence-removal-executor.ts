@@ -155,10 +155,10 @@ export async function executeSilenceRemoval(
         continue;
       }
 
-      // No intersection — overlay starts at or after the cut end
-      // Shift it left by the removed duration
+      // No intersection — overlay starts at or after the cut end.
+      // DON'T shift here — the dedicated shift loop (line 262) handles it.
+      // Shifting here AND there = double shift = overlaps that collapse 33→4.
       if (ovStart >= cutEnd) {
-        ov.from -= framesToRemove;
         continue;
       }
 
