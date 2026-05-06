@@ -60,7 +60,7 @@ const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 const LABELS: Record<string, string> = {
   prompt: "Receiving prompt",
   script: "Writing script",
-  edit: "Producing video",
+  edit: "Editing footage",
   analyze: "Analyzing",
   design: "Thumbnails",
   publish: "Publishing",
@@ -507,7 +507,7 @@ export function LandingPageA() {
         }}
       >
         {/* TOP BAR */}
-        <div className="editor-topbar" style={{ height: 48, background: C.s1, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", flexShrink: 0 }}>
+        <div className="editor-topbar" style={{ height: 48, background: C.s1, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", flexShrink: 0, opacity: phase === "done" ? 0 : 1, transition: `opacity .35s ${EASE}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, pointerEvents: "auto" }}>
             <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: "-0.02em" }}>Insturix</span>
             {/* Collab symbol */}
