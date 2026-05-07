@@ -320,16 +320,31 @@ function CostAccumulation() {
             </span>
           </div>
 
-          {/* Right: Receipt */}
-          <div style={{
-            background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
-            borderRadius: 4, padding: "24px 24px", fontFamily: "var(--font-mono)",
-            animation: showInsturix ? `paperCrumple 1.2s ${EASE_CSS} forwards` : "none",
-            opacity: showInsturix ? undefined : 1,
-            transform: showInsturix ? undefined : "none",
-            clipPath: showInsturix ? undefined : "inset(0)",
-            transformOrigin: "center bottom",
-          }}>
+          {/* Right: Receipt — folds via framer-motion keyframes */}
+          <motion.div
+            animate={showInsturix ? {
+              rotateX: [0, 12, 30, 55],
+              scaleY: [1, 0.88, 0.6, 0.25],
+              scaleX: [1, 1.01, 1.03, 0.92],
+              opacity: [1, 0.85, 0.4, 0.03],
+              y: [0, 4, 12, 32],
+            } : { rotateX: 0, scaleY: 1, scaleX: 1, opacity: 1, y: 0 }}
+            transition={{ duration: 1.2, ease: EASE }}
+            style={{
+              background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
+              borderRadius: 4, padding: "24px 24px", fontFamily: "var(--font-mono)",
+              transformOrigin: "center top",
+              perspective: 600,
+              position: "relative",
+            }}>
+            {/* Fold crease lines — appear during crumple */}
+            {showInsturix && (
+              <>
+                <div style={{ position: "absolute", top: "28%", left: 4, right: 4, height: 1, background: "var(--border-emphasis)", opacity: 0.6, zIndex: 2 }} />
+                <div style={{ position: "absolute", top: "55%", left: 8, right: 8, height: 1, background: "var(--border-emphasis)", opacity: 0.4, zIndex: 2 }} />
+                <div style={{ position: "absolute", top: "78%", left: 4, right: 12, height: 1, background: "var(--border-emphasis)", opacity: 0.3, zIndex: 2 }} />
+              </>
+            )}
             {/* Receipt header */}
             <div style={{ borderBottom: "1px dashed var(--border-emphasis)", paddingBottom: 16, marginBottom: 16, textAlign: "center" }}>
               <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", color: "var(--text-dim)" }}>PRODUCTION COSTS</span>
@@ -403,7 +418,7 @@ function CostAccumulation() {
                 <span style={{ fontSize: 11, fontWeight: 800, color: "var(--status-danger)", letterSpacing: "0.08em" }}>THANK YOU FOR OVERPAYING</span>
               </div>
             )}
-          </div>
+          </motion.div>
         </div>
 
         {/* Insturix reveal */}
@@ -424,12 +439,6 @@ function CostAccumulation() {
         @keyframes strikeIn { from { transform: scaleX(0); transform-origin: left; } to { transform: scaleX(1); transform-origin: left; } }
         @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes meterShimmer { 0% { opacity: 0.5; } 50% { opacity: 0.7; } 100% { opacity: 0.5; } }
-        @keyframes paperCrumple {
-          0% { transform: none; opacity: 1; clip-path: inset(0); }
-          25% { transform: perspective(600px) rotateX(6deg) scaleY(0.88); opacity: 0.8; clip-path: polygon(1% 3%, 99% 0%, 100% 97%, 0% 100%); }
-          55% { transform: perspective(600px) rotateX(14deg) scaleY(0.55) scaleX(1.04) rotate(2deg); opacity: 0.35; clip-path: polygon(6% 12%, 50% 4%, 94% 10%, 96% 58%, 50% 64%, 4% 55%); }
-          100% { transform: perspective(600px) rotateX(22deg) scaleY(0.3) scaleX(0.88) rotate(4deg) translateY(32px); opacity: 0.04; clip-path: polygon(10% 18%, 48% 6%, 90% 15%, 93% 52%, 52% 60%, 8% 48%); }
-        }
       `}</style>
     </div>
   );
