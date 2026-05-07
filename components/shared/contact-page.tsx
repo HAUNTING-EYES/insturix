@@ -14,7 +14,7 @@ import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { toast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
-import { Headphones } from "lucide-react";
+import { Phone } from "lucide-react";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -78,7 +78,7 @@ function FlipLabel({ text, delayBase = 0 }: { text: string; delayBase?: number }
 
 /* ---------- Headset icon ---------- */
 function HeadsetIcon({ size = 64 }: { size?: number }) {
-  return <Headphones size={size} style={{ color: "var(--accent-gold)" }} strokeWidth={1.5} />;
+  return <Phone size={size} style={{ color: "var(--accent-gold)" }} strokeWidth={1.5} />;
 }
 
 /* ---------- Form field row ---------- */
