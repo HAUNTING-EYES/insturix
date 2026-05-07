@@ -1329,7 +1329,7 @@ function Marketing() {
             Start free
           </a>
           <a
-            href="/contact-sales"
+            href="/contactus"
             style={{
               color: C.soft,
               border: `1px solid ${C.borderL}`,

@@ -253,7 +253,7 @@ export function ProductsPage() {
           <a href="/signup" style={{ background: "var(--accent-gold)", color: "var(--bg-canvas)", padding: "14px 32px", borderRadius: 7, fontSize: 14, fontWeight: 800, textDecoration: "none" }}>
             Start free
           </a>
-          <a href="/contact-sales" style={{ color: "var(--text-secondary)", border: "1px solid var(--border-emphasis)", padding: "13px 32px", borderRadius: 7, fontSize: 14, fontWeight: 500, textDecoration: "none" }}>
+          <a href="/contactus" style={{ color: "var(--text-secondary)", border: "1px solid var(--border-emphasis)", padding: "13px 32px", borderRadius: 7, fontSize: 14, fontWeight: 500, textDecoration: "none" }}>
             Talk to sales
           </a>
         </div>

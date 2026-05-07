@@ -40,7 +40,6 @@ const menuItems = [
     href: "/about",
     subItems: [
       { title: "About us", href: "/about" },
-      { title: "Our team", href: "/about/team" },
       { title: "Careers", href: "/careers" },
     ],
   },

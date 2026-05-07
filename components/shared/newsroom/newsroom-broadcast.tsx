@@ -357,24 +357,6 @@ export function NewsroomBroadcast() {
             {FEATURED_STORY.summary}
           </p>
 
-          {/* Read more link */}
-          <Link
-            href="#"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              fontFamily: "var(--font-sans)",
-              fontSize: 13,
-              fontWeight: 500,
-              color: "var(--accent-gold)",
-              textDecoration: "none",
-              transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
-            }}
-          >
-            Read more
-            <ArrowRight size={14} />
-          </Link>
         </motion.article>
       </section>
 
@@ -445,7 +427,7 @@ export function NewsroomBroadcast() {
             Download brand assets, logos, and guidelines.
           </p>
           <Link
-            href="#"
+            href="/contactus"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -463,7 +445,7 @@ export function NewsroomBroadcast() {
               transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
             }}
           >
-            Download kit
+            Request press kit
             <ArrowRight size={14} />
           </Link>
           <div
