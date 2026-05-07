@@ -264,7 +264,7 @@ export function NewsroomBroadcast() {
           viewport={{ margin: "-48px" }}
           variants={fadeUp}
           style={{
-            fontSize: 44,
+            fontSize: "var(--r-hero-size)",
             fontWeight: 800,
             letterSpacing: "-0.035em",
             lineHeight: 1.1,
@@ -308,7 +308,7 @@ export function NewsroomBroadcast() {
             background: "var(--bg-raised)",
             border: "1px solid var(--border-subtle)",
             borderRadius: 12,
-            padding: 32,
+            padding: "var(--r-page-padding)",
           }}
         >
           {/* Category */}
@@ -375,7 +375,7 @@ export function NewsroomBroadcast() {
           variants={staggerContainer}
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(2, 1fr)",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
             gap: 16,
           }}
         >

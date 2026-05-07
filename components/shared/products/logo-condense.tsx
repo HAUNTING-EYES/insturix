@@ -15,7 +15,7 @@ const P2 = "M0,0C3.885,0.504 7.78,0.628 11.692,0.776C13.228,0.852 14.764,0.929 1
 // Path 3: lower-left accent — needs transform offset
 const P3 = "M0,0C3.301,1.1 3.925,1.827 6.062,4.438C10.428,9.582 15.196,14.268 20,19C29.629,28.485 29.629,28.485 33.469,32.969C37.861,38.092 42.697,42.765 47.5,47.5C57.661,57.517 57.661,57.517 61.469,61.969C66.009,67.271 71.033,72.103 76,77C82.226,83.139 88.413,89.262 94,96C94.707,96.725 95.414,97.45 96.142,98.197C98.59,101.89 98.684,105.183 98.793,109.48C98.847,110.729 98.847,110.729 98.902,112.003C99.015,114.731 99.102,117.459 99.188,120.188C99.261,122.095 99.337,124.003 99.414,125.911C99.918,138.767 100.28,151.631 100.604,164.493C100.895,175.581 101.527,186.637 102.201,197.708C103.048,211.82 103.235,225.861 103,240C97.802,235.704 93.184,231.148 88.625,226.188C82.188,219.257 75.596,212.513 68.848,205.885C65.639,202.716 62.537,199.52 59.598,196.098C55.478,191.316 50.996,186.925 46.5,182.5C37.403,173.546 37.403,173.546 33.539,169.039C29.256,164.049 24.557,159.488 19.875,154.875C18.12,153.146 16.367,151.414 14.617,149.68C13.85,148.924 13.083,148.169 12.292,147.39C11.536,146.601 10.779,145.813 10,145C9.147,144.153 8.293,143.306 7.414,142.433C4.166,138.48 4.184,134.645 4.081,129.684C4.043,128.765 4.005,127.845 3.965,126.897C3.845,123.863 3.758,120.829 3.672,117.793C3.594,115.667 3.514,113.542 3.431,111.417C3.22,105.816 3.037,100.215 2.861,94.613C2.678,88.969 2.472,83.325 2.266,77.682C2.034,71.308 1.804,64.935 1.595,58.561C1.265,48.569 0.853,38.595 0.2,28.618C-0.117,22.89 -0.108,17.172 -0.062,11.438C-0.058,10.322 -0.053,9.206 -0.049,8.057C-0.037,5.371 -0.021,2.686 0,0Z";
 
-export function LogoCondense({ rooms }: { rooms: RoomInfo[] }) {
+export function LogoCondense({ rooms, isMobile = false }: { rooms: RoomInfo[]; isMobile?: boolean }) {
   const sectionRef = useRef<HTMLDivElement>(null);
   const scrollProgress = useMotionValue(0);
 
@@ -61,18 +61,18 @@ export function LogoCondense({ rooms }: { rooms: RoomInfo[] }) {
     <div
       ref={sectionRef}
       style={{
-        padding: "120px 48px",
+        padding: isMobile ? "80px var(--r-page-padding, 16px)" : "120px 48px",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        minHeight: 560,
+        minHeight: isMobile ? 400 : 560,
       }}
     >
-      <div style={{ position: "relative", width: 360, height: 360, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ position: "relative", width: isMobile ? 240 : 360, height: isMobile ? 240 : 360, display: "flex", alignItems: "center", justifyContent: "center" }}>
         {/* Layer 1: Colored arcs spiraling */}
         <motion.svg
-          width="360" height="360" viewBox="0 0 360 360"
+          width="100%" height="100%" viewBox="0 0 360 360"
           style={{
             position: "absolute", inset: 0, zIndex: 1,
             rotate: arcSpin,
@@ -97,7 +97,7 @@ export function LogoCondense({ rooms }: { rooms: RoomInfo[] }) {
 
         {/* Layer 2: Logo paths drawing themselves via pathLength */}
         <svg
-          width="184" height="184" viewBox="0 0 1080 1080"
+          width={isMobile ? 120 : 184} height={isMobile ? 120 : 184} viewBox="0 0 1080 1080"
           style={{ position: "absolute", zIndex: 2 }}
         >
           <motion.path
@@ -137,8 +137,8 @@ export function LogoCondense({ rooms }: { rooms: RoomInfo[] }) {
         <motion.img
           src="/brand/insturix_white.png"
           alt="Insturix"
-          width={180}
-          height={180}
+          width={isMobile ? 120 : 180}
+          height={isMobile ? 120 : 180}
           style={{
             position: "absolute",
             zIndex: 3,
@@ -157,10 +157,10 @@ export function LogoCondense({ rooms }: { rooms: RoomInfo[] }) {
           textAlign: "center",
         }}
       >
-        <span style={{ fontSize: 44, fontWeight: 800, letterSpacing: "-0.035em", color: "var(--text-primary)", display: "block" }}>
+        <span style={{ fontSize: "var(--r-hero-size, 44px)", fontWeight: 800, letterSpacing: "-0.035em", color: "var(--text-primary)", display: "block" }}>
           Insturix
         </span>
-        <p style={{ fontSize: 18, color: "var(--text-muted)", marginTop: 12, lineHeight: 1.55 }}>
+        <p style={{ fontSize: isMobile ? 16 : 18, color: "var(--text-muted)", marginTop: 12, lineHeight: 1.55 }}>
           Six rooms. One production floor. All yours.
         </p>
       </motion.div>

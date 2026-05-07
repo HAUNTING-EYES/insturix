@@ -45,7 +45,7 @@ export default function SupportPage() {
           style={{
             maxWidth: 720,
             margin: "0 auto",
-            padding: "64px 24px 48px",
+            padding: "var(--r-section-padding) var(--r-page-padding) 48px",
             textAlign: "center",
           }}
         >
@@ -78,7 +78,7 @@ export default function SupportPage() {
               ease: [0.16, 1, 0.3, 1],
             }}
             style={{
-              fontSize: 32,
+              fontSize: "var(--r-heading-size)",
               fontWeight: 800,
               color: "var(--text-primary)",
               margin: "0 0 12px",
@@ -115,13 +115,13 @@ export default function SupportPage() {
           style={{
             maxWidth: 720,
             margin: "0 auto",
-            padding: "0 24px 48px",
+            padding: "0 var(--r-page-padding) 48px",
           }}
         >
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
               gap: 16,
             }}
           >
@@ -186,7 +186,7 @@ export default function SupportPage() {
           style={{
             maxWidth: 720,
             margin: "0 auto",
-            padding: "0 24px 64px",
+            padding: "0 var(--r-page-padding) var(--r-section-padding)",
             textAlign: "center",
           }}
         >

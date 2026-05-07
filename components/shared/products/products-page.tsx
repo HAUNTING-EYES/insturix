@@ -22,6 +22,7 @@ import { DesignMockup } from "./mockups/design-mockup";
 import { SocializeMockup } from "./mockups/socialize-mockup";
 import { DistributeMockup } from "./mockups/distribute-mockup";
 import { LogoCondense } from "./logo-condense";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 
@@ -93,6 +94,7 @@ export function ProductsPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollPct, setScrollPct] = useState(0);
   const [activeRoom, setActiveRoom] = useState(0);
+  const isMobile = useMediaQuery("(max-width: 768px)");
 
   useEffect(() => {
     const onScroll = () => {
@@ -104,9 +106,11 @@ export function ProductsPage() {
       setScrollPct(rawPct);
       setActiveRoom(Math.min(ROOM_COUNT - 1, Math.round(rawPct * (ROOM_COUNT - 1))));
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    if (!isMobile) {
+      window.addEventListener("scroll", onScroll, { passive: true });
+      return () => window.removeEventListener("scroll", onScroll);
+    }
+  }, [isMobile]);
 
   // The horizontal translate: 0% at start → -(ROOM_COUNT-1)*100% at end
   const translateX = scrollPct * (ROOM_COUNT - 1) * -100;
@@ -114,23 +118,24 @@ export function ProductsPage() {
   return (
     <div style={{ background: "var(--bg-canvas)" }}>
       {/* Hero — above the horizontal scroll */}
-      <section style={{ maxWidth: 1080, margin: "0 auto", padding: "96px 48px 48px", textAlign: "center" }}>
+      <section style={{ maxWidth: 1080, margin: "0 auto", padding: isMobile ? "64px var(--r-page-padding, 16px) 32px" : "96px 48px 48px", textAlign: "center" }}>
         <span className="mono-label" style={{ display: "block", marginBottom: 24, color: "var(--accent-gold)" }}>
           THE STUDIO
         </span>
-        <h1 style={{ fontSize: 44, fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.05, marginBottom: 16, color: "var(--text-primary)" }}>
+        <h1 style={{ fontSize: "var(--r-hero-size, 44px)", fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.05, marginBottom: 16, color: "var(--text-primary)" }}>
           Six rooms. One production floor.
         </h1>
-        <p style={{ fontSize: 18, color: "var(--text-muted)", lineHeight: 1.55, maxWidth: 520, margin: "0 auto 32px" }}>
+        <p style={{ fontSize: isMobile ? 16 : 18, color: "var(--text-muted)", lineHeight: 1.55, maxWidth: 520, margin: "0 auto 32px" }}>
           Scroll to walk through each workspace.
         </p>
 
         {/* Room nav pills */}
-        <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 32 }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 32, flexWrap: "wrap" }}>
           {rooms.map((room, i) => (
             <button
               key={room.verb}
               onClick={() => {
+                if (isMobile) return; // no scroll-jacking on mobile
                 if (!containerRef.current) return;
                 const scrollableHeight = containerRef.current.offsetHeight - window.innerHeight;
                 const targetScroll = containerRef.current.offsetTop + (i / ROOM_COUNT) * scrollableHeight;
@@ -155,105 +160,117 @@ export function ProductsPage() {
         </div>
       </section>
 
-      {/* ─── Horizontal scroll section ─── */}
-      {/* Container height = scroll distance. 120vh per room. */}
-      <div
-        ref={containerRef}
-        style={{
-          height: `${ROOM_COUNT * 120}vh`,
-          position: "relative",
-        }}
-      >
-        {/* Sticky viewport — stays on screen while we scroll through the tall container */}
+      {/* ─── Room cards section ─── */}
+      {isMobile ? (
+        /* Mobile: vertical stack of room cards, no horizontal scroll */
+        <section style={{ padding: "0 var(--r-page-padding, 16px) 48px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            {rooms.map((room) => (
+              <MobileRoomCard key={room.verb} room={room} />
+            ))}
+          </div>
+        </section>
+      ) : (
+        /* Desktop: horizontal scroll section */
+        /* Container height = scroll distance. 120vh per room. */
         <div
+          ref={containerRef}
           style={{
-            position: "sticky",
-            top: 48, // below navbar
-            height: `calc(100vh - 48px)`,
-            overflow: "hidden",
+            height: `${ROOM_COUNT * 120}vh`,
+            position: "relative",
           }}
         >
-          {/* Horizontal strip — slides left as user scrolls */}
+          {/* Sticky viewport — stays on screen while we scroll through the tall container */}
           <div
             style={{
-              display: "flex",
-              width: `${ROOM_COUNT * 100}%`,
-              height: "100%",
-              transform: `translateX(${translateX}vw)`,
-              transition: "transform 0.1s linear",
-              willChange: "transform",
+              position: "sticky",
+              top: 48, // below navbar
+              height: `calc(100vh - 48px)`,
+              overflow: "hidden",
             }}
           >
-            {rooms.map((room, i) => (
-              <RoomPanel key={room.verb} room={room} index={i} isActive={activeRoom === i} scrollPct={scrollPct} />
-            ))}
-          </div>
+            {/* Horizontal strip — slides left as user scrolls */}
+            <div
+              style={{
+                display: "flex",
+                width: `${ROOM_COUNT * 100}%`,
+                height: "100%",
+                transform: `translateX(${translateX}vw)`,
+                transition: "transform 0.1s linear",
+                willChange: "transform",
+              }}
+            >
+              {rooms.map((room, i) => (
+                <RoomPanel key={room.verb} room={room} index={i} isActive={activeRoom === i} scrollPct={scrollPct} />
+              ))}
+            </div>
 
-          {/* Progress bar at bottom */}
-          <div
-            style={{
-              position: "absolute",
-              bottom: 24,
-              left: 48,
-              right: 48,
-              display: "flex",
-              gap: 4,
-              zIndex: 10,
-            }}
-          >
-            {rooms.map((room, i) => (
-              <div
-                key={room.verb}
-                style={{
-                  flex: 1,
-                  height: 2,
-                  borderRadius: 1,
-                  background: i <= activeRoom ? room.color : "var(--border-subtle)",
-                  opacity: i === activeRoom ? 1 : i < activeRoom ? 0.4 : 0.15,
-                  transition: `all 0.35s ${EASE}`,
-                }}
-              />
-            ))}
-          </div>
+            {/* Progress bar at bottom */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: 24,
+                left: 48,
+                right: 48,
+                display: "flex",
+                gap: 4,
+                zIndex: 10,
+              }}
+            >
+              {rooms.map((room, i) => (
+                <div
+                  key={room.verb}
+                  style={{
+                    flex: 1,
+                    height: 2,
+                    borderRadius: 1,
+                    background: i <= activeRoom ? room.color : "var(--border-subtle)",
+                    opacity: i === activeRoom ? 1 : i < activeRoom ? 0.4 : 0.15,
+                    transition: `all 0.35s ${EASE}`,
+                  }}
+                />
+              ))}
+            </div>
 
-          {/* Room counter */}
-          <div
-            style={{
-              position: "absolute",
-              bottom: 24,
-              right: 48,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              zIndex: 10,
-            }}
-          >
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500, color: rooms[activeRoom].color }}>
-              {rooms[activeRoom].label}
-            </span>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-faint)" }}>
-              / {String(ROOM_COUNT).padStart(2, "0")}
-            </span>
+            {/* Room counter */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: 24,
+                right: 48,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                zIndex: 10,
+              }}
+            >
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500, color: rooms[activeRoom].color }}>
+                {rooms[activeRoom].label}
+              </span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-faint)" }}>
+                / {String(ROOM_COUNT).padStart(2, "0")}
+              </span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ─── Condense animation: colored arcs → logo SVG path draw → filled logo ─── */}
-      <LogoCondense rooms={rooms} />
+      <LogoCondense rooms={rooms} isMobile={isMobile} />
 
       {/* CTA */}
-      <section style={{ maxWidth: 1080, margin: "0 auto", padding: "48px 48px 120px", textAlign: "center" }}>
-        <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", marginBottom: 16, color: "var(--text-primary)" }}>
+      <section style={{ maxWidth: 1080, margin: "0 auto", padding: isMobile ? "32px var(--r-page-padding, 16px) 80px" : "48px 48px 120px", textAlign: "center" }}>
+        <h2 style={{ fontSize: "var(--r-heading-size, 32px)", fontWeight: 800, letterSpacing: "-0.035em", marginBottom: 16, color: "var(--text-primary)" }}>
           Try the full studio. Free.
         </h2>
         <p style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 32, maxWidth: 400, margin: "0 auto 32px" }}>
           Three minutes from prompt to published video.
         </p>
-        <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
-          <a href="/signup" style={{ background: "var(--accent-gold)", color: "var(--bg-canvas)", padding: "14px 32px", borderRadius: 7, fontSize: 14, fontWeight: 800, textDecoration: "none" }}>
+        <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
+          <a href="/signup" style={{ background: "var(--accent-gold)", color: "var(--bg-canvas)", padding: isMobile ? "14px 24px" : "14px 32px", borderRadius: 7, fontSize: 14, fontWeight: 800, textDecoration: "none" }}>
             Start free
           </a>
-          <a href="/contactus" style={{ color: "var(--text-secondary)", border: "1px solid var(--border-emphasis)", padding: "13px 32px", borderRadius: 7, fontSize: 14, fontWeight: 500, textDecoration: "none" }}>
+          <a href="/contactus" style={{ color: "var(--text-secondary)", border: "1px solid var(--border-emphasis)", padding: isMobile ? "13px 24px" : "13px 32px", borderRadius: 7, fontSize: 14, fontWeight: 500, textDecoration: "none" }}>
             Talk to sales
           </a>
         </div>
@@ -402,6 +419,83 @@ function RoomPanel({
         >
           {room.mockup || <MockupPlaceholder verb={room.verb} color={room.color} />}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Mobile Room Card — vertical stack, no mockup ──────────────
+function MobileRoomCard({ room }: { room: (typeof rooms)[number] }) {
+  return (
+    <div
+      style={{
+        background: "var(--bg-raised)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 12,
+        padding: 20,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 32,
+          fontWeight: 500,
+          color: room.color,
+          opacity: 0.15,
+          letterSpacing: "-0.06em",
+          lineHeight: 1,
+        }}
+      >
+        {room.label}
+      </span>
+      <span
+        className="mono-label"
+        style={{ color: room.color }}
+      >
+        {room.verb.toUpperCase()}
+      </span>
+      <h2
+        style={{
+          fontSize: "var(--r-heading-size, 24px)",
+          fontWeight: 800,
+          letterSpacing: "-0.035em",
+          lineHeight: 1.15,
+          marginBottom: 4,
+          color: "var(--text-primary)",
+          whiteSpace: "pre-line",
+        }}
+      >
+        {room.heading}
+      </h2>
+      <p
+        style={{
+          fontSize: 14,
+          color: "var(--text-secondary)",
+          lineHeight: 1.65,
+          marginBottom: 8,
+        }}
+      >
+        {room.description}
+      </p>
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 12px",
+          background: "var(--bg-deeper)",
+          borderRadius: 7,
+          border: "1px solid var(--border-subtle)",
+          alignSelf: "flex-start",
+        }}
+      >
+        <div style={{ width: 6, height: 6, borderRadius: 3, background: room.color }} />
+        <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+          {room.output}
+        </span>
       </div>
     </div>
   );

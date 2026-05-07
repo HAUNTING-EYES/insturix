@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -133,7 +134,7 @@ const ease = [0.16, 1, 0.3, 1] as const;
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
 
-function RoomCard({ room, index }: { room: Room; index: number }) {
+function RoomCard({ room, index, isMobile = false }: { room: Room; index: number; isMobile?: boolean }) {
   const hiringRoles = getHiringRoles(room.key);
   const isHiring = !room.staffed;
   const roleCount = hiringRoles.length;
@@ -147,7 +148,7 @@ function RoomCard({ room, index }: { room: Room; index: number }) {
       style={{
         // @ts-expect-error CSS custom property
         "--room-color": room.color,
-        minHeight: 180,
+        minHeight: isMobile ? 140 : 180,
         backgroundColor: room.staffed ? "var(--bg-raised)" : "transparent",
         border: room.staffed
           ? `1px solid ${room.color}`
@@ -398,7 +399,8 @@ function PositionCard({ job, index }: { job: JobPosition; index: number }) {
       <div
         style={{
           display: "flex",
-          gap: 16,
+          flexWrap: "wrap",
+          gap: "4px 16px",
           fontSize: 11,
           fontFamily: "var(--font-mono)",
           fontWeight: 400,
@@ -438,6 +440,8 @@ function PositionCard({ job, index }: { job: JobPosition; index: number }) {
 /* ------------------------------------------------------------------ */
 
 export function CareersConstruction() {
+  const isMobile = useMediaQuery("(max-width: 768px)");
+
   return (
     <main
       style={{
@@ -454,7 +458,7 @@ export function CareersConstruction() {
         style={{
           maxWidth: 960,
           margin: "0 auto",
-          padding: "128px 24px 64px",
+          padding: isMobile ? "80px var(--r-page-padding, 12px) 48px" : "128px 24px 64px",
           textAlign: "center",
         }}
       >
@@ -464,7 +468,7 @@ export function CareersConstruction() {
           transition={{ duration: 0.5, ease }}
           viewport={{ amount: 0.3 }}
           style={{
-            fontSize: 44,
+            fontSize: "var(--r-hero-size, 44px)",
             fontWeight: 800,
             fontFamily: "var(--font-sans)",
             color: "var(--text-primary)",
@@ -501,18 +505,18 @@ export function CareersConstruction() {
         style={{
           maxWidth: 960,
           margin: "0 auto",
-          padding: "0 24px 64px",
+          padding: isMobile ? "0 var(--r-page-padding, 12px) 48px" : "0 24px 64px",
         }}
       >
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
+            gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)",
             gap: 16,
           }}
         >
           {rooms.map((room, i) => (
-            <RoomCard key={room.key} room={room} index={i} />
+            <RoomCard key={room.key} room={room} index={i} isMobile={isMobile} />
           ))}
         </div>
       </section>
@@ -522,7 +526,7 @@ export function CareersConstruction() {
         style={{
           maxWidth: 960,
           margin: "0 auto",
-          padding: "0 24px 64px",
+          padding: isMobile ? "0 var(--r-page-padding, 12px) 48px" : "0 24px 64px",
         }}
       >
         <motion.h2
@@ -544,7 +548,7 @@ export function CareersConstruction() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(2, 1fr)",
+            gridTemplateColumns: isMobile ? "1fr" : "repeat(2, 1fr)",
             gap: 16,
           }}
         >
@@ -559,7 +563,7 @@ export function CareersConstruction() {
         style={{
           maxWidth: 960,
           margin: "0 auto",
-          padding: "0 24px 128px",
+          padding: isMobile ? "0 var(--r-page-padding, 12px) 80px" : "0 24px 128px",
           textAlign: "center",
         }}
       >
@@ -572,7 +576,7 @@ export function CareersConstruction() {
             backgroundColor: "var(--bg-raised)",
             border: "1px solid var(--border-subtle)",
             borderRadius: 12,
-            padding: 48,
+            padding: isMobile ? 24 : 48,
           }}
         >
           <h2

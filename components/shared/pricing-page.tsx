@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ArrowRight } from "lucide-react";
@@ -86,13 +87,13 @@ export function PricingPage() {
     <div style={{ background: "var(--bg-canvas)", minHeight: "100vh", fontFamily: "var(--font-sans)" }}>
 
       {/* ── Hero ──────────────────────────────────────────────── */}
-      <section style={{ maxWidth: 960, margin: "0 auto", padding: "96px 24px 32px", textAlign: "center" }}>
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "var(--r-section-padding) var(--r-page-padding) 32px", textAlign: "center" }}>
         <motion.span initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={fadeIn}
           style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 24 }}>
           PRICING
         </motion.span>
         <motion.h1 initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={fadeUp}
-          style={{ fontSize: 44, fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.05, color: "var(--text-primary)", margin: "0 0 16px" }}>
+          style={{ fontSize: "var(--r-hero-size)", fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.05, color: "var(--text-primary)", margin: "0 0 16px" }}>
           Your current stack costs<br />
           <motion.span
             initial={{ opacity: 0 }}
@@ -110,9 +111,9 @@ export function PricingPage() {
       <CostAccumulation />
 
       {/* ── Plan Selection (Badge style) ──────────────────────── */}
-      <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px" }}>
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "var(--r-section-padding) var(--r-page-padding)" }}>
         <motion.h2 initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={fadeUp}
-          style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.02em", color: "var(--text-primary)", textAlign: "center", marginBottom: 8 }}>
+          style={{ fontSize: "var(--r-heading-size)", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--text-primary)", textAlign: "center", marginBottom: 8 }}>
           Choose your access level
         </motion.h2>
         <motion.p initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={fadeIn}
@@ -122,7 +123,7 @@ export function PricingPage() {
 
         {/* Room indicators */}
         <motion.div initial="hidden" whileInView="visible" viewport={{ margin: "-32px" }} variants={stagger}
-          style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 32 }}>
+          style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 32, flexWrap: "wrap" }}>
           {ROOMS.map((room) => (
             <motion.div key={room.label} variants={fadeIn} style={{ textAlign: "center" }}>
               <div style={{
@@ -146,7 +147,7 @@ export function PricingPage() {
         <motion.div initial="hidden" whileInView="visible" viewport={{ margin: "-32px" }} variants={fadeUp}
           style={{ display: "flex", justifyContent: "center", marginBottom: 48 }}>
           <div style={{
-            display: "inline-flex", position: "relative",
+            display: "inline-flex", position: "relative", flexWrap: "wrap",
             background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)",
             borderRadius: 7, padding: 4, gap: 4,
           }}>
@@ -183,7 +184,7 @@ export function PricingPage() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.98 }}
             transition={{ duration: 0.35, ease: EASE }}
-            style={{ maxWidth: 440, margin: "0 auto 48px" }}
+            style={{ maxWidth: "min(440px, 100%)", margin: "0 auto 48px" }}
           >
             {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} />}
           </motion.div>
@@ -191,7 +192,7 @@ export function PricingPage() {
 
         {/* Flanking tiers */}
         {!isEnterprise && (
-          <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 64 }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 64, flexWrap: "wrap" }}>
             {SUBSCRIPTION_PLANS.filter((p) => p.id !== activePlanId).map((plan) => (
               <button key={plan.id}
                 onClick={() => { const idx = VOLUME_TIERS.findIndex((t) => t.planId === plan.id); if (idx >= 0) setSelectedTier(idx); }}
@@ -247,6 +248,7 @@ export function PricingPage() {
 // =====================================================================
 
 function CostAccumulation() {
+  const isMobile = useMediaQuery("(max-width: 768px)");
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollPct, setScrollPct] = useState(0);
 
@@ -272,16 +274,16 @@ function CostAccumulation() {
   const showInsturix = scrollPct > 0.9;
 
   return (
-    <div ref={containerRef} style={{ height: "350vh", position: "relative" }}>
+    <div ref={containerRef} style={{ height: isMobile ? "280vh" : "350vh", position: "relative" }}>
       <div style={{
         position: "sticky", top: 64, height: "calc(100vh - 128px)",
         display: "flex", alignItems: "center", justifyContent: "center",
-        maxWidth: 960, margin: "0 auto", padding: "0 24px",
+        maxWidth: 960, margin: "0 auto", padding: "0 var(--r-page-padding)",
       }}>
-        <div style={{ display: "grid", gridTemplateColumns: "64px 1fr", gap: 48, width: "100%", maxWidth: 560, alignItems: "start" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "64px 1fr", gap: isMobile ? 24 : 48, width: "100%", maxWidth: 560, alignItems: "start" }}>
 
           {/* Left: Vertical cost meter */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <div style={{ display: isMobile ? "none" : "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
             <div style={{
               width: 48, height: 320, borderRadius: 12,
               border: "1px solid var(--border-emphasis)",

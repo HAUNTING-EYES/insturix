@@ -96,7 +96,7 @@ function FormRow({
       style={{
         background: "var(--bg-canvas)",
         borderBottom: "1px solid var(--border-subtle)",
-        padding: "16px 24px",
+        padding: "16px var(--r-page-padding)",
         display: "flex",
         flexDirection: "column",
         gap: 8,
@@ -182,6 +182,7 @@ export function ContactPage() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        padding: "var(--r-section-padding) var(--r-page-padding)",
       }}
     >
       {/* Inject pulse keyframes */}
@@ -253,7 +254,7 @@ export function ContactPage() {
             <div style={{ textAlign: "center" }}>
               <div
                 style={{
-                  fontSize: 32,
+                  fontSize: "var(--r-heading-size)",
                   fontWeight: 800,
                   color: "var(--text-primary)",
                   lineHeight: 1.2,
@@ -283,7 +284,7 @@ export function ContactPage() {
             transition={{ duration: 0.55, ease: EASE }}
             style={{
               width: "100%",
-              maxWidth: 600,
+              maxWidth: "min(600px, 100%)",
               background: "var(--bg-raised)",
               border: "1px solid var(--border-subtle)",
               borderRadius: 12,
@@ -298,7 +299,8 @@ export function ContactPage() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "0 24px",
+                padding: "0 var(--r-page-padding)",
+                gap: 8,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -340,10 +342,11 @@ export function ContactPage() {
                 style={{
                   background: "var(--bg-deeper)",
                   borderTop: "1px solid var(--border-subtle)",
-                  padding: "8px 24px 12px",
+                  padding: "8px var(--r-page-padding) 12px",
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
+                  flexWrap: "wrap",
                 }}
               >
                 <PipelineStep text="Received" delay={0} />
@@ -465,10 +468,12 @@ export function ContactPage() {
               <div
                 style={{
                   background: "var(--bg-deeper)",
-                  padding: "16px 24px",
+                  padding: "16px var(--r-page-padding)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 12,
                 }}
               >
                 <span

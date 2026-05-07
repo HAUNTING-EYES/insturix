@@ -93,7 +93,7 @@ export function SupportCredits() {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "96px 24px",
+        padding: "var(--r-section-padding) var(--r-page-padding)",
         background: "var(--bg-canvas)",
       }}
     >
@@ -139,7 +139,7 @@ export function SupportCredits() {
         <motion.h2
           variants={fadeUp}
           style={{
-            fontSize: 44,
+            fontSize: "var(--r-hero-size)",
             fontWeight: 800,
             lineHeight: 1.1,
             color: "var(--text-primary)",

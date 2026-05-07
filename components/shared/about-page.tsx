@@ -8,6 +8,7 @@
  */
 
 import React, { useRef, useEffect, useState } from "react";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { motion } from "framer-motion";
 import { ArrowRight, Upload, FileText, Users, Video, Film, MessageSquare, Palette, Globe } from "lucide-react";
 import Link from "next/link";
@@ -84,7 +85,7 @@ export function AboutPage() {
   return (
     <main style={{ background: "var(--bg-canvas)", minHeight: "100vh", fontFamily: "var(--font-sans)" }}>
 
-      <section style={{ maxWidth: 960, margin: "0 auto", padding: "96px 24px 48px", textAlign: "center" }}>
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "var(--r-section-padding) var(--r-page-padding) 48px", textAlign: "center" }}>
         <motion.span
           initial="hidden" whileInView="visible"
           viewport={{ margin: "-48px" }} variants={fadeIn}
@@ -95,7 +96,7 @@ export function AboutPage() {
         <motion.h1
           initial="hidden" whileInView="visible"
           viewport={{ margin: "-48px" }} variants={fadeIn}
-          style={{ fontSize: 44, fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.05, color: "var(--text-primary)", margin: "0 0 16px" }}
+          style={{ fontSize: "var(--r-hero-size)", fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.05, color: "var(--text-primary)", margin: "0 0 16px" }}
         >
           Content production is broken.
         </motion.h1>
@@ -111,18 +112,18 @@ export function AboutPage() {
       <ToolAccumulation />
 
       {/* The Revolution */}
-      <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px" }}>
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "var(--r-section-padding) var(--r-page-padding)" }}>
         <motion.div
           initial="hidden" whileInView="visible"
           viewport={{ margin: "-64px" }} variants={scaleFadeIn}
           style={{ padding: "48px 32px", border: "1px solid var(--border-subtle)", borderRadius: 12, background: "var(--bg-raised)", overflow: "hidden" }}
         >
           <motion.div initial="hidden" whileInView="visible" viewport={{ margin: "-32px" }} variants={staggerContainer}>
-            <motion.h2 variants={fadeIn} style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.02em", color: "var(--text-primary)", marginBottom: 32, textAlign: "center" }}>
+            <motion.h2 variants={fadeIn} style={{ fontSize: "var(--r-heading-size)", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--text-primary)", marginBottom: 32, textAlign: "center" }}>
               The Revolution
             </motion.h2>
 
-            <motion.div variants={fadeUp} style={{ maxWidth: 520, margin: "0 auto 24px", display: "flex", flexDirection: "column", gap: 8 }}>
+            <motion.div variants={fadeUp} style={{ maxWidth: "min(520px, 100%)", margin: "0 auto 24px", display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ padding: "12px 16px", background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)", borderRadius: 7, display: "flex", alignItems: "center", gap: 12 }}>
                 <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--accent-gold)", letterSpacing: "0.08em" }}>PROMPT</span>
                 <span style={{ fontSize: 13, color: "var(--text-secondary)", fontStyle: "italic" }}>&quot;Launch video for premium coffee brand&quot;</span>
@@ -176,15 +177,15 @@ export function AboutPage() {
       </section>
 
       {/* Beliefs */}
-      <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px" }}>
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "var(--r-section-padding) var(--r-page-padding)" }}>
         <motion.span initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={fadeIn}
           style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 48, textAlign: "center" }}>
           WHAT WE BELIEVE
         </motion.span>
-        <div style={{ display: "flex", flexDirection: "column", gap: 64, maxWidth: 640, margin: "0 auto" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 64, maxWidth: "min(640px, 100%)", margin: "0 auto" }}>
           {BELIEFS.map((belief) => (
             <motion.div key={belief.statement} initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={staggerContainer} style={{ textAlign: "center" }}>
-              <motion.h2 variants={fadeUp} style={{ fontSize: 32, fontWeight: 500, letterSpacing: "-0.02em", lineHeight: 1.2, color: "var(--text-primary)", margin: "0 0 16px" }}>
+              <motion.h2 variants={fadeUp} style={{ fontSize: "var(--r-heading-size)", fontWeight: 500, letterSpacing: "-0.02em", lineHeight: 1.2, color: "var(--text-primary)", margin: "0 0 16px" }}>
                 {belief.statement}
               </motion.h2>
               <motion.p variants={fadeUp} style={{ fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.6, maxWidth: 480, margin: "0 auto" }}>
@@ -196,7 +197,7 @@ export function AboutPage() {
       </section>
 
       {/* Journey */}
-      <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px" }}>
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "var(--r-section-padding) var(--r-page-padding)" }}>
         <motion.span initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={fadeIn}
           style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 48, textAlign: "center" }}>
           THE JOURNEY
@@ -218,7 +219,7 @@ export function AboutPage() {
       </section>
 
       {/* Close */}
-      <section style={{ maxWidth: 960, margin: "0 auto", padding: "64px 24px 96px", textAlign: "center" }}>
+      <section style={{ maxWidth: 960, margin: "0 auto", padding: "var(--r-section-padding) var(--r-page-padding) 96px", textAlign: "center" }}>
         <motion.div initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={staggerContainer}
           style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 32 }}>
           <motion.h2 variants={fadeUp} style={{ fontSize: 24, fontWeight: 500, letterSpacing: "-0.02em", color: "var(--text-primary)", margin: 0 }}>
@@ -247,6 +248,7 @@ export function AboutPage() {
 // =====================================================================
 
 function ToolAccumulation() {
+  const isMobile = useMediaQuery("(max-width: 768px)");
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollPct, setScrollPct] = useState(0);
 
@@ -281,17 +283,17 @@ function ToolAccumulation() {
   const rotations = [-2.5, 1.8, -1.2, 2.4, -0.8, 1.5, -2];
 
   return (
-    <div ref={containerRef} style={{ height: "420vh", position: "relative" }}>
+    <div ref={containerRef} style={{ height: isMobile ? "280vh" : "420vh", position: "relative" }}>
       <div style={{
         position: "sticky", top: 64,
         height: "calc(100vh - 128px)",
         display: "flex", alignItems: "center", justifyContent: "center",
-        maxWidth: 1080, margin: "0 auto", padding: "0 24px",
+        maxWidth: 1080, margin: "0 auto", padding: "0 var(--r-page-padding)",
       }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, width: "100%", alignItems: "center" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: isMobile ? 24 : 48, width: "100%", alignItems: "center" }}>
 
           {/* Left: Falling tool cards */}
-          <div style={{ position: "relative", minHeight: 560 }}>
+          <div style={{ position: "relative", minHeight: isMobile ? 400 : 560 }}>
             {TOOLS.map((tool, i) => {
               const isVisible = i < visibleCount;
               const stackY = i * 24;
@@ -307,7 +309,7 @@ function ToolAccumulation() {
                     top: stackY,
                     left: stackX,
                     right: -stackX,
-                    padding: "20px 24px",
+                    padding: isMobile ? "14px 16px" : "20px 24px",
                     background: "var(--bg-raised)",
                     border: `1px solid ${isVisible ? "var(--border-emphasis)" : "var(--border-subtle)"}`,
                     borderRadius: 12,
@@ -334,7 +336,7 @@ function ToolAccumulation() {
                   </div>
                   {/* Name + desc */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", fontSize: 18, fontWeight: 500, color: "var(--text-primary)", letterSpacing: "-0.015em" }}>
+                    <span style={{ display: "block", fontSize: isMobile ? 14 : 18, fontWeight: 500, color: "var(--text-primary)", letterSpacing: "-0.015em" }}>
                       {tool.name}
                     </span>
                     <span style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginTop: 4, lineHeight: 1.4 }}>
@@ -381,7 +383,7 @@ function ToolAccumulation() {
             </span>
 
             <span style={{
-              display: "block", fontSize: 110, fontWeight: 800,
+              display: "block", fontSize: isMobile ? 64 : 110, fontWeight: 800,
               fontFamily: "var(--font-mono)", letterSpacing: "-0.06em", lineHeight: 1,
               color: smoothDay > 15 ? "var(--status-danger)" : smoothDay > 5 ? "var(--text-primary)" : "var(--text-secondary)",
               transition: `color 0.5s ${EASE_CSS}`,

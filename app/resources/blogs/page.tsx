@@ -19,11 +19,11 @@ export default async function BlogPage() {
       <SiteNavbar />
       <main style={{ minHeight: "100vh", backgroundColor: "var(--bg-canvas)", fontFamily: "var(--font-sans)" }}>
         {/* Hero */}
-        <section style={{ maxWidth: 960, margin: "0 auto", padding: "96px 24px 48px", textAlign: "center" }}>
+        <section style={{ maxWidth: 960, margin: "0 auto", padding: "var(--r-section-padding) var(--r-page-padding) 48px", textAlign: "center" }}>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", color: "var(--text-dim)", textTransform: "uppercase", display: "block", marginBottom: 24 }}>
             BLOG
           </span>
-          <h1 style={{ fontSize: 44, fontWeight: 800, color: "var(--text-primary)", margin: "0 0 16px", lineHeight: 1.05, letterSpacing: "-0.035em" }}>
+          <h1 style={{ fontSize: "var(--r-hero-size)", fontWeight: 800, color: "var(--text-primary)", margin: "0 0 16px", lineHeight: 1.05, letterSpacing: "-0.035em" }}>
             Insights
           </h1>
           <p style={{ fontSize: 14, color: "var(--text-secondary)", maxWidth: 480, margin: "0 auto", lineHeight: 1.6 }}>
@@ -32,7 +32,7 @@ export default async function BlogPage() {
         </section>
 
         {/* Posts or empty state */}
-        <section style={{ maxWidth: 960, margin: "0 auto", padding: "0 24px 64px" }}>
+        <section style={{ maxWidth: 960, margin: "0 auto", padding: "0 var(--r-page-padding) var(--r-section-padding)" }}>
           {hasPosts ? (
             <BlogGrid posts={blogPosts} />
           ) : (
@@ -45,7 +45,7 @@ export default async function BlogPage() {
         </section>
 
         {/* Write for us CTA */}
-        <section style={{ maxWidth: 960, margin: "0 auto", padding: "0 24px 96px" }}>
+        <section style={{ maxWidth: 960, margin: "0 auto", padding: "0 var(--r-page-padding) var(--r-section-padding)" }}>
           <div style={{
             background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
             borderRadius: 12, padding: "48px 32px", textAlign: "center",

@@ -16,7 +16,7 @@ export default function CancellationPolicy() {
           style={{
             maxWidth: 960,
             margin: "0 auto",
-            padding: "64px 24px 48px",
+            padding: "var(--r-section-padding) var(--r-page-padding) 48px",
           }}
         >
           <p
@@ -34,7 +34,7 @@ export default function CancellationPolicy() {
           <h1
             style={{
               fontFamily: "var(--font-sans)",
-              fontSize: 32,
+              fontSize: "var(--r-heading-size)",
               fontWeight: 800,
               color: "var(--text-primary)",
               margin: "8px 0 0",
@@ -56,7 +56,7 @@ export default function CancellationPolicy() {
         </section>
 
         {/* TL;DR */}
-        <section style={{ maxWidth: 960, margin: "0 auto", padding: "0 24px" }}>
+        <section style={{ maxWidth: 960, margin: "0 auto", padding: "0 var(--r-page-padding)" }}>
           <div
             style={{
               background: "var(--bg-raised)",
@@ -99,19 +99,19 @@ export default function CancellationPolicy() {
           style={{
             maxWidth: 960,
             margin: "0 auto",
-            padding: "0 24px 64px",
-            display: "flex",
+            padding: "0 var(--r-page-padding) var(--r-section-padding)",
+            display: "grid",
+            gridTemplateColumns: "var(--r-toc-width) 1fr",
             gap: 48,
           }}
         >
           {/* Sticky TOC */}
           <aside
             style={{
-              width: 200,
-              flexShrink: 0,
+              display: "var(--r-toc-display)" as React.CSSProperties["display"],
               position: "sticky",
               top: 96,
-              alignSelf: "flex-start",
+              alignSelf: "start",
             }}
           >
             <p

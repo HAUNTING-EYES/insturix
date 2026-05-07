@@ -15,6 +15,7 @@ import React, { useRef, useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Play, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 /* ─── Constants ─── */
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
@@ -132,6 +133,7 @@ export function ShowcaseGallery() {
   const sectionRef = useRef<HTMLDivElement>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const count = PRODUCTIONS.length;
+  const isMobile = useMediaQuery("(max-width: 768px)");
 
   /* ── Scroll-driven index tracking ── */
   const handleScroll = useCallback(() => {
@@ -190,7 +192,7 @@ export function ShowcaseGallery() {
       >
         <motion.h2
           style={{
-            fontSize: 44,
+            fontSize: "var(--r-hero-size, 44px)",
             fontWeight: 800,
             lineHeight: 1.1,
             color: "var(--text-primary)",
@@ -293,8 +295,8 @@ export function ShowcaseGallery() {
                     background: "var(--bg-raised)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 12,
-                    padding: 24,
-                    maxWidth: 560,
+                    padding: isMobile ? 16 : 24,
+                    maxWidth: isMobile ? "100%" : 560,
                     margin: "16px auto 0",
                   }}
                 >
@@ -460,7 +462,7 @@ export function ShowcaseGallery() {
       {/* ── CTA below gallery ── */}
       <div
         style={{
-          padding: "64px 24px",
+          padding: isMobile ? "var(--r-section-padding, 48px) var(--r-page-padding, 16px)" : "64px 24px",
           maxWidth: 960,
           margin: "0 auto",
           textAlign: "center",
