@@ -42,7 +42,6 @@ const menuItems = [
       { title: "About us", href: "/about" },
       { title: "Our team", href: "/about/team" },
       { title: "Careers", href: "/careers" },
-      { title: "Newsroom", href: "/newsroom" },
     ],
   },
   {
