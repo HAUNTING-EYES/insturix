@@ -94,13 +94,13 @@ export default function RefundPolicy() {
         </section>
 
         {/* Two-column layout */}
-        <section
+        <section className="legal-grid"
           style={{
             maxWidth: 960,
             margin: "0 auto",
             padding: "0 var(--r-page-padding) var(--r-section-padding)",
             display: "grid",
-            gridTemplateColumns: "var(--r-toc-width) 1fr",
+            gridTemplateColumns: "200px 1fr",
             gap: 48,
           }}
         >

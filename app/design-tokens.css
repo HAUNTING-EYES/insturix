@@ -182,6 +182,14 @@
   }
 }
 
+/* ─── Legal page grid (needs !important to override inline) ─── */
+@media (max-width: 768px) {
+  .legal-grid {
+    grid-template-columns: 1fr !important;
+    gap: 24px !important;
+  }
+}
+
 /* ─── Base styles ─── */
 * {
   border-color: hsl(var(--border));
