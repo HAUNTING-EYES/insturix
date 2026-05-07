@@ -411,7 +411,7 @@ export function LandingPageA() {
         @media(max-width:700px){
           .editor-root{top:48px!important}
           .editor-chat{display:none!important}
-          .editor-preview{width:96%!important;border-radius:8px!important;max-height:50vh!important}
+          .editor-preview{width:96%!important;border-radius:8px!important;aspect-ratio:auto!important;min-height:50vh!important;max-height:70vh!important}
           .editor-topbar{padding:0 10px!important;height:32px!important}
           .editor-topbar .m{font-size:10px!important}
           .editor-topbar span{font-size:11px!important}
