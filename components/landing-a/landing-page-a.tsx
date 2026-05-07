@@ -414,6 +414,7 @@ export function LandingPageA() {
           .editor-topbar{padding:0 10px!important;height:38px!important}
           .editor-topbar .m{font-size:10px!important}
           .editor-topbar button{padding:5px 12px!important;font-size:11px!important}
+          .toast-container{left:50%!important;width:90%!important;max-width:400px!important}
           .mkt-stats{grid-template-columns:1fr 1fr!important;border-radius:12px!important}
           .mkt-stats>div{padding:32px 20px!important}
           .mkt-stats>div>div:first-child{font-size:32px!important}
@@ -421,6 +422,11 @@ export function LandingPageA() {
           .mkt-paths{grid-template-columns:1fr!important}
           .mkt-section{padding-left:20px!important;padding-right:20px!important}
           .mkt-section h2{font-size:28px!important}
+          .hero-done-text{font-size:24px!important}
+          .hero-done-overlay{padding:0 16px!important}
+          .hero-done-overlay h2{font-size:24px!important;line-height:1.2!important}
+          .hero-done-overlay p{font-size:14px!important}
+          .hero-done-overlay button{padding:10px 24px!important;font-size:13px!important}
         }
         @media(max-width:480px){
           .editor-preview{width:100%!important;border-radius:0!important}
@@ -428,6 +434,7 @@ export function LandingPageA() {
           .mkt-stats{grid-template-columns:1fr!important}
           .mkt-section{padding-left:16px!important;padding-right:16px!important}
           .mkt-section h2{font-size:24px!important}
+          .hero-done-text{font-size:18px!important}
         }
         /* Hide Clerk dev mode keyless banner — targets the fixed-position bottom-right widget */
         [data-clerk-keyless-prompt]{display:none!important}
@@ -450,7 +457,7 @@ export function LandingPageA() {
 
       {/* ━━━ TOASTS — centered over preview area, top: 48 nav + 48 topbar + 8 breathing = 104 ━━━ */}
       {!showMkt && toasts.length > 0 && (
-        <div style={{ position: "fixed", top: 104, left: "calc(160px + (100% - 160px - 300px) / 2)", transform: "translateX(-50%)", zIndex: 200, pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 0" }}>
+        <div className="toast-container" style={{ position: "fixed", top: 104, left: "calc(160px + (100% - 160px - 300px) / 2)", transform: "translateX(-50%)", zIndex: 200, pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 0" }}>
           {toasts.map((t, i) => {
             const isNew = i === toasts.length - 1;
             return (
@@ -665,10 +672,10 @@ function Preview({ phase, pct, sub }: { phase: string; pct: number; sub: (lo: nu
             <div style={{ width: 56, height: 56, borderRadius: 16, margin: "0 auto 32px", border: `1.5px solid ${C.borderL}`, display: "flex", alignItems: "center", justifyContent: "center", animation: "breathe 4s ease infinite" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke={C.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity=".35" /></svg>
             </div>
-            <h1 style={{ fontSize: 44, fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.035em", marginBottom: 16 }}>
+            <h1 className="hero-done-text" style={{ fontSize: "var(--r-hero-size, 44px)", fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.035em", marginBottom: 16 }}>
               One platform.<br /><span style={{ color: C.accent }}>Entire production.</span>
             </h1>
-            <p style={{ fontSize: 18, color: C.muted, lineHeight: 1.55, marginBottom: 32 }}>
+            <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.55, marginBottom: 32 }}>
               Watch a complete video get produced as you scroll.
             </p>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
@@ -925,7 +932,7 @@ function Preview({ phase, pct, sub }: { phase: string; pct: number; sub: (lo: nu
             ))}
           </div>
           {/* FIX #4: Removed inline opacity:0, let animation fill-mode handle it */}
-          <div style={{ position: "absolute", inset: 0, zIndex: 8, background: "rgba(5,5,4,.72)", display: "flex", alignItems: "center", justifyContent: "center", animation: `fadeIn .5s ${EASE}` }}>
+          <div className="hero-done-overlay" style={{ position: "absolute", inset: 0, zIndex: 8, background: "rgba(5,5,4,.72)", display: "flex", alignItems: "center", justifyContent: "center", animation: `fadeIn .5s ${EASE}`, padding: "0 24px" }}>
             <div style={{ textAlign: "center", maxWidth: 400 }}>
               <div style={{ width: 60, height: 60, borderRadius: 16, margin: "0 auto 28px", background: `${C.green}10`, border: `1px solid ${C.green}18`, display: "flex", alignItems: "center", justifyContent: "center", animation: `popIn .5s ${EASE} .1s both` }}>
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ strokeDasharray: 20, animation: "checkDraw .4s ease .3s both" }} /></svg>
