@@ -1173,8 +1173,8 @@ function Marketing() {
       {/* Approach A: AI editing callout — moved here for visibility */}
       <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
         <div style={{
-          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, alignItems: "center",
-          background: C.s1, border: `1px solid ${C.cyan}18`, borderRadius: 12, padding: "48px 48px", overflow: "hidden",
+          display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 32, alignItems: "center",
+          background: C.s1, border: `1px solid ${C.cyan}18`, borderRadius: 12, padding: "48px 24px", overflow: "hidden",
         }}>
           <div>
             <span className="m" style={{ fontSize: 10, letterSpacing: "0.08em", color: C.cyan, display: "block", marginBottom: 16 }}>
@@ -1301,7 +1301,7 @@ function Marketing() {
                 </div>
               ))}
               <div style={{ marginTop: 32, pointerEvents: "auto" }}>
-                <span style={{ fontSize: 14, fontWeight: 800, color: card.c }}>Learn more →</span>
+                <a href="/contactus" style={{ fontSize: 14, fontWeight: 800, color: card.c, textDecoration: "none" }}>Get in touch →</a>
               </div>
             </div>
           ))}
