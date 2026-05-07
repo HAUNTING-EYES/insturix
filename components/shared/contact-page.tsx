@@ -14,6 +14,7 @@ import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { toast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
+import { Headphones } from "lucide-react";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -75,37 +76,9 @@ function FlipLabel({ text, delayBase = 0 }: { text: string; delayBase?: number }
   );
 }
 
-/* ---------- Headset SVG (hand-drawn, no lucide) ---------- */
+/* ---------- Headset icon ---------- */
 function HeadsetIcon({ size = 64 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 48 48"
-      fill="none"
-    >
-      {/* Headband — wide arc */}
-      <path
-        d="M8 28 C8 14, 40 14, 40 28"
-        stroke="var(--accent-gold)"
-        strokeWidth={2.5}
-        strokeLinecap="round"
-      />
-      {/* Left earpiece */}
-      <rect x={5} y={26} width={7} height={14} rx={3.5} fill="var(--accent-gold)" />
-      {/* Right earpiece */}
-      <rect x={36} y={26} width={7} height={14} rx={3.5} fill="var(--accent-gold)" />
-      {/* Mic arm from right earpiece */}
-      <path
-        d="M40 36 C40 42, 32 44, 28 44"
-        stroke="var(--accent-gold)"
-        strokeWidth={2}
-        strokeLinecap="round"
-      />
-      {/* Mic tip */}
-      <circle cx={28} cy={44} r={2.5} fill="var(--accent-gold)" />
-    </svg>
-  );
+  return <Headphones size={size} style={{ color: "var(--accent-gold)" }} strokeWidth={1.5} />;
 }
 
 /* ---------- Form field row ---------- */
