@@ -418,9 +418,11 @@ export function LandingPageA() {
           .editor-topbar button{padding:4px 8px!important;font-size:10px!important}
           .editor-topbar input{width:60px!important;font-size:11px!important}
           .toast-container{left:50%!important;width:90%!important;max-width:340px!important;top:84px!important}
-          .toast-container>div{padding:8px 16px!important;border-radius:8px!important;font-size:12px!important}
+          .toast-container>div{padding:8px 16px!important;border-radius:8px!important}
           .toast-container>div>span{font-size:12px!important}
           .toast-container .m{font-size:9px!important}
+          .editor-preview-wrap{align-items:flex-start!important;padding:8px 12px!important}
+          .editor-preview{max-height:none!important}
           .mkt-stats{grid-template-columns:1fr 1fr!important;border-radius:12px!important}
           .mkt-stats>div{padding:32px 20px!important}
           .mkt-stats>div>div:first-child{font-size:32px!important}
@@ -619,8 +621,8 @@ export function LandingPageA() {
           </div>
 
           {/* CENTER */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#060605" }}>
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", padding: 20 }}>
+          <div className="editor-center" style={{ flex: 1, display: "flex", flexDirection: "column", background: "#060605" }}>
+            <div className="editor-preview-wrap" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", padding: 20 }}>
               <Preview phase={phase} pct={pipePct} sub={sub} />
             </div>
             <TL phase={phase} pct={pipePct} />
