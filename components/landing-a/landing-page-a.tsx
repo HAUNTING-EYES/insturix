@@ -409,12 +409,18 @@ export function LandingPageA() {
           .mkt-stats{grid-template-columns:1fr 1fr!important}
         }
         @media(max-width:700px){
+          .editor-root{top:48px!important}
           .editor-chat{display:none!important}
-          .editor-preview{width:96%!important;border-radius:8px!important}
-          .editor-topbar{padding:0 10px!important;height:38px!important}
+          .editor-preview{width:96%!important;border-radius:8px!important;max-height:50vh!important}
+          .editor-topbar{padding:0 10px!important;height:32px!important}
           .editor-topbar .m{font-size:10px!important}
-          .editor-topbar button{padding:5px 12px!important;font-size:11px!important}
-          .toast-container{left:50%!important;width:90%!important;max-width:400px!important}
+          .editor-topbar span{font-size:11px!important}
+          .editor-topbar button{padding:4px 8px!important;font-size:10px!important}
+          .editor-topbar input{width:60px!important;font-size:11px!important}
+          .toast-container{left:50%!important;width:90%!important;max-width:340px!important;top:84px!important}
+          .toast-container>div{padding:8px 16px!important;border-radius:8px!important;font-size:12px!important}
+          .toast-container>div>span{font-size:12px!important}
+          .toast-container .m{font-size:9px!important}
           .mkt-stats{grid-template-columns:1fr 1fr!important;border-radius:12px!important}
           .mkt-stats>div{padding:32px 20px!important}
           .mkt-stats>div>div:first-child{font-size:32px!important}
@@ -495,6 +501,7 @@ export function LandingPageA() {
 
       {/* ━━━ EDITOR ━━━ */}
       <div
+        className="editor-root"
         style={{
           position: "fixed",
           top: 64, // 48px navbar + 16px breathing gap
