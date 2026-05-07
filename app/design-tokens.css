@@ -144,6 +144,44 @@
   --sidebar-ring: 39 60% 58%;
 }
 
+/* ─── Responsive layout tokens ─── */
+/* These change at breakpoints. Components use var(--r-*) instead of hardcoded px. */
+:root {
+  --r-hero-size: 44px;
+  --r-heading-size: 32px;
+  --r-subheading-size: 24px;
+  --r-page-padding: 24px;
+  --r-section-padding: 64px;
+  --r-grid-cols: 2;
+  --r-grid-gap: 16px;
+  --r-content-max: 960px;
+  --r-toc-display: block;
+  --r-toc-width: 200px;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --r-hero-size: 32px;
+    --r-heading-size: 24px;
+    --r-subheading-size: 18px;
+    --r-page-padding: 16px;
+    --r-section-padding: 48px;
+    --r-grid-cols: 1;
+    --r-grid-gap: 12px;
+    --r-content-max: 100%;
+    --r-toc-display: none;
+    --r-toc-width: 0px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --r-hero-size: 24px;
+    --r-page-padding: 12px;
+    --r-section-padding: 32px;
+  }
+}
+
 /* ─── Base styles ─── */
 * {
   border-color: hsl(var(--border));

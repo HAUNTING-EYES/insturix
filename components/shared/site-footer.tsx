@@ -221,10 +221,10 @@ export function SiteFooter() {
         style={{
           maxWidth: 1080,
           margin: "0 auto",
-          padding: "48px 48px 32px",
+          padding: "48px var(--r-page-padding, 48px) 32px",
           display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 48,
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: 32,
         }}
       >
         {footerSections.map((section) => (
