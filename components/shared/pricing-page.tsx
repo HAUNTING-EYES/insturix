@@ -320,29 +320,30 @@ function CostAccumulation() {
             </span>
           </div>
 
-          {/* Right: Receipt — folds via framer-motion keyframes */}
+          {/* Right: Receipt — crush-and-toss crumple */}
           <motion.div
             animate={showInsturix ? {
-              rotateX: [0, 12, 30, 55],
-              scaleY: [1, 0.88, 0.6, 0.25],
-              scaleX: [1, 1.01, 1.03, 0.92],
-              opacity: [1, 0.85, 0.4, 0.03],
-              y: [0, 4, 12, 32],
-            } : { rotateX: 0, scaleY: 1, scaleX: 1, opacity: 1, y: 0 }}
-            transition={{ duration: 1.2, ease: EASE }}
+              scaleY: [1, 1.02, 0.55, 0.15],
+              scaleX: [1, 0.98, 1.08, 0.8],
+              rotate: [0, -1, 4, 12],
+              y: [0, -4, 12, 64],
+              opacity: [1, 1, 0.5, 0],
+              borderRadius: [4, 4, 8, 16],
+            } : { scaleY: 1, scaleX: 1, rotate: 0, y: 0, opacity: 1, borderRadius: 4 }}
+            transition={{ duration: 0.8, ease: EASE }}
             style={{
               background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
-              borderRadius: 4, padding: "24px 24px", fontFamily: "var(--font-mono)",
-              transformOrigin: "center top",
-              perspective: 600,
+              padding: "24px 24px", fontFamily: "var(--font-mono)",
+              transformOrigin: "center center",
               position: "relative",
+              overflow: "hidden",
             }}>
-            {/* Fold crease lines — appear during crumple */}
+            {/* Diagonal wrinkle lines — appear during crush */}
             {showInsturix && (
               <>
-                <div style={{ position: "absolute", top: "28%", left: 4, right: 4, height: 1, background: "var(--border-emphasis)", opacity: 0.6, zIndex: 2 }} />
-                <div style={{ position: "absolute", top: "55%", left: 8, right: 8, height: 1, background: "var(--border-emphasis)", opacity: 0.4, zIndex: 2 }} />
-                <div style={{ position: "absolute", top: "78%", left: 4, right: 12, height: 1, background: "var(--border-emphasis)", opacity: 0.3, zIndex: 2 }} />
+                <div style={{ position: "absolute", top: "18%", left: 0, width: "120%", height: 1, background: "var(--border-emphasis)", opacity: 0.5, transform: "rotate(-8deg)", transformOrigin: "left center", zIndex: 2, pointerEvents: "none" }} />
+                <div style={{ position: "absolute", top: "48%", left: "-8%", width: "120%", height: 1, background: "var(--border-emphasis)", opacity: 0.4, transform: "rotate(5deg)", transformOrigin: "left center", zIndex: 2, pointerEvents: "none" }} />
+                <div style={{ position: "absolute", top: "72%", left: 0, width: "115%", height: 1, background: "var(--border-emphasis)", opacity: 0.3, transform: "rotate(-4deg)", transformOrigin: "right center", zIndex: 2, pointerEvents: "none" }} />
               </>
             )}
             {/* Receipt header */}
