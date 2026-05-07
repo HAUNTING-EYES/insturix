@@ -1,41 +1,90 @@
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import { SiteNavbar } from "@/components/shared/site-navbar";
+import { SiteFooter } from "@/components/shared/site-footer";
 import { getAllBlogPosts } from "@/lib/blog-server";
 import BlogGrid from "@/components/BlogGrid";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Blog | Insturix",
+  description: "Insights on AI video production, creative workflows, and the future of content creation.",
+};
 
 export default async function BlogPage() {
   const blogPosts = await getAllBlogPosts();
 
   return (
     <>
-      <Navbar />
-      <div className="min-h-screen bg-[#0a0a0a] relative overflow-hidden">
-        {/* Premium background texture */}
-        <div className="absolute inset-0 opacity-[0.02]">
-          <div className="absolute inset-0" style={{
-            backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.3) 1px, transparent 0)`,
-            backgroundSize: '24px 24px'
-          }}></div>
-        </div>
-        
-        {/* Subtle gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a0a] via-[#111111] to-[#0a0a0a] opacity-90"></div>
-        
-        <div className="relative z-10 container mx-auto px-4 py-20 mt-16">
-          <div className="text-center mb-20">
-            <h1 className="font-serif text-6xl md:text-7xl font-light text-white mb-8 tracking-tight">
-              Insights
-            </h1>
-            <div className="w-24 h-[1px] bg-gradient-to-r from-transparent via-white to-transparent mx-auto mb-8 opacity-30"></div>
-            <p className="font-serif text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed font-light">
-              Thoughtful perspectives on the evolving landscape of digital creation, 
-              innovation, and the future of creative commerce.
-            </p>
-          </div>
+      <SiteNavbar />
+      <main
+        style={{
+          minHeight: "100vh",
+          backgroundColor: "var(--bg-canvas)",
+          fontFamily: "var(--font-sans)",
+        }}
+      >
+        {/* Hero */}
+        <section
+          style={{
+            maxWidth: 960,
+            margin: "0 auto",
+            padding: "64px 24px 48px",
+            textAlign: "center",
+          }}
+        >
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              fontWeight: 500,
+              letterSpacing: "0.12em",
+              color: "var(--text-dim)",
+              textTransform: "uppercase",
+              display: "block",
+              marginBottom: 12,
+            }}
+          >
+            BLOG
+          </span>
+
+          <h1
+            style={{
+              fontSize: 44,
+              fontWeight: 800,
+              color: "var(--text-primary)",
+              margin: "0 0 12px",
+              lineHeight: 1.1,
+            }}
+          >
+            Insights
+          </h1>
+
+          <p
+            style={{
+              fontSize: 14,
+              fontWeight: 400,
+              color: "var(--text-secondary)",
+              maxWidth: 480,
+              margin: "0 auto",
+              lineHeight: 1.6,
+            }}
+          >
+            Perspectives on AI-driven production, creative workflows, and the
+            evolving landscape of video content.
+          </p>
+        </section>
+
+        {/* Grid */}
+        <section
+          style={{
+            maxWidth: 960,
+            margin: "0 auto",
+            padding: "0 24px 64px",
+          }}
+        >
           <BlogGrid posts={blogPosts} />
-        </div>
-      </div>
-      <Footer />
+        </section>
+      </main>
+      <SiteFooter />
     </>
   );
 }
