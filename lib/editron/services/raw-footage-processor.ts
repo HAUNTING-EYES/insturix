@@ -5,15 +5,13 @@
  *   1. Transcribe (Deepgram, word-level timestamps)
  *   2. Detect silences from transcript gaps
  *   3. Detect filler words
- *   4. Detect repeated phrases → best-take selection
- *   5. Segment transcript by topic (pause + sentence boundaries)
+ *   4. Segment transcript by topic (pause + sentence boundaries)
+ *   4.5. Editorial intent detection (Gemini — CONTENT/META_DISCARD/META_KEEP)
+ *   5. Best-take selection (repeated phrases → keep best, discard rest)
  *   6. Classify content type (rule-based, no LLM)
- *   7. Build atomic SilenceRemovalPlan
+ *   7. Build atomic SilenceRemovalPlan (includes editorial intent removals)
  *
  * Output: RawFootageAnalysis — immutable input to silence-removal-executor.ts
- *
- * Vision doc: "LLMs for understanding. Rules for decisions."
- * This file is ALL rules. The only LLM call is transcription (Deepgram).
  */
 
 import { getTranscription } from '@/lib/editron/services/media';
@@ -30,7 +28,7 @@ export interface SilenceRemovalAction {
   action: 'remove' | 'shorten';
   /** Target duration in ms (only for 'shorten') */
   shortenToMs?: number;
-  reason: 'silence' | 'filler' | 'inferior-take';
+  reason: 'silence' | 'filler' | 'inferior-take' | 'meta-discard';
 }
 
 export interface TranscriptSegment {
@@ -64,6 +62,8 @@ export interface RawFootageAnalysis {
   segments: TranscriptSegment[];
   bestTakeSelections: BestTakeSelection[];
   contentTypeDetection: ContentTypeDetection;
+  /** Editorial intent classifications per segment (Gemini-powered) */
+  editorialIntents?: import('./editorial-intent-detector').EditorialIntentResult;
   /** The ATOMIC removal plan — fully computed before any execution */
   silenceRemovalPlan: SilenceRemovalAction[];
   /** Estimated duration after all removals (ms) */
@@ -436,6 +436,15 @@ export async function processRawFootage(
   const segments = segmentTranscript(transcription.words, config.segmentPauseThresholdMs);
   console.log(`[RawFootage] ${segments.length} transcript segments`);
 
+  // Step 4.5: Editorial intent detection (Gemini-powered)
+  let editorialIntents: import('./editorial-intent-detector').EditorialIntentResult | undefined;
+  try {
+    const { detectEditorialIntent } = await import('./editorial-intent-detector');
+    editorialIntents = await detectEditorialIntent(segments);
+  } catch (err: any) {
+    console.warn(`[RawFootage] Editorial intent detection failed (non-fatal): ${err.message}`);
+  }
+
   // Step 5: Best-take detection
   const bestTakeSelections = detectBestTakes(segments, config.bestTakeJaccardThreshold);
   if (bestTakeSelections.length > 0) {
@@ -461,6 +470,13 @@ export async function processRawFootage(
     config.casualFillerRateThreshold,
   );
 
+  // Step 7.5: Merge editorial intent removals into the plan
+  if (editorialIntents?.additionalRemovals.length) {
+    silenceRemovalPlan.push(...editorialIntents.additionalRemovals);
+    silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
+    console.log(`[RawFootage] Added ${editorialIntents.additionalRemovals.length} editorial-intent removals to plan`);
+  }
+
   // Estimate clean duration
   const totalRemovedMs = silenceRemovalPlan.reduce((sum, action) => {
     if (action.action === 'remove') return sum + (action.endMs - action.startMs);
@@ -478,6 +494,7 @@ export async function processRawFootage(
     segments,
     bestTakeSelections,
     contentTypeDetection,
+    editorialIntents,
     silenceRemovalPlan,
     estimatedCleanDurationMs,
     originalDurationMs: videoDurationMs,

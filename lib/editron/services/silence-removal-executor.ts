@@ -30,7 +30,7 @@ export interface GhostSegment {
   sourceStartMs: number;
   sourceEndMs: number;
   /** Why this segment was removed */
-  removalReason: 'silence' | 'filler' | 'false_start' | 'duplicate_take' | 'low_quality';
+  removalReason: 'silence' | 'filler' | 'false_start' | 'duplicate_take' | 'low_quality' | 'meta_commentary';
   /** How confident are we this removal is correct (0-1) */
   removalConfidence: number;
   /** For duplicate_take: ID of the segment that was kept instead */
@@ -167,7 +167,7 @@ export async function executeSilenceRemoval(
         toDelete.push(i);
         // Ghost: preserve the removed overlay for potential restoration
         const reasonMap: Record<string, GhostSegment['removalReason']> = {
-          'silence': 'silence', 'filler': 'filler', 'inferior-take': 'duplicate_take',
+          'silence': 'silence', 'filler': 'filler', 'inferior-take': 'duplicate_take', 'meta-discard': 'meta_commentary',
         };
         ghostSegments.push({
           id: `ghost_${projectId}_${action.startMs}_${action.endMs}`,

@@ -463,6 +463,12 @@ function buildDecision(
     ? interpolateParams(technique, momentWeight)
     : getDefaultParams(edlType, momentWeight);
 
+  // Propagate transition type from technique ID → params.transitionType
+  // so the EDL executor can read it (it reads params.transitionType, not decision.technique)
+  if (edlType === 'transition' && techniqueId.startsWith('technique:transition.')) {
+    params.transitionType = mapGraphTransitionToEdl(techniqueId);
+  }
+
   return {
     type: edlType as EditDecision['type'],
     frame,
@@ -552,11 +558,12 @@ function checkBudget(decision: EditDecision, budget: BudgetState, weight: number
       if (decision.frame - budget.lastGraphicFrame < MIN_GRAPHIC_GAP_FRAMES) return false;
       return true;
 
-    case 'transition':
-      const transType = (decision.params['type'] as string) ?? 'hard-cut';
+    case 'transition': {
+      const transType = (decision.params['transitionType'] as string) ?? (decision.params['type'] as string) ?? 'hard-cut';
       const count = budget.transitionCounts.get(transType) ?? 0;
       if (count >= MAX_TRANSITIONS_PER_TYPE && transType !== 'hard-cut') return false;
       return true;
+    }
 
     default:
       return true;
@@ -573,10 +580,11 @@ function updateBudget(decision: EditDecision, frame: number, budget: BudgetState
       budget.graphicCount++;
       budget.lastGraphicFrame = frame;
       break;
-    case 'transition':
-      const transType = (decision.params['type'] as string) ?? 'hard-cut';
+    case 'transition': {
+      const transType = (decision.params['transitionType'] as string) ?? (decision.params['type'] as string) ?? 'hard-cut';
       budget.transitionCounts.set(transType, (budget.transitionCounts.get(transType) ?? 0) + 1);
       break;
+    }
     case 'cut':
       budget.lastCutFrame = frame;
       break;
@@ -603,6 +611,29 @@ function deduplicateDecisions(decisions: EditDecision[]): EditDecision[] {
 function getNearestGridSnapshot(timeline: SignalTimeline, frame: number): SignalSnapshot | null {
   const gridFrame = Math.round(frame / timeline.gridInterval) * timeline.gridInterval;
   return timeline.gridSignals.get(gridFrame) ?? null;
+}
+
+// ─── Transition Name Mapping ────────────────────────────────────────────────
+
+const GRAPH_TO_EDL_TRANSITION: Record<string, string> = {
+  hard_cut: 'hard-cut',
+  dissolve: 'dissolve',
+  fade_to_black: 'dip-to-black',
+  fade_from_black: 'dip-to-black',
+  dip_to_white: 'dip-to-white',
+  wipe: 'wipe-left',
+  whip_pan: 'whip-pan',
+  flash: 'flash',
+  film_burn: 'film-burn',
+  iris_wipe: 'iris-wipe',
+  blur_transition: 'blur-transition',
+  slide_transition: 'slide-up',
+  j_cut: 'hard-cut',
+};
+
+function mapGraphTransitionToEdl(techniqueId: string): string {
+  const graphName = techniqueId.replace('technique:transition.', '');
+  return GRAPH_TO_EDL_TRANSITION[graphName] || graphName.replace(/_/g, '-');
 }
 
 // ─── Inference Helpers ──────────────────────────────────────────────────────
@@ -686,7 +717,7 @@ function getDefaultParams(edlType: string, weight: number): Record<string, numbe
         easing: 'ease-out',
       };
     case 'transition':
-      return { type: 'hard-cut', duration_frames: 0 };
+      return { transitionType: 'hard-cut', duration_frames: 0 };
     case 'graphic':
       return {
         graphic_type: 'stat-counter',
