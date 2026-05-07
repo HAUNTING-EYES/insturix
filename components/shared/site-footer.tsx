@@ -33,12 +33,9 @@ const footerSections = [
   {
     heading: "Product",
     links: [
-      { label: "Script", href: "/products/thinkforge" },
-      { label: "Edit", href: "/products/editron" },
-      { label: "Analyze", href: "/products/alyzitron" },
-      { label: "Design", href: "/products/clickatron" },
-      { label: "Music", href: "/products/musitron" },
-      { label: "Distribute", href: "/products/socialize" },
+      { label: "Products", href: "/products" },
+      { label: "Showcase", href: "/showcase" },
+      { label: "Pricing", href: "/upgrade" },
     ],
   },
   {
@@ -47,8 +44,9 @@ const footerSections = [
       { label: "About", href: "/about" },
       { label: "Team", href: "/about/team" },
       { label: "Careers", href: "/careers" },
-      { label: "Press", href: "/newsroom" },
-      { label: "Agency", href: "/insturix-creatives-agency" },
+      { label: "Newsroom", href: "/newsroom" },
+      { label: "Support us", href: "/support-us" },
+      { label: "Contact", href: "/contactus" },
     ],
   },
   {
@@ -58,7 +56,6 @@ const footerSections = [
       { label: "Tutorials", href: "/resources/tutorials" },
       { label: "Support", href: "/resources/support" },
       { label: "FAQ", href: "/resources/faq" },
-      { label: "Pricing", href: "/upgrade" },
     ],
   },
 ];
