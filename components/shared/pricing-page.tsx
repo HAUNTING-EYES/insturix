@@ -320,32 +320,14 @@ function CostAccumulation() {
             </span>
           </div>
 
-          {/* Right: Receipt — crush-and-toss crumple */}
-          <motion.div
-            animate={showInsturix ? {
-              scaleY: [1, 1.02, 0.55, 0.15],
-              scaleX: [1, 0.98, 1.08, 0.8],
-              rotate: [0, -1, 4, 12],
-              y: [0, -4, 12, 64],
-              opacity: [1, 1, 0.5, 0],
-              borderRadius: [4, 4, 8, 16],
-            } : { scaleY: 1, scaleX: 1, rotate: 0, y: 0, opacity: 1, borderRadius: 4 }}
-            transition={{ duration: 0.8, ease: EASE }}
-            style={{
-              background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
-              padding: "24px 24px", fontFamily: "var(--font-mono)",
-              transformOrigin: "center center",
-              position: "relative",
-              overflow: "hidden",
-            }}>
-            {/* Diagonal wrinkle lines — appear during crush */}
-            {showInsturix && (
-              <>
-                <div style={{ position: "absolute", top: "18%", left: 0, width: "120%", height: 1, background: "var(--border-emphasis)", opacity: 0.5, transform: "rotate(-8deg)", transformOrigin: "left center", zIndex: 2, pointerEvents: "none" }} />
-                <div style={{ position: "absolute", top: "48%", left: "-8%", width: "120%", height: 1, background: "var(--border-emphasis)", opacity: 0.4, transform: "rotate(5deg)", transformOrigin: "left center", zIndex: 2, pointerEvents: "none" }} />
-                <div style={{ position: "absolute", top: "72%", left: 0, width: "115%", height: 1, background: "var(--border-emphasis)", opacity: 0.3, transform: "rotate(-4deg)", transformOrigin: "right center", zIndex: 2, pointerEvents: "none" }} />
-              </>
-            )}
+          {/* Right: Receipt */}
+          <div style={{
+            background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
+            borderRadius: 4, padding: "24px 24px", fontFamily: "var(--font-mono)",
+            opacity: showInsturix ? 0 : 1,
+            transform: showInsturix ? "scale(0.95) translateY(16px)" : "scale(1) translateY(0)",
+            transition: `opacity 0.5s ${EASE_CSS}, transform 0.5s ${EASE_CSS}`,
+          }}>
             {/* Receipt header */}
             <div style={{ borderBottom: "1px dashed var(--border-emphasis)", paddingBottom: 16, marginBottom: 16, textAlign: "center" }}>
               <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", color: "var(--text-dim)" }}>PRODUCTION COSTS</span>
@@ -419,7 +401,7 @@ function CostAccumulation() {
                 <span style={{ fontSize: 11, fontWeight: 800, color: "var(--status-danger)", letterSpacing: "0.08em" }}>THANK YOU FOR OVERPAYING</span>
               </div>
             )}
-          </motion.div>
+          </div>
         </div>
 
         {/* Insturix reveal */}
