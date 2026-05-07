@@ -42,11 +42,12 @@ const menuItems = [
       { title: "About us", href: "/about" },
       { title: "Our team", href: "/about/team" },
       { title: "Careers", href: "/careers" },
+      { title: "Newsroom", href: "/newsroom" },
     ],
   },
   {
     title: "Resources",
-    href: "/resources",
+    href: "#",
     subItems: [
       { title: "Blog", href: "/resources/blogs" },
       { title: "Tutorials", href: "/resources/tutorials" },
