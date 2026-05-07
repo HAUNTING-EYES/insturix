@@ -1,6 +1,5 @@
 import CashbackTasksManager from "@/components/admin/CashbackTasksManager";
 import AdminBackButton from "@/components/admin/AdminBackButton";
-import Navbar from "@/components/Navbar";
 
 export const metadata = {
   title: "Cashback Tasks · Admin | Insturix",
@@ -10,14 +9,13 @@ export const metadata = {
 
 /**
  * Admin Cashback Tasks Page
- * 
+ *
  * Protected by AdminLayout - only accessible to authenticated admin users.
  * Admin verification happens at the layout level.
  */
 export default async function AdminCashbackTasksPage() {
   return (
-    <div className="min-h-screen bg-white dark:bg-zinc-950">
-      <Navbar />
+    <div className="min-h-screen">
       <div className="container max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
           <AdminBackButton />
