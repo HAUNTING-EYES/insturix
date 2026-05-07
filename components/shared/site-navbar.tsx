@@ -562,21 +562,22 @@ function AuthButtons() {
         </Link>
         <button
           onClick={() => signOut({ redirectUrl: "/" })}
+          aria-label="Sign out"
           style={{
-            fontSize: 13,
-            fontWeight: 400,
-            color: "var(--text-muted)",
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            fontFamily: "var(--font-sans)",
-            padding: "6px 8px",
-            transition: "color 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 32, height: 32, borderRadius: 7,
+            color: "var(--text-muted)", background: "transparent",
+            border: "none", cursor: "pointer",
+            transition: "all 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-well)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
         >
-          Sign out
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
         </button>
       </div>
     );
