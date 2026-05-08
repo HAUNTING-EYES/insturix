@@ -3,7 +3,7 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye, MessageSquare, Send, Trash2, Pencil, Plus, Upload } from 'lucide-react';
-import { EditronImportAnimation } from './EditronImportAnimation';
+import { EditorImportAnimation } from './EditronImportAnimation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -1000,7 +1000,7 @@ export function ExportToEditronDialog({
       }
 
       setStep('done');
-      sendNotification('Video Project Ready!', 'Your AI video has been generated and is ready to edit in Editron.');
+      sendNotification('Video Project Ready!', 'Your AI video has been generated and is ready to edit in Editor.');
     } catch (err: any) {
       setError(err.message || 'Something went wrong');
       setStep('configure');
@@ -1448,7 +1448,7 @@ export function ExportToEditronDialog({
       case 'reviewing-storyboard': return 'Review storyboard images before video generation';
       case 'generating-videos': return 'Generating AI video clips...';
       case 'generating-voiceover': return 'Generating AI voiceover...';
-      case 'finalizing': return 'Building your Editron project...';
+      case 'finalizing': return 'Building your Editor project...';
       case 'directing': return `Applying edit profile${directorProgress.desc ? ': ' + directorProgress.desc : '...'}`;
       case 'done': return 'Your project is ready!';
     }
@@ -1460,7 +1460,7 @@ export function ExportToEditronDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-[#ECE9E1]">
             <Video className="h-5 w-5 text-green-500" />
-            Export to Editron
+            Export to Editor
           </DialogTitle>
           <DialogDescription className="text-[#7A776E]">
             {stepDescription()}
@@ -1757,7 +1757,7 @@ export function ExportToEditronDialog({
               exit={{ opacity: 0 }}
               className="py-2 space-y-4"
             >
-              <EditronImportAnimation
+              <EditorImportAnimation
                 sceneCount={scenes.length || 4}
                 step={step === 'exporting' ? 'exporting' : step === 'storyboard' ? 'storyboard' : step === 'finalizing' ? 'exporting' : 'storyboard'}
               />
@@ -1784,7 +1784,7 @@ export function ExportToEditronDialog({
                   />
                 )}
                 <StepIndicator label="Generate AI voiceover" active={step === 'generating-voiceover'} done={['finalizing', 'directing', 'done'].includes(step)} />
-                <StepIndicator label="Create Editron project" active={step === 'finalizing'} done={['directing', 'done'].includes(step)} />
+                <StepIndicator label="Create Editor project" active={step === 'finalizing'} done={['directing', 'done'].includes(step)} />
                 {selectedProfileId && (
                   <StepIndicator label="Apply edit profile" active={(step as string) === 'directing'} done={(step as string) === 'done'} />
                 )}
@@ -2503,7 +2503,7 @@ export function ExportToEditronDialog({
                   <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />
                   <div>
                     <p className="text-xs font-medium text-blue-300">Music & Sound Effects generating</p>
-                    <p className="text-[10px] text-blue-400/70">Audio will appear in your Editron project automatically. Refresh the editor after a few minutes.</p>
+                    <p className="text-[10px] text-blue-400/70">Audio will appear in your Editor project automatically. Refresh the editor after a few minutes.</p>
                   </div>
                 </div>
               )}
@@ -2576,7 +2576,7 @@ export function ExportToEditronDialog({
                   ? 'Generate Full AI Video'
                   : generateStoryboard
                   ? 'Export with Storyboard'
-                  : 'Export to Editron'}
+                  : 'Export to Editor'}
               </Button>
             </>
           )}
@@ -2651,7 +2651,7 @@ export function ExportToEditronDialog({
                 className="bg-green-600 hover:bg-green-700 text-[#ECE9E1]"
               >
                 <Video className="h-4 w-4 mr-2" />
-                Open in Editron
+                Open in Editor
               </Button>
             </>
           )}

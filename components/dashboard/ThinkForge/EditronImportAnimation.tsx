@@ -3,17 +3,17 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-interface EditronImportAnimationProps {
+interface EditorImportAnimationProps {
   sceneCount?: number;
   step: 'exporting' | 'storyboard';
 }
 
 /**
- * Animated preview showing Editron "building" the timeline in real-time.
+ * Animated preview showing Editor "building" the timeline in real-time.
  * Tiles slide, snap into place, and shimmer while a frosted overlay
- * communicates that Editron is working behind the scenes.
+ * communicates that Editor is working behind the scenes.
  */
-export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAnimationProps) {
+export function EditorImportAnimation({ sceneCount = 4, step }: EditorImportAnimationProps) {
   const displayCount = Math.min(sceneCount, 6);
   const tiles = Array.from({ length: displayCount }, (_, i) => i);
 
@@ -60,7 +60,7 @@ export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAn
           </div>
 
           <p className="text-[11px] text-[#B5B2A8] font-medium tracking-wide">
-            {step === 'exporting' ? 'Editron is arranging your timeline...' : 'Generating & placing scene images...'}
+            {step === 'exporting' ? 'Editor is arranging your timeline...' : 'Generating & placing scene images...'}
           </p>
           <div className="flex gap-1">
             {[0, 1, 2, 3, 4].map((i) => (

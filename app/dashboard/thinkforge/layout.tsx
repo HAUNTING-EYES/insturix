@@ -2,29 +2,29 @@ import { Metadata } from "next";
 import "./thinkforge.css";
 
 export const metadata: Metadata = {
-  title: "Thinkforge | Creator Command Center",
+  title: "Script | Creator Command Center",
   description:
-    "Thinkforge Command Center ",
+    "Script Command Center ",
   keywords:
-    "Thinkforge Command Center",
+    "Script Command Center",
   openGraph: {
-    title: "Thinkforge Command Center",
+    title: "Script Command Center",
     description:
-      "Thinkforge Command Center",
+      "Script Command Center",
     images: [
       {
         url: "/icons/contact-og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "Thinkforge Command Center",
+        alt: "Script Command Center",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Thinkforge Command Center",
+    title: "Script Command Center",
     description:
-      "Thinkforge Command Center",
+      "Script Command Center",
     images: ["/icons/contact-twitter-image.jpg"],
   },
   

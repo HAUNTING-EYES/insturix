@@ -176,6 +176,10 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
            onTabClick={handleTabClick}
            onTabClose={onTabClose && tabs.length > 1 ? handleTabClose : undefined}
            onTabReorder={(newOrder) => setTabOrder(newOrder.map(t => t.scriptId))}
+           onNewTab={async () => {
+              const newId = `script_${Date.now()}`;
+              if (onSwitchScript) onSwitchScript(newId);
+           }}
          />
        )}
 
@@ -206,7 +210,12 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                     }
                   }}
                   onEditSelection={onEditSelection}
-                generatingScript={generatingScript}
+                  generatingScript={generatingScript}
+                  onNewScript={async () => {
+                     const newId = `script_${Date.now()}`;
+                     if (onSwitchScript) onSwitchScript(newId);
+                     return newId;
+                  }}
                 />
              </div>
           ) : (

@@ -17,7 +17,7 @@ interface WorkspaceHeaderProps {
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   currentMode,
   onModeChange,
-  title = "ThinkForge",
+  title = "Script",
   onBack,
   showBack = false,
   rightActions,

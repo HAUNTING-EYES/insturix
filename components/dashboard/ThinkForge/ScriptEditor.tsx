@@ -19,6 +19,7 @@ import {
   History,
   MoreVertical,
   FileDown,
+  Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -393,7 +394,12 @@ export default function ScriptEditor({
       }
       // Reset streaming state to prevent further token processing
       streamingTiptap.reset();
-      // Keep live renderer visible with final content (user clicks to dismiss)
+      
+      // Force autosave after generation finishes
+      setHasUnsavedChanges(true);
+      if (handleContentChangeRef.current) {
+        handleContentChangeRef.current();
+      }
     }
   }, [generatingScript, streamingTiptap]);
 
@@ -1464,6 +1470,32 @@ export default function ScriptEditor({
               </TooltipTrigger>
               <TooltipContent>
                 <p>New Script</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Save Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => {
+                    setHasUnsavedChanges(true);
+                    if (handleContentChangeRef.current) {
+                      handleContentChangeRef.current();
+                    }
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19] h-8 px-2"
+                  disabled={!sessionId}
+                >
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+                  <span className="text-xs">Save</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Save Script</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

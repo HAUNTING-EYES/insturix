@@ -18,7 +18,7 @@ export default async function AlyzitronDashboard() {
               Insturix
             </span>
             <span className="font-mono text-[18px] text-[#D4A652]">
-              Alyzitron
+              Analyze
             </span>
           </div>
           <CreditsBadge className="border border-[#282724] bg-[#0F0F0E]/60 text-[#B5B2A8]" />

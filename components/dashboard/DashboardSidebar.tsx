@@ -118,7 +118,7 @@ export default function DashboardSidebar() {
       <TooltipProvider delayDuration={300}>
         <motion.aside
           className={cn(
-            "fixed top-0 left-0 bottom-0 h-[100dvh] z-[95] overflow-hidden border-r border-white/10 bg-zinc-900 flex flex-col",
+            "fixed top-0 left-0 bottom-0 h-[100dvh] z-[95] overflow-hidden border-r border-white/10 bg-[#0B0B0A] flex flex-col",
             isMobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
           )}
           variants={sidebarVariants}

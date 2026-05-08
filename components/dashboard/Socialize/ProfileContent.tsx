@@ -199,7 +199,7 @@ export function ProfileContent({
                 variant="outline"
                 className="bg-[#0e6b9c] text-white border-[#0e6b9c] text-xs"
               >
-                Socialize
+                Social
               </Badge>
             </h1>
             {hasBio && (

@@ -78,7 +78,7 @@ export default async function TaskDetailsPage({ params }: PageProps) {
         <form action="/dashboard/musitron/" method="get">
           <Button variant="outline" type="submit" className="flex items-center gap-2">
             <ArrowLeft className="w-4 h-4" />
-            Back to Musitron
+            Back to Music
           </Button>
         </form>
       </div>
