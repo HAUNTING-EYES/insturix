@@ -132,16 +132,12 @@ function PlatformIcon({ name, color, size = 20 }: { name: string; color: string;
 /** Compute opacity for a frame that fades in at `start` and begins fading out at `fadeStart` */
 function frameOpacity(editSub: number, start: number, fadeStart: number): number {
   if (editSub < start) return 0;
-  // Fade in over 0.08 of editSub range
-  const fadeInEnd = Math.min(fadeStart, start + 0.08);
+  const fadeInEnd = Math.min(fadeStart, start + 0.1);
   if (editSub < fadeInEnd) return (editSub - start) / (fadeInEnd - start);
-  // Full opacity until fadeStart
   if (editSub < fadeStart) return 1;
-  // Fade out over 0.10 of editSub range
-  const fadeOutEnd = fadeStart + 0.10;
-  if (editSub < fadeOutEnd) return 1 - ((editSub - fadeStart) / (fadeOutEnd - fadeStart)) * 0.6;
-  // Residual at 0.4 opacity
-  return 0.4;
+  const fadeOutEnd = fadeStart + 0.12;
+  if (editSub < fadeOutEnd) return 1 - (editSub - fadeStart) / (fadeOutEnd - fadeStart);
+  return 0;
 }
 
 /** The five progressive visual frame layers rendered during the edit phase */
@@ -171,44 +167,45 @@ function EditVisualFrames({ editSub }: { editSub: number }) {
             transition: `opacity 0.6s ${EASE}`,
           }}
         >
-          {/* Coca-Cola can shape */}
-          <div
-            style={{
-              width: 90,
-              height: 160,
-              borderRadius: 45,
-              background: `linear-gradient(180deg, ${C.red} 0%, #B5342B 100%)`,
-              boxShadow: `0 0 40px ${C.red}20, inset 0 1px 0 rgba(255,255,255,.15)`,
-              transform: `scale(${editSub < 0.15 ? 1 : 0.8})`,
-              transition: `transform 0.8s ${EASE}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              position: "relative",
-              overflow: "hidden",
-            }}
-          >
-            {/* White wave accent */}
+          {/* Coca-Cola can — realistic proportions */}
+          <div style={{
+            width: 72, height: 180, position: "relative",
+            transform: `scale(${editSub < 0.15 ? 1 : 0.8})`,
+            transition: `transform 0.8s ${EASE}`,
+          }}>
+            {/* Silver top rim */}
+            <div style={{ width: 72, height: 14, borderRadius: "50%", background: "linear-gradient(180deg, #C0C0C0 0%, #888 50%, #A0A0A0 100%)", position: "relative", zIndex: 2 }} />
+            {/* Red body */}
             <div style={{
-              position: "absolute",
-              bottom: "30%",
-              left: -10,
-              right: -10,
-              height: 20,
-              background: "rgba(255,255,255,.12)",
-              borderRadius: "50%",
-              transform: "rotate(-3deg)",
-            }} />
-            <span style={{
-              fontSize: 13,
-              fontWeight: 700,
-              color: "#fff",
-              fontStyle: "italic",
-              letterSpacing: "-0.02em",
-              textShadow: "0 1px 4px rgba(0,0,0,.3)",
+              width: 72, height: 152, marginTop: -4,
+              background: "linear-gradient(90deg, #8B1A10 0%, #D42B1E 25%, #E8372C 50%, #D42B1E 75%, #8B1A10 100%)",
+              borderRadius: "0 0 4px 4px",
+              position: "relative", overflow: "hidden",
+              boxShadow: "inset -8px 0 16px rgba(0,0,0,.3), inset 8px 0 16px rgba(255,255,255,.05)",
             }}>
-              Coca-Cola
-            </span>
+              {/* White dynamic ribbon wave */}
+              <svg viewBox="0 0 72 152" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+                <path d="M0,95 C18,88 36,102 54,90 C62,85 68,82 72,84 L72,100 C54,108 36,94 18,105 C10,110 4,112 0,110 Z" fill="rgba(255,255,255,.92)" />
+                <path d="M0,100 C20,93 38,108 58,95 C64,91 68,89 72,90 L72,105 C56,112 38,98 20,110 C12,115 4,117 0,115 Z" fill="rgba(255,255,255,.7)" />
+              </svg>
+              {/* Coca-Cola script text */}
+              <div style={{
+                position: "absolute", top: "28%", left: 0, right: 0, textAlign: "center", zIndex: 2,
+              }}>
+                <span style={{
+                  fontSize: 14, fontWeight: 800, color: "#fff", fontStyle: "italic",
+                  letterSpacing: "-0.03em", textShadow: "0 1px 3px rgba(0,0,0,.4)",
+                  fontFamily: "Georgia, 'Times New Roman', serif",
+                }}>Coca-Cola</span>
+              </div>
+              {/* Subtle highlight strip (cylinder effect) */}
+              <div style={{
+                position: "absolute", top: 0, bottom: 0, left: "35%", width: "20%",
+                background: "linear-gradient(90deg, transparent, rgba(255,255,255,.08), transparent)",
+              }} />
+            </div>
+            {/* Silver bottom */}
+            <div style={{ width: 72, height: 10, borderRadius: "0 0 50% 50%", background: "linear-gradient(180deg, #999 0%, #C0C0C0 100%)", marginTop: -2 }} />
           </div>
           <span
             className="m"
@@ -238,34 +235,22 @@ function EditVisualFrames({ editSub }: { editSub: number }) {
           }}
         >
           {/* Coca-Cola can (scaled down, left) */}
-          <div
-            style={{
-              width: 60,
-              height: 110,
-              borderRadius: 30,
-              background: `linear-gradient(180deg, ${C.red} 0%, #B5342B 100%)`,
-              boxShadow: `0 0 24px ${C.red}15`,
-              flexShrink: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              position: "relative",
-              overflow: "hidden",
-            }}
-          >
+          <div style={{ width: 52, height: 130, position: "relative", flexShrink: 0 }}>
+            <div style={{ width: 52, height: 10, borderRadius: "50%", background: "linear-gradient(180deg, #C0C0C0, #888)", position: "relative", zIndex: 2 }} />
             <div style={{
-              position: "absolute",
-              bottom: "28%",
-              left: -8,
-              right: -8,
-              height: 14,
-              background: "rgba(255,255,255,.10)",
-              borderRadius: "50%",
-              transform: "rotate(-3deg)",
-            }} />
-            <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", fontStyle: "italic", textShadow: "0 1px 3px rgba(0,0,0,.3)" }}>
-              Coca-Cola
-            </span>
+              width: 52, height: 110, marginTop: -3,
+              background: "linear-gradient(90deg, #8B1A10 0%, #D42B1E 25%, #E8372C 50%, #D42B1E 75%, #8B1A10 100%)",
+              borderRadius: "0 0 3px 3px", position: "relative", overflow: "hidden",
+              boxShadow: "inset -6px 0 12px rgba(0,0,0,.3)",
+            }}>
+              <svg viewBox="0 0 52 110" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+                <path d="M0,68 C13,63 26,74 39,65 C45,61 49,59 52,60 L52,72 C39,78 26,68 13,76 C7,80 3,81 0,80 Z" fill="rgba(255,255,255,.9)" />
+              </svg>
+              <div style={{ position: "absolute", top: "28%", left: 0, right: 0, textAlign: "center", zIndex: 2 }}>
+                <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", fontStyle: "italic", fontFamily: "Georgia, serif", textShadow: "0 1px 2px rgba(0,0,0,.4)" }}>Coca-Cola</span>
+              </div>
+            </div>
+            <div style={{ width: 52, height: 7, borderRadius: "0 0 50% 50%", background: "linear-gradient(180deg, #999, #C0C0C0)", marginTop: -1 }} />
           </div>
           {/* Hand silhouette reaching for can */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
