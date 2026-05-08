@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { PreviewVisualInsturix as PreviewVisual } from "./preview-visual-insturix";
+import { PreviewVisualInsturix as PreviewVisual } from "./preview-visual";
 
 /**
  * HeroTestPage — Standalone scroll-driven preview demo for A/B testing.
