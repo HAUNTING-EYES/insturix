@@ -1,20 +1,9 @@
 /**
- * Convert a GCS URL to a proxy URL to bypass CORS
+ * Normalize an image URL for fetching in the browser.
  * @param url - The URL to convert
- * @returns The proxy URL if it's a GCS URL, otherwise the original URL
+ * @returns A browser-fetchable URL
  */
-function toProxyUrl(url: string): string {
-  if (url.startsWith("https://storage.googleapis.com/")) {
-    // Remove the protocol and domain
-    const pathAfterDomain = url.substring("https://storage.googleapis.com/".length);
-    // Split by '/' to get bucket name and path
-    const pathSegments = pathAfterDomain.split('/');
-    // Remove the first segment (bucket name) and join the rest
-    const pathWithinBucket = pathSegments.slice(1).join('/');
-    // Remove any query parameters and encode the path
-    const cleanPath = pathWithinBucket.split('?')[0];
-    return `/api/proxy/image?path=${encodeURIComponent(cleanPath)}`;
-  }
+function normalizeImageUrl(url: string): string {
   return url;
 }
 
@@ -98,11 +87,10 @@ export async function downloadImageWithFineTuning(
   filename: string = "clickatron-variation.png"
 ): Promise<void> {
   try {
-    // Convert to proxy URL if it's a GCS URL to bypass CORS
-    const proxyUrl = toProxyUrl(imageUrl);
+    const fetchUrl = normalizeImageUrl(imageUrl);
     
     // Fetch the image
-    const response = await fetch(proxyUrl);
+    const response = await fetch(fetchUrl);
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
     }
@@ -190,32 +178,30 @@ export async function downloadImageWithFineTuning(
 }
 
 /**
- * Get a signed URL for a GCS image if needed
+ * Get a usable image URL (signed when needed)
  * @param imageRef - The image reference (could be a GCS URL or direct URL)
  * @returns A promise that resolves to the usable image URL
  */
 export async function getImageUrl(imageRef: string): Promise<string> {
-  // If it's already a direct URL, return it
-  if (!imageRef.startsWith("https://storage.googleapis.com")) {
-    return imageRef;
-  }
-  
-  // Otherwise, get a signed URL
+  if (!imageRef) return imageRef;
+
+  // Most Clickatron images should already be public (r2.dev) or served by a worker.
+  // If a URL is private / signed, refresh via API.
   try {
     const response = await fetch('/api/services/clickatron/utils/get-signed-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gcsUrl: imageRef }),
+      body: JSON.stringify({ r2Url: imageRef }),
     });
     
     if (!response.ok) {
-      throw new Error('Failed to get signed URL');
+      return imageRef;
     }
     
     const data = await response.json();
-    return data.signedUrl;
+    return data.signedUrl || imageRef;
   } catch (error) {
     console.error('Error getting signed URL:', error);
-    throw error;
+    return imageRef;
   }
 }

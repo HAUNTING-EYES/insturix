@@ -8,7 +8,7 @@ import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatro
 import { z } from 'zod';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
 import { getAvailableModels } from '@/lib/config/clickatron-models';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 
 // POST /api/services/clickatron/session/:id/variation - Queue/generate a variation
@@ -77,15 +77,15 @@ export async function POST(
       }
     }
 
-    // Upload reference images to GCS and get their URIs
+    // Upload reference images to R2 and get their URLs
     const referenceImageRefs: string[] = [];
     for (const file of referenceImages) {
       if (file instanceof File) {
         const arrayBuffer = await file.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
         
-        // Upload to GCS
-      const gcsUri = await ClickatronGCSManager.uploadImageBuffer(
+        // Upload to R2
+      const r2Url = await ClickatronR2Manager.uploadImageBuffer(
         userId,
         id,
         `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
@@ -93,9 +93,9 @@ export async function POST(
         file.type
       );
         
-        // Store the raw GCS URL without query parameters for long-term storage
-        const rawGcsUri = gcsUri.split('?')[0];
-        referenceImageRefs.push(rawGcsUri);
+        // Store without query parameters for long-term storage
+        const rawR2Url = r2Url.split('?')[0];
+        referenceImageRefs.push(rawR2Url);
       }
     }
 

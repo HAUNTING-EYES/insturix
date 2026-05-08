@@ -82,6 +82,22 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
     [getCoordsFromClient]
   );
 
+  const toSameOriginImageUrl = useCallback((url: string): string => {
+    if (!url) return "";
+    if (url.startsWith("/")) return url;
+    try {
+      const u = new URL(url);
+      if (u.protocol === "http:" || u.protocol === "https:") {
+        return `/api/services/clickatron/utils/image-proxy?url=${encodeURIComponent(
+          url,
+        )}`;
+      }
+    } catch {
+      // ignore
+    }
+    return url;
+  }, []);
+
   const redrawTextLayer = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -243,27 +259,7 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
             return;
           }
 
-          // Convert GCS URL to proxy URL to avoid CORS issues
-          const getProxyUrl = (url: string): string => {
-            console.log('[SketchOverlay] Converting URL:', url);
-            if (!url) {
-              console.error('[SketchOverlay] Empty URL provided');
-              return '';
-            }
-            if (url.startsWith('https://storage.googleapis.com/')) {
-              const pathAfterDomain = url.substring('https://storage.googleapis.com/'.length);
-              const pathSegments = pathAfterDomain.split('/');
-              const pathWithinBucket = pathSegments.slice(1).join('/');
-              const cleanPath = pathWithinBucket.split('?')[0];
-              const proxyUrl = `/api/proxy/image?path=${encodeURIComponent(cleanPath)}`;
-              console.log('[SketchOverlay] Converted to proxy URL:', proxyUrl);
-              return proxyUrl;
-            }
-            console.log('[SketchOverlay] Using original URL:', url);
-            return url;
-          };
-
-          const proxyBaseUrl = getProxyUrl(baseImageUrl);
+          const proxyBaseUrl = toSameOriginImageUrl(baseImageUrl);
           
           if (!proxyBaseUrl) {
             reject(new Error('Invalid base image URL'));
@@ -284,7 +280,7 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
                   const overlayImg = new Image();
                   overlayImg.crossOrigin = 'anonymous';
                   
-                  const proxyOverlayUrl = getProxyUrl(overlay.src);
+                  const proxyOverlayUrl = toSameOriginImageUrl(overlay.src);
                   
                   await new Promise((resolveOverlay, rejectOverlay) => {
                     overlayImg.onload = () => resolveOverlay(true);
@@ -417,7 +413,9 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
 
   return (
     <div
-      className="absolute inset-0 z-[45] pointer-events-auto touch-none"
+      className={`absolute inset-0 z-[45] touch-none ${
+        isActive ? "pointer-events-auto" : "pointer-events-none"
+      }`}
       style={{ width, height }}
     >
       <canvas
