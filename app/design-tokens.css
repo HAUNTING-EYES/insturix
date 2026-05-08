@@ -1,0 +1,285 @@
+/*
+ * Insturix Design System v1.0 — CSS Custom Properties
+ *
+ * THE source of truth for all CSS values across 32+ pages.
+ * Tailwind config maps these to utility classes.
+ * shadcn/ui components consume the --background, --foreground, etc. variables.
+ *
+ * Dark-only. No light mode. Warm editorial palette.
+ * Locked: April 19, 2026
+ */
+
+:root {
+  /* ─── Surfaces ─── */
+  --bg-canvas: #0B0B0A;
+  --bg-raised: #0F0F0E;
+  --bg-deeper: #131312;
+  --bg-well: #1B1A18;
+
+  /* ─── Borders ─── */
+  --border-subtle: #1C1B19;
+  --border-emphasis: #282724;
+
+  /* ─── Text ─── */
+  --text-primary: #ECE9E1;
+  --text-secondary: #B5B2A8;
+  --text-muted: #7A776E;
+  --text-dim: #5F5E5A;
+  --text-faint: #454340;
+
+  /* ─── Accent ─── */
+  --accent-gold: #D4A652;
+
+  /* ─── Status ─── */
+  --status-success: #5EC97E;
+  --status-warning: #D4A652;
+  --status-danger: #D46A5C;
+
+  /* ─── Category ─── */
+  --category-purple: #9088D4;
+  --category-pink: #D088B4;
+  --category-cyan: #5CB8CC;
+
+  /* ─── Typography ─── */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* ─── Spacing (4px rhythm) ─── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* ─── Radius ─── */
+  --radius-tag: 4px;
+  --radius-button: 7px;
+  --radius-card: 12px;
+  --radius: 7px; /* shadcn base radius */
+
+  /* ─── Motion ─── */
+  --motion-micro: 0.25s;
+  --motion-response: 0.35s;
+  --motion-atmosphere: 0.5s;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ─── shadcn/ui compatibility layer ─── */
+  /* These map our design system to the variable names shadcn components expect */
+  /* HSL values verified via hex→HSL conversion on 2026-05-03 */
+  --background: 60 5% 4%;          /* #0B0B0A */
+  --foreground: 44 22% 90%;        /* #ECE9E1 */
+  --card: 60 3% 6%;                /* #0F0F0E */
+  --card-foreground: 44 22% 90%;   /* #ECE9E1 */
+  --popover: 60 3% 7%;             /* #131312 */
+  --popover-foreground: 44 22% 90%;
+  --primary: 39 60% 58%;           /* #D4A652 (gold) */
+  --primary-foreground: 60 5% 4%;  /* #0B0B0A */
+  --secondary: 40 6% 10%;          /* #1B1A18 */
+  --secondary-foreground: 44 22% 90%;
+  --muted: 40 6% 10%;              /* #1B1A18 */
+  --muted-foreground: 45 5% 45%;   /* #7A776E */
+  --accent: 40 6% 10%;             /* #1B1A18 */
+  --accent-foreground: 44 22% 90%;
+  --destructive: 7 58% 60%;        /* #D46A5C */
+  --destructive-foreground: 44 22% 90%;
+  --border: 40 6% 10%;             /* #1C1B19 */
+  --input: 40 6% 10%;
+  --ring: 39 60% 58%;              /* gold for focus rings */
+
+  /* ─── Sidebar (dashboard) ─── */
+  --sidebar-background: 60 3% 6%;
+  --sidebar-foreground: 44 22% 90%;
+  --sidebar-primary: 39 60% 58%;
+  --sidebar-primary-foreground: 60 5% 4%;
+  --sidebar-accent: 40 6% 10%;
+  --sidebar-accent-foreground: 44 22% 90%;
+  --sidebar-border: 40 6% 10%;
+  --sidebar-ring: 39 60% 58%;
+
+  /* ─── Chart colors ─── */
+  --chart-1: 39 60% 58%;    /* gold */
+  --chart-2: 138 50% 58%;   /* green */
+  --chart-3: 246 47% 68%;   /* purple */
+  --chart-4: 323 43% 67%;   /* pink */
+  --chart-5: 191 52% 58%;   /* cyan */
+}
+
+/*
+ * Dark mode override — next-themes adds .dark class at runtime.
+ * globals.css has a .dark {} block with old zinc values.
+ * This block ensures our warm editorial palette wins.
+ * Import order: design-tokens.css loads BEFORE globals.css in layout.tsx,
+ * but same-specificity rules mean last-loaded wins — so we need .dark here too.
+ */
+.dark {
+  --background: 60 5% 4%;
+  --foreground: 44 22% 90%;
+  --card: 60 3% 6%;
+  --card-foreground: 44 22% 90%;
+  --popover: 60 3% 7%;
+  --popover-foreground: 44 22% 90%;
+  --primary: 39 60% 58%;
+  --primary-foreground: 60 5% 4%;
+  --secondary: 40 6% 10%;
+  --secondary-foreground: 44 22% 90%;
+  --muted: 40 6% 10%;
+  --muted-foreground: 45 5% 45%;
+  --accent: 40 6% 10%;
+  --accent-foreground: 44 22% 90%;
+  --destructive: 7 58% 60%;
+  --destructive-foreground: 44 22% 90%;
+  --border: 40 6% 10%;
+  --input: 40 6% 10%;
+  --ring: 39 60% 58%;
+  --sidebar-background: 60 3% 6%;
+  --sidebar-foreground: 44 22% 90%;
+  --sidebar-primary: 39 60% 58%;
+  --sidebar-primary-foreground: 60 5% 4%;
+  --sidebar-accent: 40 6% 10%;
+  --sidebar-accent-foreground: 44 22% 90%;
+  --sidebar-border: 40 6% 10%;
+  --sidebar-ring: 39 60% 58%;
+}
+
+/* ─── Responsive layout tokens ─── */
+/* These change at breakpoints. Components use var(--r-*) instead of hardcoded px. */
+:root {
+  --r-hero-size: 44px;
+  --r-heading-size: 32px;
+  --r-subheading-size: 24px;
+  --r-page-padding: 24px;
+  --r-section-padding: 64px;
+  --r-grid-cols: 2;
+  --r-grid-gap: 16px;
+  --r-content-max: 960px;
+  --r-toc-display: block;
+  --r-toc-width: 200px;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --r-hero-size: 32px;
+    --r-heading-size: 24px;
+    --r-subheading-size: 18px;
+    --r-page-padding: 16px;
+    --r-section-padding: 48px;
+    --r-grid-cols: 1;
+    --r-grid-gap: 12px;
+    --r-content-max: 100%;
+    --r-toc-display: none;
+    --r-toc-width: 0px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --r-hero-size: 24px;
+    --r-page-padding: 12px;
+    --r-section-padding: 32px;
+  }
+}
+
+/* ─── Legal page grid (needs !important to override inline) ─── */
+@media (max-width: 768px) {
+  .legal-grid {
+    grid-template-columns: 1fr !important;
+    gap: 24px !important;
+  }
+}
+
+/* ─── Base styles ─── */
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(212, 166, 82, 0.18);
+}
+
+/* ─── Focus ring (accessibility) ─── */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(212, 166, 82, 0.25);
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-emphasis);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ─── Mono label pattern (reusable) ─── */
+.mono-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ─── Design system animations ─── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUpFade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.55; }
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* ─── Hide Clerk dev-mode keyless banner (dev only, doesn't exist in production) ─── */
+button[aria-label="Keyless prompt"],
+button[aria-label="Keyless prompt"] + div {
+  display: none !important;
+}
+
+/* ─── Film grain texture (global) ─── */
+/* Design system signature: subtle fractal noise overlay.
+ * WHY: Adds editorial warmth that separates the surface from pure digital flatness.
+ * At .005 opacity it's invisible on most monitors but creates subconscious texture.
+ * Rams: this IS as little as possible — any less and it's gone. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  opacity: 0.005;
+  pointer-events: none;
+  z-index: 10000;
+  mix-blend-mode: overlay;
+}

@@ -1,21 +1,13 @@
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import CursorEffect from "@/components/ui/CursorEffect";
-import MusitronHero from "@/components/products/musitron/MusitronHero";
-import MusitronFeatures from "@/components/products/musitron/MusitronFeatures";
+import type { Metadata } from "next";
 
-export default function MusitronPage() {
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
+
+export default function ArchivedPage() {
   return (
-    <>
-      <CursorEffect variant="glow" color="rgba(234, 179, 8, 0.20)" size={400} blur={80} opacity={0.15} />
-      <div className="min-h-screen bg-[rgb(var(--surface-0))] overflow-hidden">
-        <Navbar />
-        <main className="relative pt-20">
-          <MusitronHero />
-          <MusitronFeatures />
-        </main>
-        <Footer />
-      </div>
-    </>
+    <div style={{ background: "var(--bg-canvas)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <p style={{ fontSize: 14, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>This page is being redesigned.</p>
+    </div>
   );
 }

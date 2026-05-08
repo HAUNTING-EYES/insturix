@@ -1,12 +1,13 @@
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import { SiteNavbar } from "@/components/shared/site-navbar";
+import { SiteFooter } from "@/components/shared/site-footer";
+import { NewsroomBroadcast } from "@/components/shared/newsroom/newsroom-broadcast";
 
 export default function Newsroom() {
   return (
     <>
-      <Navbar />
-      <div>Newsroom</div>
-      <Footer />
+      <SiteNavbar />
+      <NewsroomBroadcast />
+      <SiteFooter />
     </>
   );
 }

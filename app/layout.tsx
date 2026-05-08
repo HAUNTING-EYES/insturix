@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Space_Grotesk, Caveat } from "next/font/google";
+import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import "./design-tokens.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import ThemeProvider from "@/providers/ThemeProvider";
 import { Toaster } from "@/components/ui/toaster";
@@ -12,9 +13,18 @@ import { keywords } from "@/lib/seo/keywords";
 import { getBaseUrl } from "@/lib/env";
 
 
-const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
-const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], display: "swap", variable: "--font-space-grotesk" });
-const caveat = Caveat({ subsets: ["latin"], display: "swap", variable: "--font-caveat" });
+const plusJakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-sans",
+  weight: ["400", "500", "800"],
+});
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-mono",
+  weight: ["400", "500"],
+});
 
 
 
@@ -121,7 +131,7 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-  <html lang="en" className={`antialiased ${inter.variable} ${spaceGrotesk.variable} ${caveat.variable}`} suppressHydrationWarning>
+  <html lang="en" className={`antialiased ${plusJakarta.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
         <head>
           <meta
             name="google-site-verification"

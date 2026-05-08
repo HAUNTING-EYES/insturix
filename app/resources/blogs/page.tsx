@@ -1,41 +1,76 @@
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import { SiteNavbar } from "@/components/shared/site-navbar";
+import { SiteFooter } from "@/components/shared/site-footer";
 import { getAllBlogPosts } from "@/lib/blog-server";
 import BlogGrid from "@/components/BlogGrid";
+import Link from "next/link";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Blog | Insturix",
+  description: "Insights on AI video production, creative workflows, and the future of content creation.",
+};
 
 export default async function BlogPage() {
   const blogPosts = await getAllBlogPosts();
+  const hasPosts = blogPosts.length > 0;
 
   return (
     <>
-      <Navbar />
-      <div className="min-h-screen bg-[#0a0a0a] relative overflow-hidden">
-        {/* Premium background texture */}
-        <div className="absolute inset-0 opacity-[0.02]">
-          <div className="absolute inset-0" style={{
-            backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.3) 1px, transparent 0)`,
-            backgroundSize: '24px 24px'
-          }}></div>
-        </div>
-        
-        {/* Subtle gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a0a] via-[#111111] to-[#0a0a0a] opacity-90"></div>
-        
-        <div className="relative z-10 container mx-auto px-4 py-20 mt-16">
-          <div className="text-center mb-20">
-            <h1 className="font-serif text-6xl md:text-7xl font-light text-white mb-8 tracking-tight">
-              Insights
-            </h1>
-            <div className="w-24 h-[1px] bg-gradient-to-r from-transparent via-white to-transparent mx-auto mb-8 opacity-30"></div>
-            <p className="font-serif text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed font-light">
-              Thoughtful perspectives on the evolving landscape of digital creation, 
-              innovation, and the future of creative commerce.
+      <SiteNavbar />
+      <main style={{ minHeight: "100vh", backgroundColor: "var(--bg-canvas)", fontFamily: "var(--font-sans)" }}>
+        {/* Hero */}
+        <section style={{ maxWidth: 960, margin: "0 auto", padding: "var(--r-section-padding) var(--r-page-padding) 48px", textAlign: "center" }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", color: "var(--text-dim)", textTransform: "uppercase", display: "block", marginBottom: 24 }}>
+            BLOG
+          </span>
+          <h1 style={{ fontSize: "var(--r-hero-size)", fontWeight: 800, color: "var(--text-primary)", margin: "0 0 16px", lineHeight: 1.05, letterSpacing: "-0.035em" }}>
+            Insights
+          </h1>
+          <p style={{ fontSize: 14, color: "var(--text-secondary)", maxWidth: 480, margin: "0 auto", lineHeight: 1.6 }}>
+            Perspectives on AI-driven production, creative workflows, and the future of content.
+          </p>
+        </section>
+
+        {/* Posts or empty state */}
+        <section style={{ maxWidth: 960, margin: "0 auto", padding: "0 var(--r-page-padding) var(--r-section-padding)" }}>
+          {hasPosts ? (
+            <BlogGrid posts={blogPosts} />
+          ) : (
+            <div style={{ textAlign: "center", padding: "64px 24px" }}>
+              <p style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 32 }}>
+                No posts yet. We&apos;re just getting started.
+              </p>
+            </div>
+          )}
+        </section>
+
+        {/* Write for us CTA */}
+        <section style={{ maxWidth: 960, margin: "0 auto", padding: "0 var(--r-page-padding) var(--r-section-padding)" }}>
+          <div style={{
+            background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
+            borderRadius: 12, padding: "48px 32px", textAlign: "center",
+          }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", color: "var(--accent-gold)", textTransform: "uppercase", display: "block", marginBottom: 16 }}>
+              COMMUNITY
+            </span>
+            <h2 style={{ fontSize: 24, fontWeight: 500, color: "var(--text-primary)", letterSpacing: "-0.02em", marginBottom: 12 }}>
+              Write for us.
+            </h2>
+            <p style={{ fontSize: 14, color: "var(--text-secondary)", maxWidth: 480, margin: "0 auto 32px", lineHeight: 1.6 }}>
+              Have a perspective on AI production, creative workflows, or the future of content?
+              Submit a draft — we review and publish community posts.
             </p>
+            <Link href="/contactus" style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              padding: "12px 24px", background: "var(--accent-gold)", color: "var(--bg-canvas)",
+              fontSize: 13, fontWeight: 500, borderRadius: 7, textDecoration: "none",
+            }}>
+              Submit a draft
+            </Link>
           </div>
-          <BlogGrid posts={blogPosts} />
-        </div>
-      </div>
-      <Footer />
+        </section>
+      </main>
+      <SiteFooter />
     </>
   );
 }

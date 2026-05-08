@@ -1,21 +1,13 @@
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import CursorEffect from "@/components/ui/CursorEffect";
-import ThinkForgeHero from "@/components/products/thinkforge/ThinkForgeHero";
-import ThinkForgeFeatures from "@/components/products/thinkforge/ThinkForgeFeatures";
+import type { Metadata } from "next";
 
-export default function ThinkForgePage() {
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
+
+export default function ArchivedPage() {
   return (
-    <>
-      <CursorEffect variant="glow" color="#ef4444" size={400} blur={80} opacity={0.15} />
-      <div className="min-h-screen bg-[rgb(var(--surface-0))] overflow-hidden">
-      <Navbar />
-        <main className="relative pt-20">
-          <ThinkForgeHero />
-          <ThinkForgeFeatures />
-      </main>
-      <Footer />
-      </div>
-    </>
+    <div style={{ background: "var(--bg-canvas)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <p style={{ fontSize: 14, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>This page is being redesigned.</p>
+    </div>
   );
 }

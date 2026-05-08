@@ -1,22 +1,13 @@
-import Footer from "@/components/Footer";
-import Navbar from "@/components/Navbar";
-import SponsorForm from "@/components/SponsorsForm";
-import CursorEffect from "@/components/ui/CursorEffect";
+import type { Metadata } from "next";
 
-export default function SponsorPage() {
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
+
+export default function ArchivedPage() {
   return (
-    <>
-      <CursorEffect
-        variant="glow"
-        color="rgba(59, 130, 246, 0.15)"
-        size={500}
-        blur={100}
-      />
-      <Navbar />
-      <div className="mt-[60px] md:mt-0">
-        <SponsorForm />
-      </div>
-      <Footer />
-    </>
+    <div style={{ background: "var(--bg-canvas)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <p style={{ fontSize: 14, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>This page is being redesigned.</p>
+    </div>
   );
 }

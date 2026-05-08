@@ -3,11 +3,10 @@ import { formatDate } from "@/lib/blog-utils";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Metadata } from "next";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import { SiteNavbar } from "@/components/shared/site-navbar";
+import { SiteFooter } from "@/components/shared/site-footer";
 import BlogContent from "@/components/BlogContent";
 import BlogAudioPlayer from "@/components/BlogAudioPlayer";
-import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
@@ -30,7 +29,7 @@ export async function generateMetadata({
 
   if (!post) {
     return {
-      title: "Post Not Found",
+      title: "Post Not Found | Insturix",
       description: "The requested blog post could not be found",
     };
   }
@@ -63,102 +62,190 @@ export default async function BlogPost({ params }: { params: tParams }) {
   const resolvedParams = await params;
   const post = await getBlogPost(resolvedParams.slug);
 
-  // Handle invalid slugs (like favicon.ico) by redirecting to 404
-  if (!post || !resolvedParams.slug || resolvedParams.slug.includes('.') || resolvedParams.slug === 'favicon') {
+  if (
+    !post ||
+    !resolvedParams.slug ||
+    resolvedParams.slug.includes(".") ||
+    resolvedParams.slug === "favicon"
+  ) {
     notFound();
   }
 
   return (
     <>
-      <Navbar />
-      <div className="min-h-screen bg-[#0a0a0a] relative overflow-hidden">
-        {/* Premium background texture */}
-        <div className="absolute inset-0 opacity-[0.02]">
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.3) 1px, transparent 0)`,
-              backgroundSize: "24px 24px",
-            }}
-          ></div>
-        </div>
-
-        {/* Subtle gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a0a] via-[#111111] to-[#0a0a0a] opacity-90"></div>
-
-        <div className="relative z-10 container mx-auto px-4 py-12 mt-16">
-          {/* Back Button */}
+      <SiteNavbar />
+      <main
+        style={{
+          minHeight: "100vh",
+          backgroundColor: "var(--bg-canvas)",
+          fontFamily: "var(--font-sans)",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 720,
+            margin: "0 auto",
+            padding: "48px 24px 64px",
+          }}
+        >
+          {/* Back link */}
           <Link
             href="/resources/blogs"
-            className="inline-flex items-center text-gray-400 hover:text-white transition-colors mb-12 group font-light"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 13,
+              fontWeight: 400,
+              color: "var(--text-muted)",
+              textDecoration: "none",
+              marginBottom: 32,
+            }}
           >
-            <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+            <ArrowLeft size={14} />
             Back to Insights
           </Link>
 
-          <article className="max-w-4xl mx-auto">
+          <article>
             {/* Header */}
-            <header className="mb-16">
-              <div className="flex flex-wrap gap-3 mb-8">
-                {post.tags.map((tag) => (
+            <header style={{ marginBottom: 32 }}>
+              {/* Tags */}
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 8,
+                  marginBottom: 16,
+                }}
+              >
+                {post.tags.map((tag: string) => (
                   <span
                     key={tag}
-                    className="text-xs text-gray-400 font-light tracking-wider uppercase border-b border-gray-600 pb-1"
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      fontWeight: 500,
+                      letterSpacing: "0.08em",
+                      color: "var(--text-dim)",
+                      textTransform: "uppercase",
+                      borderBottom: "1px solid var(--border-subtle)",
+                      paddingBottom: 2,
+                    }}
                   >
                     {tag}
                   </span>
                 ))}
               </div>
 
-              <h1 className="font-serif text-5xl md:text-6xl font-light text-white mb-8 leading-tight tracking-tight">
+              {/* Title */}
+              <h1
+                style={{
+                  fontSize: 32,
+                  fontWeight: 800,
+                  color: "var(--text-primary)",
+                  lineHeight: 1.2,
+                  margin: "0 0 16px",
+                }}
+              >
                 {post.title}
               </h1>
 
-              <div className="w-24 h-[1px] bg-gradient-to-r from-transparent via-white to-transparent mb-8 opacity-30"></div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center gap-6 mb-12">
-                <div className="flex items-center space-x-4">
-                  <div className="relative w-14 h-14">
-                    <Image
-                      src={post.author.avatar}
-                      alt={post.author.name}
-                      fill
-                      className="rounded-full object-cover grayscale-[0.5]"
-                    />
-                  </div>
-                  <div>
-                    <p className="font-serif text-lg font-light text-white">
-                      {post.author.name}
-                    </p>
-                    <div className="flex items-center text-sm text-gray-400 space-x-6 font-light">
-                      <div className="flex items-center">
-                        <Calendar className="w-4 h-4 mr-2" />
-                        {formatDate(post.publishedAt)}
-                      </div>
-                      <div className="flex items-center">
-                        <Clock className="w-4 h-4 mr-2" />
-                        {post.readTime} min read
-                      </div>
-                    </div>
+              {/* Author + meta row */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 24,
+                }}
+              >
+                <div
+                  style={{
+                    position: "relative",
+                    width: 36,
+                    height: 36,
+                    borderRadius: "50%",
+                    overflow: "hidden",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Image
+                    src={post.author.avatar}
+                    alt={post.author.name}
+                    fill
+                    style={{ objectFit: "cover" }}
+                  />
+                </div>
+                <div>
+                  <p
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 500,
+                      color: "var(--text-primary)",
+                      margin: 0,
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {post.author.name}
+                  </p>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 16,
+                      fontSize: 11,
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--text-dim)",
+                      marginTop: 2,
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Calendar size={11} />
+                      {formatDate(post.publishedAt)}
+                    </span>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Clock size={11} />
+                      {post.readTime} min
+                    </span>
                   </div>
                 </div>
               </div>
             </header>
 
-            {/* Featured Image */}
-            <div className="relative h-80 md:h-[500px] w-full mb-16 overflow-hidden">
+            {/* Featured image */}
+            <div
+              style={{
+                position: "relative",
+                width: "100%",
+                height: 400,
+                borderRadius: 12,
+                overflow: "hidden",
+                marginBottom: 32,
+              }}
+            >
               <Image
                 src={post.image}
                 alt={post.title}
                 fill
-                className="object-cover"
+                style={{ objectFit: "cover" }}
                 priority
-                quality={100}
+                quality={90}
               />
-              <div className="absolute inset-0 bg-black/20"></div>
             </div>
 
-            {/* Audio Player */}
+            {/* Audio player */}
             {post.audioUrl && (
               <BlogAudioPlayer
                 audioUrl={post.audioUrl}
@@ -166,14 +253,88 @@ export default async function BlogPost({ params }: { params: tParams }) {
               />
             )}
 
-            {/* Content */}
-            <div className="prose prose-lg prose-invert max-w-none">
-              <BlogContent content={post.content} />
+            {/* Article body */}
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 400,
+                color: "var(--text-secondary)",
+                lineHeight: 1.8,
+              }}
+            >
+              <style
+                dangerouslySetInnerHTML={{
+                  __html: `
+                .blog-article h2 {
+                  font-size: 24px;
+                  font-weight: 800;
+                  color: var(--text-primary);
+                  margin: 32px 0 12px;
+                  line-height: 1.3;
+                }
+                .blog-article h3 {
+                  font-size: 18px;
+                  font-weight: 500;
+                  color: var(--text-primary);
+                  margin: 24px 0 8px;
+                  line-height: 1.4;
+                }
+                .blog-article p {
+                  margin: 0 0 16px;
+                }
+                .blog-article a {
+                  color: var(--accent-gold);
+                  text-decoration: none;
+                }
+                .blog-article ul, .blog-article ol {
+                  padding-left: 24px;
+                  margin: 0 0 16px;
+                }
+                .blog-article li {
+                  margin-bottom: 8px;
+                }
+                .blog-article blockquote {
+                  border-left: 2px solid var(--border-emphasis);
+                  padding-left: 16px;
+                  margin: 24px 0;
+                  color: var(--text-muted);
+                  font-style: italic;
+                }
+                .blog-article code {
+                  font-family: var(--font-mono);
+                  font-size: 13px;
+                  background: var(--bg-deeper);
+                  padding: 2px 6px;
+                  border-radius: 4px;
+                }
+                .blog-article pre {
+                  background: var(--bg-deeper);
+                  border: 1px solid var(--border-subtle);
+                  border-radius: 7px;
+                  padding: 16px;
+                  overflow-x: auto;
+                  margin: 0 0 16px;
+                }
+                .blog-article pre code {
+                  background: none;
+                  padding: 0;
+                }
+                .blog-article img {
+                  border-radius: 7px;
+                  max-width: 100%;
+                  height: auto;
+                }
+              `,
+                }}
+              />
+              <div className="blog-article">
+                <BlogContent content={post.content} />
+              </div>
             </div>
           </article>
         </div>
-      </div>
-      <Footer />
+      </main>
+      <SiteFooter />
     </>
   );
 }

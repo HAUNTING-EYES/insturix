@@ -11,96 +11,95 @@ import {
 } from "lucide-react"
 import type { Product } from "./types"
 
-// Core Creation Studio tools
+// Phase verbs — NO product names in the sidebar
 export const coreCreationTools: Product[] = [
   {
     name: "Script",
     path: "/dashboard/thinkforge",
     icon: Brain,
-    description: "AI Scripting & Ideation",
-    color: "#ef4444",
-    hoverColor: "#f87171",
+    description: "Write",
+    color: "#D4A652",
+    hoverColor: "#E0B86A",
     isPro: false,
   },
   {
-    name: "Thumbnail",
-    path: "/dashboard/clickatron",
-    icon: Sparkles,
-    description: "AI Thumbnail Designer",
-    color: "#8B5CF6",
-    hoverColor: "#A78BFA",
-    isPro: false,
-  },
-  {
-    name: "Editor",
+    name: "Edit",
     path: "/dashboard/editron",
     icon: Scissors,
-    description: "Cloud Video Editor",
-    color: "#14b8a6",
-    hoverColor: "#2dd4bf",
+    description: "Produce",
+    color: "#D46A5C",
+    hoverColor: "#E07D70",
     isPro: false,
   },
   {
     name: "Analyze",
     path: "/dashboard/alyzitron",
     icon: Video,
-    description: "Performance Insights",
-    color: "#3b82f6",
-    hoverColor: "#60a5fa",
+    description: "Score",
+    color: "#9088D4",
+    hoverColor: "#A49CDE",
     isPro: false,
   },
   {
-    name: "Upload",
+    name: "Design",
+    path: "/dashboard/clickatron",
+    icon: Sparkles,
+    description: "Thumbnails",
+    color: "#5CB8CC",
+    hoverColor: "#74C6D6",
+    isPro: false,
+  },
+  {
+    name: "Distribute",
     path: "/dashboard/uploaderx",
     icon: Upload,
-    description: "Smart Distribution",
-    color: "#22c55e",
-    hoverColor: "#4ade80",
+    description: "Publish",
+    color: "#5EC97E",
+    hoverColor: "#76D392",
     isPro: false,
   },
 ]
 
-// Growth & Legal tools
+// Supporting tools
 export const growthLegalTools: Product[] = [
-    {
+  {
     name: "Music",
     path: "/dashboard/musitron",
     icon: Music,
-    description: "AI Soundtrack Studio",
-    color: "#eab308",
-    hoverColor: "#facc15",
+    description: "Sound",
+    color: "#D088B4",
+    hoverColor: "#DA9CC2",
     isPro: false,
   },
   {
-    name: "Social",
+    name: "Share",
     path: "/dashboard/socialize",
     icon: Share2,
-    description: "Growth & Engagement",
-    color: "#0ea5e9",
-    hoverColor: "#38bdf8",
+    description: "Identity",
+    color: "#5CB8CC",
+    hoverColor: "#74C6D6",
     isPro: false,
   },
   {
     name: "Team",
     path: "/dashboard/org",
     icon: Users,
-    description: "Team Collaboration",
-    color: "#a855f7",
-    hoverColor: "#c084fc",
+    description: "Collaborate",
+    color: "#9088D4",
+    hoverColor: "#A49CDE",
     isPro: false,
   },
   {
     name: "Credits",
     path: "/dashboard/billing",
     icon: CreditCard,
-    description: "Usage & Transactions",
-    color: "#10b981",
-    hoverColor: "#34d399",
+    description: "Credits",
+    color: "#5EC97E",
+    hoverColor: "#76D392",
     isPro: false,
   },
 ]
 
-// Combined products array for backward compatibility
 export const products: Product[] = [...coreCreationTools, ...growthLegalTools]
 
 export const defaultTheme = {
