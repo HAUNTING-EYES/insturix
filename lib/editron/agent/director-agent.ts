@@ -1877,10 +1877,19 @@ function checkCondition(condition: string | undefined, overlays: any[], projectD
       // Mode 2: video itself contains speech — treat as having voiceover
       if (isRawFootage) return true;
       return overlays.some(o => o.type === 'sound' && (o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_')));
-    case 'hasMultipleScenes':
+    case 'hasMultipleScenes': {
+      // Single-source check: if all video overlays share the same assetId,
+      // they're segments of the same camera angle, NOT multiple scenes.
+      // Transitions between same-source segments are visually wrong.
+      const videoOverlaysForCheck = overlays.filter((o: any) => o.type === 'video');
+      const uniqueAssets = new Set(videoOverlaysForCheck.map((o: any) => o.assetId).filter(Boolean));
+      if (uniqueAssets.size === 1 && videoOverlaysForCheck.length > 1) {
+        return false; // Single-source: multiple segments, but NOT multiple scenes
+      }
       // Mode 2: transcript segments count as multiple scenes even with 1 video clip
       if (isRawFootage && (projectDoc.rawFootageAnalysis.segments.length > 1)) return true;
-      return overlays.filter(o => o.type === 'image' || o.type === 'video').length > 1;
+      return videoOverlaysForCheck.length > 1;
+    }
     case 'hasBGM':
       return overlays.some(o => o.type === 'sound' && (o.row === ROW.BGM || (o.assetId || '').startsWith('bgm_')));
     default:
