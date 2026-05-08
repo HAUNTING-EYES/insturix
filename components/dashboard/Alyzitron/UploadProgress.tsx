@@ -11,7 +11,7 @@ interface UploadProgressProps {
   } | null;
   onCancel: () => void;
 }
-  
+
 export function UploadProgress({ uploadState, onCancel }: UploadProgressProps) {
   if (!uploadState) return null;
 
@@ -32,14 +32,14 @@ export function UploadProgress({ uploadState, onCancel }: UploadProgressProps) {
             className="h-full w-full origin-left bg-gradient-to-r from-zinc-200 to-white"
           />
         </div>
-        
+
         {/* Status */}
         <div className="flex items-center justify-between text-sm text-zinc-300">
           <div className="space-y-1">
             <div className="font-medium">Uploading...</div>
             <div className="text-zinc-400">{Math.round(uploadState.progress * 100)}%</div>
           </div>
-          
+
           {/* Cancel button */}
           <Button
             variant="ghost"

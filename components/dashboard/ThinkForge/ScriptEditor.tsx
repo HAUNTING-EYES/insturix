@@ -19,6 +19,7 @@ import {
   History,
   MoreVertical,
   FileDown,
+  Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -393,7 +394,12 @@ export default function ScriptEditor({
       }
       // Reset streaming state to prevent further token processing
       streamingTiptap.reset();
-      // Keep live renderer visible with final content (user clicks to dismiss)
+      
+      // Force autosave after generation finishes
+      setHasUnsavedChanges(true);
+      if (handleContentChangeRef.current) {
+        handleContentChangeRef.current();
+      }
     }
   }, [generatingScript, streamingTiptap]);
 
@@ -1441,7 +1447,7 @@ export default function ScriptEditor({
         <div className="flex items-center gap-3">
           <div className={`w-3 h-3 rounded-full ${getToneColorClass(selectedIdea.tone)}`} />
           {generatingScript && !script && (
-            <span className="text-sm text-zinc-400">Generating...</span>
+            <span className="text-sm text-[#7A776E]">Generating...</span>
           )}
 
           {/* New Script Button */}
@@ -1456,7 +1462,7 @@ export default function ScriptEditor({
                   }}
                   variant="outline"
                   size="sm"
-                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+                  className="border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19] h-8 w-8 p-0"
                   disabled={!onNewScript || !sessionId}
                 >
                   <Plus className="h-4 w-4" />
@@ -1464,6 +1470,32 @@ export default function ScriptEditor({
               </TooltipTrigger>
               <TooltipContent>
                 <p>New Script</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Save Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => {
+                    setHasUnsavedChanges(true);
+                    if (handleContentChangeRef.current) {
+                      handleContentChangeRef.current();
+                    }
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19] h-8 px-2"
+                  disabled={!sessionId}
+                >
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+                  <span className="text-xs">Save</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Save Script</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -1482,7 +1514,7 @@ export default function ScriptEditor({
                   }}
                   variant="outline"
                   size="sm"
-                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+                  className="border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19] h-8 w-8 p-0"
                   disabled={!sessionId}
                 >
                   <History className="h-4 w-4" />
@@ -1496,7 +1528,7 @@ export default function ScriptEditor({
 
           {/* Format Toolbar - always shown when not generating */}
           {!generatingScript && (
-            <div className="border-l border-zinc-700 pl-3 ml-1">
+            <div className="border-l border-[#282724] pl-3 ml-1">
               <FormatToolbar
                 editor={editor}
                 disabled={false}
@@ -1515,7 +1547,7 @@ export default function ScriptEditor({
                   onClick={handleCopy}
                   variant="outline"
                   size="sm"
-                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+                  className="border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19] h-8 w-8 p-0"
                 >
                   {copied ? (
                     <Check className="h-4 w-4 text-green-400" />
@@ -1535,30 +1567,30 @@ export default function ScriptEditor({
               <Button
                 variant="outline"
                 size="sm"
-                className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+                className="border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19] h-8 w-8 p-0"
                 disabled={generatingScript && !script}
               >
                 <Download className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-700">
+            <DropdownMenuContent align="end" className="bg-[#0F0F0E] border-[#282724]">
               <DropdownMenuItem
                 onClick={handleExportPDF}
-                className="text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                className="text-[#B5B2A8] hover:bg-[#1C1B19] cursor-pointer"
                 disabled={generatingScript && !script}
               >
                 Export PDF
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleExportHTML}
-                className="text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                className="text-[#B5B2A8] hover:bg-[#1C1B19] cursor-pointer"
                 disabled={generatingScript && !script}
               >
                 Export HTML
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleExportTXT}
-                className="text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                className="text-[#B5B2A8] hover:bg-[#1C1B19] cursor-pointer"
                 disabled={generatingScript && !script}
               >
                 Export TXT
@@ -1572,12 +1604,12 @@ export default function ScriptEditor({
               <Button
                 variant="outline"
                 size="sm"
-                className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+                className="border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19] h-8 w-8 p-0"
               >
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-700">
+            <DropdownMenuContent align="end" className="bg-[#0F0F0E] border-[#282724]">
               <DropdownMenuItem
                 onClick={() => {
                   if (sessionId) {
@@ -1586,7 +1618,7 @@ export default function ScriptEditor({
                     console.warn('Cannot open history: no sessionId');
                   }
                 }}
-                className="text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                className="text-[#B5B2A8] hover:bg-[#1C1B19] cursor-pointer"
                 disabled={!sessionId}
               >
                 <History className="h-4 w-4 mr-2" />
@@ -1596,9 +1628,9 @@ export default function ScriptEditor({
           </DropdownMenu>
 
           {/* Save Status Indicator */}
-          <div className="flex items-center pl-2 border-l border-zinc-700 ml-1">
+          <div className="flex items-center pl-2 border-l border-[#282724] ml-1">
             {isSaving ? (
-              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+              <div className="flex items-center gap-1.5 text-xs text-[#7A776E]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 <span>Saving</span>
               </div>
@@ -1608,9 +1640,9 @@ export default function ScriptEditor({
                 <span>Saved</span>
               </div>
             ) : hasUnsavedChanges ? (
-              <div className="text-xs text-amber-400">Unsaved</div>
+              <div className="text-xs text-[#D4A652]">Unsaved</div>
             ) : (
-              <div className="text-xs text-zinc-500">Saved</div>
+              <div className="text-xs text-[#5F5E5A]">Saved</div>
             )}
           </div>
         </div>
@@ -1620,10 +1652,10 @@ export default function ScriptEditor({
       {generatingScript && !script && !liveContent && (
         <div className="flex items-center justify-center py-20">
           <div className="text-center space-y-4">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-red-500" />
+            <Loader2 className="h-8 w-8 animate-spin mx-auto text-[#D4A652]" />
             <div>
-              <h3 className="text-lg font-medium text-zinc-100">Generating Your Script</h3>
-              <p className="text-sm text-zinc-400">ForgeAI is crafting your content...</p>
+              <h3 className="text-lg font-medium text-[#ECE9E1]">Generating Your Script</h3>
+              <p className="text-sm text-[#7A776E]">ForgeAI is crafting your content...</p>
             </div>
           </div>
         </div>
@@ -1631,7 +1663,7 @@ export default function ScriptEditor({
 
       {/* Editor or Preview */}
       {(!generatingScript || script || liveContent) ? (
-        <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
+        <Card className="bg-[#0F0F0E] border-[#1C1B19]">
           <CardContent className="p-0">
             <div
               ref={containerRef}
@@ -1684,7 +1716,7 @@ export default function ScriptEditor({
                         }
                       } catch { }
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-zinc-900 text-zinc-200 shadow-lg border border-zinc-700/50 hover:bg-zinc-800 hover:text-white hover:border-zinc-600 transition-all group backdrop-blur-md"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-[#0F0F0E] text-[#ECE9E1] shadow-lg border border-[#282724]/50 hover:bg-[#1C1B19] hover:text-[#ECE9E1] hover:border-[#282724] transition-all group backdrop-blur-md"
                     aria-label="Edit selection in Chat"
                   >
                     <Sparkles className="h-3.5 w-3.5 text-indigo-400 group-hover:text-indigo-300 transition-colors" />
@@ -1700,7 +1732,7 @@ export default function ScriptEditor({
 
       {/* Script Tabs Panel Dialog */}
       <Dialog open={showBranchEditor} onOpenChange={setShowBranchEditor}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100 max-w-4xl h-[600px] p-0">
+        <DialogContent className="bg-[#0F0F0E] border-[#1C1B19] text-[#ECE9E1] max-w-4xl h-[600px] p-0">
           {showBranchEditor && (
             <ScriptHistoryPanel
               sessionId={sessionId || null}
@@ -1726,7 +1758,7 @@ export default function ScriptEditor({
         }
         .tiptap-editor-dark .ProseMirror {
           background: transparent !important;
-          color: #f4f4f5 !important;
+          color: #ECE9E1 !important;
           padding: 2rem !important;
           font-size: 16px !important;
           line-height: 1.6 !important;
@@ -1740,44 +1772,44 @@ export default function ScriptEditor({
           margin-top: 0.75em;
         }
         .tiptap-editor-dark h1 {
-          color: #f4f4f5 !important;
+          color: #ECE9E1 !important;
           font-size: 2rem !important;
           font-weight: 700 !important;
           margin-bottom: 1rem !important;
         }
         .tiptap-editor-dark h2 {
-          color: #f4f4f5 !important;
+          color: #ECE9E1 !important;
           font-size: 1.5rem !important;
           font-weight: 600 !important;
           margin-top: 1.5rem !important;
           margin-bottom: 0.75rem !important;
         }
         .tiptap-editor-dark h3 {
-          color: #f4f4f5 !important;
+          color: #ECE9E1 !important;
           font-size: 1.25rem !important;
           font-weight: 600 !important;
           margin-top: 1.25rem !important;
           margin-bottom: 0.5rem !important;
         }
         .tiptap-editor-dark p {
-          color: #f4f4f5 !important;
+          color: #ECE9E1 !important;
           margin-bottom: 0.75rem !important;
         }
         .tiptap-editor-dark ul, 
         .tiptap-editor-dark ol {
-          color: #f4f4f5 !important;
+          color: #ECE9E1 !important;
           margin-bottom: 0.75rem !important;
           padding-left: 1.5rem !important;
         }
         .tiptap-editor-dark li {
-          color: #f4f4f5 !important;
+          color: #ECE9E1 !important;
           margin-bottom: 0.25rem !important;
         }
         .tiptap-editor-dark blockquote {
-          border-left: 3px solid #3f3f46 !important;
+          border-left: 3px solid #282724 !important;
           padding-left: 1rem !important;
           margin-left: 0 !important;
-          color: rgba(244, 244, 245, 0.8) !important;
+          color: rgba(236, 233, 225, 0.8) !important;
           font-style: italic !important;
         }
         .tiptap-editor-dark pre {
@@ -1794,7 +1826,7 @@ export default function ScriptEditor({
           padding: 0.125rem 0.25rem !important;
           font-family: ui-monospace, monospace !important;
           font-size: 0.875em !important;
-          color: #f4f4f5 !important;
+          color: #ECE9E1 !important;
         }
         .tiptap-editor-dark pre code {
           background: transparent !important;
@@ -1804,15 +1836,15 @@ export default function ScriptEditor({
         }
         .tiptap-editor-dark hr {
           border: none !important;
-          border-top: 1px solid #3f3f46 !important;
+          border-top: 1px solid #282724 !important;
           margin: 1.5rem 0 !important;
         }
         .tiptap-editor-dark a {
-          color: #ef4444 !important;
+          color: #D4A652 !important;
           text-decoration: underline !important;
         }
         .tiptap-editor-dark a:hover {
-          color: #f87171 !important;
+          color: #D4A652 !important;
         }
         .tiptap-editor-dark strong {
           font-weight: 600 !important;

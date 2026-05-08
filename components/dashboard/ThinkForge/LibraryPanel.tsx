@@ -51,9 +51,9 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
 
   const toneBadge = (tone: string) => {
     const map: Record<string,string> = {
-      white: 'bg-white text-black', red: 'bg-red-500 text-white', black: 'bg-black text-white border border-white/30', yellow: 'bg-yellow-400 text-black', green: 'bg-green-500 text-white', blue: 'bg-blue-500 text-white'
+      white: 'bg-white text-black', red: 'bg-[#D4A652] text-[#ECE9E1]', black: 'bg-black text-white border border-white/30', yellow: 'bg-yellow-400 text-black', green: 'bg-green-500 text-[#ECE9E1]', blue: 'bg-blue-500 text-[#ECE9E1]'
     };
-    return map[tone] || 'bg-zinc-600 text-white';
+    return map[tone] || 'bg-[#454340] text-[#ECE9E1]';
   };
 
   // Handle delete with confirmation and backend call
@@ -127,42 +127,42 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
   <AnimatePresence>
     {open && (
       <motion.aside
-        className="fixed right-0 top-0 z-40 flex h-full w-[min(420px,90vw)] flex-col border-l border-white/10 bg-neutral-950/95 backdrop-blur-xl"
+        className="fixed right-0 top-0 z-40 flex h-full w-[min(420px,90vw)] flex-col border-l border-[#1C1B19] bg-[#0B0B0A]/98 backdrop-blur-xl"
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ type: "spring", stiffness: 200, damping: 25 }}
         ref={panelRef as any}
       >
-        <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-[#1C1B19] px-6 py-4">
           <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-white/60" />
-            <h2 className="text-sm font-semibold tracking-wide text-white/90">Library</h2>
+            <FileText className="h-4 w-4 text-[#7A776E]" />
+            <h2 className="text-sm font-semibold tracking-wide text-[#ECE9E1]">Library</h2>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+            className="rounded-lg bg-[#1C1B19] px-3 py-1.5 text-xs font-medium text-[#B5B2A8] hover:bg-[#282724] hover:text-[#ECE9E1] transition-colors"
           >
             Close
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4">
-          <p className="mb-3 text-[10px] uppercase tracking-wider text-white/40 font-medium">Sessions</p>
+          <p className="mb-3 text-[10px] uppercase tracking-wider text-[#5F5E5A] font-medium">Sessions</p>
           {loading && (
-            <div className="rounded-xl bg-white/5 p-6 text-center">
-              <div className="h-4 w-4 mx-auto mb-2 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
-              <p className="text-xs text-white/50">Loading sessions…</p>
+            <div className="rounded-xl bg-[#0F0F0E] p-6 text-center">
+              <div className="h-4 w-4 mx-auto mb-2 border-2 border-[#282724] border-t-[#D4A652] rounded-full animate-spin" />
+              <p className="text-xs text-[#7A776E]">Loading sessions…</p>
             </div>
           )}
           {!loading && displaySessions.length === 0 && (
-            <div className="rounded-xl bg-white/5 p-6 text-center border border-white/5">
-              <FileText className="h-8 w-8 mx-auto mb-2 text-white/20" />
-              <p className="text-xs text-white/50">No sessions yet</p>
-              <p className="text-[10px] text-white/30 mt-1">Generate ideas to create your first session</p>
+            <div className="rounded-xl bg-[#0F0F0E] p-6 text-center border border-[#1C1B19]">
+              <FileText className="h-8 w-8 mx-auto mb-2 text-[#282724]" />
+              <p className="text-xs text-[#7A776E]">No sessions yet</p>
+              <p className="text-[10px] text-[#454340] mt-1">Generate ideas to create your first session</p>
             </div>
           )}
           {!!loadError && (
-            <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-xs text-red-300 mb-4">
+            <div className="rounded-xl bg-[#D4A652]/10 border border-[#D4A652]/20 p-4 text-xs text-[#D4A652] mb-4">
               {loadError}
             </div>
           )}
@@ -176,8 +176,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
                 className={[
                   "group relative rounded-xl border px-4 py-3 transition-all flex flex-col gap-2 cursor-pointer",
                   s.id === activeSessionId
-                    ? "border-red-500/30 bg-red-500/10 hover:bg-red-500/15"
-                    : "border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20"
+                    ? "border-[#D4A652]/30 bg-[#D4A652]/5 hover:bg-[#D4A652]/10"
+                    : "border-[#1C1B19] bg-[#0F0F0E] hover:bg-[#131312] hover:border-[#282724]"
                 ].join(' ')}
                 onClick={(e) => {
                   const target = e.target as HTMLElement;
@@ -201,48 +201,48 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
                         onChange={e=>setDraftName(e.target.value)}
                         onKeyDown={e=>{ if(e.key==='Enter') { e.preventDefault(); commitEdit(); } else if (e.key==='Escape') { cancelEdit(); } }}
                         onBlur={commitEdit}
-                        className="flex-1 min-w-0 bg-black/40 border border-white/20 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-red-500/40"
+                        className="flex-1 min-w-0 bg-[#0B0B0A] border border-[#282724] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-[#454340] focus:outline-none focus:ring-2 focus:ring-[#D4A652]/40"
                         placeholder="Session name"/>
                     ) : (
-                      <span className="truncate text-xs font-medium text-white/90">{s.name}</span>
+                      <span className="truncate text-xs font-medium text-[#ECE9E1]">{s.name}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
                     {editingId === s.id ? (
                       <>
-                        <button onMouseDown={e=>{e.preventDefault(); commitEdit();}} className="p-1 rounded-md bg-green-500/60 hover:bg-green-500 text-white"><Check className="h-3 w-3"/></button>
-                        <button onMouseDown={e=>{e.preventDefault(); cancelEdit();}} className="p-1 rounded-md bg-zinc-600/60 hover:bg-zinc-600 text-white"><X className="h-3 w-3"/></button>
+                        <button onMouseDown={e=>{e.preventDefault(); commitEdit();}} className="p-1 rounded-md bg-green-500/60 hover:bg-green-500 text-[#ECE9E1]"><Check className="h-3 w-3"/></button>
+                        <button onMouseDown={e=>{e.preventDefault(); cancelEdit();}} className="p-1 rounded-md bg-[#454340]/60 hover:bg-[#454340] text-[#ECE9E1]"><X className="h-3 w-3"/></button>
                       </>
                     ) : (
                       <>
-                        <button onClick={()=>startEdit(s)} className="p-1 rounded-md bg-white/10 hover:bg-white/20 text-white/80 hover:text-white"><Pencil className="h-3 w-3"/></button>
+                        <button onClick={()=>startEdit(s)} className="p-1 rounded-md bg-[#1C1B19] hover:bg-[#282724] text-[#ECE9E1] hover:text-[#ECE9E1]"><Pencil className="h-3 w-3"/></button>
                         {confirmingId === s.id ? (
                           <div className="flex items-center gap-1">
                             <button
                               disabled={deletingId === s.id}
                               onMouseDown={e=>{e.preventDefault(); void confirmDelete(s.id);}}
-                              className="px-2 py-1 rounded-md bg-red-600 hover:bg-red-700 text-white text-[11px]"
+                              className="px-2 py-1 rounded-md bg-[#D4A652] hover:bg-[#D4A652] text-white text-[11px]"
                             >
                               {deletingId === s.id ? 'Deleting…' : 'Confirm'}
                             </button>
                             <button
                               onMouseDown={e=>{e.preventDefault(); cancelDelete();}}
-                              className="px-2 py-1 rounded-md bg-zinc-700 hover:bg-zinc-600 text-white text-[11px]"
+                              className="px-2 py-1 rounded-md bg-[#282724] hover:bg-[#454340] text-white text-[11px]"
                             >
                               Cancel
                             </button>
                           </div>
                         ) : (
-                          <button onClick={()=>requestDelete(s.id)} className="p-1 rounded-md bg-red-600/70 hover:bg-red-600 text-white"><Trash2 className="h-3 w-3"/></button>
+                          <button onClick={()=>requestDelete(s.id)} className="p-1 rounded-md bg-[#D4A652]/70 hover:bg-[#D4A652] text-[#ECE9E1]"><Trash2 className="h-3 w-3"/></button>
                         )}
                       </>
                     )}
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-white/40 tracking-wide">Last edit: {formatTime(s.lastEdited)}</span>
+                  <span className="text-[10px] text-[#5F5E5A] tracking-wide">Last edit: {formatTime(s.lastEdited)}</span>
                   {s.createdByName && (
-                    <span className="text-[9px] text-white/30 font-medium uppercase truncate pl-4">by {s.createdByName}</span>
+                    <span className="text-[9px] text-[#454340] font-medium uppercase truncate pl-4">by {s.createdByName}</span>
                   )}
                 </div>
               </motion.li>

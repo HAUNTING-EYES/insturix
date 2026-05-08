@@ -27,7 +27,7 @@ export default function SuggestionsCard({ onClick, parsedResponse, error, cardNo
                         <div><strong>Platform:</strong> {parsedResponse[cardNo].platform}</div>
                     </div>
                 )}
-                {error && <div className="text-red-500">{error}</div>}
+                {error && <div className="text-[#D4A652]">{error}</div>}
             </div>
         </SpotlightCard>
     );

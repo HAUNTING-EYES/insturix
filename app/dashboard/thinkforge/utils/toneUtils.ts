@@ -27,7 +27,7 @@ export const getToneDescription = (tone: ThinkingHat): string => {
 export const getToneBadgeColor = (tone: ThinkingHat): string => {
   switch (tone) {
     case 'white': return 'bg-gray-100 text-gray-900 border-gray-200';
-    case 'red': return 'bg-red-500 text-white border-red-500';
+    case 'red': return 'bg-gold text-white border-gold';
     case 'black': return 'bg-gray-800 text-gray-100 border-gray-700';
     case 'yellow': return 'bg-yellow-400 text-yellow-900 border-yellow-400';
     case 'green': return 'bg-green-500 text-white border-green-500';
@@ -39,7 +39,7 @@ export const getToneBadgeColor = (tone: ThinkingHat): string => {
 export const getToneTextColor = (tone: ThinkingHat): string => {
   switch (tone) {
     case 'white': return 'text-white';
-    case 'red': return 'text-red-500';
+    case 'red': return 'text-gold';
     case 'black': return 'text-black';
     case 'yellow': return 'text-yellow-400';
     case 'green': return 'text-green-500';

@@ -1,16 +1,20 @@
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import AboutContent from "@/components/AboutContent";
-import CursorEffect from "@/components/ui/CursorEffect";
+import { SiteNavbar } from "@/components/shared/site-navbar";
+import { SiteFooter } from "@/components/shared/site-footer";
+import { AboutPage } from "@/components/shared/about-page";
+import type { Metadata } from "next";
 
-export default function AboutPage() {
+export const metadata: Metadata = {
+  title: "About | Insturix",
+  description:
+    "Building the operating system for content production. Meet the team behind Insturix.",
+};
+
+export default function About() {
   return (
-    <div className="selection:bg-zinc-800 selection:text-white">
-      <Navbar />
-      <main>
-        <AboutContent />
-      </main>
-      <Footer />
-    </div>
+    <>
+      <SiteNavbar />
+      <AboutPage />
+      <SiteFooter />
+    </>
   );
 }

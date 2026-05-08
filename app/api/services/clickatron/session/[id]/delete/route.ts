@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 
 // DELETE /api/services/clickatron/session/:id/delete - Delete a session and all associated images
 export async function DELETE(
@@ -31,7 +31,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    // Delete all associated images from GCS
+    // Delete all associated images from R2
     const variations = task.details?.canvas?.variations || [];
     const deletePromises = [];
     
@@ -39,12 +39,11 @@ export async function DELETE(
       // Delete main image if it exists
       if (variation.imageRef) {
         try {
-          // Extract raw GCS path (without query params)
-          const rawGcsPath = variation.imageRef.split('?')[0];
-          deletePromises.push(ClickatronGCSManager.deleteImage(rawGcsPath));
-          console.log(`Queued deletion of GCS image for variation ${variation.id}: ${rawGcsPath}`);
-        } catch (gcsError) {
-          console.error(`Failed to queue GCS image deletion for variation ${variation.id}:`, gcsError);
+          const rawR2Url = variation.imageRef.split('?')[0];
+          deletePromises.push(ClickatronR2Manager.deleteImage(rawR2Url));
+          console.log(`Queued deletion of R2 image for variation ${variation.id}: ${rawR2Url}`);
+        } catch (r2Error) {
+          console.error(`Failed to queue R2 image deletion for variation ${variation.id}:`, r2Error);
         }
       }
       
@@ -52,11 +51,11 @@ export async function DELETE(
       if (variation.referenceImageRefs && Array.isArray(variation.referenceImageRefs)) {
         for (const refImage of variation.referenceImageRefs) {
           try {
-            const rawGcsPath = refImage.split('?')[0];
-            deletePromises.push(ClickatronGCSManager.deleteImage(rawGcsPath));
-            console.log(`Queued deletion of GCS reference image: ${rawGcsPath}`);
-          } catch (gcsError) {
-            console.error(`Failed to queue GCS reference image deletion:`, gcsError);
+            const rawR2Url = refImage.split('?')[0];
+            deletePromises.push(ClickatronR2Manager.deleteImage(rawR2Url));
+            console.log(`Queued deletion of R2 reference image: ${rawR2Url}`);
+          } catch (r2Error) {
+            console.error(`Failed to queue R2 reference image deletion:`, r2Error);
           }
         }
       }

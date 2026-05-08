@@ -32,10 +32,10 @@ export default function DashboardClientLayout({
       <UserInitializationProvider initialData={initialUserData}>
         <Suspense fallback={<div className="fixed top-4 left-4 w-12 h-12 bg-zinc-800 rounded animate-pulse" />}>
           <ServiceProviders>
-            <Suspense fallback={<div className="fixed left-0 top-0 w-16 h-screen bg-zinc-900 animate-pulse lg:block hidden" />}>
+            <Suspense fallback={<div className="fixed left-0 top-0 w-16 h-screen bg-[#0B0B0A] animate-pulse lg:block hidden" />}>
               <DashboardSidebar />
             </Suspense>
-            <main className="min-h-screen bg-zinc-950/95 lg:pl-[64px] pt-16 lg:pt-0">
+            <main className="min-h-screen bg-[#0B0B0A] lg:pl-[64px] pt-16 lg:pt-0">
               <div className="min-h-screen">
                 {children}
               </div>

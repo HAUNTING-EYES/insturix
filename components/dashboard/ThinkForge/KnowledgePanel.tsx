@@ -47,14 +47,14 @@ function DNAField({
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-[11px] font-semibold text-zinc-300 uppercase tracking-wider">
+      <label className="text-[11px] font-semibold text-[#B5B2A8] uppercase tracking-wider">
         {label}
       </label>
       {description && (
-        <p className="text-[11px] text-zinc-500 leading-relaxed">{description}</p>
+        <p className="text-[11px] text-[#5F5E5A] leading-relaxed">{description}</p>
       )}
       <textarea
-        className="w-full rounded-xl bg-white/[0.03] border border-white/[0.08] px-4 py-3 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-red-500/40 focus:border-red-500/30 resize-none transition-all"
+        className="w-full rounded-xl bg-white/[0.03] border border-white/[0.08] px-4 py-3 text-sm text-[#ECE9E1] placeholder:text-[#454340] focus:outline-none focus:ring-1 focus:ring-[#D4A652]/40 focus:border-[#D4A652]/30 resize-none transition-all"
         rows={3}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -87,11 +87,11 @@ function DNAArrayField({
 
   return (
     <div className="space-y-1.5">
-      <label className="text-[11px] font-semibold text-zinc-300 uppercase tracking-wider">
+      <label className="text-[11px] font-semibold text-[#B5B2A8] uppercase tracking-wider">
         {label}
       </label>
       {description && (
-        <p className="text-[11px] text-zinc-500 leading-relaxed">{description}</p>
+        <p className="text-[11px] text-[#5F5E5A] leading-relaxed">{description}</p>
       )}
       {items.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -99,7 +99,7 @@ function DNAArrayField({
             <Badge
               key={item}
               variant="secondary"
-              className="text-[11px] h-6 px-2.5 bg-white/[0.05] text-zinc-300 gap-1.5 cursor-pointer hover:bg-red-500/20 hover:text-red-300 transition-colors rounded-lg"
+              className="text-[11px] h-6 px-2.5 bg-white/[0.05] text-[#B5B2A8] gap-1.5 cursor-pointer hover:bg-[#D4A652]/20 hover:text-[#D4A652] transition-colors rounded-lg"
               onClick={() => onChange(items.filter((i) => i !== item))}
             >
               {item}
@@ -110,7 +110,7 @@ function DNAArrayField({
       )}
       <div className="flex gap-2">
         <input
-          className="flex-1 rounded-xl bg-white/[0.03] border border-white/[0.08] px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-red-500/40 transition-all"
+          className="flex-1 rounded-xl bg-white/[0.03] border border-white/[0.08] px-3 py-2 text-sm text-[#ECE9E1] placeholder:text-[#454340] focus:outline-none focus:ring-1 focus:ring-[#D4A652]/40 transition-all"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
@@ -161,7 +161,7 @@ function BrandDNAEditor() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16 text-zinc-500">
+      <div className="flex items-center justify-center py-16 text-[#5F5E5A]">
         <Loader2 size={18} className="animate-spin mr-2" />
         Loading your brand profile...
       </div>
@@ -171,12 +171,12 @@ function BrandDNAEditor() {
   return (
     <div className="space-y-5">
       {/* Intro */}
-      <div className="rounded-xl bg-gradient-to-br from-red-500/[0.08] to-transparent border border-red-500/[0.12] px-4 py-3">
+      <div className="rounded-xl bg-gradient-to-br from-[#D4A652]/[0.08] to-transparent border border-[#D4A652]/[0.12] px-4 py-3">
         <div className="flex items-center gap-2 mb-1.5">
-          <Sparkles size={14} className="text-red-400" />
-          <span className="text-xs font-semibold text-red-300">How it works</span>
+          <Sparkles size={14} className="text-[#D4A652]" />
+          <span className="text-xs font-semibold text-[#D4A652]">How it works</span>
         </div>
-        <p className="text-[12px] text-zinc-400 leading-relaxed">
+        <p className="text-[12px] text-[#7A776E] leading-relaxed">
           Fill in your brand identity below. The AI will use this to match your voice, avoid things you hate, and generate content that sounds like <em>you</em>.
         </p>
       </div>
@@ -217,7 +217,7 @@ function BrandDNAEditor() {
       <button
         onClick={save}
         disabled={saving}
-        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-600/20 text-red-300 border border-red-500/20 hover:bg-red-600/30 transition-all text-sm font-medium"
+        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#D4A652]/20 text-[#D4A652] border border-[#D4A652]/20 hover:bg-[#D4A652]/30 transition-all text-sm font-medium"
       >
         {saving ? (
           <Loader2 size={14} className="animate-spin" />
@@ -244,7 +244,7 @@ export function KnowledgePanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-[#0B0B0A] backdrop-blur-sm"
             onClick={onClose}
           />
 
@@ -253,22 +253,22 @@ export function KnowledgePanel({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md bg-neutral-950 border-l border-white/10 flex flex-col shadow-2xl"
+            className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md bg-[#0B0B0A] border-l border-[#1C1B19] flex flex-col shadow-2xl"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
               <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-red-500/10">
-                  <Brain size={16} className="text-red-400" />
+                <div className="p-1.5 rounded-lg bg-[#D4A652]/10">
+                  <Brain size={16} className="text-[#D4A652]" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-semibold text-white">Brand Vault</h2>
-                  <p className="text-[11px] text-zinc-500">Your brand identity & preferences</p>
+                  <h2 className="text-sm font-semibold text-[#ECE9E1]">Brand Vault</h2>
+                  <p className="text-[11px] text-[#5F5E5A]">Your brand identity & preferences</p>
                 </div>
               </div>
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-zinc-400 hover:text-white"
+                className="p-1.5 rounded-lg hover:bg-[#1C1B19] transition-colors text-[#7A776E] hover:text-[#ECE9E1]"
               >
                 <X size={16} />
               </button>

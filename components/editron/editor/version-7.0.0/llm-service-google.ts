@@ -32,10 +32,12 @@ const systemPrompt = 'You are Editron AI, an intelligent video editing assistant
 // Configuration
 // ============================================================================
 
-const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-
-if (!GOOGLE_API_KEY) {
-  throw new Error('⚠️  No GOOGLE_API_KEY or GEMINI_API_KEY found in environment');
+function getGoogleApiKey(): string {
+  const key = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+  if (!key) {
+    throw new Error('⚠️  No GOOGLE_API_KEY or GEMINI_API_KEY found in environment');
+  }
+  return key;
 }
 
 const MODEL_NAME = 'gemini-2.5-flash'; // Production model
@@ -259,7 +261,7 @@ export class GoogleLLMService {
   
   constructor() {
     this.client = new GoogleGenAI({
-      apiKey: GOOGLE_API_KEY,
+      apiKey: getGoogleApiKey(),
     });
   }
 

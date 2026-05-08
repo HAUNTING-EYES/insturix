@@ -185,21 +185,10 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       }
     }, [aspectRatio, explicitWidth, explicitHeight]);
 
-    // Construct proxy URL for imageRef
+    // Use the image URL directly (R2/worker should already be browser-accessible)
     useEffect(() => {
       if (imageRef) {
-        let proxyUrlPath = imageRef;
-        if (imageRef.startsWith("https://storage.googleapis.com/")) {
-          // Extract path within bucket for proxy
-          const pathAfterDomain = imageRef.substring(
-            "https://storage.googleapis.com/".length,
-          );
-          const pathSegments = pathAfterDomain.split("/");
-          const pathWithinBucket = pathSegments.slice(1).join("/");
-          proxyUrlPath = pathWithinBucket.split("?")[0]; // Remove query params
-        }
-        const encodedPath = encodeURIComponent(proxyUrlPath);
-        setProxyUrl(`/api/proxy/image?path=${encodedPath}`);
+        setProxyUrl(imageRef);
         currentImageRef.current = imageRef;
         setIsLoading(status === "generating"); // Show loading for generating, hide for completed
         setImageLoaded(false); // Reset image loaded state when image changes

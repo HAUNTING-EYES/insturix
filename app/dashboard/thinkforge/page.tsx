@@ -630,7 +630,7 @@ export default function ThinkForgeLanding() {
 	];
 
 	return (
-		<div className="relative h-screen w-full overflow-hidden bg-neutral-950 text-white">
+		<div className="thinkforge-app">
 			<BackgroundDecor />
 
 			<LibraryPanel
@@ -911,7 +911,7 @@ export default function ThinkForgeLanding() {
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95">
 					<div className="flex flex-col items-center gap-4 text-white">
 						<div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-						<p className="text-sm tracking-wide text-white/80">ThinkForge is loading...</p>
+						<p className="text-sm tracking-wide text-white/80">Script is loading...</p>
 					</div>
 				</div>
 			)}

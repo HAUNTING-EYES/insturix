@@ -50,8 +50,6 @@ export async function GET() {
                 instagramAccountId: a.instagramAccountId,
                 instagramUsername: a.instagramUsername,
                 profilePictureUrl: a.profilePictureUrl,
-                facebookPageId: a.facebookPageId,
-                facebookPageName: a.facebookPageName,
             })),
             connectedAt: ig.connectedAt,
         });

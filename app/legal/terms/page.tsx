@@ -1,247 +1,723 @@
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import { SiteNavbar } from "@/components/shared/site-navbar";
+import { SiteFooter } from "@/components/shared/site-footer";
+import type { Metadata } from "next";
 
-// The Terms content is preserved verbatim; only layout and styling have been updated to match site design.
+export const metadata: Metadata = {
+  title: "Terms and Conditions | Insturix",
+};
+
 export default function Terms() {
   return (
     <>
-      <Navbar />
-      <div id="top" className="min-h-screen bg-[rgb(var(--surface-0))]">
+      <SiteNavbar />
+      <div style={{ background: "var(--bg-canvas)", minHeight: "100vh" }}>
         {/* Hero */}
-        <section className="relative border-b border-neutral-200/60 dark:border-neutral-800/60">
-          <div className="absolute inset-0 bg-grid-neutral-100/20 dark:bg-grid-neutral-900/20 bg-[size:24px_24px] opacity-40" />
-          <div className="container relative mx-auto px-4 py-14 sm:py-16">
-            <div className="max-w-3xl">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Legal</p>
-              <h1 className="mt-2 text-3xl sm:text-4xl lg:text-5xl font-bold primtext">Terms and Conditions</h1>
-              <p className="mt-3 text-sm text-muted-foreground">Last Updated: April 10, 2025</p>
-            </div>
+        <section
+          style={{
+            maxWidth: 960,
+            margin: "0 auto",
+            padding: "var(--r-section-padding) var(--r-page-padding) 48px",
+          }}
+        >
+          <p
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "var(--text-dim)",
+              margin: 0,
+            }}
+          >
+            LEGAL
+          </p>
+          <h1
+            style={{
+              fontFamily: "var(--font-sans)",
+              fontSize: "var(--r-heading-size)",
+              fontWeight: 800,
+              color: "var(--text-primary)",
+              margin: "8px 0 0",
+              lineHeight: 1.2,
+            }}
+          >
+            Terms and Conditions
+          </h1>
+          <p
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              color: "var(--text-dim)",
+              margin: "8px 0 0",
+            }}
+          >
+            Last Updated: April 10, 2025
+          </p>
+        </section>
+
+        {/* TL;DR */}
+        <section style={{ maxWidth: 960, margin: "0 auto", padding: "0 var(--r-page-padding)" }}>
+          <div
+            style={{
+              background: "var(--bg-raised)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 12,
+              padding: 24,
+              marginBottom: 48,
+            }}
+          >
+            <p
+              style={{
+                fontFamily: "var(--font-sans)",
+                fontSize: 14,
+                fontWeight: 500,
+                color: "var(--text-primary)",
+                margin: "0 0 12px",
+              }}
+            >
+              In plain English
+            </p>
+            <ul
+              style={{
+                fontFamily: "var(--font-sans)",
+                fontSize: 13,
+                color: "var(--text-secondary)",
+                lineHeight: 1.7,
+                margin: 0,
+                paddingLeft: 20,
+              }}
+            >
+              <li>You own your content. We provide the tools.</li>
+              <li>Don&apos;t misuse them.</li>
+              <li>We can update these terms.</li>
+            </ul>
           </div>
         </section>
 
-        {/* Content with sticky ToC */}
-        <div className="container mx-auto px-4 py-10 lg:py-12">
-          <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-8 lg:gap-12">
-            {/* ToC */}
-            <aside className="hidden lg:block">
-              <div className="sticky top-24 space-y-3">
-                <p className="text-xs font-medium text-muted-foreground">On this page</p>
-                <nav className="text-sm text-muted-foreground">
-                  <ol className="space-y-2">
-                    <li><a href="#welcome" className="hover:text-foreground">Welcome</a></li>
-                    <li><a href="#acceptance-of-terms" className="hover:text-foreground">1. Acceptance of Terms</a></li>
-                    <li><a href="#services-overview" className="hover:text-foreground">2. Services Overview</a></li>
-                    <li><a href="#eligibility" className="hover:text-foreground">3. Eligibility</a></li>
-                    <li><a href="#protection-policy-terms" className="hover:text-foreground">4. Protection Policy Terms</a></li>
-                    <li><a href="#user-responsibilities" className="hover:text-foreground">5. User Responsibilities</a></li>
-                    <li><a href="#account-registration" className="hover:text-foreground">6. Account Registration and Security</a></li>
-                    <li><a href="#payment-and-fees" className="hover:text-foreground">7. Payment and Fees</a></li>
-                    <li><a href="#disclaimer" className="hover:text-foreground">8. Disclaimer of Warranties</a></li>
-                    <li><a href="#limitation" className="hover:text-foreground">9. Limitation of Liability</a></li>
-                    <li><a href="#ip-rights" className="hover:text-foreground">10. Intellectual Property Rights</a></li>
-                    <li><a href="#prohibited" className="hover:text-foreground">11. Prohibited Conduct</a></li>
-                    <li><a href="#privacy-policy" className="hover:text-foreground">12. Privacy Policy</a></li>
-                    <li><a href="#third-party-links" className="hover:text-foreground">13. Third-Party Links</a></li>
-                    <li><a href="#modifications" className="hover:text-foreground">14. Modification of T&Cs</a></li>
-                    <li><a href="#termination" className="hover:text-foreground">15. Termination of Access</a></li>
-                    <li><a href="#governing-law" className="hover:text-foreground">16. Governing Law & Disputes</a></li>
-                    <li><a href="#contact" className="hover:text-foreground">17. Contact Information</a></li>
-                  </ol>
-                </nav>
+        {/* Two-column layout */}
+        <section className="legal-grid"
+          style={{
+            maxWidth: 960,
+            margin: "0 auto",
+            padding: "0 var(--r-page-padding) var(--r-section-padding)",
+            display: "grid",
+            gridTemplateColumns: "200px 1fr",
+            gap: 48,
+          }}
+        >
+          {/* Sticky TOC */}
+          <aside
+            style={{
+              display: "var(--r-toc-display)" as React.CSSProperties["display"],
+              position: "sticky",
+              top: 96,
+              alignSelf: "start",
+            }}
+          >
+            <p
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--text-dim)",
+                margin: "0 0 12px",
+              }}
+            >
+              On this page
+            </p>
+            <nav>
+              {[
+                { id: "welcome", label: "Welcome" },
+                { id: "acceptance-of-terms", label: "1. Acceptance of Terms" },
+                { id: "services-overview", label: "2. Services Overview" },
+                { id: "eligibility", label: "3. Eligibility" },
+                { id: "protection-policy-terms", label: "4. Protection Policy Terms" },
+                { id: "user-responsibilities", label: "5. User Responsibilities" },
+                { id: "account-registration", label: "6. Account Registration" },
+                { id: "payment-and-fees", label: "7. Payment and Fees" },
+                { id: "disclaimer", label: "8. Disclaimer of Warranties" },
+                { id: "limitation", label: "9. Limitation of Liability" },
+                { id: "ip-rights", label: "10. IP Rights" },
+                { id: "prohibited", label: "11. Prohibited Conduct" },
+                { id: "privacy-policy", label: "12. Privacy Policy" },
+                { id: "third-party-links", label: "13. Third-Party Links" },
+                { id: "modifications", label: "14. Modification of T&Cs" },
+                { id: "termination", label: "15. Termination of Access" },
+                { id: "governing-law", label: "16. Governing Law" },
+                { id: "contact", label: "17. Contact Information" },
+              ].map((item) => (
+                <a
+                  key={item.id}
+                  href={`#${item.id}`}
+                  style={{
+                    display: "block",
+                    fontFamily: "var(--font-sans)",
+                    fontSize: 13,
+                    color: "var(--text-muted)",
+                    textDecoration: "none",
+                    padding: "4px 0",
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {item.label}
+                </a>
+              ))}
+            </nav>
+          </aside>
+
+          {/* Content */}
+          <main style={{ flex: 1, minWidth: 0 }}>
+            {/* Welcome */}
+            <section id="welcome" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                Welcome to INSTURIX!
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                These Terms and Conditions (&quot;T&Cs&quot;) govern your access to and use of the INSTURIX website and the services provided by INSTURIX (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;). By accessing or using the Website, you agree to be bound by these T&Cs.
+              </p>
+            </section>
+
+            {/* 1. Acceptance of Terms */}
+            <section id="acceptance-of-terms" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>01</span>
+                Acceptance of Terms
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                By using this Website, you accept and agree to comply with these T&Cs. If you do not agree to these T&Cs, please do not use the Website.
+              </p>
+            </section>
+
+            {/* 2. Services Overview */}
+            <section id="services-overview" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>02</span>
+                Services Overview
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                We provide digital protection policies and SaaS products for content creators on platforms such as Instagram.
+              </p>
+            </section>
+
+            {/* 3. Eligibility */}
+            <section id="eligibility" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>03</span>
+                Eligibility
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                By using our Website, you confirm that you are at least 18 years old and have the legal capacity to enter into binding agreements.
+              </p>
+            </section>
+
+            {/* 4. Protection Policy Terms */}
+            <section id="protection-policy-terms" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>04</span>
+                Protection Policy Terms
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: "0 0 16px",
+                }}
+              >
+                For clients enrolled in our Protection Policy:
+              </p>
+              <ul
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 13,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                  paddingLeft: 20,
+                }}
+              >
+                <li style={{ marginBottom: 8 }}>
+                  <strong>Coverage:</strong> Detailed information on the protection services, coverage, and limitations is outlined in the Protection Policy Document.
+                </li>
+                <li style={{ marginBottom: 8 }}>
+                  <strong>Exclusions:</strong> Certain cases, as detailed in the Protection Policy Document, are not covered.
+                </li>
+                <li>
+                  <strong>Non-Insurance Clause:</strong> Our Protection Policy is not an insurance policy. It provides specialized support and services without conferring legal insurance status.
+                </li>
+              </ul>
+            </section>
+
+            {/* 5. User Responsibilities */}
+            <section id="user-responsibilities" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>05</span>
+                User Responsibilities
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: "0 0 16px",
+                }}
+              >
+                By using this Website and/or subscribing to our Protection Policy, you agree to:
+              </p>
+              <ul
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 13,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                  paddingLeft: 20,
+                }}
+              >
+                <li style={{ marginBottom: 8 }}>Provide accurate, current, and complete information as required.</li>
+                <li style={{ marginBottom: 8 }}>Maintain the confidentiality of your account credentials and notify us immediately of any unauthorized use.</li>
+                <li>Not engage in activities that violate these T&Cs, any applicable law, or the rights of others.</li>
+              </ul>
+            </section>
+
+            {/* 6. Account Registration and Security */}
+            <section id="account-registration" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>06</span>
+                Account Registration and Security
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                To access certain features, you may be required to create an account. You agree to provide accurate and complete registration information, update your information as necessary, and maintain the security of your account and notify us of any unauthorized access.
+              </p>
+            </section>
+
+            {/* 7. Payment and Fees */}
+            <section id="payment-and-fees" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>07</span>
+                Payment and Fees
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                Fees for our services are detailed on the Website and in the Protection Policy Document. Payments are due in full upon enrolling in the policy. All fees are non-refundable except as specified in our Refund Policy. We reserve the right to modify fees at any time, with prior notice being posted on the Website or sent by email.
+              </p>
+            </section>
+
+            {/* 8. Disclaimer of Warranties */}
+            <section id="disclaimer" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>08</span>
+                Disclaimer of Warranties
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                The Website and all content and services are provided on an &quot;AS IS&quot; and &quot;AS AVAILABLE&quot; basis. We disclaim all warranties, express or implied, including but not limited to the accuracy, completeness, or suitability of information on the Website. We do not guarantee uninterrupted, error-free, or virus-free access to the Website.
+              </p>
+            </section>
+
+            {/* 9. Limitation of Liability */}
+            <section id="limitation" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>09</span>
+                Limitation of Liability
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                To the fullest extent permitted by law: INSTURIX and its affiliates shall not be liable for any direct, indirect, incidental, or consequential damages, including but not limited to loss of profits, data, or use, arising from the use of the Website or our services. Our total liability for any claims relating to the use of our services shall be limited to the amount paid by you for the services in the preceding 6 months.
+              </p>
+            </section>
+
+            {/* 10. Intellectual Property Rights */}
+            <section id="ip-rights" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>10</span>
+                Intellectual Property Rights
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                All content on the Website, including but not limited to text, images, logos, and software, is owned by INSTURIX or licensed to us. You are granted a limited, non-exclusive, non-transferable right to access and use the Website for personal and non-commercial purposes. You may not reproduce, distribute, or create derivative works without our express written consent.
+              </p>
+            </section>
+
+            {/* 11. Prohibited Conduct */}
+            <section id="prohibited" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>11</span>
+                Prohibited Conduct
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                You agree not to: engage in any form of data scraping, data extraction, or similar activity; use the Website to infringe on the rights of others or promote illegal activities; or bypass or attempt to bypass any security measures on the Website.
+              </p>
+            </section>
+
+            {/* 12. Privacy Policy */}
+            <section id="privacy-policy" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>12</span>
+                Privacy Policy
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                Our Privacy Policy outlines how we collect, use, and protect your personal information. By using the Website, you agree to the practices described in our Privacy Policy.
+              </p>
+            </section>
+
+            {/* 13. Third-Party Links */}
+            <section id="third-party-links" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>13</span>
+                Third-Party Links
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                Our Website may contain links to third-party websites or resources. We are not responsible for the availability or accuracy of these resources or their content.
+              </p>
+            </section>
+
+            {/* 14. Modification of T&Cs */}
+            <section id="modifications" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>14</span>
+                Modification of T&amp;Cs
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                We reserve the right to modify these T&Cs at any time. Changes will be posted on the Website and, where feasible, notified to users via email. Continued use of the Website after changes are made constitutes acceptance of the new T&Cs.
+              </p>
+            </section>
+
+            {/* 15. Termination of Access */}
+            <section id="termination" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>15</span>
+                Termination of Access
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                We reserve the right to suspend or terminate your access to the Website and services at our discretion, including for any violation of these T&Cs.
+              </p>
+            </section>
+
+            {/* 16. Governing Law and Dispute Resolution */}
+            <section id="governing-law" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>16</span>
+                Governing Law and Dispute Resolution
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                These T&Cs and any disputes arising from them shall be governed by and construed in accordance with the laws of India. Any disputes shall be resolved through arbitration in Delhi, India, in accordance with Indian Arbitration and Conciliation laws.
+              </p>
+            </section>
+
+            {/* 17. Contact Information */}
+            <section id="contact" style={{ marginBottom: 48 }}>
+              <h2
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  margin: "0 0 16px",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>17</span>
+                Contact Information
+              </h2>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: "0 0 16px",
+                }}
+              >
+                If you have any questions about these T&Cs, please contact us at:
+              </p>
+              <div
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                }}
+              >
+                <p style={{ margin: "0 0 4px", fontWeight: 500 }}>INSTURIX</p>
+                <p style={{ margin: "0 0 4px" }}>+91 92201 21372</p>
+                <p style={{ margin: "0 0 4px" }}>support@insturix.com</p>
+                <p style={{ margin: 0 }}>www.insturix.com</p>
               </div>
-            </aside>
+            </section>
 
-            {/* Main */}
-            <main className="scroll-smooth space-y-6 lg:space-y-8">
-              {/* Welcome */}
-              <section id="welcome" className="section-card scroll-mt-24">
-                <h2 className="text-lg font-semibold primtext mb-2">Welcome to INSTURIX!</h2>
-                <p className="text-muted-foreground leading-relaxed">
-                  These Terms and Conditions (&quot;T&Cs&quot;) govern your access to and use of the INSTURIX website and the services provided by INSTURIX (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;). By accessing or using the Website, you agree to be bound by these T&Cs.
-                </p>
-              </section>
-
-              {/* 1 */}
-              <section id="acceptance-of-terms" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">1. Acceptance of Terms</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  By using this Website, you accept and agree to comply with these T&Cs. If you do not agree to these T&Cs, please do not use the Website.
-                </p>
-              </section>
-
-              {/* 2 */}
-              <section id="services-overview" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">2. Services Overview</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  We provide digital protection policies and SaaS products for content creators on platforms such as Instagram.
-                </p>
-              </section>
-
-              {/* 3 */}
-              <section id="eligibility" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">3. Eligibility</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  By using our Website, you confirm that you are at least 18 years old and have the legal capacity to enter into binding agreements.
-                </p>
-              </section>
-
-              {/* 4 */}
-              <section id="protection-policy-terms" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">4. Protection Policy Terms</h3>
-                <div className="mt-3 text-foreground/80 leading-relaxed space-y-4">
-                  <p>For clients enrolled in our Protection Policy:</p>
-                  <ul className="list-disc pl-6 space-y-2">
-                    <li>
-                      <strong>Coverage:</strong>
-                      <span className="ml-1"> Detailed information on the protection services, coverage, and limitations is outlined in the Protection Policy Document.</span>
-                    </li>
-                    <li>
-                      <strong>Exclusions:</strong>
-                      <span className="ml-1"> Certain cases, as detailed in the Protection Policy Document, are not covered.</span>
-                    </li>
-                    <li>
-                      <strong>Non-Insurance Clause:</strong>
-                      <span className="ml-1"> Our Protection Policy is not an insurance policy. It provides specialized support and services without conferring legal insurance status.</span>
-                    </li>
-                  </ul>
-                </div>
-              </section>
-
-              {/* 5 */}
-              <section id="user-responsibilities" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">5. User Responsibilities</h3>
-                <div className="mt-3 text-foreground/80 leading-relaxed space-y-4">
-                  <p>
-                    By using this Website and/or subscribing to our Protection Policy, you agree to:
-                  </p>
-                  <ul className="list-disc pl-6 space-y-2">
-                    <li>Provide accurate, current, and complete information as required.</li>
-                    <li>Maintain the confidentiality of your account credentials and notify us immediately of any unauthorized use.</li>
-                    <li>Not engage in activities that violate these T&Cs, any applicable law, or the rights of others.</li>
-                  </ul>
-                </div>
-              </section>
-
-              {/* 6 */}
-              <section id="account-registration" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">6. Account Registration and Security</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  To access certain features, you may be required to create an account. You agree to provide accurate and complete registration information, update your information as necessary, and maintain the security of your account and notify us of any unauthorized access.
-                </p>
-              </section>
-
-              {/* 7 */}
-              <section id="payment-and-fees" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">7. Payment and Fees</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  Fees for our services are detailed on the Website and in the Protection Policy Document. Payments are due in full upon enrolling in the policy. All fees are non-refundable except as specified in our Refund Policy. We reserve the right to modify fees at any time, with prior notice being posted on the Website or sent by email.
-                </p>
-              </section>
-
-              {/* 8 */}
-              <section id="disclaimer" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">8. Disclaimer of Warranties</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  The Website and all content and services are provided on an &quot;AS IS&quot; and &quot;AS AVAILABLE& quot; basis. We disclaim all warranties, express or implied, including but not limited to the accuracy, completeness, or suitability of information on the Website. We do not guarantee uninterrupted, error-free, or virus-free access to the Website.
-                </p>
-              </section>
-
-              {/* 9 */}
-              <section id="limitation" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">9. Limitation of Liability</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  To the fullest extent permitted by law: INSTURIX and its affiliates shall not be liable for any direct, indirect, incidental, or consequential damages, including but not limited to loss of profits, data, or use, arising from the use of the Website or our services. Our total liability for any claims relating to the use of our services shall be limited to the amount paid by you for the services in the preceding 6 months.
-                </p>
-              </section>
-
-              {/* 10 */}
-              <section id="ip-rights" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">10. Intellectual Property Rights</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  All content on the Website, including but not limited to text, images, logos, and software, is owned by INSTURIX or licensed to us. You are granted a limited, non-exclusive, non-transferable right to access and use the Website for personal and non-commercial purposes. You may not reproduce, distribute, or create derivative works without our express written consent.
-                </p>
-              </section>
-
-              {/* 11 */}
-              <section id="prohibited" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">11. Prohibited Conduct</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  You agree not to: engage in any form of data scraping, data extraction, or similar activity; use the Website to infringe on the rights of others or promote illegal activities; or bypass or attempt to bypass any security measures on the Website.
-                </p>
-              </section>
-
-              {/* 12 */}
-              <section id="privacy-policy" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">12. Privacy Policy</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  Our Privacy Policy outlines how we collect, use, and protect your personal information. By using the Website, you agree to the practices described in our Privacy Policy.
-                </p>
-              </section>
-
-              {/* 13 */}
-              <section id="third-party-links" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">13. Third-Party Links</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  Our Website may contain links to third-party websites or resources. We are not responsible for the availability or accuracy of these resources or their content.
-                </p>
-              </section>
-
-              {/* 14 */}
-              <section id="modifications" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">14. Modification of T&amp;Cs</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  We reserve the right to modify these T&Cs at any time. Changes will be posted on the Website and, where feasible, notified to users via email. Continued use of the Website after changes are made constitutes acceptance of the new T&Cs.
-                </p>
-              </section>
-
-              {/* 15 */}
-              <section id="termination" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">15. Termination of Access</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  We reserve the right to suspend or terminate your access to the Website and services at our discretion, including for any violation of these T&Cs.
-                </p>
-              </section>
-
-              {/* 16 */}
-              <section id="governing-law" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
-                <h3 className="text-xl font-semibold primtext">16. Governing Law and Dispute Resolution</h3>
-                <p className="mt-3 text-foreground/80 leading-relaxed">
-                  These T&Cs and any disputes arising from them shall be governed by and construed in accordance with the laws of India. Any disputes shall be resolved through arbitration in Delhi, India, in accordance with Indian Arbitration and Conciliation laws.
-                </p>
-              </section>
-
-              {/* 17 */}
-              <section id="contact" className="section-card scroll-mt-24">
-                <h3 className="text-xl font-semibold primtext">17. Contact Information</h3>
-                <div className="mt-3 space-y-2 text-foreground/80 leading-relaxed">
-                  <p>If you have any questions about these T&Cs, please contact us at:</p>
-                  <div className="mt-4 grid sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <p className="font-semibold">INSTURIX</p>
-                      <p>+91 92201 21372</p>
-                      <p>support@insturix.com</p>
-                      <p>www.insturix.com</p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* Acknowledgement */}
-              <section className="section-card">
-                <p className="text-foreground/80">
-                  By using INSTURIX, you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions.
-                </p>
-              </section>
-
-              {/* Back to top */}
-              <div className="flex justify-end">
-                <a href="#top" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors">Back to top ↑</a>
-              </div>
-            </main>
-          </div>
-        </div>
+            {/* Acknowledgement */}
+            <section style={{ marginBottom: 48 }}>
+              <p
+                style={{
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                By using INSTURIX, you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions.
+              </p>
+            </section>
+          </main>
+        </section>
       </div>
-      <Footer />
+      <SiteFooter />
     </>
   );
 }

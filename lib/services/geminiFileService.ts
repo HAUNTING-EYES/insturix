@@ -5,20 +5,20 @@ import * as os from 'os';
 import axios from 'axios';
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
 
-let _fileManager: InstanceType<typeof GoogleAIFileManager> | null = null;
+let _geminiFileManager: GoogleAIFileManager | null = null;
 
-function getFileManager(): InstanceType<typeof GoogleAIFileManager> {
-  if (_fileManager) return _fileManager;
+export function getGeminiFileManager(): GoogleAIFileManager {
+  if (_geminiFileManager) return _geminiFileManager;
   if (!process.env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY environment variable is not set");
   }
-  _fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
-  return _fileManager;
+  _geminiFileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
+  return _geminiFileManager;
 }
 
-export const geminiFileManager = new Proxy({} as InstanceType<typeof GoogleAIFileManager>, {
+export const geminiFileManager = new Proxy({} as GoogleAIFileManager, {
   get(_target, prop) {
-    return (getFileManager() as any)[prop];
+    return (getGeminiFileManager() as any)[prop];
   },
 });
 

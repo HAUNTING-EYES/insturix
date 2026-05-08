@@ -3,7 +3,7 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye, MessageSquare, Send, Trash2, Pencil, Plus, Upload } from 'lucide-react';
-import { EditronImportAnimation } from './EditronImportAnimation';
+import { EditorImportAnimation } from './EditronImportAnimation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -1042,7 +1042,7 @@ export function ExportToEditronDialog({
       }
 
       setStep('done');
-      sendNotification('Video Project Ready!', 'Your AI video has been generated and is ready to edit in Editron.');
+      sendNotification('Video Project Ready!', 'Your AI video has been generated and is ready to edit in Editor.');
     } catch (err: any) {
       setError(err.message || 'Something went wrong');
       setStep('configure');
@@ -1490,7 +1490,7 @@ export function ExportToEditronDialog({
       case 'reviewing-storyboard': return 'Review storyboard images before video generation';
       case 'generating-videos': return 'Generating AI video clips...';
       case 'generating-voiceover': return 'Generating AI voiceover...';
-      case 'finalizing': return 'Building your Editron project...';
+      case 'finalizing': return 'Building your Editor project...';
       case 'directing': return `Applying edit profile${directorProgress.desc ? ': ' + directorProgress.desc : '...'}`;
       case 'done': return 'Your project is ready!';
     }
@@ -1498,13 +1498,13 @@ export function ExportToEditronDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className={`${step === 'reviewing-references' ? 'sm:max-w-[600px]' : 'sm:max-w-[520px]'} bg-zinc-900 border-zinc-700 text-zinc-100`}>
+      <DialogContent className={`${step === 'reviewing-references' ? 'sm:max-w-[600px]' : 'sm:max-w-[520px]'} bg-[#0F0F0E] border-[#282724] text-[#ECE9E1]`}>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-zinc-100">
+          <DialogTitle className="flex items-center gap-2 text-[#ECE9E1]">
             <Video className="h-5 w-5 text-green-500" />
-            Export to Editron
+            Export to Editor
           </DialogTitle>
-          <DialogDescription className="text-zinc-400">
+          <DialogDescription className="text-[#7A776E]">
             {stepDescription()}
           </DialogDescription>
         </DialogHeader>
@@ -1520,22 +1520,22 @@ export function ExportToEditronDialog({
               className="space-y-4 py-2"
             >
               <div>
-                <label className="text-sm text-zinc-400 mb-1 block">Project Title</label>
+                <label className="text-sm text-[#7A776E] mb-1 block">Project Title</label>
                 <Input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Auto-detected from script..."
-                  className="bg-zinc-800 border-zinc-700 text-zinc-200"
+                  className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1]"
                 />
               </div>
 
               <div>
-                <label className="text-sm text-zinc-400 mb-1 block">Aspect Ratio</label>
+                <label className="text-sm text-[#7A776E] mb-1 block">Aspect Ratio</label>
                 <Select value={aspectRatio} onValueChange={setAspectRatio}>
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-200">
+                  <SelectTrigger className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1]">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                  <SelectContent className="bg-[#1C1B19] border-[#282724]">
                     <SelectItem value="16:9">16:9 (YouTube)</SelectItem>
                     <SelectItem value="9:16">9:16 (Shorts/Reels)</SelectItem>
                     <SelectItem value="1:1">1:1 (Square)</SelectItem>
@@ -1549,7 +1549,7 @@ export function ExportToEditronDialog({
                 className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                   generateStoryboard
                     ? 'bg-green-500/10 border-green-500/30'
-                    : 'bg-zinc-800 border-zinc-700 hover:border-zinc-600'
+                    : 'bg-[#1C1B19] border-[#282724] hover:border-[#282724]'
                 }`}
                 onClick={() => {
                   const next = !generateStoryboard;
@@ -1557,10 +1557,10 @@ export function ExportToEditronDialog({
                   if (!next) setGenerateVideos(false); // can't gen videos without storyboard
                 }}
               >
-                <ImageIcon className={`h-5 w-5 ${generateStoryboard ? 'text-green-500' : 'text-zinc-400'}`} />
+                <ImageIcon className={`h-5 w-5 ${generateStoryboard ? 'text-green-500' : 'text-[#7A776E]'}`} />
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-zinc-200">Generate Storyboard</p>
-                  <p className="text-xs text-zinc-500">AI images for each scene (2 credits/scene)</p>
+                  <p className="text-sm font-medium text-[#ECE9E1]">Generate Storyboard</p>
+                  <p className="text-xs text-[#5F5E5A]">AI images for each scene (2 credits/scene)</p>
                 </div>
                 {generateStoryboard && <Check className="h-4 w-4 text-green-500" />}
               </div>
@@ -1572,12 +1572,12 @@ export function ExportToEditronDialog({
                   animate={{ opacity: 1, height: 'auto' }}
                   className="pl-8"
                 >
-                  <label className="text-sm text-zinc-400 mb-1 block">Art Style</label>
+                  <label className="text-sm text-[#7A776E] mb-1 block">Art Style</label>
                   <Select value={artStyle} onValueChange={setArtStyle}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-200">
+                    <SelectTrigger className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1]">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700 max-h-72 overflow-y-auto">
+                    <SelectContent className="bg-[#1C1B19] border-[#282724] max-h-72 overflow-y-auto">
                       {/* Realistic */}
                       <SelectItem value="cinematic">Cinematic / Film</SelectItem>
                       <SelectItem value="photorealistic">Photorealistic</SelectItem>
@@ -1644,12 +1644,12 @@ export function ExportToEditronDialog({
                   animate={{ opacity: 1, height: 'auto' }}
                   className="pl-8"
                 >
-                  <label className="text-sm text-zinc-400 mb-1 block">Image Model</label>
+                  <label className="text-sm text-[#7A776E] mb-1 block">Image Model</label>
                   <Select value={imageModel} onValueChange={setImageModel}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-200">
+                    <SelectTrigger className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1]">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectContent className="bg-[#1C1B19] border-[#282724]">
                       <SelectItem value="uni-1">UNI-1 by Luma (Best Quality)</SelectItem>
                       <SelectItem value="flux-schnell">FLUX Schnell (Fast)</SelectItem>
                       <SelectItem value="flux-dev">FLUX Dev (Quality)</SelectItem>
@@ -1676,14 +1676,14 @@ export function ExportToEditronDialog({
                     className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                       generateVideos
                         ? 'bg-purple-500/10 border-purple-500/30'
-                        : 'bg-zinc-800 border-zinc-700 hover:border-zinc-600'
+                        : 'bg-[#1C1B19] border-[#282724] hover:border-[#282724]'
                     }`}
                     onClick={() => setGenerateVideos(!generateVideos)}
                   >
-                    <Film className={`h-5 w-5 ${generateVideos ? 'text-purple-400' : 'text-zinc-400'}`} />
+                    <Film className={`h-5 w-5 ${generateVideos ? 'text-purple-400' : 'text-[#7A776E]'}`} />
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-zinc-200">Generate AI Videos</p>
-                      <p className="text-xs text-zinc-500">
+                      <p className="text-sm font-medium text-[#ECE9E1]">Generate AI Videos</p>
+                      <p className="text-xs text-[#5F5E5A]">
                         Animate storyboard images into video clips (3 credits/scene)
                       </p>
                     </div>
@@ -1699,12 +1699,12 @@ export function ExportToEditronDialog({
                   animate={{ opacity: 1, height: 'auto' }}
                   className="pl-8"
                 >
-                  <label className="text-sm text-zinc-400 mb-1 block">Video Model</label>
+                  <label className="text-sm text-[#7A776E] mb-1 block">Video Model</label>
                   <Select value={videoModel} onValueChange={setVideoModel}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-200">
+                    <SelectTrigger className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1]">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectContent className="bg-[#1C1B19] border-[#282724]">
                       <SelectItem value="auto">Auto (best per scene) — Default</SelectItem>
                       <SelectItem value="seedance-2.0">Seedance 2.0 (Best Audio-Video)</SelectItem>
                       <SelectItem value="seedance-1.5">Seedance 1.5 Pro (Native Audio)</SelectItem>
@@ -1714,7 +1714,7 @@ export function ExportToEditronDialog({
                     </SelectContent>
                   </Select>
                   {videoModel === 'auto' && (
-                    <p className="text-xs text-zinc-500 mt-1">
+                    <p className="text-xs text-[#5F5E5A] mt-1">
                       Auto mode picks the best model per scene based on mood and motion. For maximum visual consistency across scenes, select a specific model instead.
                     </p>
                   )}
@@ -1725,10 +1725,10 @@ export function ExportToEditronDialog({
                       type="checkbox"
                       checked={enableChaining}
                       onChange={(e) => setEnableChaining(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0"
+                      className="w-3.5 h-3.5 rounded border-[#282724] bg-[#1C1B19] text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0"
                     />
-                    <span className="text-xs text-zinc-400">Scene chaining</span>
-                    <span className="text-[10px] text-zinc-600">— smooth transitions between scenes (Kling/Luma only)</span>
+                    <span className="text-xs text-[#7A776E]">Scene chaining</span>
+                    <span className="text-[10px] text-[#454340]">— smooth transitions between scenes (Kling/Luma only)</span>
                   </label>
                 </motion.div>
               )}
@@ -1739,13 +1739,13 @@ export function ExportToEditronDialog({
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                 >
-                  <label className="text-sm text-zinc-400 mb-1 block">Narrator Voice</label>
+                  <label className="text-sm text-[#7A776E] mb-1 block">Narrator Voice</label>
                   <div className="flex gap-2">
                     <Select value={selectedVoice} onValueChange={setSelectedVoice}>
-                      <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-200 flex-1">
+                      <SelectTrigger className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1] flex-1">
                         <SelectValue placeholder="Select voice" />
                       </SelectTrigger>
-                      <SelectContent className="bg-zinc-800 border-zinc-700 max-h-60">
+                      <SelectContent className="bg-[#1C1B19] border-[#282724] max-h-60">
                         {availableVoices.map((v) => (
                           <SelectItem key={v.id} value={v.id}>
                             <span className="flex items-center gap-2">
@@ -1753,7 +1753,7 @@ export function ExportToEditronDialog({
                                 {v.gender === 'female' ? '♀' : '♂'}
                               </span>
                               <span>{v.name}</span>
-                              <span className="text-zinc-500 text-xs">— {v.style}</span>
+                              <span className="text-[#5F5E5A] text-xs">— {v.style}</span>
                             </span>
                           </SelectItem>
                         ))}
@@ -1765,11 +1765,11 @@ export function ExportToEditronDialog({
                       size="sm"
                       onClick={() => handlePreviewVoice(selectedVoice)}
                       disabled={!selectedVoice || step !== 'configure'}
-                      className="border-zinc-700 text-zinc-300 hover:bg-zinc-700 px-3"
+                      className="border-[#282724] text-[#B5B2A8] hover:bg-[#282724] px-3"
                       title="Preview voice"
                     >
                       {previewingVoice === selectedVoice ? (
-                        <span className="h-4 w-4 rounded-full bg-red-500 animate-pulse" />
+                        <span className="h-4 w-4 rounded-full bg-[#D4A652] animate-pulse" />
                       ) : (
                         <span className="text-sm">▶</span>
                       )}
@@ -1780,13 +1780,13 @@ export function ExportToEditronDialog({
 
               {/* Credit cost estimate */}
               <div className="flex items-center justify-between px-1">
-                <span className="text-xs text-zinc-500">Estimated cost</span>
-                <span className="text-xs font-medium text-amber-400">
+                <span className="text-xs text-[#5F5E5A]">Estimated cost</span>
+                <span className="text-xs font-medium text-[#D4A652]">
                   ~{estimateCredits()} credits
                 </span>
               </div>
 
-              {error && <p className="text-sm text-red-400">{error}</p>}
+              {error && <p className="text-sm text-[#D4A652]">{error}</p>}
             </motion.div>
           )}
 
@@ -1799,7 +1799,7 @@ export function ExportToEditronDialog({
               exit={{ opacity: 0 }}
               className="py-2 space-y-4"
             >
-              <EditronImportAnimation
+              <EditorImportAnimation
                 sceneCount={scenes.length || 4}
                 step={step === 'exporting' ? 'exporting' : step === 'storyboard' ? 'storyboard' : step === 'finalizing' ? 'exporting' : 'storyboard'}
               />
@@ -1826,13 +1826,13 @@ export function ExportToEditronDialog({
                   />
                 )}
                 <StepIndicator label="Generate AI voiceover" active={step === 'generating-voiceover'} done={['finalizing', 'directing', 'done'].includes(step)} />
-                <StepIndicator label="Create Editron project" active={step === 'finalizing'} done={['directing', 'done'].includes(step)} />
+                <StepIndicator label="Create Editor project" active={step === 'finalizing'} done={['directing', 'done'].includes(step)} />
                 {selectedProfileId && (
                   <StepIndicator label="Apply edit profile" active={(step as string) === 'directing'} done={(step as string) === 'done'} />
                 )}
               </div>
 
-              <p className="text-xs text-zinc-500 text-center">
+              <p className="text-xs text-[#5F5E5A] text-center">
                 {step === 'exporting' && 'Parsing scenes and building timeline...'}
                 {step === 'extracting-subjects' && 'AI is identifying characters, locations, and key subjects...'}
                 {step === 'generating-references' && 'Generating reference images for visual consistency...'}
@@ -1843,7 +1843,7 @@ export function ExportToEditronDialog({
                 {(step as string) === 'directing' && `Applying edit profile: ${detectedProfile?.name || 'auto'}...`}
               </p>
               {error && (
-                <p className="text-xs text-amber-400 text-center mt-1">{error}</p>
+                <p className="text-xs text-[#D4A652] text-center mt-1">{error}</p>
               )}
               <div className="flex justify-center pt-2">
                 <Button variant="ghost" size="sm" onClick={reset} className="text-zinc-500 hover:text-zinc-300 text-xs">
@@ -1865,11 +1865,11 @@ export function ExportToEditronDialog({
             >
               <div className="flex items-center gap-2 mb-1">
                 <Users className="h-4 w-4 text-purple-400" />
-                <p className="text-sm font-medium text-zinc-200">
+                <p className="text-sm font-medium text-[#ECE9E1]">
                   Review Reference Images ({approvedSubjectIds.size}/{subjects.length} approved)
                 </p>
               </div>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-[#5F5E5A]">
                 These reference images guide AI for visual consistency. Approve, reject, regenerate, or add more from script suggestions below.
               </p>
 
@@ -1885,11 +1885,11 @@ export function ExportToEditronDialog({
                       className={`relative rounded-lg border overflow-hidden transition-all ${
                         isApproved
                           ? 'border-green-500/40 bg-green-500/5'
-                          : 'border-red-500/30 bg-red-500/5'
+                          : 'border-[#D4A652]/30 bg-[#D4A652]/5'
                       }`}
                     >
                       {/* Image */}
-                      <div className="aspect-square bg-zinc-800 relative">
+                      <div className="aspect-square bg-[#1C1B19] relative">
                         {subject.imageUrl ? (
                           <img
                             src={subject.imageUrl}
@@ -1897,7 +1897,7 @@ export function ExportToEditronDialog({
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                          <div className="w-full h-full flex items-center justify-center text-[#454340]">
                             <ImageIcon className="h-6 w-6" />
                           </div>
                         )}
@@ -1906,7 +1906,7 @@ export function ExportToEditronDialog({
                         {isRegenerating && (
                           <div className="absolute inset-0 bg-black/60 flex items-center justify-center flex-col gap-1">
                             <Loader2 className="h-5 w-5 text-purple-400 animate-spin" />
-                            <span className="text-[10px] text-zinc-400">Regenerating...</span>
+                            <span className="text-[10px] text-[#7A776E]">Regenerating...</span>
                           </div>
                         )}
 
@@ -1925,8 +1925,8 @@ export function ExportToEditronDialog({
                           }}
                           className={`absolute top-1.5 right-1.5 p-1 rounded-full transition-colors ${
                             isApproved
-                              ? 'bg-green-500 text-white'
-                              : 'bg-red-500/80 text-white hover:bg-red-600'
+                              ? 'bg-green-500 text-[#ECE9E1]'
+                              : 'bg-[#D4A652]/80 text-white hover:bg-[#D4A652]'
                           }`}
                           title={isApproved ? 'Approved — click to reject' : 'Rejected — click to approve'}
                         >
@@ -1936,7 +1936,7 @@ export function ExportToEditronDialog({
                         {/* Top-left: Upload + Regenerate + Delete */}
                         <div className="absolute top-1.5 left-1.5 flex gap-1">
                           <label
-                            className={`p-1 rounded-full bg-emerald-700/80 text-emerald-300 hover:bg-emerald-600 hover:text-white transition-colors cursor-pointer ${isRegenerating ? 'opacity-50 pointer-events-none' : ''}`}
+                            className={`p-1 rounded-full bg-emerald-700/80 text-emerald-300 hover:bg-emerald-600 hover:text-[#ECE9E1] transition-colors cursor-pointer ${isRegenerating ? 'opacity-50 pointer-events-none' : ''}`}
                             title="Upload your own image"
                           >
                             <Upload className="h-3 w-3" />
@@ -1954,14 +1954,14 @@ export function ExportToEditronDialog({
                           <button
                             onClick={() => handleRegenerateSubject(subject.subjectId)}
                             disabled={isRegenerating}
-                            className="p-1 rounded-full bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200 transition-colors"
+                            className="p-1 rounded-full bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1] transition-colors"
                             title="Regenerate (random)"
                           >
                             <RefreshCw className={`h-3 w-3 ${isRegenerating ? 'animate-spin' : ''}`} />
                           </button>
                           <button
                             onClick={() => handleDeleteSubject(subject.subjectId)}
-                            className="p-1 rounded-full bg-zinc-700/80 text-red-400 hover:bg-red-600 hover:text-white transition-colors"
+                            className="p-1 rounded-full bg-[#282724]/80 text-[#D4A652] hover:bg-[#D4A652] hover:text-[#ECE9E1] transition-colors"
                             title="Remove this subject"
                           >
                             <Trash2 className="h-3 w-3" />
@@ -1975,8 +1975,8 @@ export function ExportToEditronDialog({
                             disabled={isRegenerating}
                             className={`p-1 rounded-full transition-colors ${
                               editingSubjectId === subject.subjectId
-                                ? 'bg-blue-500 text-white'
-                                : 'bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200'
+                                ? 'bg-blue-500 text-[#ECE9E1]'
+                                : 'bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]'
                             }`}
                             title="Edit description & regenerate"
                           >
@@ -1987,8 +1987,8 @@ export function ExportToEditronDialog({
                             disabled={isRegenerating}
                             className={`p-1 rounded-full transition-colors ${
                               showFeedback
-                                ? 'bg-purple-500 text-white'
-                                : 'bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200'
+                                ? 'bg-purple-500 text-[#ECE9E1]'
+                                : 'bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]'
                             }`}
                             title="Quick feedback"
                           >
@@ -1999,13 +1999,13 @@ export function ExportToEditronDialog({
 
                       {/* Info */}
                       <div className="p-2">
-                        <p className="text-xs font-medium text-zinc-200 truncate">{subject.name}</p>
-                        <p className="text-[10px] text-zinc-500">
+                        <p className="text-xs font-medium text-[#ECE9E1] truncate">{subject.name}</p>
+                        <p className="text-[10px] text-[#5F5E5A]">
                           {subject.category} · Scenes {subject.scenesAppearingIn?.join(', ')}
                         </p>
                         {/* Show visual description preview (truncated) */}
                         {subject.visualDescription && editingSubjectId !== subject.subjectId && (
-                          <p className="text-[9px] text-zinc-600 mt-0.5 line-clamp-2">{subject.visualDescription}</p>
+                          <p className="text-[9px] text-[#454340] mt-0.5 line-clamp-2">{subject.visualDescription}</p>
                         )}
                       </div>
 
@@ -2016,7 +2016,7 @@ export function ExportToEditronDialog({
                           <textarea
                             value={editingDescription}
                             onChange={(e) => setEditingDescription(e.target.value)}
-                            className="w-full bg-zinc-800 border border-zinc-600 text-zinc-200 text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-blue-500"
+                            className="w-full bg-[#1C1B19] border border-[#282724] text-[#ECE9E1] text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-blue-500"
                             rows={3}
                             autoFocus
                           />
@@ -2025,7 +2025,7 @@ export function ExportToEditronDialog({
                               size="sm"
                               variant="ghost"
                               onClick={() => { setEditingSubjectId(null); setEditingDescription(''); }}
-                              className="text-zinc-400 h-6 px-2 text-[10px]"
+                              className="text-[#7A776E] h-6 px-2 text-[10px]"
                             >
                               Cancel
                             </Button>
@@ -2049,7 +2049,7 @@ export function ExportToEditronDialog({
                               value={feedbackText}
                               onChange={(e) => setFeedbackText(e.target.value)}
                               placeholder="e.g. make it darker, remove text..."
-                              className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7 flex-1"
+                              className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1] text-xs h-7 flex-1"
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && feedbackText.trim()) {
                                   handleRegenerateSubject(subject.subjectId, feedbackText.trim());
@@ -2076,7 +2076,7 @@ export function ExportToEditronDialog({
               {/* ─── Suggested from Script ─────────────────────── */}
               {suggestedSubjects.length > 0 && (
                 <div className="space-y-1.5">
-                  <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wide">
+                  <p className="text-[10px] font-medium text-[#7A776E] uppercase tracking-wide">
                     More from your script ({suggestedSubjects.length})
                   </p>
                   <div className="flex flex-wrap gap-1.5">
@@ -2092,16 +2092,16 @@ export function ExportToEditronDialog({
                           key={suggested.id}
                           onClick={() => handleGenerateSuggested(suggested)}
                           disabled={generatingSuggestedIds.has(suggested.id)}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/50 hover:border-purple-500/50 hover:bg-purple-500/10 transition-all text-left group disabled:opacity-50"
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#282724] bg-[#1C1B19]/50 hover:border-purple-500/50 hover:bg-purple-500/10 transition-all text-left group disabled:opacity-50"
                           title={suggested.visualDescription}
                         >
                           {generatingSuggestedIds.has(suggested.id) ? (
                             <Loader2 className="h-3 w-3 text-purple-400 animate-spin flex-shrink-0" />
                           ) : (
-                            <Plus className="h-3 w-3 text-zinc-500 group-hover:text-purple-400 flex-shrink-0" />
+                            <Plus className="h-3 w-3 text-[#5F5E5A] group-hover:text-purple-400 flex-shrink-0" />
                           )}
-                          <span className="text-[11px] text-zinc-300 group-hover:text-zinc-100">{suggested.name}</span>
-                          <span className="text-[9px] text-zinc-600 group-hover:text-zinc-500">{suggested.category}</span>
+                          <span className="text-[11px] text-[#B5B2A8] group-hover:text-[#ECE9E1]">{suggested.name}</span>
+                          <span className="text-[9px] text-[#454340] group-hover:text-[#5F5E5A]">{suggested.category}</span>
                         </button>
                       ))}
                   </div>
@@ -2119,7 +2119,7 @@ export function ExportToEditronDialog({
                       ? 'Search suggestions or type a new subject...'
                       : 'Type a subject to add (e.g. "red sports car")...'
                     }
-                    className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7 flex-1"
+                    className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1] text-xs h-7 flex-1"
                   />
                   {!showAddSubject && (
                     <Button
@@ -2131,7 +2131,7 @@ export function ExportToEditronDialog({
                           setNewSubjectName(scriptSearchQuery.trim());
                         }
                       }}
-                      className="h-7 px-2 text-[10px] border-zinc-600 text-zinc-400 hover:text-purple-400 hover:border-purple-500/50"
+                      className="h-7 px-2 text-[10px] border-[#282724] text-[#7A776E] hover:text-purple-400 hover:border-purple-500/50"
                     >
                       <Plus className="h-3 w-3 mr-1" />
                       Custom
@@ -2146,29 +2146,29 @@ export function ExportToEditronDialog({
                       <p className="text-[10px] font-medium text-purple-400">Add Custom Subject</p>
                       <button
                         onClick={() => { setShowAddSubject(false); setNewSubjectName(''); setNewSubjectCategory('character'); setNewSubjectDescription(''); setNewSubjectScenes(''); }}
-                        className="text-zinc-500 hover:text-zinc-300"
+                        className="text-[#5F5E5A] hover:text-[#B5B2A8]"
                       >
                         <X className="h-3 w-3" />
                       </button>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-[9px] text-zinc-500 block mb-0.5">Name</label>
+                        <label className="text-[9px] text-[#5F5E5A] block mb-0.5">Name</label>
                         <Input
                           value={newSubjectName}
                           onChange={(e) => setNewSubjectName(e.target.value)}
                           placeholder="e.g. Main Character"
-                          className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7"
+                          className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1] text-xs h-7"
                           autoFocus
                         />
                       </div>
                       <div>
-                        <label className="text-[9px] text-zinc-500 block mb-0.5">Category</label>
+                        <label className="text-[9px] text-[#5F5E5A] block mb-0.5">Category</label>
                         <Select value={newSubjectCategory} onValueChange={setNewSubjectCategory}>
-                          <SelectTrigger className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7">
+                          <SelectTrigger className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1] text-xs h-7">
                             <SelectValue />
                           </SelectTrigger>
-                          <SelectContent className="bg-zinc-800 border-zinc-700 text-zinc-200">
+                          <SelectContent className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1]">
                             <SelectItem value="character">Character</SelectItem>
                             <SelectItem value="product">Product</SelectItem>
                             <SelectItem value="location">Location</SelectItem>
@@ -2179,12 +2179,12 @@ export function ExportToEditronDialog({
                       </div>
                     </div>
                     <div>
-                      <label className="text-[9px] text-zinc-500 block mb-0.5">Visual Description (AI will refine this into a generation prompt)</label>
+                      <label className="text-[9px] text-[#5F5E5A] block mb-0.5">Visual Description (AI will refine this into a generation prompt)</label>
                       <textarea
                         value={newSubjectDescription}
                         onChange={(e) => setNewSubjectDescription(e.target.value)}
                         placeholder="Describe the subject — can be brief, AI will expand it using your script context"
-                        className="w-full bg-zinc-800 border border-zinc-600 text-zinc-200 text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-purple-500"
+                        className="w-full bg-[#1C1B19] border border-[#282724] text-[#ECE9E1] text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-purple-500"
                         rows={2}
                       />
                     </div>
@@ -2203,7 +2203,7 @@ export function ExportToEditronDialog({
                 )}
               </div>
 
-              {error && <p className="text-sm text-red-400">{error}</p>}
+              {error && <p className="text-sm text-[#D4A652]">{error}</p>}
             </motion.div>
           )}
 
@@ -2218,11 +2218,11 @@ export function ExportToEditronDialog({
             >
               <div className="flex items-center gap-2 mb-1">
                 <ImageIcon className="h-4 w-4 text-green-400" />
-                <p className="text-sm font-medium text-zinc-200">
+                <p className="text-sm font-medium text-[#ECE9E1]">
                   Review Storyboard ({storyboardScenes.filter((s: any) => s.imageUrl).length}/{storyboardScenes.length} generated)
                 </p>
               </div>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-[#5F5E5A]">
                 These images will be used as starting frames for AI video generation. Review them before proceeding.
               </p>
 
@@ -2233,10 +2233,10 @@ export function ExportToEditronDialog({
                     className={`relative rounded-lg border overflow-hidden ${
                       scene.imageUrl
                         ? 'border-green-500/30 bg-green-500/5'
-                        : 'border-red-500/30 bg-red-500/5'
+                        : 'border-[#D4A652]/30 bg-[#D4A652]/5'
                     }`}
                   >
-                    <div className="aspect-video bg-zinc-800 relative group">
+                    <div className="aspect-video bg-[#1C1B19] relative group">
                       {scene.imageUrl ? (
                         <>
                           <img
@@ -2265,7 +2265,7 @@ export function ExportToEditronDialog({
                             <button
                               onClick={() => handleRegenerateStoryboardScene(scene.sceneIndex)}
                               disabled={regeneratingSceneIdxs.has(scene.sceneIndex)}
-                              className="p-1.5 rounded-md bg-zinc-700/80 hover:bg-zinc-600 text-zinc-200 transition-colors disabled:opacity-50"
+                              className="p-1.5 rounded-md bg-[#282724]/80 hover:bg-[#454340] text-[#ECE9E1] transition-colors disabled:opacity-50"
                               title="Regenerate this scene"
                             >
                               <RefreshCw className={`h-3.5 w-3.5 ${regeneratingSceneIdxs.has(scene.sceneIndex) ? 'animate-spin' : ''}`} />
@@ -2273,7 +2273,7 @@ export function ExportToEditronDialog({
                             <button
                               onClick={() => setSceneFeedbackIdx(sceneFeedbackIdx === scene.sceneIndex ? null : scene.sceneIndex)}
                               disabled={regeneratingSceneIdxs.has(scene.sceneIndex)}
-                              className="p-1.5 rounded-md bg-zinc-700/80 hover:bg-zinc-600 text-zinc-200 transition-colors disabled:opacity-50"
+                              className="p-1.5 rounded-md bg-[#282724]/80 hover:bg-[#454340] text-[#ECE9E1] transition-colors disabled:opacity-50"
                               title="Regenerate with feedback"
                             >
                               <MessageSquare className="h-3.5 w-3.5" />
@@ -2281,7 +2281,7 @@ export function ExportToEditronDialog({
                           </div>
                         </>
                       ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-zinc-600">
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-[#454340]">
                           <X className="h-4 w-4" />
                           <button
                             onClick={() => handleRegenerateStoryboardScene(scene.sceneIndex)}
@@ -2299,8 +2299,8 @@ export function ExportToEditronDialog({
                       )}
                     </div>
                     <div className="p-1.5">
-                      <p className="text-[10px] font-medium text-zinc-200 truncate">{scene.title}</p>
-                      <p className="text-[9px] text-zinc-500">
+                      <p className="text-[10px] font-medium text-[#ECE9E1] truncate">{scene.title}</p>
+                      <p className="text-[9px] text-[#5F5E5A]">
                         {scene.imageUrl ? 'Ready' : 'Failed'}
                       </p>
                     </div>
@@ -2308,7 +2308,7 @@ export function ExportToEditronDialog({
                     {sceneFeedbackIdx === scene.sceneIndex && (
                       <div className="p-1.5 pt-0 space-y-1">
                         <textarea
-                          className="w-full text-[10px] p-1.5 rounded bg-zinc-800 border border-zinc-600 text-zinc-200 placeholder-zinc-500 resize-none"
+                          className="w-full text-[10px] p-1.5 rounded bg-[#1C1B19] border border-[#282724] text-[#ECE9E1] placeholder-[#5F5E5A] resize-none"
                           rows={2}
                           placeholder="e.g. Make it darker, add more contrast..."
                           value={sceneFeedbackText}
@@ -2331,12 +2331,12 @@ export function ExportToEditronDialog({
               </div>
 
               {storyboardScenes.some((s: any) => !s.imageUrl) && (
-                <p className="text-xs text-amber-400">
+                <p className="text-xs text-[#D4A652]">
                   {storyboardScenes.filter((s: any) => !s.imageUrl).length} scene(s) failed to generate. Videos will only be created for successful scenes.
                 </p>
               )}
 
-              {error && <p className="text-sm text-red-400">{error}</p>}
+              {error && <p className="text-sm text-[#D4A652]">{error}</p>}
             </motion.div>
           )}
 
@@ -2348,14 +2348,14 @@ export function ExportToEditronDialog({
               animate={{ opacity: 1, y: 0 }}
               className="space-y-4 py-2"
             >
-              <div className="p-4 rounded-lg bg-zinc-800/50 border border-zinc-700">
+              <div className="p-4 rounded-lg bg-[#1C1B19]/50 border border-[#282724]">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <p className="text-sm font-medium text-zinc-200">{detectedProfile.name}</p>
-                    <p className="text-xs text-zinc-400 mt-0.5">{detectedProfile.description}</p>
+                    <p className="text-sm font-medium text-[#ECE9E1]">{detectedProfile.name}</p>
+                    <p className="text-xs text-[#7A776E] mt-0.5">{detectedProfile.description}</p>
                   </div>
                   <span className={`text-xs font-mono px-2 py-0.5 rounded ${
-                    detectedProfile.confidence >= 0.60 ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'
+                    detectedProfile.confidence >= 0.60 ? 'bg-green-500/20 text-green-400' : 'bg-[#D4A652]/20 text-[#D4A652]'
                   }`}>
                     {(detectedProfile.confidence * 100).toFixed(0)}% match
                   </span>
@@ -2365,7 +2365,7 @@ export function ExportToEditronDialog({
                 {detectedProfile.reasoning.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {detectedProfile.reasoning.slice(0, 4).map((reason, i) => (
-                      <p key={i} className="text-[10px] text-zinc-500">→ {reason}</p>
+                      <p key={i} className="text-[10px] text-[#5F5E5A]">→ {reason}</p>
                     ))}
                   </div>
                 )}
@@ -2375,13 +2375,13 @@ export function ExportToEditronDialog({
                   <input
                     type="text"
                     placeholder="Search profiles..."
-                    className="w-full h-8 px-3 text-xs bg-zinc-900 border border-zinc-700 rounded-md text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    className="w-full h-8 px-3 text-xs bg-[#0F0F0E] border border-[#282724] rounded-md text-[#ECE9E1] placeholder-[#5F5E5A] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     onChange={(e) => {
                       const q = e.target.value.toLowerCase();
                       setProfileSearchQuery(q);
                     }}
                   />
-                  <div className="max-h-48 overflow-y-auto border border-zinc-700 rounded-md bg-zinc-900">
+                  <div className="max-h-48 overflow-y-auto border border-[#282724] rounded-md bg-[#0F0F0E]">
                     {Object.entries(
                       Object.entries(EDIT_PROFILES)
                         .filter(([, p]) => {
@@ -2398,7 +2398,7 @@ export function ExportToEditronDialog({
                         }, {}),
                     ).map(([category, profiles]) => (
                       <div key={category}>
-                        <div className="px-2 py-1 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider bg-zinc-800/50 sticky top-0">
+                        <div className="px-2 py-1 text-[10px] font-semibold text-[#5F5E5A] uppercase tracking-wider bg-[#1C1B19]/50 sticky top-0">
                           {category}
                         </div>
                         {profiles.map(([id, p]) => (
@@ -2409,10 +2409,10 @@ export function ExportToEditronDialog({
                               const prof = EDIT_PROFILES[id as keyof typeof EDIT_PROFILES];
                               if (prof) setDetectedProfile({ ...detectedProfile, profileId: id, name: prof.name, description: prof.description });
                             }}
-                            className={`w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-800 transition-colors ${selectedProfileId === id ? 'bg-emerald-900/30 text-emerald-300' : 'text-zinc-300'}`}
+                            className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[#1C1B19] transition-colors ${selectedProfileId === id ? 'bg-emerald-900/30 text-emerald-300' : 'text-[#B5B2A8]'}`}
                           >
                             <span className="font-medium">{p.name}</span>
-                            <span className="text-zinc-500 ml-1.5">— {p.description?.substring(0, 50)}</span>
+                            <span className="text-[#5F5E5A] ml-1.5">— {p.description?.substring(0, 50)}</span>
                           </button>
                         ))}
                       </div>
@@ -2424,11 +2424,11 @@ export function ExportToEditronDialog({
               {/* ─── Project Brief Overrides ──────────────────── */}
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <div>
-                  <label className="text-[10px] text-zinc-500 block mb-0.5">Platform</label>
+                  <label className="text-[10px] text-[#5F5E5A] block mb-0.5">Platform</label>
                   <select
                     value={briefPlatform}
                     onChange={(e) => setBriefPlatform(e.target.value)}
-                    className="w-full h-7 px-2 text-xs bg-zinc-900 border border-zinc-700 rounded text-zinc-300"
+                    className="w-full h-7 px-2 text-xs bg-[#0F0F0E] border border-[#282724] rounded text-[#B5B2A8]"
                   >
                     <option value="">Auto (from profile)</option>
                     <option value="youtube">YouTube</option>
@@ -2440,11 +2440,11 @@ export function ExportToEditronDialog({
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-zinc-500 block mb-0.5">Tone</label>
+                  <label className="text-[10px] text-[#5F5E5A] block mb-0.5">Tone</label>
                   <select
                     value={briefTone}
                     onChange={(e) => setBriefTone(e.target.value)}
-                    className="w-full h-7 px-2 text-xs bg-zinc-900 border border-zinc-700 rounded text-zinc-300"
+                    className="w-full h-7 px-2 text-xs bg-[#0F0F0E] border border-[#282724] rounded text-[#B5B2A8]"
                   >
                     <option value="">Auto (from profile)</option>
                     <option value="professional">Professional</option>
@@ -2455,11 +2455,11 @@ export function ExportToEditronDialog({
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-zinc-500 block mb-0.5">Captions</label>
+                  <label className="text-[10px] text-[#5F5E5A] block mb-0.5">Captions</label>
                   <select
                     value={briefCaptionStyle}
                     onChange={(e) => setBriefCaptionStyle(e.target.value)}
-                    className="w-full h-7 px-2 text-xs bg-zinc-900 border border-zinc-700 rounded text-zinc-300"
+                    className="w-full h-7 px-2 text-xs bg-[#0F0F0E] border border-[#282724] rounded text-[#B5B2A8]"
                   >
                     <option value="">Auto (from profile)</option>
                     <option value="none">None</option>
@@ -2484,11 +2484,11 @@ export function ExportToEditronDialog({
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-zinc-500 block mb-0.5">BGM Mood</label>
+                  <label className="text-[10px] text-[#5F5E5A] block mb-0.5">BGM Mood</label>
                   <select
                     value={briefBgmMood}
                     onChange={(e) => setBriefBgmMood(e.target.value)}
-                    className="w-full h-7 px-2 text-xs bg-zinc-900 border border-zinc-700 rounded text-zinc-300"
+                    className="w-full h-7 px-2 text-xs bg-[#0F0F0E] border border-[#282724] rounded text-[#B5B2A8]"
                   >
                     <option value="">Auto</option>
                     <option value="upbeat">Upbeat</option>
@@ -2502,7 +2502,7 @@ export function ExportToEditronDialog({
 
               <Button
                 onClick={() => handlePostProfileSelection()}
-                className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white"
+                className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-[#ECE9E1]"
               >
                 Continue with {detectedProfile.name} <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
@@ -2518,9 +2518,9 @@ export function ExportToEditronDialog({
               className="flex flex-col items-center justify-center py-8 gap-3"
             >
               <Loader2 className="h-8 w-8 text-emerald-400 animate-spin" />
-              <p className="text-sm text-zinc-300">Applying edit profile...</p>
+              <p className="text-sm text-[#B5B2A8]">Applying edit profile...</p>
               {directorProgress.desc && (
-                <p className="text-xs text-zinc-500">{directorProgress.desc}</p>
+                <p className="text-xs text-[#5F5E5A]">{directorProgress.desc}</p>
               )}
             </motion.div>
           )}
@@ -2536,8 +2536,8 @@ export function ExportToEditronDialog({
               <div className="flex items-center gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/20">
                 <Check className="h-6 w-6 text-green-500" />
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">Project Created</p>
-                  <p className="text-xs text-zinc-400">
+                  <p className="text-sm font-medium text-[#ECE9E1]">Project Created</p>
+                  <p className="text-xs text-[#7A776E]">
                     {scenes.length} scenes • {aspectRatio}
                     {storyboardId && ` • Storyboard`}
                     {videosGenerated && ` • AI Videos`}
@@ -2551,27 +2551,27 @@ export function ExportToEditronDialog({
                   <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />
                   <div>
                     <p className="text-xs font-medium text-blue-300">Music & Sound Effects generating</p>
-                    <p className="text-[10px] text-blue-400/70">Audio will appear in your Editron project automatically. Refresh the editor after a few minutes.</p>
+                    <p className="text-[10px] text-blue-400/70">Audio will appear in your Editor project automatically. Refresh the editor after a few minutes.</p>
                   </div>
                 </div>
               )}
 
               {/* Warnings from video generation or other steps */}
               {error && (
-                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                  <p className="text-xs text-amber-400">{error}</p>
+                <div className="p-3 rounded-lg bg-[#D4A652]/10 border border-[#D4A652]/20">
+                  <p className="text-xs text-[#D4A652]">{error}</p>
                 </div>
               )}
 
               {/* Storyboard preview */}
               {storyboardScenes.length > 0 && (
                 <div>
-                  <p className="text-xs text-zinc-500 mb-2">Storyboard Preview</p>
+                  <p className="text-xs text-[#5F5E5A] mb-2">Storyboard Preview</p>
                   <div className="grid grid-cols-3 gap-2">
                     {storyboardScenes.slice(0, 6).map((s: any) => (
                       <div
                         key={s.sceneIndex}
-                        className="aspect-video bg-zinc-800 rounded overflow-hidden relative"
+                        className="aspect-video bg-[#1C1B19] rounded overflow-hidden relative"
                       >
                         {s.imageUrl ? (
                           <img
@@ -2580,18 +2580,18 @@ export function ExportToEditronDialog({
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                          <div className="w-full h-full flex items-center justify-center text-[#454340]">
                             <ImageIcon className="h-4 w-4" />
                           </div>
                         )}
-                        <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-[10px] text-zinc-300 px-1 py-0.5 truncate">
+                        <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-[10px] text-[#B5B2A8] px-1 py-0.5 truncate">
                           {s.title}
                         </span>
                       </div>
                     ))}
                   </div>
                   {storyboardScenes.length > 6 && (
-                    <p className="text-[10px] text-zinc-500 mt-1">+{storyboardScenes.length - 6} more scenes</p>
+                    <p className="text-[10px] text-[#5F5E5A] mt-1">+{storyboardScenes.length - 6} more scenes</p>
                   )}
                   {storyboardId && (
                     <button
@@ -2611,20 +2611,20 @@ export function ExportToEditronDialog({
         <DialogFooter>
           {step === 'configure' && (
             <>
-              <Button variant="ghost" onClick={handleClose} className="text-zinc-400">
+              <Button variant="ghost" onClick={handleClose} className="text-[#7A776E]">
                 Cancel
               </Button>
               <Button
                 onClick={handleExport}
                 disabled={blocks.length === 0}
-                className="bg-green-600 hover:bg-green-700 text-white"
+                className="bg-green-600 hover:bg-green-700 text-[#ECE9E1]"
               >
                 <Sparkles className="h-4 w-4 mr-2" />
                 {generateStoryboard && generateVideos
                   ? 'Generate Full AI Video'
                   : generateStoryboard
                   ? 'Export with Storyboard'
-                  : 'Export to Editron'}
+                  : 'Export to Editor'}
               </Button>
             </>
           )}
@@ -2637,14 +2637,14 @@ export function ExportToEditronDialog({
                   setApprovedSubjectIds(new Set());
                   handlePhase2();
                 }}
-                className="text-zinc-400"
+                className="text-[#7A776E]"
               >
                 Skip References
               </Button>
               <Button
                 onClick={() => handlePhase2()}
                 disabled={regeneratingSubjectIds.size > 0}
-                className="bg-green-600 hover:bg-green-700 text-white"
+                className="bg-green-600 hover:bg-green-700 text-[#ECE9E1]"
               >
                 <ArrowRight className="h-4 w-4 mr-2" />
                 Continue with {approvedSubjectIds.size} Reference{approvedSubjectIds.size !== 1 ? 's' : ''}
@@ -2660,13 +2660,13 @@ export function ExportToEditronDialog({
                   setGenerateVideos(false);
                   handlePhase3();
                 }}
-                className="text-zinc-400"
+                className="text-[#7A776E]"
               >
                 Skip Videos
               </Button>
               <Button
                 onClick={() => handlePhase3()}
-                className="bg-green-600 hover:bg-green-700 text-white"
+                className="bg-green-600 hover:bg-green-700 text-[#ECE9E1]"
               >
                 <ArrowRight className="h-4 w-4 mr-2" />
                 {generateVideos
@@ -2677,7 +2677,7 @@ export function ExportToEditronDialog({
           )}
           {step === 'done' && (
             <>
-              <Button variant="ghost" onClick={handleClose} className="text-zinc-400">
+              <Button variant="ghost" onClick={handleClose} className="text-[#7A776E]">
                 Close
               </Button>
               {storyboardId && (
@@ -2696,10 +2696,10 @@ export function ExportToEditronDialog({
                 onClick={() => {
                   window.location.href = `/dashboard/editron/project/${projectId}`;
                 }}
-                className="bg-green-600 hover:bg-green-700 text-white"
+                className="bg-green-600 hover:bg-green-700 text-[#ECE9E1]"
               >
                 <Video className="h-4 w-4 mr-2" />
-                Open in Editron
+                Open in Editor
               </Button>
             </>
           )}
@@ -2718,9 +2718,9 @@ function StepIndicator({ label, active, done }: { label: string; active: boolean
       ) : active ? (
         <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin shrink-0" />
       ) : (
-        <div className="h-3.5 w-3.5 rounded-full border border-zinc-600 shrink-0" />
+        <div className="h-3.5 w-3.5 rounded-full border border-[#282724] shrink-0" />
       )}
-      <span className={done ? 'text-zinc-500 line-through' : active ? 'text-zinc-200 font-medium' : 'text-zinc-500'}>
+      <span className={done ? 'text-[#5F5E5A] line-through' : active ? 'text-[#ECE9E1] font-medium' : 'text-[#5F5E5A]'}>
         {label}
       </span>
     </div>

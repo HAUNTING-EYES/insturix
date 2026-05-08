@@ -1,5 +1,4 @@
 import BronzePromotionsAdmin from "@/components/admin/BronzePromotionsAdmin";
-import Navbar from "@/components/Navbar";
 
 export const metadata = {
   title: "Bronze Promotions · Admin | Insturix",
@@ -9,14 +8,13 @@ export const metadata = {
 
 /**
  * Admin Bronze Promotions Page
- * 
+ *
  * Protected by AdminLayout - only accessible to authenticated admin users.
  * Admin verification happens at the layout level.
  */
 export default async function AdminBronzePromotionsPage() {
   return (
-    <div className="min-h-screen bg-white dark:bg-zinc-950">
-      <Navbar />
+    <div className="min-h-screen">
       <BronzePromotionsAdmin />
     </div>
   );

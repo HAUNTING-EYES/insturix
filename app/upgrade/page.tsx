@@ -1,19 +1,19 @@
-import React from "react";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import { DashboardProviders } from "@/components/providers/DashboardProviders";
-import { UpgradePageContent } from "@/components/upgrade-plan/UpgradePageContent";
+import { SiteNavbar } from "@/components/shared/site-navbar";
+import { SiteFooter } from "@/components/shared/site-footer";
+import { PricingPage } from "@/components/shared/pricing-page";
+import type { Metadata } from "next";
 
-export default async function UpgradePage() {
+export const metadata: Metadata = {
+  title: "Pricing | Insturix",
+  description: "Simple pricing for powerful content production tools. Start free, scale as you grow.",
+};
+
+export default function Upgrade() {
   return (
-    <div className="min-h-screen bg-zinc-950 relative selection:bg-zinc-800 selection:text-white">
-      <Navbar />
-      <main>
-        <DashboardProviders>
-          <UpgradePageContent />
-        </DashboardProviders>
-      </main>
-      <Footer />
-    </div>
+    <>
+      <SiteNavbar />
+      <PricingPage />
+      <SiteFooter />
+    </>
   );
 }

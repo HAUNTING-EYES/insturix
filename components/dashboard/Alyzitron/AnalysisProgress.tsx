@@ -2,8 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Card, CardContent } from '@/components/ui/card';
-import { CircleDot, PlayCircle, ChevronRight, RefreshCw, AlertCircle, Instagram, Twitter } from 'lucide-react';
+import { PlayCircle, ChevronRight, AlertCircle, Instagram, Twitter } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { QueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
@@ -159,21 +158,12 @@ export function AnalysisProgress({
 
   const isActive = status === 'processing' || status === 'queued' || status === 'listed';
   const isCompleted = status === 'completed';
+  const isClickable = isCompleted || status === 'failed';
 
   // Calculate progress percentage
-  const progressPercentage = status === 'processing' 
+  const progressPercentage = status === 'processing'
     ? Math.min(100, Math.round(((expectedDurationSeconds - timeLeft) / expectedDurationSeconds) * 100))
     : status === 'queued' ? 10 : status === 'listed' ? 5 : 0;
-
-  // Format bytes to readable size
-  const formatBytes = (bytes?: number) => {
-    if (!bytes) return '';
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
 
   // Format seconds to duration
   const formatDuration = (seconds?: number) => {
@@ -217,181 +207,152 @@ export function AnalysisProgress({
     }
   };
 
+  const score = results?.overall_score;
+  const scoreColor =
+    typeof score === 'number'
+      ? score >= 85
+        ? '#5EC97E'
+        : score >= 70
+          ? '#D4A652'
+          : '#D46A5C'
+      : '#7A776E';
+  const sourceLabel = isYouTubeUrl ? 'YT' : isInstagramUrl ? 'IG' : isTwitterUrl ? 'X' : 'MP4';
+  const statusLabel =
+    status === 'listed'
+      ? 'Watching'
+      : status === 'queued'
+        ? queuePosition != null
+          ? `Queued #${queuePosition}`
+          : 'Queued'
+        : status === 'processing'
+          ? timeLeft <= 5
+            ? 'Judging'
+            : 'Reading your brand'
+          : status === 'failed'
+            ? 'Failed'
+            : `${sourceLabel}${metadata?.videoDuration ? ` · ${formatDuration(metadata.videoDuration)}` : ''}`;
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+      transition={{ duration: 0.32, ease: [0.23, 1, 0.32, 1] }}
+      onClick={handleClick}
+      className={isClickable ? 'cursor-pointer' : 'cursor-default'}
     >
-      <Card
+      <div
         className={`
-          relative bg-black/40 border-zinc-800 backdrop-blur-xl group overflow-hidden
-          ${isActive ? 'ring-1 ring-white/10' : ''}
-          ${(isCompleted || status === 'failed') ? 'cursor-pointer hover:bg-zinc-900/40 transition-all duration-300' : ''}
+          group relative grid grid-cols-[44px_1fr_auto] items-center gap-3.5 overflow-hidden rounded-lg border
+          bg-[#0F0F0E] px-3.5 py-3 transition-colors duration-300
+          ${unread ? 'border-[#D4A652]/40' : 'border-[#1C1B19]'}
+          ${isClickable ? 'hover:border-[#282724]' : ''}
+          ${status === 'failed' ? 'border-[#D46A5C]/30' : ''}
         `}
-        onClick={handleClick}
       >
         {/* Progress Background for Active Tasks */}
         {isActive && (
-          <motion.div 
-            className="absolute inset-0 bg-white/[0.02] origin-left z-0"
-            initial={{ scaleX: 0 }}
-            animate={{ scaleX: progressPercentage / 100 }}
-            transition={{ duration: 0.5 }}
+          <motion.div
+            className="pointer-events-none absolute bottom-0 left-0 top-0 z-0 border-r border-[#D4A652]/35 bg-gradient-to-r from-transparent via-[#D4A652]/10 to-[#D4A652]/15"
+            initial={{ width: '4%' }}
+            animate={{ width: `${Math.max(progressPercentage, 8)}%` }}
+            transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
           />
         )}
-        <CardContent className="flex items-center p-4">
-          <div className="h-12 w-12 rounded-lg bg-zinc-900/80 flex items-center justify-center mr-4 overflow-hidden border border-zinc-800 group-hover:border-zinc-700 transition-colors relative z-10">
-            {youtubeVideoId ? (
-              <div className="relative h-12 w-12">
-                <Image
-                  src={`https://img.youtube.com/vi/${youtubeVideoId}/hqdefault.jpg`}
-                  alt={title || 'YouTube Video'}
-                  fill
-                  sizes="48px"
-                  className="object-cover rounded-lg opacity-80 group-hover:opacity-100 transition-opacity"
-                  priority={false}
-                />
-              </div>
-            ) : isInstagramUrl ? (
-                <Instagram className="h-6 w-6 text-pink-500 group-hover:text-pink-400 transition-colors" />
-            ) : isTwitterUrl ? (
-                <Twitter className="h-6 w-6 text-sky-500 group-hover:text-sky-400 transition-colors" />
-            ) : (
-               <PlayCircle className="h-6 w-6 text-zinc-500 group-hover:text-zinc-300 transition-colors" />
-            )}
-          </div>
 
-          <div className="flex-1 min-w-0 relative z-10">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={title || 'Analysis'}>
-                {title || 'Analysis'}
-              </h3>
-            </div>
+        <div className="relative z-10 flex h-[34px] w-11 items-center justify-center overflow-hidden rounded bg-[#131312]">
+          {youtubeVideoId ? (
+            <Image
+              src={`https://img.youtube.com/vi/${youtubeVideoId}/hqdefault.jpg`}
+              alt={title || 'YouTube Video'}
+              fill
+              sizes="44px"
+              className="object-cover opacity-80 transition-opacity group-hover:opacity-100"
+              priority={false}
+            />
+          ) : isInstagramUrl ? (
+            <Instagram className="h-5 w-5 text-[#D4A652]" />
+          ) : isTwitterUrl ? (
+            <Twitter className="h-5 w-5 text-[#D4A652]" />
+          ) : (
+            <PlayCircle className="h-5 w-5 text-[#7A776E]" />
+          )}
+        </div>
+
+        <div className="relative z-10 min-w-0">
+          <h3 className="truncate text-[13px] font-medium leading-snug text-[#ECE9E1]" title={title || 'Analysis'}>
+            {title || 'Analysis'}
+          </h3>
+          <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[10px] text-[#5F5E5A]">
+            {isActive && (
+              <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[#D4A652]" />
+            )}
+            <span className={isActive ? 'text-[#D4A652]' : status === 'failed' ? 'text-[#D46A5C]' : 'text-[#5F5E5A]'}>
+              {statusLabel}
+            </span>
             {results?.overview && (
-              <p className="text-xs text-zinc-400 mt-1 line-clamp-1 group-hover:text-zinc-300 transition-colors" title={results.overview}>
-                {results.overview}
-              </p>
+              <>
+                <span className="text-[#454340]">·</span>
+                <span className="truncate font-sans text-[11px] text-[#B5B2A8]" title={results.overview}>
+                  {results.overview}
+                </span>
+              </>
             )}
-            <div className="flex items-center gap-2 mt-1.5">
-              {metadata?.videoDuration && (
-                <p className="text-[10px] text-zinc-500">{formatDuration(metadata.videoDuration)}</p>
-              )}
-              {authorInfo && (
-                <div className="flex items-center gap-1 ml-1 pl-2 border-l border-zinc-800">
-                  {(authorInfo.startsWith('@') || (createdByName && createdByName.toLowerCase() !== 'unknown')) && (
-                    <span className="text-[9px] text-zinc-600 font-medium uppercase tracking-tighter">BY</span>
-                  )}
-                  <span className="text-[10px] text-zinc-400 font-bold truncate max-w-[80px]">
-                    {authorInfo}
-                  </span>
-                </div>
-              )}
-            </div>
+            {!results?.overview && authorInfo && (
+              <>
+                <span className="text-[#454340]">·</span>
+                <span className="truncate font-sans text-[11px] text-[#B5B2A8]">
+                  {authorInfo}
+                </span>
+              </>
+            )}
           </div>
+        </div>
 
-          <div className="ml-4 flex items-center gap-4">
-            <div className="text-right min-h-[40px] flex flex-col items-end justify-center">
-              <AnimatePresence mode="wait" initial={false}>
-                {status === 'listed' && (
-                  <motion.div
-                    key="listed"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="flex items-center gap-2 text-xs font-medium text-amber-500/80"
-                  >
-                    <CircleDot className="h-3 w-3 animate-pulse" />
-                    <span>Initializing...</span>
-                  </motion.div>
-                )}
-                {status === 'queued' && (
-                  <motion.div
-                    key="queued"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="flex flex-col items-end"
-                  >
-                    <span className="text-xs font-medium text-purple-400 flex items-center gap-1.5">
-                      <RefreshCw className="h-3 w-3 animate-spin" />
-                      In Queue {queuePosition != null ? `#${queuePosition}` : ''}
-                    </span>
-                  </motion.div>
-                )}
-                {status === 'processing' && (
-                  <motion.div
-                    key="processing"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="flex flex-col items-end gap-1"
-                  >
-                    <span className="text-xs font-medium text-blue-400 flex items-center gap-1.5">
-                      <CircleDot className="h-3 w-3 animate-pulse" />
-                      {timeLeft <= 5 ? 'Wrapping up...' : 'Processing...'}
-                    </span>
-                    <div className="w-24 h-1 bg-zinc-800 rounded-full overflow-hidden">
-                      <motion.div 
-                        className="h-full bg-blue-500"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progressPercentage}%` }}
-                      />
-                    </div>
-                  </motion.div>
-                )}
-                {status === 'completed' && (
-                  <motion.div
-                    key="completed"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="flex items-center gap-3"
-                  >
-                    <div className={`h-8 w-8 rounded-full ${unread ? 'bg-indigo-500 text-white' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'} flex items-center justify-center shadow-lg shadow-emerald-500/10`}>
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        className="h-4 w-4"
-                      >
-                        <path d="M20 6L9 17l-5-5" />
-                      </svg>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
-                  </motion.div>
-                )}
-                {status === 'failed' && (
-                  <motion.div
-                    key="failed"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="flex items-center gap-3"
-                  >
-                    <div className="flex flex-col items-end">
-                      <span className="text-xs font-bold text-rose-500 uppercase tracking-wider">Failed</span>
-                    </div>
-                    <div className="h-8 w-8 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20 flex items-center justify-center">
-                       <AlertCircle className="h-4 w-4" />
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+        <div className="relative z-10 flex min-w-12 items-center justify-end">
+          <AnimatePresence mode="wait" initial={false}>
+            {isActive && (
+              <motion.span
+                key="active"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="font-mono text-[10px] font-medium text-[#D4A652]"
+              >
+                {Math.max(progressPercentage, 8)}%
+              </motion.span>
+            )}
+            {status === 'completed' && typeof score === 'number' && (
+              <motion.span
+                key="score"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-[3px] px-2.5 py-1 font-mono text-[11px] font-medium"
+                style={{ color: scoreColor, backgroundColor: `${scoreColor}14` }}
+              >
+                {score}
+              </motion.span>
+            )}
+            {status === 'completed' && typeof score !== 'number' && (
+              <motion.div key="done" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-1.5 text-[#5EC97E]">
+                <span className="font-mono text-[10px]">done</span>
+                <ChevronRight className="h-3.5 w-3.5 text-[#454340] transition-colors group-hover:text-[#B5B2A8]" />
+              </motion.div>
+            )}
+            {status === 'failed' && (
+              <motion.div key="failed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-1.5 text-[#D46A5C]">
+                <span className="font-mono text-[10px]">failed</span>
+                <AlertCircle className="h-3.5 w-3.5" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
 
-          </div>
-        </CardContent>
-
-        {status === 'failed' && error?.message && (
-          <div className="px-4 pb-4 -mt-2 relative z-10">
-            <p className="text-[11px] text-rose-400/80 leading-relaxed bg-rose-500/5 border border-rose-500/10 rounded p-2 italic flex items-center gap-2">
-              <AlertCircle className="h-3 w-3 shrink-0" />
-              {error.message}
-            </p>
-          </div>
-        )}
-      </Card>
+      {status === 'failed' && error?.message && (
+        <p className="mt-1.5 rounded border border-[#D46A5C]/20 bg-[#D46A5C]/5 px-3 py-2 text-[11px] leading-relaxed text-[#D46A5C]/90">
+          {error.message}
+        </p>
+      )}
     </motion.div>
   );
 }

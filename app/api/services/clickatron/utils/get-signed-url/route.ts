@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { z } from 'zod';
 
 const requestSchema = z.object({
-  gcsUrl: z.string().url(),
+  r2Url: z.string().url(),
 });
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { gcsUrl } = requestSchema.parse(body);
+    const { r2Url } = requestSchema.parse(body);
     
-    console.log('Getting signed URL for:', gcsUrl);
+    console.log('Getting signed URL for:', r2Url);
 
-    const signedUrl = await ClickatronGCSManager.getSignedUrl(gcsUrl);
+    const signedUrl = await ClickatronR2Manager.getSignedUrl(r2Url);
     
     return NextResponse.json({ signedUrl });
   } catch (error) {

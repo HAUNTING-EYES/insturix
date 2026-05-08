@@ -38,6 +38,7 @@ export async function POST(req: Request) {
 
     const ig = user.instagramTokens as any;
     const accounts = ig.accounts || [];
+    const pageTokens = ig.pageTokens || [];
     if (accounts.length === 0) {
       return NextResponse.json(
         {
@@ -59,18 +60,19 @@ export async function POST(req: Request) {
       );
     }
 
-    try {
-      const refreshPageTokenRes = await fetch(
-        `https://graph.facebook.com/v21.0/${targetAccount.facebookPageId}?fields=access_token&access_token=${ig.userAccessToken}`
+    // Get the corresponding page access token for this Instagram account
+    const pageTokenEntry = pageTokens.find(
+      (pt: any) => pt.instagramAccountId === targetAccount.instagramAccountId
+    );
+
+    if (!pageTokenEntry) {
+      return NextResponse.json(
+        { success: false, error: "No Page Access Token found for this Instagram account. Please reconnect." },
+        { status: 400 }
       );
-      const refreshPageTokenData = await refreshPageTokenRes.json();
-      if (refreshPageTokenData.access_token) {
-        targetAccount.facebookPageAccessToken = refreshPageTokenData.access_token;
-      }
-    } catch (refreshError) {
-      console.warn("Failed to refresh Instagram page token:", refreshError);
     }
 
+    const igUserAccessToken = pageTokenEntry.pageAccessToken;
     let finalCaption = title || "";
     let finalDescription = description || "";
     let videoDoc = null;
@@ -98,7 +100,6 @@ export async function POST(req: Request) {
     const fullCaption = finalCaption ? `${finalCaption}\n\n${finalDescription}`.trim() : finalDescription;
 
     const igAccountId = targetAccount.instagramAccountId;
-    const igPageAccessToken = targetAccount.facebookPageAccessToken;
 
     if (existingIgMediaId) {
       return NextResponse.json({
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
       containerParams.set("media_type", "REELS");
     }
     containerParams.set("caption", fullCaption || "Uploaded via UploaderX");
-    containerParams.set("access_token", igPageAccessToken);
+    containerParams.set("access_token", igUserAccessToken);
 
     const containerRes = await fetch(`${createContainerUrl}?${containerParams.toString()}`, {
       method: "POST",
@@ -147,7 +148,7 @@ export async function POST(req: Request) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
         attempts++;
 
-        const statusUrl = `https://graph.facebook.com/v21.0/${containerId}?fields=status_code,status_message&access_token=${igPageAccessToken}`;
+        const statusUrl = `https://graph.facebook.com/v21.0/${containerId}?fields=status_code,status_message&access_token=${igUserAccessToken}`;
         const statusRes = await fetch(statusUrl);
         const statusData = await statusRes.json();
         containerStatus = statusData.status_code;
@@ -174,7 +175,7 @@ export async function POST(req: Request) {
     const publishUrl = `https://graph.facebook.com/v21.0/${igAccountId}/media_publish`;
     const publishParams = new URLSearchParams();
     publishParams.set("creation_id", containerId);
-    publishParams.set("access_token", igPageAccessToken);
+    publishParams.set("access_token", igUserAccessToken);
 
     const publishRes = await fetch(`${publishUrl}?${publishParams.toString()}`, { method: "POST" });
     const publishData = await publishRes.json();

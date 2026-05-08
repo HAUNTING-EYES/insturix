@@ -1,16 +1,14 @@
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import TeamContent from "@/components/TeamContent";
-import CursorEffect from "@/components/ui/CursorEffect";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+  title: "Team | Insturix",
+};
 
 export default function TeamPage() {
   return (
-    <div className="selection:bg-zinc-800 selection:text-white">
-      <Navbar />
-      <main>
-        <TeamContent />
-      </main>
-      <Footer />
+    <div style={{ background: "var(--bg-canvas)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <p style={{ fontSize: 14, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>This page is being redesigned.</p>
     </div>
   );
 }

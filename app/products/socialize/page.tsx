@@ -1,21 +1,13 @@
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import CursorEffect from "@/components/ui/CursorEffect";
-import SocializeHero from "@/components/products/socialize/SocializeHero";
-import SocializeFeatures from "@/components/products/socialize/SocializeFeatures";
+import type { Metadata } from "next";
 
-export default function SocializePage() {
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
+
+export default function ArchivedPage() {
   return (
-    <>
-      <CursorEffect variant="glow" color="rgba(14, 165, 233, 0.15)" size={400} blur={80} opacity={0.15} />
-      <div className="min-h-screen bg-[rgb(var(--surface-0))] overflow-hidden">
-      <Navbar />
-        <main className="relative pt-20">
-          <SocializeHero />
-          <SocializeFeatures />
-      </main>
-      <Footer />
-      </div>
-    </>
+    <div style={{ background: "var(--bg-canvas)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <p style={{ fontSize: 14, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>This page is being redesigned.</p>
+    </div>
   );
 }

@@ -1,35 +1,26 @@
 import { Metadata } from "next";
-import Footer from "@/components/Footer";
-import Navbar from "@/components/Navbar";
 import Script from "next/script";
-import { Suspense } from "react";
-import { LoadingScreen } from "@/components/Loader/LoadingScreen";
 import { getBaseUrl } from "@/lib/env";
-import ProgressBarWrapper from "@/components/ProgressBarWrapper";
-
-import HeroStatement from "@/components/Home/HeroStatement";
-import ProductSuite from "@/components/Home/ProductSuite";
-import IntelligenceLayer from "@/components/Home/IntelligenceLayer";
-import PricingPreview from "@/components/Home/PricingPreview";
-import AgencyPreview from "@/components/Home/AgencyPreview";
-import ClosingCTA from "@/components/Home/ClosingCTA";
-import { ScannerDivider } from "@/components/ui/ScannerDivider";
+import { SiteNavbar } from "@/components/shared/site-navbar";
+import { LandingPageA } from "@/components/landing-a/landing-page-a";
 
 export const metadata: Metadata = {
-  title: "Insturix | The Operating System for Content Production",
-  description: "Edit, analyze, generate, and distribute your content with AI that learns your brand. Seven tools, one ecosystem.",
+  title: "Insturix | One platform. Entire production.",
+  description:
+    "Replace your entire video production workflow. Script, edit, analyze, and publish — from a single prompt. Built for agencies producing content at scale.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "Insturix | The Operating System for Content Production",
-    description: "Edit, analyze, generate, and distribute your content with AI that learns your brand. Seven tools, one ecosystem.",
+    title: "Insturix | One platform. Entire production.",
+    description:
+      "Replace your entire video production workflow. Script, edit, analyze, and publish — from a single prompt.",
     images: [
       {
         url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "Insturix - Content Production Ecosystem",
+        alt: "Insturix — One platform. Entire production.",
       },
     ],
   },
@@ -42,12 +33,13 @@ export default function Home() {
     name: "Insturix",
     url: getBaseUrl(),
     logo: `${getBaseUrl()}/icons/logo.png`,
-    description: "Your all-in-one platform for AI-powered content production.",
+    description:
+      "Replace your entire video production workflow with AI. Script, edit, analyze, and publish from a single prompt.",
     sameAs: [
       "https://twitter.com/insturix",
       "https://www.linkedin.com/company/insturix",
-      "https://www.instagram.com/insturix"
-    ]
+      "https://www.instagram.com/insturix",
+    ],
   };
 
   const websiteStructuredData = {
@@ -59,41 +51,31 @@ export default function Home() {
       "@type": "SearchAction",
       target: {
         "@type": "EntryPoint",
-        urlTemplate: `${getBaseUrl()}/search?q={search_term_string}`
+        urlTemplate: `${getBaseUrl()}/search?q={search_term_string}`,
       },
-      "query-input": "required name=search_term_string"
-    }
+      "query-input": "required name=search_term_string",
+    },
   };
 
   return (
-    <div className="relative w-full bg-zinc-950 selection:bg-zinc-800 selection:text-white">
-      <Script 
+    <>
+      <Script
         id="organization-structured-data"
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationStructuredData) }}
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(organizationStructuredData),
+        }}
       />
-      <Script 
+      <Script
         id="website-structured-data"
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteStructuredData) }}
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(websiteStructuredData),
+        }}
       />
-      <ProgressBarWrapper />
-      <Navbar />
-      
-      <main>
-        <Suspense fallback={<LoadingScreen />}>
-          <HeroStatement />
-        </Suspense>
-        <ProductSuite />
-        <IntelligenceLayer />
-        <AgencyPreview />
-        <ScannerDivider />
-        <PricingPreview />
-        <ScannerDivider />
-        <ClosingCTA />
-      </main>
-
-      <Footer />
-    </div>
+      <SiteNavbar />
+      <LandingPageA />
+      {/* SiteFooter is rendered inside LandingPageA's marketing scroll container */}
+    </>
   );
 }

@@ -209,7 +209,7 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
       <motion.div {...fadeIn} className="text-center py-12">
         <div className="text-zinc-500 mb-4">
           <Image className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p>Your clickatron sessions will appear here</p>
+          <p>Your thumbnail sessions will appear here</p>
         </div>
       </motion.div>
     );

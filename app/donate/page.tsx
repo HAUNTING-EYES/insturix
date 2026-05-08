@@ -1,26 +1,13 @@
-import DonationPage from "@/components/DonationPage";
-import Footer from "@/components/Footer";
-import Navbar from "@/components/Navbar";
-import CursorEffect from "@/components/ui/CursorEffect";
-import { CurrencyProvider } from "@/lib/CurrencyContext";
-import { PricingClientProvider } from "@/lib/PricingContext";
+import type { Metadata } from "next";
 
-export default function Donate() {
-    return (
-        <PricingClientProvider>
-            <CurrencyProvider>
-                <CursorEffect
-                    variant="glow"
-                    color="rgba(59, 130, 246, 0.15)"
-                    size={500}
-                    blur={100}
-                />
-                <Navbar />
-                <div className="mt-[60px] md:pt-0">
-                    <DonationPage />
-                </div>
-                <Footer />
-            </CurrencyProvider>
-        </PricingClientProvider>
-    );
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
+
+export default function ArchivedPage() {
+  return (
+    <div style={{ background: "var(--bg-canvas)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <p style={{ fontSize: 14, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>This page is being redesigned.</p>
+    </div>
+  );
 }

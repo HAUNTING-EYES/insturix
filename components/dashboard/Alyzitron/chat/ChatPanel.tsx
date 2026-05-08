@@ -299,7 +299,7 @@ export default function ChatPanel({
         className="
           fixed top-0 right-0 z-50 h-full w-[420px] max-w-[100vw]
           flex flex-col
-          bg-[#0c0c0e] border-l border-zinc-800
+          bg-[#0B0B0A] border-l border-[#1C1B19]
           shadow-[-24px_0_60px_rgba(0,0,0,0.6)]
           transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]
           data-[state=open]:translate-x-0
@@ -308,18 +308,18 @@ export default function ChatPanel({
         style={{ fontFamily: "'DM Sans', 'Geist', sans-serif" }}
       >
         {/* Header */}
-        <div className="flex-none flex flex-col border-b border-zinc-800/80">
+        <div className="flex-none flex flex-col border-b border-[#1C1B19]">
           {/* Top bar */}
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-2.5">
-              <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 border border-blue-500/20">
-                <MessageSquare className="h-4 w-4 text-blue-400" strokeWidth={1.75} />
+              <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-[#D4A652]/10 border border-[#D4A652]/20">
+                <MessageSquare className="h-4 w-4 text-[#D4A652]" strokeWidth={1.75} />
               </div>
               <div className="flex flex-col gap-1">
-                <p className="text-[13px] font-semibold text-zinc-100 leading-none">
+                <p className="text-[13px] font-semibold text-[#ECE9E1] leading-none">
                   Analysis Chat
                 </p>
-                <p className="text-[11px] text-zinc-500 mt-0.5 leading-none truncate max-w-[180px]">
+                <p className="text-[11px] text-[#5F5E5A] mt-0.5 leading-none truncate max-w-[180px]">
                   {title}
                 </p>
               </div>
@@ -329,18 +329,18 @@ export default function ChatPanel({
               {hasSummarized && (
                 <Tooltip.Root>
                   <Tooltip.Trigger asChild>
-                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-blue-500/10 border border-blue-500/20 cursor-default">
-                      <Sparkles className="h-3 w-3 text-blue-400" />
-                      <span className="text-[10px] text-blue-400 font-medium">Summarized</span>
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#D4A652]/10 border border-[#D4A652]/20 cursor-default">
+                      <Sparkles className="h-3 w-3 text-[#D4A652]" />
+                      <span className="text-[10px] text-[#D4A652] font-medium">Summarized</span>
                     </div>
                   </Tooltip.Trigger>
                   <Tooltip.Portal>
                     <Tooltip.Content
-                      className="bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs px-3 py-1.5 rounded-lg shadow-xl max-w-[200px] text-center"
+                      className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-xs px-3 py-1.5 rounded-lg shadow-xl max-w-[200px] text-center"
                       sideOffset={6}
                     >
                       Older messages were summarized to preserve context
-                      <Tooltip.Arrow className="fill-zinc-700" />
+                      <Tooltip.Arrow className="fill-[#282724]" />
                     </Tooltip.Content>
                   </Tooltip.Portal>
                 </Tooltip.Root>
@@ -351,18 +351,18 @@ export default function ChatPanel({
                   <Tooltip.Trigger asChild>
                     <button
                       onClick={clearChat}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-[#5F5E5A] hover:text-[#D46A5C] hover:bg-[#D46A5C]/10 transition-colors"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </Tooltip.Trigger>
                   <Tooltip.Portal>
                     <Tooltip.Content
-                      className="bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs px-3 py-1.5 rounded-lg shadow-xl"
+                      className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-xs px-3 py-1.5 rounded-lg shadow-xl"
                       sideOffset={6}
                     >
                       Clear chat history
-                      <Tooltip.Arrow className="fill-zinc-700" />
+                      <Tooltip.Arrow className="fill-[#282724]" />
                     </Tooltip.Content>
                   </Tooltip.Portal>
                 </Tooltip.Root>
@@ -370,7 +370,7 @@ export default function ChatPanel({
 
               <button
                 onClick={onClose}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#5F5E5A] hover:text-[#ECE9E1] hover:bg-[#131312] transition-colors"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -388,19 +388,19 @@ export default function ChatPanel({
 
               {isLoadingHistory && (
                 <div className="flex items-center justify-center py-16">
-                  <div className="h-5 w-5 rounded-full border-2 border-zinc-700 border-t-blue-500 animate-spin" />
+                  <div className="h-5 w-5 rounded-full border-2 border-[#282724] border-t-[#D4A652] animate-spin" />
                 </div>
               )}
 
               {isEmpty && (
                 <div className="flex flex-col items-center justify-center flex-1 py-12 text-center">
-                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800">
-                    <MessageSquare className="h-6 w-6 text-zinc-600" strokeWidth={1.5} />
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0F0F0E] border border-[#1C1B19]">
+                    <MessageSquare className="h-6 w-6 text-[#454340]" strokeWidth={1.5} />
                   </div>
-                  <p className="text-sm font-medium text-zinc-300 mb-1">
+                  <p className="text-sm font-medium text-[#B5B2A8] mb-1">
                     Ask about this video
                   </p>
-                  <p className="text-xs text-zinc-600 max-w-[240px] leading-relaxed">
+                  <p className="text-xs text-[#454340] max-w-[240px] leading-relaxed">
                     I have access to the full transcript and AI analysis.
                     Ask about content, speakers, timestamps, or key moments.
                   </p>
@@ -422,7 +422,7 @@ export default function ChatPanel({
             orientation="vertical"
             className="flex w-1.5 touch-none select-none p-0.5 transition-colors"
           >
-            <ScrollArea.Thumb className="relative flex-1 rounded-full bg-zinc-700/50" />
+            <ScrollArea.Thumb className="relative flex-1 rounded-full bg-[#282724]/50" />
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
 
@@ -435,12 +435,12 @@ export default function ChatPanel({
         )}
 
         {/* Input */}
-        <div className="flex-none border-t border-zinc-800/80 p-3">
+        <div className="flex-none border-t border-[#1C1B19] p-3">
           <div
             className="
               flex items-end gap-2 rounded-xl
-              bg-zinc-900 border border-zinc-800
-              focus-within:border-blue-500/40 focus-within:bg-zinc-900
+              bg-[#0F0F0E] border border-[#1C1B19]
+              focus-within:border-[#D4A652]/40 focus-within:bg-[#0F0F0E]
               transition-colors px-3 py-2.5
             "
           >
@@ -453,8 +453,8 @@ export default function ChatPanel({
               placeholder="Ask about this video…"
               rows={1}
               className="
-                flex-1 resize-none bg-transparent text-sm text-zinc-200
-                placeholder-zinc-600 outline-none leading-5
+                flex-1 resize-none bg-transparent text-sm text-[#ECE9E1]
+                placeholder-[#454340] outline-none leading-5
                 disabled:opacity-50 min-h-[20px] max-h-[120px]
                 scrollbar-none
               "
@@ -468,8 +468,8 @@ export default function ChatPanel({
                     onClick={stopStreaming}
                     className="
                       flex-shrink-0 flex h-8 w-8 items-center justify-center
-                      rounded-lg bg-red-500/15 border border-red-500/30
-                      text-red-400 hover:bg-red-500/25 transition-colors
+                      rounded-lg bg-[#D46A5C]/15 border border-[#D46A5C]/30
+                      text-[#D46A5C] hover:bg-[#D46A5C]/25 transition-colors
                     "
                   >
                     <Square className="h-3 w-3 fill-current" />
@@ -477,11 +477,11 @@ export default function ChatPanel({
                 </Tooltip.Trigger>
                 <Tooltip.Portal>
                   <Tooltip.Content
-                    className="bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs px-3 py-1.5 rounded-lg shadow-xl"
+                    className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-xs px-3 py-1.5 rounded-lg shadow-xl"
                     sideOffset={6}
                   >
                     Stop generating
-                    <Tooltip.Arrow className="fill-zinc-700" />
+                    <Tooltip.Arrow className="fill-[#282724]" />
                   </Tooltip.Content>
                 </Tooltip.Portal>
               </Tooltip.Root>
@@ -491,16 +491,16 @@ export default function ChatPanel({
                 disabled={!input.trim()}
                 className="
                   flex-shrink-0 flex h-8 w-8 items-center justify-center
-                  rounded-lg bg-blue-500 hover:bg-blue-400
+                  rounded-lg bg-[#D4A652] hover:bg-[#B8860B]
                   disabled:opacity-30 disabled:cursor-not-allowed
-                  text-zinc-950 transition-colors
+                  text-[#0B0B0A] transition-colors
                 "
               >
                 <Send className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
-          <p className="text-center text-[10px] text-zinc-700 mt-1.5">
+          <p className="text-center text-[10px] text-[#454340] mt-1.5">
             Enter to send · Shift + Enter for new line
           </p>
         </div>
@@ -529,37 +529,37 @@ function TranscriptionBar({ meta }: { meta: TranscriptionMeta | null }) {
   };
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2 bg-zinc-950/60 border-t border-zinc-800/50">
+    <div className="flex items-center gap-3 px-4 py-2 bg-[#0B0B0A]/60 border-t border-[#1C1B19]/50">
       {meta.status === "processing" && (
         <>
           <div className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-          <span className="text-[11px] text-zinc-500">Transcribing audio…</span>
+          <span className="text-[11px] text-[#5F5E5A]">Transcribing audio…</span>
         </>
       )}
 
       {meta.status === "error" && (
         <>
-          <AlertTriangle className="h-3 w-3 text-red-400 flex-shrink-0" />
-          <span className="text-[11px] text-red-400">Transcription failed — answers may be limited</span>
+          <AlertTriangle className="h-3 w-3 text-[#D46A5C] flex-shrink-0" />
+          <span className="text-[11px] text-[#D46A5C]">Transcription failed — answers may be limited</span>
         </>
       )}
 
       {meta.status === "completed" && (
         <div className="flex items-center gap-3 w-full">
           <div className="flex items-center gap-1.5">
-            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <span className="text-[11px] text-zinc-500 font-mono">Transcript ready</span>
+            <div className="h-1.5 w-1.5 rounded-full bg-[#5EC97E]" />
+            <span className="text-[11px] text-[#5F5E5A] font-mono">Transcript ready</span>
           </div>
 
           <Separator.Root
             orientation="vertical"
-            className="h-3 w-px bg-zinc-800"
+            className="h-3 w-px bg-[#131312]"
           />
 
           {meta.detectedLanguage && (
             <div className="flex items-center gap-1">
-              <Languages className="h-2.5 w-2.5 text-zinc-600" />
-              <span className="text-[11px] font-mono text-zinc-500 uppercase">
+              <Languages className="h-2.5 w-2.5 text-[#454340]" />
+              <span className="text-[11px] font-mono text-[#5F5E5A] uppercase">
                 {meta.detectedLanguage}
               </span>
             </div>
@@ -567,10 +567,10 @@ function TranscriptionBar({ meta }: { meta: TranscriptionMeta | null }) {
 
           {meta.wordCount != null && meta.wordCount > 0 && (
             <>
-              <Separator.Root orientation="vertical" className="h-3 w-px bg-zinc-800" />
+              <Separator.Root orientation="vertical" className="h-3 w-px bg-[#131312]" />
               <div className="flex items-center gap-1">
-                <FileText className="h-2.5 w-2.5 text-zinc-600" />
-                <span className="text-[11px] font-mono text-zinc-500">
+                <FileText className="h-2.5 w-2.5 text-[#454340]" />
+                <span className="text-[11px] font-mono text-[#5F5E5A]">
                   {meta.wordCount.toLocaleString()} words
                 </span>
               </div>
@@ -579,10 +579,10 @@ function TranscriptionBar({ meta }: { meta: TranscriptionMeta | null }) {
 
           {meta.durationMs && (
             <>
-              <Separator.Root orientation="vertical" className="h-3 w-px bg-zinc-800" />
+              <Separator.Root orientation="vertical" className="h-3 w-px bg-[#131312]" />
               <div className="flex items-center gap-1">
-                <Clock className="h-2.5 w-2.5 text-zinc-600" />
-                <span className="text-[11px] font-mono text-zinc-500">
+                <Clock className="h-2.5 w-2.5 text-[#454340]" />
+                <span className="text-[11px] font-mono text-[#5F5E5A]">
                   {formatDuration(meta.durationMs)}
                 </span>
               </div>

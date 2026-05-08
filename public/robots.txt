@@ -26,7 +26,7 @@ User-agent: Google-Extended
 Allow: /
 
 # Host
-Host: https://www.insturix.com
+Host: http://localhost:3000
 
 # Sitemaps
-Sitemap: https://www.insturix.com/sitemap.xml
+Sitemap: http://localhost:3000/sitemap.xml
