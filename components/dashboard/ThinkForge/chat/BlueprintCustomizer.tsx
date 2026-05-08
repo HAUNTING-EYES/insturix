@@ -37,8 +37,8 @@ const PRESET_TYPES = [
 const PRIORITY_OPTIONS = ["required", "recommended", "optional"] as const;
 
 const PRIORITY_COLORS: Record<string, string> = {
-  required: "bg-red-400",
-  recommended: "bg-amber-400",
+  required: "bg-[#D4A652]",
+  recommended: "bg-[#D4A652]",
   optional: "bg-zinc-500",
 };
 
@@ -85,11 +85,11 @@ export function BlueprintCustomizer({ artifacts: initial, onSave, onCancel }: Bl
   const totalCredits = items.length * 5;
 
   return (
-    <div className="rounded-xl border border-white/10 bg-neutral-950/95 backdrop-blur-xl p-4 space-y-3 shadow-2xl">
+    <div className="rounded-xl border border-[#1C1B19] bg-[#0B0B0A]/95 backdrop-blur-xl p-4 space-y-3 shadow-2xl">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white">Customize Blueprint</h3>
-        <button onClick={onCancel} className="p-1 rounded hover:bg-white/10 transition-colors">
-          <X className="h-3.5 w-3.5 text-zinc-500" />
+        <h3 className="text-sm font-semibold text-[#ECE9E1]">Customize Blueprint</h3>
+        <button onClick={onCancel} className="p-1 rounded hover:bg-[#1C1B19] transition-colors">
+          <X className="h-3.5 w-3.5 text-[#5F5E5A]" />
         </button>
       </div>
 
@@ -99,25 +99,25 @@ export function BlueprintCustomizer({ artifacts: initial, onSave, onCancel }: Bl
           return (
             <div
               key={`${item.type}-${i}`}
-              className="group flex items-center gap-2 rounded-lg border border-white/5 bg-white/3 px-2.5 py-2 hover:border-white/10 transition-colors"
+              className="group flex items-center gap-2 rounded-lg border border-[#1C1B19] bg-white/3 px-2.5 py-2 hover:border-[#1C1B19] transition-colors"
             >
-              <Icon className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+              <Icon className="h-3.5 w-3.5 text-[#5F5E5A] shrink-0" />
 
               <input
                 type="text"
                 value={item.label}
                 onChange={e => updateField(i, "label", e.target.value)}
-                className="flex-1 bg-transparent text-xs text-zinc-200 outline-none placeholder:text-zinc-600 min-w-0"
+                className="flex-1 bg-transparent text-xs text-[#ECE9E1] outline-none placeholder:text-[#454340] min-w-0"
                 placeholder="Document name"
               />
 
               <select
                 value={item.priority || "recommended"}
                 onChange={e => updateField(i, "priority", e.target.value)}
-                className="bg-transparent text-[10px] text-zinc-400 outline-none cursor-pointer border-none"
+                className="bg-transparent text-[10px] text-[#7A776E] outline-none cursor-pointer border-none"
               >
                 {PRIORITY_OPTIONS.map(p => (
-                  <option key={p} value={p} className="bg-neutral-900 text-zinc-300">
+                  <option key={p} value={p} className="bg-[#0F0F0E] text-[#B5B2A8]">
                     {p}
                   </option>
                 ))}
@@ -127,9 +127,9 @@ export function BlueprintCustomizer({ artifacts: initial, onSave, onCancel }: Bl
 
               <button
                 onClick={() => toggleItem(i)}
-                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/20 transition-all"
+                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[#D4A652]/20 transition-all"
               >
-                <Trash2 className="h-3 w-3 text-red-400" />
+                <Trash2 className="h-3 w-3 text-[#D4A652]" />
               </button>
             </div>
           );
@@ -138,19 +138,19 @@ export function BlueprintCustomizer({ artifacts: initial, onSave, onCancel }: Bl
 
       {/* Add artifact */}
       {showAdd ? (
-        <div className="grid grid-cols-2 gap-1 p-2 rounded-lg border border-white/5 bg-white/3">
+        <div className="grid grid-cols-2 gap-1 p-2 rounded-lg border border-[#1C1B19] bg-white/3">
           {PRESET_TYPES.filter(p => !items.some(i => i.type === p.type)).map(preset => (
             <button
               key={preset.type}
               onClick={() => addPreset(preset)}
-              className="text-[10px] text-left text-zinc-400 hover:text-white px-2 py-1.5 rounded hover:bg-white/5 transition-colors"
+              className="text-[10px] text-left text-[#7A776E] hover:text-[#ECE9E1] px-2 py-1.5 rounded hover:bg-[#0F0F0E] transition-colors"
             >
               {preset.label}
             </button>
           ))}
           <button
             onClick={() => setShowAdd(false)}
-            className="col-span-2 text-[10px] text-zinc-600 hover:text-zinc-400 pt-1"
+            className="col-span-2 text-[10px] text-[#454340] hover:text-[#7A776E] pt-1"
           >
             Cancel
           </button>
@@ -158,7 +158,7 @@ export function BlueprintCustomizer({ artifacts: initial, onSave, onCancel }: Bl
       ) : (
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="flex items-center gap-1.5 text-[10px] text-[#5F5E5A] hover:text-[#B5B2A8] transition-colors"
         >
           <Plus className="h-3 w-3" />
           Add document
@@ -166,14 +166,14 @@ export function BlueprintCustomizer({ artifacts: initial, onSave, onCancel }: Bl
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between pt-2 border-t border-white/5">
-        <span className="text-[10px] text-zinc-500">
+      <div className="flex items-center justify-between pt-2 border-t border-[#1C1B19]">
+        <span className="text-[10px] text-[#5F5E5A]">
           {items.length} document{items.length !== 1 ? "s" : ""} &middot; {totalCredits} credits
         </span>
         <div className="flex gap-1.5">
           <button
             onClick={onCancel}
-            className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-white/5 text-zinc-400 hover:bg-white/10 ring-1 ring-white/5 transition-all"
+            className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-[#0F0F0E] text-[#7A776E] hover:bg-[#1C1B19] ring-1 ring-[#1C1B19] transition-all"
           >
             Cancel
           </button>
@@ -183,8 +183,8 @@ export function BlueprintCustomizer({ artifacts: initial, onSave, onCancel }: Bl
             className={cn(
               "px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all flex items-center gap-1",
               items.length > 0
-                ? "bg-red-500/20 text-red-300 hover:bg-red-500/30 ring-1 ring-red-500/20"
-                : "bg-white/5 text-zinc-600 cursor-not-allowed"
+                ? "bg-[#D4A652]/20 text-[#D4A652] hover:bg-[#D4A652]/30 ring-1 ring-[#D4A652]/20"
+                : "bg-[#0F0F0E] text-[#454340] cursor-not-allowed"
             )}
           >
             <Check className="h-3 w-3" />

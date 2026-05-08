@@ -78,10 +78,10 @@ export default function PromptInput({ onSubmit, onCustomIdeaSubmit, loading = fa
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
+      <Card className="bg-[#0B0B0A] border-[#1C1B19] backdrop-blur-xl">
         <CardHeader>
-          <CardTitle className="text-lg font-medium text-zinc-100 flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-red-500" />
+          <CardTitle className="text-lg font-medium text-[#ECE9E1] flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-[#D4A652]" />
             Start Your Creative Journey
           </CardTitle>
         </CardHeader>
@@ -90,7 +90,7 @@ export default function PromptInput({ onSubmit, onCustomIdeaSubmit, loading = fa
           <div className="flex gap-2 p-1 bg-black/20 rounded-lg">
             <Button
               variant="ghost"
-              className="flex-1 bg-red-500/20 text-red-400 hover:bg-red-500/30"
+              className="flex-1 bg-[#D4A652]/20 text-[#D4A652] hover:bg-[#D4A652]/30"
             >
               <Lightbulb className="h-4 w-4 mr-2" />
               AI-Generated Ideas
@@ -98,7 +98,7 @@ export default function PromptInput({ onSubmit, onCustomIdeaSubmit, loading = fa
             <Button
               onClick={() => setShowCustomForm(true)}
               variant="ghost"
-              className="hidden md:flex flex-1 text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800"
+              className="hidden md:flex flex-1 text-[#7A776E] hover:text-[#B5B2A8] hover:bg-[#1C1B19]"
             >
               <Plus className="h-4 w-4 mr-2" />
               Create Your Own
@@ -108,7 +108,7 @@ export default function PromptInput({ onSubmit, onCustomIdeaSubmit, loading = fa
           {/* AI Generation Section */}
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-zinc-300">
+              <label className="text-sm font-medium text-[#B5B2A8]">
                 Describe your content idea
               </label>
               <div className="relative">
@@ -117,7 +117,7 @@ export default function PromptInput({ onSubmit, onCustomIdeaSubmit, loading = fa
                   onChange={(e) => setPrompt(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="" // Hide default placeholder
-                  className="bg-black/30 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:ring-2 focus:ring-red-500"
+                  className="bg-[#0B0B0A] border-[#282724] text-[#ECE9E1] placeholder:text-[#5F5E5A] focus:ring-2 focus:ring-[#D4A652]"
                   disabled={loading}
                 />
                 {/* Animated placeholder overlay */}
@@ -147,7 +147,7 @@ export default function PromptInput({ onSubmit, onCustomIdeaSubmit, loading = fa
                           type: "spring",
                           stiffness: 100
                         }}
-                        className="text-zinc-500 text-sm select-none truncate"
+                        className="text-[#5F5E5A] text-sm select-none truncate"
                         style={{ perspective: 1000 }}
                       >
                         {placeholders[placeholderIndex]}
@@ -160,7 +160,7 @@ export default function PromptInput({ onSubmit, onCustomIdeaSubmit, loading = fa
             <Button
               onClick={handleSubmit}
               disabled={!prompt.trim() || loading}
-              className="w-full bg-red-500 hover:bg-red-600 text-white font-medium"
+              className="w-full bg-[#D4A652] hover:bg-[#D4A652] text-white font-medium"
             >
               {loading ? (
                 <>
@@ -179,10 +179,10 @@ export default function PromptInput({ onSubmit, onCustomIdeaSubmit, loading = fa
           {/* Divider */}
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-zinc-700" />
+              <span className="w-full border-t border-[#282724]" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-black/40 px-2 text-zinc-500">Or</span>
+              <span className="bg-[#0B0B0A] px-2 text-[#5F5E5A]">Or</span>
             </div>
           </div>
 
@@ -190,7 +190,7 @@ export default function PromptInput({ onSubmit, onCustomIdeaSubmit, loading = fa
           <Button
             onClick={() => setShowCustomForm(true)}
             variant="outline"
-            className="w-full border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            className="w-full border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19]"
           >
             <Plus className="mr-2 h-4 w-4" />
             Create Your Own Idea

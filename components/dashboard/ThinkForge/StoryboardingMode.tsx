@@ -33,10 +33,6 @@ interface StoryboardingModeProps {
   onTabClose?: (scriptId: string) => void;
 }
 
-const MIN_WIDTH = 300;
-const MAX_WIDTH = 800;
-const LS_CHAT_WIDTH = "thinkforge_chat_width";
-
 export default function StoryboardingMode({
   isVisible,
   selectedIdea,
@@ -57,9 +53,6 @@ export default function StoryboardingMode({
   onSwitchScript,
   onTabClose
 }: StoryboardingModeProps) {
-  const [chatWidth, setChatWidth] = useState(0); // 0 = use percentage
-  const [isResizing, setIsResizing] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
@@ -74,26 +67,18 @@ export default function StoryboardingMode({
 
   const handleEditSelection = (text: string, range: { from: number; to: number }, blocks: any[]) => {
     setEditingSelection({ text, range, blocks });
-    // Switch to chat tab on mobile if needed
-    setActiveMobileTab('chat');
-    // Ensure chat panel is open on desktop (if we were to add a collapsible panel)
   };
 
-  // Mobile tab state
-  const [activeMobileTab, setActiveMobileTab] = useState<'chat' | 'script'>('script');
-
-  // Token streaming callback - connects ChatPanel to ScriptEditor
+  // Token streaming callback
   const tokenStreamCallbackRef = useRef<((tokens: string) => void) | null>(null);
-
   const handleTokenStream = useRef((tokens: string) => {
     if (tokenStreamCallbackRef.current) {
       tokenStreamCallbackRef.current(tokens);
     }
   }).current;
 
-  // Selection getter callback - connects ChatPanel to ScriptEditor
+  // Selection getter callback
   const selectionGetterRef = useRef<(() => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) | null>(null);
-
   const handleGetSelection = useRef(() => {
     if (selectionGetterRef.current) {
       return selectionGetterRef.current();
@@ -101,267 +86,191 @@ export default function StoryboardingMode({
     return null;
   }).current;
 
-  useEffect(() => {
-    const saved = localStorage.getItem(LS_CHAT_WIDTH);
-    if (saved) {
-      const parsed = parseInt(saved, 10);
-      if (!isNaN(parsed)) setChatWidth(Math.min(Math.max(parsed, MIN_WIDTH), MAX_WIDTH));
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing || !containerRef.current) return;
-
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const newWidth = e.clientX - containerRect.left;
-
-      setChatWidth(Math.min(Math.max(newWidth, MIN_WIDTH), MAX_WIDTH));
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-      localStorage.setItem(LS_CHAT_WIDTH, chatWidth.toString());
-    };
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    } else {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isResizing, chatWidth]);
-
   const handleOpenSettings = () => setShowSettings(true);
   const handleCloseSettings = () => setShowSettings(false);
 
+  if (!selectedIdea) {
+    return (
+      <div className={clsx("flex flex-col items-center justify-center h-full text-[#7A776E] transition-opacity duration-300", isVisible ? "opacity-100 block" : "opacity-0 hidden absolute inset-0 pointer-events-none")}>
+        <FileText size={48} className="mb-4 opacity-50" />
+        <p className="text-lg font-medium text-[#ECE9E1]">No script selected</p>
+        <p className="text-sm mt-2">Start by creating an idea in Ideation mode or opening a session from the Library.</p>
+        <button
+          onClick={onGoToIdeation}
+          className="mt-6 px-4 py-2 rounded-[7px] bg-[#D4A652] text-[#0B0B0A] font-extrabold text-sm hover:bg-[#e0b765] transition-colors"
+        >
+          Go to Ideation
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className={clsx("w-full h-full transition-opacity duration-300", isVisible ? "opacity-100 block" : "opacity-0 hidden absolute inset-0 pointer-events-none")}>
-      {selectedIdea ? (
-        <div className="relative w-full h-full overflow-hidden flex flex-col" ref={containerRef}>
+    <div className={clsx("control-view enter", isVisible ? "visible" : "")} id="s3" style={{ display: isVisible ? 'flex' : 'none', flex: 1, height: '100%' }}>
+      <div className="control-inner" style={{ flex: 1, height: '100%', display: 'flex' }}>
 
-          {/* Export to Editron button */}
-          <div className="flex items-center justify-end px-4 py-2 border-b border-neutral-800/50 bg-neutral-900/30">
-            <button
-              onClick={() => setShowExportDialog(true)}
-              disabled={!script}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Video size={16} />
-              Export to Editron
-            </button>
-          </div>
-
-          {/* Mobile Tab Switcher */}
-          <div className="lg:hidden flex border-b border-neutral-800 bg-neutral-900/50">
-            <button
-              onClick={() => setActiveMobileTab('chat')}
-              className={clsx(
-                "flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2",
-                activeMobileTab === 'chat' ? "text-red-400 border-b-2 border-red-500 bg-red-500/5" : "text-neutral-400"
-              )}
-            >
-              <MessageSquare size={16} /> Chat
-            </button>
-            <button
-              onClick={() => setActiveMobileTab('script')}
-              className={clsx(
-                "flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2",
-                activeMobileTab === 'script' ? "text-red-400 border-b-2 border-red-500 bg-red-500/5" : "text-neutral-400"
-              )}
-            >
-              <FileText size={16} /> Script
-            </button>
-          </div>
-
-          <div className="flex-1 flex overflow-hidden relative">
-            {/* Chat Panel - Responsive visibility */}
-            <div
-              className={clsx(
-                "shrink-0 flex flex-col border-r border-neutral-800 relative bg-neutral-900/50 transition-all duration-300",
-                // Mobile: full width if active
-                "w-full absolute inset-0 z-10 lg:static lg:z-auto",
-                // Desktop: 40% width
-                "lg:w-[40%] lg:min-w-[300px] lg:max-w-[600px]",
-                // Visibility
-                activeMobileTab === 'chat' ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-              )}
-            >
-              <ChatPanel
-                key={(sessionId || 'no-session')}
-                selectedIdea={{
-                  id: Number(selectedIdea.id),
-                  idea: selectedIdea.idea,
-                  purpose: selectedIdea.purpose,
-                  style: selectedIdea.style,
-                  format: selectedIdea.format,
-                  platform: selectedIdea.platform,
-                  tone: selectedIdea.tone as any,
-                  sessionName: selectedIdea.sessionName
-                }}
-                script={script}
-                scriptId={scriptId}
-                onApplyEdit={onApplyEdit}
-                onRunEdit={onRunEdit}
-                sessionId={sessionId}
-                onOpenSettings={handleOpenSettings}
-                onOpenKnowledge={() => setShowKnowledge(true)}
-                onSwitchSession={onSwitchSession}
-                onScriptCreated={onScriptCreated}
-                onTokenStream={handleTokenStream}
-                onGetSelection={handleGetSelection}
-                editingSelection={editingSelection}
-                onCancelEditSelection={() => setEditingSelection(null)}
-                onGenerationStateChange={setGenerationState}
-                workspaceMode={scriptPanelMode}
-              />
-
-              {/* Resize handle removed — using 40/60 split now */}
-            </div>
-
-            {/* Script Panel - Responsive visibility */}
-            <div className={clsx(
-              "flex-1 min-w-0 overflow-hidden flex flex-col bg-neutral-950",
-              // Mobile: full width if active (using absolute/z-index to stack or standard flow)
-              "w-full h-full lg:w-auto",
-              activeMobileTab === 'script' ? "block" : "hidden lg:flex"
-            )}>
-              <ScriptPanel
-                selectedIdea={{
-                  id: Number(selectedIdea.id),
-                  idea: selectedIdea.idea,
-                  purpose: selectedIdea.purpose,
-                  style: selectedIdea.style,
-                  format: selectedIdea.format,
-                  platform: selectedIdea.platform,
-                  tone: selectedIdea.tone as any
-                }}
-                script={script}
-                sessionId={sessionId}
-                scriptId={scriptId}
-                tabsRefreshTrigger={tabsRefreshTrigger}
-                isSaving={isSaving}
-                onTokenStream={(callback) => {
-                  tokenStreamCallbackRef.current = callback;
-                }}
-                onGetSelection={(callback) => {
-                  selectionGetterRef.current = callback;
-                }}
-                onUpdate={onUpdateScript}
-                onBack={onBack}
-                onImportScript={onImportScript}
-                onScriptCreated={onScriptCreated}
-                onSwitchScript={onSwitchScript}
-                onTabClose={onTabClose}
-                onEditSelection={handleEditSelection}
-                onModeChange={(mode) => setScriptPanelMode(mode === 'scripting' ? 'script' : 'whiteboard')}
-                generatingScript={
-                  generationState.isStreaming &&
-                  (generationState.intent === 'draft' || generationState.intent === 'edit' || generationState.intent === 'hybrid')
-                }
-              />
+        {/* LEFT SIDEBAR */}
+        <div className="sidebar" style={{ display: 'flex', flexDirection: 'column', padding: '16px', gap: '24px' }}>
+          <div className="sidebar-section">
+            <div className="mono sidebar-label" style={{ color: 'var(--text-muted)' }}>sessions</div>
+            <div className="sidebar-items">
+              <button className="sidebar-item active">Current Session</button>
+              <button className="sidebar-item" onClick={onGoToIdeation}>+ New Session</button>
+              <button className="sidebar-item" onClick={() => setShowSettings(true)}>Settings</button>
             </div>
           </div>
+          <div className="sidebar-section">
+            <div className="mono sidebar-label" style={{ color: 'var(--text-muted)' }}>export</div>
+            <div className="sidebar-items">
+              <button className="sidebar-item" onClick={() => setShowExportDialog(true)} disabled={!script}>→ Editron</button>
+            </div>
+          </div>
+        </div>
 
-          {/* Knowledge Panel */}
-          <KnowledgePanel
-            open={showKnowledge}
-            onClose={() => setShowKnowledge(false)}
+        {/* CENTER — Editor */}
+        <div className="editor-col" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <ScriptPanel
+            selectedIdea={{
+              id: Number(selectedIdea.id),
+              idea: selectedIdea.idea,
+              purpose: selectedIdea.purpose,
+              style: selectedIdea.style,
+              format: selectedIdea.format,
+              platform: selectedIdea.platform,
+              tone: selectedIdea.tone as any
+            }}
+            script={script}
             sessionId={sessionId}
+            scriptId={scriptId}
+            tabsRefreshTrigger={tabsRefreshTrigger}
+            isSaving={isSaving}
+            onTokenStream={(callback) => {
+              tokenStreamCallbackRef.current = callback;
+            }}
+            onGetSelection={(callback) => {
+              selectionGetterRef.current = callback;
+            }}
+            onUpdate={onUpdateScript}
+            onBack={onBack}
+            onImportScript={onImportScript}
+            onScriptCreated={onScriptCreated}
+            onSwitchScript={onSwitchScript}
+            onTabClose={onTabClose}
+            onEditSelection={handleEditSelection}
+            onModeChange={(mode) => setScriptPanelMode(mode === 'scripting' ? 'script' : 'whiteboard')}
+            generatingScript={
+              generationState.isStreaming &&
+              (generationState.intent === 'draft' || generationState.intent === 'edit' || generationState.intent === 'hybrid')
+            }
           />
-
-          {/* Export to Editron Dialog */}
-          <ExportToEditronDialog
-            open={showExportDialog}
-            onOpenChange={setShowExportDialog}
-            blocks={script?.blocks || []}
-            plainText={script?.content || ''}
-            sessionId={sessionId || undefined}
-            scriptId={scriptId || undefined}
-          />
-
-          {/* Settings Panel Overlay */}
-          <AnimatePresence>
-            {showSettings && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto"
-                onClick={handleCloseSettings}
-              >
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 20 }}
-                  transition={{ duration: 0.25, ease: 'easeOut' }}
-                  className="relative w-full max-w-5xl my-8 mx-4"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {/* Close button */}
-                  <button
-                    onClick={handleCloseSettings}
-                    className="absolute -top-2 -right-2 z-10 flex items-center justify-center w-10 h-10 rounded-full bg-neutral-900 border border-white/10 text-white/70 hover:text-white hover:bg-neutral-800 transition-colors shadow-lg"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-
-                  <div className="bg-neutral-950 rounded-3xl border border-white/10 p-6 shadow-2xl">
-                    <SessionMetadataSettings
-                      idea={{
-                        id: Number(selectedIdea.id),
-                        idea: selectedIdea.idea,
-                        purpose: selectedIdea.purpose,
-                        style: selectedIdea.style,
-                        format: selectedIdea.format,
-                        platform: selectedIdea.platform,
-                        tone: selectedIdea.tone as any,
-                        sessionName: selectedIdea.sessionName
-                      }}
-                      onProceedToChat={handleCloseSettings}
-                      onGoBack={onGoToIdeation}
-                      onUpdateIdea={(updatedIdea) => {
-                        if (onUpdateIdea) {
-                          return onUpdateIdea({
-                            ...selectedIdea,
-                            ...updatedIdea,
-                            id: String(updatedIdea.id)
-                          });
-                        }
-                        return Promise.resolve();
-                      }}
-                      hideNavigation={true}
-                    />
-                  </div>
-                </motion.div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center h-full text-neutral-400">
-          <FileText size={48} className="mb-4 opacity-50" />
-          <p className="text-lg font-medium">No script selected</p>
-          <p className="text-sm mt-2">Start by creating an idea in Ideation mode or opening a session from the Library.</p>
-          <button
-            onClick={onGoToIdeation}
-            className="mt-6 px-4 py-2 bg-red-600/20 text-red-200 border border-red-500/30 rounded-lg hover:bg-red-600/30 transition-colors"
+
+        {/* RIGHT — AI Chat */}
+        <div className="chat-col" style={{ display: 'flex', flexDirection: 'column' }}>
+          <ChatPanel
+            key={(sessionId || 'no-session')}
+            selectedIdea={{
+              id: Number(selectedIdea.id),
+              idea: selectedIdea.idea,
+              purpose: selectedIdea.purpose,
+              style: selectedIdea.style,
+              format: selectedIdea.format,
+              platform: selectedIdea.platform,
+              tone: selectedIdea.tone as any,
+              sessionName: selectedIdea.sessionName
+            }}
+            script={script}
+            scriptId={scriptId}
+            onApplyEdit={onApplyEdit}
+            onRunEdit={onRunEdit}
+            sessionId={sessionId}
+            onOpenSettings={handleOpenSettings}
+            onOpenKnowledge={() => setShowKnowledge(true)}
+            onSwitchSession={onSwitchSession}
+            onScriptCreated={onScriptCreated}
+            onTokenStream={handleTokenStream}
+            onGetSelection={handleGetSelection}
+            editingSelection={editingSelection}
+            onCancelEditSelection={() => setEditingSelection(null)}
+            onGenerationStateChange={setGenerationState}
+            workspaceMode={scriptPanelMode}
+          />
+        </div>
+
+      </div>
+
+      {/* Overlays */}
+      <KnowledgePanel
+        open={showKnowledge}
+        onClose={() => setShowKnowledge(false)}
+        sessionId={sessionId}
+      />
+
+      <ExportToEditronDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        blocks={script?.blocks || []}
+        plainText={script?.content || ''}
+        sessionId={sessionId || undefined}
+        scriptId={scriptId || undefined}
+      />
+
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto"
+            onClick={handleCloseSettings}
           >
-            Go to Ideation
-          </button>
-        </div>
-      )}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+              className="relative w-full max-w-5xl my-8 mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={handleCloseSettings}
+                className="absolute -top-2 -right-2 z-10 flex items-center justify-center w-10 h-10 rounded-full bg-[#0F0F0E] border border-[#1C1B19] text-[#B5B2A8] hover:text-[#ECE9E1] hover:bg-[#1C1B19] transition-colors shadow-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="bg-[#0B0B0A] rounded-3xl border border-[#1C1B19] p-6 shadow-2xl">
+                <SessionMetadataSettings
+                  idea={{
+                    id: Number(selectedIdea.id),
+                    idea: selectedIdea.idea,
+                    purpose: selectedIdea.purpose,
+                    style: selectedIdea.style,
+                    format: selectedIdea.format,
+                    platform: selectedIdea.platform,
+                    tone: selectedIdea.tone as any,
+                    sessionName: selectedIdea.sessionName
+                  }}
+                  onProceedToChat={handleCloseSettings}
+                  onGoBack={onGoToIdeation}
+                  onUpdateIdea={(updatedIdea) => {
+                    if (onUpdateIdea) {
+                      return onUpdateIdea({
+                        ...selectedIdea,
+                        ...updatedIdea,
+                        id: String(updatedIdea.id)
+                      });
+                    }
+                    return Promise.resolve();
+                  }}
+                  hideNavigation={true}
+                />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

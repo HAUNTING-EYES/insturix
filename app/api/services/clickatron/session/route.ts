@@ -4,7 +4,7 @@ import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { CreateSessionRequestSchema } from '@/types/clickatron';
 import { z } from 'zod';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { createJob } from '@/lib/clickatron-jobs';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
 import { nanoid } from 'nanoid';
@@ -95,14 +95,14 @@ export async function POST(request: Request) {
     // 3. Upload reference images if they exist
     for (const referenceImage of referenceImages) {
       const buffer = Buffer.from(await referenceImage.arrayBuffer());
-      const imageUrl = await ClickatronGCSManager.uploadImageBuffer(
+      const imageUrl = await ClickatronR2Manager.uploadImageBuffer(
         userId,
         newTask._id.toString(),
         newVariationId, // Associate with the new variation
         buffer,
         referenceImage.type
       );
-      // Store the raw GCS URL without query parameters for long-term storage
+      // Store the raw R2 URL without query parameters for long-term storage
       const rawImageUrl = imageUrl.split('?')[0];
       referenceImageRefs.push(rawImageUrl);
     }

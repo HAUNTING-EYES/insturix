@@ -152,17 +152,17 @@ export function GenerationProgress({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 10 }}
-      className="px-6 py-4 w-full border-t border-neutral-800/50 bg-neutral-900/20 backdrop-blur-md"
+      className="px-6 py-4 w-full border-t border-[#1C1B19]/50 bg-[#0F0F0E]/20 backdrop-blur-md"
     >
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5">
             <div className="relative">
-              <Hammer className="h-4 w-4 text-red-500" />
+              <Hammer className="h-4 w-4 text-[#D4A652]" />
               <motion.div 
                 animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
                 transition={{ duration: 2, repeat: Infinity }}
-                className="absolute inset-0 bg-red-500 rounded-full blur-md -z-10"
+                className="absolute inset-0 bg-[#D4A652] rounded-full blur-md -z-10"
               />
             </div>
             <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-neutral-400">
@@ -185,15 +185,15 @@ export function GenerationProgress({
           </div>
         </div>
         
-        <div className="h-[2px] w-full bg-neutral-800 rounded-full overflow-hidden relative">
+        <div className="h-[2px] w-full bg-[#1C1B19] rounded-full overflow-hidden relative">
           <motion.div
-            className="h-full bg-red-600 relative"
+            className="h-full bg-[#D4A652] relative"
             style={{ width: `${percent}%` }}
             transition={{ type: "spring", bounce: 0, duration: 0.5 }}
           >
             {/* Forging Glow */}
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-20 h-full bg-linear-to-r from-transparent to-red-400 blur-sm" />
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_10px_#ef4444]" />
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-20 h-full bg-linear-to-r from-transparent to-[#D4A652] blur-sm" />
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_10px_#D4A652]" />
           </motion.div>
         </div>
       </div>

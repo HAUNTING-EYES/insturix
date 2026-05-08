@@ -17,20 +17,20 @@ interface WorkspaceHeaderProps {
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   currentMode,
   onModeChange,
-  title = "ThinkForge",
+  title = "Script",
   onBack,
   showBack = false,
   rightActions,
 }) => {
   return (
-    <header className="fixed top-0 left-0 right-0 h-16 bg-neutral-950/80 backdrop-blur-md border-b border-neutral-800/50 z-40 flex items-center justify-between px-4 sm:px-6">
+    <header className="fixed top-0 left-0 right-0 h-16 bg-[#0B0B0A]/80 backdrop-blur-md border-b border-[#1C1B19]/50 z-40 flex items-center justify-between px-4 sm:px-6">
       <div className="flex items-center gap-4 min-w-[200px]">
         {showBack && (
           <Button
             variant="ghost"
             size="icon"
             onClick={onBack}
-            className="text-neutral-400 hover:text-white hover:bg-neutral-800/50 -ml-2"
+            className="text-neutral-400 hover:text-[#ECE9E1] hover:bg-[#1C1B19]/50 -ml-2"
           >
             <ChevronLeft size={20} />
           </Button>

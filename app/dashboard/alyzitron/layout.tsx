@@ -1,29 +1,29 @@
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Alyzitron | Creator Command Center",
+  title: "Analyze | Creator Command Center",
   description:
-    "Alyzitron Command Center ",
+    "Analyze Command Center ",
   keywords:
-    "Alyzitron Command Center",
+    "Analyze Command Center",
   openGraph: {
-    title: "Alyzitron Command Center",
+    title: "Analyze Command Center",
     description:
-      "Alyzitron Command Center",
+      "Analyze Command Center",
     images: [
       {
         url: "/icons/contact-og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "Alyzitron Command Center",
+        alt: "Analyze Command Center",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Alyzitron Command Center",
+    title: "Analyze Command Center",
     description:
-      "Alyzitron Command Center",
+      "Analyze Command Center",
     images: ["/icons/contact-twitter-image.jpg"],
   },
   

@@ -1,6 +1,5 @@
 "use client";
 
-import { useQueryClient } from '@tanstack/react-query';
 import { useState, lazy, Suspense } from 'react';
 import { useCredits } from '@/hooks/useCredits';
 // Lazy load heavy components
@@ -14,18 +13,17 @@ const AlyzitronTaskHistory = lazy(() => import('./AlyzitronTaskHistory').then(mo
  * - Use polling and react-query invalidation for real-time updates instead of RTDB.
  */
 export function ClientWrapper() {
-  const queryClient = useQueryClient();
   const [activeAnalyses] = useState<Set<string>>(new Set());
   const { invalidateCredits } = useCredits();
 
 
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-0">
       <Suspense fallback={
-        <div className="p-6 rounded-lg bg-white/[0.02] border border-white/[0.08] animate-pulse">
-          <div className="h-6 bg-white/10 rounded mb-4"></div>
-          <div className="h-32 bg-white/5 rounded"></div>
+        <div className="px-0 py-16 animate-pulse">
+          <div className="mx-auto mb-4 h-8 max-w-md rounded bg-[#131312]"></div>
+          <div className="mx-auto h-12 max-w-xl rounded-[10px] bg-[#0F0F0E]"></div>
         </div>
       }>
         <VideoUpload
@@ -42,11 +40,9 @@ export function ClientWrapper() {
       </Suspense>
       
       <Suspense fallback={
-        <div className="space-y-4">
+        <div className="border-t border-[#1C1B19] py-6">
           {[1, 2, 3].map(i => (
-            <div key={i} className="p-4 rounded-lg bg-white/[0.02] border border-white/[0.08] animate-pulse">
-              <div className="h-4 bg-white/10 rounded mb-2"></div>
-              <div className="h-16 bg-white/5 rounded"></div>
+            <div key={i} className="mb-1.5 h-[60px] rounded-lg border border-[#1C1B19] bg-[#0F0F0E] animate-pulse">
             </div>
           ))}
         </div>

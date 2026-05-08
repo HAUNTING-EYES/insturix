@@ -22,8 +22,8 @@ interface SessionMetadataSettingsProps {
 
 // Small pill buttons for tone selection
 const TONE_OPTIONS: { value: Idea['tone']; label: string; desc: string; swatch: string }[] = [
-  { value: 'white', label: 'White', desc: 'Facts & Data', swatch: 'bg-white border border-zinc-300' },
-  { value: 'red', label: 'Red', desc: 'Emotion & Feel', swatch: 'bg-red-500' },
+  { value: 'white', label: 'White', desc: 'Facts & Data', swatch: 'bg-white border border-[#282724]' },
+  { value: 'red', label: 'Red', desc: 'Emotion & Feel', swatch: 'bg-[#D4A652]' },
   { value: 'black', label: 'Black', desc: 'Caution & Risk', swatch: 'bg-black border border-white/30' },
   { value: 'yellow', label: 'Yellow', desc: 'Benefits & Value', swatch: 'bg-yellow-400' },
   { value: 'green', label: 'Green', desc: 'Creative Expansion', swatch: 'bg-green-500' },
@@ -186,18 +186,18 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
               onClick={onGoBack}
               size="sm"
               variant="outline"
-              className="border-white/10 bg-white/5 hover:bg-white/10 text-white/80 backdrop-blur-xl transition-all hover:border-white/20"
+              className="border-[#282724] bg-[#0F0F0E] hover:bg-[#131312] text-[#B5B2A8] transition-all hover:border-[#D4A652]/30"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Generate Ideas
             </Button>
           )}
           <div className="space-y-0.5">
-            <h2 className="text-xl font-semibold tracking-tight bg-gradient-to-br from-white via-white to-white/70 bg-clip-text text-transparent flex items-center gap-2">
-              <Settings className="h-5 w-5 text-red-500" />
+            <h2 className="text-xl font-semibold tracking-tight text-[#ECE9E1] flex items-center gap-2">
+              <Settings className="h-5 w-5 text-[#D4A652]" />
               Session Settings
             </h2>
-            <p className="text-[10px] uppercase tracking-[0.15em] text-white/40">Configure your project parameters</p>
+            <p className="text-[10px] uppercase tracking-[0.15em] text-[#5F5E5A]">Configure your project parameters</p>
           </div>
         </div>
         
@@ -257,7 +257,7 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
                 }
                 onProceedToChat(payload);
               }}
-              className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-rose-700 via-red-500 to-rose-700 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-900/40 transition-all hover:from-red-500 hover:via-rose-500 hover:to-red-600 hover:shadow-xl hover:shadow-red-900/50"
+              className="group relative overflow-hidden rounded-[7px] bg-[#D4A652] px-5 py-2.5 text-sm font-extrabold text-[#0B0B0A] shadow-lg transition-all hover:bg-[#e0b765]"
             >
               <span className="relative z-10 flex items-center gap-2">
                 <Play className="h-4 w-4 fill-current" /> 
@@ -274,17 +274,15 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.1 }}
-        className="relative rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-white/[0.01] p-[1px] shadow-2xl shadow-black/40 backdrop-blur-2xl"
+        className="relative rounded-xl border border-[#1C1B19] bg-[#0F0F0E] shadow-2xl shadow-black/40"
       >
         <div className="relative rounded-[inherit] overflow-hidden">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,0,0,0.15),transparent_60%)] opacity-50" />
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_80%_80%,rgba(59,130,246,0.1),transparent_70%)] opacity-30" />
-          <div className="relative z-10 backdrop-blur-3xl rounded-[inherit] p-8 space-y-8">
+          <div className="relative z-10 rounded-[inherit] p-8 space-y-8">
             {/* Session Name Field */}
             <div className="space-y-3">
               <div className="flex items-center gap-4">
                  <div className={`h-4 w-4 flex-shrink-0 rounded-full ${getToneColorClass(localIdea.tone)}`}></div>
-                 <h3 className="text-lg font-semibold leading-snug text-white/90">Session Name</h3>
+                 <h3 className="text-lg font-semibold leading-snug text-[#ECE9E1]">Session Name</h3>
               </div>
               <EditableArea
                 label="Session Name"
@@ -294,18 +292,18 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
                 rows={1}
                 maxLength={100}
               />
-              <div className="flex items-center justify-between text-[11px] text-white/40">
-                <span className={nameError ? "text-red-400" : "text-white/50"}>
+              <div className="flex items-center justify-between text-[11px] text-[#5F5E5A]">
+                <span className={nameError ? "text-[#D4A652]" : "text-[#5F5E5A]"}>
                   {nameError ? nameError : 'Max 100 characters'}
                 </span>
-                <span className="text-white/30">{(localIdea.sessionName || '').length}/100</span>
+                <span className="text-[#454340]">{(localIdea.sessionName || '').length}/100</span>
               </div>
             </div>
 
             {/* Core Concept (Now Editable) */}
             <div className="space-y-3">
               <div className="flex items-center gap-4">
-                 <h3 className="text-lg font-semibold leading-snug text-white/90">Title (Core Concept)</h3>
+                 <h3 className="text-lg font-semibold leading-snug text-[#ECE9E1]">Title (Core Concept)</h3>
               </div>
               <EditableArea
                 label="Core Concept"
@@ -349,8 +347,8 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
             {/* Tone Selection */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold tracking-wider text-white/50 uppercase">Thinking Approach</span>
-                <span className="text-[10px] font-medium text-white/30">{getToneDescription(localIdea.tone)}</span>
+                <span className="text-xs font-semibold tracking-wider text-[#7A776E] uppercase">Thinking Approach</span>
+                <span className="text-[10px] font-medium text-[#5F5E5A]">{getToneDescription(localIdea.tone)}</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {TONE_OPTIONS.map(t => {
@@ -360,7 +358,7 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
                       key={t.value}
                       type="button"
                       onClick={() => handleTone(t.value)}
-                      className={`group relative flex items-center gap-2 rounded-full px-3 py-2 text-xs font-medium transition-all backdrop-blur-xl border ${active ? 'border-red-400/60 bg-red-500/20 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.15)]' : 'border-white/10 bg-white/5 text-white/60 hover:text-white hover:border-white/20 hover:bg-white/[0.12]'}`}
+                      className={`group relative flex items-center gap-2 rounded-full px-3 py-2 text-xs font-medium transition-all border ${active ? 'border-[#D4A652]/60 bg-[#D4A652]/15 text-[#ECE9E1]' : 'border-[#1C1B19] bg-[#131312] text-[#7A776E] hover:text-[#ECE9E1] hover:border-[#282724]'}`}
                       title={t.desc}
                     >
                       <span className={`h-3 w-3 rounded-full ${t.swatch} shadow ring-1 ring-black/30`}></span>
@@ -371,7 +369,7 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
             </div>
           </div>
           {/* Subtle edge light */}
-          <div className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-white/5" />
+          <div className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-[#1C1B19]" />
         </div>
       </motion.div>
     </motion.div>
@@ -395,9 +393,9 @@ function EditableArea({ label, value, onChange, placeholder, rows = 3, maxLength
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="group relative"
     >
-      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/[0.12] via-white/[0.06] to-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-300" />
-      <div className="relative rounded-2xl border border-white/10 bg-white/[0.05] p-4 backdrop-blur-xl shadow-inner shadow-black/40 hover:border-white/20 group-focus-within:border-white/30 transition-all duration-300">
-        <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest text-white/50">
+      <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-[#D4A652]/[0.03] via-transparent to-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-300" />
+      <div className="relative rounded-xl border border-[#1C1B19] bg-[#131312] p-4 hover:border-[#282724] group-focus-within:border-[#282724] transition-all duration-300">
+        <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest text-[#7A776E]">
           {label}
         </label>
         <textarea
@@ -406,7 +404,7 @@ function EditableArea({ label, value, onChange, placeholder, rows = 3, maxLength
           rows={rows}
           placeholder={placeholder}
           maxLength={maxLength}
-          className={`w-full resize-none bg-transparent text-sm leading-relaxed text-white/90 outline-none placeholder:text-white/30 focus-visible:ring-0 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20 transition-colors ${rows === 1 ? 'h-8 max-h-8' : 'h-20 max-h-40'}`}
+          className={`w-full resize-none bg-transparent text-sm leading-relaxed text-[#ECE9E1] outline-none placeholder:text-[#454340] focus-visible:ring-0 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[#282724] hover:scrollbar-thumb-[#454340] transition-colors ${rows === 1 ? 'h-8 max-h-8' : 'h-20 max-h-40'}`}
         />
       </div>
     </motion.div>
@@ -501,21 +499,21 @@ function MultiValueEditor({ label, values, onChange, placeholder, options }: Mul
       className="group relative"
       ref={containerRef}
     >
-      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/[0.12] via-white/[0.06] to-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-300" />
-      <div className="relative rounded-2xl border border-white/10 bg-white/[0.05] p-4 backdrop-blur-xl shadow-inner shadow-black/40 hover:border-white/20 group-focus-within:border-white/30 transition-all duration-300">
-        <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest text-white/50">{label}</label>
-  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20 scrollbar-track-transparent transition-colors">
+      <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-[#D4A652]/[0.03] via-transparent to-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-300" />
+      <div className="relative rounded-xl border border-[#1C1B19] bg-[#131312] p-4 hover:border-[#282724] group-focus-within:border-[#282724] transition-all duration-300">
+        <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest text-[#7A776E]">{label}</label>
+  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-[#282724] hover:scrollbar-thumb-[#454340] scrollbar-track-transparent transition-colors">
           {values.map(v => (
             <span
               key={v}
-              className="flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-white/80 shadow-sm backdrop-blur-md"
+              className="flex items-center gap-1 rounded-full border border-[#282724] bg-[#1C1B19] px-3 py-1 text-xs font-medium text-[#ECE9E1] shadow-sm"
             >
               <span>{v}</span>
               <button
                 type="button"
                 aria-label={`Remove ${v}`}
                 onClick={() => remove(v)}
-                className="ml-0.5 rounded-full p-0.5 text-white/40 hover:text-white hover:bg-white/10 transition"
+                className="ml-0.5 rounded-full p-0.5 text-[#7A776E] hover:text-[#ECE9E1] hover:bg-[#282724] transition"
               >
                 ×
               </button>
@@ -528,14 +526,14 @@ function MultiValueEditor({ label, values, onChange, placeholder, options }: Mul
             onKeyDown={handleKey}
             placeholder={placeholder}
             onFocus={() => { if (input) setOpen(true); }}
-            className="min-w-[100px] flex-1 bg-transparent text-sm text-white/90 placeholder:text-white/25 focus:outline-none"
+            className="min-w-[100px] flex-1 bg-transparent text-sm text-[#ECE9E1] placeholder:text-[#454340] focus:outline-none"
           />
         </div>
       </div>
       {open && suggestionList.length > 0 && createPortal(
         <div
           style={{ top: dropdownStyle.top, left: dropdownStyle.left, width: dropdownStyle.width, position: 'absolute' }}
-          className="z-[200] max-h-72 overflow-y-auto rounded-xl border border-white/10 bg-neutral-950/95 p-1 backdrop-blur-2xl shadow-2xl shadow-black/60 ring-1 ring-white/5 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
+          className="z-[200] max-h-72 overflow-y-auto rounded-xl border border-[#282724] bg-[#0B0B0A]/98 p-1 backdrop-blur-2xl shadow-2xl shadow-black/60 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[#282724]"
         >
           {suggestionList.map((s, idx) => {
             const isCustom = customCandidate && s === customCandidate;
@@ -546,10 +544,10 @@ function MultiValueEditor({ label, values, onChange, placeholder, options }: Mul
                 key={s + idx}
                 onMouseEnter={() => setHighlight(idx)}
                 onClick={() => commit(s)}
-                className={`w-full text-left rounded-lg px-3 py-2 text-xs font-medium transition-colors ${active ? 'bg-red-500/40 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'} ${isCustom ? 'opacity-60 italic' : ''}`}
+                className={`w-full text-left rounded-lg px-3 py-2 text-xs font-medium transition-colors ${active ? 'bg-[#D4A652]/30 text-[#ECE9E1]' : 'text-[#B5B2A8] hover:bg-[#1C1B19] hover:text-[#ECE9E1]'} ${isCustom ? 'opacity-60 italic' : ''}`}
               >
                 {s}
-                {isCustom && <span className="ml-2 text-[10px] uppercase tracking-wide text-white/40">New</span>}
+                {isCustom && <span className="ml-2 text-[10px] uppercase tracking-wide text-[#5F5E5A]">New</span>}
               </button>
             );
           })}

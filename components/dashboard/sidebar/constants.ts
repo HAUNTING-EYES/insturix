@@ -90,7 +90,7 @@ export const growthLegalTools: Product[] = [
     isPro: false,
   },
   {
-    name: "Billing",
+    name: "Credits",
     path: "/dashboard/billing",
     icon: CreditCard,
     description: "Credits",

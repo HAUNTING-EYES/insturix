@@ -22,13 +22,9 @@ interface IdeationModeProps {
   onUpdateIdea: (updated: IdeaCardData) => void;
   onManualSetup: () => void;
   isVisible: boolean;
-  /** Total session count for default naming */
   sessionCount?: number;
-  /** URL-to-Brief: called when URLs are found on submit */
   onUrlSubmit?: (urls: string[], originalPrompt: string) => void;
-  /** URL-to-Brief: whether brief extraction is in progress */
   briefLoading?: boolean;
-  /** URL-to-Brief: results after extraction */
   briefResults?: UrlBriefResult[] | null;
 }
 
@@ -54,14 +50,9 @@ export default function IdeationMode({
   briefResults,
 }: IdeationModeProps) {
   return (
-    <div className={clsx("w-full h-full transition-opacity duration-300", isVisible ? "opacity-100 block" : "opacity-0 hidden absolute inset-0 pointer-events-none")}>
+    <div style={{ display: isVisible ? 'flex' : 'none', flexDirection: 'column', flex: 1, width: '100%' }}>
       {(phase === 'PROMPT' || phase === 'IDEAS') && (
-        <div
-          className={clsx(
-            'relative mx-auto flex w-full max-w-7xl flex-col items-center px-4 sm:px-8 h-full overflow-y-auto',
-            hasSubmitted ? 'pb-32 pt-8' : 'justify-center pb-20 pt-8'
-          )}
-        >
+        <>
           <PromptPanel
             prompt={prompt}
             setPrompt={setPrompt}
@@ -75,11 +66,11 @@ export default function IdeationMode({
             briefResults={briefResults}
           />
           <IdeaGrid ideas={ideas} loading={loading} hasSubmitted={hasSubmitted} prompt={prompt} onSelect={onSelectIdea} />
-        </div>
+        </>
       )}
 
       {phase === 'SELECTED' && selectedIdea && (
-        <div className="relative w-full px-4 pb-32 pt-8 h-full overflow-y-auto">
+        <div className="relative w-full px-4 pb-32 pt-8 h-full overflow-y-auto z-50 bg-[#0B0B0A]">
           <SessionMetadataSettings
             idea={{
               id: Number(selectedIdea.id),

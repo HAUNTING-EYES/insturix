@@ -127,28 +127,28 @@ export function ChatHistoryPanel({
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: "-100%", opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="fixed left-0 top-0 bottom-0 z-50 w-[min(400px,90vw)] bg-neutral-950/95 border-r border-white/10 backdrop-blur-xl flex flex-col"
+            className="fixed left-0 top-0 bottom-0 z-50 w-[min(400px,90vw)] bg-[#0B0B0A]/95 border-r border-[#1C1B19] backdrop-blur-xl flex flex-col"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C1B19]">
               <div className="flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-white/60" />
-                <h2 className="text-sm font-semibold text-white/90">Chat Tabs</h2>
-                <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded">
+                <MessageSquare className="h-4 w-4 text-[#B5B2A8]" />
+                <h2 className="text-sm font-semibold text-[#ECE9E1]">Chat Tabs</h2>
+                <span className="text-[10px] text-[#5F5E5A] bg-[#0F0F0E] px-2 py-0.5 rounded">
                   {displayThreads.length} tab{displayThreads.length !== 1 ? 's' : ''}
                 </span>
               </div>
               {onNewChat && (
                 <button
                   onClick={onNewChat}
-                  className="text-[10px] px-2 py-1 rounded bg-white/5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+                  className="text-[10px] px-2 py-1 rounded bg-[#0F0F0E] text-[#B5B2A8] hover:bg-[#1C1B19] hover:text-[#ECE9E1] transition-colors"
                 >
                   New Chat
                 </button>
               )}
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                className="p-1.5 rounded-lg text-[#B5B2A8] hover:text-[#ECE9E1] hover:bg-[#1C1B19] transition-colors"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -159,13 +159,13 @@ export function ChatHistoryPanel({
               <div className="p-3 space-y-2">
                 {loadingThreads ? (
                   <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin text-white/40" />
+                    <Loader2 className="h-6 w-6 animate-spin text-[#5F5E5A]" />
                   </div>
                 ) : displayThreads.length === 0 ? (
                   <div className="text-center py-12">
-                    <MessageSquare className="h-8 w-8 mx-auto mb-2 text-white/20" />
-                    <p className="text-sm text-white/40">No chat tabs found</p>
-                    <p className="text-xs text-white/30 mt-1">
+                    <MessageSquare className="h-8 w-8 mx-auto mb-2 text-[#454340]" />
+                    <p className="text-sm text-[#5F5E5A]">No chat tabs found</p>
+                    <p className="text-xs text-[#454340] mt-1">
                       Start chatting to create your first tab
                     </p>
                   </div>
@@ -183,25 +183,25 @@ export function ChatHistoryPanel({
                         className={`
                           group p-3 rounded-xl border cursor-pointer transition-all
                           ${isActive 
-                            ? 'border-red-500/30 bg-red-500/10 ring-1 ring-red-500/20' 
-                            : 'border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20'
+                            ? 'border-[#D4A652]/30 bg-[#D4A652]/10 ring-1 ring-[#D4A652]/20' 
+                            : 'border-[#1C1B19] bg-[#0F0F0E] hover:bg-[#1C1B19] hover:border-[#282724]'
                           }
                         `}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3 flex-1 min-w-0">
-                            <div className={`w-3 h-3 rounded-full mt-0.5 shrink-0 ${isActive ? 'bg-red-400' : 'bg-zinc-600'} ring-1 ring-black/30`} />
+                            <div className={`w-3 h-3 rounded-full mt-0.5 shrink-0 ${isActive ? 'bg-[#D4A652]' : 'bg-[#454340]'} ring-1 ring-black/30`} />
                             
                             <div className="flex-1 min-w-0">
                               {/* Session name */}
-                              <p className="text-sm font-medium text-white/90 truncate">
+                              <p className="text-sm font-medium text-[#ECE9E1] truncate">
                                 {thread.name || `Chat ${String(thread.id).slice(-6)}`}
                               </p>
                               
                               {/* Last edited */}
-                              <p className="text-[10px] text-white/40 mt-1">
+                              <p className="text-[10px] text-[#5F5E5A] mt-1">
                                 {isActive ? (
-                                  <span className="text-red-400">Active now</span>
+                                  <span className="text-[#D4A652]">Active now</span>
                                 ) : (
                                   formatDate(thread.lastEdited)
                                 )}
@@ -209,7 +209,7 @@ export function ChatHistoryPanel({
                             </div>
                           </div>
                           
-                          <ChevronRight className={`h-4 w-4 shrink-0 transition-colors ${isActive ? 'text-red-400' : 'text-white/20 group-hover:text-white/40'}`} />
+                          <ChevronRight className={`h-4 w-4 shrink-0 transition-colors ${isActive ? 'text-[#D4A652]' : 'text-[#454340] group-hover:text-[#5F5E5A]'}`} />
                         </div>
                       </motion.div>
                     );
@@ -219,8 +219,8 @@ export function ChatHistoryPanel({
             </ScrollArea>
             
             {/* Footer */}
-            <div className="px-4 py-3 border-t border-white/5 text-center">
-              <p className="text-[10px] text-white/30">
+            <div className="px-4 py-3 border-t border-[#1C1B19] text-center">
+              <p className="text-[10px] text-[#454340]">
                 Showing {displayThreads.length} chat tab{displayThreads.length !== 1 ? 's' : ''}
               </p>
             </div>

@@ -93,11 +93,11 @@ const config: Config = {
           '100%': { left: '125%' },
         },
         'mobile-bounce': {
-          '0%, 100%': { 
+          '0%, 100%': {
             transform: 'translateY(0)',
             animationTimingFunction: 'cubic-bezier(0.8, 0, 1, 1)'
           },
-          '50%': { 
+          '50%': {
             transform: 'translateY(-2px)',
             animationTimingFunction: 'cubic-bezier(0, 0, 0.2, 1)'
           },
@@ -116,13 +116,19 @@ const config: Config = {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0' },
         },
+        "border-beam-spin": {
+          "0%": { transform: "translate(-50%, -50%) rotate(0deg)" },
+          "100%": { transform: "translate(-50%, -50%) rotate(360deg)" },
+        },
       },
+
       animation: {
         progress: "progress 2s ease-in-out infinite",
         shine: "shine 1s linear infinite",
         'mobile-bounce': 'mobile-bounce 0.3s ease-in-out',
         'fade-in-up': 'fade-in-up 0.5s ease-out',
         'blink': 'blink 1s step-end infinite',
+        "border-beam-spin": "border-beam-spin calc(var(--duration) * 1s) infinite linear",
       },
     },
   },

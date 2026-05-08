@@ -31,8 +31,8 @@ export function SidecarActions({
         className={cn(
           "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all",
           disabled
-            ? "text-zinc-700 cursor-not-allowed"
-            : "text-zinc-300 hover:text-white hover:bg-white/[0.08] ring-1 ring-white/[0.06] hover:ring-white/[0.12]",
+            ? "text-[#454340] cursor-not-allowed"
+            : "text-[#B5B2A8] hover:text-[#ECE9E1] hover:bg-white/[0.08] ring-1 ring-white/[0.06] hover:ring-white/[0.12]",
           isLoading && "animate-pulse"
         )}
       >

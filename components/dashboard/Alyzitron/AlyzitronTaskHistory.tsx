@@ -1,12 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import Image from "next/image";
 import type {
   AlyzitronAnalysis,
   AnalysisStatus,
@@ -17,12 +14,7 @@ import {
   FileVideo,
   ChevronLeft,
   ChevronRight,
-  ChevronRight as ChevronRightIcon,
-  Activity,
-  Radar,
-  BarChart3,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { AnalysisProgress } from "./AnalysisProgress";
 
 interface AlyzitronTaskHistoryProps {
@@ -157,42 +149,22 @@ export function AlyzitronTaskHistory({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-blue-500/30">
-            <BarChart3 className="h-4 w-4 text-blue-300" />
-          </div>
-          <h2 className="text-lg sm:text-xl font-semibold text-white tracking-tight">
-            Analysis History
-          </h2>
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
-            <span className="px-2.5 py-1 bg-zinc-800/60 border border-zinc-700/50 rounded-full text-xs font-medium">
-              {totalItems} total
+    <div className="border-t border-[#1C1B19] px-0 py-6 sm:py-8">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="font-mono text-[10px] tracking-[0.08em] text-[#5F5E5A]">
+          RECENT · {totalItems}
+          {processingAnalysesCount > 0 && (
+            <span className="ml-2 text-[#D4A652]">
+              · {processingAnalysesCount} in progress
             </span>
-            {processingAnalysesCount > 0 && (
-              <span className="px-2.5 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-300 rounded-full text-xs font-medium animate-pulse">
-                {processingAnalysesCount} processing
-              </span>
-            )}
-          </div>
-        </div>
+          )}
+        </span>
       </div>
 
       {/* In Progress Section */}
       {inProgressAnalyses && inProgressAnalyses.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center gap-2.5 mb-4 pb-2 border-b border-zinc-800/50">
-            <div className="flex items-center justify-center w-6 h-6 rounded-md bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/20">
-              <Activity className="h-3.5 w-3.5 text-amber-400" />
-            </div>
-            <h3 className="text-sm font-semibold text-amber-100 tracking-wide uppercase letter-spacing-wider">
-              In Progress
-            </h3>
-            <div className="h-1 w-1 rounded-full bg-amber-400/60 animate-pulse"></div>
-          </div>
-          <div className="space-y-3 sm:space-y-4">
+        <div className="mb-1.5">
+          <div className="flex flex-col gap-1.5">
             {inProgressAnalyses.map((analysis: AnalysisDisplay) => (
               <AnalysisProgress
                 key={analysis._id}
@@ -215,32 +187,21 @@ export function AlyzitronTaskHistory({
       )}
 
       {/* Completed Section */}
-      <div className="space-y-3 sm:space-y-4 min-h-[400px] relative">
+      <div className="relative min-h-[260px]">
         {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+          <div className="flex h-40 items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-[#7A776E]" />
           </div>
         ) : completedFailedAnalyses.length === 0 &&
           inProgressAnalyses.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 bg-black/20 py-24 px-6">
-            <FileVideo className="h-12 w-12 text-zinc-500 mb-4" />
-            <p className="text-zinc-400 text-center mb-2">
+          <div className="flex flex-col items-center justify-center border border-dashed border-[#282724] bg-[#0F0F0E]/50 px-6 py-20">
+            <FileVideo className="mb-4 h-10 w-10 text-[#5F5E5A]" />
+            <p className="mb-2 text-center text-sm text-[#B5B2A8]">
               No analyses found yet
-            </p>
-            <p className="text-zinc-500 text-sm text-center">
-              Start an analysis using the form above to see it appear here.
             </p>
           </div>
         ) : (
-          <>
-            <div className="flex items-center gap-2.5 mb-4 pb-2 border-b border-zinc-800/50">
-              <div className="flex items-center justify-center w-6 h-6 rounded-md bg-gradient-to-br from-emerald-500/20 to-yellow-500/20 border border-emerald-500/20">
-                <Radar className="h-3.5 w-3.5 text-emerald-400" />
-              </div>
-              <h3 className="text-sm font-semibold text-emerald-100 tracking-wide uppercase letter-spacing-wider">
-                Processing Result
-              </h3>
-            </div>
+          <div className="flex flex-col gap-1.5">
             {completedFailedAnalyses.map((analysis) => (
               <AnalysisProgress
                 key={analysis._id}
@@ -259,28 +220,28 @@ export function AlyzitronTaskHistory({
 
             {/* Empty state for current page */}
             {completedFailedAnalyses.length === 0 && !isLoading && (
-              <div className="text-center py-8 text-zinc-500">
+              <div className="py-8 text-center text-sm text-[#5F5E5A]">
                 No analyses on this page.
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mt-6">
+        <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
           <Button
             variant="outline"
             size="sm"
             onClick={handlePreviousPage}
             disabled={currentPage === 1 || isLoading}
-            className="w-full sm:w-auto order-2 sm:order-1"
+            className="order-2 w-full border-[#282724] bg-transparent text-[#B5B2A8] hover:bg-[#131312] hover:text-[#ECE9E1] sm:order-1 sm:w-auto"
           >
-            <ChevronLeft className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+            <ChevronLeft className="mr-1 h-3 w-3 sm:mr-2 sm:h-4 sm:w-4" />
             <span className="text-xs sm:text-sm">Previous</span>
           </Button>
-          <span className="text-xs sm:text-sm text-zinc-400 order-1 sm:order-2 text-center">
+          <span className="order-1 text-center font-mono text-xs text-[#7A776E] sm:order-2 sm:text-sm">
             Page {currentPage} of {totalPages}
             <span className="hidden sm:inline"> ({totalItems} total)</span>
           </span>
@@ -289,7 +250,7 @@ export function AlyzitronTaskHistory({
             size="sm"
             onClick={handleNextPage}
             disabled={currentPage >= totalPages || isLoading}
-            className="w-full sm:w-auto order-3"
+            className="order-3 w-full border-[#282724] bg-transparent text-[#B5B2A8] hover:bg-[#131312] hover:text-[#ECE9E1] sm:w-auto"
           >
             <span className="text-xs sm:text-sm">Next</span>
             <ChevronRight className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4" />

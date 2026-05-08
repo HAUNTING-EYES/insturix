@@ -25,7 +25,7 @@ export function ThinkingBlock({ thinking, defaultCollapsed = true }: ThinkingBlo
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
-        className="flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-400 transition-colors select-none"
+        className="flex items-center gap-1.5 text-[11px] text-[#5F5E5A] hover:text-[#7A776E] transition-colors select-none"
       >
         <ChevronDown
           className={cn(
@@ -37,11 +37,11 @@ export function ThinkingBlock({ thinking, defaultCollapsed = true }: ThinkingBlo
       </button>
 
       {!collapsed && (
-        <div className="mt-1.5 ml-1 border-l-2 border-zinc-700 pl-3 space-y-0.5">
+        <div className="mt-1.5 ml-1 border-l-2 border-[#282724] pl-3 space-y-0.5">
           {lines.map((line, i) => (
             <p
               key={i}
-              className="text-[11px] text-zinc-500 italic leading-relaxed animate-in fade-in duration-300"
+              className="text-[11px] text-[#5F5E5A] italic leading-relaxed animate-in fade-in duration-300"
               style={{ animationDelay: `${i * 60}ms`, animationFillMode: "backwards" }}
             >
               {line}

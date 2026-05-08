@@ -12,11 +12,12 @@ export interface ImageOverlayManagerHandle {
 interface Props {
   width: number;
   height: number;
+  isActive?: boolean;
   onImageAdded?: (id: string) => void;
   onImageSelected?: (id: string | null) => void;
 }
 
-export const ImageOverlayManager = forwardRef<ImageOverlayManagerHandle, Props>(function ImageOverlayManager({ width, height, onImageAdded, onImageSelected }, ref) {
+export const ImageOverlayManager = forwardRef<ImageOverlayManagerHandle, Props>(function ImageOverlayManager({ width, height, isActive = false, onImageAdded, onImageSelected }, ref) {
   const [overlays, setOverlays] = useState<OverlayData[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -79,8 +80,10 @@ export const ImageOverlayManager = forwardRef<ImageOverlayManagerHandle, Props>(
   };
 
   return (
-    <div className="absolute inset-0 pointer-events-none">
-      <div style={{ width, height }} className="relative mx-auto pointer-events-none">
+    <div
+      className={`absolute inset-0 ${isActive ? "pointer-events-auto" : "pointer-events-none"}`}
+    >
+      <div style={{ width, height }} className="relative mx-auto">
         {overlays.map((ov) => (
           <div key={ov.id} className="absolute" style={{ left: 0, top: 0 }}>
             <ImageOverlay

@@ -25,135 +25,291 @@ import ChatToggleButton from "@/components/dashboard/Alyzitron/chat/Chattogglebu
 import ChatPanel from "@/components/dashboard/Alyzitron/chat/ChatPanel";
 import { ExportPDFButton } from "@/components/dashboard/Alyzitron/ExportPDFButton";
 
-// Helper function to copy text to clipboard
+// ─── palette (mirrors Alyzitron.jsx exactly) ─────────────────────────────────
+const C = {
+  bg: "#0B0B0A",
+  s1: "#0F0F0E",
+  s2: "#131312",
+  border: "#1C1B19",
+  borderL: "#282724",
+  text: "#ECE9E1",
+  soft: "#B5B2A8",
+  muted: "#7A776E",
+  dim: "#5F5E5A",
+  faint: "#454340",
+  accent: "#D4A652",
+  green: "#5EC97E",
+  red: "#D46A5C",
+};
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
 const copyToClipboard = async (text: string): Promise<boolean> => {
   try {
     await navigator.clipboard.writeText(text);
     return true;
-  } catch (err) {
-    console.error("Failed to copy:", err);
+  } catch {
     return false;
   }
 };
 
-// Helper function to convert HH:MM:SS timestamp to seconds
 const timestampToSeconds = (timestamp: string): number => {
-  const parts = timestamp.split(':').map(Number);
-  
-  if (parts.length === 3) {
-    // HH:MM:SS format
-    const [hours, minutes, seconds] = parts;
-    return hours * 3600 + minutes * 60 + seconds;
-  } else if (parts.length === 2) {
-    // MM:SS format (fallback)
-    const [minutes, seconds] = parts;
-    return minutes * 60 + seconds;
-  } else if (parts.length === 1) {
-    // Just seconds (fallback)
-    return parts[0];
-  }
-  
-  return 0;
+  const parts = timestamp.split(":").map(Number);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] ?? 0;
 };
 
-// Component to render text with clickable timestamps
-
-const TimestampText = ({ text, onTimestampClick }: {text: string, onTimestampClick: (timestamp: string) => void}) => {
-  // Regex to match [HH:MM:SS], [MM:SS], or [H:MM:SS] format
+const TimestampText = ({
+  text,
+  onTimestampClick,
+}: {
+  text: string;
+  onTimestampClick: (ts: string) => void;
+}) => {
   const timestampRegex = /\[(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\]/g;
-  
-  const parts = [];
+  const parts: { type: string; content: string; key: string }[] = [];
   let lastIndex = 0;
-  let match;
-
+  let match: RegExpExecArray | null;
   while ((match = timestampRegex.exec(text)) !== null) {
-    // Add text before the timestamp
-    if (match.index > lastIndex) {
-      parts.push({
-        type: 'text',
-        content: text.substring(lastIndex, match.index),
-        key: `text-${lastIndex}`
-      });
-    }
-    
-    // Add the timestamp as a clickable button
-    const timestamp = match[1]; // Extract timestamp without brackets
-    parts.push({
-      type: 'timestamp',
-      content: timestamp,
-      key: `timestamp-${match.index}`
-    });
-    
+    if (match.index > lastIndex)
+      parts.push({ type: "text", content: text.substring(lastIndex, match.index), key: `t-${lastIndex}` });
+    parts.push({ type: "timestamp", content: match[1], key: `ts-${match.index}` });
     lastIndex = match.index + match[0].length;
   }
-  
-  // Add remaining text after the last timestamp
-  if (lastIndex < text.length) {
-    parts.push({
-      type: 'text',
-      content: text.substring(lastIndex),
-      key: `text-${lastIndex}`
-    });
-  }
+  if (lastIndex < text.length)
+    parts.push({ type: "text", content: text.substring(lastIndex), key: `t-${lastIndex}` });
 
   return (
     <>
-      {parts.map((part) => {
-        if (part.type === 'timestamp') {
-          return (
-            <button
-              key={part.key}
-              onClick={() => onTimestampClick(part.content)}
-              className="inline-flex items-center gap-0.5 text-blue-400 hover:text-blue-300 hover:underline font-mono text-xs transition-colors mx-0.5"
-              title={`Jump to ${part.content}`}
-            >
-              {part.content}
-            </button>
-          );
-        } else {
-          return <span key={part.key}>{part.content}</span>;
-        }
-      })}
+      {parts.map((p) =>
+        p.type === "timestamp" ? (
+          <button
+            key={p.key}
+            onClick={() => onTimestampClick(p.content)}
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 11,
+              color: C.accent,
+              padding: "0 2px",
+              transition: "opacity 0.2s ease",
+            }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = "0.7")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.opacity = "1")}
+            title={`Jump to ${p.content}`}
+          >
+            {p.content}
+          </button>
+        ) : (
+          <span key={p.key}>{p.content}</span>
+        )
+      )}
     </>
   );
 };
 
-// Helper function to format description with hashtags
-const formatDescription = (description: string) => {
-  const parts = description.split(/(#\w+)/g);
-  return parts.map((part, index) => {
-    if (part.startsWith("#")) {
-      return (
-        <span key={index} className="text-blue-400 font-medium">
-          {part}
-        </span>
-      );
-    }
-    return part;
-  });
+// Score colour helper (matches boss's design: green ≥ 85, amber ≥ 70, red otherwise)
+const scoreColor = (score: number, invert?: boolean) => {
+  const eff = invert ? 100 - score : score;
+  if (eff >= 85) return C.green;
+  if (eff >= 70) return C.accent;
+  return C.red;
 };
 
-const ScoreIndicator = ({
-  score,
-  invert,
-}: {
-  score: number;
-  invert?: boolean;
-}) => {
-  let colorClass;
-  const effectiveScore = invert ? 100 - score : score;
+// ─── Share button (logic unchanged, styled to match) ─────────────────────────
 
-  if (effectiveScore >= 80) colorClass = "bg-green-500/10 text-green-400";
-  else if (effectiveScore >= 60)
-    colorClass = "bg-yellow-500/10 text-yellow-400";
-  else colorClass = "bg-red-500/10 text-red-400";
+interface ShareButtonProps {
+  analysisId: string;
+  isPublic: boolean;
+  isOwner: boolean;
+  onPrivacyChange: (v: boolean) => void;
+}
+
+function ShareButton({ analysisId, isPublic, isOwner, onPrivacyChange }: ShareButtonProps) {
+  const [showDialog, setShowDialog] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const shareUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/dashboard/alyzitron/report/${analysisId}`
+      : `/dashboard/alyzitron/report/${analysisId}`;
+
+  const handleCopyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { }
+  };
+
+  const updatePrivacy = async (val: boolean) => {
+    if (!isOwner) return;
+    setIsUpdating(true);
+    try {
+      const res = await fetch(`/api/services/alyzitron/analyses/${analysisId}/privacy`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: val }),
+      });
+      if (res.ok) onPrivacyChange(val);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  if (!isOwner) return null;
 
   return (
-    <div className={`text-xl font-bold px-3.5 py-1.5 rounded-lg ${colorClass}`}>
-      {score}
-    </div>
+    <>
+      <button
+        onClick={() => setShowDialog(true)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "8px 14px",
+          background: C.s1,
+          border: `1px solid ${C.borderL}`,
+          borderRadius: 7,
+          color: C.soft,
+          fontSize: 12,
+          fontWeight: 500,
+          cursor: "pointer",
+          fontFamily: "inherit",
+          transition: "border-color 0.2s ease, color 0.2s ease",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLElement).style.borderColor = C.faint;
+          (e.currentTarget as HTMLElement).style.color = C.text;
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLElement).style.borderColor = C.borderL;
+          (e.currentTarget as HTMLElement).style.color = C.soft;
+        }}
+      >
+        <Share2 size={13} />
+        Share
+      </button>
+
+      {showDialog && (
+        <AnimatePresence>
+          <motion.div
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.6)",
+              backdropFilter: "blur(4px)",
+              zIndex: 50,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 16,
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ duration: 0.2, ease: "easeInOut" }}
+              style={{
+                background: C.s1,
+                border: `1px solid ${C.border}`,
+                borderRadius: 12,
+                padding: 24,
+                width: "100%",
+                maxWidth: 400,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>Share Analysis</span>
+                <button onClick={() => setShowDialog(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted }}>
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+                {[{ val: false, Icon: Lock, label: "Private", sub: "Only you can view this" }, { val: true, Icon: Globe, label: "Public", sub: "Anyone with the link" }].map(({ val, Icon, label, sub }) => (
+                  <button
+                    key={label}
+                    onClick={() => updatePrivacy(val)}
+                    disabled={isUpdating}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "12px 14px",
+                      background: isPublic === val ? C.s2 : "transparent",
+                      border: `1px solid ${isPublic === val ? C.faint : C.border}`,
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      textAlign: "left",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <Icon size={15} color={isPublic === val ? C.text : C.muted} />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: isPublic === val ? C.text : C.muted }}>{label}</div>
+                      <div style={{ fontSize: 11, color: C.dim }}>{sub}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 8, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.04em" }}>SHARE LINK</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    readOnly
+                    value={shareUrl}
+                    style={{
+                      flex: 1,
+                      padding: "9px 12px",
+                      background: C.s2,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 7,
+                      color: C.soft,
+                      fontSize: 12,
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  />
+                  <button
+                    onClick={handleCopyUrl}
+                    style={{
+                      padding: "9px 12px",
+                      background: C.s2,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 7,
+                      cursor: "pointer",
+                      color: C.soft,
+                      transition: "border-color 0.2s ease",
+                    }}
+                  >
+                    {copied ? <Check size={13} color={C.green} /> : <Copy size={13} />}
+                  </button>
+                </div>
+                {!isPublic && (
+                  <p style={{ fontSize: 11, color: C.accent, marginTop: 6 }}>
+                    ⚠ Make this public so others can view it
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>
+      )}
+    </>
   );
-};
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 interface AnalysisDetailsProps {
   analysisData: AnalysisData;
@@ -168,195 +324,6 @@ interface AnalysisDetailsProps {
   taskId?: string;
 }
 
-interface ShareButtonProps {
-  analysisId: string;
-  isPublic: boolean;
-  isOwner: boolean;
-  onPrivacyChange: (isPublic: boolean) => void;
-}
-
-function ShareButton({
-  analysisId,
-  isPublic,
-  isOwner,
-  onPrivacyChange,
-}: ShareButtonProps) {
-  const [showDialog, setShowDialog] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-
-  const shareUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/dashboard/alyzitron/report/${analysisId}`
-      : `/dashboard/alyzitron/report/${analysisId}`;
-
-  const copyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
-  };
-
-  const updatePrivacy = async (newIsPublic: boolean) => {
-    if (!isOwner) return;
-
-    setIsUpdating(true);
-    try {
-      const response = await fetch(
-        `/api/services/alyzitron/analyses/${analysisId}/privacy`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ isPublic: newIsPublic }),
-        },
-      );
-
-      if (response.ok) {
-        onPrivacyChange(newIsPublic);
-      } else {
-        console.error("Failed to update privacy setting");
-      }
-    } catch (error) {
-      console.error("Error updating privacy:", error);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  if (!isOwner) {
-    return null;
-  }
-
-  return (
-    <>
-      <button
-        onClick={() => setShowDialog(true)}
-        className="inline-flex items-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 hover:border-zinc-600 font-medium rounded-lg transition-colors"
-      >
-        <Share2 className="h-4 w-4" />
-        Share
-      </button>
-
-      {showDialog && (
-        <AnimatePresence>
-          <motion.div
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }} // Swift fade for backdrop
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
-          >
-            <div className="fixed inset-0 flex items-center justify-center p-4 overflow-y-auto">
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.2, ease: "easeInOut" }} // Slightly slower, eased animation for dialog
-                className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 w-full max-w-md"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-zinc-100">
-                    Share Analysis
-                  </h3>
-                  <button
-                    onClick={() => setShowDialog(false)}
-                    className="text-zinc-400 hover:text-zinc-300"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-300 mb-2">
-                      Privacy Setting
-                    </label>
-                    <div className="space-y-2">
-                      <button
-                        onClick={() => updatePrivacy(false)}
-                        disabled={isUpdating}
-                        className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                          !isPublic
-                            ? "bg-zinc-800 border-zinc-600 text-zinc-100"
-                            : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-600"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <Lock className="h-5 w-5" />
-                          <div>
-                            <div className="font-medium">Private</div>
-                            <div className="text-sm text-zinc-500">
-                              Only you can view this analysis
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-
-                      <button
-                        onClick={() => updatePrivacy(true)}
-                        disabled={isUpdating}
-                        className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                          isPublic
-                            ? "bg-zinc-800 border-zinc-600 text-zinc-100"
-                            : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-600"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <Globe className="h-5 w-5" />
-                          <div>
-                            <div className="font-medium">Public</div>
-                            <div className="text-sm text-zinc-500">
-                              Anyone with the link can view
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-300 mb-2">
-                      Share Link
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={shareUrl}
-                        readOnly
-                        className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-md text-zinc-100 text-sm"
-                      />
-                      <button
-                        onClick={copyToClipboard}
-                        className="px-3 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-md transition-colors"
-                      >
-                        {copied ? (
-                          <Check className="h-4 w-4" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                      </button>
-                    </div>
-                    {!isPublic && (
-                      <p className="text-xs text-amber-400 mt-1">
-                        ⚠️ This link will only work for you unless you make the
-                        analysis public
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          </motion.div>
-        </AnimatePresence>
-      )}
-    </>
-  );
-}
-
 export function AnalysisDetails({
   analysisData,
   videoUrl,
@@ -367,7 +334,7 @@ export function AnalysisDetails({
   isOwner,
   isPublic,
   userId,
-  taskId
+  taskId,
 }: AnalysisDetailsProps) {
   const [currentIsPublic, setCurrentIsPublic] = useState(isPublic || false);
   const [currentTitleIndex, setCurrentTitleIndex] = useState(0);
@@ -376,67 +343,39 @@ export function AnalysisDetails({
   const [showAllDescriptions, setShowAllDescriptions] = useState(false);
   const [copiedItems, setCopiedItems] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(false);
+  const [expandedDetail, setExpandedDetail] = useState(false);
 
-  // Video player refs for both YouTube and uploaded videos
   const videoRef = useRef<HTMLVideoElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const openPanel = useCallback(() => setOpen(true), []);
-  const closePanel = useCallback(() => setOpen(false), []);
   const togglePanel = useCallback(() => setOpen((v) => !v), []);
+  const closePanel = useCallback(() => setOpen(false), []);
 
-  // Helper function to handle copy with visual feedback
-  const handleCopy = async (text: string, itemId: string) => {
-    const success = await copyToClipboard(text);
-    if (success) {
-      setCopiedItems((prev) => new Set(prev).add(itemId));
-      setTimeout(() => {
-        setCopiedItems((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(itemId);
-          return newSet;
-        });
-      }, 2000);
+  const handleCopy = async (text: string, id: string) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedItems((prev) => new Set(prev).add(id));
+      setTimeout(() => setCopiedItems((prev) => { const s = new Set(prev); s.delete(id); return s; }), 2000);
     }
   };
 
-  // Function to handle timestamp clicks
   const handleTimestampClick = (timestamp: string) => {
     if (!timestamp || timestamp === "00:00:00") {
-      // If timestamp is 00:00:00 or empty, just scroll to video
-      window.scrollTo({
-        top: 0,
-        behavior: 'smooth'
-      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
-
     const seconds = timestampToSeconds(timestamp);
-
-    // For YouTube videos
     if (isYouTubeUrl && youtubeVideoId && iframeRef.current) {
-      // Update YouTube iframe src with time parameter
-      const currentSrc = iframeRef.current.src;
-      const baseUrl = currentSrc.split('?')[0];
-      iframeRef.current.src = `${baseUrl}?start=${Math.floor(seconds)}&autoplay=1`;
-      
-      // Scroll to video
-      iframeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } 
-    // For uploaded videos (Instagram doesn't support start time via iframe API easily, so we only do YouTube and native)
-    else if (!isYouTubeUrl && !isInstagramUrl && videoRef.current) {
+      const base = iframeRef.current.src.split("?")[0];
+      iframeRef.current.src = `${base}?start=${Math.floor(seconds)}&autoplay=1`;
+      iframeRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (!isYouTubeUrl && !isInstagramUrl && videoRef.current) {
       videoRef.current.currentTime = seconds;
-      videoRef.current.play().catch(err => {
-        console.log("Autoplay prevented:", err);
-        // If autoplay is prevented, just seek to the timestamp
-      });
-      
-      // Scroll to video
-      videoRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      videoRef.current.play().catch(() => { });
+      videoRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   };
 
-  // Extract YouTube video ID from URL
   const extractYouTubeVideoId = (url: string): string | null => {
     const regexes = [
       /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
@@ -445,738 +384,310 @@ export function AnalysisDetails({
       /(?:https?:\/\/)?(?:www\.)?youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
       /(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
     ];
-
-    for (const regex of regexes) {
-      const match = url.match(regex);
-      if (match && match[1]) {
-        return match[1];
-      }
-    }
+    for (const r of regexes) { const m = url.match(r); if (m?.[1]) return m[1]; }
     return null;
   };
 
-  // Check if videoUrl is a YouTube URL and get video ID
-  const isYouTubeUrl =
-    videoUrl &&
-    (videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be"));
-  const youtubeVideoId = isYouTubeUrl ? extractYouTubeVideoId(videoUrl) : null;
-  
-  // Extract Instagram ID for embedding
   const extractInstagramVideoId = (url: string): string | null => {
-    const regex = /(?:https?:\/\/)?(?:www\.)?instagram\.com\/(?:p|reel|reels)\/([a-zA-Z0-9_-]+)/;
-    const match = url.match(regex);
-    return match ? match[1] : null;
+    const m = url.match(/(?:https?:\/\/)?(?:www\.)?instagram\.com\/(?:p|reel|reels)\/([a-zA-Z0-9_-]+)/);
+    return m ? m[1] : null;
   };
-  
+
+  const isYouTubeUrl = videoUrl && (videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be"));
+  const youtubeVideoId = isYouTubeUrl ? extractYouTubeVideoId(videoUrl) : null;
   const isInstagramUrl = videoUrl && videoUrl.includes("instagram.com");
   const instagramVideoId = isInstagramUrl ? extractInstagramVideoId(videoUrl) : null;
   const isEmbeddable = isYouTubeUrl || isInstagramUrl;
 
-  // Helper functions for title/description navigation
-  const nextTitle = () => {
-    if (analysisData.titles && analysisData.titles.length > 1) {
-      setCurrentTitleIndex((prev) => (prev + 1) % analysisData.titles!.length);
-    }
-  };
-
-  const prevTitle = () => {
-    if (analysisData.titles && analysisData.titles.length > 1) {
-      setCurrentTitleIndex(
-        (prev) =>
-          (prev - 1 + analysisData.titles!.length) %
-          analysisData.titles!.length,
-      );
-    }
-  };
-
-  const nextDescription = () => {
-    if (analysisData.descriptions && analysisData.descriptions.length > 1) {
-      setCurrentDescriptionIndex(
-        (prev) => (prev + 1) % analysisData.descriptions!.length,
-      );
-    }
-  };
-
-  const prevDescription = () => {
-    if (analysisData.descriptions && analysisData.descriptions.length > 1) {
-      setCurrentDescriptionIndex(
-        (prev) =>
-          (prev - 1 + analysisData.descriptions!.length) %
-          analysisData.descriptions!.length,
-      );
-    }
-  };
-  // Use the overall score from the new structure
   const overallScore = analysisData.overall_score || 0;
+  const sc = scoreColor(overallScore);
+
+  // Collect all metrics for the inline list
+  const allMetrics: { category: string; name: string; score?: number; description: string }[] = [];
+  if (analysisData.analysis && Array.isArray(analysisData.analysis)) {
+    (analysisData.analysis as any[]).forEach((section) => {
+      section.metrics?.forEach((m: any) => {
+        allMetrics.push({ category: section.category_name, name: m.name, score: m.score, description: m.description });
+      });
+    });
+  } else {
+    Object.entries(analysisData).forEach(([section, data]) => {
+      if (["category", "creator_feedback", "overall_score", "overview", "titles", "descriptions", "target_audience", "analysis", "compliance_risks", "strengths", "weaknesses"].includes(section)) return;
+      if (typeof data !== "object" || data === null || Array.isArray(data)) return;
+      Object.entries(data as Record<string, MetricData>).forEach(([key, val]) => {
+        allMetrics.push({ category: section, name: key.replace(/_/g, " "), score: val.score, description: val.description });
+      });
+    });
+  }
+
+  const dateStr = createdAt?.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) || new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="pb-8 mb-8 border-b border-zinc-800">
-        <div className="flex items-center justify-between mb-6">
+    <div style={{ fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif", WebkitFontSmoothing: "antialiased" }}>
+      <style>{`
+        .mono { font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+        .report-root { animation: fadeIn 0.45s ease; }
+        .fix-ts-btn:hover { opacity: 0.65 !important; }
+        .metric-row { transition: background 0.15s ease; }
+        .metric-row:hover { background: rgba(255,255,255,0.03) !important; }
+      `}</style>
+
+      <div className="report-root" style={{ maxWidth: 1040, margin: "0 auto", padding: "0 28px 80px" }}>
+
+        {/* ── Top nav bar ────────────────────────────────────────────── */}
+        <div style={{ height: 52, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}`, marginBottom: 52 }}>
           <Link
             href="/dashboard/alyzitron"
-            className="inline-flex items-center text-zinc-400 hover:text-zinc-300"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.muted, fontSize: 12, textDecoration: "none", transition: "color 0.2s ease" }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = C.soft)}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = C.muted)}
           >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Dashboard
+            <ArrowLeft size={13} />
+            Dashboard
           </Link>
-          {analysisId && (
-            <div className="flex items-center gap-2">
-              <ExportPDFButton
-                // targetId="analysis-export-content"
-                analysisData={analysisData}
-                videoTitle={videoTitle || "Analysis Video"}
-                filename={`analysis-${analysisId || "report"}`}
-              />
-              <ShareButton
-                analysisId={analysisId}
-                isPublic={currentIsPublic}
-                isOwner={isOwner || false}
-                onPrivacyChange={setCurrentIsPublic}
-              />
-            </div>
-          )}
-          {/* Chat toggle button — fixed to top-right or wherever fits your UI */}
-          <div className="fixed top-4 right-4 z-50">
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {analysisId && (
+              <>
+                <ExportPDFButton analysisData={analysisData} videoTitle={videoTitle || "Analysis Video"} filename={`analysis-${analysisId}`} />
+                <ShareButton analysisId={analysisId} isPublic={currentIsPublic} isOwner={isOwner || false} onPrivacyChange={setCurrentIsPublic} />
+              </>
+            )}
             <ChatToggleButton open={open} onClick={togglePanel} />
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8">
-          <div className="flex-1">
-            <h1 className="text-2xl sm:text-3xl font-semibold text-zinc-100">
-              Analysis Results
-            </h1>
-            <p className="text-zinc-400 mt-2 flex flex-wrap items-center gap-2">
-              <span className="shrink-0">{analysisData.category}</span>
-              <span className="hidden sm:inline text-zinc-700">•</span>
-              <span className="shrink-0">
-                {createdAt?.toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                }) ||
-                  new Date().toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-              </span>
-              {isOwner && (
-                <span className="flex items-center gap-1 text-xs shrink-0">
-                  <span className="hidden sm:inline text-zinc-700">•</span>
-                  {currentIsPublic ? (
-                    <span className="flex items-center gap-1 transition-colors">
-                      <Globe className="h-3 w-3" />
-                      Public
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 transition-colors">
-                      <Lock className="h-3 w-3" />
-                      Private
-                    </span>
-                  )}
-                </span>
-              )}
-            </p>
+        {/* ── Hero: video + giant score ───────────────────────────────── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 52, alignItems: "center", marginBottom: 56 }}>
+
+          {/* Video */}
+          <div>
+            {isYouTubeUrl && youtubeVideoId ? (
+              <div style={{ position: "relative", width: "100%", paddingBottom: "56.25%", borderRadius: 10, overflow: "hidden", background: C.s1 }}>
+                <iframe
+                  ref={iframeRef}
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+                  src={`https://www.youtube.com/embed/${youtubeVideoId}`}
+                  title="YouTube video player"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              </div>
+            ) : isInstagramUrl && instagramVideoId ? (
+              <div style={{ position: "relative", width: "100%", maxWidth: 380, margin: "0 auto", paddingBottom: "130%", borderRadius: 10, overflow: "hidden", background: C.s1 }}>
+                <iframe
+                  ref={iframeRef}
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", background: "#fff" }}
+                  src={`https://www.instagram.com/p/${instagramVideoId}/embed/`}
+                  title="Instagram video player"
+                  allowFullScreen
+                />
+              </div>
+            ) : (
+              <div style={{ position: "relative", width: "100%", paddingBottom: "56.25%", borderRadius: 10, overflow: "hidden", background: "#000" }}>
+                <video
+                  ref={videoRef}
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }}
+                  controls
+                  playsInline
+                  preload="metadata"
+                >
+                  <source src={signedUrl} type="video/mp4" />
+                </video>
+              </div>
+            )}
           </div>
-          <div className="flex sm:flex-col items-center sm:items-end justify-start gap-4 sm:gap-0 sm:justify-end min-h-[60px] sm:min-h-[100px]">
-            <div className="text-4xl sm:text-6xl font-bold text-zinc-100 leading-none">
+
+          {/* Score + verdict */}
+          <div>
+            <div
+              className="mono"
+              style={{ fontSize: 100, fontWeight: 500, color: sc, lineHeight: 0.88, letterSpacing: "-0.06em" }}
+            >
               {overallScore}
             </div>
-            <div className="text-zinc-400 text-sm sm:mt-2">Overall Score</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Video Section */}
-      {isEmbeddable ? (
-        <div className="mb-8">
-          <div className="bg-black/40 border border-zinc-800 rounded-lg p-6 backdrop-blur-xl">
-            <div className="flex flex-col lg:flex-row gap-6">
-              <div className="lg:w-2/3">
-                <div
-                  className={`relative w-full ${isInstagramUrl ? 'max-w-[400px] mx-auto' : ''}`}
-                  style={{ paddingBottom: isInstagramUrl ? "130%" : "56.25%" /* 16:9 for YT, approx 4:5 for IG */ }}
-                >
-                  {isYouTubeUrl && youtubeVideoId && (
-                    <iframe
-                      ref={iframeRef}
-                      className="absolute top-0 left-0 w-full h-full rounded-lg"
-                      src={`https://www.youtube.com/embed/${youtubeVideoId}`}
-                      title="YouTube video player"
-                      frameBorder="0"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      allowFullScreen
-                    />
-                  )}
-                  {isInstagramUrl && instagramVideoId && (
-                    <iframe
-                      ref={iframeRef}
-                      className="absolute top-0 left-0 w-full h-full rounded-lg bg-white"
-                      src={`https://www.instagram.com/p/${instagramVideoId}/embed/`}
-                      title="Instagram video player"
-                      frameBorder="0"
-                      allowTransparency
-                      allowFullScreen
-                    />
-                  )}
-                </div>
-              </div>
-              <div className="lg:w-1/3 flex flex-col justify-center">
-                <h2 className="text-xl font-semibold text-zinc-100 mb-3">
-                  {videoTitle || (isYouTubeUrl ? "YouTube Video" : "Instagram Video")}
-                </h2>
-                <p className="text-zinc-400 text-sm mb-4">
-                  Original video being analyzed
-                </p>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Video Type:</span>
-                    <span className="text-zinc-300">
-                      {analysisData.category}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Overall Score:</span>
-                    <span className="text-zinc-100 font-semibold">
-                      {overallScore}/100
-                    </span>
-                  </div>
-                </div>
-              </div>
+            <div style={{ marginTop: 24, fontSize: 20, color: C.text, lineHeight: 1.35, fontWeight: 400, letterSpacing: "-0.01em" }}>
+              {analysisData.remarks || analysisData.overview || "Analysis complete."}
             </div>
-          </div>
-        </div>
-      ) : (
-        <div className="mb-8">
-          <div className="bg-black/40 border border-zinc-800 rounded-lg p-6 backdrop-blur-xl">
-            <div className="flex flex-col lg:flex-row gap-6">
-              <div className="lg:w-2/3">
-                <div
-                  className="relative w-full bg-black rounded-lg overflow-hidden"
-                  style={{ paddingBottom: "56.25%" }} // 16:9 aspect ratio
-                >
-                  <video
-                    ref={videoRef}
-                    className="absolute inset-0 w-full h-full object-contain block"
-                    controls
-                    playsInline
-                    preload="metadata"
-                  >
-                    <source src={signedUrl} type="video/mp4" />
-                    Your browser does not support the video tag.
-                  </video>
-                </div>
-              </div>
-              <div className="lg:w-1/3 flex flex-col justify-center">
-                <h2 className="text-xl font-semibold text-zinc-100 mb-3">
-                  {videoTitle?.split('_').join(' ') || "YouTube Video"} {/*Convert single-word string to multi-word*/}
-                </h2>
-                <p className="text-zinc-400 text-sm mb-4">
-                  Original video being analyzed
-                </p>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Video Type:</span>
-                    <span className="text-zinc-300">
-                      {analysisData.category}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Overall Score:</span>
-                    <span className="text-zinc-100 font-semibold">
-                      {overallScore}/100
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Overview Section */}
-      {analysisData.overview && (
-        <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
-          <CardHeader>
-            <CardTitle className="text-lg font-medium text-zinc-100">
-              Overview
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-zinc-300 leading-relaxed">
-              {analysisData.overview}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Analysis Summary - Remarks Section */}
-      {analysisData.remarks && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-        >
-          <Card className="bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-indigo-500/10 border-blue-500/30 backdrop-blur-xl relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 via-transparent to-purple-500/5 animate-pulse" />
-            <CardHeader className="relative">
-              <CardTitle className="text-xl font-semibold text-blue-100 flex items-center gap-3">
-                <div className="p-2 bg-blue-500/20 rounded-lg">
-                  <CheckCircle className="h-5 w-5 text-blue-400" />
-                </div>
-                Analysis Summary
-                <div className="flex-1 h-px bg-gradient-to-r from-blue-500/30 to-transparent ml-4" />
-              </CardTitle>
-              <p className="text-blue-300/70 text-sm mt-2">
-                Key insights and conclusions from the complete analysis
-              </p>
-            </CardHeader>
-            <CardContent className="relative">
-              <div className="bg-black/20 rounded-lg p-6 border border-blue-500/20">
-                <p className="text-zinc-200 leading-relaxed text-lg font-medium">
-                  {analysisData.remarks}
-                </p>
-              </div>
-              <div className="flex items-center justify-end mt-4">
-                <button
-                  onClick={() =>
-                    handleCopy(analysisData.remarks!, "analysis-summary")
-                  }
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-blue-200 border border-blue-500/30 hover:border-blue-500/50 rounded-lg transition-all duration-200 text-sm"
-                >
-                  {copiedItems.has("analysis-summary") ? (
-                    <>
-                      <Check className="h-3 w-3" />
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3 w-3" />
-                      Copy Summary
-                    </>
-                  )}
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* AI-Generated Titles and Descriptions */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
-        {/* Titles Section */}
-        {analysisData.titles && analysisData.titles.length > 0 && (
-          <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl lg:col-span-2 self-start">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg font-medium text-zinc-100 flex items-center justify-between">
-                Recommended Titles
-                {analysisData.titles.length > 1 && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setShowAllTitles(!showAllTitles)}
-                      className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
-                    >
-                      {showAllTitles
-                        ? "Show One"
-                        : `Show All (${analysisData.titles.length})`}
-                    </button>
-                  </div>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AnimatePresence mode="wait">
-                {showAllTitles ? (
-                  <motion.div
-                    key="all-titles"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="space-y-3"
-                  >
-                    {analysisData.titles.map((title, index) => (
-                      <div
-                        key={index}
-                        className="p-3 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <p className="text-zinc-300 leading-relaxed flex-1 text-sm">
-                            {title}
-                          </p>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              onClick={() =>
-                                handleCopy(title, `title-${index}`)
-                              }
-                              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200"
-                              title="Copy title"
-                            >
-                              {copiedItems.has(`title-${index}`) ? (
-                                <Check className="h-3 w-3 text-green-400" />
-                              ) : (
-                                <Copy className="h-3 w-3 text-zinc-400" />
-                              )}
-                            </button>
-                            <span className="text-xs text-zinc-500">
-                              #{index + 1}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="single-title"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="space-y-3"
-                  >
-                    <div className="p-3 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="text-zinc-300 leading-relaxed flex-1 text-sm">
-                          {analysisData.titles[currentTitleIndex]}
-                        </p>
-                        <button
-                          onClick={() =>
-                            handleCopy(
-                              analysisData.titles[currentTitleIndex],
-                              `current-title`,
-                            )
-                          }
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200 shrink-0"
-                          title="Copy title"
-                        >
-                          {copiedItems.has(`current-title`) ? (
-                            <Check className="h-3 w-3 text-green-400" />
-                          ) : (
-                            <Copy className="h-3 w-3 text-zinc-400" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                    {analysisData.titles.length > 1 && (
-                      <div className="flex justify-between items-center">
-                        <button
-                          onClick={prevTitle}
-                          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
-                        >
-                          <ChevronLeft className="h-3 w-3" />
-                          Previous
-                        </button>
-                        <span className="text-xs text-zinc-500">
-                          {currentTitleIndex + 1} of{" "}
-                          {analysisData.titles.length}
-                        </span>
-                        <button
-                          onClick={nextTitle}
-                          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
-                        >
-                          Next
-                          <ChevronRight className="h-3 w-3" />
-                        </button>
-                      </div>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Descriptions Section */}
-        {analysisData.descriptions && analysisData.descriptions.length > 0 && (
-          <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl lg:col-span-3 self-start">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg font-medium text-zinc-100 flex items-center justify-between">
-                Recommended Descriptions
-                {analysisData.descriptions.length > 1 && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() =>
-                        setShowAllDescriptions(!showAllDescriptions)
-                      }
-                      className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
-                    >
-                      {showAllDescriptions
-                        ? "Show One"
-                        : `Show All (${analysisData.descriptions.length})`}
-                    </button>
-                  </div>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AnimatePresence mode="wait">
-                {showAllDescriptions ? (
-                  <motion.div
-                    key="all-descriptions"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="space-y-4"
-                  >
-                    {analysisData.descriptions.map((description, index) => (
-                      <div
-                        key={index}
-                        className="p-4 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-zinc-300 leading-relaxed text-sm">
-                              {formatDescription(description)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              onClick={() =>
-                                handleCopy(description, `description-${index}`)
-                              }
-                              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200"
-                              title="Copy description"
-                            >
-                              {copiedItems.has(`description-${index}`) ? (
-                                <Check className="h-3 w-3 text-green-400" />
-                              ) : (
-                                <Copy className="h-3 w-3 text-zinc-400" />
-                              )}
-                            </button>
-                            <span className="text-xs text-zinc-500">
-                              #{index + 1}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="single-description"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="space-y-3"
-                  >
-                    <div className="p-4 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-zinc-300 leading-relaxed text-sm">
-                            {formatDescription(
-                              analysisData.descriptions[
-                                currentDescriptionIndex
-                              ],
-                            )}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() =>
-                            handleCopy(
-                              analysisData.descriptions[
-                                currentDescriptionIndex
-                              ],
-                              `current-description`,
-                            )
-                          }
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200 shrink-0"
-                          title="Copy description"
-                        >
-                          {copiedItems.has(`current-description`) ? (
-                            <Check className="h-3 w-3 text-green-400" />
-                          ) : (
-                            <Copy className="h-3 w-3 text-zinc-400" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                    {analysisData.descriptions.length > 1 && (
-                      <div className="flex justify-between items-center">
-                        <button
-                          onClick={prevDescription}
-                          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
-                        >
-                          <ChevronLeft className="h-3 w-3" />
-                          Previous
-                        </button>
-                        <span className="text-xs text-zinc-500">
-                          {currentDescriptionIndex + 1} of{" "}
-                          {analysisData.descriptions.length}
-                        </span>
-                        <button
-                          onClick={nextDescription}
-                          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
-                        >
-                          Next
-                          <ChevronRight className="h-3 w-3" />
-                        </button>
-                      </div>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {/* Target Audience Section */}
-      {analysisData.target_audience && (
-        <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
-          <CardHeader>
-            <CardTitle className="text-lg font-medium text-zinc-100">
-              Target Audience
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-zinc-300 leading-relaxed">
-              {analysisData.target_audience}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Main Grid - Masonry Layout */}
-      <div className="columns-1 lg:columns-2 gap-6 space-y-6">
-        {Object.entries(analysisData).map(([section, data]) => {
-          // Skip fields that are handled separately or are not metric groups
-          if (
-            section === "category" ||
-            section === "creator_feedback" ||
-            section === "overall_score" ||
-            section === "overview" ||
-            section === "titles" ||
-            section === "descriptions" ||
-            section === "target_audience"
-          )
-            return null;
-
-          // Ensure data is a metrics object
-          if (
-            typeof data !== "object" ||
-            data === null ||
-            Array.isArray(data)
-          ) {
-            return null;
-          }
-
-          const metrics = Object.entries(data as Record<string, MetricData>);
-          if (metrics.length === 0) return null;
-
-          return (
-            <Card
-              key={section}
-              className="bg-black/40 border-zinc-800 backdrop-blur-xl break-inside-avoid mb-6"
+            <div
+              className="mono"
+              style={{ marginTop: 16, fontSize: 10, color: C.dim, letterSpacing: "0.04em", display: "flex", gap: 10, alignItems: "center" }}
             >
-              <CardHeader>
-                <CardTitle className="text-lg font-medium text-zinc-100 capitalize">
-                  {section.replace(/_/g, " ")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {Object.entries(data as Record<string, MetricData>).map(
-                  ([key, value]) => (
-                    <div
-                      key={key}
-                      className="px-4 py-3.5 bg-black/20 rounded-lg hover:bg-black/30 transition-colors"
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="text-sm font-medium text-zinc-200 capitalize tracking-wide mb-1.5">
-                            {key.replace(/_/g, " ")}
-                          </div>
-                          <p className="text-sm text-zinc-400 leading-relaxed">
-                            <TimestampText 
-                              text={value.description} 
-                              onTimestampClick={handleTimestampClick}
-                            />
-                          </p>
-                        </div>
-                        <div className="flex items-center ml-4 shrink-0">
-                          {value.score ? (
-                            <ScoreIndicator
-                              score={value.score}
-                              invert={section === "compliance_risks"}
-                            />
-                          ) : null}
-                        </div>
+              <span>{analysisData.category}</span>
+              <span style={{ color: C.faint }}>·</span>
+              <span>{dateStr}</span>
+              {isOwner && (
+                <>
+                  <span style={{ color: C.faint }}>·</span>
+                  <span style={{ color: currentIsPublic ? C.green : C.muted, display: "flex", alignItems: "center", gap: 4 }}>
+                    {currentIsPublic ? <Globe size={10} /> : <Lock size={10} />}
+                    {currentIsPublic ? "Public" : "Private"}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Target Audience ─────────────────────────────────────────── */}
+        {analysisData.target_audience && (
+          <div style={{ marginBottom: 48, paddingBottom: 48, borderBottom: `1px solid ${C.border}` }}>
+            <div className="mono" style={{ fontSize: 10, color: C.dim, letterSpacing: "0.08em", marginBottom: 12 }}>TARGET AUDIENCE</div>
+            <p style={{ fontSize: 15, color: C.soft, lineHeight: 1.65 }}>{analysisData.target_audience}</p>
+          </div>
+        )}
+
+        {/* ── Strengths + Improvements ────────────────────────────────── */}
+        {analysisData.creator_feedback && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, marginBottom: 48, paddingBottom: 48, borderBottom: `1px solid ${C.border}` }}>
+            {/* Strengths */}
+            <div>
+              <div className="mono" style={{ fontSize: 10, color: C.dim, letterSpacing: "0.08em", marginBottom: 16 }}>STRENGTHS</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {analysisData.creator_feedback.strengths?.map((s: string, i: number) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <CheckCircle size={14} color={C.green} style={{ marginTop: 2, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, color: C.soft, lineHeight: 1.6 }}>
+                      <TimestampText text={s} onTimestampClick={handleTimestampClick} />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Improvements */}
+            <div>
+              <div className="mono" style={{ fontSize: 10, color: C.dim, letterSpacing: "0.08em", marginBottom: 16 }}>AREAS TO IMPROVE</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {analysisData.creator_feedback.improvements?.map((s: string, i: number) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <AlertCircle size={14} color={C.accent} style={{ marginTop: 2, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, color: C.soft, lineHeight: 1.6 }}>
+                      <TimestampText text={s} onTimestampClick={handleTimestampClick} />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Expandable: Titles · Descriptions · Metrics ────────────── */}
+        <div>
+          <button
+            onClick={() => setExpandedDetail((e) => !e)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              width: "100%",
+              padding: "14px 0",
+              background: "transparent",
+              border: "none",
+              borderBottom: `1px solid ${C.border}`,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            <span className="mono" style={{ fontSize: 10, color: C.faint, letterSpacing: "0.04em" }}>
+              Titles · Descriptions · Per-metric scores
+            </span>
+            <span className="mono" style={{ fontSize: 11, color: C.accent }}>
+              {expandedDetail ? "Hide ↑" : "Show everything ↓"}
+            </span>
+          </button>
+
+          {expandedDetail && (
+            <div style={{ animation: "slideDown 0.35s cubic-bezier(.16,1,.3,1) both", paddingTop: 36, display: "flex", flexDirection: "column", gap: 44 }}>
+
+              {/* Titles */}
+              {analysisData.titles && analysisData.titles.length > 0 && (
+                <div>
+                  <div className="mono" style={{ fontSize: 10, color: C.dim, letterSpacing: "0.08em", marginBottom: 14 }}>TITLES</div>
+                  <div>
+                    {analysisData.titles.map((title: string, i: number) => (
+                      <div
+                        key={i}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "13px 0", borderBottom: `1px solid ${C.border}` }}
+                      >
+                        <span style={{ fontSize: 14, color: i === 0 ? C.text : C.soft, fontWeight: i === 0 ? 500 : 400, lineHeight: 1.5, flex: 1 }}>
+                          {title}
+                        </span>
+                        <button
+                          onClick={() => handleCopy(title, `title-${i}`)}
+                          className="mono"
+                          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: copiedItems.has(`title-${i}`) ? C.green : C.dim, flexShrink: 0 }}
+                        >
+                          {copiedItems.has(`title-${i}`) ? "copied" : "copy"}
+                        </button>
                       </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Descriptions */}
+              {analysisData.descriptions && analysisData.descriptions.length > 0 && (
+                <div>
+                  <div className="mono" style={{ fontSize: 10, color: C.dim, letterSpacing: "0.08em", marginBottom: 14 }}>DESCRIPTIONS</div>
+                  {analysisData.descriptions.map((desc: string, i: number) => (
+                    <div key={i} style={{ padding: "16px 0", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 16, alignItems: "flex-start" }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: 14, color: C.soft, lineHeight: 1.7 }}>
+                          {desc.split(/(#\w+)/g).map((part, idx) =>
+                            part.startsWith("#") ? <span key={idx} style={{ color: C.dim }}>{part}</span> : part
+                          )}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleCopy(desc, `desc-${i}`)}
+                        className="mono"
+                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: copiedItems.has(`desc-${i}`) ? C.green : C.dim, flexShrink: 0 }}
+                      >
+                        {copiedItems.has(`desc-${i}`) ? "copied" : "copy"}
+                      </button>
                     </div>
-                  ),
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+                  ))}
+                </div>
+              )}
+
+              {/* Metrics */}
+              {allMetrics.length > 0 && (
+                <div>
+                  <div className="mono" style={{ fontSize: 10, color: C.dim, letterSpacing: "0.08em", marginBottom: 14 }}>METRICS</div>
+                  {allMetrics.map((m, i) => {
+                    const mc = m.score !== undefined ? scoreColor(m.score) : C.muted;
+                    return (
+                      <div
+                        key={i}
+                        className="metric-row"
+                        style={{ display: "grid", gridTemplateColumns: "200px 1fr auto", gap: 20, alignItems: "center", padding: "13px 6px", borderBottom: `1px solid ${C.border}` }}
+                      >
+                        <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{m.name}</span>
+                        <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.55 }}>
+                          <TimestampText text={m.description} onTimestampClick={handleTimestampClick} />
+                        </span>
+                        {m.score !== undefined && (
+                          <span className="mono" style={{ fontSize: 13, fontWeight: 500, color: mc, minWidth: 28, textAlign: "right" }}>
+                            {m.score}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Creator Feedback */}
-      <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
-        <CardHeader>
-          <CardTitle className="text-lg font-medium text-zinc-100">
-            Creator Feedback
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid md:grid-cols-2 gap-8">
-          <div>
-            <h3 className="text-sm font-medium text-zinc-300 mb-4">
-              Strengths
-            </h3>
-            <ul className="space-y-3">
-              {analysisData?.creator_feedback?.strengths?.map(
-                (strength: string, index: number) => (
-                  <li
-                    key={index}
-                    className="flex items-center gap-2 text-sm text-zinc-400 bg-black/20 p-3 rounded-lg"
-                  >
-                    <CheckCircle className="h-5 w-5 text-green-400 shrink-0" />
-                    <span className="leading-relaxed">
-                      <TimestampText 
-                        text={strength} 
-                        onTimestampClick={handleTimestampClick}
-                      />
-                    </span>
-                  </li>
-                ),
-              ) || []}
-            </ul>
-          </div>
-          <div>
-            <h3 className="text-sm font-medium text-zinc-300 mb-4">
-              Areas for Improvement
-            </h3>
-            <ul className="space-y-3">
-              {analysisData?.creator_feedback?.improvements?.map(
-                (improvement: string, index: number) => (
-                  <li
-                    key={index}
-                    className="flex items-center gap-2 text-sm text-zinc-400 bg-black/20 p-3 rounded-lg"
-                  >
-                    <AlertCircle className="h-5 w-5 text-yellow-400 shrink-0" />
-                    <span className="leading-relaxed">
-                      <TimestampText 
-                        text={improvement} 
-                        onTimestampClick={handleTimestampClick}
-                      />
-                    </span>
-                  </li>
-                ),
-              ) || []}
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Chat panel — slides in from right, sits above content */}
+      {/* Chat panel */}
       <ChatPanel
         taskId={taskId as string}
-        videoUrl={videoUrl || signedUrl as string}
+        videoUrl={videoUrl || (signedUrl as string)}
         videoAnalysis={analysisData}
         videoTitle={videoTitle}
         userId={userId}
@@ -1187,97 +698,63 @@ export function AnalysisDetails({
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// PRIVATE VIEW
+// ═══════════════════════════════════════════════════════════════════════
+
 export function PrivateAnalysisView() {
   return (
-    <div className="container mx-auto p-8">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-end justify-between pb-8 mb-8 border-b border-zinc-800">
-          <div>
-            <Link
-              href="/dashboard/alyzitron"
-              className="inline-flex items-center text-zinc-400 hover:text-zinc-300 mb-4"
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Dashboard
-            </Link>
-            <h1 className="text-3xl font-semibold text-zinc-100">
-              Private Analysis
-            </h1>
-            <p className="text-zinc-400 mt-2">
-              This analysis is not accessible to you
-            </p>
-          </div>
-          <div className="text-right flex flex-col justify-end min-h-[100px]">
-            <Lock className="h-16 w-16 text-zinc-400 mb-2" />
-            <div className="text-zinc-400 mt-2">Private</div>
-          </div>
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div style={{ maxWidth: 1040, margin: "0 auto", padding: "0 28px" }}>
+        <div style={{ height: 52, display: "flex", alignItems: "center", borderBottom: `1px solid ${C.border}`, marginBottom: 52 }}>
+          <Link href="/dashboard/alyzitron" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.muted, fontSize: 12, textDecoration: "none" }}>
+            <ArrowLeft size={13} />
+            Dashboard
+          </Link>
         </div>
 
-        <Card className="bg-zinc-900/50 border-zinc-800 backdrop-blur-xl">
-          <CardHeader>
-            <CardTitle className="text-lg font-medium text-zinc-100 flex items-center gap-2">
-              <Shield className="h-5 w-5 text-zinc-400" />
-              Access Restricted
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-6">
-              <div className="flex items-start gap-4">
-                <Lock className="h-8 w-8 text-zinc-400 mt-1 shrink-0" />
-                <div>
-                  <h3 className="text-lg font-medium text-zinc-200 mb-2">
-                    This Analysis is Private
-                  </h3>
-                  <p className="text-zinc-400 leading-relaxed mb-4">
-                    This video analysis report has been set to private by its
-                    creator and can only be viewed by the account that created
-                    it.
-                  </p>
-                  <div className="text-sm text-zinc-500">
-                    If you believe you should have access to this analysis,
-                    please contact the creator who shared this link with you.
-                  </div>
-                </div>
-              </div>
-            </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 32, alignItems: "flex-start", marginBottom: 48 }}>
+          <div>
+            <h1 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.03em", margin: "0 0 8px" }}>Private Analysis</h1>
+            <p style={{ fontSize: 14, color: C.muted }}>This analysis is not accessible to you</p>
+          </div>
+          <Lock size={40} color={C.muted} />
+        </div>
 
-            <div className="space-y-3">
-              <div className="flex items-start gap-3 p-4 bg-zinc-800/30 rounded-lg">
-                <div className="text-blue-400 font-semibold text-sm mt-0.5">
-                  💡
-                </div>
-                <div className="text-sm text-zinc-300">
-                  <strong>Want to create your own analysis?</strong> Upload your
-                  video to Alyzitron and get detailed insights about your
-                  content.
-                </div>
-              </div>
-              <div className="flex items-start gap-3 p-4 bg-zinc-800/30 rounded-lg">
-                <div className="text-green-400 font-semibold text-sm mt-0.5">
-                  🔒
-                </div>
-                <div className="text-sm text-zinc-300">
-                  <strong>Privacy by default:</strong> All analyses are private
-                  by default. Creators can choose to make them public if they
-                  wish to share.
-                </div>
-              </div>
+        <div style={{ background: C.s1, border: `1px solid ${C.border}`, borderRadius: 10, padding: 32 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 20, marginBottom: 32 }}>
+            <Shield size={20} color={C.muted} style={{ marginTop: 2, flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 8 }}>Access Restricted</div>
+              <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.65, maxWidth: 480 }}>
+                This report has been set to private by its creator and can only be viewed by the account that created it.
+              </p>
             </div>
+          </div>
 
-            <div className="pt-4 border-t border-zinc-800">
-              <Link
-                href="/dashboard/alyzitron"
-                className="inline-flex items-center justify-center px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
-              >
-                Try Alyzitron
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
+            {["Want to create your own analysis? Upload your video to Alyzitron.", "All analyses are private by default. Creators can make them public anytime."].map((tip, i) => (
+              <div key={i} style={{ padding: "12px 16px", background: C.s2, borderRadius: 7, fontSize: 13, color: C.soft, lineHeight: 1.55 }}>
+                {tip}
+              </div>
+            ))}
+          </div>
+
+          <Link
+            href="/dashboard/alyzitron"
+            style={{ display: "inline-block", padding: "10px 22px", background: C.accent, color: C.bg, borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: "none" }}
+          >
+            Try Alyzitron
+          </Link>
+        </div>
       </div>
     </div>
   );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// ERROR VIEW
+// ═══════════════════════════════════════════════════════════════════════
 
 interface AnalysisErrorProps {
   errorCode: string;
@@ -1287,143 +764,66 @@ interface AnalysisErrorProps {
   createdAt?: Date;
 }
 
-export function AnalysisError({
-  errorCode,
-  errorMessage,
-  videoUrl,
-  videoTitle,
-  createdAt,
-}: AnalysisErrorProps) {
+export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, createdAt }: AnalysisErrorProps) {
+  const dateStr = createdAt?.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) || new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8 pb-8 mb-8 border-b border-zinc-800">
-        <div className="flex-1">
-          <Link
-            href="/dashboard/alyzitron"
-            className="inline-flex items-center text-zinc-400 hover:text-zinc-300 mb-4 transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Dashboard
-          </Link>
-          <h1 className="text-2xl sm:text-3xl font-semibold text-zinc-100">
-            Analysis Failed
-          </h1>
-          <p className="text-zinc-400 mt-2">
-            {videoTitle || "Video Analysis"} •{" "}
-            {createdAt?.toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            }) ||
-              new Date().toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-          </p>
+    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", maxWidth: 1040, margin: "0 auto", padding: "0 28px 80px" }}>
+      <div style={{ height: 52, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}`, marginBottom: 52 }}>
+        <Link href="/dashboard/alyzitron" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.muted, fontSize: 12, textDecoration: "none" }}>
+          <ArrowLeft size={13} />
+          Dashboard
+        </Link>
+        <AlertTriangle size={20} color={C.red} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 52, alignItems: "center", marginBottom: 56 }}>
+        <div>
+          <div className="mono" style={{ fontSize: 100, fontWeight: 500, color: C.red, lineHeight: 0.88, letterSpacing: "-0.06em" }}>—</div>
         </div>
-        <div className="flex sm:flex-col items-center sm:items-end justify-start gap-4 sm:gap-0 sm:justify-end min-h-[60px] sm:min-h-[100px]">
-          <AlertTriangle className="h-10 w-10 sm:h-16 sm:w-16 text-red-400 mb-0 sm:mb-2" />
-          <div className="text-zinc-500 font-medium tracking-tight sm:mt-2">
-            Failed
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: C.text, marginBottom: 10, letterSpacing: "-0.02em" }}>Analysis Failed</div>
+          <p style={{ fontSize: 15, color: C.muted, lineHeight: 1.55 }}>
+            Looks like something's missing — check the video requirements and try again.
+          </p>
+          <div className="mono" style={{ marginTop: 16, fontSize: 10, color: C.dim, letterSpacing: "0.04em" }}>
+            {videoTitle || "Unknown"} · {dateStr}
           </div>
         </div>
       </div>
 
-      {/* Error Information */}
-      <Card className="bg-red-500/5 border-red-500/20 backdrop-blur-xl">
-        <CardHeader>
-          <CardTitle className="text-lg font-medium text-red-300 flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5" />
-            OOPS! Something went wrong
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
-            <div className="text-sm font-medium text-red-200 mb-2">
-              Looks like something’s missing — check the video requirements and
-              try again 😊
-            </div>
+      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 32, marginBottom: 32 }}>
+        {["Try uploading the video again — this might be a temporary issue.", "Check that your video meets the requirements (file size, format, duration).", "The video may be unavailable, private, or in an unsupported format."].map((step, i) => (
+          <div key={i} style={{ display: "flex", gap: 20, padding: "18px 0", borderBottom: `1px solid ${C.border}` }}>
+            <span className="mono" style={{ fontSize: 11, color: C.accent, minWidth: 20 }}>{i + 1}.</span>
+            <span style={{ fontSize: 14, color: C.soft, lineHeight: 1.55 }}>{step}</span>
           </div>
+        ))}
+      </div>
 
-          <div className="flex flex-col sm:flex-row gap-4 pt-2 mb-4float-end">
-            <Link
-              href="/dashboard/alyzitron"
-              className="relative inline-flex items-center justify-center gap-3 px-8 py-3 bg-black/40 hover:bg-black/60 text-red-400 hover:text-red-300 font-semibold rounded-xl border border-red-500/30 hover:border-red-500/50 backdrop-blur-xl transition-all duration-300 hover:scale-[1.01] hover:-translate-y-0.5 shadow-lg shadow-red-500/5 hover:shadow-red-500/10 active:scale-100 group overflow-hidden"
-            >
-              <RotateCcw className="h-4 w-4" />
-              <span className="relative z-10 font-medium">Try Again</span>
-            </Link>
+      {videoUrl && (
+        <div style={{ marginBottom: 32, padding: 20, background: C.s1, border: `1px solid ${C.border}`, borderRadius: 8 }}>
+          <div className="mono" style={{ fontSize: 10, color: C.dim, letterSpacing: "0.08em", marginBottom: 12 }}>VIDEO INFO</div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: C.dim }}>Title</span>
+            <span style={{ fontSize: 12, color: C.soft }}>{videoTitle || "Unknown"}</span>
           </div>
-
-          {videoUrl && (
-            <div className="mt-6 pt-6 border-t border-red-500/10">
-              <h3 className="text-sm font-medium text-zinc-300 mb-3">
-                Video Information
-              </h3>
-              <div className="bg-black/20 rounded-lg p-4 space-y-2">
-                <div className="flex flex-col sm:flex-row justify-between gap-1">
-                  <span className="text-zinc-500 text-sm">Video Title:</span>
-                  <span className="text-zinc-300 text-sm font-medium">
-                    {videoTitle || "Unknown"}
-                  </span>
-                </div>
-                <div className="flex flex-col sm:flex-row justify-between gap-1">
-                  <span className="text-zinc-500 text-sm">Video URL:</span>
-                  <a
-                    href={videoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 text-sm truncate max-w-xs sm:max-w-md"
-                  >
-                    {videoUrl}
-                  </a>
-                </div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Troubleshooting */}
-      <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
-        <CardHeader>
-          <CardTitle className="text-lg font-medium text-zinc-100">
-            What to do next?
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex items-start gap-3 p-3 bg-black/20 rounded-lg">
-              <div className="text-blue-400 font-semibold text-sm mt-0.5">
-                1.
-              </div>
-              <div className="text-sm text-zinc-300">
-                Try uploading the video again - this might be a temporary issue.
-              </div>
-            </div>
-            <div className="flex items-start gap-3 p-3 bg-black/20 rounded-lg">
-              <div className="text-blue-400 font-semibold text-sm mt-0.5">
-                2.
-              </div>
-              <div className="text-sm text-zinc-300">
-                Check that your video meets the requirements (file size, format,
-                etc.).
-              </div>
-            </div>
-            <div className="flex items-start gap-3 p-3 bg-black/20 rounded-lg">
-              <div className="text-blue-400 font-semibold text-sm mt-0.5">
-                3.
-              </div>
-              <div className="text-sm text-zinc-300">
-                The video may be unavailable, private, or in an unsupported
-                format. Recheck the link and try again.
-              </div>
-            </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+            <span style={{ fontSize: 12, color: C.dim }}>URL</span>
+            <a href={videoUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: C.accent, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {videoUrl}
+            </a>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      )}
+
+      <Link
+        href="/dashboard/alyzitron"
+        style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 22px", background: "transparent", border: `1px solid ${C.red}40`, borderRadius: 8, color: C.red, fontSize: 13, fontWeight: 600, textDecoration: "none" }}
+      >
+        <RotateCcw size={13} />
+        Try Again
+      </Link>
     </div>
   );
 }

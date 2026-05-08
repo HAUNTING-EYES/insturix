@@ -5,7 +5,7 @@ import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
 import { UpdateVariationRequestSchema } from '@/types/clickatron';
 import { z } from 'zod';
-import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 
 // GET /api/services/clickatron/session/:id/variation/:varId - Get single variation
 export async function GET(
@@ -140,7 +140,7 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/services/clickatron/session/:id/variation/:varId - Delete variation and associated GCS image
+// DELETE /api/services/clickatron/session/:id/variation/:varId - Delete variation and associated R2 image
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string; varId: string }> }
@@ -176,20 +176,20 @@ export async function DELETE(
     const variation = task.details.canvas.variations[variationIndex];
 
     // Delete Variation image + thumbnail
-    const gcsRefs = [
+    const r2Refs = [
       variation.imageRef,
       variation.thumbnailRef,
     ].filter(Boolean);
 
-    for (const ref of gcsRefs) {
+    for (const ref of r2Refs) {
       try {
-        // Extract raw GCS path (without query params)
+        // Extract raw R2 path (without query params)
         const rawPath = ref.split('?')[0];
-        await ClickatronGCSManager.deleteImage(rawPath);
-        console.log(`Deleted GCS image for variation ${varId}: ${rawPath}`);
-      } catch (gcsError) {
-        console.error(`Failed to delete GCS image for variation ${varId}:`, gcsError);
-        // Don't fail the entire deletion if GCS delete fails
+        await ClickatronR2Manager.deleteImage(rawPath);
+        console.log(`Deleted R2 image for variation ${varId}: ${rawPath}`);
+      } catch (r2Error) {
+        console.error(`Failed to delete R2 image for variation ${varId}:`, r2Error);
+        // Don't fail the entire deletion if R2 delete fails
       }
     }
 
