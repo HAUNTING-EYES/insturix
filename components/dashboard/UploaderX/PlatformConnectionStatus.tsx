@@ -19,8 +19,7 @@ export function PlatformConnectionStatus() {
     instagram: false,
     linkedin: false,
   });
-  const [twitterStatus, setTwitterStatus] = useState<TwitterStatus>({ connected: false });
-
+ const [twitterStatus, setTwitterStatus] = useState<TwitterStatus | { connected: boolean }>({ connected: false });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -86,7 +85,7 @@ export function PlatformConnectionStatus() {
             isExpired: twData.isExpired,
           });
         } catch (e) {
-          // Twitter not connected or API error
+          console.warn("[PlatformStatus] Twitter API error:", e);
         }
 
         // Check LinkedIn via API
@@ -97,7 +96,7 @@ export function PlatformConnectionStatus() {
           console.log("[PlatformStatus] LinkedIn status response:", JSON.stringify(liData));
         } catch (e) {
           console.warn("[PlatformStatus] LinkedIn API error:", e);
-          // LinkedIn not connected or API error
+          
         }
 
         console.log("[PlatformStatus] Setting linkedin connection:", liData.connected);
@@ -158,9 +157,13 @@ export function PlatformConnectionStatus() {
 
       {/* Instagram */}
       <div className="flex items-center gap-2">
-        <Instagram className="h-5 w-5 text-zinc-500 opacity-50" />
+        <Instagram className={`h-5 w-5 ${connections.instagram ? 'text-pink-500' : 'text-zinc-500'}`} />
         <span className="text-sm text-zinc-400">Instagram</span>
-        <span className="text-xs text-zinc-500">Coming Soon</span>
+        {connections.instagram ? (
+          <CheckCircle className="h-4 w-4 text-green-500" />
+        ) : (
+          <XCircle className="h-4 w-4 text-red-500" />
+        )}
       </div>
 
       {/* Twitter */}
@@ -225,8 +228,8 @@ export function PlatformConnectionStatus() {
         </a>
       )}
 
-      {/* Instagram connection disabled - coming soon */}
-      {/* {!connections.instagram && (
+      {/* Instagram */}
+      {!connections.instagram && (
         <a
           href="/api/services/uploaderx/instagram/auth"
           className="text-xs text-pink-400 hover:underline flex items-center gap-1"
@@ -236,7 +239,7 @@ export function PlatformConnectionStatus() {
           <Link2 className="h-3 w-3" />
           Connect Instagram
         </a>
-      )} */}
+      )}
 
       {!twitterStatus.connected && (
         <a

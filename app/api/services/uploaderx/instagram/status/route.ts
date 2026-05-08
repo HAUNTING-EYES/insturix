@@ -33,13 +33,14 @@ export async function GET() {
 
         return NextResponse.json({
             connected: true,
-            userName: ig.userName,
+            userName: ig.userName || "Unknown",
             userId: ig.userId,
             accounts: (ig.accounts || []).map((a: any) => ({
                 instagramAccountId: a.instagramAccountId,
                 instagramUsername: a.instagramUsername,
-                facebookPageName: a.facebookPageName,
+                profilePictureUrl: a.profilePictureUrl,
             })),
+            connectedAt: ig.connectedAt,
         });
     } catch (error) {
         console.error("❌ Error fetching Instagram status:", error);
