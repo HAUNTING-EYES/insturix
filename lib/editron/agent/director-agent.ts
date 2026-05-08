@@ -1665,23 +1665,58 @@ async function invokeAITool(
       const rawCaptionStyle = params.style || profile.captionStyle || 'subtitle';
       const captionStyle = CAPTION_STYLE_MAP[rawCaptionStyle] || rawCaptionStyle;
 
-      // Pre-warm transcription cache for all voiceover assets.
-      // The add_captions tool needs word-level timing from voiceover audio.
-      // If transcription isn't cached, the tool will try to generate it on-demand,
-      // which can fail due to timeouts. Pre-warming ensures it's ready.
+      // ── Mode 2 FIX: Seed transcription cache from rawFootageAnalysis ──
+      // In Mode 2, Grok STT transcription is stored on the PROJECT doc
+      // (rawFootageAnalysis.transcription) but the add_captions tool looks for
+      // it in MEDIA_ASSETS (per-asset cache). Without seeding, the tool tries
+      // on-demand re-transcription of the full video → times out on long videos.
+      // Fix: copy the existing transcription to the asset's cache before captioning.
+      try {
+        const captionDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+        const projDoc = await captionDb.collection('projects').findOne(
+          { projectId },
+          { projection: { 'rawFootageAnalysis.transcription': 1 } },
+        );
+        const rfaTranscription = projDoc?.rawFootageAnalysis?.transcription;
+        if (rfaTranscription?.words?.length > 0) {
+          const videoAssetIds = [...new Set(videoOverlays.map((v: any) => v.assetId).filter(Boolean))];
+          for (const vid of videoAssetIds) {
+            const existing = await captionDb.collection('media_assets').findOne(
+              { assetId: vid },
+              { projection: { 'transcription.words': { $slice: 1 } } },
+            );
+            if (!existing?.transcription?.words?.length) {
+              await captionDb.collection('media_assets').updateOne(
+                { assetId: vid },
+                { $set: { transcription: rfaTranscription } },
+              );
+              console.log(`[Director] add_captions: seeded transcription cache for ${vid} from rawFootageAnalysis (${rfaTranscription.words.length} words)`);
+            } else {
+              console.log(`[Director] add_captions: transcription already cached for ${vid}`);
+            }
+          }
+        }
+      } catch (seedErr: any) {
+        console.warn(`[Director] add_captions: transcription seed failed (non-fatal): ${seedErr.message}`);
+      }
+
+      // Pre-warm transcription cache for voiceover assets (Mode 1 path).
+      // In Mode 2, there are no voiceover overlays — this block is a no-op.
       try {
         const { getTranscription } = await import('@/lib/editron/services/media/transcription-service');
         const voiceoverOverlays = overlays.filter(o =>
           o.type === 'sound' && ((o.assetId || '').startsWith('voiceover_') || o.row === ROW.VOICEOVER)
         );
-        console.log(`[Director] add_captions: pre-warming transcriptions for ${voiceoverOverlays.length} voiceovers`);
-        for (const vo of voiceoverOverlays) {
-          if (!vo.assetId) continue;
-          try {
-            await getTranscription(vo.assetId, userId);
-            console.log(`[Director] add_captions: transcription ready for ${vo.assetId}`);
-          } catch (tErr: any) {
-            console.warn(`[Director] add_captions: transcription warm-up failed for ${vo.assetId}: ${tErr.message}`);
+        if (voiceoverOverlays.length > 0) {
+          console.log(`[Director] add_captions: pre-warming transcriptions for ${voiceoverOverlays.length} voiceovers`);
+          for (const vo of voiceoverOverlays) {
+            if (!vo.assetId) continue;
+            try {
+              await getTranscription(vo.assetId, userId);
+              console.log(`[Director] add_captions: transcription ready for ${vo.assetId}`);
+            } catch (tErr: any) {
+              console.warn(`[Director] add_captions: transcription warm-up failed for ${vo.assetId}: ${tErr.message}`);
+            }
           }
         }
       } catch (warmErr: any) {
