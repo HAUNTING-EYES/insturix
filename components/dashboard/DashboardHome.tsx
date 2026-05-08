@@ -273,7 +273,7 @@ export function DashboardHome() {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch("/api/services/editron/projects/list");
+        const res = await fetch("/api/services/editron/projects/list", { credentials: "include" });
         if (!res.ok) throw new Error(`API ${res.status}`);
         const data = await res.json();
         if (!cancelled && data.success && Array.isArray(data.projects)) {
