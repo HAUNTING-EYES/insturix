@@ -1,46 +1,57 @@
 import { Storage } from '@google-cloud/storage';
+import { AlyzitronR2Manager } from '@/app/api/services/alyzitron/utils/r2-manager';
 
-export async function getGcsSignedUrl(videoUrl: string) : Promise<string>{
-    // Check if we have complete GCS configuration
-    const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
-      ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
-      : null;
-    
-    // Initialize storage with credentials if available
-    let storage: Storage | null;
+/**
+ * Get a signed read URL for a stored video — works for both R2 and GCS paths.
+ */
+export async function getGcsSignedUrl(videoUrl: string): Promise<string> {
+  const cdnWorkerUrl = process.env.CDN_WORKER_URL?.replace(/\/+$/, '');
+  const r2PublicBaseUrl = process.env.R2_PUBLIC_BASE_URL?.replace(/\/+$/, '');
 
-    storage = new Storage({
-      projectId: gcsCredentials.project_id,
-      credentials: gcsCredentials,
-    });
+  // Detect R2 paths (CDN Worker URLs, direct R2 URLs, or legacy R2_PUBLIC_BASE_URL)
+  const isR2 =
+    videoUrl.includes('r2.cloudflarestorage.com') ||
+    videoUrl.includes('r2.dev') ||
+    (cdnWorkerUrl ? videoUrl.startsWith(cdnWorkerUrl) : false) ||
+    (r2PublicBaseUrl ? videoUrl.startsWith(r2PublicBaseUrl) : false);
 
-    const bucket = storage.bucket(process.env.GCS_BUCKET_NAME!);
+  if (isR2) {
+    return AlyzitronR2Manager.getSignedReadUrl(videoUrl);
+  }
 
-    if (!videoUrl.startsWith("gs://")) {
-      throw new Error("Invalid GCS URL");
-    }
-  
-    // Remove gs://
-    const withoutProtocol = videoUrl.replace("gs://", "");
-  
-    // Split bucket and file path
-    const [bucketName, ...pathParts] = withoutProtocol.split("/");
-    const filePath = pathParts.join("/");
-  
-    if (!bucketName || !filePath) {
-      throw new Error("Invalid GCS URL format");
-    }
+  // GCS path
+  const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
+    ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
+    : null;
 
-    // console.log("[info] signedUrl filePath: ", filePath);
+  if (!gcsCredentials) {
+    throw new Error('GCS credentials are not configured');
+  }
 
-    const file = storage.bucket(bucketName).file(filePath);
+  const storage = new Storage({
+    projectId: gcsCredentials.project_id,
+    credentials: gcsCredentials,
+  });
 
-    const [signedUrl] = await file.getSignedUrl({
-      version: "v4",
-      action: "read",
-      expires: Date.now() + 60 * 60 * 1000, // 1 hour
-    });
+  if (!videoUrl.startsWith('gs://')) {
+    throw new Error('Invalid GCS URL');
+  }
 
-    // console.log("[info] signedUrl: ", signedUrl);
-    return signedUrl;
+  const withoutProtocol = videoUrl.replace('gs://', '');
+  const [bucketName, ...pathParts] = withoutProtocol.split('/');
+  const filePath = pathParts.join('/');
+
+  if (!bucketName || !filePath) {
+    throw new Error('Invalid GCS URL format');
+  }
+
+  const file = storage.bucket(bucketName).file(filePath);
+
+  const [signedUrl] = await file.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + 60 * 60 * 1000, // 1 hour
+  });
+
+  return signedUrl;
 }

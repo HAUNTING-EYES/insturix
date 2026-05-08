@@ -23,9 +23,9 @@ export default function ChatToggleButton({
             aria-label={open ? "Close chat" : "Open analysis chat"}
             className="
               relative flex h-10 w-10 items-center justify-center rounded-xl
-              bg-zinc-900 border border-zinc-700
-              hover:border-blue-500/50 hover:bg-zinc-800
-              text-zinc-400 hover:text-blue-400
+              bg-[#0F0F0E] border border-[#282724]
+              hover:border-[#D4A652]/50 hover:bg-[#131312]
+              text-[#7A776E] hover:text-[#D4A652]
               shadow-lg shadow-black/30
               transition-all duration-200
               active:scale-95
@@ -38,18 +38,18 @@ export default function ChatToggleButton({
 
             {/* Unread dot */}
             {unread && !open && (
-              <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-blue-400 border-2 border-zinc-950" />
+              <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-[#D4A652] border-2 border-[#0B0B0A]" />
             )}
           </button>
         </Tooltip.Trigger>
         <Tooltip.Portal>
           <Tooltip.Content
-            className="bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs px-3 py-1.5 rounded-lg shadow-xl"
+            className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-xs px-3 py-1.5 rounded-lg shadow-xl"
             side="left"
             sideOffset={8}
           >
             {open ? "Close chat" : "Chat about this video"}
-            <Tooltip.Arrow className="fill-zinc-700" />
+            <Tooltip.Arrow className="fill-[#282724]" />
           </Tooltip.Content>
         </Tooltip.Portal>
       </Tooltip.Root>

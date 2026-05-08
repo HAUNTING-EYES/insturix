@@ -88,8 +88,8 @@ export default async function AnalysisReport({ params }: PageProps) {
   // Handle failed analysis
   if (analysis.status === 'failed') {
     return (
-      <div className="container mx-auto p-8">
-        <div className="max-w-5xl mx-auto">
+      <div className="min-h-screen bg-[#0B0B0A] text-[#ECE9E1]">
+        <div className="mx-auto max-w-[1040px] px-4 sm:px-7 py-8">
           <AnalysisError
             errorCode={analysis.error?.code || 'UNKNOWN_ERROR'}
             errorMessage={analysis.error?.message || 'An unknown error occurred during analysis'}
@@ -156,8 +156,8 @@ export default async function AnalysisReport({ params }: PageProps) {
   const signedUrl = !isEmbeddableUrl ? await getGcsSignedUrl(analysis.videoUrl) : null;
 
   return (
-    <div className="container mx-auto p-8">
-      <div className="max-w-5xl mx-auto">
+    <div className="min-h-screen bg-[#0B0B0A] text-[#ECE9E1]">
+      <div className="mx-auto max-w-[1040px] px-4 sm:px-7 py-8">
         <AnalysisDetails
           analysisData={analysisData}
           videoUrl={analysis.videoUrl}

@@ -63,6 +63,9 @@ reference-repos/
 .cursor/
 .opencode.json
 
+# Personal notes and local docs
+personal docs/
+
 # Dev-only scripts (debug/test helpers, not shipped)
 scripts/TEST_SCRIPT_COMPREHENSIVE.md
 scripts/audit-orphans.py

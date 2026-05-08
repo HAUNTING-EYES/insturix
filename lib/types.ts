@@ -1,6 +1,13 @@
 export type MetricData = {
   score?: number;
   description: string;
+  name?: string; // Naya field metrics ke liye
+};
+
+// Naya structure jo Gemini bhej raha hai
+export type AnalysisCategory = {
+  category_name: string;
+  metrics: { name: string; score: number; description: string }[];
 };
 
 export type AnalysisData = {
@@ -11,11 +18,20 @@ export type AnalysisData = {
   titles: string[];
   descriptions: string[];
   target_audience?: string;
+
+  // --- Naye Fields (Optional rakhe hain taaki purana code na tute) ---
+  strengths?: string[];
+  weaknesses?: string[];
+  analysis?: AnalysisCategory[];
+  compliance_risks?: { name: string; score: number; description: string }[];
+  // ----------------------------------------------------------------
+
   creator_feedback: {
     strengths: string[];
     improvements: string[];
   };
-  [key: string]: Record<string, MetricData> | string | string[] | number | { strengths: string[]; improvements: string[]; } | undefined;
+
+  [key: string]: any; // Index signature ko flexible rakha hai
 };
 // Editron Task interface
 

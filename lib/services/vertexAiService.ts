@@ -228,6 +228,19 @@ ${context.familyFriendly
 4. CONTENT SAFETY:
    - Do not spread misinformation, hate, discrimination, or illegal advice.
    - Ensure the analysis is respectful, neutral, and responsible.
+5. PERSON / FACE RECOGNITION (STRICT RULES):
+- If the video contains a WELL-KNOWN PUBLIC FIGURE (e.g., widely recognized celebrity, politician, influencer), you MAY mention their name ONLY if you are highly confident.
+- If confidence is LOW, DO NOT guess or hallucinate names. Instead describe generically (e.g., "a male presenter", "a female host", "a public speaker").
+- DO NOT perform web search or assume identity from context alone.
+- DO NOT identify private individuals.
+
+- If a known public figure is confidently identified:
+  - Slightly adjust overall_score based on their relevance, credibility, or audience appeal.
+  - Optimize suggested titles to include their name naturally.
+  - Mention their presence in overview and strengths.
+
+- If no known figure is confidently identified:
+  - Proceed normally without guessing.
 
 CRITICAL TIMESTAMP INSTRUCTIONS:
 - Include timestamps in STRICT [HH:MM:SS] format naturally WITHIN the description text, NOT as a separate field
@@ -246,7 +259,7 @@ CRITICAL TIMESTAMP INSTRUCTIONS:
 ANALYSIS REQUIREMENTS:
 1. Provide a detailed summary of what happens in the video
 2. Identify key moments with timestamps (format: "HH:MM:SS") and descriptions
-3. Assess video quality (audio, visuals, pacing, engagement) with overall_score on a scale of 1-100 (Higher is Better). This score MUST reflect compliance with the selected location's (${context.location}) standards.
+3. Assess video quality (audio, visuals, pacing, engagement) with overall_score on a scale of 1-100 (Higher is Better).
 4. For all analysis metrics and compliance risks, use a scale of 1-100.
    - For Quality/Performance metrics: Higher score = better performance.
    - For Risk/Issue/Compliance metrics: Higher score = higher risk/problem (Lower is Better for the user).
@@ -255,6 +268,31 @@ ANALYSIS REQUIREMENTS:
 7. List any content warnings if applicable
 8. Provide a word-for-word full transcript and speaker segments. Strictly do not summarize the dialogue, provide EVERYTHING spoken verbatim.
 ${audioUri ? `
+
+SCORING LOGIC (IMPORTANT):
+
+- The overall_score MUST be calculated using weighted evaluation:
+
+  • Visual Quality → 25%
+  • Audio Quality → 20%
+  • Content Value & Clarity → 20%
+  • Engagement & Retention → 15%
+  • Editing & Pacing → 10%
+  • Platform Optimization → 5%
+  • Compliance & Safety → 5%
+
+- Adjustments:
+  • If a WELL-KNOWN PUBLIC FIGURE is confidently identified:
+    + Increase engagement score slightly (max +5 overall impact)
+  
+  • If compliance risks are high:
+    - Reduce overall_score proportionally
+
+  • If video violates location (${context.location}) norms:
+    - Apply penalty (5–20 points depending on severity)
+
+- DO NOT assign random scores.
+- Every score MUST reflect actual observed quality from the video.
 DUAL-FILE AUDIO INSTRUCTION:
 I have provided a video file and its separate audio track. Please analyze them together. Ensure the transcript is generated from the provided audio track while using the video for visual context and speaker identification.
 ` : ''}
@@ -304,26 +342,32 @@ Be specific and reference actual content from the video with precise timestamps.
 `;
 
     // Prepare request parts
+    // --- FIXED BLOCK ---
     const parts: any[] = [];
 
-    parts.push({
-      fileData: {
-        mimeType: "audio/mpeg",
-        fileUri: audioUri,
-      },
-    });
-
-    // If a separate audio track was provided, include it as an additional part
-    if (audioUri) {
+    // 1. Video file add karna compulsory hai (Iske bina Gemini video nahi dekh payega)
+    if (videoUrl) {
       parts.push({
         fileData: {
-          mimeType: 'audio/mpeg',
+          mimeType: "video/mp4",
+          fileUri: videoUrl,
+        },
+      });
+    }
+
+    // 2. Audio file sirf tabhi add hogi jab audioUri valid ho (Ye 400 error fix karega)
+    if (audioUri && audioUri.trim() !== "") {
+      parts.push({
+        fileData: {
+          mimeType: "audio/mpeg",
           fileUri: audioUri,
         },
       });
     }
 
+    // 3. Prompt text
     parts.push({ text: prompt });
+    // -------------------
 
 
     const request = {

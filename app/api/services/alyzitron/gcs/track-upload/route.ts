@@ -11,10 +11,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { uploadId, gcsPath, filename, fileSize, contentType } =
-      await request.json();
+    const body = await request.json();
+    const { uploadId, filename, fileSize, contentType, storage, publicUrl } = body;
+    // Accept both new `storageKey` and legacy `storagePath`
+    const storageKey = body.storageKey || body.storagePath || body.gcsPath;
 
-    if (!uploadId || !gcsPath || !filename) {
+    if (!uploadId || !storageKey || !filename) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -26,22 +28,26 @@ export async function POST(request: Request) {
     const uploadRecord = {
       uploadId,
       userId,
-      gcsPath,
+      storageKey,
+      gcsPath: storageKey, // Deprecated alias — kept for DB backward compat
+      publicUrl,
       filename,
       fileSize: fileSize || 0,
       uploadedAt: new Date(),
       status: "uploaded",
+      storage: storage === "r2" ? "r2" : "gcs",
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
       metadata: {
         contentType: contentType || "video/mp4",
         originalName: filename,
+        storage: storage === "r2" ? "r2" : "gcs",
       },
     };
 
     await uploadTracking.insertOne(uploadRecord);
 
     logger.info("Upload tracked successfully", {
-      data: { uploadId, gcsPath, userId },
+      data: { uploadId, storageKey, userId },
     });
 
     return NextResponse.json({ success: true });
@@ -57,12 +63,8 @@ export async function POST(request: Request) {
 }
 
 // Update upload status (when analysis starts/completes)
-// In track-upload/route.ts, update the PATCH function:
-
 export async function PATCH(request: Request) {
   try {
-
-    // Optional: Get user ID but don't require it
     const session = await auth();
     const userId = session?.userId;
     const body = await request.json();
@@ -76,7 +78,6 @@ export async function PATCH(request: Request) {
       );
     }
 
-    // If no uploadId and no analysisId, we can't proceed
     if (!uploadId && !analysisId) {
       return NextResponse.json(
         { error: "Missing uploadId or analysisId" },
@@ -95,41 +96,29 @@ export async function PATCH(request: Request) {
       updateData.analysisId = analysisId;
     }
 
-    // Track analysis start time
     if (status === "analysis_started") {
       updateData.analysisStartedAt = new Date();
     }
 
-    // Track analysis completion time and extend expiration
     if (status === "analysis_completed") {
       updateData.analysisCompletedAt = new Date();
-      updateData.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      updateData.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     }
 
-    // Build query - try multiple approaches
-    let query: any = {};
-
-    // Priority 1: Find by uploadId (most specific)
+    const query: any = {};
     if (uploadId) {
       query.uploadId = uploadId;
-    }
-    // Priority 2: Find by analysisId (if uploadId not provided)
-    else if (analysisId) {
+    } else if (analysisId) {
       query.analysisId = analysisId;
     }
 
-    // Optionally include userId if available (for better matching)
     if (userId) {
       query.userId = userId;
     }
 
-    // Try to update
     const result = await uploadTracking.updateOne(query, { $set: updateData });
 
-    // If no match, try creating a new record for YouTube links
     if (result.matchedCount === 0) {
-      // For YouTube links, we might not have an upload record
-      // Create a minimal record for tracking
       const newRecord: any = {
         uploadId: uploadId || `youtube-${analysisId || Date.now()}`,
         userId: userId || "unknown",
@@ -154,7 +143,8 @@ export async function PATCH(request: Request) {
         recordId: insertResult.insertedId,
       });
     }
-     logger.info("Upload status updated", {
+
+    logger.info("Upload status updated", {
       data: { uploadId, status, analysisId, userId },
     });
 
@@ -181,18 +171,20 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { gcsPath } = await request.json();
+    const body = await request.json();
+    // Accept both new `storageKey` and legacy `gcsPath`/`storagePath`
+    const storageKey = body.storageKey || body.storagePath || body.gcsPath;
 
-    if (!gcsPath) {
-      return NextResponse.json({ error: "Missing gcsPath" }, { status: 400 });
+    if (!storageKey) {
+      return NextResponse.json({ error: "Missing storageKey" }, { status: 400 });
     }
 
     const { uploadTracking } = await getCollections();
 
-    // Delete the upload tracking record
+    // Search by both field names for backward compat with existing DB records
     const result = await uploadTracking.deleteOne({
       userId,
-      gcsPath,
+      $or: [{ storageKey }, { storagePath: storageKey }, { gcsPath: storageKey }],
     });
 
     if (result.deletedCount === 0) {
@@ -201,9 +193,11 @@ export async function DELETE(request: Request) {
         { status: 404 }
       );
     }
-     logger.info("Upload tracking record deleted successfully", {
-      data: { gcsPath, userId },
+
+    logger.info("Upload tracking record deleted successfully", {
+      data: { storageKey, userId },
     });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     logger.error("Failed to delete upload tracking record", {

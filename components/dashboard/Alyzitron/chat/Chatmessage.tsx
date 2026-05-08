@@ -35,14 +35,14 @@ export default function ChatMessage({ message, isLast }: ChatMessageProps) {
         className={`
           flex-shrink-0 flex h-7 w-7 items-center justify-center rounded-lg mt-0.5
           ${isUser
-            ? "bg-blue-500/15 border border-blue-500/25"
-            : "bg-zinc-800 border border-zinc-700"
+            ? "bg-[#D4A652]/15 border border-[#D4A652]/25"
+            : "bg-[#131312] border border-[#282724]"
           }
         `}
       >
         {isUser
-          ? <User className="h-3.5 w-3.5 text-blue-400" strokeWidth={2} />
-          : <Bot className="h-3.5 w-3.5 text-zinc-400" strokeWidth={1.75} />
+          ? <User className="h-3.5 w-3.5 text-[#D4A652]" strokeWidth={2} />
+          : <Bot className="h-3.5 w-3.5 text-[#7A776E]" strokeWidth={1.75} />
         }
       </div>
 
@@ -52,8 +52,8 @@ export default function ChatMessage({ message, isLast }: ChatMessageProps) {
           className={`
             relative rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed
             ${isUser
-              ? "bg-blue-500/15 border border-blue-500/20 text-zinc-200 rounded-tr-sm"
-              : "bg-zinc-900 border border-zinc-800 text-zinc-300 rounded-tl-sm"
+              ? "bg-[#D4A652]/15 border border-[#D4A652]/20 text-[#ECE9E1] rounded-tr-sm"
+              : "bg-[#0F0F0E] border border-[#1C1B19] text-[#B5B2A8] rounded-tl-sm"
             }
           `}
         >
@@ -74,24 +74,24 @@ export default function ChatMessage({ message, isLast }: ChatMessageProps) {
                     absolute -top-2 -right-2
                     opacity-0 group-hover:opacity-100
                     flex h-6 w-6 items-center justify-center rounded-md
-                    bg-zinc-800 border border-zinc-700
-                    text-zinc-500 hover:text-zinc-200
+                    bg-[#131312] border border-[#282724]
+                    text-[#5F5E5A] hover:text-[#ECE9E1]
                     transition-all duration-150
                   "
                 >
                   {copied
-                    ? <Check className="h-3 w-3 text-emerald-400" />
+                    ? <Check className="h-3 w-3 text-[#5EC97E]" />
                     : <Copy className="h-3 w-3" />
                   }
                 </button>
               </Tooltip.Trigger> */}
               <Tooltip.Portal>
                 <Tooltip.Content
-                  className="bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs px-2 py-1 rounded-lg shadow-xl"
+                  className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-xs px-2 py-1 rounded-lg shadow-xl"
                   sideOffset={4}
                 >
                   {copied ? "Copied!" : "Copy"}
-                  <Tooltip.Arrow className="fill-zinc-700" />
+                  <Tooltip.Arrow className="fill-[#282724]" />
                 </Tooltip.Content>
               </Tooltip.Portal>
             </Tooltip.Root>
@@ -99,7 +99,7 @@ export default function ChatMessage({ message, isLast }: ChatMessageProps) {
         </div>
 
         {/* Timestamp */}
-        <span className="text-[10px] text-zinc-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <span className="text-[10px] text-[#454340] px-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {formattedTime}
         </span>
       </div>
@@ -126,7 +126,7 @@ function FormattedContent({ content, isUser }: { content: string; isUser: boolea
         if (line.match(/^[-•]\s/)) {
           return (
             <div key={i} className="flex gap-2">
-              <span className="text-blue-500/60 mt-0.5 flex-shrink-0">·</span>
+              <span className="text-[#D4A652]/60 mt-0.5 flex-shrink-0">·</span>
               <span className="break-words">{renderInline(line.slice(2))}</span>
             </div>
           );
@@ -138,7 +138,7 @@ function FormattedContent({ content, isUser }: { content: string; isUser: boolea
           if (match) {
             return (
               <div key={i} className="flex gap-2">
-                <span className="text-blue-500/60 font-mono text-xs mt-0.5 flex-shrink-0 w-4">
+                <span className="text-[#D4A652]/60 font-mono text-xs mt-0.5 flex-shrink-0 w-4">
                   {match[1]}.
                 </span>
                 <span className="break-words">{renderInline(match[2])}</span>
@@ -164,7 +164,7 @@ function renderInline(text: string): React.ReactNode[] {
   return parts.map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**")) {
       return (
-        <strong key={i} className="font-semibold text-zinc-100">
+        <strong key={i} className="font-semibold text-[#ECE9E1]">
           {part.slice(2, -2)}
         </strong>
       );
@@ -173,7 +173,7 @@ function renderInline(text: string): React.ReactNode[] {
       return (
         <code
           key={i}
-          className="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 font-mono text-[12px] text-blue-300"
+          className="px-1 py-0.5 rounded bg-[#131312] border border-[#282724] font-mono text-[12px] text-[#D4A652]"
         >
           {part.slice(1, -1)}
         </code>
@@ -183,7 +183,7 @@ function renderInline(text: string): React.ReactNode[] {
       return (
         <span
           key={i}
-          className="font-mono text-[11px] text-blue-400/80 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded"
+          className="font-mono text-[11px] text-[#D4A652]/80 bg-[#D4A652]/10 border border-[#D4A652]/20 px-1.5 py-0.5 rounded"
         >
           {part}
         </span>
