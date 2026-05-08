@@ -531,10 +531,27 @@ function AuthButtons() {
   const { isSignedIn, signOut } = useAuth();
   const { user } = useUser();
   const [mounted, setMounted] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!user) { setIsAdmin(false); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/whoami", { credentials: "include" });
+        if (!res.ok) { if (!cancelled) setIsAdmin(false); return; }
+        const data = (await res.json()) as { isAdmin?: boolean };
+        if (!cancelled) setIsAdmin(Boolean(data.isAdmin));
+      } catch {
+        if (!cancelled) setIsAdmin(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
 
   if (!mounted) {
     return <div className="h-8 w-20 bg-transparent" />;
@@ -543,6 +560,30 @@ function AuthButtons() {
   if (isSignedIn) {
     return (
       <div className="flex items-center gap-3">
+        {isAdmin && (
+          <Link
+            href="/admin/dashboard"
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: "var(--text-muted)",
+              padding: "6px 10px",
+              borderRadius: 7,
+              textDecoration: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              transition: "color 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+          >
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            <span className="hidden lg:inline">Admin</span>
+          </Link>
+        )}
         <Link
           href="/dashboard"
           style={{
