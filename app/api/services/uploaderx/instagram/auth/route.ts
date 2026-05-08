@@ -3,37 +3,44 @@ import { auth } from "@clerk/nextjs/server";
 
 /**
  * GET /api/services/uploaderx/instagram/auth
- * Redirects user to Facebook OAuth dialog to request Instagram permissions.
- * Instagram publishing uses the Instagram Graph API via Facebook Login.
+ * Redirects user to Facebook OAuth with Instagram permissions
+ * This is the correct flow for Instagram Graph API (content publishing)
  */
 export async function GET(req: Request) {
-    const session = await auth();
-    if (!session.userId) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const session = await auth();
 
-    const appId = process.env.FACEBOOK_APP_ID!;
-    const { origin } = new URL(req.url);
-    const redirectUri = `${origin}/api/services/uploaderx/instagram/callback`;
+  if (!session.userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-    // Required permissions for Instagram publishing via Facebook Login
-    // Reference: https://developers.facebook.com/docs/instagram-developer-api/getting-started
-    const scopes = [
-        "pages_show_list",          // List pages user manages
-        "pages_manage_posts",       // Create posts on Facebook Pages
-        "pages_read_engagement",    // Read page engagement data
-        "instagram_basic",          // Access basic Instagram account info
-        "instagram_content_publish", // Publish content to Instagram
-    ].join(",");
+  const appId = process.env.FACEBOOK_APP_ID!;
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL!;
 
-    const fbAuthUrl = new URL("https://www.facebook.com/v21.0/dialog/oauth");
-    fbAuthUrl.searchParams.set("client_id", appId);
-    fbAuthUrl.searchParams.set("redirect_uri", redirectUri);
-    fbAuthUrl.searchParams.set("scope", scopes);
-    fbAuthUrl.searchParams.set("response_type", "code");
-    fbAuthUrl.searchParams.set("state", session.userId);
-    // Force re-authorization to get fresh permissions
-    fbAuthUrl.searchParams.set("auth_type", "rerequest");
+  // MUST match callback exactly
+  const redirectUri = `${baseUrl}/api/services/uploaderx/instagram/callback`;
 
-    return NextResponse.redirect(fbAuthUrl.toString());
+  console.log("[IG Auth] Redirect URI:", redirectUri);
+
+  // Facebook OAuth scopes for Instagram Business/Creator accounts
+  // instagram_basic: Read Instagram account info
+  // instagram_content_publish: Publish content to Instagram
+  // pages_show_list, pages_read_engagement: Access Facebook Pages with Instagram
+  const scopes = [
+    "instagram_basic",
+    "instagram_content_publish",
+    "pages_show_list",
+    "pages_read_engagement",
+  ].join(",");
+
+  // Use Facebook OAuth (not Instagram Basic Display)
+  const fbAuthUrl = new URL("https://www.facebook.com/v21.0/dialog/oauth");
+
+  fbAuthUrl.searchParams.set("client_id", appId);
+  fbAuthUrl.searchParams.set("redirect_uri", redirectUri);
+  fbAuthUrl.searchParams.set("scope", scopes);
+  fbAuthUrl.searchParams.set("response_type", "code");
+  fbAuthUrl.searchParams.set("state", session.userId);
+  fbAuthUrl.searchParams.set("auth_type", "rerequest");
+
+  return NextResponse.redirect(fbAuthUrl.toString());
 }

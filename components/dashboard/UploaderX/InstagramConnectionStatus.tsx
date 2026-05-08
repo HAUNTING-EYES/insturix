@@ -8,7 +8,6 @@ import { Instagram, CheckCircle, XCircle, Settings, ExternalLink, Loader2 } from
 interface InstagramAccount {
     instagramAccountId: string;
     instagramUsername: string;
-    facebookPageName: string;
 }
 
 interface InstagramStatus {
@@ -108,7 +107,6 @@ export function InstagramConnectionStatus() {
                                             <span className="w-1.5 h-1.5 rounded-full bg-pink-400 inline-block" />
                                             <span className="font-medium">@{account.instagramUsername}</span>
                                         </div>
-                                        <span className="text-zinc-500 pl-3">via {account.facebookPageName}</span>
                                     </div>
                                 ))}
                             </div>
@@ -134,16 +132,16 @@ export function InstagramConnectionStatus() {
                 ) : (
                     <Button
                         size="sm"
-                        disabled
-                        className="w-full h-8 text-xs bg-gray-600 cursor-not-allowed"
+                        onClick={handleConnect}
+                        className="w-full h-8 text-xs bg-pink-600 hover:bg-pink-500"
                     >
                         <ExternalLink className="h-3 w-3 mr-1" />
-                        Coming Soon
+                        Connect Instagram
                     </Button>
                 )}
 
                 <p className="text-xs text-zinc-500">
-                    Instagram integration is coming soon. Stay tuned for updates!
+                    Connect your Instagram account to upload Reels directly.
                 </p>
             </CardContent>
         </Card>
