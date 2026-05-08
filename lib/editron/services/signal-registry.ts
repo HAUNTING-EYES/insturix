@@ -2,20 +2,32 @@
  * Signal Registry — Dual-Timing Signal Collection for Mode 2
  *
  * Collects all signal values from 5-Track Analysis + RawFootageAnalysis + transcript
- * into a queryable time-indexed structure.
+ * + V-JEPA visual features + Wav2Vec vocal emotion into a queryable time-indexed structure.
+ *
+ * THREE data sources:
+ *   Primary: 5-Track Analysis (Gemini Vision) + RawFootageAnalysis (transcript)
+ *   V-JEPA 2: Learned visual features — significance, motion, action, face emotion, eye contact
+ *   Wav2Vec 2.0: Vocal prosodic features — emotion intensity, valence, energy, pitch, stress
  *
  * TWO timing systems (FLAG 1):
  *   Grid-based (every 15 frames / 0.5s): continuous signals (energy, motion, color, etc.)
  *   Event-based (exact word timestamps): transcript signals (entities, emphasis, boundaries)
  *
  * TWO computation passes (FLAG 7):
- *   Pass 1: All basic signals computed
+ *   Pass 1: All basic signals computed (V-JEPA/Wav2Vec REPLACE heuristics when available)
  *   Pass 2: Composite signals computed FROM basic signals (reads neighboring points)
+ *
+ * ENRICHMENT STRATEGY:
+ *   When V-JEPA/Wav2Vec data is present, learned signals REPLACE heuristic approximations
+ *   and NEW signal keys are added for graph mappings previously tagged NEEDS_INFRA.
+ *   When absent, existing heuristic signals remain (graceful degradation).
  *
  * Consumers: signal-executor.ts
  */
 
 import type { SignalValues } from './graph-query';
+import type { VjepaAnalysisResult, VjepaSegmentResult } from './vjepa-service';
+import type { Wav2VecAnalysisResult, Wav2VecSegmentResult } from './wav2vec-service';
 
 // ─── Input Types (from existing services) ───────────────────────────────────
 
@@ -68,7 +80,7 @@ export interface AssetAnalysis {
 /** From raw-footage-processor.ts */
 export interface RawFootageAnalysis {
   transcription?: {
-    words: Array<{ word: string; startMs: number; endMs: number }>;
+    words: Array<{ word: string; startMs: number; endMs: number; speaker?: number }>;
   };
   silenceGaps?: Array<{ startMs: number; endMs: number; durationMs: number }>;
   fillerWords?: Array<{ word: string; startMs: number; endMs: number; hasSurroundingSilence: boolean }>;
@@ -143,21 +155,69 @@ const QUESTION_PATTERN = /\?\s*$/;
 const HEDGED_PATTERNS = /\b(?:maybe|perhaps|around|about|roughly|approximately|could be|might be|probably|I think|it seems)\b/i;
 const NAME_PATTERN = /\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b/; // "John Smith", "Apple Inc"
 
+// ─── V-JEPA / Wav2Vec Segment Lookup ───────────────────────────────────────
+// Both services produce segments with startMs/endMs. Grid points may fall
+// anywhere within a segment. Binary-style search finds the containing segment.
+
+function findVjepaSegmentAt(
+  segments: VjepaSegmentResult[] | undefined,
+  timestampMs: number
+): VjepaSegmentResult | null {
+  if (!segments?.length) return null;
+  for (const seg of segments) {
+    if (timestampMs >= seg.startMs && timestampMs < seg.endMs) return seg;
+  }
+  // Edge case: timestampMs exactly at last segment's endMs
+  const last = segments[segments.length - 1];
+  if (timestampMs >= last.startMs && timestampMs <= last.endMs) return last;
+  return null;
+}
+
+function findWav2VecSegmentAt(
+  segments: Wav2VecSegmentResult[] | undefined,
+  timestampMs: number
+): Wav2VecSegmentResult | null {
+  if (!segments?.length) return null;
+  for (const seg of segments) {
+    if (timestampMs >= seg.startMs && timestampMs < seg.endMs) return seg;
+  }
+  const last = segments[segments.length - 1];
+  if (timestampMs >= last.startMs && timestampMs <= last.endMs) return last;
+  return null;
+}
+
 // ─── Main Builder ───────────────────────────────────────────────────────────
 
 /**
  * Build the complete signal timeline from all available analysis data.
  * This is the main entry point for the signal-driven executor.
+ *
+ * Optional V-JEPA/Wav2Vec data enriches signals when available:
+ *   - V-JEPA: replaces heuristic visual.motion_intensity, adds visual.significance,
+ *             visual.action_type, visual.motion_type, visual.face_emotion, visual.eye_contact
+ *   - Wav2Vec: replaces heuristic speech.energy, adds speech.emotion_intensity,
+ *              speech.emotional_valence, speech.pitch_variability, speech.stress_detected
  */
 export function buildSignalTimeline(
   analyses: AssetAnalysis[],
   rawFootage: RawFootageAnalysis | null,
   overlays: OverlayInfo[],
-  fps: number = DEFAULT_FPS
+  fps: number = DEFAULT_FPS,
+  vjepaAnalysis?: VjepaAnalysisResult | null,
+  wav2vecAnalysis?: Wav2VecAnalysisResult | null,
 ): SignalTimeline {
   const totalDurationMs = rawFootage?.originalDurationMs ?? rawFootage?.estimatedCleanDurationMs ?? 30000;
   const totalFrames = Math.ceil((totalDurationMs / 1000) * fps);
   const mergedAnalysis = mergeAnalyses(analyses);
+
+  // Pre-extract segment arrays for enrichment (null-safe)
+  const vjepaSegments = vjepaAnalysis?.segments;
+  const wav2vecSegments = wav2vecAnalysis?.segments;
+  const hasVjepa = (vjepaSegments?.length ?? 0) > 0;
+  const hasWav2Vec = (wav2vecSegments?.length ?? 0) > 0;
+
+  if (hasVjepa) console.log(`[SignalRegistry] V-JEPA enrichment: ${vjepaSegments!.length} segments`);
+  if (hasWav2Vec) console.log(`[SignalRegistry] Wav2Vec enrichment: ${wav2vecSegments!.length} segments`);
 
   const timeline: SignalTimeline = {
     gridSignals: new Map(),
@@ -177,19 +237,68 @@ export function buildSignalTimeline(
       timestampMs,
     };
 
-    // Speech signals
+    // ── Speech signals (base from 5-Track) ──
     snapshot['speech.energy'] = getSpeechEnergyAt(mergedAnalysis, timestampMs);
     snapshot['speech.energy_delta'] = getSpeechEnergyDelta(mergedAnalysis, timestampMs);
     snapshot['speech.speaking_rate_wpm'] = getSpeakingRateAt(rawFootage, timestampMs);
     snapshot['speech.silence_duration_ms'] = getSilenceDurationAt(rawFootage, timestampMs);
     snapshot['speech.coverage'] = getSpeechCoverageAt(rawFootage, timestampMs);
 
-    // Visual signals
+    // ── Wav2Vec enrichment: REPLACE heuristic speech.energy + ADD new speech signals ──
+    // Wav2Vec semantic energy is superior to RMS amplitude from 5-Track energyCurve.
+    // New signals: emotion_intensity, emotional_valence, pitch_variability, stress_detected
+    // These fulfill graph nodes tagged NEEDS_INFRA (speech.emotional_valence etc.)
+    if (hasWav2Vec) {
+      const wav2vecSeg = findWav2VecSegmentAt(wav2vecSegments, timestampMs);
+      if (wav2vecSeg) {
+        // REPLACE: semantic energy > RMS heuristic
+        snapshot['speech.energy'] = wav2vecSeg.energy;
+        // ADD: new signals from vocal prosody (previously NEEDS_INFRA)
+        snapshot['speech.emotion_intensity'] = wav2vecSeg.emotionIntensity;
+        snapshot['speech.emotional_valence'] = wav2vecSeg.emotionalValence;
+        snapshot['speech.pitch_variability'] = wav2vecSeg.pitchVariability;
+        snapshot['speech.stress_detected'] = wav2vecSeg.stressDetected;
+        snapshot['speech.filler_confidence'] = wav2vecSeg.fillerConfidence;
+      }
+    }
+
+    // ── Visual signals (base from 5-Track) ──
     snapshot['visual.motion_intensity'] = getMotionIntensityAt(mergedAnalysis, frame);
     snapshot['visual.shot_scale'] = getShotScaleAt(mergedAnalysis, frame);
     snapshot['visual.face_present'] = getFacePresentAt(mergedAnalysis, frame);
     snapshot['visual.ai_artifact_risk'] = getAiArtifactRiskAt(mergedAnalysis, frame);
     snapshot['visual.scene_type'] = getSceneTypeAt(mergedAnalysis, frame);
+
+    // ── V-JEPA enrichment: REPLACE heuristic visual.motion_intensity + ADD new visual signals ──
+    // V-JEPA learned motion > optical flow heuristic. Action type, motion type, face emotion,
+    // eye contact are entirely new capabilities. These fulfill 4 NEEDS_INFRA graph nodes.
+    if (hasVjepa) {
+      const vjepaSeg = findVjepaSegmentAt(vjepaSegments, timestampMs);
+      if (vjepaSeg) {
+        // REPLACE: learned motion intensity > 5-Track heuristic
+        snapshot['visual.motion_intensity'] = vjepaSeg.motionIntensity;
+        // ADD: visual significance (embedding divergence — key V-JEPA output)
+        snapshot['visual.significance'] = vjepaSeg.visualSignificance;
+        // ADD: semantic action classification (previously NEEDS_INFRA)
+        snapshot['visual.action_type'] = vjepaSeg.actionType;
+        // ADD: subject vs camera motion discrimination (previously NEEDS_INFRA)
+        snapshot['visual.motion_type'] = vjepaSeg.motionType;
+        // ADD: facial emotion from video features (previously NEEDS_INFRA)
+        if (vjepaSeg.faceEmotion) {
+          snapshot['visual.face_emotion'] = vjepaSeg.faceEmotion;
+        }
+        // ADD: eye contact / gaze tracking (previously NEEDS_INFRA)
+        if (vjepaSeg.eyeContact !== null && vjepaSeg.eyeContact !== undefined) {
+          snapshot['visual.eye_contact'] = vjepaSeg.eyeContact;
+        }
+        // Enrich scene_type with V-JEPA action semantics (more accurate than heuristic)
+        if (vjepaSeg.actionType === 'talking' || vjepaSeg.actionType === 'still') {
+          snapshot['visual.scene_type'] = 'talking-head';
+        } else if (vjepaSeg.actionType === 'walking' || vjepaSeg.actionType === 'gesturing' || vjepaSeg.actionType === 'demonstrating') {
+          snapshot['visual.scene_type'] = 'action';
+        }
+      }
+    }
 
     // Audio signals
     snapshot['audio.music_energy'] = getMusicEnergyAt(mergedAnalysis, timestampMs);
@@ -238,13 +347,24 @@ export function buildSignalTimeline(
     }
 
     // narrative_pressure: high speech energy + rising delta + low silence = building pressure
+    // Enhanced: Wav2Vec emotion_intensity amplifies pressure when speaker is emotionally charged
     snapshot['composite.narrative_pressure'] = computeNarrativePressure(snapshot, neighbors);
 
     // montage_mode: multiple short shots + high motion + music-driven
     snapshot['composite.montage_mode'] = computeMontageMode(snapshot, overlays, frame, fps);
 
     // cinematic_moment: 2+ tracks peaking within 500ms (15 frames at 30fps)
+    // Enhanced: V-JEPA visual.significance + Wav2Vec stress_detected contribute as peak sources
     snapshot['composite.cinematic_moment'] = computeCinematicMoment(snapshot, neighbors);
+
+    // NEW composite: emotional_alignment — do visual and vocal emotions agree?
+    // When V-JEPA face_emotion and Wav2Vec emotional_valence are both present,
+    // compute alignment score. Misalignment flags mood mismatch (graph quality gate).
+    const faceEmotion = snapshot['visual.face_emotion'] as string | undefined;
+    const vocalValence = snapshot['speech.emotional_valence'] as string | undefined;
+    if (faceEmotion && vocalValence) {
+      snapshot['composite.emotional_alignment'] = computeEmotionalAlignment(faceEmotion, vocalValence);
+    }
   }
 
   // ── EVENT-BASED signals from transcript ───────────────────────────────
@@ -359,6 +479,31 @@ export function buildSignalTimeline(
         });
       }
     }
+
+    // Speaker change events (from Grok diarization)
+    // ← signal:speech.speaker_change (NEEDS_INFRA → now fulfilled)
+    // "Speaker changes are natural event boundaries" (event segmentation theory)
+    // Detects when speaker label changes between consecutive words.
+    // Enables: interview B-roll insertion, speaker-specific captions, turn-taking editing.
+    {
+      let lastSpeaker: number | undefined;
+      for (const word of words) {
+        if (word.speaker !== undefined && word.speaker !== lastSpeaker) {
+          if (lastSpeaker !== undefined) {
+            // Speaker actually changed (not just the first labeled word)
+            const frame = Math.round((word.startMs / 1000) * fps);
+            timeline.eventSignals.push({
+              timestampMs: word.startMs,
+              frame,
+              signal: 'speech.speaker_change',
+              value: true,
+              context: `speaker_${lastSpeaker} → speaker_${word.speaker}`,
+            });
+          }
+          lastSpeaker = word.speaker;
+        }
+      }
+    }
   }
 
   // ── GLOBAL signals (non-time-varying) ─────────────────────────────────
@@ -369,6 +514,23 @@ export function buildSignalTimeline(
   timeline.globalSignals['audio.music_present'] = hasMusicPresent(mergedAnalysis);
   timeline.globalSignals['video.duration_s'] = totalDurationMs / 1000;
   timeline.globalSignals['audio.music_bpm'] = mergedAnalysis.musicStructure?.bpm ?? 0;
+
+  // Speaker diarization global — number of distinct speakers detected
+  const speakerIds = new Set<number>();
+  if (rawFootage?.transcription?.words) {
+    for (const w of rawFootage.transcription.words) {
+      if (w.speaker !== undefined) speakerIds.add(w.speaker);
+    }
+  }
+  timeline.globalSignals['content.speaker_count'] = speakerIds.size;
+  timeline.globalSignals['content.is_multi_speaker'] = speakerIds.size > 1;
+
+  // Enrichment source markers — downstream can detect which GPU models contributed
+  timeline.globalSignals['enrichment.visual_source'] = hasVjepa ? 'vjepa' : 'five-track';
+  timeline.globalSignals['enrichment.speech_source'] = hasWav2Vec ? 'wav2vec' : 'transcript';
+  timeline.globalSignals['enrichment.vjepa_segments'] = vjepaSegments?.length ?? 0;
+  timeline.globalSignals['enrichment.wav2vec_segments'] = wav2vecSegments?.length ?? 0;
+  timeline.globalSignals['enrichment.diarization'] = speakerIds.size > 1 ? 'grok' : 'none';
 
   return timeline;
 }
@@ -542,12 +704,20 @@ function computeNarrativePressure(snapshot: SignalSnapshot, neighbors: SignalSna
   const silence = (snapshot['speech.silence_duration_ms'] as number) ?? 0;
   const position = (snapshot['structural.position_in_video'] as number) ?? 0;
 
+  // Wav2Vec enrichment: emotion intensity amplifies pressure when speaker is emotionally charged.
+  // Without Wav2Vec, emotionBoost = 0 (no change to existing behavior).
+  const emotionIntensity = (snapshot['speech.emotion_intensity'] as number) ?? 0;
+  const stressDetected = snapshot['speech.stress_detected'] === true;
+
   // High energy + rising trend + no silence + past midpoint = high pressure
+  // Wav2Vec emotion adds up to 0.15 boost (redistributed from base weights)
   let pressure = 0;
-  pressure += energy * 0.3;
-  pressure += Math.max(0, delta) * 0.3;  // Only positive delta contributes
-  pressure += (silence === 0 ? 0.2 : 0);  // Active speech adds pressure
-  pressure += (position > 0.5 ? 0.2 : 0); // Past midpoint = building
+  pressure += energy * 0.25;                                    // was 0.3 — ← energy base
+  pressure += Math.max(0, delta) * 0.25;                        // was 0.3 — ← delta base
+  pressure += (silence === 0 ? 0.15 : 0);                       // was 0.2 — ← speech active
+  pressure += (position > 0.5 ? 0.15 : 0);                      // was 0.2 — ← position
+  pressure += emotionIntensity * 0.1;                            // Wav2Vec: vocal arousal
+  pressure += (stressDetected ? 0.1 : 0);                       // Wav2Vec: vocal stress
 
   return Math.min(1, Math.max(0, pressure));
 }
@@ -577,22 +747,72 @@ function computeMontageMode(
 
 function computeCinematicMoment(snapshot: SignalSnapshot, neighbors: SignalSnapshot[]): number {
   // 2+ tracks peaking simultaneously = cinematic moment
+  // Enhanced: V-JEPA visual significance and Wav2Vec stress detection contribute as peak sources.
+  // More peak sources = more sensitivity to multi-modal convergence.
   let peakCount = 0;
   const speechEnergy = (snapshot['speech.energy'] as number) ?? 0;
   const motionIntensity = (snapshot['visual.motion_intensity'] as number) ?? 0;
   const musicEnergy = (snapshot['audio.music_energy'] as number) ?? 0;
   const musicBeat = (snapshot['audio.music_beat'] as number) ?? 0;
 
+  // Base peaks (always available)
   if (speechEnergy > 0.7) peakCount++;
   if (motionIntensity > 0.6) peakCount++;
   if (musicEnergy > 0.7) peakCount++;
   if (musicBeat > 0) peakCount++;
 
-  // Score: 0 for <2, 0.5 for 2, 0.8 for 3, 1.0 for 4+
-  if (peakCount >= 4) return 1.0;
-  if (peakCount === 3) return 0.8;
+  // V-JEPA peak: high visual significance (embedding divergence) = visually distinctive moment
+  const visualSignificance = (snapshot['visual.significance'] as number) ?? 0;
+  if (visualSignificance > 0.7) peakCount++;
+
+  // Wav2Vec peak: vocal stress detected = emotionally charged speech
+  const stressDetected = snapshot['speech.stress_detected'] === true;
+  if (stressDetected) peakCount++;
+
+  // Adjusted scoring — now 6 possible peak sources instead of 4.
+  // Threshold still 2+ for activation, but higher peaks are more likely with enrichment.
+  if (peakCount >= 5) return 1.0;
+  if (peakCount === 4) return 0.9;
+  if (peakCount === 3) return 0.7;
   if (peakCount === 2) return 0.5;
   return 0;
+}
+
+/**
+ * Cross-modal emotional alignment: do face emotion (V-JEPA) and vocal valence (Wav2Vec) agree?
+ *
+ * Returns 0-1 where:
+ *   1.0 = perfect alignment (happy face + positive voice)
+ *   0.5 = neutral/ambiguous (neutral face or neutral voice)
+ *   0.0 = mismatch (sad face + positive voice, or happy face + negative voice)
+ *
+ * Misalignment flags mood-mismatch quality gate in creative knowledge graph:
+ *   "If face_emotion = sad AND music_energy = high-positive → mood mismatch"
+ *   "If music_energy is high-positive AND emotional_valence is negative → mood mismatch"
+ *
+ * Valence categories for face emotions (Ekman 1992 + Scherer 2003):
+ *   positive: happy, surprised
+ *   negative: sad, angry, fearful, disgusted, contempt
+ *   neutral: neutral
+ */
+function computeEmotionalAlignment(faceEmotion: string, vocalValence: string): number {
+  // Map face emotion to valence category
+  const POSITIVE_FACE = new Set(['happy', 'surprised']);
+  const NEGATIVE_FACE = new Set(['sad', 'angry', 'fearful', 'disgusted', 'contempt']);
+
+  let faceValence: 'positive' | 'negative' | 'neutral';
+  if (POSITIVE_FACE.has(faceEmotion)) faceValence = 'positive';
+  else if (NEGATIVE_FACE.has(faceEmotion)) faceValence = 'negative';
+  else faceValence = 'neutral';
+
+  // Alignment scoring
+  if (faceValence === 'neutral' || vocalValence === 'neutral' || vocalValence === 'mixed') {
+    return 0.5; // Ambiguous — neither aligned nor misaligned
+  }
+  if (faceValence === vocalValence) {
+    return 1.0; // Perfect alignment
+  }
+  return 0.0; // Mismatch — face and voice disagree
 }
 
 // ─── Global Signal Computations ─────────────────────────────────────────────

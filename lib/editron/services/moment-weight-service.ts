@@ -16,6 +16,8 @@
 
 import type { GeminiCreativeIntentOutput } from './genre-parameter-computer';
 import type { RawFootageAnalysis } from './signal-registry';
+import type { BanditState, BanditContext } from './genre-parameter-bandit';
+import { computeMomentAdjustments } from './genre-parameter-bandit';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -218,6 +220,50 @@ export function integrateVjepaScores(
 }
 
 /**
+ * Phase 2: Integrate Wav2Vec vocal emotion scores.
+ * Called when Wav2Vec features are available (fal.ai deployment).
+ *
+ * Order-independent with integrateVjepaScores — either can be called first.
+ * When both sources are populated, full Phase 2 recomputation uses all three:
+ *   50% gemini + 30% vjepa + 20% wav2vec + thompson_adjustment
+ */
+export function integrateWav2vecScores(
+  map: MomentWeightMap,
+  wav2vecScores: Array<{ startMs: number; endMs: number; emotionIntensity: number }>
+): MomentWeightMap {
+  const updated = map.weights.map(w => {
+    const wav2vec = wav2vecScores.find(
+      v => v.startMs <= w.segment_start_ms && v.endMs >= w.segment_end_ms
+    );
+    if (!wav2vec) return w;
+
+    const updatedSources = { ...w.sources, wav2vec: wav2vec.emotionIntensity };
+
+    // If vjepa is also populated, do full Phase 2 recomputation
+    // Otherwise store wav2vec value — full recompute happens when vjepa arrives
+    let finalWeight = w.final_weight;
+    if (updatedSources.vjepa !== null) {
+      const geminiContrib = (updatedSources.gemini ?? 0.5) * 0.5;
+      const vjepaContrib = updatedSources.vjepa * 0.3;
+      const wav2vecContrib = wav2vec.emotionIntensity * 0.2;
+      finalWeight = clamp(
+        geminiContrib + vjepaContrib + wav2vecContrib + updatedSources.thompson_adjustment,
+        0, 1,
+      );
+    }
+
+    return {
+      ...w,
+      final_weight: finalWeight,
+      sources: updatedSources,
+      confidence: 'high' as const,
+    };
+  });
+
+  return { ...map, weights: updated, computation_phase: 2 };
+}
+
+/**
  * Phase 3: Apply EML formula override.
  * Called when EML has discovered a mathematical law for this signal combination.
  */
@@ -241,6 +287,38 @@ export function applyEmlOverride(
   });
 
   return { ...map, weights: updated, computation_phase: 3 };
+}
+
+// ─── Bandit Bridge (TRIBE §1C — signal-driven) ────────────────────────────
+
+/**
+ * Phase 1: Apply Thompson Sampling adjustments from genre-parameter-bandit.
+ *
+ * Bridges genre-parameter-bandit.ts → moment-weight-service.ts:
+ *   1. Calls computeMomentAdjustments (bandit) to get per-segment adjustments
+ *   2. Applies them via applyThompsonAdjustments (this service)
+ *
+ * Returns the original map unchanged when bandit has insufficient data.
+ */
+export function applyBanditAdjustments(
+  map: MomentWeightMap,
+  banditState: BanditState | null,
+  context: BanditContext | null,
+): MomentWeightMap {
+  if (!banditState || !context) return map;
+  if (map.weights.length === 0) return map;
+
+  const totalDuration = Math.max(...map.weights.map(w => w.segment_end_ms), 1);
+
+  const segmentPositions = map.weights.map(w => ({
+    id: `${w.segment_start_ms}-${w.segment_end_ms}`,
+    normalizedPosition: w.segment_start_ms / totalDuration,
+  }));
+
+  const adjustments = computeMomentAdjustments(banditState, context, segmentPositions);
+  if (adjustments.size === 0) return map;
+
+  return applyThompsonAdjustments(map, adjustments);
 }
 
 // ─── Utilities ──────────────────────────────────────────────────────────────

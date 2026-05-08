@@ -1626,7 +1626,7 @@
       "name": "speaking_rate_wpm",
       "summary": "How fast the speaker is talking relative to their own baseline.",
       "details": {
-        "detection": "Word count / duration from Whisper timestamps, smoothed over 10s. Future: WhisperX provides more accurate word-level timestamps.",
+        "detection": "Word count / duration from Whisper timestamps, smoothed over 10s. Future: Grok provides more accurate word-level timestamps.",
         "output": "80-220 WPM (typical human range)",
         "thresholds": "> 180 WPM → readability issue (captions can't keep up)",
         "rationale": "Rate acceleration signals excitement or urgency; deceleration signals emphasis or gravity",
@@ -1674,7 +1674,7 @@
       "name": "silence_duration_ms",
       "summary": "How long since speech stopped. Context-dependent meaning ranging from natural breath pause to dramatic pause to dead air.",
       "details": {
-        "detection": "Gap between word-level timestamps from Whisper. Future: WhisperX + Wav2Vec-BERT distinguish intentional pauses from dead air.",
+        "detection": "Gap between word-level timestamps from Whisper. Future: Grok + Wav2Vec-BERT distinguish intentional pauses from dead air.",
         "output": "0-10000+ ms",
         "thresholds": "< 300ms = natural breath pause (ignore); 300-800ms = clause boundary or emphasis pause; 800-2000ms = topic boundary or dramatic pause; > 2000ms = potential dead air (check narrative_pressure before removing)",
         "rationale": "Event segmentation theory — pauses > 800ms correlate with cognitive event boundaries (Zacks 2007)",
@@ -1770,12 +1770,12 @@
       "name": "speaker_change",
       "summary": "A different person is now speaking. Enables interview editing, multi-speaker content.",
       "details": {
-        "detection": "Not available (no diarization). Approximated from long pauses + content shift. Future: WhisperX speaker diarization — precise speaker boundaries with speaker labels.",
+        "detection": "Not available (no diarization). Approximated from long pauses + content shift. Future: Grok speaker diarization — precise speaker boundaries with speaker labels.",
         "output": "boolean + new_speaker_id",
         "thresholds": null,
         "rationale": "Speaker changes are natural event boundaries (event segmentation theory)",
         "implementsIn": [
-          "Future: WhisperX on fal.ai. Current: heuristic from transcript gaps"
+          "Future: Grok on fal.ai. Current: heuristic from transcript gaps"
         ],
         "qualityGate": "If speaker_change detected but no visual change (still showing previous speaker) → flag"
       },
@@ -2617,12 +2617,12 @@
       "name": "reaction_moment",
       "summary": "The moment where cutting to the LISTENER's reaction is more powerful than staying on the speaker. Fincher's deposition, K-drama reaction holds.",
       "details": {
-        "detection": "Current: Limited. speech_ends + face_present + pause > 500ms (approximation). Future: WhisperX speaker boundary (person A stops speaking) + V-JEPA face detection on non-speaker (person B visible) + face_emotion shift on person B (neutral → surprised, or neutral → moved). Intensity = magnitude of emotion shift on listener's face.",
+        "detection": "Current: Limited. speech_ends + face_present + pause > 500ms (approximation). Future: Grok speaker boundary (person A stops speaking) + V-JEPA face detection on non-speaker (person B visible) + face_emotion shift on person B (neutral → surprised, or neutral → moved). Intensity = magnitude of emotion shift on listener's face.",
         "output": "boolean + intensity 0-1 (composite)",
         "thresholds": "pause > 500ms required; LOW CONFIDENCE until Phase 2 — should only suggest, never auto-apply",
         "rationale": "Mirror neuron response — viewers empathize with faces they see reacting, not speaking (Gallese & Guerra 2012)",
         "implementsIn": [
-          "Future: composite of WhisperX + V-JEPA multi-person tracking"
+          "Future: composite of Grok + V-JEPA multi-person tracking"
         ],
         "qualityGate": "If reaction_moment fires but no cut-to-listener within 1s → missed reaction opportunity"
       },
@@ -4163,7 +4163,7 @@
         },
         "why": "Gallese & Guerra (2012) - mirror neurons activate more for REACTIONS than actions. Viewer empathizes with the receiver. Fincher's deposition, K-drama signature.",
         "learningTarget": "hold duration, frequency",
-        "detectionHint": "[PHASE_2] WhisperX + V-JEPA face tracking -> emotion delta after speech ends -> trigger. Until Phase 2: approximate with silence + face_present + heuristic."
+        "detectionHint": "[PHASE_2] Grok + V-JEPA face tracking -> emotion delta after speech ends -> trigger. Until Phase 2: approximate with silence + face_present + heuristic."
       },
       "tags": [
         "PHASE_2",
@@ -4267,7 +4267,7 @@
         },
         "why": "Dialogue editing has its own rhythm. The editor interprets the conversation - sometimes story is in speaker, sometimes in listener.",
         "learningTarget": "cut timing after speaker_change, J/L-cut frequency",
-        "detectionHint": "[PHASE_2] WhisperX diarization -> compute rhythm -> apply pattern. Until Phase 2: detect from transcript alternation."
+        "detectionHint": "[PHASE_2] Grok diarization -> compute rhythm -> apply pattern. Until Phase 2: detect from transcript alternation."
       },
       "tags": [
         "PHASE_2",
@@ -19961,7 +19961,7 @@
       "from": "signal:composite.reaction_moment",
       "to": "signal:speech.speaker_change",
       "type": "composes_from",
-      "label": "WhisperX speaker boundary (person A stops speaking)",
+      "label": "Grok speaker boundary (person A stops speaking)",
       "sourceLines": [
         948,
         948

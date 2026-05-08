@@ -37,6 +37,9 @@ export interface ProjectGraphRecord {
   userId: string;
   timestamp: Date;
 
+  // Profile used (← TRIBE §1C: bandit needs to know which arm produced this outcome)
+  profileId: string;
+
   // Input characteristics
   videoDurationSec: number;
   speechCoverage: number;
@@ -107,6 +110,7 @@ export async function dispatchProjectGraphRecord(record: ProjectGraphRecord): Pr
             projectId: record.projectId,
             userId: record.userId,
             brandId: record.brandId,
+            profileId: record.profileId,
             timestamp: record.timestamp.toISOString(),
 
             // Genre parameters — for Thompson Sampling to learn optimal values per brand
@@ -177,6 +181,7 @@ export function buildProjectGraphRecord(params: {
   projectId: string;
   userId: string;
   brandId?: string;
+  profileId: string;
   videoDurationSec: number;
   speechCoverage: number;
   genreParameters: GenreParameters;
@@ -211,6 +216,7 @@ export function buildProjectGraphRecord(params: {
     projectId: params.projectId,
     userId: params.userId,
     brandId: params.brandId,
+    profileId: params.profileId,
     timestamp: new Date(),
     videoDurationSec: params.videoDurationSec,
     speechCoverage: params.speechCoverage,

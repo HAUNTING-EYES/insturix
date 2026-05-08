@@ -171,13 +171,17 @@ async function generateTranscription(
             ...(w.speaker !== undefined && { speaker: w.speaker }),
           }));
 
-          console.log(`[Transcription] Grok STT: ${words.length} words, duration=${data.duration?.toFixed(1)}s for ${asset.assetId}`);
+          // Count distinct speakers from diarization (0 if no speaker labels)
+          const speakerIds = new Set(words.filter(w => w.speaker !== undefined).map(w => w.speaker));
+          const speakerCount = speakerIds.size;
+          console.log(`[Transcription] Grok STT: ${words.length} words, ${speakerCount} speakers, duration=${data.duration?.toFixed(1)}s for ${asset.assetId}`);
           return {
             words,
             transcript: data.text || words.map((w: any) => w.word).join(' '),
             language: data.language || language || 'en',
             confidence: 0.95,
             generatedAt: new Date(),
+            ...(speakerCount > 1 && { speakerCount }),
           };
         }
         console.warn(`[Transcription] Grok STT returned 0 words for ${asset.assetId}, falling through`);

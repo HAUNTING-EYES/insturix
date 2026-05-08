@@ -221,6 +221,7 @@ async function handler(request: NextRequest) {
 
     // ─── Step 3: Compute Genre Parameters (signal-driven, no profiles) ──
     let genreParameters: any = null;
+    let genreParametersSignalComputed: any = null;  // Pre-bandit value for reward feedback
     if (rawFootageAnalysis) {
       try {
         await db.collection('projects').updateOne(
@@ -236,10 +237,148 @@ async function handler(request: NextRequest) {
           userIntent: userIntent,
         });
         genreParameters = genreOutput.genreParams;
+        genreParametersSignalComputed = { ...genreOutput.genreParams };  // Snapshot before bandit
         console.log(`[VideoAnalysisWorker] Genre params: pacing=${genreOutput.genreParams.pacing_tolerance.toFixed(1)}, formality=${genreOutput.genreParams.formality.toFixed(2)}, zoom_budget=${genreOutput.genreParams.zoom_budget} (${genreOutput.confidence})`);
+
+        // ─── Step 3.1: Apply Thompson Sampling bandit adjustments ────
+        // Load per-user bandit state from MongoDB. If the user has enough
+        // project history (>=5), sample learned adjustments to genre dials.
+        // Store BOTH signal-computed and adjusted params so reward feedback
+        // can compute the actual adjustment that was applied.
+        try {
+          const {
+            loadBanditState, sampleAdjustments, applyAdjustments,
+            buildDurationBucket, buildSpeechCoverageBucket, buildContextKey,
+          } = await import('@/lib/editron/services/genre-parameter-bandit');
+          const banditState = await loadBanditState(userId);
+
+          if (banditState && banditState.totalProjects >= 5) {
+            // Compute speech coverage for context
+            const totalSpeechMs = rawFootageAnalysis.segments?.reduce(
+              (sum: number, s: any) => sum + (s.endMs - s.startMs), 0
+            ) ?? 0;
+            const speechCoverage = rawFootageAnalysis.originalDurationMs
+              ? totalSpeechMs / rawFootageAnalysis.originalDurationMs
+              : 0;
+
+            const context = {
+              contentType: rawFootageAnalysis.contentTypeDetection?.contentType || 'unknown',
+              speechCoverageBucket: buildSpeechCoverageBucket(speechCoverage),
+              durationBucket: buildDurationBucket(durationSec),
+              platform: platform || 'youtube',
+            };
+
+            const banditResult = sampleAdjustments(banditState, context);
+            if (banditResult.usedBandit && Object.keys(banditResult.adjustments).length > 0) {
+              genreParameters = applyAdjustments(genreParameters, banditResult.adjustments);
+              console.log(`[VideoAnalysisWorker] Bandit: ${Object.keys(banditResult.adjustments).length} adjustments applied (confidence=${banditResult.confidence}, obs=${banditResult.observationCount}, ctx=${buildContextKey(context)})`);
+            } else {
+              console.log(`[VideoAnalysisWorker] Bandit: active but no significant adjustments for this context`);
+            }
+          } else {
+            console.log(`[VideoAnalysisWorker] Bandit: ${banditState ? `${banditState.totalProjects}/5 projects` : 'no state'} — using pure signal computation`);
+          }
+        } catch (banditErr: unknown) {
+          const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);
+          console.warn(`[VideoAnalysisWorker] Bandit adjustment failed (non-fatal): ${msg}`);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[VideoAnalysisWorker] Genre param computation failed (non-fatal): ${msg}`);
+      }
+    }
+
+    // ─── Step 3.5: V-JEPA + Wav2Vec GPU analysis (TRIBE Phase 2) ──
+    // Run visual significance (V-JEPA) and vocal emotion (Wav2Vec) in parallel.
+    // Both are non-fatal — pipeline falls back to Phase 0 (Gemini-only) weights.
+    // Results stored on project doc so Director Agent can build Phase 2 weight map.
+    let vjepaAnalysis: any = null;
+    let wav2vecAnalysis: any = null;
+
+    if (rawFootageAnalysis?.segments?.length > 0) {
+      try {
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'analyzing_deep' } },
+        );
+
+        // Build segment inputs from rawFootageAnalysis transcript segments
+        const segmentInputs = rawFootageAnalysis.segments.map((seg: any) => ({
+          startMs: seg.startMs,
+          endMs: seg.endMs,
+        }));
+
+        console.log(`[VideoAnalysisWorker] TRIBE Phase 2: Dispatching V-JEPA + Wav2Vec for ${segmentInputs.length} segments...`);
+
+        const [vjepaResult, wav2vecResult] = await Promise.allSettled([
+          (async () => {
+            const { analyzeVideoWithVjepa } = await import('@/lib/editron/services/vjepa-service');
+            return analyzeVideoWithVjepa(videoUrl, segmentInputs);
+          })(),
+          (async () => {
+            const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
+            // Wav2Vec uses same URL — Modal endpoint extracts audio from video
+            return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);
+          })(),
+        ]);
+
+        // Handle V-JEPA result
+        if (vjepaResult.status === 'fulfilled' && vjepaResult.value) {
+          vjepaAnalysis = vjepaResult.value;
+          const avgSig = vjepaAnalysis.segments.reduce((s: number, r: any) => s + r.visualSignificance, 0) / vjepaAnalysis.segments.length;
+          console.log(`[VideoAnalysisWorker] V-JEPA: ${vjepaAnalysis.segments.length} segments analyzed (avg significance=${avgSig.toFixed(2)}, ${vjepaAnalysis.processingTimeMs}ms)`);
+        } else {
+          const msg = vjepaResult.status === 'rejected' ? (vjepaResult.reason?.message || String(vjepaResult.reason)) : 'returned null';
+          console.warn(`[VideoAnalysisWorker] V-JEPA skipped: ${msg}`);
+        }
+
+        // Handle Wav2Vec result
+        if (wav2vecResult.status === 'fulfilled' && wav2vecResult.value) {
+          wav2vecAnalysis = wav2vecResult.value;
+          const avgEmo = wav2vecAnalysis.segments.reduce((s: number, r: any) => s + r.emotionIntensity, 0) / wav2vecAnalysis.segments.length;
+          console.log(`[VideoAnalysisWorker] Wav2Vec: ${wav2vecAnalysis.segments.length} segments analyzed (avg emotion=${avgEmo.toFixed(2)}, ${wav2vecAnalysis.processingTimeMs}ms)`);
+        } else {
+          const msg = wav2vecResult.status === 'rejected' ? (wav2vecResult.reason?.message || String(wav2vecResult.reason)) : 'returned null';
+          console.warn(`[VideoAnalysisWorker] Wav2Vec skipped: ${msg}`);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[VideoAnalysisWorker] TRIBE Phase 2 analysis failed (non-fatal): ${msg}`);
+      }
+    }
+
+    // ─── Step 3.6: Build enriched moment weight map (TRIBE Phase 2) ──
+    // If V-JEPA/Wav2Vec data is available, build Phase 2 weights:
+    //   50% gemini + 30% vjepa + 20% wav2vec + thompson_adjustment
+    // Otherwise falls back to Phase 0 flat weights.
+    let momentWeightMap: any = null;
+    if (vjepaAnalysis || wav2vecAnalysis) {
+      try {
+        const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores } =
+          await import('@/lib/editron/services/moment-weight-service');
+        const { toVjepaWeightFormat } = await import('@/lib/editron/services/vjepa-service');
+        const { toWav2VecWeightFormat } = await import('@/lib/editron/services/wav2vec-service');
+
+        // Start with flat weights (Phase 0)
+        let weightMap = buildMomentWeightMap(null, rawFootageAnalysis);
+
+        // Integrate V-JEPA visual significance (30% weight)
+        if (vjepaAnalysis) {
+          const vjepaWeights = toVjepaWeightFormat(vjepaAnalysis);
+          weightMap = integrateVjepaScores(weightMap, vjepaWeights);
+        }
+
+        // Integrate Wav2Vec vocal emotion (20% weight)
+        if (wav2vecAnalysis) {
+          const wav2vecWeights = toWav2VecWeightFormat(wav2vecAnalysis);
+          weightMap = integrateWav2vecScores(weightMap, wav2vecWeights);
+        }
+
+        momentWeightMap = weightMap;
+        console.log(`[VideoAnalysisWorker] Moment weights: Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[VideoAnalysisWorker] Moment weight computation failed (non-fatal): ${msg}`);
       }
     }
 
@@ -253,6 +392,10 @@ async function handler(request: NextRequest) {
           ...(editDNA && { referenceEditDNA: editDNA }),
           ...(rawFootageAnalysis && { rawFootageAnalysis }),
           ...(genreParameters && { genreParameters }),
+          ...(genreParametersSignalComputed && { genreParametersSignalComputed }),
+          ...(vjepaAnalysis && { vjepaAnalysis }),
+          ...(wav2vecAnalysis && { wav2vecAnalysis }),
+          ...(momentWeightMap && { momentWeightMap }),
           updatedAt: new Date(),
         },
       },
@@ -356,6 +499,25 @@ async function handler(request: NextRequest) {
     );
 
     console.log(`[VideoAnalysisWorker] Complete: ${projectId} in ${totalMs}ms (${directorResult.actionsExecuted} actions)`);
+
+    // ─── Step 7.1: Record bandit outcome (reward feedback loop) ───
+    // Read quality score from project doc (Director writes it during quality_review).
+    // Record outcome so bandit learns from this project's results.
+    // Non-fatal — learning is an enhancement, not critical path.
+    try {
+      const projectAfterDirector = await db.collection('projects').findOne(
+        { projectId },
+        { projection: { 'qualityReview.overallScore': 1 } },
+      );
+      const qualityScore = projectAfterDirector?.qualityReview?.overallScore ?? 50;
+
+      const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
+      await recordProjectOutcome(userId, projectId, qualityScore, false, false);
+    } catch (banditErr: unknown) {
+      const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);
+      console.warn(`[VideoAnalysisWorker] Bandit outcome recording failed (non-fatal): ${msg}`);
+    }
+
     return NextResponse.json({ success: true, totalMs });
 
   } catch (error: unknown) {

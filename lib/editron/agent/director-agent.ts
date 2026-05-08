@@ -22,6 +22,7 @@
  */
 
 import type { EditProfile, EditProfileAction, DirectorResult, ProjectBrief, ProfileId } from '@/lib/editron/data/edit-profile-types';
+import type { GateResult } from '@/lib/editron/services/quality-gate';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import { projectService } from '@/lib/editron/services/project-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -323,7 +324,7 @@ export async function executeDirectorPlan(
 
             const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
             const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
-            const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+            const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores, applyBanditAdjustments } = await import('@/lib/editron/services/moment-weight-service');
             const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
             const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
             const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
@@ -341,15 +342,51 @@ export async function executeDirectorPlan(
             });
             console.log(`[Director] Path D: Genre params computed (confidence: ${genreOutput.confidence}, fps: ${pathDFps})`);
 
-            // Step D.2: Build moment weight map (flat weights without Gemini, or with if available)
-            const weightMap = buildMomentWeightMap(null, projectDoc.rawFootageAnalysis);
+            // Step D.2: Build moment weight map — enriched with V-JEPA + Wav2Vec if pre-computed
+            // Worker (video-analysis/route.ts) stores vjepaAnalysis + wav2vecAnalysis on project doc.
+            // Phase 2 formula: 50% gemini + 30% vjepa + 20% wav2vec + thompson_adjustment
+            // Falls back to flat Phase 0 weights when GPU analysis data is unavailable.
+            let weightMap = buildMomentWeightMap(null, projectDoc.rawFootageAnalysis);
+
+            // Enrich with V-JEPA visual significance (30% of Phase 2 weight)
+            if (projectDoc.vjepaAnalysis?.segments?.length > 0) {
+              const { toVjepaWeightFormat } = await import('@/lib/editron/services/vjepa-service');
+              const vjepaWeights = toVjepaWeightFormat(projectDoc.vjepaAnalysis);
+              weightMap = integrateVjepaScores(weightMap, vjepaWeights);
+              console.log(`[Director] Path D: V-JEPA weights integrated (${projectDoc.vjepaAnalysis.segments.length} segments)`);
+            }
+
+            // Enrich with Wav2Vec vocal emotion (20% of Phase 2 weight)
+            if (projectDoc.wav2vecAnalysis?.segments?.length > 0) {
+              const { toWav2VecWeightFormat } = await import('@/lib/editron/services/wav2vec-service');
+              const wav2vecWeights = toWav2VecWeightFormat(projectDoc.wav2vecAnalysis);
+              weightMap = integrateWav2vecScores(weightMap, wav2vecWeights);
+              console.log(`[Director] Path D: Wav2Vec weights integrated (${projectDoc.wav2vecAnalysis.segments.length} segments)`);
+            }
+
+            // Apply Thompson Sampling bandit adjustments (learned per-user corrections)
+            if (projectDoc.momentWeightMap?.computation_phase >= 1) {
+              // Pre-computed bandit adjustments from worker — use them directly
+              weightMap = { ...weightMap, ...projectDoc.momentWeightMap };
+              console.log(`[Director] Path D: Using pre-computed Phase ${projectDoc.momentWeightMap.computation_phase} weight map`);
+            }
+
+            console.log(`[Director] Path D: Moment weights Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
 
             // Step D.3: Build signal timeline (dual timing: grid + event)
             const overlayInfos = overlays.map((o: any) => ({
               id: o.id, type: o.type, from: o.from,
               durationInFrames: o.durationInFrames, row: o.row, assetId: o.assetId,
             }));
-            const signalTimeline = buildSignalTimeline(analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps);
+            // Pass V-JEPA + Wav2Vec data for signal enrichment (replaces NEEDS_INFRA placeholders).
+            // When present: visual.action_type, visual.motion_type, visual.face_emotion,
+            // visual.eye_contact, speech.emotional_valence + 5 more signals activate graph mappings.
+            // When absent: existing heuristic signals remain (graceful degradation).
+            const signalTimeline = buildSignalTimeline(
+              analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps,
+              projectDoc.vjepaAnalysis ?? null,
+              projectDoc.wav2vecAnalysis ?? null,
+            );
 
             // Step D.4: Execute signal-driven edit (evaluate 95 mappings)
             const signalEdl = executeSignalDrivenEdit(
@@ -375,7 +412,7 @@ export async function executeDirectorPlan(
             edlSummary.totalDecisions = humanizedEdl.decisions.length;
             const edl = {
               projectId,
-              generatedAt: new Date().toISOString(),
+              generatedAt: new Date(),
               totalDecisions: humanizedEdl.decisions.length,
               decisions: humanizedEdl.decisions.map(d => ({
                 type: d.type,
@@ -389,11 +426,11 @@ export async function executeDirectorPlan(
                 confidence: d.confidence,
               })),
               stats: {
-                totalDecisions: humanizedEdl.decisions.length,
                 cutsPerMinute: 0,
                 transitionCount: humanizedEdl.decisions.filter(d => d.type === 'transition').length,
                 graphicCount: humanizedEdl.decisions.filter(d => d.type === 'graphic').length,
                 zoomCount: humanizedEdl.decisions.filter(d => d.type === 'zoom').length,
+                speedChangeCount: humanizedEdl.decisions.filter(d => d.type === 'speed-change').length,
                 averageConfidence: humanizedEdl.decisions.length > 0
                   ? humanizedEdl.decisions.reduce((s, d) => s + d.confidence, 0) / humanizedEdl.decisions.length
                   : 0,
@@ -721,17 +758,34 @@ export async function executeDirectorPlan(
     const totalSteps = filteredActions.length;
     onProgress?.(0, totalSteps, 'Starting Director Agent execution...');
 
+    // ─── QualityGate: per-action measurement (TRIBE Phase 1) ──
+    const { takeSnapshot, compareSnapshots, summarizeGateSession } = await import('@/lib/editron/services/quality-gate');
+    const gateResults: GateResult[] = [];
+    const fps = project.fps || 30;
+
     // ─── Step 3: Execute actions sequentially ────────────────
     for (let i = 0; i < filteredActions.length; i++) {
       const action = filteredActions[i];
       onProgress?.(i + 1, totalSteps, action.description);
 
       try {
+        const beforeSnapshot = takeSnapshot(overlays, fps);
         const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, pathDConstraintViolations, pathDGenreParams);
+        const afterSnapshot = takeSnapshot(overlays, fps);
+        const gateResult = compareSnapshots(beforeSnapshot, afterSnapshot, action.description);
+        gateResults.push(gateResult);
+
         result.overlaysModified += modified;
         result.actionsExecuted++;
 
-        console.log(`[Director] Action ${i + 1}/${totalSteps}: ${action.description} — ${modified} overlays modified`);
+        if (!gateResult.passed) {
+          console.warn(`[Director] Action ${i + 1}/${totalSteps}: ${action.description} — ${modified} modified, GATE DEGRADATION (${gateResult.degradations.length} issues)`);
+          for (const d of gateResult.degradations) {
+            result.warnings.push(`[QualityGate] ${d.message}`);
+          }
+        } else {
+          console.log(`[Director] Action ${i + 1}/${totalSteps}: ${action.description} — ${modified} overlays modified`);
+        }
       } catch (err: any) {
         const errMsg = err?.message || 'Unknown error';
         console.error(`[Director] Action failed: ${action.description}:`, errMsg);
@@ -745,6 +799,23 @@ export async function executeDirectorPlan(
           result.warnings.push(`${action.description}: ${errMsg}`);
         }
       }
+    }
+
+    // ─── QualityGate session summary ──────────────────────────
+    if (gateResults.length > 0) {
+      const gateSummary = summarizeGateSession(gateResults);
+      console.log(
+        `[Director] QualityGate summary: ${gateSummary.passedActions}/${gateSummary.totalActions} passed, ` +
+        `${gateSummary.criticalDegradations} critical, trend: ${gateSummary.overallTrend}`,
+      );
+      result.qualityGate = {
+        totalActions: gateSummary.totalActions,
+        passedActions: gateSummary.passedActions,
+        failedActions: gateSummary.failedActions,
+        totalDegradations: gateSummary.totalDegradations,
+        criticalDegradations: gateSummary.criticalDegradations,
+        overallTrend: gateSummary.overallTrend,
+      };
     }
 
     // ─── Step 3.4: Transition dedup safety net (B3) ──────────────
@@ -1506,6 +1577,27 @@ async function executeAction(
         }
         if (report.suggestions.length > 0) {
           report.suggestions.forEach(s => console.log(`[Director] Suggestion: ${s}`));
+        }
+
+        // Persist quality review to project doc — consumed by bandit reward feedback
+        // (video-analysis worker Step 7.1 reads qualityReview.overallScore)
+        try {
+          const qrDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+          await qrDb.collection('projects').updateOne(
+            { projectId },
+            {
+              $set: {
+                qualityReview: {
+                  overallScore: report.overallScore,
+                  issueCount: report.issues.length,
+                  criticalCount: report.issues.filter(i => i.severity === 'critical').length,
+                  reviewedAt: new Date(),
+                },
+              },
+            },
+          );
+        } catch {
+          // Non-fatal — quality review storage is best-effort
         }
       } catch (qrErr: any) {
         console.error(`[Director] Quality review failed: ${qrErr.message}`);

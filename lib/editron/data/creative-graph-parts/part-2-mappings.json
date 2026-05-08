@@ -1207,7 +1207,7 @@
         },
         "why": "Gallese & Guerra (2012) - mirror neurons activate more for REACTIONS than actions. Viewer empathizes with the receiver. Fincher's deposition, K-drama signature.",
         "learningTarget": "hold duration, frequency",
-        "detectionHint": "[PHASE_2] WhisperX + V-JEPA face tracking -> emotion delta after speech ends -> trigger. Until Phase 2: approximate with silence + face_present + heuristic."
+        "detectionHint": "[PHASE_2] Grok + V-JEPA face tracking -> emotion delta after speech ends -> trigger. Until Phase 2: approximate with silence + face_present + heuristic."
       },
       "tags": ["PHASE_2", "LEARNING_TARGET"],
       "sourceLines": [1889, 1908]
@@ -1295,7 +1295,7 @@
         },
         "why": "Dialogue editing has its own rhythm. The editor interprets the conversation - sometimes story is in speaker, sometimes in listener.",
         "learningTarget": "cut timing after speaker_change, J/L-cut frequency",
-        "detectionHint": "[PHASE_2] WhisperX diarization -> compute rhythm -> apply pattern. Until Phase 2: detect from transcript alternation."
+        "detectionHint": "[PHASE_2] Grok diarization -> compute rhythm -> apply pattern. Until Phase 2: detect from transcript alternation."
       },
       "tags": ["PHASE_2", "LEARNING_TARGET"],
       "sourceLines": [1962, 1983]

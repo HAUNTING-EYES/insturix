@@ -140,6 +140,8 @@ export interface ProjectBrief {
   referenceVideoUrl?: string;
   /** Target platform */
   platform?: string;
+  /** User intent / goal (e.g., "promote product", "educate", "entertain") */
+  intent?: string;
   /** Tone preference */
   tone?: string;
   /** BGM mood override */
@@ -155,4 +157,12 @@ export interface DirectorResult {
   checkpointId: string;
   executionMs: number;
   warnings: string[];
+  qualityGate?: {
+    totalActions: number;
+    passedActions: number;
+    failedActions: number;
+    totalDegradations: number;
+    criticalDegradations: number;
+    overallTrend: 'improving' | 'stable' | 'degrading';
+  };
 }
