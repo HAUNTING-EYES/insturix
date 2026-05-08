@@ -141,6 +141,19 @@ export async function POST(request: NextRequest) {
       durationInFrames,
     } as Parameters<typeof projectService.saveProject>[2]);
 
+    // 5b. Pre-warm Modal GPU containers (fire-and-forget).
+    // V-JEPA + Wav2Vec run at worker Step 3.5, ~150s after QStash dispatch.
+    // Cold start takes 60-90s. Warming now gives the containers time to load
+    // model weights while the worker is doing transcription + editorial intent.
+    try {
+      const { warmupVjepa } = await import('@/lib/editron/services/vjepa-service');
+      const { warmupWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
+      warmupVjepa();
+      warmupWav2Vec();
+    } catch {
+      // Non-fatal — GPU analysis is optional
+    }
+
     // 6. Mark project + dispatch heavy processing to QStash worker.
     // Worker handles: video understanding → SyntheticStoryboard → profile detection → Director.
     // Runs async — from-asset returns immediately with projectId.

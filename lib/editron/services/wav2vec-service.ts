@@ -71,7 +71,33 @@ const MODAL_WAV2VEC_ENDPOINT = process.env.MODAL_WAV2VEC_ENDPOINT
 
 const VALID_VALENCES: Set<string> = new Set(['positive', 'negative', 'neutral', 'mixed']);
 
-const REQUEST_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 45_000; // 45s — warm container responds in ~5-15s.
+
+// ─── Warmup ────────────────────────────────────────────────────────────────
+
+/**
+ * Fire-and-forget warmup ping to Modal. Wakes the container if cold.
+ * Call alongside warmupVjepa() during upload — both run in parallel.
+ */
+export function warmupWav2Vec(): void {
+  const tokenId = process.env.MODAL_TOKEN_ID;
+  const tokenSecret = process.env.MODAL_TOKEN_SECRET;
+  if (!tokenId || !tokenSecret) return;
+
+  fetch(MODAL_WAV2VEC_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Token ${tokenId}:${tokenSecret}`,
+    },
+    body: JSON.stringify({ audio_url: '', segments: [] }),
+    signal: AbortSignal.timeout(90_000),
+  }).then(() => {
+    console.log('[Wav2VecService] Warmup: container ready');
+  }).catch(() => {
+    // Non-fatal
+  });
+}
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 

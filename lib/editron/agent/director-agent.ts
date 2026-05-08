@@ -165,7 +165,12 @@ export async function executeDirectorPlan(
               onScreenText: [],
             },
           }));
-          console.log(`[Director] Found rawFootageAnalysis with ${storyboardScenes.length} transcript segments (Mode 2 — transcript-driven)`);
+          // Carry Gemini file URI from VU (if VU ran in parallel and produced one)
+          // so 5-Track can skip redundant CDN download + Gemini upload (saves ~30s).
+          if (projectDoc.syntheticStoryboard?.geminiFileUri) {
+            (projectDoc as any)._vuGeminiFileUri = projectDoc.syntheticStoryboard.geminiFileUri;
+          }
+          console.log(`[Director] Found rawFootageAnalysis with ${storyboardScenes.length} transcript segments (Mode 2 — transcript-driven, vuUri=${!!(projectDoc as any)._vuGeminiFileUri})`);
         } else if (projectDoc?.syntheticStoryboard) {
           // Path B: SyntheticStoryboard (Mode 2 fallback: no transcript available)
           const ssb = projectDoc.syntheticStoryboard;

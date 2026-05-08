@@ -91,7 +91,39 @@ const VALID_FACE_EMOTIONS: Set<string> = new Set([
   'fearful', 'disgusted', 'neutral', 'contempt',
 ]);
 
-const REQUEST_TIMEOUT_MS = 120_000;
+const REQUEST_TIMEOUT_MS = 45_000; // 45s — Modal warm container responds in ~10-20s.
+                                   // Cold start takes 60-90s → will timeout and return null.
+                                   // Use warmupVjepa() during upload to pre-warm the container.
+
+// ─── Warmup ────────────────────────────────────────────────────────────────
+
+/**
+ * Fire-and-forget warmup ping to Modal. Wakes the container if cold.
+ * Call this when the user initiates an upload — by the time the worker
+ * reaches Step 3.5 (~150s later), the container will be warm.
+ * Returns immediately (does not await the response).
+ */
+export function warmupVjepa(): void {
+  const tokenId = process.env.MODAL_TOKEN_ID;
+  const tokenSecret = process.env.MODAL_TOKEN_SECRET;
+  if (!tokenId || !tokenSecret) return;
+
+  // Send a minimal request that forces container creation but does minimal work.
+  // Empty segments array → Modal returns immediately after model load.
+  fetch(MODAL_VJEPA_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Token ${tokenId}:${tokenSecret}`,
+    },
+    body: JSON.stringify({ video_url: '', segments: [] }),
+    signal: AbortSignal.timeout(90_000), // 90s for cold start warmup
+  }).then(() => {
+    console.log('[VjepaService] Warmup: container ready');
+  }).catch(() => {
+    // Non-fatal — container may still warm up from the actual request later
+  });
+}
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
