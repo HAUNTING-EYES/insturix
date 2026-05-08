@@ -21,14 +21,14 @@ export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAn
   const bgColors = [
     'from-violet-900/60 to-indigo-900/60',
     'from-blue-900/60 to-cyan-900/60',
-    'from-rose-900/60 to-pink-900/60',
+    'from-[#D4A652]/60 to-pink-900/60',
     'from-emerald-900/60 to-teal-900/60',
-    'from-amber-900/60 to-orange-900/60',
+    'from-[#D4A652]/60 to-orange-900/60',
     'from-purple-900/60 to-fuchsia-900/60',
   ];
 
   return (
-    <div className="relative w-full rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800">
+    <div className="relative w-full rounded-lg overflow-hidden bg-[#0B0B0A] border border-[#1C1B19]">
       {/* Frosted glass overlay with activity indicator */}
       <motion.div
         className="absolute inset-0 z-10 flex items-center justify-center"
@@ -36,7 +36,7 @@ export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAn
         animate={{ backdropFilter: 'blur(3px)' }}
         transition={{ duration: 1 }}
       >
-        <div className="absolute inset-0 bg-zinc-950/40" />
+        <div className="absolute inset-0 bg-[#0B0B0A]/40" />
         <motion.div
           className="relative flex flex-col items-center gap-3"
           initial={{ opacity: 0, scale: 0.9 }}
@@ -59,7 +59,7 @@ export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAn
             </motion.div>
           </div>
 
-          <p className="text-[11px] text-zinc-300 font-medium tracking-wide">
+          <p className="text-[11px] text-[#B5B2A8] font-medium tracking-wide">
             {step === 'exporting' ? 'Editron is arranging your timeline...' : 'Generating & placing scene images...'}
           </p>
           <div className="flex gap-1">
@@ -82,20 +82,20 @@ export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAn
       {/* Underlying animated timeline */}
       <div className="p-3 space-y-2">
         {/* Fake toolbar */}
-        <div className="flex items-center gap-2 pb-2 border-b border-zinc-800/50">
-          <div className="w-2.5 h-2.5 rounded-full bg-red-500/40" />
+        <div className="flex items-center gap-2 pb-2 border-b border-[#1C1B19]/50">
+          <div className="w-2.5 h-2.5 rounded-full bg-[#D4A652]/40" />
           <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/40" />
           <div className="w-2.5 h-2.5 rounded-full bg-green-500/40" />
           <div className="flex-1" />
           <motion.div
-            className="h-2 w-20 rounded bg-zinc-800"
+            className="h-2 w-20 rounded bg-[#1C1B19]"
             animate={{ opacity: [0.3, 0.6, 0.3] }}
             transition={{ duration: 2, repeat: Infinity }}
           />
         </div>
 
         {/* Preview viewport with cycling gradients */}
-        <div className="w-full aspect-video bg-zinc-900 rounded-md overflow-hidden relative">
+        <div className="w-full aspect-video bg-[#0F0F0E] rounded-md overflow-hidden relative">
           <motion.div
             className="absolute inset-0"
             animate={{
@@ -137,7 +137,7 @@ export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAn
           {/* Image appearing effect (for storyboard step) */}
           {step === 'storyboard' && (
             <motion.div
-              className="absolute inset-4 rounded border border-white/10"
+              className="absolute inset-4 rounded border border-[#1C1B19]"
               animate={{
                 opacity: [0, 0.15, 0.15, 0],
                 scale: [0.95, 1, 1, 1.02],
@@ -153,12 +153,12 @@ export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAn
         <div className="space-y-1 pt-1">
           {/* BG Track — tiles slide in from left */}
           <div className="flex items-center gap-1">
-            <div className="w-10 shrink-0 text-[8px] text-zinc-600 text-right pr-1">BG</div>
+            <div className="w-10 shrink-0 text-[8px] text-[#454340] text-right pr-1">BG</div>
             <div className="flex-1 flex gap-0.5 overflow-hidden">
               {tiles.map((i) => (
                 <motion.div
                   key={`bg-${i}`}
-                  className={`h-5 rounded-sm flex-1 bg-gradient-to-r ${bgColors[i % bgColors.length]} border border-white/5`}
+                  className={`h-5 rounded-sm flex-1 bg-gradient-to-r ${bgColors[i % bgColors.length]} border border-[#1C1B19]`}
                   initial={{ x: -100, opacity: 0, scaleX: 0.3 }}
                   animate={{
                     x: 0,
@@ -192,7 +192,7 @@ export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAn
 
           {/* Title Track — tiles snap in from above */}
           <div className="flex items-center gap-1">
-            <div className="w-10 shrink-0 text-[8px] text-zinc-600 text-right pr-1">Title</div>
+            <div className="w-10 shrink-0 text-[8px] text-[#454340] text-right pr-1">Title</div>
             <div className="flex-1 flex gap-0.5 overflow-hidden">
               {tiles.map((i) => (
                 <motion.div
@@ -214,7 +214,7 @@ export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAn
 
           {/* Narration Track — tiles expand from center */}
           <div className="flex items-center gap-1">
-            <div className="w-10 shrink-0 text-[8px] text-zinc-600 text-right pr-1">Text</div>
+            <div className="w-10 shrink-0 text-[8px] text-[#454340] text-right pr-1">Text</div>
             <div className="flex-1 flex gap-0.5 overflow-hidden">
               {tiles.map((i) => (
                 <motion.div
@@ -237,7 +237,7 @@ export function EditronImportAnimation({ sceneCount = 4, step }: EditronImportAn
 
           {/* Audio Track — appears last, slides from right */}
           <div className="flex items-center gap-1">
-            <div className="w-10 shrink-0 text-[8px] text-zinc-600 text-right pr-1">Audio</div>
+            <div className="w-10 shrink-0 text-[8px] text-[#454340] text-right pr-1">Audio</div>
             <div className="flex-1 flex gap-0.5 overflow-hidden">
               {tiles.map((i) => (
                 <motion.div

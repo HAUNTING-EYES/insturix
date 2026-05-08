@@ -141,7 +141,7 @@ export default function ChatInterface({
   // inline switch later; can be moved to toneUtils if reused elsewhere.
   const toneBgMap: Record<string, string> = {
     white: 'bg-white border border-gray-300',
-    red: 'bg-red-500',
+    red: 'bg-[#D4A652]',
     black: 'bg-black',
     yellow: 'bg-yellow-400',
     green: 'bg-green-500',
@@ -159,8 +159,8 @@ export default function ChatInterface({
       <div className="flex flex-col flex-1 h-full relative">
         {/* Chat header */}
         <div className="flex items-center gap-2 pb-3">
-          <MessageSquare className="h-5 w-5 text-red-500" />
-          <h2 className="text-lg font-medium text-zinc-100">Chat with ForgeAI</h2>
+          <MessageSquare className="h-5 w-5 text-[#D4A652]" />
+          <h2 className="text-lg font-medium text-[#ECE9E1]">Chat with ForgeAI</h2>
         </div>
 
         {/* Messages */}
@@ -193,7 +193,7 @@ export default function ChatInterface({
 
         {/* Suggestions */}
         {isInitialized && Array.isArray(suggestions) && suggestions.length > 0 && (
-          <div className="w-full overflow-x-auto overflow-y-hidden py-2 bg-black/40 backdrop-blur max-h-20">
+          <div className="w-full overflow-x-auto overflow-y-hidden py-2 bg-[#0B0B0A] backdrop-blur max-h-20">
             <div className="flex flex-wrap sm:flex-nowrap gap-2 px-2 sm:min-w-max">
               {suggestions.map((s) => (
                 <SuggestionChip
@@ -207,14 +207,14 @@ export default function ChatInterface({
         )}
 
         {/* Composer */}
-        <div className="flex gap-2 pt-2 bg-black/40 backdrop-blur">
+        <div className="flex gap-2 pt-2 bg-[#0B0B0A] backdrop-blur">
           <Input
             aria-label="Chat message input"
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value.slice(0, 2000))} // Limit length for security
             onKeyPress={handleKeyPress}
             placeholder="Ask ForgeAI to help develop your idea..."
-            className="flex-1 bg-black/30 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:ring-2 focus:ring-red-500 overflow-hidden text-ellipsis"
+            className="flex-1 bg-[#0B0B0A] border-[#282724] text-[#ECE9E1] placeholder:text-[#5F5E5A] focus:ring-2 focus:ring-[#D4A652] overflow-hidden text-ellipsis"
             disabled={sendingMessage}
             maxLength={2000}
             spellCheck={false}
@@ -227,7 +227,7 @@ export default function ChatInterface({
             disabled={!inputMessage.trim() || sendingMessage}
             size="icon"
             aria-label="Send message"
-            className="bg-red-500 hover:bg-red-600"
+            className="bg-[#D4A652] hover:bg-[#D4A652]"
           >
             {sendingMessage ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -241,7 +241,7 @@ export default function ChatInterface({
         {showScrollFab && (
           <button
             type="button"
-            className="absolute bottom-20 right-4 p-3 rounded-full bg-red-500/90 hover:bg-red-600 text-white shadow-lg backdrop-blur transition-all duration-200 hover:scale-105 z-10"
+            className="absolute bottom-20 right-4 p-3 rounded-full bg-[#D4A652]/90 hover:bg-[#D4A652] text-white shadow-lg backdrop-blur transition-all duration-200 hover:scale-105 z-10"
             aria-label="Scroll to latest message"
             onClick={scrollToBottom}
           >
@@ -253,17 +253,17 @@ export default function ChatInterface({
       {/* Right: Selected idea & actions */}
       <div className="w-full lg:w-72 flex flex-col gap-4">
         {isInitialized && selectedIdea && (
-          <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
+          <Card className="bg-[#0B0B0A] border-[#1C1B19] backdrop-blur-xl">
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
-                  <CardTitle className="text-lg font-medium text-zinc-100 break-words overflow-hidden">
+                  <CardTitle className="text-lg font-medium text-[#ECE9E1] break-words overflow-hidden">
                     {selectedIdea.idea || 'Loading idea...'}
                   </CardTitle>
-                  <p className="text-sm text-zinc-400 mt-1 break-words overflow-hidden">{selectedIdea.purpose || ''}</p>
+                  <p className="text-sm text-[#7A776E] mt-1 break-words overflow-hidden">{selectedIdea.purpose || ''}</p>
                 </div>
                 <div
-                  className={`w-4 h-4 rounded-full flex-shrink-0 ml-3 ${toneBgMap[selectedIdea.tone] || 'bg-zinc-600'}`}
+                  className={`w-4 h-4 rounded-full flex-shrink-0 ml-3 ${toneBgMap[selectedIdea.tone] || 'bg-[#454340]'}`}
                   title={getToneDescription(selectedIdea.tone)}
                 />
               </div>
@@ -271,20 +271,20 @@ export default function ChatInterface({
             <CardContent className="pt-0">
               <div className="grid grid-cols-1 gap-4 text-sm">
                 <div className="min-w-0">
-                  <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Style</span>
-                  <p className="text-zinc-300 mt-1 break-words overflow-hidden text-ellipsis">{selectedIdea.style || 'Loading...'}</p>
+                  <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Style</span>
+                  <p className="text-[#B5B2A8] mt-1 break-words overflow-hidden text-ellipsis">{selectedIdea.style || 'Loading...'}</p>
                 </div>
                 <div className="min-w-0">
-                  <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Format</span>
-                  <p className="text-zinc-300 mt-1 break-words overflow-hidden text-ellipsis">{selectedIdea.format || 'Loading...'}</p>
+                  <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Format</span>
+                  <p className="text-[#B5B2A8] mt-1 break-words overflow-hidden text-ellipsis">{selectedIdea.format || 'Loading...'}</p>
                 </div>
                 <div className="min-w-0">
-                  <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Platform</span>
-                  <p className="text-zinc-300 mt-1 break-words overflow-hidden text-ellipsis">{selectedIdea.platform || 'Loading...'}</p>
+                  <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Platform</span>
+                  <p className="text-[#B5B2A8] mt-1 break-words overflow-hidden text-ellipsis">{selectedIdea.platform || 'Loading...'}</p>
                 </div>
                 <div className="min-w-0">
-                  <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Approach</span>
-                  <p className="text-zinc-300 mt-1 break-words overflow-hidden text-ellipsis">{getToneDescription(selectedIdea.tone)}</p>
+                  <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Approach</span>
+                  <p className="text-[#B5B2A8] mt-1 break-words overflow-hidden text-ellipsis">{getToneDescription(selectedIdea.tone)}</p>
                 </div>
               </div>
             </CardContent>
@@ -311,7 +311,7 @@ export default function ChatInterface({
             <Button
               onClick={onGoHome}
               disabled={goingHome}
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-medium"
+              className="w-full bg-[#D4A652] hover:bg-[#D4A652] text-white font-medium"
             >
               {goingHome ? (
                 <>

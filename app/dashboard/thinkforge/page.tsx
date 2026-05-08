@@ -625,7 +625,7 @@ export default function ThinkForgeLanding() {
 	];
 
 	return (
-		<div className="relative h-screen w-full overflow-hidden bg-neutral-950 text-white">
+		<div className="thinkforge-app">
 			<BackgroundDecor />
 
 			<LibraryPanel

@@ -126,9 +126,9 @@ export default function ContentCardModal({
             className="fixed inset-4 sm:inset-8 z-50 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="h-full w-full bg-neutral-950/95 backdrop-blur-xl border border-neutral-800/70 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="h-full w-full bg-[#0B0B0A]/95 backdrop-blur-xl border border-[#1C1B19]/70 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
               {/* Header */}
-              <div className="flex-shrink-0 flex items-center justify-between p-6 border-b border-neutral-800/50 bg-neutral-900/30">
+              <div className="flex-shrink-0 flex items-center justify-between p-6 border-b border-[#1C1B19]/50 bg-[#0F0F0E]/30">
                 <div className="flex-1 min-w-0">
                   {isEditingTitle ? (
                     <input
@@ -139,13 +139,13 @@ export default function ContentCardModal({
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') setIsEditingTitle(false);
                       }}
-                      className="w-full bg-transparent text-xl font-semibold text-white focus:outline-none focus:ring-2 focus:ring-red-700/40 px-2 py-1 rounded"
+                      className="w-full bg-transparent text-xl font-semibold text-white focus:outline-none focus:ring-2 focus:ring-[#D4A652]/40 px-2 py-1 rounded"
                       autoFocus
                     />
                   ) : (
                     <h2
                       onClick={() => setIsEditingTitle(true)}
-                      className="text-xl font-semibold text-white cursor-text hover:text-red-200 transition-colors line-clamp-2"
+                      className="text-xl font-semibold text-white cursor-text hover:text-[#D4A652] transition-colors line-clamp-2"
                     >
                       {localCard.title}
                     </h2>
@@ -171,7 +171,7 @@ export default function ContentCardModal({
                         onOpenScript(localCard.sessionId!);
                         onClose();
                       }}
-                      className="px-4 py-2 text-sm font-medium bg-red-600/20 border border-red-500/40 text-red-200 rounded-xl hover:bg-red-600/30 transition-colors flex items-center gap-2"
+                      className="px-4 py-2 text-sm font-medium bg-[#D4A652]/20 border border-[#D4A652]/40 text-[#D4A652] rounded-xl hover:bg-[#D4A652]/30 transition-colors flex items-center gap-2"
                     >
                       <FileText size={14} />
                       <span>Open Script</span>
@@ -180,14 +180,14 @@ export default function ContentCardModal({
                   {onDelete && (
                     <button
                       onClick={handleDelete}
-                      className="px-4 py-2 text-sm font-medium bg-neutral-800/60 border border-neutral-700/70 text-neutral-300 rounded-xl hover:bg-red-600/20 hover:border-red-500/40 hover:text-red-200 transition-colors"
+                      className="px-4 py-2 text-sm font-medium bg-[#1C1B19]/60 border border-neutral-700/70 text-neutral-300 rounded-xl hover:bg-[#D4A652]/20 hover:border-[#D4A652]/40 hover:text-[#D4A652] transition-colors"
                     >
                       Delete
                     </button>
                   )}
                   <button
                     onClick={onClose}
-                    className="p-2 rounded-xl border border-neutral-800/70 bg-neutral-900/60 hover:bg-neutral-900/80 text-neutral-400 hover:text-white transition-colors"
+                    className="p-2 rounded-xl border border-[#1C1B19]/70 bg-[#0F0F0E]/60 hover:bg-[#0F0F0E]/80 text-neutral-400 hover:text-[#ECE9E1] transition-colors"
                     aria-label="Close"
                   >
                     <X size={20} />
@@ -209,7 +209,7 @@ export default function ContentCardModal({
                   />
 
                   {/* Status Selector */}
-                  <div className="mt-6 p-4 rounded-xl bg-neutral-900/40 border border-neutral-800/50">
+                  <div className="mt-6 p-4 rounded-xl bg-[#0F0F0E]/40 border border-[#1C1B19]/50">
                     <div className="flex items-center gap-4">
                       <span className="text-sm font-medium text-neutral-300">Status:</span>
                       <div className="flex gap-2">
@@ -219,8 +219,8 @@ export default function ContentCardModal({
                             onClick={() => handleStatusChange(status)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                               localCard.status === status
-                                ? 'bg-red-600/20 border-red-500/40 text-red-200'
-                                : 'bg-neutral-800/60 border-neutral-700/70 text-neutral-400 hover:bg-neutral-800/80'
+                                ? 'bg-[#D4A652]/20 border-[#D4A652]/40 text-[#D4A652]'
+                                : 'bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-400 hover:bg-[#1C1B19]/80'
                             } border`}
                           >
                             {status.replace('_', ' ')}
@@ -232,12 +232,12 @@ export default function ContentCardModal({
 
                   {/* Planned Dates Manager */}
                   {localCard.plannedDates.length > 0 && (
-                    <div className="mt-6 p-4 rounded-xl bg-neutral-900/40 border border-neutral-800/50">
+                    <div className="mt-6 p-4 rounded-xl bg-[#0F0F0E]/40 border border-[#1C1B19]/50">
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-sm font-medium text-neutral-300">Planned Dates</span>
                         <button
                           onClick={handleAddDate}
-                          className="px-3 py-1.5 text-xs font-medium bg-neutral-800/60 border border-neutral-700/70 text-neutral-300 rounded-lg hover:bg-neutral-800/80 transition-colors"
+                          className="px-3 py-1.5 text-xs font-medium bg-[#1C1B19]/60 border border-neutral-700/70 text-neutral-300 rounded-lg hover:bg-[#1C1B19]/80 transition-colors"
                         >
                           + Add Date
                         </button>
@@ -246,7 +246,7 @@ export default function ContentCardModal({
                         {localCard.plannedDates.map((dateStr, index) => (
                           <div
                             key={index}
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-neutral-800/40 border border-neutral-700/50"
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#1C1B19]/40 border border-neutral-700/50"
                           >
                             <span className="text-xs text-neutral-300">
                               {format(new Date(dateStr), 'MMM d, yyyy')}

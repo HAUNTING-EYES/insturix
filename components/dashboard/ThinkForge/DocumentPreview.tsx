@@ -21,7 +21,7 @@ const DocumentPreview = memo(function DocumentPreview({
 
   if (!trimmed) {
     return (
-      <div className={cn("text-zinc-500 italic text-sm py-8 text-center", className)}>
+      <div className={cn("text-[#5F5E5A] italic text-sm py-8 text-center", className)}>
         No content to preview
       </div>
     );
@@ -31,7 +31,7 @@ const DocumentPreview = memo(function DocumentPreview({
     <article
       className={cn(
         "doc-preview prose prose-invert max-w-none",
-        "text-zinc-200 leading-relaxed",
+        "text-[#ECE9E1] leading-relaxed",
         className
       )}
     >
@@ -55,48 +55,48 @@ const DocumentPreview = memo(function DocumentPreview({
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="text-lg font-semibold text-zinc-100 mt-6 mb-2">
+            <h3 className="text-lg font-semibold text-[#ECE9E1] mt-6 mb-2">
               {children}
             </h3>
           ),
           h4: ({ children }) => (
-            <h4 className="text-base font-semibold text-zinc-200 mt-5 mb-2">
+            <h4 className="text-base font-semibold text-[#ECE9E1] mt-5 mb-2">
               {children}
             </h4>
           ),
 
           p: ({ children }) => (
-            <p className="text-[15px] text-zinc-300 leading-[1.75] mb-4">
+            <p className="text-[15px] text-[#B5B2A8] leading-[1.75] mb-4">
               {children}
             </p>
           ),
 
           strong: ({ children }) => (
-            <strong className="font-semibold text-white">{children}</strong>
+            <strong className="font-semibold text-[#ECE9E1]">{children}</strong>
           ),
           em: ({ children }) => (
-            <em className="italic text-zinc-300">{children}</em>
+            <em className="italic text-[#B5B2A8]">{children}</em>
           ),
 
           ul: ({ children }) => (
-            <ul className="my-3 space-y-1.5 pl-5 list-disc marker:text-red-500/50">
+            <ul className="my-3 space-y-1.5 pl-5 list-disc marker:text-[#D4A652]/50">
               {children}
             </ul>
           ),
           ol: ({ children }) => (
-            <ol className="my-3 space-y-1.5 pl-6 list-decimal marker:text-zinc-500">
+            <ol className="my-3 space-y-1.5 pl-6 list-decimal marker:text-[#5F5E5A]">
               {children}
             </ol>
           ),
           li: ({ children }) => (
-            <li className="text-[15px] text-zinc-300 leading-[1.65] pl-1">
+            <li className="text-[15px] text-[#B5B2A8] leading-[1.65] pl-1">
               {children}
             </li>
           ),
 
           blockquote: ({ children }) => (
-            <blockquote className="my-4 border-l-[3px] border-red-500/40 pl-4 py-1 bg-red-500/3 rounded-r-lg">
-              <div className="text-zinc-400 italic text-[14px]">{children}</div>
+            <blockquote className="my-4 border-l-[3px] border-[#D4A652]/40 pl-4 py-1 bg-[#D4A652]/3 rounded-r-lg">
+              <div className="text-[#7A776E] italic text-[14px]">{children}</div>
             </blockquote>
           ),
 
@@ -109,7 +109,7 @@ const DocumentPreview = memo(function DocumentPreview({
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-red-400 hover:text-red-300 underline underline-offset-2 decoration-red-400/30 transition-colors"
+              className="text-[#D4A652] hover:text-[#D4A652] underline underline-offset-2 decoration-gold/30 transition-colors"
             >
               {children}
             </a>
@@ -119,7 +119,7 @@ const DocumentPreview = memo(function DocumentPreview({
             const isInline = !codeClassName;
             if (isInline) {
               return (
-                <code className="px-1.5 py-0.5 rounded-md bg-white/6 border border-white/8 text-[13px] font-mono text-red-300">
+                <code className="px-1.5 py-0.5 rounded-md bg-white/6 border border-white/8 text-[13px] font-mono text-[#D4A652]">
                   {children}
                 </code>
               );
@@ -157,14 +157,14 @@ const DocumentPreview = memo(function DocumentPreview({
           ),
           th: ({ children, style }) => (
             <th
-              className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-400"
+              className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[#7A776E]"
               style={style}
             >
               {children}
             </th>
           ),
           td: ({ children, style }) => (
-            <td className="px-4 py-2.5 text-zinc-300 align-top" style={style}>
+            <td className="px-4 py-2.5 text-[#B5B2A8] align-top" style={style}>
               {children}
             </td>
           ),
@@ -179,13 +179,13 @@ const DocumentPreview = memo(function DocumentPreview({
                 loading="lazy"
               />
               {alt && (
-                <figcaption className="mt-2 text-xs text-zinc-500 text-center">{alt}</figcaption>
+                <figcaption className="mt-2 text-xs text-[#5F5E5A] text-center">{alt}</figcaption>
               )}
             </figure>
           ),
 
           del: ({ children }) => (
-            <del className="text-zinc-500 line-through">{children}</del>
+            <del className="text-[#5F5E5A] line-through">{children}</del>
           ),
 
           input: ({ checked, ...props }) => (
@@ -193,7 +193,7 @@ const DocumentPreview = memo(function DocumentPreview({
               type="checkbox"
               checked={checked}
               readOnly
-              className="mr-2 accent-red-500 rounded"
+              className="mr-2 accent-gold rounded"
               {...props}
             />
           ),

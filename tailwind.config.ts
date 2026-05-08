@@ -8,6 +8,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      colors: {
+        gold: '#D4A652',
+      },
       screens: {
         'xs': '475px',
         'mobile': { 'max': '640px' },

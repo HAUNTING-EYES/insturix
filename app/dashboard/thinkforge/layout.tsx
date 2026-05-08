@@ -1,4 +1,5 @@
 import { Metadata } from "next";
+import "./thinkforge.css";
 
 export const metadata: Metadata = {
   title: "Thinkforge | Creator Command Center",

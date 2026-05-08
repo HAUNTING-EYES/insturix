@@ -137,17 +137,17 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
    }, [mode, onModeChange]);
 
   return (
-    <div className="flex flex-col h-full bg-neutral-950/50">
+    <div className="flex flex-col h-full bg-[#0B0B0A]">
        {/* Header / Mode Switcher */}
-       <div className="flex items-center justify-center px-6 py-3 border-b border-white/5 shrink-0 bg-neutral-900/30 backdrop-blur-sm">
-          <div className="flex items-center gap-1 p-1 bg-black/40 rounded-lg border border-white/5">
+       <div className="flex items-center justify-center px-6 py-3 border-b border-[#1C1B19] shrink-0 bg-[#0F0F0E]">
+          <div className="flex items-center gap-1 p-1 bg-[#0B0B0A] rounded-lg border border-[#1C1B19]">
              <button
                 onClick={() => setMode('scripting')}
                 className={clsx(
                    "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
                    mode === 'scripting' 
-                      ? "bg-neutral-800 text-white shadow-sm ring-1 ring-white/10" 
-                      : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+                      ? "bg-[#1C1B19] text-[#ECE9E1] shadow-sm ring-1 ring-[#282724]" 
+                      : "text-[#5F5E5A] hover:text-[#B5B2A8] hover:bg-[#131312]"
                 )}
              >
                 <FileText className="w-3.5 h-3.5" />
@@ -158,8 +158,8 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                 className={clsx(
                    "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
                    mode === 'whiteboard' 
-                      ? "bg-neutral-800 text-white shadow-sm ring-1 ring-white/10" 
-                      : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+                      ? "bg-[#1C1B19] text-[#ECE9E1] shadow-sm ring-1 ring-[#282724]" 
+                      : "text-[#5F5E5A] hover:text-[#B5B2A8] hover:bg-[#131312]"
                 )}
              >
                 <Brain className="w-3.5 h-3.5" />
@@ -180,7 +180,7 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
        )}
 
        {/* Content Area */}
-       <div className="flex-1 relative overflow-hidden">
+       <div className="flex-1 relative overflow-hidden editor-main" style={{ padding: 0 }}>
           {mode === 'scripting' ? (
              <div className="absolute inset-0 overflow-hidden">
                 <ScriptEditor

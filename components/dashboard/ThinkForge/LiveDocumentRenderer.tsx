@@ -51,12 +51,12 @@ const LiveDocumentRenderer = memo(function LiveDocumentRenderer({
       <div
         ref={scrollRef}
         className={cn(
-          "h-full overflow-y-auto bg-zinc-950/95",
+          "h-full overflow-y-auto bg-[#0B0B0A]/95",
           "scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent",
           className
         )}
       >
-        <article className="p-8 max-w-none text-zinc-200 leading-relaxed">
+        <article className="p-8 max-w-none text-[#ECE9E1] leading-relaxed">
           {/* Title */}
           {title && !startsWithH1 && (
             <h1 className="text-[1.75rem] font-bold tracking-tight text-white mb-6 pb-3 border-b border-white/8">
@@ -72,15 +72,15 @@ const LiveDocumentRenderer = memo(function LiveDocumentRenderer({
               {trimmed}
             </ReactMarkdown>
           ) : isStreaming ? (
-            <div className="flex items-center gap-2 text-zinc-500 text-sm py-4">
-              <span className="inline-block h-4 w-[2px] bg-red-500 animate-pulse" />
+            <div className="flex items-center gap-2 text-[#5F5E5A] text-sm py-4">
+              <span className="inline-block h-4 w-[2px] bg-[#D4A652] animate-pulse" />
               Generating...
             </div>
           ) : null}
 
           {/* Streaming cursor */}
           {isStreaming && trimmed && (
-            <span className="inline-block h-5 w-[2px] bg-red-500 animate-pulse ml-0.5 -mb-1" />
+            <span className="inline-block h-5 w-[2px] bg-[#D4A652] animate-pulse ml-0.5 -mb-1" />
           )}
         </article>
       </div>
@@ -104,46 +104,46 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
     <h2 className="text-xl font-semibold text-white mt-8 mb-3">{children}</h2>
   ),
   h3: ({ children }) => (
-    <h3 className="text-lg font-semibold text-zinc-100 mt-6 mb-2">
+    <h3 className="text-lg font-semibold text-[#ECE9E1] mt-6 mb-2">
       {children}
     </h3>
   ),
   h4: ({ children }) => (
-    <h4 className="text-base font-semibold text-zinc-200 mt-5 mb-2">
+    <h4 className="text-base font-semibold text-[#ECE9E1] mt-5 mb-2">
       {children}
     </h4>
   ),
 
   p: ({ children }) => (
-    <p className="text-[15px] text-zinc-300 leading-[1.75] mb-4">{children}</p>
+    <p className="text-[15px] text-[#B5B2A8] leading-[1.75] mb-4">{children}</p>
   ),
 
   strong: ({ children }) => (
-    <strong className="font-semibold text-white">{children}</strong>
+    <strong className="font-semibold text-[#ECE9E1]">{children}</strong>
   ),
   em: ({ children }) => (
-    <em className="italic text-zinc-300">{children}</em>
+    <em className="italic text-[#B5B2A8]">{children}</em>
   ),
 
   ul: ({ children }) => (
-    <ul className="my-3 space-y-1.5 pl-5 list-disc marker:text-red-500/50">
+    <ul className="my-3 space-y-1.5 pl-5 list-disc marker:text-[#D4A652]/50">
       {children}
     </ul>
   ),
   ol: ({ children }) => (
-    <ol className="my-3 space-y-1.5 pl-6 list-decimal marker:text-zinc-500">
+    <ol className="my-3 space-y-1.5 pl-6 list-decimal marker:text-[#5F5E5A]">
       {children}
     </ol>
   ),
   li: ({ children }) => (
-    <li className="text-[15px] text-zinc-300 leading-[1.65] pl-1">
+    <li className="text-[15px] text-[#B5B2A8] leading-[1.65] pl-1">
       {children}
     </li>
   ),
 
   blockquote: ({ children }) => (
-    <blockquote className="my-4 border-l-[3px] border-red-500/40 pl-4 py-1 bg-red-500/3 rounded-r-lg">
-      <div className="text-zinc-400 italic text-[14px]">{children}</div>
+    <blockquote className="my-4 border-l-[3px] border-[#D4A652]/40 pl-4 py-1 bg-[#D4A652]/3 rounded-r-lg">
+      <div className="text-[#7A776E] italic text-[14px]">{children}</div>
     </blockquote>
   ),
 
@@ -154,7 +154,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-red-400 hover:text-red-300 underline underline-offset-2 decoration-red-400/30 transition-colors"
+      className="text-[#D4A652] hover:text-[#D4A652] underline underline-offset-2 decoration-gold/30 transition-colors"
     >
       {children}
     </a>
@@ -164,7 +164,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
     const isBlock = String(codeClassName ?? "").startsWith("language-");
     if (!isBlock) {
       return (
-        <code className="px-1.5 py-0.5 rounded-md bg-white/6 border border-white/8 text-[13px] font-mono text-red-300">
+        <code className="px-1.5 py-0.5 rounded-md bg-white/6 border border-white/8 text-[13px] font-mono text-[#D4A652]">
           {children}
         </code>
       );
@@ -186,7 +186,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
   ),
 
   table: ({ children }) => (
-    <div className="my-6 overflow-x-auto rounded-xl border border-white/10 bg-black/20">
+    <div className="my-6 overflow-x-auto rounded-xl border border-[#1C1B19] bg-black/20">
       <table
         className="w-full text-[13px]"
         style={{ borderCollapse: "collapse" }}
@@ -196,7 +196,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
     </div>
   ),
   thead: ({ children }) => (
-    <thead className="bg-white/5">{children}</thead>
+    <thead className="bg-[#0F0F0E]">{children}</thead>
   ),
   tbody: ({ children }) => (
     <tbody>{children}</tbody>
@@ -208,7 +208,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
   ),
   th: ({ children, style }) => (
     <th
-      className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-400 border-b border-white/10"
+      className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[#7A776E] border-b border-[#1C1B19]"
       style={style}
     >
       {children}
@@ -216,7 +216,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
   ),
   td: ({ children, style }) => (
     <td
-      className="px-4 py-2.5 text-zinc-300 align-top border-b border-white/5"
+      className="px-4 py-2.5 text-[#B5B2A8] align-top border-b border-[#1C1B19]"
       style={style}
     >
       {children}
@@ -233,7 +233,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
         loading="lazy"
       />
       {alt && (
-        <figcaption className="mt-2 text-xs text-zinc-500 text-center">
+        <figcaption className="mt-2 text-xs text-[#5F5E5A] text-center">
           {alt}
         </figcaption>
       )}
@@ -241,7 +241,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
   ),
 
   del: ({ children }) => (
-    <del className="text-zinc-500 line-through">{children}</del>
+    <del className="text-[#5F5E5A] line-through">{children}</del>
   ),
 
   input: ({ checked, ...props }: any) => (
@@ -249,7 +249,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
       type="checkbox"
       checked={checked}
       readOnly
-      className="mr-2 accent-red-500 rounded"
+      className="mr-2 accent-gold rounded"
       {...props}
     />
   ),
