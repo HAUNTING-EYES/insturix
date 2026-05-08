@@ -228,6 +228,31 @@ function tokenize(text: string): Set<string> {
   );
 }
 
+/**
+ * Extract normalized word array for prefix comparison.
+ * Keeps ALL words (including short ones like "I", "a") because prefix matching
+ * needs exact word-order match, unlike Jaccard which uses bag-of-words.
+ */
+function getWords(text: string): string[] {
+  return text.toLowerCase().replace(/[^a-z0-9'\s-]/g, '').split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Check if two segments share the same opening words (prefix match).
+ * Detects: (a) false starts ("So must..." vs "So must the other people..."),
+ * (b) duplicate takes with different endings ("Now a big problem..." said twice).
+ * Returns the number of matching prefix words, or 0 if no significant match.
+ */
+function prefixOverlap(wordsA: string[], wordsB: string[]): number {
+  const min = Math.min(wordsA.length, wordsB.length);
+  let match = 0;
+  for (let k = 0; k < min; k++) {
+    if (wordsA[k] === wordsB[k]) match++;
+    else break;
+  }
+  return match;
+}
+
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 0;
   let intersection = 0;
@@ -240,9 +265,24 @@ function scoreSegmentQuality(seg: TranscriptSegment): number {
   const fillerPenalty = Math.max(0, 1 - seg.fillerCount * 0.15);
   const silencePenalty = Math.max(0, 1 - seg.silenceGapCount * 0.1);
   const energyScore = Math.max(0, 1 - (seg.avgWordGapMs / 500));
-  // Composite: prioritize fewer fillers and better energy
-  return fillerPenalty * 0.35 + silencePenalty * 0.25 + energyScore * 0.40;
+  // Length bonus: longer takes that complete the thought score higher.
+  // Normalized to 0-1 range (30 words = full score). Prevents false starts
+  // from winning over complete takes purely on filler/silence metrics.
+  const lengthBonus = Math.min(1, seg.wordCount / 30);
+  return fillerPenalty * 0.25 + silencePenalty * 0.20 + energyScore * 0.30 + lengthBonus * 0.25;
 }
+
+// Minimum prefix words to confirm same attempted line.
+// 3 words can be coincidence ("I think that"). 4 is unambiguous
+// ("So must the other", "Now a big problem").
+const MIN_PREFIX_WORDS = 4;
+
+// For false start detection: if segment A is very short (≤ this word count)
+// AND segment B starts with ALL of A's words, A is an abandoned false start.
+// "So must..." (2 words) followed by "So must the other people..." (10 words)
+// → "So must..." is a false start. Requires ALL words of the short segment
+// to match the beginning of the longer one — very low false positive risk.
+const FALSE_START_MAX_WORDS = 5;
 
 function detectBestTakes(
   segments: TranscriptSegment[],
@@ -251,27 +291,63 @@ function detectBestTakes(
   const selections: BestTakeSelection[] = [];
   const consumed = new Set<number>(); // segment indices already matched
 
+  // Pre-compute word arrays for prefix matching
+  const segWords = segments.map(s => getWords(s.text));
+
   for (let i = 0; i < segments.length; i++) {
     if (consumed.has(i)) continue;
     const tokensI = tokenize(segments[i].text);
-    if (tokensI.size < 3) continue; // Too short to match meaningfully
 
     const group: TranscriptSegment[] = [segments[i]];
 
-    for (let j = i + 1; j < segments.length; j++) {
+    // Look ahead within a reasonable window (repeated takes are usually nearby)
+    const searchWindow = Math.min(segments.length, i + 30);
+    for (let j = i + 1; j < searchWindow; j++) {
       if (consumed.has(j)) continue;
       const tokensJ = tokenize(segments[j].text);
-      if (tokensJ.size < 3) continue;
 
-      const sim = jaccardSimilarity(tokensI, tokensJ);
-      if (sim >= jaccardThreshold) {
+      // Match strategy 1: Jaccard similarity (original — catches full repeated sentences)
+      // Only check when both segments have enough tokens for meaningful comparison
+      let isMatch = false;
+      if (tokensI.size >= 3 && tokensJ.size >= 3) {
+        const sim = jaccardSimilarity(tokensI, tokensJ);
+        if (sim >= jaccardThreshold) isMatch = true;
+      }
+
+      // Match strategy 2: Prefix overlap (catches different-ending duplicates)
+      // "Now a big problem here is..." said twice with different endings.
+      if (!isMatch) {
+        const overlap = prefixOverlap(segWords[i], segWords[j]);
+        if (overlap >= MIN_PREFIX_WORDS) isMatch = true;
+      }
+
+      // Match strategy 3: False start detection (catches abandoned short attempts)
+      // "So must..." (2 words) near "So must the other people..." (10 words)
+      // → the short one is a false start. ALL words of the short segment must
+      // match the beginning of the longer one.
+      if (!isMatch) {
+        const wordsI = segWords[i];
+        const wordsJ = segWords[j];
+        const shortWords = wordsI.length <= wordsJ.length ? wordsI : wordsJ;
+        const longWords = wordsI.length <= wordsJ.length ? wordsJ : wordsI;
+        if (
+          shortWords.length >= 2 &&
+          shortWords.length <= FALSE_START_MAX_WORDS &&
+          longWords.length > shortWords.length &&
+          prefixOverlap(shortWords, longWords) === shortWords.length
+        ) {
+          isMatch = true;
+        }
+      }
+
+      if (isMatch) {
         group.push(segments[j]);
         consumed.add(j);
       }
     }
 
     if (group.length > 1) {
-      // Score each take and pick the best
+      // Score each take and pick the best (longest complete take wins)
       const scored = group.map(seg => ({ seg, score: scoreSegmentQuality(seg) }));
       scored.sort((a, b) => b.score - a.score);
 

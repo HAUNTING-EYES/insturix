@@ -204,6 +204,9 @@ META_DISCARD — Meta-commentary that should be REMOVED from the final edit:
 - Behind-the-scenes chatter: "is the camera recording?", "can you adjust the light?"
 - Verbal mistakes acknowledged: "I messed that up", "sorry, one more time"
 - Counting in: "three, two, one" (when clearly a slate, NOT part of content)
+- Process commentary: talking ABOUT the video/recording process itself — "this is how I make a video", "the whole process of making this", "that's a good thing to check before recording"
+- Creative self-assessment: reacting to own performance/script — "I like it", "okay I'm gonna use that", "that sounds good", "that works"
+- Production decisions: choosing between takes — "let me use that one", "that's better", "nah, let me try again"
 
 META_KEEP — Meta-commentary that contains editorial INSTRUCTIONS to preserve:
 - Structural directives: "put this part at the beginning", "this should be the intro"
@@ -214,9 +217,10 @@ META_KEEP — Meta-commentary that contains editorial INSTRUCTIONS to preserve:
 CRITICAL ANTI-OVERFIRE RULES:
 1. DEFAULT IS CONTENT. Only flag META when the speaker is CLEARLY breaking out of their content delivery.
 2. Pauses, hesitations, "um", "uh" are NOT meta — they are handled separately by filler detection.
-3. Rhetorical self-address ("let me think about that...") within a natural flow is CONTENT, not META.
+3. Rhetorical self-address ("let me think about that...") within a natural flow is CONTENT, not META. BUT if the speaker is commenting on THEIR OWN SCRIPT or PERFORMANCE (not the topic), that IS meta.
 4. If a segment contains BOTH content and meta-commentary, classify based on the PRIMARY purpose.
 5. Emotional moments, dramatic pauses, or charged silence are ALWAYS CONTENT — never discard these.
+6. The KEY DISTINCTION: is the speaker talking TO THE VIEWER about the topic (CONTENT), or talking TO THEMSELVES/CREW about the production (META)? "I think the internet is great" = CONTENT. "I think that take was great" = META_DISCARD.
 
 RETROACTIVE FLAGGING:
 When a META_DISCARD segment references a PREVIOUS segment (e.g., "that last part was bad", "scratch what I just said"), include "retroactive_targets" with the segment indices that should ALSO be discarded. Only reference segments within ${RETROACTIVE_WINDOW} positions back.
