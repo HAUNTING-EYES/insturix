@@ -673,7 +673,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   }, [editingSelection]);
 
   return (
-    <div className="flex flex-col h-full bg-neutral-900/40 backdrop-blur-xl animate-in fade-in-0 duration-300">
+    <div className="flex flex-col h-full bg-[#0F0F0E] animate-in fade-in-0 duration-300">
       <ChatHeader
         onOpenHistory={handleOpenHistory}
         onOpenSettings={onOpenSettings}
@@ -706,7 +706,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         />
 
         {customizingBlueprint && (
-          <div className="absolute inset-0 z-30 flex items-end p-3 bg-black/40 backdrop-blur-sm">
+          <div className="absolute inset-0 z-30 flex items-end p-3 bg-[#0B0B0A] backdrop-blur-sm">
             <BlueprintCustomizer
               artifacts={customizingBlueprint.artifacts}
               onSave={(updated) => {

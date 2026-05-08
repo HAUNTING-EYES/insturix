@@ -43,7 +43,7 @@ export default function PromptBox() {
             onKeyDown={handleKeyDown}
             placeholder="What's on your mind?"
             maxLength={500}
-            className="fixed top-1/2 w-full max-w-md px-4 py-3 rounded-xl bg-black/60 text-red-300 placeholder-red-300 focus:outline-none resize-none shadow-xl transition-all hover:scale-[1.2] min-h-[50px] max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-red-700 scrollbar-track-transparent"
+            className="fixed top-1/2 w-full max-w-md px-4 py-3 rounded-xl bg-black/60 text-[#D4A652] placeholder-gold focus:outline-none resize-none shadow-xl transition-all hover:scale-[1.2] min-h-[50px] max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-gold scrollbar-track-transparent"
             rows={1}
           />
         ) : (
@@ -51,7 +51,7 @@ export default function PromptBox() {
             ref={textareaRef}
             value={prompt}
             maxLength={500}
-            className="w-full fixed top-1/30 max-w-4xl px-4 py-3 rounded-xl bg-black/60 text-red-300 placeholder-red-300 focus:outline-none resize-none shadow-xl transition-all duration-500 hover:scale-[1.05] min-h-[50px] max-h-[100px] overflow-y-auto scrollbar-thin scrollbar-thumb-red-700 scrollbar-track-transparent"
+            className="w-full fixed top-1/30 max-w-4xl px-4 py-3 rounded-xl bg-black/60 text-[#D4A652] placeholder-gold focus:outline-none resize-none shadow-xl transition-all duration-500 hover:scale-[1.05] min-h-[50px] max-h-[100px] overflow-y-auto scrollbar-thin scrollbar-thumb-gold scrollbar-track-transparent"
             rows={1}
           />
 

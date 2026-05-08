@@ -58,8 +58,8 @@ const ToolbarButton: React.FC<ToolbarButtonProps> = ({
             size="sm"
             className={`h-8 w-8 p-0 ${
               active 
-                ? 'bg-zinc-700 text-white' 
-                : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+                ? 'bg-[#282724] text-[#ECE9E1]' 
+                : 'text-[#7A776E] hover:text-[#ECE9E1] hover:bg-[#1C1B19]'
             } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             onClick={onClick}
             disabled={disabled}
@@ -67,7 +67,7 @@ const ToolbarButton: React.FC<ToolbarButtonProps> = ({
             <Icon className="h-4 w-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom" className="bg-zinc-900 border-zinc-700 text-zinc-100">
+        <TooltipContent side="bottom" className="bg-[#0F0F0E] border-[#282724] text-[#ECE9E1]">
           <p className="text-xs">{tooltip}</p>
         </TooltipContent>
       </Tooltip>
@@ -161,7 +161,7 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({ editor, disabled =
   }, [editor]);
 
   return (
-    <div className="flex items-center gap-0.5 px-2 py-1 bg-zinc-800/60 rounded-lg border border-zinc-700/50 backdrop-blur-sm">
+    <div className="flex items-center gap-0.5 px-2 py-1 bg-[#1C1B19]/60 rounded-lg border border-[#282724]/50 backdrop-blur-sm">
       {/* Text formatting */}
       <ToolbarButton 
         icon={Bold} 
@@ -206,7 +206,7 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({ editor, disabled =
         active={isActive('highlight')}
       />
       
-      <Separator orientation="vertical" className="h-6 mx-1 bg-zinc-700" />
+      <Separator orientation="vertical" className="h-6 mx-1 bg-[#282724]" />
       
       {/* Headings */}
       <ToolbarButton 
@@ -231,7 +231,7 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({ editor, disabled =
         active={isActive('heading', { level: 3 })}
       />
       
-      <Separator orientation="vertical" className="h-6 mx-1 bg-zinc-700" />
+      <Separator orientation="vertical" className="h-6 mx-1 bg-[#282724]" />
       
       {/* Lists */}
       <ToolbarButton 
@@ -249,7 +249,7 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({ editor, disabled =
         active={isActive('orderedList')}
       />
       
-      <Separator orientation="vertical" className="h-6 mx-1 bg-zinc-700" />
+      <Separator orientation="vertical" className="h-6 mx-1 bg-[#282724]" />
       
       {/* Block elements */}
       <ToolbarButton 
@@ -266,7 +266,7 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({ editor, disabled =
         disabled={disabled}
       />
       
-      <Separator orientation="vertical" className="h-6 mx-1 bg-zinc-700" />
+      <Separator orientation="vertical" className="h-6 mx-1 bg-[#282724]" />
       
       {/* Undo/Redo */}
       <ToolbarButton 

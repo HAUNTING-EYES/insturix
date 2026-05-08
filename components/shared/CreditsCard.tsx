@@ -242,7 +242,24 @@ export function CreditsBadge({ className }: { className?: string }) {
       "bg-muted text-muted-foreground",
       className
     )}>
-      <span className="tabular-nums">{balance.totalCredits.toLocaleString()}</span>
+      <motion.span 
+        className="tabular-nums"
+        animate={{ 
+          color: ["#B5B2A8", "#D4A652", "#B5B2A8"],
+          textShadow: [
+            "0 0 0px rgba(212, 166, 82, 0)",
+            "0 0 8px rgba(212, 166, 82, 0.4)",
+            "0 0 0px rgba(212, 166, 82, 0)"
+          ]
+        }}
+        transition={{
+          duration: 4,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+      >
+        {balance.totalCredits.toLocaleString()}
+      </motion.span>
       <span className="opacity-70">cr</span>
     </div>
   );

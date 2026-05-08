@@ -17,7 +17,7 @@ export default function PlanningPanel({
   onCreateCardFromIdea: _onCreateCardFromIdea
 }: PlanningPanelProps) {
   return (
-    <div className="relative w-full h-full bg-neutral-950 flex flex-col">
+    <div className="relative w-full h-full bg-[#0B0B0A] flex flex-col">
       <PlanningPlaceholder />
     </div>
   );

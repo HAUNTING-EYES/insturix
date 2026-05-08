@@ -42,8 +42,8 @@ export default function IdeaSelection({
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-semibold text-zinc-100 flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-red-500" />
+            <h2 className="text-xl font-semibold text-[#ECE9E1] flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-[#D4A652]" />
               Generated Ideas
             </h2>
             <TooltipProvider>
@@ -52,7 +52,7 @@ export default function IdeaSelection({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 w-6 p-0 text-zinc-400 hover:text-zinc-300"
+                    className="h-6 w-6 p-0 text-[#7A776E] hover:text-[#B5B2A8]"
                   >
                     <HelpCircle className="h-4 w-4" />
                   </Button>
@@ -60,7 +60,7 @@ export default function IdeaSelection({
                 <TooltipContent side="bottom" className="max-w-sm">
                   <div className="space-y-2">
                     <p className="font-medium">Six Thinking Hats</p>
-                    <p className="text-sm text-zinc-300">
+                    <p className="text-sm text-[#B5B2A8]">
                       Each idea uses a different thinking approach:
                     </p>
                     <div className="space-y-1 text-xs">
@@ -69,7 +69,7 @@ export default function IdeaSelection({
                         <span><strong>White:</strong> Facts & data</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-[#D4A652]"></div>
                         <span><strong>Red:</strong> Emotions & feelings</span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -94,7 +94,7 @@ export default function IdeaSelection({
               </Tooltip>
             </TooltipProvider>
           </div>
-          <p className="text-sm text-zinc-400 mt-1">
+          <p className="text-sm text-[#7A776E] mt-1">
             Based on: "{prompt}"
           </p>
         </div>
@@ -103,7 +103,7 @@ export default function IdeaSelection({
           disabled={loading}
           variant="outline"
           size="sm"
-          className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+          className="border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19]"
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -129,12 +129,12 @@ export default function IdeaSelection({
               }}
             >
               <Card 
-                className="bg-black/40 border-zinc-800 backdrop-blur-xl hover:border-zinc-700 transition-all cursor-pointer group"
+                className="bg-[#0B0B0A] border-[#1C1B19] backdrop-blur-xl hover:border-[#282724] transition-all cursor-pointer group"
                 onClick={() => onSelectIdea(idea)}
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
-                    <CardTitle className="text-base font-medium text-zinc-100 group-hover:text-red-400 transition-colors">
+                    <CardTitle className="text-base font-medium text-[#ECE9E1] group-hover:text-[#D4A652] transition-colors">
                       {idea.idea}
                     </CardTitle>
                     <div 
@@ -146,24 +146,24 @@ export default function IdeaSelection({
                 <CardContent className="space-y-3">
                   <div className="space-y-2">
                     <div>
-                      <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Purpose</span>
-                      <p className="text-sm text-zinc-300">{idea.purpose}</p>
+                      <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Purpose</span>
+                      <p className="text-sm text-[#B5B2A8]">{idea.purpose}</p>
                     </div>
                     <div>
-                      <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Style</span>
-                      <p className="text-sm text-zinc-300">{idea.style}</p>
+                      <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Style</span>
+                      <p className="text-sm text-[#B5B2A8]">{idea.style}</p>
                     </div>
                     <div>
-                      <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Format</span>
-                      <p className="text-sm text-zinc-300">{idea.format}</p>
+                      <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Format</span>
+                      <p className="text-sm text-[#B5B2A8]">{idea.format}</p>
                     </div>
                     <div>
-                      <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Platform</span>
-                      <p className="text-sm text-zinc-300">{idea.platform}</p>
+                      <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Platform</span>
+                      <p className="text-sm text-[#B5B2A8]">{idea.platform}</p>
                     </div>
                   </div>
-                  <div className="pt-2 border-t border-zinc-800">
-                    <p className="text-xs text-zinc-500">
+                  <div className="pt-2 border-t border-[#1C1B19]">
+                    <p className="text-xs text-[#5F5E5A]">
                       {getToneDescription(idea.tone)}
                     </p>
                   </div>
@@ -182,8 +182,8 @@ export default function IdeaSelection({
           className="flex items-center justify-center py-8"
         >
           <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-red-500 mx-auto mb-4" />
-            <p className="text-zinc-400">Generating fresh ideas...</p>
+            <Loader2 className="h-8 w-8 animate-spin text-[#D4A652] mx-auto mb-4" />
+            <p className="text-[#7A776E]">Generating fresh ideas...</p>
           </div>
         </motion.div>
       )}

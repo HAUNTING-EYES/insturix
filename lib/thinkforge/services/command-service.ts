@@ -47,7 +47,11 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
   const existing = await db.getScript(sessionId, scriptId);
   const currentVersion = existing?.version ?? 0;
 
-  if (baseVersion !== currentVersion) {
+  // For ReplaceDocument on a non-existing script, allow creation regardless of baseVersion
+  // This enables the "New Page" flow where the editor sends its current version
+  if (type === 'ReplaceDocument' && !existing) {
+    // Allow creation - treat as version 0 base
+  } else if (baseVersion !== currentVersion) {
     return { ok: false, error: 'Version conflict', currentVersion };
   }
 

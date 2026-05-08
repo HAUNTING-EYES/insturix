@@ -108,21 +108,21 @@ function SortableTab({
       style={style}
       className={cn(
         "group relative flex items-center gap-1 pl-1 pr-2 min-w-[120px] max-w-[200px] shrink-0 text-[11px] font-medium transition-colors select-none",
-        "border-r border-white/4",
+        "border-r border-[#1C1B19]",
         isActive
-          ? "bg-zinc-900 text-zinc-200"
-          : "bg-zinc-950 text-zinc-500 hover:text-zinc-400 hover:bg-zinc-900/50",
+          ? "bg-[#0F0F0E] text-[#ECE9E1]"
+          : "bg-[#0B0B0A] text-[#5F5E5A] hover:text-[#B5B2A8] hover:bg-[#0F0F0E]/50",
         isDragging && "shadow-lg shadow-black/40 rounded-sm"
       )}
     >
       {isActive && (
-        <span className="absolute top-0 left-0 right-0 h-[2px] bg-red-500/80 rounded-b-sm" />
+        <span className="absolute top-0 left-0 right-0 h-[2px] bg-[#D4A652]/80 rounded-b-sm" />
       )}
 
       <span
         {...attributes}
         {...listeners}
-        className="flex items-center px-0.5 cursor-grab active:cursor-grabbing text-zinc-600 hover:text-zinc-400 shrink-0"
+        className="flex items-center px-0.5 cursor-grab active:cursor-grabbing text-[#454340] hover:text-[#7A776E] shrink-0"
       >
         <GripVertical className="h-3 w-3" />
       </span>
@@ -148,8 +148,8 @@ function SortableTab({
           className={cn(
             "ml-0.5 rounded-sm p-0.5 transition-all",
             isActive
-              ? "opacity-40 hover:opacity-100 hover:bg-white/10"
-              : "opacity-0 group-hover:opacity-50 hover:opacity-100! hover:bg-white/10"
+              ? "opacity-40 hover:opacity-100 hover:bg-[#1C1B19]"
+              : "opacity-0 group-hover:opacity-50 hover:opacity-100! hover:bg-[#1C1B19]"
           )}
         >
           <X className="h-2.5 w-2.5" />
@@ -223,17 +223,17 @@ export function DocumentTabs({
   return (
     <div
       className={cn(
-        "relative flex items-stretch bg-zinc-950 border-b border-white/6",
+        "relative flex items-stretch bg-[#0B0B0A] border-b border-[#1C1B19]",
         className
       )}
     >
       {canScrollLeft && (
         <button
           onClick={() => scrollByAmount(-1)}
-          className="absolute left-0 top-0 bottom-0 z-10 flex items-center px-1 bg-linear-to-r from-zinc-950 via-zinc-950/90 to-transparent"
+          className="absolute left-0 top-0 bottom-0 z-10 flex items-center px-1 bg-linear-to-r from-[#0B0B0A] via-[#0B0B0A]/90 to-transparent"
           aria-label="Scroll tabs left"
         >
-          <ChevronLeft className="h-3.5 w-3.5 text-zinc-500" />
+          <ChevronLeft className="h-3.5 w-3.5 text-[#5F5E5A]" />
         </button>
       )}
 
@@ -266,7 +266,7 @@ export function DocumentTabs({
         {onNewTab && (
           <button
             onClick={onNewTab}
-            className="flex items-center justify-center px-2.5 text-zinc-600 hover:text-zinc-400 hover:bg-zinc-900/40 transition-colors shrink-0 border-r border-white/4"
+            className="flex items-center justify-center px-2.5 text-[#454340] hover:text-[#7A776E] hover:bg-[#0F0F0E]/40 transition-colors shrink-0 border-r border-[#1C1B19]"
             style={{ height: 34 }}
             title="New document"
           >
@@ -278,10 +278,10 @@ export function DocumentTabs({
       {canScrollRight && (
         <button
           onClick={() => scrollByAmount(1)}
-          className="absolute right-0 top-0 bottom-0 z-10 flex items-center px-1 bg-linear-to-l from-zinc-950 via-zinc-950/90 to-transparent"
+          className="absolute right-0 top-0 bottom-0 z-10 flex items-center px-1 bg-linear-to-l from-[#0B0B0A] via-[#0B0B0A]/90 to-transparent"
           aria-label="Scroll tabs right"
         >
-          <ChevronRight className="h-3.5 w-3.5 text-zinc-500" />
+          <ChevronRight className="h-3.5 w-3.5 text-[#5F5E5A]" />
         </button>
       )}
     </div>

@@ -154,7 +154,7 @@ export default function ProjectDashboard() {
         {/* Header */}
         <div className="mb-12">
           <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-zinc-100 dark:to-zinc-400 bg-clip-text text-transparent">
-            Editron
+            Editor
           </h1>
           <p className="text-zinc-600 dark:text-zinc-400">
             Create and manage your video projects

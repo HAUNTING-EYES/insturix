@@ -37,11 +37,11 @@ type CalendarProps = {
 // Platform icon mapping with ThinkForge tints (red-forward aesthetic)
 const PlatformIcon = ({ platform, size = 12 }: { platform: string; size?: number }) => {
   const tint: Record<string, string> = {
-    youtube: 'text-red-400',
-    instagram: 'text-rose-400',
-    linkedin: 'text-red-300',
+    youtube: 'text-[#D4A652]',
+    instagram: 'text-[#D4A652]',
+    linkedin: 'text-[#D4A652]',
   };
-  const common = `${tint[platform] || 'text-red-300'} drop-shadow-[0_0_6px_rgba(255,0,0,0.08)]`;
+  const common = `${tint[platform] || 'text-[#D4A652]'} drop-shadow-[0_0_6px_rgba(255,0,0,0.08)]`;
   const icons: Record<string, React.ReactNode> = {
     youtube: <Youtube size={size} className={common} />,
     instagram: <Instagram size={size} className={common} />,
@@ -54,9 +54,9 @@ const PlatformIcon = ({ platform, size = 12 }: { platform: string; size?: number
 const getStatusColor = (status: string) => {
   // Keep subtle differences but stay within the red/neutral spectrum for cohesion
   const colors: Record<string, string> = {
-    scheduled: 'bg-red-600/15 border-red-500/40 text-red-200',
-    draft: 'bg-neutral-800/60 border-neutral-700/70 text-neutral-200',
-    published: 'bg-red-600/25 border-red-500/50 text-red-100',
+    scheduled: 'bg-[#D4A652]/15 border-[#D4A652]/40 text-[#D4A652]',
+    draft: 'bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-200',
+    published: 'bg-[#D4A652]/25 border-[#D4A652]/50 text-[#D4A652]',
     in_production: 'bg-yellow-600/15 border-yellow-500/40 text-yellow-200',
   };
   return colors[status] || colors.draft;
@@ -95,19 +95,19 @@ const EventChip = ({ event, onClick, onDragEnd }: { event: ContentCard | Calenda
           }
         }
       }}
-      className={`group relative px-1.5 py-0.5 rounded-lg text-[10px] font-medium border cursor-pointer hover:scale-[1.02] transition-transform ${statusColor} truncate flex items-center gap-1 ring-1 ring-red-500/10 backdrop-blur-[2px] shadow-[0_1px_6px_rgba(220,38,38,0.15)]`}
+      className={`group relative px-1.5 py-0.5 rounded-lg text-[10px] font-medium border cursor-pointer hover:scale-[1.02] transition-transform ${statusColor} truncate flex items-center gap-1 ring-1 ring-[#D4A652]/10 backdrop-blur-[2px] shadow-[0_1px_6px_rgba(220,38,38,0.15)]`}
       onClick={onClick}
     >
       <PlatformIcon platform={event.platform} size={10} />
       <span className="truncate flex-1">{event.title}</span>
       {firstTag && (
-        <span className="shrink-0 px-1 py-[1px] rounded border border-white/10 text-[9px] text-white/70 bg-white/5">
+        <span className="shrink-0 px-1 py-[1px] rounded border border-[#1C1B19] text-[9px] text-[#B5B2A8] bg-[#0F0F0E]">
           {firstTag}
         </span>
       )}
       {event.aiScore !== undefined && (
         <span className="flex items-center gap-0.5 text-[9px] opacity-80">
-          <Sparkles size={8} className="text-red-300 drop-shadow-[0_0_6px_rgba(239,68,68,0.25)]" />
+          <Sparkles size={8} className="text-[#D4A652] drop-shadow-[0_0_6px_rgba(239,68,68,0.25)]" />
           {event.aiScore}
         </span>
       )}
@@ -507,7 +507,7 @@ export default function Calendar({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96, y: -6 }}
           transition={{ duration: 0.18 }}
-          className="fixed z-[999] rounded-2xl border border-neutral-800/70 bg-neutral-950 shadow-[0_18px_42px_rgba(0,0,0,0.55)] overflow-hidden"
+          className="fixed z-[999] rounded-2xl border border-[#1C1B19]/70 bg-[#0B0B0A] shadow-[0_18px_42px_rgba(0,0,0,0.55)] overflow-hidden"
           style={{
             top: pickerPosition.top,
             left: pickerPosition.left,
@@ -518,7 +518,7 @@ export default function Calendar({
           onClick={(event) => event.stopPropagation()}
         >
           {/* Header */}
-          <div className="p-3 border-b border-neutral-800/60 bg-neutral-950 flex items-center justify-between">
+          <div className="p-3 border-b border-[#1C1B19]/60 bg-[#0B0B0A] flex items-center justify-between">
             <button
               onClick={() => {
                 if (viewMode === 'date') {
@@ -529,7 +529,7 @@ export default function Calendar({
                   setYearRange(prev => ({ start: prev.start - 12, end: prev.end - 12 }));
                 }
               }}
-              className="p-1.5 rounded-lg hover:bg-neutral-900/70 text-neutral-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-lg hover:bg-[#0F0F0E]/70 text-neutral-400 hover:text-[#ECE9E1] transition-colors"
             >
               <ChevronLeft size={16} />
             </button>
@@ -537,13 +537,13 @@ export default function Calendar({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setViewMode('month')}
-                className={`px-2 py-1 text-sm font-semibold rounded transition-colors ${viewMode === 'month' ? 'text-red-200 bg-red-600/10' : 'text-white hover:text-red-200 hover:bg-neutral-900/70'}`}
+                className={`px-2 py-1 text-sm font-semibold rounded transition-colors ${viewMode === 'month' ? 'text-[#D4A652] bg-[#D4A652]/10' : 'text-white hover:text-[#D4A652] hover:bg-[#0F0F0E]/70'}`}
               >
                 {format(pickerDate, 'MMMM')}
               </button>
               <button
                 onClick={() => setViewMode('year')}
-                className={`px-2 py-1 text-sm font-semibold rounded transition-colors ${viewMode === 'year' ? 'text-red-200 bg-red-600/10' : 'text-white hover:text-red-200 hover:bg-neutral-900/70'}`}
+                className={`px-2 py-1 text-sm font-semibold rounded transition-colors ${viewMode === 'year' ? 'text-[#D4A652] bg-[#D4A652]/10' : 'text-white hover:text-[#D4A652] hover:bg-[#0F0F0E]/70'}`}
               >
                 {format(pickerDate, 'yyyy')}
               </button>
@@ -559,18 +559,18 @@ export default function Calendar({
                   setYearRange(prev => ({ start: prev.start + 12, end: prev.end + 12 }));
                 }
               }}
-              className="p-1.5 rounded-lg hover:bg-neutral-900/70 text-neutral-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-lg hover:bg-[#0F0F0E]/70 text-neutral-400 hover:text-[#ECE9E1] transition-colors"
             >
               <ChevronRight size={16} />
             </button>
           </div>
 
           {/* Content */}
-          <div className="bg-neutral-950/98">
+          <div className="bg-[#0B0B0A]/98">
             {viewMode === 'date' && (
               <>
                 {/* Weekday Headers */}
-                <div className="grid grid-cols-7 gap-px bg-neutral-800/30 p-2 pb-0">
+                <div className="grid grid-cols-7 gap-px bg-[#1C1B19]/30 p-2 pb-0">
                   {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
                     <div key={day} className="text-center py-2">
                       <span className="text-[10px] font-medium text-neutral-500 uppercase">{day}</span>
@@ -579,7 +579,7 @@ export default function Calendar({
                 </div>
 
                 {/* Calendar Grid */}
-                <div className="grid grid-cols-7 gap-px bg-neutral-800/30 p-2">
+                <div className="grid grid-cols-7 gap-px bg-[#1C1B19]/30 p-2">
                   {days.map((date, idx) => {
                     const isCurrentMonth = isSameMonth(date, pickerDate);
                     const isToday = isSameDay(date, new Date());
@@ -595,9 +595,9 @@ export default function Calendar({
                         className={`
                           aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all
                           ${!isCurrentMonth ? 'text-neutral-600' : 'text-neutral-300'}
-                          ${isToday ? 'bg-red-900/30 text-red-200 ring-1 ring-red-700/50' : ''}
-                          ${isSelected ? 'bg-red-600/30 text-red-100 ring-1 ring-red-500/60' : ''}
-                          ${!isToday && !isSelected ? 'hover:bg-neutral-900/70 hover:text-white' : ''}
+                          ${isToday ? 'bg-[#D4A652]/30 text-[#D4A652] ring-1 ring-[#D4A652]/50' : ''}
+                          ${isSelected ? 'bg-[#D4A652]/30 text-[#D4A652] ring-1 ring-[#D4A652]/60' : ''}
+                          ${!isToday && !isSelected ? 'hover:bg-[#0F0F0E]/70 hover:text-[#ECE9E1]' : ''}
                         `}
                       >
                         {format(date, 'd')}
@@ -625,8 +625,8 @@ export default function Calendar({
                         className={`
                           px-3 py-2 rounded-lg text-sm font-medium transition-all
                           ${isSelected 
-                            ? 'bg-red-600/30 text-red-200 ring-1 ring-red-500/60' 
-                            : 'bg-neutral-900/60 text-neutral-300 hover:bg-neutral-900/80 hover:text-white'
+                            ? 'bg-[#D4A652]/30 text-[#D4A652] ring-1 ring-[#D4A652]/60' 
+                            : 'bg-[#0F0F0E]/60 text-neutral-300 hover:bg-[#0F0F0E]/80 hover:text-[#ECE9E1]'
                           }
                         `}
                       >
@@ -655,8 +655,8 @@ export default function Calendar({
                         className={`
                           px-3 py-2 rounded-lg text-sm font-medium transition-all
                           ${isSelected 
-                            ? 'bg-red-600/30 text-red-200 ring-1 ring-red-500/60' 
-                            : 'bg-neutral-900/60 text-neutral-300 hover:bg-neutral-900/80 hover:text-white'
+                            ? 'bg-[#D4A652]/30 text-[#D4A652] ring-1 ring-[#D4A652]/60' 
+                            : 'bg-[#0F0F0E]/60 text-neutral-300 hover:bg-[#0F0F0E]/80 hover:text-[#ECE9E1]'
                           }
                         `}
                       >
@@ -670,7 +670,7 @@ export default function Calendar({
           </div>
 
           {/* Footer */}
-          <div className="p-2 border-t border-neutral-800/60 bg-neutral-950 flex gap-2">
+          <div className="p-2 border-t border-[#1C1B19]/60 bg-[#0B0B0A] flex gap-2">
             <button
               onClick={() => {
                 const today = new Date();
@@ -678,13 +678,13 @@ export default function Calendar({
                 navigateToMonth(today);
                 closePicker();
               }}
-              className="flex-1 px-3 py-1.5 rounded-lg bg-neutral-900/70 border border-neutral-800/70 text-neutral-300 hover:bg-neutral-900/80 hover:text-white transition-all text-xs font-medium"
+              className="flex-1 px-3 py-1.5 rounded-lg bg-[#0F0F0E]/70 border border-[#1C1B19]/70 text-neutral-300 hover:bg-[#0F0F0E]/80 hover:text-[#ECE9E1] transition-all text-xs font-medium"
             >
               Today
             </button>
             <button
               onClick={closePicker}
-              className="flex-1 px-3 py-1.5 rounded-lg bg-neutral-900/70 border border-neutral-800/70 text-neutral-300 hover:bg-neutral-900/80 hover:text-white transition-all text-xs font-medium"
+              className="flex-1 px-3 py-1.5 rounded-lg bg-[#0F0F0E]/70 border border-[#1C1B19]/70 text-neutral-300 hover:bg-[#0F0F0E]/80 hover:text-[#ECE9E1] transition-all text-xs font-medium"
             >
               Close
             </button>
@@ -710,11 +710,11 @@ export default function Calendar({
   }, [showDatePicker, updatePickerPosition]);
 
   return (
-    <div className="relative w-full h-full bg-neutral-950 flex flex-col overflow-hidden z-30">
+    <div className="relative w-full h-full bg-[#0B0B0A] flex flex-col overflow-hidden z-30">
       {/* Calendar Grid - Interactive */}
       <div 
         ref={scrollContainerRef}
-        className="flex-1 overflow-auto bg-neutral-950 relative pb-24"
+        className="flex-1 overflow-auto bg-[#0B0B0A] relative pb-24"
       >
         {/* Fade overlays */}
         <div className="pointer-events-none absolute inset-0 z-20">
@@ -740,14 +740,14 @@ export default function Calendar({
                 className={isFirstMonth ? '' : 'mt-12'}
               >
                 {/* Month Header */}
-                <div className="sticky top-0 z-20 bg-neutral-950/95 backdrop-blur-xl border-b border-neutral-800/50 py-2 px-4 mb-2 flex items-center justify-between">
+                <div className="sticky top-0 z-20 bg-[#0B0B0A]/95 backdrop-blur-xl border-b border-[#1C1B19]/50 py-2 px-4 mb-2 flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-neutral-200">
                     {format(monthDate, 'MMMM yyyy')}
                   </h2>
                   <div className="flex items-center gap-2">
                      <button
                         onClick={handleCreateNewCard}
-                        className="px-3 py-1.5 rounded-lg bg-neutral-800/60 hover:bg-neutral-800/90 text-neutral-300 text-xs font-medium flex items-center gap-2 border border-neutral-700/50"
+                        className="px-3 py-1.5 rounded-lg bg-[#1C1B19]/60 hover:bg-[#1C1B19]/90 text-neutral-300 text-xs font-medium flex items-center gap-2 border border-neutral-700/50"
                      >
                         <Plus size={14} />
                         New Content
@@ -770,11 +770,11 @@ export default function Calendar({
                       <div
                         key={`${format(day, 'yyyy-MM-dd')}-${format(month, 'yyyy-MM')}-${idx}`}
                         className={`
-                          group relative min-h-[140px] p-3 border-r border-b border-neutral-800/40
-                          ${isCurrentMonth ? 'bg-neutral-950' : 'bg-neutral-900/20'}
-                          ${isTodayDate ? 'bg-red-950/20 border-red-900/40 shadow-[inset_0_0_0_1px_rgba(127,29,29,0.25)]' : ''}
+                          group relative min-h-[140px] p-3 border-r border-b border-[#1C1B19]/40
+                          ${isCurrentMonth ? 'bg-[#0B0B0A]' : 'bg-[#0F0F0E]/20'}
+                          ${isTodayDate ? 'bg-[#D4A652]/20 border-[#D4A652]/40 shadow-[inset_0_0_0_1px_rgba(127,29,29,0.25)]' : ''}
                           ${idx % 7 === 6 ? 'border-r-0' : ''}
-                          hover:bg-neutral-900/50 transition-colors
+                          hover:bg-[#0F0F0E]/50 transition-colors
                         `}
                         role="gridcell"
                         aria-label={format(day, 'MMMM d, yyyy')}
@@ -792,7 +792,7 @@ export default function Calendar({
                             className={`
                               text-base font-semibold
                               ${isTodayDate 
-                                ? 'bg-red-700 text-white w-7 h-7 rounded-full flex items-center justify-center text-[13px] shadow-md shadow-red-900/40' 
+                                ? 'bg-[#D4A652] text-white w-7 h-7 rounded-full flex items-center justify-center text-[13px] shadow-md shadow-[#D4A652]/40' 
                                 : isCurrentMonth 
                                   ? 'text-neutral-300' 
                                   : 'text-neutral-600'
@@ -879,7 +879,7 @@ export default function Calendar({
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Keep FloatingIdeaPanel for legacy CalendarEvent support */}
-                <div className="text-xs text-neutral-400 p-4 bg-neutral-900/80 rounded-xl border border-neutral-800/70">
+                <div className="text-xs text-neutral-400 p-4 bg-[#0F0F0E]/80 rounded-xl border border-[#1C1B19]/70">
                   Legacy event view - upgrade to ContentCard for full features
                 </div>
               </motion.div>

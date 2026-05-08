@@ -138,7 +138,7 @@ export default function BillingPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Billing & Credits</h1>
+          <h1 className="text-2xl font-semibold">Credits</h1>
           <p className="text-muted-foreground text-sm mt-1">Manage your subscription and credits</p>
         </div>
         <Link 

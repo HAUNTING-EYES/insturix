@@ -34,7 +34,7 @@ function renderMarks(text: string, marks?: TiptapMark[]): React.ReactNode {
         break;
       case 'code':
         element = (
-          <code className="px-1 py-0.5 rounded bg-black/40 border border-white/10 text-[11px] font-mono text-white/90">
+          <code className="px-1 py-0.5 rounded bg-[#0B0B0A] border border-[#1C1B19] text-[11px] font-mono text-[#ECE9E1]">
             {element}
           </code>
         );
@@ -45,7 +45,7 @@ function renderMarks(text: string, marks?: TiptapMark[]): React.ReactNode {
       case 'link':
         const href = 'attrs' in mark ? mark.attrs?.href : '#';
         element = (
-          <a href={href} className="text-red-400 hover:text-red-300 underline" target="_blank" rel="noopener noreferrer">
+          <a href={href} className="text-[#D4A652] hover:text-[#D4A652] underline" target="_blank" rel="noopener noreferrer">
             {element}
           </a>
         );
@@ -84,7 +84,7 @@ function RenderTiptapBlock({ node, keyPrefix = '' }: { node: TiptapBlockContent;
     case 'paragraph': {
       const content = 'content' in node ? node.content : undefined;
       return (
-        <p className="mb-2 text-white/90">
+        <p className="mb-2 text-[#ECE9E1]">
           {renderTextNodes(content as TiptapTextNode[], keyPrefix)}
         </p>
       );
@@ -130,7 +130,7 @@ function RenderTiptapBlock({ node, keyPrefix = '' }: { node: TiptapBlockContent;
     case 'listItem': {
       const content = 'content' in node && Array.isArray(node.content) ? node.content : [];
       return (
-        <li className="text-white/90">
+        <li className="text-[#ECE9E1]">
           {content.map((child, idx) => (
             <RenderTiptapBlock key={`${keyPrefix}-lic-${idx}`} node={child as TiptapBlockContent} keyPrefix={`${keyPrefix}-lic-${idx}`} />
           ))}
@@ -141,7 +141,7 @@ function RenderTiptapBlock({ node, keyPrefix = '' }: { node: TiptapBlockContent;
     case 'blockquote': {
       const content = 'content' in node && Array.isArray(node.content) ? node.content : [];
       return (
-        <blockquote className="border-l-2 border-white/20 pl-3 italic text-white/80 my-2">
+        <blockquote className="border-l-2 border-[#282724] pl-3 italic text-[#ECE9E1] my-2">
           {content.map((child, idx) => (
             <RenderTiptapBlock key={`${keyPrefix}-bq-${idx}`} node={child as TiptapBlockContent} keyPrefix={`${keyPrefix}-bq-${idx}`} />
           ))}
@@ -153,14 +153,14 @@ function RenderTiptapBlock({ node, keyPrefix = '' }: { node: TiptapBlockContent;
       const content = 'content' in node ? node.content : undefined;
       const text = (content as TiptapTextNode[] | undefined)?.map(n => n.text).join('') || '';
       return (
-        <pre className="mt-2 mb-3 rounded-lg bg-black/50 border border-white/10 p-3 overflow-x-auto text-[12px] leading-snug">
+        <pre className="mt-2 mb-3 rounded-lg bg-black/50 border border-[#1C1B19] p-3 overflow-x-auto text-[12px] leading-snug">
           <code>{text}</code>
         </pre>
       );
     }
 
     case 'horizontalRule': {
-      return <hr className="border-t border-white/20 my-4" />;
+      return <hr className="border-t border-[#282724] my-4" />;
     }
 
     case 'hardBreak': {
@@ -249,7 +249,7 @@ function renderInlineLegacy(text: string): React.ReactNode {
   for (let i = 0; i < codeSplit.length; i++) {
     if (i % 2 === 1) {
       parts.push(
-        <code key={"c" + i} className="px-1 py-0.5 rounded bg-black/40 border border-white/10 text-[11px] font-mono text-white/90">
+        <code key={"c" + i} className="px-1 py-0.5 rounded bg-[#0B0B0A] border border-[#1C1B19] text-[11px] font-mono text-[#ECE9E1]">
           {codeSplit[i]}
         </code>
       );
@@ -306,14 +306,14 @@ function RenderLegacyBlock({ block }: { block: LegacyBlock }) {
   }
   if (type === "code" || type === "codeblock" || type === "pre") {
     return (
-      <pre className="mt-2 mb-3 rounded-lg bg-black/50 border border-white/10 p-3 overflow-x-auto text-[12px] leading-snug">
+      <pre className="mt-2 mb-3 rounded-lg bg-black/50 border border-[#1C1B19] p-3 overflow-x-auto text-[12px] leading-snug">
         <code>{text}</code>
       </pre>
     );
   }
   if (type === "quote" || type === "blockquote") {
     return (
-      <blockquote className="border-l-2 border-white/20 pl-3 italic text-white/80 my-2">
+      <blockquote className="border-l-2 border-[#282724] pl-3 italic text-[#ECE9E1] my-2">
         {renderInlineLegacy(text)}
       </blockquote>
     );
@@ -321,26 +321,26 @@ function RenderLegacyBlock({ block }: { block: LegacyBlock }) {
   if (type === "action" || type === "actionblock") {
     return (
       <div className="bg-blue-500/10 border-l-3 border-blue-500 pl-4 py-2 my-2 rounded-r">
-        <p className="text-white/90">{renderInlineLegacy(text)}</p>
+        <p className="text-[#ECE9E1]">{renderInlineLegacy(text)}</p>
       </div>
     );
   }
   if (type === "why" || type === "whyblock") {
     return (
       <div className="bg-purple-500/10 border-l-3 border-purple-500 pl-4 py-2 my-2 rounded-r italic">
-        <p className="text-white/80">{renderInlineLegacy(text)}</p>
+        <p className="text-[#ECE9E1]">{renderInlineLegacy(text)}</p>
       </div>
     );
   }
   if (type === "example" || type === "exampleblock") {
     return (
       <div className="bg-green-500/10 border-l-3 border-green-500 pl-4 py-2 my-2 rounded-r">
-        <p className="text-white/90">{renderInlineLegacy(text)}</p>
+        <p className="text-[#ECE9E1]">{renderInlineLegacy(text)}</p>
       </div>
     );
   }
   // default paragraph
-  return <p className="mb-2 text-white/90">{renderInlineLegacy(text)}</p>;
+  return <p className="mb-2 text-[#ECE9E1]">{renderInlineLegacy(text)}</p>;
 }
 
 function RenderLegacyBlocks({ blocks }: { blocks: LegacyBlock[] }) {
@@ -405,7 +405,7 @@ const ScriptRenderer = memo(function ScriptRenderer({
         ) : Array.isArray(blocks) ? (
           <RenderLegacyBlocks blocks={blocks} />
         ) : (
-          <p className="text-zinc-500 italic">No content available</p>
+          <p className="text-[#5F5E5A] italic">No content available</p>
         )}
       </div>
     </div>

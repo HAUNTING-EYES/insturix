@@ -35,7 +35,7 @@ export function CanvasIdeaInput() {
       toast({
         title: "Failed to start session",
         description:
-          "Could not create a new Clickatron session. Please try again.",
+          "Could not create a new Thumbnail session. Please try again.",
         variant: "destructive",
       });
       setIsLoading(false);

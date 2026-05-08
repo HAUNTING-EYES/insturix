@@ -33,7 +33,7 @@ export default function OrganizationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Organizations</h1>
+          <h1 className="text-2xl font-semibold text-white">Team</h1>
           <p className="text-sm text-white/40 mt-1">
             Collaborate with your team
           </p>

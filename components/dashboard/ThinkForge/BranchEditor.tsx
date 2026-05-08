@@ -173,7 +173,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
   if (versionManager.isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-[#7A776E]" />
       </div>
     );
   }
@@ -182,24 +182,24 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
   if (!sessionId) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+        <div className="flex items-center justify-between p-4 border-b border-[#1C1B19]">
           <div className="flex items-center gap-3">
-            <GitBranch className="h-5 w-5 text-red-500" />
-            <h2 className="text-lg font-semibold text-zinc-100">Script History</h2>
+            <GitBranch className="h-5 w-5 text-[#D4A652]" />
+            <h2 className="text-lg font-semibold text-[#ECE9E1]">Script History</h2>
           </div>
           <Button
             variant="ghost"
             size="sm"
             onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-100"
+            className="text-[#7A776E] hover:text-[#ECE9E1]"
           >
             <X className="h-4 w-4" />
           </Button>
         </div>
         <div className="flex flex-col items-center justify-center flex-1 p-8 text-center">
-          <History className="h-12 w-12 text-zinc-600 mb-4" />
-          <h3 className="text-lg font-medium text-zinc-300 mb-2">No Session Active</h3>
-          <p className="text-sm text-zinc-500 mb-4">
+          <History className="h-12 w-12 text-[#454340] mb-4" />
+          <h3 className="text-lg font-medium text-[#B5B2A8] mb-2">No Session Active</h3>
+          <p className="text-sm text-[#5F5E5A] mb-4">
             Start working on a script to enable version history.
           </p>
         </div>
@@ -211,30 +211,30 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
   if (versionManager.error) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+        <div className="flex items-center justify-between p-4 border-b border-[#1C1B19]">
           <div className="flex items-center gap-3">
-            <GitBranch className="h-5 w-5 text-red-500" />
-            <h2 className="text-lg font-semibold text-zinc-100">Script History</h2>
+            <GitBranch className="h-5 w-5 text-[#D4A652]" />
+            <h2 className="text-lg font-semibold text-[#ECE9E1]">Script History</h2>
           </div>
           <Button
             variant="ghost"
             size="sm"
             onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-100"
+            className="text-[#7A776E] hover:text-[#ECE9E1]"
           >
             <X className="h-4 w-4" />
           </Button>
         </div>
         <div className="flex flex-col items-center justify-center flex-1 p-8 text-center">
-          <History className="h-12 w-12 text-red-500/50 mb-4" />
-          <h3 className="text-lg font-medium text-zinc-300 mb-2">Error Loading History</h3>
-          <p className="text-sm text-red-400 mb-4">
+          <History className="h-12 w-12 text-[#D4A652]/50 mb-4" />
+          <h3 className="text-lg font-medium text-[#B5B2A8] mb-2">Error Loading History</h3>
+          <p className="text-sm text-[#D4A652] mb-4">
             {versionManager.error}
           </p>
           <Button
             onClick={() => window.location.reload()}
             variant="outline"
-            className="border-zinc-700 text-zinc-300"
+            className="border-[#282724] text-[#B5B2A8]"
           >
             Reload Page
           </Button>
@@ -246,16 +246,16 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+      <div className="flex items-center justify-between p-4 border-b border-[#1C1B19]">
         <div className="flex items-center gap-3">
-          <GitBranch className="h-5 w-5 text-red-500" />
-          <h2 className="text-lg font-semibold text-zinc-100">Version History</h2>
+          <GitBranch className="h-5 w-5 text-[#D4A652]" />
+          <h2 className="text-lg font-semibold text-[#ECE9E1]">Version History</h2>
         </div>
         <Button
           variant="ghost"
           size="sm"
           onClick={onClose}
-          className="text-zinc-400 hover:text-zinc-100"
+          className="text-[#7A776E] hover:text-[#ECE9E1]"
         >
           <X className="h-4 w-4" />
         </Button>
@@ -264,14 +264,14 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
       {/* No versions state */}
       {!versionManager.hasVersions && (
         <div className="flex flex-col items-center justify-center flex-1 p-8 text-center">
-          <History className="h-12 w-12 text-zinc-600 mb-4" />
-          <h3 className="text-lg font-medium text-zinc-300 mb-2">No Version History</h3>
-          <p className="text-sm text-zinc-500 mb-4">
+          <History className="h-12 w-12 text-[#454340] mb-4" />
+          <h3 className="text-lg font-medium text-[#B5B2A8] mb-2">No Version History</h3>
+          <p className="text-sm text-[#5F5E5A] mb-4">
             Create your first version to start tracking changes
           </p>
           <Button
             onClick={handleCreateInitialVersion}
-            className="bg-red-600 hover:bg-red-700"
+            className="bg-[#D4A652] hover:bg-[#D4A652]"
           >
             <Plus className="h-4 w-4 mr-2" />
             Create Initial Version
@@ -283,10 +283,10 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
       {versionManager.hasVersions && (
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Version list */}
-          <div className="w-1/2 border-r border-zinc-800 flex flex-col">
+          <div className="w-1/2 border-r border-[#1C1B19] flex flex-col">
             {/* View mode tabs */}
             <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
-              <TabsList className="w-full bg-zinc-900/50 p-1">
+              <TabsList className="w-full bg-[#0F0F0E]/50 p-1">
                 <TabsTrigger value="timeline" className="flex-1 text-xs">
                   <Clock className="h-3 w-3 mr-1" />
                   Timeline
@@ -311,8 +311,8 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                     onClick={() => handleSelectVersion(item.id)}
                     className={`w-full p-3 rounded-lg text-left transition-colors ${
                       selectedVersionId === item.id
-                        ? 'bg-red-600/20 border border-red-500/30'
-                        : 'bg-zinc-800/50 hover:bg-zinc-800 border border-transparent'
+                        ? 'bg-[#D4A652]/20 border border-[#D4A652]/30'
+                        : 'bg-[#1C1B19]/50 hover:bg-[#1C1B19] border border-transparent'
                     } ${
                       item.id === versionManager.currentVersionId
                         ? 'ring-1 ring-green-500/50'
@@ -322,7 +322,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-mono text-zinc-400">
+                          <span className="text-xs font-mono text-[#7A776E]">
                             v{item.version}
                           </span>
                           {item.isHead && (
@@ -343,10 +343,10 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                             </Badge>
                           )}
                         </div>
-                        <p className="text-sm text-zinc-200 truncate">
+                        <p className="text-sm text-[#ECE9E1] truncate">
                           {item.description || 'No description'}
                         </p>
-                        <p className="text-xs text-zinc-500 mt-1">
+                        <p className="text-xs text-[#5F5E5A] mt-1">
                           {formatTimestamp(item.timestamp)}
                         </p>
                       </div>
@@ -361,15 +361,15 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
           <div className="w-1/2 flex flex-col">
             {selectedVersionId ? (
               <>
-                <div className="p-4 border-b border-zinc-800">
-                  <h3 className="text-sm font-medium text-zinc-300 mb-2">
+                <div className="p-4 border-b border-[#1C1B19]">
+                  <h3 className="text-sm font-medium text-[#B5B2A8] mb-2">
                     Version Preview
                   </h3>
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       onClick={handleRestoreVersion}
-                      className="bg-red-600 hover:bg-red-700"
+                      className="bg-[#D4A652] hover:bg-[#D4A652]"
                     >
                       <RotateCcw className="h-3 w-3 mr-1" />
                       Restore
@@ -378,7 +378,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                       size="sm"
                       variant="outline"
                       onClick={handleCreateBranch}
-                      className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                      className="border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19]"
                     >
                       <GitBranch className="h-3 w-3 mr-1" />
                       Branch
@@ -388,7 +388,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                         size="sm"
                         variant="outline"
                         onClick={() => handleMerge(selectedVersionId)}
-                        className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                        className="border-[#282724] text-[#B5B2A8] hover:bg-[#1C1B19]"
                       >
                         <GitMerge className="h-3 w-3 mr-1" />
                         Merge
@@ -404,20 +404,20 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                         {previewBlocks.slice(0, 10).map((block, i) => (
                           <div
                             key={block.id || i}
-                            className="p-2 bg-zinc-800/50 rounded text-xs text-zinc-400"
+                            className="p-2 bg-[#1C1B19]/50 rounded text-xs text-[#7A776E]"
                           >
-                            <span className="text-zinc-500">[{block.type}]</span>{' '}
+                            <span className="text-[#5F5E5A]">[{block.type}]</span>{' '}
                             {JSON.stringify(block.children || block.content || '').slice(0, 100)}...
                           </div>
                         ))}
                         {previewBlocks.length > 10 && (
-                          <p className="text-xs text-zinc-500 text-center">
+                          <p className="text-xs text-[#5F5E5A] text-center">
                             +{previewBlocks.length - 10} more blocks
                           </p>
                         )}
                       </div>
                     ) : (
-                      <p className="text-sm text-zinc-500 text-center">
+                      <p className="text-sm text-[#5F5E5A] text-center">
                         No content to preview
                       </p>
                     )}
@@ -425,7 +425,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                 </ScrollArea>
               </>
             ) : (
-              <div className="flex items-center justify-center flex-1 text-zinc-500">
+              <div className="flex items-center justify-center flex-1 text-[#5F5E5A]">
                 <div className="text-center">
                   <Eye className="h-8 w-8 mx-auto mb-2 opacity-50" />
                   <p className="text-sm">Select a version to preview</p>
@@ -438,13 +438,13 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
 
       {/* Create branch dialog */}
       <Dialog open={isCreatingBranch} onOpenChange={setIsCreatingBranch}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
+        <DialogContent className="bg-[#0F0F0E] border-[#1C1B19]">
           <DialogHeader>
-            <DialogTitle className="text-zinc-100">Create Branch</DialogTitle>
+            <DialogTitle className="text-[#ECE9E1]">Create Branch</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="branch-description" className="text-zinc-300">
+              <Label htmlFor="branch-description" className="text-[#B5B2A8]">
                 Description (optional)
               </Label>
               <Input
@@ -452,7 +452,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                 value={branchDescription}
                 onChange={(e) => setBranchDescription(e.target.value)}
                 placeholder="Describe this branch..."
-                className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                className="bg-[#1C1B19] border-[#282724] text-[#ECE9E1]"
               />
             </div>
           </div>
@@ -460,13 +460,13 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
             <Button
               variant="outline"
               onClick={() => setIsCreatingBranch(false)}
-              className="border-zinc-700 text-zinc-300"
+              className="border-[#282724] text-[#B5B2A8]"
             >
               Cancel
             </Button>
             <Button
               onClick={confirmCreateBranch}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-[#D4A652] hover:bg-[#D4A652]"
             >
               Create Branch
             </Button>
@@ -476,12 +476,12 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
 
       {/* Merge confirmation dialog */}
       <Dialog open={isMerging} onOpenChange={setIsMerging}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
+        <DialogContent className="bg-[#0F0F0E] border-[#1C1B19]">
           <DialogHeader>
-            <DialogTitle className="text-zinc-100">Merge Branches</DialogTitle>
+            <DialogTitle className="text-[#ECE9E1]">Merge Branches</DialogTitle>
           </DialogHeader>
           <div className="py-4">
-            <p className="text-sm text-zinc-400">
+            <p className="text-sm text-[#7A776E]">
               This will merge the selected version into your current version.
               Any conflicts will be automatically resolved (preferring your changes).
             </p>
@@ -490,7 +490,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
             <Button
               variant="outline"
               onClick={() => setIsMerging(false)}
-              className="border-zinc-700 text-zinc-300"
+              className="border-[#282724] text-[#B5B2A8]"
             >
               Cancel
             </Button>
@@ -507,8 +507,8 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
 
       {/* Error display */}
       {versionManager.error && (
-        <div className="p-4 bg-red-900/20 border-t border-red-800">
-          <p className="text-sm text-red-400">{versionManager.error}</p>
+        <div className="p-4 bg-[#D4A652]/20 border-t border-[#D4A652]">
+          <p className="text-sm text-[#D4A652]">{versionManager.error}</p>
         </div>
       )}
     </div>

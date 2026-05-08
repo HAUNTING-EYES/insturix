@@ -124,11 +124,11 @@ export default function TagEditor({
   // Get tag color based on type
   const getTagColor = (tag: string) => {
     const lowerTag = tag.toLowerCase();
-    if (lowerTag.includes('publish')) return 'bg-red-600/20 border-red-500/40 text-red-200';
+    if (lowerTag.includes('publish')) return 'bg-[#D4A652]/20 border-[#D4A652]/40 text-[#D4A652]';
     if (lowerTag.includes('production') || lowerTag.includes('progress')) return 'bg-yellow-600/20 border-yellow-500/40 text-yellow-200';
     if (lowerTag.includes('review') || lowerTag.includes('revision')) return 'bg-blue-600/20 border-blue-500/40 text-blue-200';
-    if (lowerTag.includes('draft')) return 'bg-neutral-800/60 border-neutral-700/70 text-neutral-200';
-    return 'bg-neutral-800/40 border-neutral-700/50 text-neutral-300';
+    if (lowerTag.includes('draft')) return 'bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-200';
+    return 'bg-[#1C1B19]/40 border-neutral-700/50 text-neutral-300';
   };
 
   return (
@@ -149,7 +149,7 @@ export default function TagEditor({
               <span className="truncate max-w-[120px]">{tag}</span>
               <button
                 onClick={() => handleRemoveTag(tag)}
-                className="ml-0.5 p-0.5 rounded hover:bg-white/10 transition-colors opacity-70 hover:opacity-100"
+                className="ml-0.5 p-0.5 rounded hover:bg-[#1C1B19] transition-colors opacity-70 hover:opacity-100"
                 aria-label={`Remove ${tag}`}
               >
                 <X size={10} />
@@ -170,7 +170,7 @@ export default function TagEditor({
           onFocus={() => setIsOpen(inputValue.length > 0 || suggestions.length > 0)}
           placeholder={tags.length >= maxTags ? 'Max tags reached' : placeholder}
           disabled={tags.length >= maxTags}
-          className="w-full px-3 py-2 bg-neutral-900/60 border border-neutral-800/70 rounded-xl text-sm text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-red-700/40 focus:border-red-800/60 transition-all backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full px-3 py-2 bg-[#0F0F0E]/60 border border-[#1C1B19]/70 rounded-xl text-sm text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-[#D4A652]/40 focus:border-[#D4A652]/60 transition-all backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed"
         />
         
         {/* Suggestions Dropdown */}
@@ -181,7 +181,7 @@ export default function TagEditor({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.95 }}
               transition={{ duration: 0.15 }}
-              className="absolute z-50 w-full mt-1 bg-neutral-950/95 backdrop-blur-xl border border-neutral-800/70 rounded-xl shadow-2xl shadow-black/50 max-h-48 overflow-auto"
+              className="absolute z-50 w-full mt-1 bg-[#0B0B0A]/95 backdrop-blur-xl border border-[#1C1B19]/70 rounded-xl shadow-2xl shadow-black/50 max-h-48 overflow-auto"
             >
               <div className="p-1.5">
                 {suggestions.slice(0, 8).map((suggestion, index) => (
@@ -191,8 +191,8 @@ export default function TagEditor({
                     onMouseEnter={() => setHighlightedIndex(index)}
                     className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all ${
                       highlightedIndex === index
-                        ? 'bg-red-600/20 text-red-200'
-                        : 'text-neutral-300 hover:bg-neutral-800/60'
+                        ? 'bg-[#D4A652]/20 text-[#D4A652]'
+                        : 'text-neutral-300 hover:bg-[#1C1B19]/60'
                     }`}
                   >
                     <div className="flex items-center gap-2">
