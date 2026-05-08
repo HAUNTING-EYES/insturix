@@ -167,33 +167,18 @@ function EditVisualFrames({ editSub }: { editSub: number }) {
             transition: `opacity 0.6s ${EASE}`,
           }}
         >
-          {/* Insturix logo mark — gold "I" lettermark in circular frame */}
+          {/* Insturix actual logo */}
           <div style={{
-            width: 120, height: 120, position: "relative",
             transform: `scale(${editSub < 0.15 ? 1 : 0.8})`,
             transition: `transform 0.8s ${EASE}`,
           }}>
-            {/* Outer ring */}
-            <div style={{
-              width: 120, height: 120, borderRadius: "50%",
-              border: `2px solid ${C.accent}40`,
-              background: `radial-gradient(circle at 40% 35%, ${C.s2}, ${C.bg})`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: `0 0 40px ${C.accent}15, inset 0 0 30px rgba(0,0,0,.4)`,
-            }}>
-              {/* Inner glow ring */}
-              <div style={{
-                width: 96, height: 96, borderRadius: "50%",
-                border: `1.5px solid ${C.accent}30`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: `radial-gradient(circle at 40% 35%, ${C.accent}08, transparent)`,
-              }}>
-                {/* Checkmark logo */}
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-                  <path d="M5 12l5 5L19 7" stroke={C.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
-            </div>
+            <img
+              src="/brand/insturix_white.png"
+              alt="Insturix"
+              width={120}
+              height={120}
+              style={{ display: "block" }}
+            />
           </div>
           <span
             className="m"
