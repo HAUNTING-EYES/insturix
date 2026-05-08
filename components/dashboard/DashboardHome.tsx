@@ -1,0 +1,1090 @@
+"use client";
+
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import Link from "next/link";
+
+/* ── Design tokens ── */
+const C = {
+  bg: "#0B0B0A",
+  raised: "#0F0F0E",
+  deeper: "#131312",
+  well: "#1B1A18",
+  border: "#1C1B19",
+  borderL: "#282724",
+  text: "#ECE9E1",
+  soft: "#B5B2A8",
+  muted: "#7A776E",
+  dim: "#5F5E5A",
+  faint: "#454340",
+  accent: "#D4A652",
+  green: "#5EC97E",
+  red: "#D46A5C",
+  purple: "#9088D4",
+  pink: "#D088B4",
+  cyan: "#5CB8CC",
+} as const;
+
+/* ── Stage definitions ── */
+const STAGES = [
+  { key: "script", label: "Script", color: C.accent },
+  { key: "edit", label: "Edit", color: C.red },
+  { key: "analyze", label: "Analyze", color: C.purple },
+  { key: "thumbnails", label: "Thumbnails", color: C.pink },
+  { key: "publish", label: "Publish", color: C.green },
+] as const;
+
+type StageKey = (typeof STAGES)[number]["key"];
+
+/* ── View / Group types ── */
+type ViewMode = "board" | "list" | "split" | "cinematic";
+type GroupBy = "stage" | "brand" | "date" | "status";
+type SortField = "name" | "brand" | "stage" | "status" | "score" | "updated";
+type SortDir = "asc" | "desc";
+
+/* ── API response shape ── */
+interface ApiProject {
+  projectId: string;
+  name: string;
+  thumbnail: string | null;
+  updatedAt: string;
+  durationInFrames: number | null;
+  aspectRatio: string | null;
+}
+
+/* ── Enriched project for UI ── */
+interface Project {
+  id: string;
+  name: string;
+  thumbnail: string | null;
+  updatedAt: string;
+  durationInFrames: number | null;
+  aspectRatio: string | null;
+
+  // TODO: Wire to backend -- these fields don't exist on the project model yet.
+  // They need to be added to lib/editron/services/project-service.ts
+  // For now, derive placeholder values from what we have.
+  brand: string | null;
+  stage: StageKey;
+  score: number | null;
+  status: "active" | "needs_attention" | "complete";
+}
+
+/* ── Derive placeholder fields from raw API data ── */
+function enrichProject(raw: ApiProject): Project {
+  // TODO: Wire to backend -- stage should come from project model
+  // For now, default all projects to "edit" stage
+  const stage: StageKey = "edit";
+
+  // TODO: Wire to backend -- brand field doesn't exist yet
+  const brand: string | null = null;
+
+  // TODO: Wire to backend -- score field doesn't exist yet
+  const score: number | null = null;
+
+  // TODO: Wire to backend -- status field doesn't exist yet
+  const status: "active" | "needs_attention" | "complete" = "active";
+
+  return {
+    id: raw.projectId,
+    name: raw.name,
+    thumbnail: raw.thumbnail,
+    updatedAt: raw.updatedAt,
+    durationInFrames: raw.durationInFrames,
+    aspectRatio: raw.aspectRatio,
+    brand,
+    stage,
+    score,
+    status,
+  };
+}
+
+/* ── Grouping helpers ── */
+function groupByStage(projects: Project[]): { key: string; label: string; color: string; projects: Project[] }[] {
+  return STAGES.map((s) => ({
+    key: s.key,
+    label: s.label,
+    color: s.color,
+    projects: projects.filter((p) => p.stage === s.key),
+  }));
+}
+
+function groupByBrand(projects: Project[]): { key: string; label: string; color: string; projects: Project[] }[] {
+  // TODO: Wire brand field -- currently all projects group under "Personal"
+  const map = new Map<string, Project[]>();
+  for (const p of projects) {
+    const key = p.brand || "Personal";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(p);
+  }
+  const groups: { key: string; label: string; color: string; projects: Project[] }[] = [];
+  for (const [name, projs] of map) {
+    if (name !== "Personal") groups.push({ key: name, label: name, color: C.cyan, projects: projs });
+  }
+  const personal = map.get("Personal");
+  if (personal) groups.push({ key: "Personal", label: "Personal", color: C.muted, projects: personal });
+  return groups;
+}
+
+function groupByDate(projects: Project[]): { key: string; label: string; color: string; projects: Project[] }[] {
+  const now = Date.now();
+  const oneDay = 86_400_000;
+  const oneWeek = oneDay * 7;
+  const today: Project[] = [];
+  const thisWeek: Project[] = [];
+  const older: Project[] = [];
+  for (const p of projects) {
+    const age = now - new Date(p.updatedAt).getTime();
+    if (age < oneDay) today.push(p);
+    else if (age < oneWeek) thisWeek.push(p);
+    else older.push(p);
+  }
+  return [
+    { key: "today", label: "Today", color: C.green, projects: today },
+    { key: "week", label: "This week", color: C.accent, projects: thisWeek },
+    { key: "older", label: "Older", color: C.muted, projects: older },
+  ];
+}
+
+function groupByStatus(projects: Project[]): { key: string; label: string; color: string; projects: Project[] }[] {
+  // TODO: Wire to backend -- status should come from project model
+  return [
+    { key: "needs_attention", label: "Needs attention", color: C.red, projects: projects.filter((p) => p.status === "needs_attention") },
+    { key: "active", label: "In progress", color: C.accent, projects: projects.filter((p) => p.status === "active") },
+    { key: "complete", label: "Complete", color: C.green, projects: projects.filter((p) => p.status === "complete") },
+  ];
+}
+
+function getGroups(projects: Project[], groupBy: GroupBy) {
+  switch (groupBy) {
+    case "stage": return groupByStage(projects);
+    case "brand": return groupByBrand(projects);
+    case "date": return groupByDate(projects);
+    case "status": return groupByStatus(projects);
+  }
+}
+
+/* ── Sorting helper ── */
+function sortProjects(projects: Project[], field: SortField, dir: SortDir): Project[] {
+  const sorted = [...projects];
+  const mul = dir === "asc" ? 1 : -1;
+  sorted.sort((a, b) => {
+    switch (field) {
+      case "name": return mul * a.name.localeCompare(b.name);
+      case "brand": return mul * (a.brand || "").localeCompare(b.brand || "");
+      case "stage": return mul * a.stage.localeCompare(b.stage);
+      case "status": return mul * a.status.localeCompare(b.status);
+      case "score": return mul * ((a.score ?? 0) - (b.score ?? 0));
+      case "updated": return mul * (new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
+      default: return 0;
+    }
+  });
+  return sorted;
+}
+
+/* ── Time formatting ── */
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return `${Math.floor(days / 7)}w ago`;
+}
+
+/* ── Thumbnail placeholder ── */
+function thumbGradient(name: string): string {
+  const hash = name.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  const hue = hash % 360;
+  return `linear-gradient(135deg, hsl(${hue},30%,14%) 0%, hsl(${(hue + 40) % 360},25%,10%) 100%)`;
+}
+
+
+/* ================================================================
+   VIEW ICON SVGs
+   ================================================================ */
+
+function IconBoard({ active }: { active: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="1" y="1" width="4" height="12" rx="1" stroke={active ? C.text : C.muted} strokeWidth="1.2" />
+      <rect x="7" y="1" width="4" height="8" rx="1" stroke={active ? C.text : C.muted} strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function IconList({ active }: { active: boolean }) {
+  const c = active ? C.text : C.muted;
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M2 3h10M2 7h10M2 11h10" stroke={c} strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconSplit({ active }: { active: boolean }) {
+  const c = active ? C.text : C.muted;
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="1" y="1" width="5" height="12" rx="1" stroke={c} strokeWidth="1.2" />
+      <rect x="8" y="1" width="5" height="12" rx="1" stroke={c} strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function IconCinematic({ active }: { active: boolean }) {
+  const c = active ? C.text : C.muted;
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="1" y="1" width="12" height="8" rx="1" stroke={c} strokeWidth="1.2" />
+      <rect x="1" y="11" width="3" height="2" rx="0.5" fill={c} />
+      <rect x="5.5" y="11" width="3" height="2" rx="0.5" fill={c} />
+      <rect x="10" y="11" width="3" height="2" rx="0.5" fill={c} />
+    </svg>
+  );
+}
+
+/* ================================================================
+   GLOBAL CSS
+   ================================================================ */
+const globalCSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;800&family=JetBrains+Mono:wght@400;500&display=swap');
+  .dh-mono { font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace; }
+  @keyframes dh-pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.55; } }
+  .dh-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+  .dh-scroll::-webkit-scrollbar-track { background: transparent; }
+  .dh-scroll::-webkit-scrollbar-thumb { background: #282724; border-radius: 2px; }
+`;
+
+
+/* ================================================================
+   MAIN COMPONENT
+   ================================================================ */
+
+export function DashboardHome() {
+  /* ── Data fetching ── */
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch("/api/services/editron/projects/list");
+        if (!res.ok) throw new Error(`API ${res.status}`);
+        const data = await res.json();
+        if (!cancelled && data.success && Array.isArray(data.projects)) {
+          setProjects(data.projects.map(enrichProject));
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  /* ── View state ── */
+  const [viewMode, setViewMode] = useState<ViewMode>("board");
+  const [groupBy, setGroupBy] = useState<GroupBy>("stage");
+  const [sortField, setSortField] = useState<SortField>("updated");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+
+  // For cinematic, auto-select first project
+  useEffect(() => {
+    if (viewMode === "cinematic" && !focusId && projects.length > 0) {
+      setFocusId(projects[0].id);
+    }
+  }, [viewMode, focusId, projects]);
+
+  const groups = useMemo(() => getGroups(projects, groupBy), [projects, groupBy]);
+  const sortedProjects = useMemo(() => sortProjects(projects, sortField, sortDir), [projects, sortField, sortDir]);
+
+  const handleSort = useCallback((field: SortField) => {
+    if (field === sortField) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  }, [sortField]);
+
+  /* ── Loading state ── */
+  if (loading) {
+    return (
+      <>
+        <style>{globalCSS}</style>
+        <div style={{
+          minHeight: "100vh", background: C.bg, color: C.text,
+          fontFamily: "'Plus Jakarta Sans', -apple-system, system-ui, sans-serif",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{
+              width: 24, height: 24, border: `2px solid ${C.border}`,
+              borderTop: `2px solid ${C.accent}`, borderRadius: "50%",
+              animation: "dh-spin 0.8s linear infinite",
+              margin: "0 auto 16px",
+            }} />
+            <style>{`@keyframes dh-spin { to { transform: rotate(360deg); } }`}</style>
+            <span style={{ fontSize: 13, color: C.muted }}>Loading projects...</span>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <style>{globalCSS}</style>
+        <div style={{
+          minHeight: "100vh", background: C.bg, color: C.text,
+          fontFamily: "'Plus Jakarta Sans', -apple-system, system-ui, sans-serif",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{ textAlign: "center" }}>
+            <span style={{ fontSize: 14, color: C.red }}>{error}</span>
+            <br />
+            <button onClick={() => window.location.reload()} style={{
+              marginTop: 12, background: C.raised, border: `1px solid ${C.border}`,
+              borderRadius: 6, padding: "8px 20px", fontSize: 13,
+              color: C.text, cursor: "pointer", fontFamily: "inherit",
+            }}>Retry</button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <style>{globalCSS}</style>
+      <div style={{
+        minHeight: "100vh", background: C.bg, color: C.text,
+        fontFamily: "'Plus Jakarta Sans', -apple-system, system-ui, sans-serif",
+        WebkitFontSmoothing: "antialiased",
+      }}>
+        {/* ── TOPBAR ── */}
+        <div style={{
+          height: 48, display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0 32px", borderBottom: `1px solid ${C.border}`,
+          position: "sticky", top: 0, background: C.bg, zIndex: 20,
+        }}>
+          {/* Left: heading */}
+          <span style={{ fontSize: 14, fontWeight: 500, color: C.soft }}>Production Floor</span>
+
+          {/* Center: controls */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {/* Group-by dropdown */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span className="dh-mono" style={{ fontSize: 11, color: C.dim, letterSpacing: "0.04em" }}>GROUP</span>
+              <select
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+                style={{
+                  background: C.deeper, border: `1px solid ${C.border}`, borderRadius: 5,
+                  padding: "4px 8px", fontSize: 12, color: C.text, fontFamily: "inherit",
+                  cursor: "pointer", outline: "none",
+                  appearance: "none", WebkitAppearance: "none",
+                  paddingRight: 22,
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237A776E' strokeWidth='1.5' strokeLinecap='round' strokeLinejoin='round'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "right 6px center",
+                }}
+              >
+                <option value="stage">Stage</option>
+                <option value="brand">Brand</option>
+                <option value="date">Date</option>
+                <option value="status">Status</option>
+              </select>
+            </div>
+
+            {/* View-as toggle */}
+            <div style={{
+              display: "flex", gap: 2, background: C.deeper,
+              borderRadius: 6, padding: 2, border: `1px solid ${C.border}`,
+            }}>
+              {([
+                { key: "board" as const, Icon: IconBoard },
+                { key: "list" as const, Icon: IconList },
+                { key: "split" as const, Icon: IconSplit },
+                { key: "cinematic" as const, Icon: IconCinematic },
+              ]).map(({ key, Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setViewMode(key)}
+                  title={key.charAt(0).toUpperCase() + key.slice(1)}
+                  style={{
+                    background: viewMode === key ? C.well : "transparent",
+                    border: "none", borderRadius: 4,
+                    padding: "5px 8px", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "background 0.15s ease",
+                  }}
+                >
+                  <Icon active={viewMode === key} />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Right: new project */}
+          <Link href="/dashboard/editron" style={{ textDecoration: "none" }}>
+            <button style={{
+              background: C.accent, color: C.bg, border: "none",
+              padding: "8px 20px", borderRadius: 7, fontSize: 12, fontWeight: 800,
+              cursor: "pointer", fontFamily: "inherit",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                <path d="M12 5v14m-7-7h14" stroke={C.bg} strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+              New project
+            </button>
+          </Link>
+        </div>
+
+        {/* ── CONTENT ── */}
+        <div style={{ padding: viewMode === "cinematic" ? 0 : "24px 32px 64px", maxWidth: viewMode === "cinematic" ? "none" : 1280, margin: "0 auto" }}>
+
+          {/* ATTENTION ZONE */}
+          {viewMode !== "cinematic" && (
+            <AttentionZone />
+          )}
+
+          {/* MAIN CONTENT */}
+          {viewMode === "board" && (
+            <BoardView groups={groups} />
+          )}
+          {viewMode === "list" && (
+            <ListView
+              projects={sortedProjects}
+              sortField={sortField}
+              sortDir={sortDir}
+              onSort={handleSort}
+            />
+          )}
+          {viewMode === "split" && (
+            <SplitView
+              groups={groups}
+              projects={projects}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+          )}
+          {viewMode === "cinematic" && (
+            <CinematicView
+              projects={projects}
+              focusId={focusId}
+              onFocus={setFocusId}
+            />
+          )}
+
+          {/* SHIPPED SECTION */}
+          {viewMode !== "cinematic" && (
+            <ShippedSection />
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+
+/* ================================================================
+   ATTENTION ZONE
+   ================================================================ */
+
+function AttentionZone() {
+  // TODO: Wire to backend -- attention items should come from:
+  // - failed publish jobs (from UploaderX)
+  // - client revision requests
+  // - approval timeouts
+  // For now: show empty state
+  return (
+    <section style={{ marginBottom: 24 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <div style={{ width: 6, height: 6, borderRadius: 3, background: C.red }} />
+        <span className="dh-mono" style={{ fontSize: 11, color: C.dim, letterSpacing: "0.06em" }}>
+          NEEDS ATTENTION
+        </span>
+      </div>
+      <div style={{
+        padding: "14px 16px", background: C.raised,
+        border: `1px solid ${C.border}`, borderRadius: 8,
+      }}>
+        <span style={{ fontSize: 13, color: C.faint }}>No items need attention</span>
+      </div>
+    </section>
+  );
+}
+
+
+/* ================================================================
+   BOARD VIEW -- Kanban columns from groups
+   ================================================================ */
+
+function BoardView({ groups }: { groups: { key: string; label: string; color: string; projects: Project[] }[] }) {
+  return (
+    <section style={{ marginBottom: 48 }}>
+      <span className="dh-mono" style={{
+        fontSize: 11, color: C.dim, letterSpacing: "0.06em",
+        display: "block", marginBottom: 12,
+      }}>PIPELINE</span>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${groups.length}, 1fr)`,
+        gap: 8, minHeight: 320,
+      }}>
+        {groups.map((group) => (
+          <div key={group.key} style={{
+            background: C.raised, border: `1px solid ${C.border}`,
+            borderRadius: 12, padding: 8, display: "flex", flexDirection: "column",
+          }}>
+            {/* Column header */}
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "8px 8px 12px",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 3, height: 14, borderRadius: 2, background: group.color }} />
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{group.label}</span>
+              </div>
+              <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{group.projects.length}</span>
+            </div>
+            {/* Cards */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+              {group.projects.map((project) => (
+                <BoardCard key={project.id} project={project} stageColor={group.color} />
+              ))}
+              {group.projects.length === 0 && (
+                <div style={{
+                  flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                  borderRadius: 8, border: `1px dashed ${C.borderL}`,
+                  padding: 24, minHeight: 80,
+                }}>
+                  <span style={{ fontSize: 12, color: C.faint }}>No projects</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+
+/* ── Board card ── */
+
+function BoardCard({ project, stageColor }: { project: Project; stageColor: string }) {
+  const bg = project.thumbnail || thumbGradient(project.name);
+  const isUrl = project.thumbnail && (project.thumbnail.startsWith("http") || project.thumbnail.startsWith("/"));
+
+  return (
+    <div style={{
+      background: C.deeper, border: `1px solid ${C.border}`,
+      borderRadius: 8, padding: 10, cursor: "pointer",
+      transition: "border-color 0.25s ease",
+    }}
+      onMouseEnter={(e) => e.currentTarget.style.borderColor = C.borderL}
+      onMouseLeave={(e) => e.currentTarget.style.borderColor = C.border}
+    >
+      {/* Thumbnail */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: 7, flexShrink: 0,
+          background: isUrl ? undefined : bg,
+          backgroundImage: isUrl ? `url(${project.thumbnail})` : undefined,
+          backgroundSize: "cover", backgroundPosition: "center",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          {!isUrl && (
+            <span style={{ fontSize: 16, fontWeight: 800, color: C.faint }}>
+              {project.name.charAt(0).toUpperCase()}
+            </span>
+          )}
+        </div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{
+            fontSize: 13, fontWeight: 500, lineHeight: 1.35,
+            overflow: "hidden", textOverflow: "ellipsis",
+            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+          }}>{project.name}</div>
+        </div>
+      </div>
+
+      {/* Meta row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div style={{ width: 3, height: 10, borderRadius: 1, background: stageColor }} />
+          <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>
+            {STAGES.find((s) => s.key === project.stage)?.label ?? project.stage}
+          </span>
+        </div>
+        <span className="dh-mono" style={{ fontSize: 11, color: C.faint }}>{timeAgo(project.updatedAt)}</span>
+      </div>
+    </div>
+  );
+}
+
+
+/* ================================================================
+   LIST VIEW -- Flat sortable table
+   ================================================================ */
+
+function ListView({
+  projects,
+  sortField,
+  sortDir,
+  onSort,
+}: {
+  projects: Project[];
+  sortField: SortField;
+  sortDir: SortDir;
+  onSort: (f: SortField) => void;
+}) {
+  const cols: { label: string; field: SortField; width: string }[] = [
+    { label: "Name", field: "name", width: "1fr" },
+    { label: "Brand", field: "brand", width: "100px" },
+    { label: "Stage", field: "stage", width: "100px" },
+    { label: "Status", field: "status", width: "100px" },
+    { label: "Score", field: "score", width: "64px" },
+    { label: "Updated", field: "updated", width: "100px" },
+  ];
+  const gridCols = cols.map((c) => c.width).join(" ");
+  const arrow = (f: SortField) => sortField === f ? (sortDir === "asc" ? " ↑" : " ↓") : "";
+
+  return (
+    <section style={{ marginBottom: 48 }}>
+      <span className="dh-mono" style={{
+        fontSize: 11, color: C.dim, letterSpacing: "0.06em",
+        display: "block", marginBottom: 12,
+      }}>PIPELINE</span>
+      <div style={{
+        background: C.raised, border: `1px solid ${C.border}`,
+        borderRadius: 12, overflow: "hidden",
+      }}>
+        {/* Header */}
+        <div style={{
+          display: "grid", gridTemplateColumns: gridCols,
+          gap: 16, padding: "10px 16px",
+          borderBottom: `1px solid ${C.border}`,
+        }}>
+          {cols.map((col) => (
+            <span
+              key={col.field}
+              className="dh-mono"
+              onClick={() => onSort(col.field)}
+              style={{
+                fontSize: 11, color: sortField === col.field ? C.soft : C.faint,
+                letterSpacing: "0.04em", cursor: "pointer",
+                userSelect: "none",
+              }}
+            >
+              {col.label}{arrow(col.field)}
+            </span>
+          ))}
+        </div>
+
+        {/* Rows */}
+        {projects.length === 0 && (
+          <div style={{ padding: "24px 16px", textAlign: "center" }}>
+            <span style={{ fontSize: 13, color: C.faint }}>No projects</span>
+          </div>
+        )}
+        {projects.map((p, i) => {
+          const stage = STAGES.find((s) => s.key === p.stage);
+          const stageColor = stage?.color ?? C.dim;
+          return (
+            <div key={p.id} style={{
+              display: "grid", gridTemplateColumns: gridCols,
+              gap: 16, padding: "12px 16px",
+              borderBottom: i < projects.length - 1 ? `1px solid ${C.border}` : "none",
+              cursor: "pointer", transition: "background 0.2s ease",
+              alignItems: "center",
+            }}
+              onMouseEnter={(e) => e.currentTarget.style.background = C.deeper}
+              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+            >
+              {/* Name */}
+              <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {p.name}
+              </span>
+              {/* Brand */}
+              <span style={{ fontSize: 12, color: C.muted }}>{p.brand || "Personal"}</span>
+              {/* Stage */}
+              <span className="dh-mono" style={{
+                fontSize: 11, fontWeight: 500, color: stageColor,
+                padding: "3px 8px", background: `${stageColor}12`,
+                borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 5,
+                width: "fit-content",
+              }}>
+                <div style={{ width: 3, height: 10, borderRadius: 1, background: stageColor }} />
+                {stage?.label ?? p.stage}
+              </span>
+              {/* Status */}
+              <span style={{ fontSize: 12, color: C.soft, textTransform: "capitalize" }}>
+                {p.status.replace("_", " ")}
+              </span>
+              {/* Score */}
+              {p.score !== null ? (
+                <span className="dh-mono" style={{
+                  fontSize: 12, fontWeight: 500,
+                  color: p.score >= 85 ? C.green : p.score >= 70 ? C.accent : C.red,
+                  padding: "3px 8px", background: `${p.score >= 85 ? C.green : p.score >= 70 ? C.accent : C.red}12`,
+                  borderRadius: 3, textAlign: "center",
+                }}>{p.score}</span>
+              ) : (
+                <span className="dh-mono" style={{ fontSize: 11, color: C.faint, textAlign: "center" }}>&mdash;</span>
+              )}
+              {/* Updated */}
+              <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{timeAgo(p.updatedAt)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+
+/* ================================================================
+   SPLIT VIEW
+   ================================================================ */
+
+function SplitView({
+  groups,
+  projects,
+  selectedId,
+  onSelect,
+}: {
+  groups: { key: string; label: string; color: string; projects: Project[] }[];
+  projects: Project[];
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  const selected = selectedId ? projects.find((p) => p.id === selectedId) ?? null : null;
+
+  return (
+    <section style={{ marginBottom: 48 }}>
+      <span className="dh-mono" style={{
+        fontSize: 11, color: C.dim, letterSpacing: "0.06em",
+        display: "block", marginBottom: 12,
+      }}>PIPELINE</span>
+      <div style={{
+        display: "flex", gap: 0,
+        background: C.raised, border: `1px solid ${C.border}`,
+        borderRadius: 12, overflow: "hidden",
+        minHeight: 480,
+      }}>
+        {/* Left panel: grouped project list */}
+        <div className="dh-scroll" style={{
+          width: "40%", borderRight: `1px solid ${C.border}`,
+          overflowY: "auto", maxHeight: 600,
+        }}>
+          {groups.map((group) => (
+            <div key={group.key}>
+              <div style={{
+                padding: "10px 16px", borderBottom: `1px solid ${C.border}`,
+                display: "flex", alignItems: "center", gap: 8,
+                position: "sticky", top: 0, background: C.raised, zIndex: 1,
+              }}>
+                <div style={{ width: 3, height: 12, borderRadius: 1, background: group.color }} />
+                <span style={{ fontSize: 12, fontWeight: 500 }}>{group.label}</span>
+                <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{group.projects.length}</span>
+              </div>
+              {group.projects.map((p) => (
+                <div
+                  key={p.id}
+                  onClick={() => onSelect(p.id)}
+                  style={{
+                    padding: "10px 16px",
+                    background: selectedId === p.id ? C.well : "transparent",
+                    borderBottom: `1px solid ${C.border}`,
+                    cursor: "pointer", transition: "background 0.15s ease",
+                    borderLeft: selectedId === p.id ? `3px solid ${group.color}` : "3px solid transparent",
+                  }}
+                  onMouseEnter={(e) => { if (selectedId !== p.id) e.currentTarget.style.background = C.deeper; }}
+                  onMouseLeave={(e) => { if (selectedId !== p.id) e.currentTarget.style.background = "transparent"; }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{p.name}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span className="dh-mono" style={{ fontSize: 11, color: group.color }}>
+                      {STAGES.find((s) => s.key === p.stage)?.label ?? p.stage}
+                    </span>
+                    <span style={{ color: C.faint, fontSize: 11 }}>&middot;</span>
+                    <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{timeAgo(p.updatedAt)}</span>
+                  </div>
+                </div>
+              ))}
+              {group.projects.length === 0 && (
+                <div style={{ padding: "16px", textAlign: "center" }}>
+                  <span style={{ fontSize: 12, color: C.faint }}>Empty</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Right panel: selected project detail */}
+        <div style={{
+          flex: 1, padding: 32,
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        }}>
+          {selected ? (
+            <SplitDetail project={selected} />
+          ) : (
+            <div style={{ textAlign: "center" }}>
+              <span style={{ fontSize: 13, color: C.faint }}>Select a project to view details</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SplitDetail({ project }: { project: Project }) {
+  const stage = STAGES.find((s) => s.key === project.stage);
+  const stageColor = stage?.color ?? C.dim;
+  const bg = project.thumbnail || thumbGradient(project.name);
+  const isUrl = project.thumbnail && (project.thumbnail.startsWith("http") || project.thumbnail.startsWith("/"));
+
+  return (
+    <div style={{ width: "100%", maxWidth: 400 }}>
+      {/* Thumbnail area */}
+      <div style={{
+        width: "100%", aspectRatio: "16/9", borderRadius: 10, marginBottom: 20,
+        background: isUrl ? undefined : bg,
+        backgroundImage: isUrl ? `url(${project.thumbnail})` : undefined,
+        backgroundSize: "cover", backgroundPosition: "center",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        border: `1px solid ${C.border}`,
+      }}>
+        {!isUrl && (
+          <span style={{ fontSize: 32, fontWeight: 800, color: C.faint }}>
+            {project.name.charAt(0).toUpperCase()}
+          </span>
+        )}
+      </div>
+
+      {/* Info */}
+      <h2 style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-0.02em", marginBottom: 8 }}>
+        {project.name}
+      </h2>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <span className="dh-mono" style={{
+          fontSize: 11, fontWeight: 500, color: stageColor,
+          padding: "3px 8px", background: `${stageColor}18`, borderRadius: 4,
+        }}>
+          {stage?.label ?? project.stage}
+        </span>
+        <span style={{ fontSize: 12, color: C.muted }}>{project.brand || "Personal"}</span>
+        {project.aspectRatio && (
+          <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{project.aspectRatio}</span>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
+        <div>
+          <span style={{ fontSize: 11, color: C.faint, display: "block", marginBottom: 2 }}>Updated</span>
+          <span className="dh-mono" style={{ fontSize: 12, color: C.soft }}>{timeAgo(project.updatedAt)}</span>
+        </div>
+        <div>
+          <span style={{ fontSize: 11, color: C.faint, display: "block", marginBottom: 2 }}>Status</span>
+          <span style={{ fontSize: 12, color: C.soft, textTransform: "capitalize" }}>{project.status.replace("_", " ")}</span>
+        </div>
+        {project.score !== null && (
+          <div>
+            <span style={{ fontSize: 11, color: C.faint, display: "block", marginBottom: 2 }}>Score</span>
+            <span className="dh-mono" style={{
+              fontSize: 12, fontWeight: 500,
+              color: project.score >= 85 ? C.green : project.score >= 70 ? C.accent : C.red,
+            }}>{project.score}</span>
+          </div>
+        )}
+      </div>
+      <Link href={`/dashboard/editron?project=${project.id}`} style={{ textDecoration: "none" }}>
+        <button style={{
+          background: C.accent, color: C.bg, border: "none",
+          padding: "10px 28px", borderRadius: 7, fontSize: 13, fontWeight: 800,
+          cursor: "pointer", fontFamily: "inherit",
+        }}>Open project</button>
+      </Link>
+    </div>
+  );
+}
+
+
+/* ================================================================
+   CINEMATIC VIEW
+   ================================================================ */
+
+function CinematicView({
+  projects,
+  focusId,
+  onFocus,
+}: {
+  projects: Project[];
+  focusId: string | null;
+  onFocus: (id: string | null) => void;
+}) {
+  const focus = focusId ? projects.find((p) => p.id === focusId) ?? null : null;
+  const focusStage = focus ? STAGES.find((s) => s.key === focus.stage) : null;
+  const bg = focus?.thumbnail || (focus ? thumbGradient(focus.name) : C.bg);
+  const isUrl = focus?.thumbnail && (focus.thumbnail.startsWith("http") || focus.thumbnail.startsWith("/"));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 48px)" }}>
+      {/* Hero area */}
+      <div style={{
+        flex: 1, position: "relative", overflow: "hidden", minHeight: 300,
+      }}>
+        {/* Background */}
+        <div style={{
+          position: "absolute", inset: 0,
+          background: isUrl ? undefined : bg,
+          backgroundImage: isUrl ? `url(${focus?.thumbnail})` : undefined,
+          backgroundSize: "cover", backgroundPosition: "center",
+          transition: "background 0.5s ease",
+        }} />
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "linear-gradient(0deg, #0B0B0A 0%, rgba(11,11,10,0.85) 30%, rgba(11,11,10,0.6) 60%, rgba(11,11,10,0.4) 100%)",
+        }} />
+
+        {/* Content overlay */}
+        <div style={{
+          position: "relative", zIndex: 2, height: "100%",
+          display: "flex", flexDirection: "column", justifyContent: "flex-end",
+          padding: "0 48px 32px",
+        }}>
+          {focus && focusStage ? (
+            <div style={{ maxWidth: 500 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span className="dh-mono" style={{
+                  fontSize: 11, color: focusStage.color, fontWeight: 500,
+                  padding: "3px 8px", background: `${focusStage.color}20`, borderRadius: 4,
+                }}>{focusStage.label}</span>
+                {focus.aspectRatio && (
+                  <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{focus.aspectRatio}</span>
+                )}
+              </div>
+              <h1 style={{
+                fontSize: 32, fontWeight: 800, letterSpacing: "-0.03em",
+                lineHeight: 1.1, marginBottom: 6,
+              }}>{focus.name}</h1>
+              <div style={{ fontSize: 13, color: C.muted, display: "flex", gap: 12, marginBottom: 20 }}>
+                <span>{focus.brand || "Personal"}</span>
+                <span style={{ color: C.faint }}>&middot;</span>
+                <span>{timeAgo(focus.updatedAt)}</span>
+              </div>
+              <Link href={`/dashboard/editron?project=${focus.id}`} style={{ textDecoration: "none" }}>
+                <button style={{
+                  background: C.accent, color: C.bg, border: "none",
+                  padding: "10px 28px", borderRadius: 7, fontSize: 13, fontWeight: 800,
+                  cursor: "pointer", fontFamily: "inherit",
+                }}>Open</button>
+              </Link>
+            </div>
+          ) : (
+            <span style={{ fontSize: 14, color: C.faint }}>No projects</span>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom strip */}
+      <div style={{
+        flexShrink: 0, padding: "16px 48px 20px",
+        borderTop: `1px solid ${C.border}`,
+        background: C.bg,
+      }}>
+        <div className="dh-scroll" style={{
+          display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4,
+        }}>
+          {projects.map((p) => {
+            const stage = STAGES.find((s) => s.key === p.stage)!;
+            const isSel = focusId === p.id;
+            const pBg = p.thumbnail || thumbGradient(p.name);
+            const pIsUrl = p.thumbnail && (p.thumbnail.startsWith("http") || p.thumbnail.startsWith("/"));
+
+            return (
+              <div
+                key={p.id}
+                onClick={() => onFocus(p.id)}
+                style={{
+                  minWidth: 180, width: 180,
+                  background: isSel ? C.well : C.raised,
+                  border: `1px solid ${isSel ? C.borderL : C.border}`,
+                  borderRadius: 10, overflow: "hidden",
+                  cursor: "pointer", flexShrink: 0,
+                  transition: "all 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+                  transform: isSel ? "translateY(-4px)" : "none",
+                }}
+              >
+                <div style={{
+                  height: 48,
+                  background: pIsUrl ? undefined : pBg,
+                  backgroundImage: pIsUrl ? `url(${p.thumbnail})` : undefined,
+                  backgroundSize: "cover", backgroundPosition: "center",
+                  position: "relative",
+                }}>
+                  <div style={{
+                    position: "absolute", bottom: 0, left: 0,
+                    width: "100%", height: 2,
+                    background: stage?.color ?? C.dim,
+                    opacity: isSel ? 1 : 0.25,
+                  }} />
+                </div>
+                <div style={{ padding: "8px 10px" }}>
+                  <div style={{
+                    fontSize: 12, fontWeight: 500, marginBottom: 4,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>{p.name}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span className="dh-mono" style={{ fontSize: 11, color: stage?.color ?? C.dim }}>
+                      {stage?.label ?? p.stage}
+                    </span>
+                    <span className="dh-mono" style={{ fontSize: 11, color: C.faint }}>{timeAgo(p.updatedAt)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ================================================================
+   SHIPPED SECTION
+   ================================================================ */
+
+function ShippedSection() {
+  // TODO: Wire to backend -- shipped projects should come from UploaderX publish history
+  // For now: empty state
+  return (
+    <section>
+      <span className="dh-mono" style={{
+        fontSize: 11, color: C.dim, letterSpacing: "0.06em",
+        display: "block", marginBottom: 12,
+      }}>SHIPPED</span>
+      <div style={{
+        background: C.raised, border: `1px solid ${C.border}`,
+        borderRadius: 12, padding: "24px 16px", textAlign: "center",
+      }}>
+        <span style={{ fontSize: 13, color: C.faint }}>No shipped projects yet</span>
+      </div>
+    </section>
+  );
+}
