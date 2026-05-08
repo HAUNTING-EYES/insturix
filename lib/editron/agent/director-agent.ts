@@ -642,10 +642,9 @@ export async function executeDirectorPlan(
           result.warnings.push(`EDL: ${edlErr.message}`);
           pipelineWarnings.errorSwallowed('director', edlErr, 'EDL generation/execution');
         }
-      } else {
-        // C6 FIX: Zero assets analyzed — skip EDL but STILL run profile-based steps
-        // (filters, transitions, captions, motion graphics). Don't skip the entire
-        // intelligence block — profile actions are rule-based and don't need analyses.
+      } else if (!pathDHandled) {
+        // C6 FIX: Zero assets analyzed AND Path D didn't run — skip EDL but STILL
+        // run profile-based steps (filters, transitions, captions, motion graphics).
         const failMsg = `Intelligence: 0/${videoOverlays.length} video assets analyzed (${edlSummary.failedAssets.join(', ')}). EDL skipped — profile-based steps (filters, transitions, captions) will still run.`;
         console.warn(`[Director] ${failMsg}`);
         result.warnings.push(failMsg);

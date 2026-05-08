@@ -239,6 +239,33 @@ export async function executeEDL(
     }
   }
 
+  // ── Single-source detection: suppress transitions for same-camera cuts ──
+  // When all video overlays share the same source assetId, every cut is a
+  // CONTINUITY cut (same camera, same angle, same person). Transitions between
+  // same-source segments are visually wrong (dissolving from frame N to frame
+  // N+32 of the same video = glitch, not a professional transition). SFX triggers
+  // paired with transitions are also wrong (no visual scene change to sync with).
+  // Zooms, emphasis, filter changes, pacing, and camera-shake still apply — they
+  // modify the visual within a segment, not between segments.
+  const videoOverlaysForSourceCheck = overlays.filter(o => o.type === 'video');
+  const uniqueSourceAssets = new Set(
+    videoOverlaysForSourceCheck.map(o => (o as any).assetId).filter(Boolean)
+  );
+  const isSingleSource = uniqueSourceAssets.size === 1 && videoOverlaysForSourceCheck.length > 1;
+
+  if (isSingleSource) {
+    const suppressTypes = new Set(['transition', 'sfx-trigger']);
+    const before = actionable.length;
+    const filtered = actionable.filter(d => !suppressTypes.has(d.type));
+    const suppressed = before - filtered.length;
+    if (suppressed > 0) {
+      console.log(`[EDL-Exec] Single-source project (${uniqueSourceAssets.values().next().value}) — suppressed ${suppressed} transition/sfx-trigger decisions (same-camera cuts don't need transitions)`);
+    }
+    // Replace actionable in-place (it's already a filtered copy from line 209)
+    actionable.length = 0;
+    actionable.push(...filtered);
+  }
+
   let budgetRejected = 0;
   let decisionIndex = 0;
 
