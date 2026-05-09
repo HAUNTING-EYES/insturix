@@ -1084,20 +1084,50 @@ function CinematicView({
    ================================================================ */
 
 function ShippedSection() {
-  // TODO: Wire to backend -- shipped projects should come from UploaderX publish history
-  // For now: empty state
+  const [videos, setVideos] = useState<{ filename: string; uploadedAt: string; status: string; publicUrl: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/services/uploaderx/videos", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.videos) setVideos(data.videos.slice(0, 5)); })
+      .catch(() => {});
+  }, []);
+
   return (
     <section>
       <span className="dh-mono" style={{
         fontSize: 11, color: C.dim, letterSpacing: "0.06em",
         display: "block", marginBottom: 12,
       }}>SHIPPED</span>
-      <div style={{
-        background: C.raised, border: `1px solid ${C.border}`,
-        borderRadius: 12, padding: "24px 16px", textAlign: "center",
-      }}>
-        <span style={{ fontSize: 13, color: C.faint }}>No shipped projects yet</span>
-      </div>
+      {videos.length === 0 ? (
+        <div style={{
+          background: C.raised, border: `1px solid ${C.border}`,
+          borderRadius: 12, padding: "24px 16px", textAlign: "center",
+        }}>
+          <span style={{ fontSize: 13, color: C.faint }}>No shipped content yet</span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {videos.map((v, i) => (
+            <div key={i} style={{
+              padding: "12px 16px", background: C.raised,
+              border: `1px solid ${C.border}`, borderRadius: 8,
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{v.filename}</span>
+                <span style={{ fontSize: 11, color: C.muted, display: "block", marginTop: 2 }}>
+                  {v.status || "uploaded"}
+                </span>
+              </div>
+              <span className="dh-mono" style={{ fontSize: 10, color: C.dim, whiteSpace: "nowrap" }}>
+                {v.uploadedAt ? new Date(v.uploadedAt).toLocaleDateString() : ""}
+              </span>
+            </div>
+          ))}
+          {/* TODO: Link videos to Editron projects once UploaderX schema has editronProjectId */}
+        </div>
+      )}
     </section>
   );
 }
