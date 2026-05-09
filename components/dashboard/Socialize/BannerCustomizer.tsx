@@ -344,11 +344,11 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                     <div className="mt-2">
                         <div className="w-full h-24 bg-[#141414] rounded-md border border-zinc-800 overflow-hidden">
                             {selectedTab === 'image' && banner.type === 'image' && banner.value ? (
-                                <img src={banner.value} alt="Current banner" className="w-full h-full object-cover" onError={(e) => console.error('Banner load error', e)} />
+                                <img src={banner.value} alt="Current banner" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
                             ) : selectedTab === 'color' ? (
                                 <div className="w-full h-full" style={{ backgroundColor: normalizeHex(localColor) || localColor || '#D4A652' }} />
                             ) : banner.type === 'image' && banner.value ? (
-                                <img src={banner.value} alt="Current banner" className="w-full h-full object-cover" onError={(e) => console.error('Banner load error', e)} />
+                                <img src={banner.value} alt="Current banner" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
                             ) : banner.type === 'color' && banner.value ? (
                                 <div className="w-full h-full" style={{ backgroundColor: normalizeHex(banner.value) || banner.value }} />
                             ) : banner.type === 'gradient' && banner.gradientColors && banner.gradientColors.length > 0 ? (

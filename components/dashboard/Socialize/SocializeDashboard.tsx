@@ -130,7 +130,7 @@ export default function SocializeDashboard({
   const [banner, setBanner] = useState<BannerConfig>(
     initialData?.banner || {
       type: 'color',
-      value: '#0e6b9c',
+      value: '#D4A652',
       gradientType: 'linear',
       gradientColors: []
     }
@@ -259,7 +259,7 @@ export default function SocializeDashboard({
       setBio(response.data.profile.bio || "");
       setBanner(response.data.profile.banner || {
         type: 'color',
-        value: '#0e6b9c',
+        value: '#D4A652',
         gradientType: 'linear',
         gradientColors: []
       });
@@ -300,7 +300,7 @@ export default function SocializeDashboard({
           setBio(response.data.profile.bio || "");
           setBanner(response.data.profile.banner || {
             type: 'color',
-            value: '#0e6b9c',
+            value: '#D4A652',
             gradientType: 'linear',
             gradientColors: []
           });
@@ -341,7 +341,7 @@ export default function SocializeDashboard({
           setBio(response.data.profile.bio || "");
           setBanner(response.data.profile.banner || {
             type: 'color',
-            value: '#0e6b9c',
+            value: '#D4A652',
             gradientType: 'linear',
             gradientColors: []
           });
@@ -381,7 +381,7 @@ export default function SocializeDashboard({
           setBio(response.data.profile.bio || "");
           setBanner(response.data.profile.banner || {
             type: 'color',
-            value: '#0e6b9c',
+            value: '#D4A652',
             gradientType: 'linear',
             gradientColors: []
           });
@@ -407,7 +407,7 @@ export default function SocializeDashboard({
           setLinks(response.data.profile.links || []);
           setBanner(response.data.profile.banner || {
             type: 'color',
-            value: '#0e6b9c',
+            value: '#D4A652',
             gradientType: 'linear',
             gradientColors: []
           });
@@ -495,7 +495,7 @@ export default function SocializeDashboard({
           setBio(response.data.profile.bio || "");
           setBanner(response.data.profile.banner || {
             type: 'color',
-            value: '#0e6b9c',
+            value: '#D4A652',
             gradientType: 'linear',
             gradientColors: []
           });
@@ -529,7 +529,7 @@ export default function SocializeDashboard({
       setDuration(data.notifications?.[0]?.duration ?? 1);
       setBanner(data.banner || {
         type: 'color',
-        value: '#0e6b9c',
+        value: '#D4A652',
         gradientType: 'linear',
         gradientColors: []
       });
@@ -543,7 +543,7 @@ export default function SocializeDashboard({
         // Update the local state to reflect the changes immediately
         setBanner(response.data.profile.banner || {
           type: 'color',
-          value: '#0e6b9c',
+          value: '#D4A652',
           gradientType: 'linear',
           gradientColors: []
         });

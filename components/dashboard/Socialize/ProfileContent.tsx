@@ -84,7 +84,26 @@ export function ProfileContent({
       .join(", ")})`;
   };
 
+  const [bannerError, setBannerError] = useState(false);
+
+  // Reset error state when banner config changes
+  useEffect(() => {
+    setBannerError(false);
+  }, [bannerConfig.value, bannerConfig.type]);
+
   const renderBanner = () => {
+    if (bannerError) {
+      return (
+        <div className={cn("w-full h-24 bg-[#1B1A18] flex flex-col items-center justify-center text-zinc-500", isPreview && "h-16")}>
+          <div className="text-center p-4">
+            <div className="text-xl mb-1 opacity-50">🖼️</div>
+            <div className="text-[10px] font-medium uppercase tracking-widest" style={{ fontFamily: 'JetBrains Mono' }}>Banner Expired</div>
+            <div className="text-[9px] mt-1 opacity-40">Refresh or re-upload image</div>
+          </div>
+        </div>
+      );
+    }
+
     switch (bannerConfig.type) {
       case "image":
         return (
@@ -98,22 +117,7 @@ export function ProfileContent({
               src={bannerConfig.value}
               alt="Profile banner"
               className="w-full h-full object-cover"
-              onError={(e) => {
-                const img = e.currentTarget;
-                console.error(
-                  "Profile banner image failed to load:",
-                  bannerConfig.value
-                );
-                img.style.display = "none";
-                img.parentElement!.innerHTML = `
-                  <div class="w-full h-full flex items-center justify-center text-zinc-400">
-                    <div class="text-center">
-                      <div class="text-2xl mb-2">🖼️</div>
-                      <div class="text-sm">Banner unavailable</div>
-                    </div>
-                  </div>
-                `;
-              }}
+              onError={() => setBannerError(true)}
             />
           </div>
         );
