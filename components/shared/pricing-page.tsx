@@ -22,6 +22,7 @@ import {
   type SubscriptionPlan,
   type CreditPackage,
 } from "@/lib/config/creditCosts";
+import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 const EASE_CSS = "cubic-bezier(0.16, 1, 0.3, 1)";
@@ -77,11 +78,27 @@ function clamp(v: number, min: number, max: number) {
 export function PricingPage() {
   const [selectedTier, setSelectedTier] = useState(1);
   const [showCredits, setShowCredits] = useState(false);
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
 
   const activePlanId = VOLUME_TIERS[selectedTier].planId;
   const activePlan = SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId);
   const isEnterprise = activePlanId === "enterprise";
   const tierIndex = selectedTier;
+
+  const handleActivatePlan = (planId: string) => {
+    setSelectedPlanId(planId);
+    setSelectedPackageId(planId);
+    setPaymentModalOpen(true);
+  };
+
+  const handleBuyCredits = (packageId: string) => {
+    setSelectedPlanId(null);
+    setSelectedPackageId(packageId);
+    setPaymentModalOpen(true);
+  };
 
   return (
     <div style={{ background: "var(--bg-canvas)", minHeight: "100vh", fontFamily: "var(--font-sans)" }}>
@@ -117,9 +134,41 @@ export function PricingPage() {
           Choose your access level
         </motion.h2>
         <motion.p initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={fadeIn}
-          style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 32 }}>
+          style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 24 }}>
           Every plan unlocks all six rooms. Choose your production volume.
         </motion.p>
+
+        {/* Billing cycle toggle */}
+        <motion.div initial="hidden" whileInView="visible" viewport={{ margin: "-32px" }} variants={fadeUp}
+          style={{ display: "flex", justifyContent: "center", marginBottom: 32 }}>
+          <div style={{
+            display: "inline-flex", position: "relative",
+            background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)",
+            borderRadius: 7, padding: 3, gap: 2,
+          }}>
+            {(["monthly", "yearly"] as const).map((cycle) => (
+              <button key={cycle} onClick={() => setBillingCycle(cycle)}
+                style={{
+                  padding: "8px 20px", borderRadius: 5, fontSize: 12, fontWeight: 500,
+                  fontFamily: "var(--font-sans)", border: "none", cursor: "pointer",
+                  background: billingCycle === cycle ? "var(--bg-raised)" : "transparent",
+                  color: billingCycle === cycle ? "var(--text-primary)" : "var(--text-muted)",
+                  transition: `all 0.25s ${EASE_CSS}`,
+                  position: "relative",
+                }}>
+                {cycle === "monthly" ? "Monthly" : "Yearly"}
+                {cycle === "yearly" && (
+                  <span style={{
+                    marginLeft: 6, fontSize: 10, fontWeight: 600,
+                    color: "var(--status-success)", fontFamily: "var(--font-mono)",
+                  }}>
+                    Save 17%
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </motion.div>
 
         {/* Room indicators */}
         <motion.div initial="hidden" whileInView="visible" viewport={{ margin: "-32px" }} variants={stagger}
@@ -186,7 +235,7 @@ export function PricingPage() {
             transition={{ duration: 0.35, ease: EASE }}
             style={{ maxWidth: "min(440px, 100%)", margin: "0 auto 48px" }}
           >
-            {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} />}
+            {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} billingCycle={billingCycle} onActivate={handleActivatePlan} />}
           </motion.div>
         </AnimatePresence>
 
@@ -224,7 +273,7 @@ export function PricingPage() {
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.35, ease: EASE }} style={{ overflow: "hidden" }}>
                 <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginTop: 16, marginBottom: 24 }}>Top up anytime. Credits never expire.</p>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, maxWidth: 640, margin: "0 auto" }}>
-                  {CREDIT_PACKAGES.map((pkg) => <CreditCard key={pkg.id} pkg={pkg} />)}
+                  {CREDIT_PACKAGES.map((pkg) => <CreditCard key={pkg.id} pkg={pkg} onBuy={handleBuyCredits} />)}
                 </div>
               </motion.div>
             )}
@@ -239,6 +288,15 @@ export function PricingPage() {
           </div>
         )}
       </section>
+
+      {/* Payment Modal */}
+      <BillingPaymentModal
+        isOpen={paymentModalOpen}
+        onClose={() => { setPaymentModalOpen(false); setSelectedPackageId(null); }}
+        onSuccess={() => { setPaymentModalOpen(false); setSelectedPackageId(null); }}
+        initialPackageId={selectedPackageId}
+        billingCycle={billingCycle}
+      />
     </div>
   );
 }
@@ -433,7 +491,10 @@ function CostAccumulation() {
 // BADGE CARD — access pass to the production floor
 // =====================================================================
 
-function BadgeCard({ plan, tierIndex }: { plan: SubscriptionPlan; tierIndex: number }) {
+function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: SubscriptionPlan; tierIndex: number; billingCycle: 'monthly' | 'yearly'; onActivate: (planId: string) => void }) {
+  const displayPrice = billingCycle === 'yearly' ? Math.round(plan.yearlyPrice / 12) : plan.price;
+  const totalYearly = plan.yearlyPrice;
+  const monthlySavings = billingCycle === 'yearly' ? plan.price - displayPrice : 0;
   return (
     <div style={{
       background: "var(--bg-raised)", border: "1px solid var(--accent-gold)",
@@ -461,12 +522,17 @@ function BadgeCard({ plan, tierIndex }: { plan: SubscriptionPlan; tierIndex: num
         </h3>
 
         {/* Price with micro scale */}
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8, marginBottom: 4 }}>
           <span style={{ fontSize: 44, fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.03em" }}>
-            ${plan.price}
+            ${displayPrice}
           </span>
           <span style={{ fontSize: 14, color: "var(--text-muted)" }}>/mo</span>
         </div>
+        {billingCycle === 'yearly' && (
+          <div style={{ fontSize: 11, color: "var(--status-success)", fontFamily: "var(--font-mono)", marginBottom: 4 }}>
+            ${totalYearly}/yr · save ${monthlySavings * 12}/yr
+          </div>
+        )}
 
         <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--accent-gold)", display: "block", marginBottom: 24 }}>
           {plan.credits.toLocaleString()} CREDITS/MONTH
@@ -497,13 +563,15 @@ function BadgeCard({ plan, tierIndex }: { plan: SubscriptionPlan; tierIndex: num
         <Barcode />
 
         {/* CTA */}
-        <button style={{
-          width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
-          fontSize: 14, fontWeight: 500, fontFamily: "var(--font-sans)", cursor: "pointer",
-          border: "none", background: "var(--accent-gold)", color: "var(--bg-canvas)",
-          display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-          transition: `opacity 0.25s ${EASE_CSS}`, marginTop: 16,
-        }}
+        <button
+          onClick={() => onActivate(plan.id)}
+          style={{
+            width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
+            fontSize: 14, fontWeight: 500, fontFamily: "var(--font-sans)", cursor: "pointer",
+            border: "none", background: "var(--accent-gold)", color: "var(--bg-canvas)",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+            transition: `opacity 0.25s ${EASE_CSS}`, marginTop: 16,
+          }}
           onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
         >
@@ -552,13 +620,16 @@ function EnterpriseCard() {
   );
 }
 
-function CreditCard({ pkg }: { pkg: CreditPackage }) {
+function CreditCard({ pkg, onBuy }: { pkg: CreditPackage; onBuy: (packageId: string) => void }) {
   return (
-    <div style={{
-      background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)",
-      borderRadius: 12, padding: 24, textAlign: "center",
-      transition: `border-color 0.25s ${EASE_CSS}`,
-    }}
+    <button
+      onClick={() => onBuy(pkg.id)}
+      style={{
+        background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)",
+        borderRadius: 12, padding: 24, textAlign: "center",
+        transition: `border-color 0.25s ${EASE_CSS}`,
+        cursor: "pointer", fontFamily: "inherit",
+      }}
       onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border-emphasis)"; }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border-subtle)"; }}
     >
@@ -566,7 +637,7 @@ function CreditCard({ pkg }: { pkg: CreditPackage }) {
       <span style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 16 }}>credits</span>
       <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)", display: "block", marginBottom: 4 }}>${pkg.prices.USD}</span>
       <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>${(pkg.prices.USD / pkg.credits).toFixed(2)}/credit</span>
-    </div>
+    </button>
   );
 }
 
