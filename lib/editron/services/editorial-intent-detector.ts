@@ -270,12 +270,6 @@ META_KEEP — Meta-commentary that contains editorial INSTRUCTIONS to preserve:
 - Sequencing instructions: "this goes after the product demo"
 - Content flags: "this is the key message", "this is the B-roll section"
 
-DUPLICATE_TAKE — The speaker is saying the SAME THING they already said in a nearby segment, just with different wording. This is a retake/rephrasing of the same line, NOT a different point in the argument.
-- ONLY flag as DUPLICATE_TAKE when the MEANING is the same, not just shared words.
-- "Those people at the grocery store who seem nice" said 3 times with slightly different wording → keep the LONGEST/BEST version as CONTENT, mark the others DUPLICATE_TAKE.
-- CRITICAL: Two segments discussing the same TOPIC from DIFFERENT ANGLES are NOT duplicates. "The internet enables trolls" and "Trolls are invisible in real life" share the topic but make DIFFERENT points → both are CONTENT.
-- When marking DUPLICATE_TAKE, set "retroactive_targets" to the index of the BETTER version you're keeping, so we know which version to prefer.
-
 CRITICAL ANTI-OVERFIRE RULES:
 1. DEFAULT IS CONTENT. Only flag META when the speaker is CLEARLY breaking out of their content delivery.
 2. Pauses, hesitations, "um", "uh" are NOT meta — they are handled separately by filler detection.
@@ -297,7 +291,7 @@ There are ${totalSegments} total segments. Here are the segments to classify:
 ${segmentList}
 
 Respond with a JSON array (one object per segment, in order):
-[{"classification": "CONTENT"|"META_DISCARD"|"META_KEEP"|"DUPLICATE_TAKE", "confidence": 0.0-1.0, "reason": "brief explanation", "directive": "editorial instruction if META_KEEP", "retroactive_targets": [indices] or null}]`;
+[{"classification": "CONTENT"|"META_DISCARD"|"META_KEEP", "confidence": 0.0-1.0, "reason": "brief explanation", "directive": "editorial instruction if META_KEEP", "retroactive_targets": [indices] or null}]`;
 }
 
 // ─── Retroactive Flagging ───────────────────────────────────────────
