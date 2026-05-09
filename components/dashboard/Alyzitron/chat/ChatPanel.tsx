@@ -305,7 +305,7 @@ export default function ChatPanel({
           data-[state=open]:translate-x-0
           data-[state=closed]:translate-x-full
         "
-        style={{ fontFamily: "'DM Sans', 'Geist', sans-serif" }}
+        style={{ fontFamily: "'Plus Jakarta Sans', -apple-system, system-ui, sans-serif" }}
       >
         {/* Header */}
         <div className="flex-none flex flex-col border-b border-[#1C1B19]">

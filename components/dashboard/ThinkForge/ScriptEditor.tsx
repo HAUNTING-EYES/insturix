@@ -1824,7 +1824,7 @@ export default function ScriptEditor({
           border: 1px solid rgba(255, 255, 255, 0.1) !important;
           border-radius: 0.25rem !important;
           padding: 0.125rem 0.25rem !important;
-          font-family: ui-monospace, monospace !important;
+          font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace !important;
           font-size: 0.875em !important;
           color: #ECE9E1 !important;
         }
