@@ -274,6 +274,15 @@ export async function executeSilenceRemoval(
   // Sort overlays by position for consistency
   overlays.sort((a: any, b: any) => a.from - b.from || a.row - b.row);
 
+  // Assign sceneIndex to all video overlays (Mode 2: silence removal creates segments
+  // without metadata.sceneIndex — the Director's transition system, continuity scoring,
+  // and 5-Track analysis all key on this value to match overlays to scene data).
+  const videoOverlaysForIndex = overlays.filter((o: any) => o.type === 'video');
+  for (let i = 0; i < videoOverlaysForIndex.length; i++) {
+    if (!videoOverlaysForIndex[i].metadata) videoOverlaysForIndex[i].metadata = {};
+    videoOverlaysForIndex[i].metadata.sceneIndex = i;
+  }
+
   // Fix tiny frame-rounding overlaps (1-3 frames) by snapping, not merging.
   // Only merge if the overlap is significant (>30 frames = 1 second).
   // The old code merged ANY overlap — 33 segments collapsed to 2, destroying
