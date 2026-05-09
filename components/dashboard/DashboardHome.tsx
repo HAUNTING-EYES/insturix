@@ -499,11 +499,17 @@ export function DashboardHome() {
    ================================================================ */
 
 function AttentionZone() {
-  // TODO: Wire to backend -- attention items should come from:
-  // - failed publish jobs (from UploaderX)
-  // - client revision requests
-  // - approval timeouts
-  // For now: show empty state
+  const [items, setItems] = useState<{ id: string; type: string; title: string; detail: string; time: string; severity: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/dashboard/attention", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.items) setItems(data.items); })
+      .catch(() => {});
+  }, []);
+
+  if (items.length === 0) return null;
+
   return (
     <section style={{ marginBottom: 24 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -511,12 +517,24 @@ function AttentionZone() {
         <span className="dh-mono" style={{ fontSize: 11, color: C.dim, letterSpacing: "0.06em" }}>
           NEEDS ATTENTION
         </span>
+        <span style={{ fontSize: 11, color: C.red, fontFamily: "'JetBrains Mono', monospace" }}>{items.length}</span>
       </div>
-      <div style={{
-        padding: "14px 16px", background: C.raised,
-        border: `1px solid ${C.border}`, borderRadius: 8,
-      }}>
-        <span style={{ fontSize: 13, color: C.faint }}>No items need attention</span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {items.map((item) => (
+          <div key={item.id} style={{
+            padding: "12px 16px", background: C.raised,
+            border: `1px solid ${item.severity === "high" ? `${C.red}30` : C.border}`,
+            borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <div>
+              <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{item.title}</span>
+              <span style={{ fontSize: 11, color: C.muted, display: "block", marginTop: 2 }}>{item.detail}</span>
+            </div>
+            <span className="dh-mono" style={{ fontSize: 10, color: C.dim, whiteSpace: "nowrap" }}>
+              {new Date(item.time).toLocaleDateString()}
+            </span>
+          </div>
+        ))}
       </div>
     </section>
   );
