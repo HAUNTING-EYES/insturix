@@ -321,6 +321,31 @@ export async function executeSilenceRemoval(
     console.log(`[SilenceRemoval] Merged ${videoOverlaysBefore - videoOverlaysAfter} truly-overlapping video overlays (${videoOverlaysBefore} → ${videoOverlaysAfter})`);
   }
 
+  // Close gaps between adjacent video overlays (caused by rounding in shift calculations).
+  // Gaps = black frames visible to the viewer. Shift all overlays after the gap left.
+  const sortedVideos = overlays.filter((o: any) => o.type === 'video').sort((a: any, b: any) => a.from - b.from);
+  let totalGapsClosed = 0;
+  for (let i = 0; i < sortedVideos.length - 1; i++) {
+    const endA = sortedVideos[i].from + sortedVideos[i].durationInFrames;
+    const startB = sortedVideos[i + 1].from;
+    const gap = startB - endA;
+    if (gap > 0) {
+      // Shift this overlay and all subsequent overlays left by the gap amount
+      for (let j = i + 1; j < sortedVideos.length; j++) {
+        sortedVideos[j].from -= gap;
+      }
+      // Also shift non-video overlays (captions, graphics) that are after the gap
+      for (const ov of overlays) {
+        if (ov.type === 'video') continue;
+        if (ov.from >= startB) ov.from -= gap;
+      }
+      totalGapsClosed++;
+    }
+  }
+  if (totalGapsClosed > 0) {
+    console.log(`[SilenceRemoval] Closed ${totalGapsClosed} gaps between video overlays`);
+  }
+
   // Recalculate project duration
   const newDuration = overlays.length > 0
     ? Math.max(...overlays.map((o: any) => o.from + o.durationInFrames))

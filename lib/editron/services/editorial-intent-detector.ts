@@ -127,6 +127,41 @@ export async function detectEditorialIntent(
     }
   }
 
+  // ── Orphan lead-in detection ──
+  // A kept segment is orphaned if it's a short incomplete sentence whose
+  // NEXT segment was removed. The speaker was introducing something that
+  // got cut — the lead-in alone doesn't make sense to the viewer.
+  // Example: "And you're gonna see..." (kept) → [removed meta section]
+  const ORPHAN_MAX_WORDS = 8;
+  let orphanCount = 0;
+  for (let i = 0; i < segments.length - 1; i++) {
+    if (metaDiscard.includes(i)) continue; // already removed
+    const text = (segments[i].text || '').trim();
+    const words = text.split(/\s+/).filter(Boolean);
+    if (words.length > ORPHAN_MAX_WORDS) continue; // too long to be a lead-in
+    const lastChar = text.slice(-1);
+    const isIncomplete = lastChar && !'.?!'.includes(lastChar);
+    if (!isIncomplete) continue; // sentence is complete, not a lead-in
+    // Check if the next segment was removed
+    if (metaDiscard.includes(i + 1)) {
+      metaDiscard.push(i);
+      content.splice(content.indexOf(i), 1);
+      const seg = segments[i];
+      if (seg) {
+        removals.push({
+          startMs: seg.startMs,
+          endMs: seg.endMs,
+          action: 'remove',
+          reason: 'meta-discard' as any,
+        });
+      }
+      orphanCount++;
+    }
+  }
+  if (orphanCount > 0) {
+    console.log(`[EditorialIntent] Orphan detection: ${orphanCount} lead-in segments removed`);
+  }
+
   console.log(`[EditorialIntent] ${segments.length} segments → ${content.length} CONTENT, ${metaDiscard.length} META_DISCARD, ${metaKeep.length} META_KEEP (${Date.now() - start}ms)`);
 
   return {
@@ -207,6 +242,8 @@ META_DISCARD — Meta-commentary that should be REMOVED from the final edit:
 - Process commentary: talking ABOUT the video/recording process itself — "this is how I make a video", "the whole process of making this", "that's a good thing to check before recording"
 - Creative self-assessment: reacting to own performance/script — "I like it", "okay I'm gonna use that", "that sounds good", "that works"
 - Production decisions: choosing between takes — "let me use that one", "that's better", "nah, let me try again"
+- Video format/structure commentary: talking TO THE VIEWER about the video itself rather than the topic — "so this is the editing challenge", "I'm gonna make a video right now", "and then you're gonna edit it", "I'll put this at the beginning", "I'm probably gonna put this in text descriptions"
+- Intro/preamble before content delivery: speakers often warm up, introduce themselves, describe what the video will be about, or address the viewer about the recording process BEFORE delivering the actual content. These setup segments should be META_DISCARD unless the introduction IS the content (e.g., a podcast host introducing the episode topic)
 
 META_KEEP — Meta-commentary that contains editorial INSTRUCTIONS to preserve:
 - Structural directives: "put this part at the beginning", "this should be the intro"
@@ -220,7 +257,12 @@ CRITICAL ANTI-OVERFIRE RULES:
 3. Rhetorical self-address ("let me think about that...") within a natural flow is CONTENT, not META. BUT if the speaker is commenting on THEIR OWN SCRIPT or PERFORMANCE (not the topic), that IS meta.
 4. If a segment contains BOTH content and meta-commentary, classify based on the PRIMARY purpose.
 5. Emotional moments, dramatic pauses, or charged silence are ALWAYS CONTENT — never discard these.
-6. The KEY DISTINCTION: is the speaker talking TO THE VIEWER about the topic (CONTENT), or talking TO THEMSELVES/CREW about the production (META)? "I think the internet is great" = CONTENT. "I think that take was great" = META_DISCARD.
+6. THREE-WAY DISTINCTION — the speaker can talk about three things:
+   a) THE TOPIC they're presenting (CONTENT): "I think the internet is great" "The data shows a 40% increase"
+   b) THE VIDEO ITSELF — its format, structure, or what the viewer will do with it (META_DISCARD): "So this is the editing challenge" "I'm gonna make a video" "You're gonna edit this"
+   c) THE PRODUCTION — equipment, takes, performance (META_DISCARD): "Is my mic on?" "That take was great"
+   Only (a) is CONTENT. Both (b) and (c) are META_DISCARD.
+7. ORPHAN DETECTION: If a segment clearly leads into or introduces a topic that is NOT continued in the next segment (e.g., "And you're gonna see..." followed by a completely different topic), the lead-in segment is likely orphaned from removed content and should also be META_DISCARD.
 
 RETROACTIVE FLAGGING:
 When a META_DISCARD segment references a PREVIOUS segment (e.g., "that last part was bad", "scratch what I just said"), include "retroactive_targets" with the segment indices that should ALSO be discarded. Only reference segments within ${RETROACTIVE_WINDOW} positions back.
