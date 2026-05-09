@@ -14,24 +14,45 @@ export async function POST() {
     await connectToDatabase();
     const user = await User.findOne({ clerkUserId: userId });
 
-    if (!user || !user.currentPlan.razorpaySubscriptionId) {
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found." },
+        { status: 404 }
+      );
+    }
+
+    // Resolve subscription ID from multiple possible storage formats:
+    // 1. IUserPlan.razorpaySubscriptionId (flat string, legacy)
+    // 2. currentPlan.subscriptionId.razorpay (object, from updateUserPlan in planService)
+    // 3. currentPlan.subscriptionId (flat string, from verify route)
+    // 4. subscriptions array (last resort)
+    const currentPlan = user.currentPlan;
+    const subIdObj = currentPlan?.subscriptionId;
+    const razorpaySubId =
+      currentPlan?.razorpaySubscriptionId ||
+      (typeof subIdObj === 'object' && subIdObj !== null ? subIdObj.razorpay : null) ||
+      (typeof subIdObj === 'string' && subIdObj.startsWith('sub_') ? subIdObj : null) ||
+      user.subscriptions?.find((s: any) => s.status === 'active')?.subscriptionId ||
+      null;
+
+    if (!razorpaySubId) {
       return NextResponse.json(
         { error: "No active subscription found to cancel." },
         { status: 400 }
       );
     }
-    
+
     const razorpay = new Razorpay({
       key_id: process.env.RAZORPAY_KEY_ID!,
       key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
     });
 
     // Cancel subscription on Razorpay. By default, it cancels at the end of the period.
-    await razorpay.subscriptions.cancel(user.currentPlan.razorpaySubscriptionId);
+    await razorpay.subscriptions.cancel(razorpaySubId);
 
     // Update user's plan status in our DB
-    user.currentPlan.cancelAtPeriodEnd = true;
-    user.currentPlan.status = "canceled";
+    currentPlan.cancelAtPeriodEnd = true;
+    currentPlan.status = "canceled";
     await user.save();
 
     return NextResponse.json({

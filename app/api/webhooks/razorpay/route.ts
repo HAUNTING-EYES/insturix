@@ -166,6 +166,26 @@ export async function POST(request: NextRequest) {
           break;
         }
 
+        // Idempotency: check if this subscription was already activated by the verify route
+        // The verify route pushes to planHistory with the subscription ID and grants credits
+        const alreadyActivated = user.planHistory?.some(
+          (plan: any) =>
+            (plan.subscriptionId === subscription.id ||
+             plan.subscriptionId?.razorpay === subscription.id) &&
+            plan.status === 'active'
+        );
+
+        if (alreadyActivated) {
+          console.log(`[Webhook] Subscription ${subscription.id} already activated for user ${user.clerkUserId} (via verify route). Skipping duplicate activation + credit grant.`);
+          // Still clear UI messages since verify route may not have done it
+          user.uiMessages = user.uiMessages.filter(
+            (msg: any) => msg.id !== "plan-activation-pending"
+          );
+          user.markModified("uiMessages");
+          await user.save();
+          break;
+        }
+
         // 1. Remove the "pending activation" message
         user.uiMessages = user.uiMessages.filter(
           (msg: any) => msg.id !== "plan-activation-pending"
