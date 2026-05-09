@@ -78,7 +78,6 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       // Model-specific multipliers (gemini-2.5-flash is baseline 1x)
       modelMultipliers: {
         'gemini-2.5-flash': 1,
-        'gemini-2.5-flash': 1,
         'gemini-1.5-pro': 3,
       },
     },
@@ -208,12 +207,14 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
 };
 
 // Subscription Plans (USD Only)
+// Yearly = 10x monthly (2 months free)
 export interface SubscriptionPlan {
   id: string; // Internal ID (e.g. 'plus', 'pro')
   name: string;
   description: string;
-  credits: number;
-  price: number; // USD
+  credits: number; // Monthly credit grant
+  price: number; // USD monthly
+  yearlyPrice: number; // USD yearly (2 months free)
   currency: 'USD';
   features: string[];
   popular?: boolean;
@@ -226,6 +227,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     description: 'Perfect for growing creators',
     credits: 100,
     price: 20,
+    yearlyPrice: 200,
     currency: 'USD',
     features: [
       '100 Monthly Credits',
@@ -240,6 +242,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     description: 'For professional content creators',
     credits: 400,
     price: 49,
+    yearlyPrice: 490,
     currency: 'USD',
     popular: true,
     features: [
@@ -255,6 +258,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     description: 'Ultimate creator experience',
     credits: 1000,
     price: 99,
+    yearlyPrice: 990,
     currency: 'USD',
     features: [
       '1,000 Monthly Credits',

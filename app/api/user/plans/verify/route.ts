@@ -12,7 +12,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { User } from "@/schemas/user";
 import Plan from "@/schemas/plans";
 import { SUBSCRIPTION_PLANS } from "@/lib/config/creditCosts";
-import { IUserPlan } from "@/types/userTypes";
+import { UserType } from "@/types/userTypes";
 import { addMonths } from "date-fns";
 import { CreditsService } from "@/lib/services/creditsService";
 
@@ -86,19 +86,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Find or create the Plan document in DB (to link it properly)
-    // We treat 'manual' provider ID as the fallback
-    let dbPlan = await Plan.findOne({ 
-       name: planDef.name, 
-       interval: 'month',
-       'providerPlanIds.manual': { $exists: true }
-    });
-
-    // If not found, try to find by generic properties or create one
-    if (!dbPlan) {
-        // Find by name/price as fallback
-        dbPlan = await Plan.findOne({ name: planDef.name, price: planDef.price });
-    }
+    // 2. Find the Plan document in DB by type field (indexed, matches plan schema)
+    // packageId is 'plus', 'pro', or 'premium' — matches Plan.type enum
+    const dbPlan = await Plan.findOne({ type: packageId, isActive: true });
 
     // 3. Update User Plan
     const user = await User.findOne({ clerkUserId: userId });
@@ -112,13 +102,12 @@ export async function POST(request: NextRequest) {
     const startDate = new Date();
     const endDate = addMonths(startDate, 1);
 
-    const newPlan: IUserPlan = {
+    const newPlan = {
         planId: dbPlan?._id?.toString() || `manual_${planDef.id}`,
-        name: planDef.name,
+        name: planDef.id as UserType,
         price: planDef.price,
         currency: 'USD',
-        billingCycle: 'monthly',
-        status: 'active',
+        status: 'active' as const,
         startDate: startDate,
         endDate: endDate,
         provider: 'razorpay',

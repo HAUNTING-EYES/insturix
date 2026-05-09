@@ -251,107 +251,111 @@ export interface CurrencyPricing {
   yearly: PricingDetail;
 }
 
+// Pricing aligned with SUBSCRIPTION_PLANS in creditCosts.ts (source of truth)
+// USD: Plus $20/mo, Pro $49/mo, Premium $99/mo
+// Yearly = 10x monthly (2 months free)
+// Other currencies scaled proportionally
 export const SERVICE_PRICING_CONFIGS: Record<string, Record<string, CurrencyPricing>> = {
   plus: {
     USD: {
-      monthly: { amount: 9.99, currency: "USD", symbol: "$" },
-      yearly: { amount: 99.99, currency: "USD", symbol: "$" },
+      monthly: { amount: 20, currency: "USD", symbol: "$" },
+      yearly: { amount: 200, currency: "USD", symbol: "$" },
     },
     INR: {
-      monthly: { amount: 799, currency: "INR", symbol: "₹" },
-      yearly: { amount: 7999, currency: "INR", symbol: "₹" },
+      monthly: { amount: 1899, currency: "INR", symbol: "₹" },
+      yearly: { amount: 18899, currency: "INR", symbol: "₹" },
     },
     EUR: {
-      monthly: { amount: 8.99, currency: "EUR", symbol: "€" },
-      yearly: { amount: 89.99, currency: "EUR", symbol: "€" },
-    },
-    GBP: {
-      monthly: { amount: 7.99, currency: "GBP", symbol: "£" },
-      yearly: { amount: 79.99, currency: "GBP", symbol: "£" },
-    },
-    CAD: {
-      monthly: { amount: 12.99, currency: "CAD", symbol: "C$" },
-      yearly: { amount: 129.99, currency: "CAD", symbol: "C$" },
-    },
-    AUD: {
-      monthly: { amount: 14.99, currency: "AUD", symbol: "A$" },
-      yearly: { amount: 149.99, currency: "AUD", symbol: "A$" },
-    },
-    SGD: {
-      monthly: { amount: 13.99, currency: "SGD", symbol: "S$" },
-      yearly: { amount: 139.99, currency: "SGD", symbol: "S$" },
-    },
-    AED: {
-      monthly: { amount: 36.99, currency: "AED", symbol: "د.إ" },
-      yearly: { amount: 369.99, currency: "AED", symbol: "د.إ" },
-    },
-  },
-  pro: {
-    USD: {
-      monthly: { amount: 19.99, currency: "USD", symbol: "$" },
-      yearly: { amount: 199.99, currency: "USD", symbol: "$" },
-    },
-    INR: {
-      monthly: { amount: 1599, currency: "INR", symbol: "₹" },
-      yearly: { amount: 15999, currency: "INR", symbol: "₹" },
-    },
-    EUR: {
-      monthly: { amount: 17.99, currency: "EUR", symbol: "€" },
-      yearly: { amount: 179.99, currency: "EUR", symbol: "€" },
+      monthly: { amount: 18.99, currency: "EUR", symbol: "€" },
+      yearly: { amount: 189.99, currency: "EUR", symbol: "€" },
     },
     GBP: {
       monthly: { amount: 15.99, currency: "GBP", symbol: "£" },
       yearly: { amount: 159.99, currency: "GBP", symbol: "£" },
     },
     CAD: {
-      monthly: { amount: 25.99, currency: "CAD", symbol: "C$" },
-      yearly: { amount: 259.99, currency: "CAD", symbol: "C$" },
+      monthly: { amount: 27.99, currency: "CAD", symbol: "C$" },
+      yearly: { amount: 273.99, currency: "CAD", symbol: "C$" },
     },
     AUD: {
       monthly: { amount: 29.99, currency: "AUD", symbol: "A$" },
       yearly: { amount: 299.99, currency: "AUD", symbol: "A$" },
     },
     SGD: {
-      monthly: { amount: 26.99, currency: "SGD", symbol: "S$" },
-      yearly: { amount: 269.99, currency: "SGD", symbol: "S$" },
+      monthly: { amount: 27.99, currency: "SGD", symbol: "S$" },
+      yearly: { amount: 279.99, currency: "SGD", symbol: "S$" },
     },
     AED: {
       monthly: { amount: 73.99, currency: "AED", symbol: "د.إ" },
       yearly: { amount: 739.99, currency: "AED", symbol: "د.إ" },
     },
   },
-  premium: {
+  pro: {
     USD: {
-      monthly: { amount: 29.99, currency: "USD", symbol: "$" },
-      yearly: { amount: 299.99, currency: "USD", symbol: "$" },
+      monthly: { amount: 49, currency: "USD", symbol: "$" },
+      yearly: { amount: 490, currency: "USD", symbol: "$" },
     },
     INR: {
-      monthly: { amount: 2499, currency: "INR", symbol: "₹" },
-      yearly: { amount: 24999, currency: "INR", symbol: "₹" },
+      monthly: { amount: 4699, currency: "INR", symbol: "₹" },
+      yearly: { amount: 46399, currency: "INR", symbol: "₹" },
     },
     EUR: {
-      monthly: { amount: 27.99, currency: "EUR", symbol: "€" },
-      yearly: { amount: 279.99, currency: "EUR", symbol: "€" },
+      monthly: { amount: 44.99, currency: "EUR", symbol: "€" },
+      yearly: { amount: 449.99, currency: "EUR", symbol: "€" },
     },
     GBP: {
-      monthly: { amount: 24.99, currency: "GBP", symbol: "£" },
-      yearly: { amount: 249.99, currency: "GBP", symbol: "£" },
+      monthly: { amount: 38.99, currency: "GBP", symbol: "£" },
+      yearly: { amount: 389.99, currency: "GBP", symbol: "£" },
     },
     CAD: {
-      monthly: { amount: 39.99, currency: "CAD", symbol: "C$" },
-      yearly: { amount: 399.99, currency: "CAD", symbol: "C$" },
+      monthly: { amount: 66.99, currency: "CAD", symbol: "C$" },
+      yearly: { amount: 669.99, currency: "CAD", symbol: "C$" },
     },
     AUD: {
-      monthly: { amount: 44.99, currency: "AUD", symbol: "A$" },
-      yearly: { amount: 449.99, currency: "AUD", symbol: "A$" },
+      monthly: { amount: 73.99, currency: "AUD", symbol: "A$" },
+      yearly: { amount: 739.99, currency: "AUD", symbol: "A$" },
     },
     SGD: {
-      monthly: { amount: 40.99, currency: "SGD", symbol: "S$" },
-      yearly: { amount: 409.99, currency: "SGD", symbol: "S$" },
+      monthly: { amount: 66.99, currency: "SGD", symbol: "S$" },
+      yearly: { amount: 669.99, currency: "SGD", symbol: "S$" },
     },
     AED: {
-      monthly: { amount: 109.99, currency: "AED", symbol: "د.إ" },
-      yearly: { amount: 1099.99, currency: "AED", symbol: "د.إ" },
+      monthly: { amount: 179.99, currency: "AED", symbol: "د.إ" },
+      yearly: { amount: 1799.99, currency: "AED", symbol: "د.إ" },
+    },
+  },
+  premium: {
+    USD: {
+      monthly: { amount: 99, currency: "USD", symbol: "$" },
+      yearly: { amount: 990, currency: "USD", symbol: "$" },
+    },
+    INR: {
+      monthly: { amount: 9399, currency: "INR", symbol: "₹" },
+      yearly: { amount: 93599, currency: "INR", symbol: "₹" },
+    },
+    EUR: {
+      monthly: { amount: 92.99, currency: "EUR", symbol: "€" },
+      yearly: { amount: 929.99, currency: "EUR", symbol: "€" },
+    },
+    GBP: {
+      monthly: { amount: 79.99, currency: "GBP", symbol: "£" },
+      yearly: { amount: 799.99, currency: "GBP", symbol: "£" },
+    },
+    CAD: {
+      monthly: { amount: 135.99, currency: "CAD", symbol: "C$" },
+      yearly: { amount: 1353.99, currency: "CAD", symbol: "C$" },
+    },
+    AUD: {
+      monthly: { amount: 149.99, currency: "AUD", symbol: "A$" },
+      yearly: { amount: 1499.99, currency: "AUD", symbol: "A$" },
+    },
+    SGD: {
+      monthly: { amount: 134.99, currency: "SGD", symbol: "S$" },
+      yearly: { amount: 1349.99, currency: "SGD", symbol: "S$" },
+    },
+    AED: {
+      monthly: { amount: 363.99, currency: "AED", symbol: "د.إ" },
+      yearly: { amount: 3635.99, currency: "AED", symbol: "د.إ" },
     },
   },
 };

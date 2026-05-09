@@ -22,9 +22,10 @@ interface TopupModalProps {
   onClose: () => void;
   onSuccess?: () => void;
   initialPackageId?: string | null;
+  billingCycle?: 'monthly' | 'yearly';
 }
 
-export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackageId }: TopupModalProps) {
+export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackageId, billingCycle: billingCycleProp }: TopupModalProps) {
   const [packages, setPackages] = useState<CreditPackage[]>([]);
   // We'll treat subscription plans as a separate state or just find it from config
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
@@ -134,10 +135,10 @@ export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackage
         res = await fetch('/api/create-subscription', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            planType: selectedPackage, 
-            currency: 'USD', 
-            billingCycle: 'monthly' 
+          body: JSON.stringify({
+            planType: selectedPackage,
+            currency: 'USD',
+            billingCycle: billingCycleProp || 'monthly'
           }),
         });
       } else {
