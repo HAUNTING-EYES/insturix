@@ -14,6 +14,7 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { r2FileExists, getR2PublicUrl } from '@/lib/editron/services/r2-service';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function GET() {

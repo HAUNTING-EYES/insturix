@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { renderMediaOnLambda } from '@remotion/lambda/client';
 import { auth } from '@clerk/nextjs/server';

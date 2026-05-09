@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
 import { auth } from '@clerk/nextjs/server';
 import { verifyAdminForApi } from '@/lib/auth/adminAuth';
 import { sendEmail } from '@/lib/services/email';

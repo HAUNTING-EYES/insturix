@@ -47,6 +47,7 @@ interface MembershipEventData {
   created_at: number;
 }
 
+export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const webhookSecret = process.env.CLERK_WEBHOOK_SECRET;
