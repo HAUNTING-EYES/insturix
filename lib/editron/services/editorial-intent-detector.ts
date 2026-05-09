@@ -17,7 +17,7 @@ import type { TranscriptSegment, SilenceRemovalAction } from './raw-footage-proc
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-export type EditorialClass = 'CONTENT' | 'META_DISCARD' | 'META_KEEP';
+export type EditorialClass = 'CONTENT' | 'META_DISCARD' | 'META_KEEP' | 'DUPLICATE_TAKE';
 
 export interface EditorialIntent {
   segmentIndex: number;
@@ -88,16 +88,20 @@ export async function detectEditorialIntent(
   const content: number[] = [];
   const removals: SilenceRemovalAction[] = [];
 
+  let duplicateTakeCount = 0;
   for (const intent of allIntents) {
-    if (intent.classification === 'META_DISCARD' && intent.confidence >= META_CONFIDENCE_THRESHOLD) {
+    const shouldRemove = (intent.classification === 'META_DISCARD' || intent.classification === 'DUPLICATE_TAKE')
+      && intent.confidence >= META_CONFIDENCE_THRESHOLD;
+    if (shouldRemove) {
       metaDiscard.push(intent.segmentIndex);
+      if (intent.classification === 'DUPLICATE_TAKE') duplicateTakeCount++;
       const seg = segments[intent.segmentIndex];
       if (seg) {
         removals.push({
           startMs: seg.startMs,
           endMs: seg.endMs,
           action: 'remove',
-          reason: 'meta-discard' as any,
+          reason: intent.classification === 'DUPLICATE_TAKE' ? 'inferior-take' as any : 'meta-discard' as any,
         });
       }
     } else if (intent.classification === 'META_KEEP') {
@@ -105,6 +109,9 @@ export async function detectEditorialIntent(
     } else {
       content.push(intent.segmentIndex);
     }
+  }
+  if (duplicateTakeCount > 0) {
+    console.log(`[EditorialIntent] Gemini identified ${duplicateTakeCount} duplicate takes`);
   }
 
   // Also remove segments retroactively flagged by META_DISCARD directives
@@ -251,6 +258,12 @@ META_KEEP — Meta-commentary that contains editorial INSTRUCTIONS to preserve:
 - Sequencing instructions: "this goes after the product demo"
 - Content flags: "this is the key message", "this is the B-roll section"
 
+DUPLICATE_TAKE — The speaker is saying the SAME THING they already said in a nearby segment, just with different wording. This is a retake/rephrasing of the same line, NOT a different point in the argument.
+- ONLY flag as DUPLICATE_TAKE when the MEANING is the same, not just shared words.
+- "Those people at the grocery store who seem nice" said 3 times with slightly different wording → keep the LONGEST/BEST version as CONTENT, mark the others DUPLICATE_TAKE.
+- CRITICAL: Two segments discussing the same TOPIC from DIFFERENT ANGLES are NOT duplicates. "The internet enables trolls" and "Trolls are invisible in real life" share the topic but make DIFFERENT points → both are CONTENT.
+- When marking DUPLICATE_TAKE, set "retroactive_targets" to the index of the BETTER version you're keeping, so we know which version to prefer.
+
 CRITICAL ANTI-OVERFIRE RULES:
 1. DEFAULT IS CONTENT. Only flag META when the speaker is CLEARLY breaking out of their content delivery.
 2. Pauses, hesitations, "um", "uh" are NOT meta — they are handled separately by filler detection.
@@ -272,7 +285,7 @@ There are ${totalSegments} total segments. Here are the segments to classify:
 ${segmentList}
 
 Respond with a JSON array (one object per segment, in order):
-[{"classification": "CONTENT"|"META_DISCARD"|"META_KEEP", "confidence": 0.0-1.0, "reason": "brief explanation", "directive": "editorial instruction if META_KEEP", "retroactive_targets": [indices] or null}]`;
+[{"classification": "CONTENT"|"META_DISCARD"|"META_KEEP"|"DUPLICATE_TAKE", "confidence": 0.0-1.0, "reason": "brief explanation", "directive": "editorial instruction if META_KEEP", "retroactive_targets": [indices] or null}]`;
 }
 
 // ─── Retroactive Flagging ───────────────────────────────────────────
@@ -304,6 +317,7 @@ function validateClass(raw: any): EditorialClass {
   const upper = String(raw || '').toUpperCase();
   if (upper === 'META_DISCARD') return 'META_DISCARD';
   if (upper === 'META_KEEP') return 'META_KEEP';
+  if (upper === 'DUPLICATE_TAKE') return 'DUPLICATE_TAKE';
   return 'CONTENT';
 }
 

@@ -373,21 +373,10 @@ function detectBestTakes(
         }
       }
 
-      // Match strategy 4: Keyword overlap (catches paraphrased retakes)
-      // Same idea expressed with different wording. Jaccard misses these because
-      // word order/substitution changes the bag-of-words similarity.
-      // "those people at the grocery store who seem so nice in person"
-      // "those people you see at the grocery store who seem very nice"
-      // → both share "grocery", "store", "nice" = same attempted line.
-      if (!isMatch && segWords[i].length >= 5 && segWords[j].length >= 5) {
-        const kwI = getKeywords(segments[i].text);
-        const kwJ = getKeywords(segments[j].text);
-        if (kwI.size >= 3 && kwJ.size >= 3) {
-          let kwOverlap = 0;
-          for (const kw of kwI) { if (kwJ.has(kw)) kwOverlap++; }
-          if (kwOverlap >= 3) isMatch = true;
-        }
-      }
+      // Strategy 4 (keyword overlap) REMOVED — caused quality regression.
+      // Keyword overlap catches paraphrased retakes but also kills distinct
+      // argument points that share topic words. Semantic dedup is now handled
+      // by Gemini in the editorial intent detector (DUPLICATE_TAKE classification).
 
       // Match strategy 5: Single-word exact repeat (catches "Zero." / "Zero.")
       // Strategy 3 requires >= 2 words. Single-word segments that are identical
