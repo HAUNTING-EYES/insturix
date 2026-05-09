@@ -238,6 +238,39 @@ function getWords(text: string): string[] {
 }
 
 /**
+ * Extract uncommon keywords (≥5 chars) for paraphrase detection.
+ * Filters stop words and short common words — keeps content-carrying words
+ * like "grocery", "store", "internet", "anonymity" that identify the topic.
+ */
+function getKeywords(text: string): Set<string> {
+  const STOP = new Set([
+    // 4-char stop words
+    'also', 'been', 'come', 'does', 'done', 'each', 'even', 'from', 'gets',
+    'goes', 'gone', 'good', 'gotta', 'guys', 'have', 'here', 'into', 'it\'s',
+    'just', 'keep', 'kind', 'know', 'last', 'left', 'like', 'look', 'made',
+    'make', 'many', 'more', 'most', 'much', 'must', 'need', 'next', 'only',
+    'over', 'part', 'same', 'said', 'says', 'seem', 'some', 'sort', 'such',
+    'sure', 'take', 'tell', 'than', 'that', 'them', 'then', 'they', 'this',
+    'took', 'very', 'want', 'well', 'went', 'were', 'what', 'when', 'will',
+    'with', 'work', 'yeah',
+    // 5+ char stop words
+    'about', 'after', 'again', 'being', 'below', 'could', 'doing', 'during',
+    'every', 'first', 'going', 'gonna', 'great', 'having', 'maybe', 'might',
+    'never', 'other', 'quite', 'rally', 'ready', 'really', 'right', 'shall',
+    'since', 'still', 'their', 'there', 'these', 'thing', 'think', 'those',
+    'under', 'until', 'where', 'which', 'while', 'whole', 'would', 'years',
+    'should', 'because', 'doesn', 'people', 'pretty', 'actually', 'basically',
+    'always', 'around', 'before', 'between', 'coming', 'enough', 'getting',
+    'having', 'little', 'looking', 'making', 'nothing', 'saying', 'something',
+    'talking', 'trying', 'you\'re', 'you\'ve', 'we\'re', 'we\'ve', 'don\'t',
+  ]);
+  return new Set(
+    text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/)
+      .filter(w => w.length >= 4 && !STOP.has(w))
+  );
+}
+
+/**
  * Check if two segments share the same opening words (prefix match).
  * Detects: (a) false starts ("So must..." vs "So must the other people..."),
  * (b) duplicate takes with different endings ("Now a big problem..." said twice).
@@ -338,6 +371,30 @@ function detectBestTakes(
         ) {
           isMatch = true;
         }
+      }
+
+      // Match strategy 4: Keyword overlap (catches paraphrased retakes)
+      // Same idea expressed with different wording. Jaccard misses these because
+      // word order/substitution changes the bag-of-words similarity.
+      // "those people at the grocery store who seem so nice in person"
+      // "those people you see at the grocery store who seem very nice"
+      // → both share "grocery", "store", "nice" = same attempted line.
+      if (!isMatch && segWords[i].length >= 5 && segWords[j].length >= 5) {
+        const kwI = getKeywords(segments[i].text);
+        const kwJ = getKeywords(segments[j].text);
+        if (kwI.size >= 3 && kwJ.size >= 3) {
+          let kwOverlap = 0;
+          for (const kw of kwI) { if (kwJ.has(kw)) kwOverlap++; }
+          if (kwOverlap >= 3) isMatch = true;
+        }
+      }
+
+      // Match strategy 5: Single-word exact repeat (catches "Zero." / "Zero.")
+      // Strategy 3 requires >= 2 words. Single-word segments that are identical
+      // and within 5 positions of each other are the same take.
+      if (!isMatch && segWords[i].length === 1 && segWords[j].length === 1
+          && segWords[i][0] === segWords[j][0] && j - i <= 5) {
+        isMatch = true;
       }
 
       if (isMatch) {
