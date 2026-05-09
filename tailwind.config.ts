@@ -48,7 +48,7 @@ const config: Config = {
         },
         // Social (Legacy compat)
         social: {
-          pink: '#D088B4',
+          pink: '#D4A652',
           canvas: '#0B0B0A',
           raised: '#0F0F0E',
           well: '#1B1A18',

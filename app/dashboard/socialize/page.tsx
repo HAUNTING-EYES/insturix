@@ -30,7 +30,7 @@ export default async function SocializePage() {
       {/* Page Header */}
       <div className="mb-8">
         <h1 className="text-4xl font-semibold tracking-tight text-zinc-10 flex items-center gap-3">
-          <Share2 className="h-8 w-8 text-[#0ea5e9]" />
+          <Share2 className="h-8 w-8" style={{ color: '#D4A652' }} />
           Social
         </h1>
         <p className="mt-3 text-lg text-zinc-400 font-light">

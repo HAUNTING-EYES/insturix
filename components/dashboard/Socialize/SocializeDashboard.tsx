@@ -653,7 +653,7 @@ export default function SocializeDashboard({
                 ))}
                 <Button
                   variant="outline"
-                  className="w-full border-social-line text-social-pink hover:bg-social-pink/10 hover:text-social-pink hover:border-social-pink font-jetbrains tracking-[0.08em] uppercase text-[10px] rounded-[7px] transition-colors"
+                  className="w-full border-social-line bg-white text-black hover:bg-white/90 font-jetbrains tracking-[0.08em] uppercase text-[10px] rounded-[7px] transition-colors"
                   style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }}
                   onClick={() => {
                     setEditingNotificationIndex(null);
@@ -670,7 +670,7 @@ export default function SocializeDashboard({
               <div className="mb-6">
                 <Button
                   variant="outline"
-                  className="w-full border-social-line text-social-pink hover:bg-social-pink/10 hover:text-social-pink hover:border-social-pink font-jetbrains tracking-[0.08em] uppercase text-[10px] rounded-[7px] transition-colors"
+                  className="w-full border-social-line bg-white text-black hover:bg-white/90 font-jetbrains tracking-[0.08em] uppercase text-[10px] rounded-[7px] transition-colors"
                   style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }}
                   onClick={() => {
                     setEditingNotificationIndex(null);
