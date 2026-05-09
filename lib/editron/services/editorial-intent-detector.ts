@@ -134,25 +134,37 @@ export async function detectEditorialIntent(
     }
   }
 
-  // ── Orphan lead-in detection ──
-  // A kept segment is orphaned if it's a short incomplete sentence whose
-  // NEXT segment was removed. The speaker was introducing something that
-  // got cut — the lead-in alone doesn't make sense to the viewer.
-  // Example: "And you're gonna see..." (kept) → [removed meta section]
+  // ── Orphan and abandoned fragment detection ──
   const ORPHAN_MAX_WORDS = 8;
+  const ABANDONED_MAX_WORDS = 3;
   let orphanCount = 0;
-  for (let i = 0; i < segments.length - 1; i++) {
-    if (metaDiscard.includes(i)) continue; // already removed
+  for (let i = 0; i < segments.length; i++) {
+    if (metaDiscard.includes(i)) continue;
     const text = (segments[i].text || '').trim();
     const words = text.split(/\s+/).filter(Boolean);
-    if (words.length > ORPHAN_MAX_WORDS) continue; // too long to be a lead-in
     const lastChar = text.slice(-1);
-    const isIncomplete = lastChar && !'.?!'.includes(lastChar);
-    if (!isIncomplete) continue; // sentence is complete, not a lead-in
-    // Check if the next segment was removed
-    if (metaDiscard.includes(i + 1)) {
+    const isIncomplete = !lastChar || !'.?!"\''.includes(lastChar);
+    const trailsOff = text.endsWith('...');
+
+    let shouldRemove = false;
+
+    // Type 1: Lead-in whose next segment was removed
+    // "And you're gonna see..." → [removed meta]
+    if (words.length <= ORPHAN_MAX_WORDS && isIncomplete && i < segments.length - 1 && metaDiscard.includes(i + 1)) {
+      shouldRemove = true;
+    }
+
+    // Type 2: Abandoned micro-start (≤3 words, incomplete or trailing off)
+    // "Anonymity..." "Imagine..." "And people..." — speaker said 1-2 words and stopped.
+    // These are never intentional content regardless of what follows.
+    if (words.length <= ABANDONED_MAX_WORDS && (isIncomplete || trailsOff)) {
+      shouldRemove = true;
+    }
+
+    if (shouldRemove) {
       metaDiscard.push(i);
-      content.splice(content.indexOf(i), 1);
+      const idx = content.indexOf(i);
+      if (idx !== -1) content.splice(idx, 1);
       const seg = segments[i];
       if (seg) {
         removals.push({
@@ -166,7 +178,7 @@ export async function detectEditorialIntent(
     }
   }
   if (orphanCount > 0) {
-    console.log(`[EditorialIntent] Orphan detection: ${orphanCount} lead-in segments removed`);
+    console.log(`[EditorialIntent] Orphan/fragment detection: ${orphanCount} segments removed`);
   }
 
   console.log(`[EditorialIntent] ${segments.length} segments → ${content.length} CONTENT, ${metaDiscard.length} META_DISCARD, ${metaKeep.length} META_KEEP (${Date.now() - start}ms)`);
