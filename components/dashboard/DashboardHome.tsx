@@ -60,29 +60,24 @@ interface Project {
   durationInFrames: number | null;
   aspectRatio: string | null;
 
-  // TODO: Wire to backend -- these fields don't exist on the project model yet.
-  // They need to be added to lib/editron/services/project-service.ts
-  // For now, derive placeholder values from what we have.
+  // Dashboard fields — now wired to backend (project-service.ts)
   brand: string | null;
   stage: StageKey;
   score: number | null;
   status: "active" | "needs_attention" | "complete";
 }
 
-/* ── Derive placeholder fields from raw API data ── */
+/* ── Map API response to dashboard Project ── */
 function enrichProject(raw: ApiProject): Project {
-  // TODO: Wire to backend -- stage should come from project model
-  // For now, default all projects to "edit" stage
-  const stage: StageKey = "edit";
-
-  // TODO: Wire to backend -- brand field doesn't exist yet
-  const brand: string | null = null;
-
-  // TODO: Wire to backend -- score field doesn't exist yet
-  const score: number | null = null;
-
-  // TODO: Wire to backend -- status field doesn't exist yet
-  const status: "active" | "needs_attention" | "complete" = "active";
+  // Use real fields from backend, fallback for old documents that lack them
+  const stage: StageKey = (raw as any).pipelineStage || "edit";
+  const brand: string | null = (raw as any).brand ?? null;
+  const score: number | null = (raw as any).qualityScore ?? null;
+  const rawStatus = (raw as any).projectStatus;
+  const status: "active" | "needs_attention" | "complete" =
+    rawStatus === "needs-attention" ? "needs_attention"
+    : rawStatus === "complete" ? "complete"
+    : "active";
 
   return {
     id: raw.projectId,

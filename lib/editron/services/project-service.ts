@@ -42,6 +42,11 @@ export interface Project {
   orgId?: string;              // null = personal project, set = org project
   sharedWith?: string[];       // explicit user IDs for sharing
   visibility: 'private' | 'org' | 'shared';  // access level
+  // Dashboard fields (added for production floor dashboard)
+  brand?: string | null;       // Client/brand name (e.g., "Chaayos"). null = personal project.
+  pipelineStage?: 'script' | 'edit' | 'analyze' | 'thumbnails' | 'publish' | 'complete';
+  qualityScore?: number | null; // Alyzitron score 0-100. null = not yet analyzed.
+  projectStatus?: 'active' | 'needs-attention' | 'complete' | 'failed';
 }
 
 export interface ProjectListItem {
@@ -51,6 +56,11 @@ export interface ProjectListItem {
   updatedAt: Date;
   durationInFrames: number;
   aspectRatio: AspectRatio;
+  // Dashboard fields
+  brand?: string | null;
+  pipelineStage?: 'script' | 'edit' | 'analyze' | 'thumbnails' | 'publish' | 'complete';
+  qualityScore?: number | null;
+  projectStatus?: 'active' | 'needs-attention' | 'complete' | 'failed';
 }
 
 export class ProjectService {
@@ -338,6 +348,10 @@ export class ProjectService {
         updatedAt: 1,
         durationInFrames: 1,
         aspectRatio: 1,
+        brand: 1,
+        pipelineStage: 1,
+        qualityScore: 1,
+        projectStatus: 1,
       })
       .sort(sortOrder)
       .skip(skip)
