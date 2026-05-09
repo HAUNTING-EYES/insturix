@@ -2097,8 +2097,7 @@ Use this to understand what exists. Then decide what to do based on user intent.
         // skip gracefully. User-uploaded footage (no generationUnitId) still falls through
         // to video-based transcription for talking heads / lectures / interviews.
         if (!voiceoverOverlay) {
-          const isPipelineGenerated = (overlay as any).metadata?.generationUnitId != null
-            || (overlay as any).metadata?.sceneIndex != null;
+          const isPipelineGenerated = (overlay as any).metadata?.generationUnitId != null;
           if (isPipelineGenerated) {
             console.log(`[add_captions] Skipping AI-gen video ${overlay.id}: no voiceover in time range [${videoFrom}-${videoEnd}], AI videos have no captionable speech`);
             return JSON.stringify({
