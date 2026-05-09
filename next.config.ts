@@ -9,6 +9,19 @@ const nextConfig: NextConfig = {
     // your project has type errors.
     ignoreBuildErrors: true,
   },
+  // AWS SDK: exclude from webpack bundling (server-side only).
+  // AWS SDK v3 has @smithy/core export conflicts that break webpack.
+  // See: https://github.com/aws/aws-sdk-js-v3/issues/6411
+  serverExternalPackages: [
+    '@aws-sdk/client-s3',
+    '@aws-sdk/client-ses',
+    '@aws-sdk/client-sts',
+    '@aws-sdk/s3-request-presigner',
+    '@aws-sdk/credential-providers',
+    '@aws-sdk/lib-storage',
+    '@aws-sdk/signature-v4-multi-region',
+    '@aws-sdk/nested-clients',
+  ],
   // Performance optimizations
   experimental: {
     optimizePackageImports: [
