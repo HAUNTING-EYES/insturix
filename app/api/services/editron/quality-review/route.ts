@@ -26,6 +26,13 @@ export async function POST(req: NextRequest) {
 
     const report = runQualityReview(project.overlays, project.durationInFrames, project.fps || 30);
 
+    // Write score + stage back to the project document directly
+    // (saveProject only handles editor state fields, not metadata)
+    await projectService.updateProjectMetadata(projectId, {
+      qualityScore: report.overallScore,
+      pipelineStage: 'analyze',
+    });
+
     return NextResponse.json({
       success: true,
       ...report,

@@ -104,6 +104,8 @@ export class ProjectService {
       fps: 30,
       durationInFrames: 0,
       visibility: 'private',
+      pipelineStage: 'edit',
+      projectStatus: 'active',
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -223,6 +225,24 @@ export class ProjectService {
       }
     );
 
+    if (result.matchedCount === 0) {
+      throw new Error(`Project ${projectId} not found`);
+    }
+  }
+
+  /**
+   * Update pipeline metadata on a project (stage, score, status, brand).
+   * Separate from saveProject which handles editor state (overlays, dimensions).
+   */
+  async updateProjectMetadata(
+    projectId: string,
+    metadata: Partial<Pick<Project, 'pipelineStage' | 'qualityScore' | 'projectStatus' | 'brand'>>
+  ): Promise<void> {
+    const db = await getDatabase();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId },
+      { $set: { ...metadata, updatedAt: new Date() } }
+    );
     if (result.matchedCount === 0) {
       throw new Error(`Project ${projectId} not found`);
     }
