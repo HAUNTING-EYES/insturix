@@ -85,9 +85,9 @@ export function NotificationPanel({ notifications, onClose }: NotificationPanelP
       exit={{ opacity: 0, y: 20 }}
       className="w-full"
     >
-      <Card className="w-full bg-[#1a1a1f] border-[#2a2a35]">
+      <Card className="w-full border-social-line shadow-none" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
         <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <CardTitle className="text-sm flex items-center gap-2" style={{ fontWeight: 500 }}>
             <Bell className="w-4 h-4" />
             Notifications
           </CardTitle>
@@ -106,14 +106,15 @@ export function NotificationPanel({ notifications, onClose }: NotificationPanelP
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.1 }}
-                  className="flex items-start gap-3 p-3 rounded-lg bg-[#23232a] border border-[#2a2a35]"
+                  className="flex items-start gap-3 p-3 rounded-lg border border-[#2a2a35]"
+                  style={{ backgroundColor: '#1B1A18' }}
                 >
-                  <div className="w-8 h-8 bg-[#0e6b9c] rounded-full flex items-center justify-center shadow-sm flex-shrink-0">
-                    <Bell className="w-4 h-4 text-white" />
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center shadow-sm flex-shrink-0" style={{ backgroundColor: '#D4A652' }}>
+                    <Bell className="w-4 h-4" style={{ color: '#0B0B0A' }} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm">{notification.message}</p>
-                    <p className="text-gray-400 text-xs mt-1">{formatTime(notification)}</p>
+                    <p className="text-sm" style={{ color: '#EAE9E5' }}>{notification.message}</p>
+                    <p className="text-xs mt-1" style={{ color: '#B5B2A8' }}>{formatTime(notification)}</p>
                   </div>
                 </motion.div>
               ))}

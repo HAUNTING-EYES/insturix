@@ -24,14 +24,14 @@ export function SocializeNotificationCard({ message, duration, timestamp, expire
   };
 
   return (
-    <Card className="bg-black/40 border-[#0e6b9c]/30 mb-6 relative">
+    <Card className="mb-6 relative border-transparent shadow-none" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
       <CardContent className="p-4 flex items-center gap-3">
-        <div className="w-8 h-8 bg-[#0e6b9c]/30 rounded-full flex items-center justify-center">
-          <Bell className="w-4 h-4 text-white" />
+        <div className="w-8 h-8 rounded-[7px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#D4A652' }}>
+          <Bell className="w-4 h-4" style={{ color: '#0B0B0A' }} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-white font-medium truncate">{message}</p>
-          <div className="text-gray-500 text-xs flex flex-wrap gap-x-3 gap-y-1 mt-1">
+          <p className="font-medium truncate" style={{ color: '#EAE9E5' }}>{message}</p>
+          <div className="text-[10px] uppercase flex flex-wrap gap-x-3 gap-y-1 mt-1" style={{ color: '#5F5E5A', fontFamily: 'JetBrains Mono', letterSpacing: '0.08em', fontWeight: 500 }}>
             <span>Duration: {duration} hours</span>
             {timestamp && <span>Created: {formatTime(timestamp)}</span>}
             {expiresAt && <span>Expires: {formatTime(expiresAt)}</span>}

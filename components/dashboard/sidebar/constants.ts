@@ -75,9 +75,9 @@ export const growthLegalTools: Product[] = [
     name: "Share",
     path: "/dashboard/socialize",
     icon: Share2,
-    description: "Identity",
-    color: "#5CB8CC",
-    hoverColor: "#74C6D6",
+    description: "Growth & Engagement",
+    color: "#D4A652",
+    hoverColor: "#e0b765",
     isPro: false,
   },
   {

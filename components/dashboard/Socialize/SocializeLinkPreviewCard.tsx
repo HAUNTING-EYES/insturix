@@ -53,10 +53,10 @@ export function SocializeLinkPreviewCard({
   userBanner,
 }: SocializeLinkPreviewCardProps) {
   return (
-    <Card className="bg-black/30 border-[#0e6b9c]/30 backdrop-blur-sm h-full">
+    <Card className="border-none shadow-none h-full" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
       <CardHeader>
-        <CardTitle className="text-lg text-white">Link Preview</CardTitle>
-        <CardDescription>Select a link to see how it appears to visitors</CardDescription>
+        <CardTitle className="text-lg font-medium" style={{ color: '#EAE9E5' }}>Link Preview</CardTitle>
+        <CardDescription style={{ color: '#B5B2A8' }}>Select a link to see how it appears to visitors</CardDescription>
       </CardHeader>
       <CardContent>
         {selectedLinkIndex !== null ? (
@@ -68,7 +68,7 @@ export function SocializeLinkPreviewCard({
               <Skeleton className="h-4 w-1/2 bg-gray-800" />
             </div>
           ) : (
-            <div className="rounded-lg overflow-hidden border border-[#0e6b9c]/30">
+            <div className="rounded-[12px] overflow-hidden" style={{ backgroundColor: '#1B1A18' }}>
               {!!previewData?.image && (
                 <div className="aspect-video bg-gray-800 relative overflow-hidden">
                   <Image
@@ -80,26 +80,26 @@ export function SocializeLinkPreviewCard({
                   />
                 </div>
               )}
-              <div className="p-4 bg-black/60">
+              <div className="p-4" style={{ backgroundColor: '#1B1A18' }}>
                 {(!previewData?.title && !previewData?.description) ? (
-                  <h3 className="font-medium text-white mb-2 line-clamp-2 break-all">
+                  <h3 className="font-medium mb-2 line-clamp-2 break-all" style={{ color: '#EAE9E5' }}>
                     {formatDomainName(userLinks?.[selectedLinkIndex]?.url)}
                   </h3>
                 ) : (
                   <>
-                    <h3 className="font-medium text-white mb-2 line-clamp-2">
+                    <h3 className="font-medium mb-2 line-clamp-2" style={{ color: '#EAE9E5' }}>
                       {previewData?.title || "No title available"}
                     </h3>
-                    <p className="text-gray-300 text-sm line-clamp-3">
+                    <p className="text-sm line-clamp-3" style={{ color: '#B5B2A8' }}>
                       {previewData?.description || "No description available"}
                     </p>
                   </>
                 )}
                 <div className="mt-4 flex items-center justify-between">
-                  <Badge variant="outline" className="text-xs text-gray-400 truncate max-w-[180px] capitalize">
+                  <Badge variant="outline" className="text-xs truncate max-w-[180px] capitalize border-social-line" style={{ color: '#B5B2A8' }}>
                     {userLinks?.[selectedLinkIndex]?.platform}
                   </Badge>
-                  <Button variant="link" size="sm" className="text-[#0e6b9c] hover:text-[#0e6b9c]/80 p-0" asChild>
+                  <Button variant="link" size="sm" className="hover:opacity-80 p-0 transition-opacity" style={{ color: '#D4A652' }} asChild>
                     <a
                       href={userLinks?.[selectedLinkIndex]?.url}
                       target="_blank"
@@ -116,17 +116,17 @@ export function SocializeLinkPreviewCard({
           )
         ) : (
           <div className="flex flex-col items-center justify-center text-center p-8">
-            <div className="w-16 h-16 bg-[#0e6b9c]/20 rounded-full flex items-center justify-center mb-4">
-              <ExternalLink className="w-8 h-8 text-[#0e6b9c]" />
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: '#1B1A18' }}>
+              <ExternalLink className="w-8 h-8" style={{ color: '#D4A652' }} />
             </div>
-            <h3 className="text-white font-medium mb-2">No link selected</h3>
-            <p className="text-gray-400 text-sm">
+            <h3 className="font-medium mb-2" style={{ color: '#EAE9E5' }}>No link selected</h3>
+            <p className="text-sm" style={{ color: '#B5B2A8' }}>
               Click on a link from your list to see a preview of how it will appear to your visitors
             </p>
           </div>
         )}
       </CardContent>
-      <CardFooter className="border-t border-[#0e6b9c]/30 pt-4">
+      <CardFooter className="pt-4 border-t border-transparent">
         <SocializePreview
           logo={userLogo || null}
           profileTitle={userName || ""}

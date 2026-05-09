@@ -25,11 +25,11 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
     const [uploading, setUploading] = useState(false);
     // Ensure localColor is always a defined string (avoid undefined -> controlled/uncontrolled)
     const [localColor, setLocalColor] = useState<string>(
-        banner?.type === "color" && banner?.value ? banner.value : "#0e6b9c"
+        banner?.type === "color" && banner?.value ? banner.value : "#D4A652"
     );
     useEffect(() => {
         if (banner?.type === 'color') {
-            setLocalColor(banner?.value ?? '#0e6b9c');
+            setLocalColor(banner?.value ?? '#D4A652');
         }
     }, [banner?.type, banner?.value]);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -128,7 +128,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
             if (!res.ok) {
                 throw new Error(data?.error || "Delete failed");
             }
-            onBannerChange({ type: "color", value: "#0e6b9c", gradientType: "linear", gradientColors: [] });
+            onBannerChange({ type: "color", value: "#D4A652", gradientType: "linear", gradientColors: [] });
             toast({ title: "Banner removed", description: "Reverted to default color" });
         } catch (e: any) {
             toast({ title: "Delete failed", description: e?.message || "Try again later", variant: "destructive" });
@@ -210,7 +210,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
     }
 
     return (
-        <div className="rounded-md border border-zinc-800 bg-[#0b0b0b]">
+        <div className="rounded-[12px] border-none" style={{ backgroundColor: '#0F0F0E' }}>
             <button
                 type="button"
                 onClick={() => setExpanded((s) => !s)}
@@ -221,11 +221,11 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                         {banner.type === 'image' && banner.value ? (
                             <img src={banner.value} alt="banner" className="w-full h-full object-cover" />
                         ) : (
-                            <div className="w-full h-full" style={{ backgroundColor: normalizeHex(localColor) || '#0e6b9c' }} />
+                            <div className="w-full h-full" style={{ backgroundColor: normalizeHex(localColor) || '#D4A652' }} />
                         )}
                     </div>
                     <div>
-                        <div className="text-sm font-medium text-white">Profile Banner</div>
+                        <div className="text-sm font-medium" style={{ color: '#EAE9E5' }}>Profile Banner</div>
                         <div className="text-xs text-zinc-400">{banner.type === 'image' ? 'Image' : 'Color'}</div>
                     </div>
                 </div>
@@ -239,14 +239,14 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                             <button
                                 type="button"
                                 onClick={() => setSelectedTab('image')}
-                                className={`px-3 py-2 text-sm rounded ${selectedTab === 'image' ? 'bg-zinc-900 text-white' : 'bg-transparent text-zinc-300 border border-zinc-800'}`}
+                                className={`px-3 py-2 text-sm rounded-[7px] ${selectedTab === 'image' ? 'bg-[#1B1A18] text-[#EAE9E5]' : 'bg-transparent text-[#B5B2A8]'}`}
                             >
                                 Image
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setSelectedTab('color')}
-                                className={`px-3 py-2 text-sm rounded ${selectedTab === 'color' ? 'bg-zinc-900 text-white' : 'bg-transparent text-zinc-300 border border-zinc-800'}`}
+                                className={`px-3 py-2 text-sm rounded-[7px] ${selectedTab === 'color' ? 'bg-[#1B1A18] text-[#EAE9E5]' : 'bg-transparent text-[#B5B2A8]'}`}
                             >
                                 Color
                             </button>
@@ -283,7 +283,8 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                                     const f = e.dataTransfer?.files?.[0];
                                     if (f) setFile(f);
                                 }}
-                                className={`w-full h-28 rounded-md border-2 ${dragOver ? 'border-dashed border-[#0e6b9c]' : 'border-zinc-800'} bg-[#0f0f0f] flex items-center gap-4 px-4 cursor-pointer`}
+                                className={`w-full h-28 rounded-md border-2 ${dragOver ? 'border-dashed border-[#D4A652]' : 'border-transparent'} flex items-center gap-4 px-4 cursor-pointer`}
+                                style={{ backgroundColor: '#1B1A18' }}
                             >
                                 <div className="w-16 h-16 bg-gradient-to-br from-[#0b0b0b] to-[#0f1316] rounded overflow-hidden flex items-center justify-center">
                                     {previewUrl ? (
@@ -302,7 +303,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                                 </div>
 
                                 <div className="flex-1 text-sm text-zinc-300">
-                                    <div className="font-medium text-white">{file ? file.name : (banner.type === 'image' && banner.value ? 'Current banner' : 'Upload banner image')}</div>
+                                    <div className="font-medium" style={{ color: '#EAE9E5' }}>{file ? file.name : (banner.type === 'image' && banner.value ? 'Current banner' : 'Upload banner image')}</div>
                                     <div className="text-xs text-zinc-400 mt-1">{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : 'JPG, PNG, WebP, SVG — max 5MB'}</div>
                                 </div>
 
@@ -310,7 +311,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                                     {file ? (
                                         <button onClick={(e) => { e.stopPropagation(); setFile(null); }} className="text-xs text-zinc-300 px-2 py-1 border border-zinc-800 rounded">Clear</button>
                                     ) : null}
-                                    <button onClick={(e) => { e.stopPropagation(); handleUpload(); }} disabled={!file || currentUploading} className="px-3 py-2 text-sm rounded bg-[#0e6b9c] text-black">
+                                    <button onClick={(e) => { e.stopPropagation(); handleUpload(); }} disabled={!file || currentUploading} className="px-3 py-2 text-sm rounded-[7px] border-none transition-opacity hover:opacity-90" style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}>
                                         {currentUploading ? 'Uploading...' : 'Upload'}
                                     </button>
                                 </div>
@@ -320,7 +321,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                         <div className="flex items-center gap-3">
                             <input
                                 type="color"
-                                value={normalizeHex(localColor) ?? '#0e6b9c'}
+                                value={normalizeHex(localColor) ?? '#D4A652'}
                                 onChange={(e) => setLocalColor(e.target.value)}
                                 disabled={currentUploading}
                                 className="w-10 h-8 p-0 border-none bg-transparent"
@@ -330,10 +331,11 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                                 value={localColor ?? ''}
                                 onChange={(e) => setLocalColor(e.target.value)}
                                 disabled={currentUploading}
-                                className="bg-transparent border border-zinc-800 text-sm text-white px-2 py-1 rounded w-36"
-                                placeholder="#0e6b9c"
+                                className="bg-transparent border text-sm px-2 py-1 rounded w-36"
+                                style={{ borderColor: '#1B1A18', color: '#EAE9E5' }}
+                                placeholder="#D4A652"
                             />
-                            <button onClick={applyColor} disabled={currentUploading} className="px-3 py-2 text-sm rounded bg-[#0e6b9c] text-black">
+                            <button onClick={applyColor} disabled={currentUploading} className="px-3 py-2 text-sm rounded-[7px] border-none transition-opacity hover:opacity-90" style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}>
                                 Apply color
                             </button>
                         </div>
@@ -344,7 +346,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                             {selectedTab === 'image' && banner.type === 'image' && banner.value ? (
                                 <img src={banner.value} alt="Current banner" className="w-full h-full object-cover" onError={(e) => console.error('Banner load error', e)} />
                             ) : selectedTab === 'color' ? (
-                                <div className="w-full h-full" style={{ backgroundColor: normalizeHex(localColor) || localColor || '#0e6b9c' }} />
+                                <div className="w-full h-full" style={{ backgroundColor: normalizeHex(localColor) || localColor || '#D4A652' }} />
                             ) : banner.type === 'image' && banner.value ? (
                                 <img src={banner.value} alt="Current banner" className="w-full h-full object-cover" onError={(e) => console.error('Banner load error', e)} />
                             ) : banner.type === 'color' && banner.value ? (
