@@ -117,8 +117,35 @@ export async function executeSilenceRemoval(
   // Ghost segments (FLAG 9): store removed content for potential restoration
   const ghostSegments: GhostSegment[] = [];
 
+  // ── Merge consecutive removal actions into contiguous ranges ──
+  // Adjacent removals (e.g., meta-discard at 314-315s + meta-discard at 315-317s +
+  // inferior-take at 317-320s) should be ONE cut from 314-320s. Processing them
+  // separately creates frame-rounding gaps where the overlay "survives" between
+  // cuts, causing removed content to bleed through to the viewer.
+  // Only merge 'remove' actions — 'shorten' actions keep partial content.
+  const MERGE_TOLERANCE_MS = 500;
+  const removeActions = plan.filter(a => a.action === 'remove').sort((a, b) => a.startMs - b.startMs);
+  const shortenActions = plan.filter(a => a.action !== 'remove');
+  const mergedRemoves: typeof removeActions = [];
+
+  for (const action of removeActions) {
+    const last = mergedRemoves[mergedRemoves.length - 1];
+    if (last && action.startMs <= last.endMs + MERGE_TOLERANCE_MS) {
+      // Extend the previous merged action
+      last.endMs = Math.max(last.endMs, action.endMs);
+    } else {
+      // New range — push a copy so we don't mutate the original plan
+      mergedRemoves.push({ ...action });
+    }
+  }
+
+  const mergedPlan = [...mergedRemoves, ...shortenActions];
+  if (mergedRemoves.length < removeActions.length) {
+    console.log(`[SilenceRemoval] Merged ${removeActions.length} removal actions → ${mergedRemoves.length} contiguous ranges`);
+  }
+
   // Process in REVERSE chronological order to prevent frame drift
-  const reversedPlan = [...plan].sort((a, b) => b.startMs - a.startMs);
+  const reversedPlan = [...mergedPlan].sort((a, b) => b.startMs - a.startMs);
 
   for (const action of reversedPlan) {
     const actionStartFrame = msToFrames(action.startMs, fps);
