@@ -12,7 +12,6 @@ import { generatePartUploadUrl } from '@/lib/editron/services/r2-service';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 
 export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
 
 const MEDIA_UPLOADS_COLLECTION = 'mediaUploads';
 

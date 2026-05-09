@@ -19,7 +19,6 @@ import { getDatabase } from '@/lib/editron/db/mongodb';
 import type { MultipartPart } from '@/lib/editron/services/r2-service';
 
 export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const MEDIA_UPLOADS_COLLECTION = 'mediaUploads';

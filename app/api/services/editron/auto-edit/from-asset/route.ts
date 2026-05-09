@@ -23,7 +23,6 @@ import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 interface FromAssetRequest {

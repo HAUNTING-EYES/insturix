@@ -12,7 +12,6 @@ import { initiateMultipartUpload, getR2PublicUrl } from '@/lib/editron/services/
 import { getDatabase } from '@/lib/editron/db/mongodb';
 
 export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
 
 const MEDIA_UPLOADS_COLLECTION = 'mediaUploads';
 

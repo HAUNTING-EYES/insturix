@@ -1,4 +1,3 @@
-export const dynamic = 'force-dynamic';
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { UploadPartCommand } from "@aws-sdk/client-s3";
