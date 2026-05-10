@@ -153,7 +153,7 @@ def finetune(
     image=inference_image,
     gpu=modal.gpu.A10G(),
     volumes={MODEL_DIR: model_volume},
-    timeout=120,
+    timeout=300,
     container_idle_timeout=300,
     allow_concurrent_inputs=4,
 )
@@ -165,21 +165,25 @@ class EditorialClassifier:
 
         model_path = os.path.join(MODEL_DIR, "gemma-editorial-classifier")
         if not os.path.exists(model_path):
-            # Fallback to base model if fine-tuned version not yet available
-            model_path = "google/gemma-3-4b-it"
-            print(f"[Editorial] Fine-tuned model not found, using base: {model_path}")
+            # Use base instruction-tuned model — already capable of disfluency
+            # tagging and editorial classification without fine-tuning.
+            # Determinism from: temp=0, enforce_eager, seed=42.
+            # Fine-tuned version replaces this once trained.
+            model_path = "google/gemma-3-12b-it"
+            print(f"[Editorial] Using base model: {model_path}")
         else:
             print(f"[Editorial] Loading fine-tuned model from {model_path}")
 
         self.llm = LLM(
             model=model_path,
-            max_model_len=4096,
+            max_model_len=8192,
             enforce_eager=True,
+            quantization="awq",
         )
 
         self.sampling_params = SamplingParams(
             temperature=0.0,
-            max_tokens=10,
+            max_tokens=4096,
             seed=42,
         )
 
@@ -187,26 +191,44 @@ class EditorialClassifier:
 
     @modal.method()
     def classify_segments(self, segments: list[dict]) -> list[dict]:
-        """Classify transcript segments as KEEP or CUT."""
-        prompts = []
-        for seg in segments:
-            prompts.append(
-                f"You are a professional video editor. Classify this raw footage "
-                f"transcript segment as KEEP (include in final edit) or CUT "
-                f"(remove from final edit).\n\n"
-                f"Segment: \"{seg['text']}\""
-            )
+        """Holistic edit: ONE call with ALL segments, full context."""
+        segment_list = "\n".join(
+            f"[{s.get('index', i)}] ({s.get('startSec', '?')}s) \"{s['text']}\""
+            for i, s in enumerate(segments)
+        )
 
-        outputs = self.llm.generate(prompts, self.sampling_params)
+        prompt = (
+            "You are a professional video editor making a rough cut of raw footage.\n\n"
+            "Below is the COMPLETE transcript. The speaker recorded this in one session "
+            "with retakes, stutters, meta-commentary, and false starts mixed in.\n\n"
+            "For each segment, decide KEEP or CUT.\n\n"
+            "CUT: stutters, false starts, retakes (keep only the best version), "
+            "meta-commentary about recording/editing, incomplete thoughts, filler.\n"
+            "KEEP: actual content delivery, thesis, arguments, punchlines, conclusion. "
+            "When in doubt, KEEP. A stuttered thesis is better than no thesis.\n\n"
+            f"Segments:\n{segment_list}\n\n"
+            "Respond with JSON: {\"keep\": [indices], \"cut\": [indices]}"
+        )
+
+        outputs = self.llm.generate([prompt], self.sampling_params)
+        response_text = outputs[0].outputs[0].text.strip()
+
+        try:
+            import json as _json
+            parsed = _json.loads(response_text)
+            keep_set = set(parsed.get("keep", []))
+            cut_set = set(parsed.get("cut", []))
+        except Exception:
+            # If JSON parse fails, default to KEEP all (safe)
+            print(f"[Editorial] JSON parse failed, keeping all segments")
+            keep_set = set(s.get("index", i) for i, s in enumerate(segments))
+            cut_set = set()
 
         decisions = []
-        for i, output in enumerate(outputs):
-            text = output.outputs[0].text.strip().upper()
-            decision = "KEEP" if "KEEP" in text else "CUT"
-            decisions.append({
-                "index": segments[i].get("index", i),
-                "decision": decision,
-            })
+        for i, seg in enumerate(segments):
+            idx = seg.get("index", i)
+            decision = "CUT" if idx in cut_set else "KEEP"
+            decisions.append({"index": idx, "decision": decision})
 
         return decisions
 
