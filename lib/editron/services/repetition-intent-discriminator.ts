@@ -79,16 +79,18 @@ export function classifyRepetitionIntent(
 
   // All complete + identical = deliberate emphasis (keep all)
   if (completeness === 'ALL_COMPLETE' && variation === 'IDENTICAL') {
-    // Phase 3: Prosodic override — identical text but different emotional delivery = acting takes
+    // Phase 3 DEFERRED: Prosodic override for acting takes (A-08 profile).
+    // Adversarial testing (2026-05-10) found absolute emotion threshold (0.3) produces
+    // 8 false positives at damage 8-10 across comedy, music, testimonial, poetry profiles.
+    // Creative graph node signal_threshold_relative (NOT_OVERRIDABLE) requires RELATIVE
+    // thresholds computed from speaker baseline. Implementation requires:
+    //   1. Compute speaker emotion range (max - min) across all segments
+    //   2. Use 75% of observed range as threshold instead of absolute 0.3
+    //   3. Add temporal gating (> 30s apart = narrative arc, not retake)
+    //   4. Exempt comedy/music/testimonial content types
+    // Until implemented: prosodic data is accepted but not used for decisions.
     if (prosodic && prosodic.length === group.length) {
-      const emotionDiffs = [];
-      for (let i = 1; i < prosodic.length; i++) {
-        emotionDiffs.push(Math.abs(prosodic[i].emotionIntensity - prosodic[i - 1].emotionIntensity));
-      }
-      const maxEmotionDiff = Math.max(...emotionDiffs, 0);
-      if (maxEmotionDiff > 0.3) {
-        return { verdict: 'RETAKE', reason: `Identical text but emotion varies by ${maxEmotionDiff.toFixed(2)} — different acting takes` };
-      }
+      console.log(`[Discriminator] Prosodic data available for ${group.length} segments but relative thresholds not yet implemented — using text-only decision`);
     }
     // Fix 3: Restraint profile override — minimalist/luxury content shouldn't keep duplicates
     if (isRestraintProfile(contentType)) {
@@ -125,19 +127,17 @@ export function classifyRepetitionIntent(
     return { verdict: 'NARRATIVE_PIVOT', reason: 'Segments contradict each other — narrative pivot, not retake' };
   }
 
-  // Phase 3: Prosodic energy escalation check — if energy increases across repetitions, it's building
-  if (prosodic && prosodic.length === group.length && prosodic.length >= 2) {
-    let energyIncreasing = true;
-    for (let i = 1; i < prosodic.length; i++) {
-      if (prosodic[i].energy < prosodic[i - 1].energy + 0.05) {
-        energyIncreasing = false;
-        break;
-      }
-    }
-    if (energyIncreasing) {
-      return { verdict: 'INTENTIONAL', reason: 'Energy increases across repetitions — building emphasis (prosodic signal)' };
-    }
-  }
+  // Phase 3 DEFERRED: Prosodic energy escalation check.
+  // Adversarial testing (2026-05-10) found absolute energy threshold (+0.05/step) produces
+  // 8 failures: frustrated retakes with escalating energy (FN, damage 8), ASMR/whisper scale
+  // distortion, loud content ceiling compression, ambient noise bleed, tonal language patterns,
+  // n=2 insufficient data. Creative graph requires RELATIVE thresholds. Implementation requires:
+  //   1. Compute speaker energy range (max - min) across all segments
+  //   2. Use 10% relative increase instead of absolute 0.05
+  //   3. Require minimum group size of 3 (n=2 is not a trend)
+  //   4. Cross-reference with timing (rapid-fire + energy increase = frustrated retake)
+  //   5. Cross-reference with completeness trend (less complete + louder = frustration)
+  //   6. Source-separate voice from ambient/music before energy measurement
 
   // All complete + rephrasing = AMBIGUOUS (apply tiebreakers)
   return applyAmbiguousTiebreakers(group, timing, contentType, 'All complete + rephrasing — ambiguous');
