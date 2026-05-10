@@ -68,7 +68,7 @@ const ToolbarButton: React.FC<ToolbarButtonProps> = ({
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom" className="bg-[#0F0F0E] border-[#282724] text-[#ECE9E1]">
-          <p className="text-xs">{tooltip}</p>
+          <p className="text-[11px]">{tooltip}</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

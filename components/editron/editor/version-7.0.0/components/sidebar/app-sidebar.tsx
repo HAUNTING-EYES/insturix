@@ -386,7 +386,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <SidebarHeader className="gap-3.5 border-b px-4 py-[12px] bg-black">
               <div className="flex w-full items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="text-base font-medium text-foreground">
+                  <div className="text-[14px] font-medium text-foreground">
                     {activePanel ? getPanelTitle(activePanel) : ""}
                   </div>
                 </div>

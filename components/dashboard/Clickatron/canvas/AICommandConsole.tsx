@@ -881,7 +881,7 @@ export function AICommandConsole({
                     size="sm"
                     onClick={() => editImageInputRef.current?.click()}
                     disabled={isGenerating || isUploadingImage}
-                    className="h-8 px-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border border-zinc-700/50 transition-all duration-200 text-xs gap-1"
+                    className="h-8 px-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border border-zinc-700/50 transition-all duration-200 text-[11px] gap-1"
                     title="Edit My Image"
                   >
                     {isUploadingImage ? (
@@ -898,7 +898,7 @@ export function AICommandConsole({
                     variant="ghost"
                     size="sm"
                     onClick={() => onAddOverlayImage?.()}
-                    className="h-8 px-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border border-zinc-700/50 transition-all duration-200 text-xs gap-1"
+                    className="h-8 px-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border border-zinc-700/50 transition-all duration-200 text-[11px] gap-1"
                     title="Add Image Overlay"
                   >
                     <Plus className="h-3.5 w-3.5" />
@@ -977,7 +977,7 @@ export function AICommandConsole({
                             variant="ghost"
                             size="sm"
                             onClick={() => onEraserSizeChange?.(s)}
-                            className={`h-7 px-2 text-xs rounded ${
+                            className={`h-7 px-2 text-[11px] rounded ${
                               eraserSize === s
                                 ? "bg-blue-600/80 text-white"
                                 : "text-zinc-400 hover:bg-zinc-700/50"

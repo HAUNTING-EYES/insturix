@@ -364,13 +364,13 @@ export default function MusicGenerator() {
                         }}
                         className="flex-1"
                       />
-                      <span className="text-xs text-zinc-400 flex items-center">
+                      <span className="text-[11px] text-zinc-400 flex items-center">
                         {supportsDuration ? duration : (model === "fal-ai/minimax-music/v2" ? 60 : 95)} sec
                       </span>
                     </div>
                   </TooltipTrigger>
                   {!supportsDuration && (
-                    <TooltipContent side="top" className="bg-zinc-800 border-zinc-700 text-zinc-100 text-xs">
+                    <TooltipContent side="top" className="bg-zinc-800 border-zinc-700 text-zinc-100 text-[11px]">
                       <p>The chosen model ({currentModelConfig?.label}) uses a fixed duration and does not support custom length.</p>
                     </TooltipContent>
                   )}
@@ -427,7 +427,7 @@ export default function MusicGenerator() {
                 <Button
                   type="submit"
                   className={`
-                  h-14 text-base font-medium tracking-wide rounded-lg px-8
+                  h-14 text-[14px] font-medium tracking-wide rounded-lg px-8
                   ${
                     loading
                       ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"

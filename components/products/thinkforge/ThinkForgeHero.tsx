@@ -78,7 +78,7 @@ export default function ThinkForgeHero() {
         {/* Main Heading */}
         <motion.h1
           variants={itemVariants}
-          className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight mb-6"
+          className="text-[44px] md:text-7xl lg:text-8xl font-bold tracking-tight mb-6"
         >
           <span className="bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-700 dark:from-white dark:via-neutral-200 dark:to-neutral-400 bg-clip-text text-transparent">
             Ignite Your Creativity
@@ -92,7 +92,7 @@ export default function ThinkForgeHero() {
         {/* Subtitle */}
         <motion.p
           variants={itemVariants}
-          className="text-lg md:text-xl text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
+          className="text-lg md:text-[18px] text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
         >
           Brainstorm, refine, and script viral content ideas with AI-powered insights. Your journey to create viral content starts here.
         </motion.p>
@@ -141,7 +141,7 @@ export default function ThinkForgeHero() {
             <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 via-transparent to-pink-400/10 flex items-center justify-center">
               <div className="text-center text-white">
                 <Sparkles className="w-16 h-16 mx-auto mb-4 opacity-70" />
-                <p className="text-xl font-semibold">See ThinkForge in Action</p>
+                <p className="text-[18px] font-semibold">See ThinkForge in Action</p>
                 <p className="text-sm opacity-60 mt-2">Your creative journey starts here</p>
               </div>
             </div>

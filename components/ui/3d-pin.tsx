@@ -73,7 +73,7 @@ export const PinPerspective = ({
           <div
             className="relative flex items-center justify-center z-10"
           >
-            <span className="relative z-20 text-white text-3xl font-bold inline-block drop-shadow-lg">
+            <span className="relative z-20 text-white text-[32px] font-bold inline-block drop-shadow-lg">
               {title}
             </span>
           </div>

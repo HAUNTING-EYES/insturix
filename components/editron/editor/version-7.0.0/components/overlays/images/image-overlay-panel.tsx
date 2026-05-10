@@ -200,7 +200,7 @@ export const ImageOverlayPanel: React.FC = () => {
                 <Search className="h-12 w-12 opacity-20" />
                 <div className="space-y-1">
                   <p className="text-sm font-medium">No images yet</p>
-                  <p className="text-xs opacity-70">Search for images above to get started</p>
+                  <p className="text-[11px] opacity-70">Search for images above to get started</p>
                 </div>
               </div>
             )}

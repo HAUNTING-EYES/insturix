@@ -108,7 +108,7 @@ export default function SupportContent() {
             }}
             className="text-center"
           >
-            <h1 className="text-4xl md:text-6xl font-bold tracking-tighter text-zinc-50 mb-6 font-heading">
+            <h1 className="text-[44px] md:text-[110px] font-bold tracking-tighter text-zinc-50 mb-6 font-heading">
               Support Center
             </h1>
             <p className="text-zinc-400 text-lg max-w-2xl mx-auto leading-relaxed">
@@ -131,7 +131,7 @@ export default function SupportContent() {
                     <div className="w-12 h-12 rounded-lg bg-zinc-800 flex items-center justify-center mb-6 group-hover:bg-zinc-700 transition-colors">
                       <item.icon className="w-6 h-6 text-zinc-300 group-hover:text-zinc-50" />
                     </div>
-                    <h3 className="text-xl font-bold text-zinc-50 mb-3 tracking-tight font-heading group-hover:text-white transition-colors">
+                    <h3 className="text-[18px] font-bold text-zinc-50 mb-3 tracking-tight font-heading group-hover:text-white transition-colors">
                       {item.title}
                     </h3>
                     <p className="text-zinc-400 group-hover:text-zinc-300 transition-colors">
@@ -153,7 +153,7 @@ export default function SupportContent() {
           >
             <div className="flex flex-col md:flex-row items-center justify-between gap-12">
               <div className="text-center md:text-left flex-1">
-                <h2 className="text-3xl font-bold text-zinc-50 mb-4 tracking-tight font-heading">
+                <h2 className="text-[32px] font-bold text-zinc-50 mb-4 tracking-tight font-heading">
                   Still need help?
                 </h2>
                 <p className="text-zinc-400 text-lg mb-8 max-w-md mx-auto md:mx-0">

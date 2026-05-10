@@ -403,12 +403,12 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
               <UploadCloud className="h-8 w-8 text-white animate-pulse" />
             </div>
           </div>
-          <h3 className="mt-6 text-xl font-semibold text-zinc-100 italic">Distributing your content...</h3>
+          <h3 className="mt-6 text-[18px] font-semibold text-zinc-100 italic">Distributing your content...</h3>
           <p className="mt-2 text-zinc-400 max-w-xs text-sm">
             We are uploading your video to our secure storage and preparing platform distributions.
           </p>
           <div className="mt-8 w-full max-w-sm space-y-2">
-            <div className="flex justify-between text-xs text-zinc-500 mb-1 px-1">
+            <div className="flex justify-between text-[11px] text-zinc-500 mb-1 px-1">
               <span>Overall Progress</span>
               <span>{uploadProgress?.percentage || 0}%</span>
             </div>
@@ -445,7 +445,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
                     <div className="text-center">
                       <div className="text-blue-200 text-sm font-medium">Uploading...</div>
-                      <div className="text-blue-400 text-xs">{uploadProgress?.percentage || 0}% complete</div>
+                      <div className="text-blue-400 text-[11px]">{uploadProgress?.percentage || 0}% complete</div>
                     </div>
                     {uploadProgress && (
                       <div className="w-full max-w-xs">
@@ -458,7 +458,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                     <CheckCircle className="h-6 w-6 text-green-400" />
                     <div className="text-center">
                       <div className="text-green-200 text-sm font-medium">Upload successful</div>
-                      <div className="text-green-400 text-xs">Video ID: {uploadResult.videoUuid}</div>
+                      <div className="text-green-400 text-[11px]">Video ID: {uploadResult.videoUuid}</div>
                     </div>
                   </div>
                 ) : uploadResult?.error ? (
@@ -466,7 +466,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                     <AlertCircle className="h-6 w-6 text-red-400" />
                     <div className="text-center">
                       <div className="text-red-200 text-sm font-medium">Upload failed</div>
-                      <div className="text-red-400 text-xs">{uploadResult.error}</div>
+                      <div className="text-red-400 text-[11px]">{uploadResult.error}</div>
                     </div>
                   </div>
                 ) : (
@@ -474,7 +474,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                     <UploadCloud className="h-6 w-6 text-emerald-400" />
                     <div className="text-center">
                       <div className="text-zinc-200 text-sm font-medium">Drag & drop your video</div>
-                      <div className="text-zinc-400 text-xs">or click to choose a file</div>
+                      <div className="text-zinc-400 text-[11px]">or click to choose a file</div>
                     </div>
                   </>
                 )}
@@ -490,7 +490,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                 />
               </label>
               {videoFile && !isUploading && (
-                <div className="mt-2 text-xs text-zinc-400">
+                <div className="mt-2 text-[11px] text-zinc-400">
                   Selected: {videoFile.name} ({(videoFile.size / (1024 * 1024)).toFixed(2)} MB)
                 </div>
               )}
@@ -498,17 +498,17 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
             <div>
               <div className="flex items-center justify-between">
                 <Label className="text-zinc-200">Thumbnail</Label>
-                <span className="text-xs text-zinc-400">Optional</span>
+                <span className="text-[11px] text-zinc-400">Optional</span>
               </div>
               <label className="mt-2 flex flex-col items-center justify-center gap-3 h-40 border-2 border-dashed border-zinc-800 rounded-lg bg-zinc-900/40 hover:bg-zinc-900/60 transition cursor-pointer">
                 <ImageIcon className="h-6 w-6 text-blue-400" />
                 <div className="text-center">
                   <div className="text-zinc-200 text-sm font-medium">Drag & drop an image</div>
-                  <div className="text-zinc-400 text-xs">PNG, JPG</div>
+                  <div className="text-zinc-400 text-[11px]">PNG, JPG</div>
                 </div>
                 <Input type="file" accept="image/*" className="hidden" onChange={(e) => setThumbnailFile(e.target.files?.[0] || null)} />
               </label>
-              {thumbnailFile && <div className="mt-2 text-xs text-zinc-400">Selected: {thumbnailFile.name}</div>}
+              {thumbnailFile && <div className="mt-2 text-[11px] text-zinc-400">Selected: {thumbnailFile.name}</div>}
             </div>
           </div>
 
@@ -518,7 +518,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
             <div>
               <div className="flex items-center justify-between">
                 <Label className="text-zinc-200">Default title</Label>
-                <span className="text-xs text-zinc-400">Used if platform title is empty</span>
+                <span className="text-[11px] text-zinc-400">Used if platform title is empty</span>
               </div>
               <Input value={defaultTitle} onChange={(e) => setDefaultTitle(e.target.value)} placeholder="Enter a title" className="mt-2" />
             </div>
@@ -545,7 +545,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
             <div>
               <div className="flex items-center justify-between">
                 <Label className="text-zinc-200">Default description</Label>
-                <span className="text-xs text-zinc-400">You can override per platform</span>
+                <span className="text-[11px] text-zinc-400">You can override per platform</span>
               </div>
               <Textarea value={defaultDescription} onChange={(e) => setDefaultDescription(e.target.value)} placeholder="Write a description" className="mt-2" rows={5} />
             </div>
@@ -613,7 +613,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                 <CheckCircle className="h-4 w-4" />
                 <span>Video saved to Safe Storage</span>
               </div>
-              <div className="text-xs text-green-400 mt-1">
+              <div className="text-[11px] text-green-400 mt-1">
                 Ref ID: {uploadResult.videoUuid}
               </div>
             </div>
@@ -625,7 +625,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                 <AlertCircle className="h-4 w-4" />
                 <span>Upload failed</span>
               </div>
-              <div className="text-xs text-red-400 mt-1">
+              <div className="text-[11px] text-red-400 mt-1">
                 {uploadResult.error}
               </div>
             </div>

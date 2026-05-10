@@ -77,7 +77,7 @@ export default function AlyzitronAnalytics() {
             Detailed Scoring
           </div>
           
-          <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
+          <h2 className="text-[44px] md:text-[110px] font-bold tracking-tight mb-6">
             <span className="bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-700 dark:from-white dark:via-neutral-200 dark:to-neutral-400 bg-clip-text text-transparent">
               Quantify Your
             </span>
@@ -110,7 +110,7 @@ export default function AlyzitronAnalytics() {
                   <div className={`inline-flex p-3 rounded-lg bg-gray-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700`}>
                     <Star className="w-6 h-6 text-blue-500" />
                   </div>
-                  <h3 className="text-xl font-bold text-neutral-900 dark:text-white">
+                  <h3 className="text-[18px] font-bold text-neutral-900 dark:text-white">
                     {category.title}
                   </h3>
                 </div>

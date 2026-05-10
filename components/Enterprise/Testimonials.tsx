@@ -74,7 +74,7 @@ export default function Testimonials() {
           transition={{ duration: 0.6 }}
           className="mb-16 text-center max-w-3xl mx-auto"
         >
-          <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-6">
+          <h2 className="text-[44px] md:text-[44px] font-bold tracking-tight mb-6">
             Built by makers, loved by thousands of teams
           </h2>
           <p className="text-lg text-neutral-400">
@@ -104,7 +104,7 @@ export default function Testimonials() {
                 )}
                 <CardContent className={`pt-6 ${!testimonial.logo ? 'h-full' : ''} flex flex-col justify-between`}>
                   <blockquote className="space-y-6 flex flex-col h-full justify-between">
-                    <p className={`${testimonial.className.includes('col-span-2') ? 'text-xl' : 'text-base'} font-medium text-zinc-200 leading-relaxed`}>
+                    <p className={`${testimonial.className.includes('col-span-2') ? 'text-[18px]' : 'text-[14px]'} font-medium text-zinc-200 leading-relaxed`}>
                       "{testimonial.quote}"
                     </p>
 
@@ -117,7 +117,7 @@ export default function Testimonials() {
                             loading="lazy"
                           />
                         )}
-                        <AvatarFallback className="bg-zinc-800 text-zinc-400 text-xs">
+                        <AvatarFallback className="bg-zinc-800 text-zinc-400 text-[11px]">
                           {testimonial.initials}
                         </AvatarFallback>
                       </Avatar>
@@ -126,7 +126,7 @@ export default function Testimonials() {
                         <cite className="text-sm font-medium text-zinc-100 not-italic">
                           {testimonial.author}
                         </cite>
-                        <span className="text-zinc-500 block text-xs">
+                        <span className="text-zinc-500 block text-[11px]">
                           {testimonial.role}, {testimonial.company}
                         </span>
                       </div>

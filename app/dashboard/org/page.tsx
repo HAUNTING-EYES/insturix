@@ -53,7 +53,7 @@ export default function OrganizationsPage() {
       {!organizations || organizations.length === 0 ? (
         <div className="text-center py-16 border border-dashed border-white/10 rounded-lg">
           <p className="text-white/40 text-sm">No organizations yet</p>
-          <p className="text-white/25 text-xs mt-1">
+          <p className="text-white/25 text-[11px] mt-1">
             Create one to start collaborating with your team
           </p>
         </div>

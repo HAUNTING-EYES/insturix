@@ -77,7 +77,7 @@ export function BottomActionBar({
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
-        <div className="text-xs text-zinc-500 min-w-[50px] text-center">
+        <div className="text-[11px] text-zinc-500 min-w-[50px] text-center">
           {zoomLevel}%
         </div>
         <Button

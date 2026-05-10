@@ -121,7 +121,7 @@ export function FineTuningPanel({
       <div className={`flex-1 overflow-y-auto p-4 space-y-6 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}>
         {/* Basic Adjustments - Most commonly used */}
         <div className="space-y-4">
-          <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+          <h4 className="text-[11px] font-medium text-zinc-400 uppercase tracking-wide">
             Basic Adjustments
           </h4>
           
@@ -129,7 +129,7 @@ export function FineTuningPanel({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm text-zinc-300">Brightness</label>
-                <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                <span className="text-[11px] text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
                   {controls.brightness}%
                 </span>
               </div>
@@ -146,7 +146,7 @@ export function FineTuningPanel({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm text-zinc-300">Contrast</label>
-                <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                <span className="text-[11px] text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
                   {controls.contrast}%
                 </span>
               </div>
@@ -163,7 +163,7 @@ export function FineTuningPanel({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm text-zinc-300">Saturation</label>
-                <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                <span className="text-[11px] text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
                   {controls.saturation}%
                 </span>
               </div>
@@ -181,7 +181,7 @@ export function FineTuningPanel({
 
         {/* Aspect Ratio */}
         <div className="space-y-4">
-          <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+          <h4 className="text-[11px] font-medium text-zinc-400 uppercase tracking-wide">
             Aspect Ratio
           </h4>
           
@@ -203,7 +203,7 @@ export function FineTuningPanel({
 
         {/* Color Styles - Changed to pills */}
         <div className="space-y-4">
-          <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+          <h4 className="text-[11px] font-medium text-zinc-400 uppercase tracking-wide">
             Color Styles
           </h4>
           
@@ -213,7 +213,7 @@ export function FineTuningPanel({
                 key={look.id}
                 onClick={() => onColorLookApply(look.id)}
                 className="
-                  group relative px-2.5 py-1 rounded-full text-xs font-medium
+                  group relative px-2.5 py-1 rounded-full text-[11px] font-medium
                   border border-zinc-700 hover:border-zinc-500 hover:bg-zinc-800/50
                   transition-all duration-200 hover:scale-105
                   flex items-center gap-1.5 min-w-0 bg-zinc-900/50
@@ -245,7 +245,7 @@ export function FineTuningPanel({
 
         {/* Quick Enhancement Tools */}
         <div className="space-y-3 pt-2 border-t border-zinc-800">
-          <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+          <h4 className="text-[11px] font-medium text-zinc-400 uppercase tracking-wide">
             Enhancement Tools
           </h4>
           
@@ -253,7 +253,7 @@ export function FineTuningPanel({
             <Button
               variant="outline"
               size="sm"
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-xs"
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-[11px]"
               disabled={isDisabled}
             >
               Auto Enhance
@@ -261,7 +261,7 @@ export function FineTuningPanel({
             <Button
               variant="outline"
               size="sm"
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-xs"
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-[11px]"
               disabled={isDisabled}
             >
               Match Colors

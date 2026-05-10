@@ -51,7 +51,7 @@ export const AutosaveRecoveryDialog: React.FC<AutosaveRecoveryDialogProps> = ({
   React.useEffect(() => {
     const { id } = toast({
       title: (
-        <div className="flex items-center gap-2 text-base">
+        <div className="flex items-center gap-2 text-[14px]">
           <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
           Unsaved Changes Found
         </div>

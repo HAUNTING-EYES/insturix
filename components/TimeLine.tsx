@@ -68,13 +68,13 @@ const TimelineYear = ({
       style={{ opacity, scale }}
     >
       <motion.div className="mb-6 sm:mb-16 relative" style={{ y }}>
-        <h3 className="text-3xl sm:text-7xl font-black text-zinc-800 dark:text-zinc-200 mb-2 sm:mb-4">
+        <h3 className="text-[32px] sm:text-7xl font-black text-zinc-800 dark:text-zinc-200 mb-2 sm:mb-4">
           {year}
         </h3>
-        <h4 className="text-xl sm:text-4xl font-bold text-zinc-700 dark:text-zinc-300 mb-2 sm:mb-4">
+        <h4 className="text-[18px] sm:text-[44px] font-bold text-zinc-700 dark:text-zinc-300 mb-2 sm:mb-4">
           {title}
         </h4>
-        <p className="text-base sm:text-2xl text-zinc-600 dark:text-zinc-400 max-w-3xl">
+        <p className="text-[14px] sm:text-2xl text-zinc-600 dark:text-zinc-400 max-w-3xl">
           {description}
         </p>
       </motion.div>
@@ -91,7 +91,7 @@ export default function TimeLine() {
   return (
     <section className="sm:pt-16 px-3 md:px-12 lg:px-24 py-0 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 min-h-screen overflow-hidden">
       <motion.h2
-        className="text-3xl sm:text-6xl font-black mb-8 sm:mb-24 text-zinc-800 dark:text-zinc-200 text-center bg-clip-text"
+        className="text-[32px] sm:text-[110px] font-black mb-8 sm:mb-24 text-zinc-800 dark:text-zinc-200 text-center bg-clip-text"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}

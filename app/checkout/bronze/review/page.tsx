@@ -98,7 +98,7 @@ export default function BronzeReviewPage() {
                 <div className="mx-auto mb-6 inline-flex items-center justify-center size-16 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
                   <Clock className="w-8 h-8" />
                 </div>
-                <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-3">
+                <h1 className="text-[32px] font-bold text-zinc-900 dark:text-zinc-100 mb-3">
                   Application Under Review
                 </h1>
                 <p className="text-zinc-600 dark:text-zinc-400 mb-6">
@@ -138,7 +138,7 @@ export default function BronzeReviewPage() {
                 <div className="mx-auto mb-6 inline-flex items-center justify-center size-16 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
                   <CheckCircle2 className="w-8 h-8" />
                 </div>
-                <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-3">
+                <h1 className="text-[32px] font-bold text-zinc-900 dark:text-zinc-100 mb-3">
                   Promotion Approved! 🎉
                 </h1>
                 <p className="text-zinc-600 dark:text-zinc-400 mb-6">
@@ -157,7 +157,7 @@ export default function BronzeReviewPage() {
                 <div className="mx-auto mb-6 inline-flex items-center justify-center size-16 rounded-2xl bg-red-500/15 text-red-600 dark:text-red-400">
                   <XCircle className="w-8 h-8" />
                 </div>
-                <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-3">
+                <h1 className="text-[32px] font-bold text-zinc-900 dark:text-zinc-100 mb-3">
                   Submission Not Approved
                 </h1>
                 <p className="text-zinc-600 dark:text-zinc-400 mb-6">

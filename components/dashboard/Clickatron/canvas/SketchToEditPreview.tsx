@@ -71,7 +71,7 @@ export function SketchToEditPreview({
           ) : (
             <div className="flex flex-col items-center gap-2 text-zinc-600">
               <Loader2 className="h-8 w-8 animate-spin" />
-              <span className="text-xs">Generating preview...</span>
+              <span className="text-[11px]">Generating preview...</span>
             </div>
           )}
 
@@ -95,7 +95,7 @@ export function SketchToEditPreview({
             <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-tighter">
               Model Used
             </span>
-            <span className="text-xs text-zinc-300 font-semibold">{model}</span>
+            <span className="text-[11px] text-zinc-300 font-semibold">{model}</span>
           </div>
         </div>
 

@@ -77,7 +77,7 @@ export const ImageDetails: React.FC<ImageDetailsProps> = ({
             className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
           >
-            <span className="flex items-center gap-2 text-xs">
+            <span className="flex items-center gap-2 text-[11px]">
               <Settings className="w-3 h-3" />
               Settings
             </span>
@@ -87,7 +87,7 @@ export const ImageDetails: React.FC<ImageDetailsProps> = ({
             className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
           >
-            <span className="flex items-center gap-2 text-xs">
+            <span className="flex items-center gap-2 text-[11px]">
               <PaintBucket className="w-3 h-3" />
               Style
             </span>

@@ -95,10 +95,10 @@ export default function PortfolioGallerySection() {
             <div 
                className="text-center mb-4 md:mb-8 flex-shrink-0 relative z-20"
             >
-                <h2 className="text-4xl md:text-6xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-neutral-500 mb-2 md:mb-4">
+                <h2 className="text-[44px] md:text-[110px] font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-neutral-500 mb-2 md:mb-4">
                   Our Work
                 </h2>
-                <p className="text-neutral-400 max-w-xl mx-auto text-sm md:text-base">
+                <p className="text-neutral-400 max-w-xl mx-auto text-sm md:text-[14px]">
                   Scroll to explore selected projects from global brands.
                 </p>
             </div>

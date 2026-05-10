@@ -121,7 +121,7 @@ export const VideoSettingsPanel: React.FC<VideoSettingsPanelProps> = ({
                 volume: localOverlay?.styles?.volume === 0 ? 1 : 0,
               })
             }
-            className={`text-xs px-2.5 py-1.5 rounded-md transition-colors ${
+            className={`text-[11px] px-2.5 py-1.5 rounded-md transition-colors ${
               (localOverlay?.styles?.volume ?? 1) === 0
                 ? "bg-accent text-foreground hover:bg-accent/80"
                 : "bg-muted/50 text-muted-foreground hover:bg-muted"
@@ -143,7 +143,7 @@ export const VideoSettingsPanel: React.FC<VideoSettingsPanelProps> = ({
             }
             className="flex-1 accent-primary h-1.5 rounded-full bg-muted"
           />
-          <span className="text-xs text-muted-foreground min-w-[40px] text-right">
+          <span className="text-[11px] text-muted-foreground min-w-[40px] text-right">
             {Math.round((localOverlay?.styles?.volume ?? 1) * 100)}%
           </span>
         </div>
@@ -160,7 +160,7 @@ export const VideoSettingsPanel: React.FC<VideoSettingsPanelProps> = ({
               handleSpeedChange(1);
               setIsSelectOpen(false);
             }}
-            className={`text-xs px-2.5 py-1.5 rounded-md transition-colors ${
+            className={`text-[11px] px-2.5 py-1.5 rounded-md transition-colors ${
               (localOverlay?.speed ?? 1) !== 1
                 ? "bg-accent text-foreground hover:bg-accent/80"
                 : "bg-muted/50 text-muted-foreground hover:bg-muted"

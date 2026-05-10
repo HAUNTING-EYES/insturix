@@ -66,7 +66,7 @@ function LiveLogsPage() {
       <div className="px-4 py-3 border-b bg-muted/30 shrink-0 flex justify-between items-center">
         <div>
           <h3 className="text-sm font-semibold">Live AI Logs</h3>
-          <p className="text-xs text-muted-foreground">Real-time events from the AI Chat</p>
+          <p className="text-[11px] text-muted-foreground">Real-time events from the AI Chat</p>
         </div>
         <Button variant="ghost" size="sm" onClick={clearLogs} className="h-8 w-8 p-0">
           <Trash2 className="h-4 w-4" />
@@ -75,14 +75,14 @@ function LiveLogsPage() {
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-2">
           {logs.length === 0 ? (
-            <div className="text-center text-muted-foreground text-xs py-12">
+            <div className="text-center text-muted-foreground text-[11px] py-12">
               No logs yet. Start chatting to see events.
             </div>
           ) : (
             logs.map((log) => (
               <div
                 key={log.id}
-                className={`rounded-md border p-2 text-xs ${getLogColor(log.type)}`}
+                className={`rounded-md border p-2 text-[11px] ${getLogColor(log.type)}`}
               >
                 <div className="flex items-start gap-2">
                   <div className="mt-0.5 shrink-0">{getLogIcon(log.type)}</div>
@@ -139,13 +139,13 @@ function ProjectDataPage({
     <div className="flex flex-col h-full">
       <div className="px-6 py-3 border-b bg-muted/30 shrink-0">
         <h3 className="text-sm font-semibold">Raw Project Data</h3>
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className="text-[11px] text-muted-foreground mt-1">
           Full project state including raw overlays and serialized format
         </p>
       </div>
       <ScrollArea className="flex-1">
         <div className="p-6">
-          <pre className="bg-muted rounded-lg p-4 text-xs overflow-x-auto">
+          <pre className="bg-muted rounded-lg p-4 text-[11px] overflow-x-auto">
             <code>{JSON.stringify(data, null, 2)}</code>
           </pre>
         </div>
@@ -181,7 +181,7 @@ export function AIToolsDebugPanel() {
               <Terminal className="h-5 w-5" />
               AI Debugger
             </h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               Inspect internal state and events
             </p>
           </div>
@@ -192,7 +192,7 @@ export function AIToolsDebugPanel() {
               variant={currentPage === "logs" ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setCurrentPage("logs")}
-              className="text-xs h-7"
+              className="text-[11px] h-7"
             >
               <Terminal className="h-3 w-3 mr-2" />
               Live Logs
@@ -201,7 +201,7 @@ export function AIToolsDebugPanel() {
               variant={currentPage === "project-data" ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setCurrentPage("project-data")}
-              className="text-xs h-7"
+              className="text-[11px] h-7"
             >
               <FileJson className="h-3 w-3 mr-2" />
               Project Data

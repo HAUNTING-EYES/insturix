@@ -92,7 +92,7 @@ export default function FAQ() {
             }}
             className="mb-16"
           >
-            <h1 className="text-4xl md:text-5xl font-bold mb-6 text-zinc-50 tracking-tighter font-heading">
+            <h1 className="text-[44px] md:text-[44px] font-bold mb-6 text-zinc-50 tracking-tighter font-heading">
               Frequently Asked Questions
             </h1>
             <p className="text-zinc-400 text-lg leading-relaxed max-w-2xl">
@@ -121,7 +121,7 @@ export default function FAQ() {
                   </AccordionTrigger>
                   <AccordionContent>
                     <div className="pb-6 pr-12">
-                      <p className="text-zinc-400 leading-relaxed text-base">
+                      <p className="text-zinc-400 leading-relaxed text-[14px]">
                         {faq.answer}
                       </p>
                     </div>

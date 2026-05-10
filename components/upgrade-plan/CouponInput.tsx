@@ -98,10 +98,10 @@ export function CouponInput({
                 <p className="text-sm font-medium text-green-400">
                   Coupon Applied: {appliedCoupon.code}
                 </p>
-                <p className="text-xs text-green-300">
+                <p className="text-[11px] text-green-300">
                   {appliedCoupon.description}
                 </p>
-                <p className="text-xs text-green-300">
+                <p className="text-[11px] text-green-300">
                   Discount: ₹{appliedCoupon.discount.amount}
                 </p>
               </div>

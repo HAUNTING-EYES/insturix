@@ -47,7 +47,7 @@ export default function AgencyPreview() {
               </motion.div>
               <motion.h2
                 variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease } } }}
-                className="text-3xl md:text-5xl font-black tracking-tight text-zinc-950 mb-6 leading-[1.1]"
+                className="text-[32px] md:text-[44px] font-black tracking-tight text-zinc-950 mb-6 leading-[1.1]"
               >
                 Insturix{" "}
                 <span className="text-zinc-400">Creatives Agency</span>

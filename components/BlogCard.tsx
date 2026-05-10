@@ -14,7 +14,7 @@ export default function BlogPage() {
   return (
     <>
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-4xl font-bold mb-8">Our Blogs</h1>
+        <h1 className="text-[44px] font-bold mb-8">Our Blogs</h1>
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
           {blogPosts.map((post) => (
             <Card key={post.id} className="flex flex-col overflow-hidden">
@@ -33,7 +33,7 @@ export default function BlogPage() {
                 <CardTitle className="mb-2">
                   <Link
                     href={`/resources/blogs/${post.id}`}
-                    className="text-xl font-bold hover:text-blue-600 transition-colors"
+                    className="text-[18px] font-bold hover:text-blue-600 transition-colors"
                   >
                     {post.title}
                   </Link>

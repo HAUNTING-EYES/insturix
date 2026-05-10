@@ -53,7 +53,7 @@ export default function Testimo() {
             className="text-center space-y-4 sm:space-y-6 mb-8"
           >
             <div className="flex flex-col items-center space-y-2">
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">
+              <h1 className="text-2xl sm:text-[32px] md:text-[44px] font-bold tracking-tight">
                 What Our Clients Say
               </h1>
               <div className="flex items-center space-x-4">
@@ -63,7 +63,7 @@ export default function Testimo() {
               </div>
             </div>
             <motion.p
-              className="text-xl text-muted-foreground max-w-2xl mx-auto"
+              className="text-[18px] text-muted-foreground max-w-2xl mx-auto"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 1, delay: 0.2 }}

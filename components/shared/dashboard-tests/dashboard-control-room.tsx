@@ -143,7 +143,7 @@ function RoomProjectRow({ project, roomColor }: { project: Project; roomColor: s
         )}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.dim }}>{project.status}</span>
+        <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: C.dim }}>{project.status}</span>
         {project.progress != null && (
           <>
             <ProgressBar value={project.progress} color={roomColor} />
@@ -151,7 +151,7 @@ function RoomProjectRow({ project, roomColor }: { project: Project; roomColor: s
           </>
         )}
         {project.score != null && (
-          <span style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 500, color: project.score >= 80 ? C.green : C.accent }}>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 11, fontWeight: 500, color: project.score >= 80 ? C.green : C.accent }}>
             {project.score}
           </span>
         )}
@@ -190,7 +190,7 @@ function RoomPanel({ room }: { room: Room }) {
 
       {/* projects list */}
       {isEmpty ? (
-        <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.dim, fontStyle: "italic" }}>
+        <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: C.dim, fontStyle: "italic" }}>
           No active jobs
         </span>
       ) : (

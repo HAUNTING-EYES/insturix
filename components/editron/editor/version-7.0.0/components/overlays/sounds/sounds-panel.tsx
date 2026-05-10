@@ -200,7 +200,7 @@ const SoundsPanel: React.FC = () => {
         <p className="text-sm font-medium text-foreground dark:text-foreground truncate">
           {sound.title}
         </p>
-        <p className="text-xs text-muted-foreground dark:text-muted-foreground truncate">
+        <p className="text-[11px] text-muted-foreground dark:text-muted-foreground truncate">
           {sound.artist}
         </p>
       </div>

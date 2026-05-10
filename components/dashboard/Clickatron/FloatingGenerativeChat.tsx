@@ -190,7 +190,7 @@ export function FloatingGenerativeChat({
                     <h3 className="text-sm font-medium text-zinc-100">
                       AI Editor
                     </h3>
-                    <p className="text-xs text-zinc-400">
+                    <p className="text-[11px] text-zinc-400">
                       Describe your changes
                     </p>
                   </div>
@@ -233,10 +233,10 @@ export function FloatingGenerativeChat({
                       />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-zinc-300 truncate">
+                      <p className="text-[11px] text-zinc-300 truncate">
                         Reference: {referenceImage.name}
                       </p>
-                      <p className="text-xs text-zinc-500">
+                      <p className="text-[11px] text-zinc-500">
                         Influencing generation
                       </p>
                     </div>
@@ -300,10 +300,10 @@ export function FloatingGenerativeChat({
                     {/* Reference Strength */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <label className="text-xs text-zinc-300">
+                        <label className="text-[11px] text-zinc-300">
                           Reference Influence
                         </label>
-                        <span className="text-xs text-zinc-500">
+                        <span className="text-[11px] text-zinc-500">
                           {settings.referenceStrength}%
                         </span>
                       </div>
@@ -320,7 +320,7 @@ export function FloatingGenerativeChat({
                         step={5}
                         className="w-full"
                       />
-                      <div className="flex justify-between text-xs text-zinc-500 mt-1">
+                      <div className="flex justify-between text-[11px] text-zinc-500 mt-1">
                         <span>Subtle</span>
                         <span>Strong</span>
                       </div>

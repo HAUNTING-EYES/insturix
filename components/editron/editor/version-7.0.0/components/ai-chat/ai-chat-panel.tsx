@@ -728,7 +728,7 @@ export function AIChatPanel() {
                           {session.name || `Chat ${new Date(session.createdAt).toLocaleDateString()}`}
                         </div>
                       )}
-                      <div className="text-xs text-muted-foreground mt-1">
+                      <div className="text-[11px] text-muted-foreground mt-1">
                         {session.messages.length} messages • {new Date(session.updatedAt).toLocaleDateString()}
                       </div>
                     </div>
@@ -782,7 +782,7 @@ export function AIChatPanel() {
               {currentSession?.name || "AI Assistant"}
             </h3>
             {currentSession && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {messages.length} messages
               </p>
             )}
@@ -909,11 +909,11 @@ export function AIChatPanel() {
                                     code: ({ className, children, ...props }) => {
                                       const isInline = !className;
                                       return isInline ? (
-                                        <code className="bg-black/20 dark:bg-white/20 px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
+                                        <code className="bg-black/20 dark:bg-white/20 px-1.5 py-0.5 rounded text-[11px] font-mono" {...props}>
                                           {children}
                                         </code>
                                       ) : (
-                                        <code className="block bg-black/10 dark:bg-white/10 rounded p-2 font-mono text-xs overflow-x-auto my-2" {...props}>
+                                        <code className="block bg-black/10 dark:bg-white/10 rounded p-2 font-mono text-[11px] overflow-x-auto my-2" {...props}>
                                           {children}
                                         </code>
                                       );
@@ -948,11 +948,11 @@ export function AIChatPanel() {
                                   code: ({ className, children, ...props }) => {
                                     const isInline = !className;
                                     return isInline ? (
-                                      <code className="bg-black/20 dark:bg-white/20 px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
+                                      <code className="bg-black/20 dark:bg-white/20 px-1.5 py-0.5 rounded text-[11px] font-mono" {...props}>
                                         {children}
                                       </code>
                                     ) : (
-                                      <code className="block bg-black/10 dark:bg-white/10 rounded p-2 font-mono text-xs overflow-x-auto my-2" {...props}>
+                                      <code className="block bg-black/10 dark:bg-white/10 rounded p-2 font-mono text-[11px] overflow-x-auto my-2" {...props}>
                                         {children}
                                       </code>
                                     );

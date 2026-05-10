@@ -95,14 +95,14 @@ export function FacebookConnectionStatus() {
 
                 {status?.connected && (
                     <>
-                        <p className="text-xs text-zinc-400 truncate">
+                        <p className="text-[11px] text-zinc-400 truncate">
                             Logged in as: <span className="text-zinc-300">{status.userName}</span>
                         </p>
                         {status.pages.length > 0 && (
                             <div className="space-y-1">
-                                <p className="text-xs text-zinc-500">Pages:</p>
+                                <p className="text-[11px] text-zinc-500">Pages:</p>
                                 {status.pages.map((page) => (
-                                    <div key={page.pageId} className="text-xs text-zinc-300 pl-2 flex items-center gap-1">
+                                    <div key={page.pageId} className="text-[11px] text-zinc-300 pl-2 flex items-center gap-1">
                                         <span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block" />
                                         {page.pageName}
                                     </div>
@@ -118,7 +118,7 @@ export function FacebookConnectionStatus() {
                         variant="outline"
                         onClick={handleDisconnect}
                         disabled={disconnecting}
-                        className="w-full h-8 text-xs border-zinc-700 hover:bg-zinc-800"
+                        className="w-full h-8 text-[11px] border-zinc-700 hover:bg-zinc-800"
                     >
                         {disconnecting ? (
                             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
@@ -131,14 +131,14 @@ export function FacebookConnectionStatus() {
                     <Button
                         size="sm"
                         onClick={handleConnect}
-                        className="w-full h-8 text-xs bg-blue-600 hover:bg-blue-500"
+                        className="w-full h-8 text-[11px] bg-blue-600 hover:bg-blue-500"
                     >
                         <ExternalLink className="h-3 w-3 mr-1" />
                         Connect Facebook
                     </Button>
                 )}
 
-                <p className="text-xs text-zinc-500">
+                <p className="text-[11px] text-zinc-500">
                     Connect a Facebook Page to upload videos directly.
                 </p>
             </CardContent>

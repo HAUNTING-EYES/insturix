@@ -75,7 +75,7 @@ export function FloatingControls({
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
-        <div className="text-xs text-zinc-500 min-w-[40px] text-center px-1">
+        <div className="text-[11px] text-zinc-500 min-w-[40px] text-center px-1">
           {zoomLevel}%
         </div>
         <Button

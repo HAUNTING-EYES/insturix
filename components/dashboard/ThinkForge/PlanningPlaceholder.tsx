@@ -30,7 +30,7 @@ export default function PlanningPlaceholder() {
             </p>
         </div>
         
-        <div className="px-4 py-2 rounded-full bg-[#0F0F0E] border border-[#1C1B19] text-xs font-medium text-[#7A776E]">
+        <div className="px-4 py-2 rounded-full bg-[#0F0F0E] border border-[#1C1B19] text-[11px] font-medium text-[#7A776E]">
             Expected in next update
         </div>
       </motion.div>

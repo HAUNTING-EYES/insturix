@@ -121,7 +121,7 @@ export const KeyframeInspectorPanel: React.FC<KeyframeInspectorPanelProps> = ({ 
       {/* Collapsible header */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-between w-full text-left px-1 py-1 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+        className="flex items-center justify-between w-full text-left px-1 py-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
       >
         <span className="flex items-center gap-1.5">
           <span className="text-[10px]">{isOpen ? '▼' : '▶'}</span>
@@ -213,7 +213,7 @@ export const KeyframeInspectorPanel: React.FC<KeyframeInspectorPanelProps> = ({ 
                   </select>
                   <button
                     onClick={() => deleteKeyframe(i)}
-                    className="text-red-500 hover:text-red-400 text-xs"
+                    className="text-red-500 hover:text-red-400 text-[11px]"
                     title="Delete keyframe"
                   >
                     ×

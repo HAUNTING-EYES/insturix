@@ -60,7 +60,7 @@ export function CreditCostBadge({
     <span
       className={clsx(
         "inline-flex items-center gap-1 font-medium text-muted-foreground",
-        isInline ? "text-xs" : "text-sm px-2 py-0.5 rounded-md bg-muted/50 border border-border/50",
+        isInline ? "text-[11px]" : "text-sm px-2 py-0.5 rounded-md bg-muted/50 border border-border/50",
         className
       )}
     >

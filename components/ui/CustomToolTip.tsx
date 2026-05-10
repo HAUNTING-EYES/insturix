@@ -172,7 +172,7 @@ export default function UserDropdown({
                   layout
                 >
                   <motion.p
-                    className="text-xs text-white/70 truncate"
+                    className="text-[11px] text-white/70 truncate"
                     layout
                   >
                     {isLoading ? "Loading..." : planName}
@@ -259,7 +259,7 @@ export default function UserDropdown({
                   <p className="font-medium">
                     {clerkUser.fullName || clerkUser.username}
                   </p>
-                  <p className="text-xs text-zinc-400">
+                  <p className="text-[11px] text-zinc-400">
                     {clerkUser.primaryEmailAddress?.emailAddress}
                   </p>
                 </div>
@@ -283,7 +283,7 @@ export default function UserDropdown({
                         </motion.button>
                       </TooltipTrigger>
                       <TooltipContent side="right" className="bg-zinc-800 border-white/10">
-                        <p className="text-xs">Manage your account settings</p>
+                        <p className="text-[11px]">Manage your account settings</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -303,7 +303,7 @@ export default function UserDropdown({
                         </motion.button>
                       </TooltipTrigger>
                       <TooltipContent side="right" className="bg-zinc-800 border-white/10">
-                        <p className="text-xs">View and manage your subscription plan</p>
+                        <p className="text-[11px]">View and manage your subscription plan</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -325,7 +325,7 @@ export default function UserDropdown({
                         </motion.button>
                       </TooltipTrigger>
                       <TooltipContent side="right" className="bg-zinc-800 border-white/10">
-                        <p className="text-xs">Sign out of your account</p>
+                        <p className="text-[11px]">Sign out of your account</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -340,7 +340,7 @@ export default function UserDropdown({
                 className="w-full py-2.5 bg-white/60 hover:bg-zinc-200/80 border border-white text-zinc-900 font-medium text-sm rounded-lg shadow-lg overflow-hidden relative group transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-amber-400 hover:shadow-[0_0_24px_6px_rgba(202,138,4,0.25)]"
                 type="button"
               >
-                <span className="relative z-10 bg-gradient-to-r from-zinc-900 via-yellow-900 to-amber-800 bg-clip-text text-transparent font-extrabold text-base drop-shadow-sm select-none">
+                <span className="relative z-10 bg-gradient-to-r from-zinc-900 via-yellow-900 to-amber-800 bg-clip-text text-transparent font-extrabold text-[14px] drop-shadow-sm select-none">
                   Upgrade Plan
                 </span>
                 {/* Always-on shine */}

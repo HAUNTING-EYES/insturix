@@ -23,10 +23,10 @@ export default function EnterpriseCTA() {
             className="rounded-3xl p-8 md:p-12 border-neutral-800 bg-neutral-900/90 backdrop-blur-xl shadow-2xl text-center"
             spotlightColor="rgba(255, 87, 34, 0.15)"
           >
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 text-white">
+            <h2 className="text-[32px] sm:text-[44px] md:text-[44px] font-bold mb-6 text-white">
               Get started with Insturix Business
             </h2>
-            <p className="text-lg sm:text-xl text-neutral-300 mb-8 max-w-2xl mx-auto">
+            <p className="text-lg sm:text-[18px] text-neutral-300 mb-8 max-w-2xl mx-auto">
               Join thousands of Businesses scaling their content operations with our AI-powered creator ecosystem.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">

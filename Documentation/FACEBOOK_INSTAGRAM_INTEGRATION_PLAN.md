@@ -13,7 +13,7 @@ This document outlines the complete implementation plan for adding Facebook and 
 - **Backend**: Node.js API routes with Google OAuth2
 - **Storage**: Google Cloud Storage (GCS) for video files
 - **Database**: MongoDB for tracking uploads and user tokens
-- **Authentication**: Clerk for user management + OAuth tokens stored per user
+- **Authentication**: Clerk for user management + OAuth tokens stored per user 
 
 ### Current Flow:
 1. User uploads video to GCS via signed URL

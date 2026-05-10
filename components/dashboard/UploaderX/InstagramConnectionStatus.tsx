@@ -95,14 +95,14 @@ export function InstagramConnectionStatus() {
 
                 {status?.connected && (
                     <>
-                        <p className="text-xs text-zinc-400 truncate">
+                        <p className="text-[11px] text-zinc-400 truncate">
                             Logged in as: <span className="text-zinc-300">{status.userName}</span>
                         </p>
                         {status.accounts.length > 0 && (
                             <div className="space-y-1">
-                                <p className="text-xs text-zinc-500">Accounts:</p>
+                                <p className="text-[11px] text-zinc-500">Accounts:</p>
                                 {status.accounts.map((account) => (
-                                    <div key={account.instagramAccountId} className="text-xs text-zinc-300 pl-2 flex flex-col gap-0.5">
+                                    <div key={account.instagramAccountId} className="text-[11px] text-zinc-300 pl-2 flex flex-col gap-0.5">
                                         <div className="flex items-center gap-1">
                                             <span className="w-1.5 h-1.5 rounded-full bg-pink-400 inline-block" />
                                             <span className="font-medium">@{account.instagramUsername}</span>
@@ -120,7 +120,7 @@ export function InstagramConnectionStatus() {
                         variant="outline"
                         onClick={handleDisconnect}
                         disabled={disconnecting}
-                        className="w-full h-8 text-xs border-zinc-700 hover:bg-zinc-800"
+                        className="w-full h-8 text-[11px] border-zinc-700 hover:bg-zinc-800"
                     >
                         {disconnecting ? (
                             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
@@ -133,14 +133,14 @@ export function InstagramConnectionStatus() {
                     <Button
                         size="sm"
                         onClick={handleConnect}
-                        className="w-full h-8 text-xs bg-pink-600 hover:bg-pink-500"
+                        className="w-full h-8 text-[11px] bg-pink-600 hover:bg-pink-500"
                     >
                         <ExternalLink className="h-3 w-3 mr-1" />
                         Connect Instagram
                     </Button>
                 )}
 
-                <p className="text-xs text-zinc-500">
+                <p className="text-[11px] text-zinc-500">
                     Connect your Instagram account to upload Reels directly.
                 </p>
             </CardContent>

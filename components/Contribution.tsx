@@ -101,11 +101,11 @@ export default function ContributionPage() {
           transition={{ duration: 0.5 }}
           className="max-w-5xl mx-auto"
         >
-          <h1 className="text-2xl md:text-3xl font-semibold mb-2 relative">
+          <h1 className="text-2xl md:text-[32px] font-semibold mb-2 relative">
             Contribute
             <div className="absolute -top-1.5 -left-3 w-12 h-12 bg-blue-500/10 rounded-full blur-xl" />
           </h1>
-          <p className="text-sm md:text-base text-zinc-600 dark:text-zinc-400 mb-8 md:mb-12">
+          <p className="text-sm md:text-[14px] text-zinc-600 dark:text-zinc-400 mb-8 md:mb-12">
             Help us shape the future of our platform. Your contributions make a
             difference.
           </p>

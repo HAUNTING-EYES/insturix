@@ -101,7 +101,7 @@ export const GenerativeFillPanel: React.FC<GenerativeFillPanelProps> = ({
                 </option>
               ))}
             </select>
-            <p className="mt-1.5 text-xs text-gray-400">
+            <p className="mt-1.5 text-[11px] text-gray-400">
               Select the AI model to fill the selected area
             </p>
           </div>
@@ -118,7 +118,7 @@ export const GenerativeFillPanel: React.FC<GenerativeFillPanelProps> = ({
               rows={4}
               className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-600 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <p className="mt-1.5 text-xs text-gray-400">Describe what you want to fill the selection with</p>
+            <p className="mt-1.5 text-[11px] text-gray-400">Describe what you want to fill the selection with</p>
           </div>
           {/* Negative Prompt Input */}
           <div>

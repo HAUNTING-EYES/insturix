@@ -16,7 +16,7 @@ export function ChatHistory({ messages, isVisible, onToggle }: ChatHistoryProps)
     return (
       <button
         onClick={onToggle}
-        className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+        className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
       >
         Show Chat History ({messages.length})
       </button>
@@ -34,7 +34,7 @@ export function ChatHistory({ messages, isVisible, onToggle }: ChatHistoryProps)
         <h4 className="text-sm font-medium text-zinc-300">Chat History</h4>
         <button
           onClick={onToggle}
-          className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
         >
           Hide
         </button>
@@ -64,13 +64,13 @@ export function ChatHistory({ messages, isVisible, onToggle }: ChatHistoryProps)
                 </div>
                 
                 {message.referenceImages && message.referenceImages.length > 0 && (
-                  <div className="flex items-center gap-1 mt-1 text-xs text-zinc-500">
+                  <div className="flex items-center gap-1 mt-1 text-[11px] text-zinc-500">
                     <Image className="h-3 w-3" />
                     <span>{message.referenceImages.length} reference image{message.referenceImages.length > 1 ? 's' : ''}</span>
                   </div>
                 )}
                 
-                <div className="text-xs text-zinc-600 mt-1">
+                <div className="text-[11px] text-zinc-600 mt-1">
                   {new Date(message.timestamp).toLocaleTimeString()}
                 </div>
               </div>

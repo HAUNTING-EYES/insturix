@@ -176,7 +176,7 @@ function ShareButton({ analysisId, isPublic, isOwner, onPrivacyChange }: ShareBu
           border: `1px solid ${C.borderL}`,
           borderRadius: 7,
           color: C.soft,
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: 500,
           cursor: "pointer",
           fontFamily: "inherit",
@@ -228,7 +228,7 @@ function ShareButton({ analysisId, isPublic, isOwner, onPrivacyChange }: ShareBu
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-                <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>Share Analysis</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>Share Analysis</span>
                 <button onClick={() => setShowDialog(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted }}>
                   <X size={16} />
                 </button>
@@ -276,7 +276,7 @@ function ShareButton({ analysisId, isPublic, isOwner, onPrivacyChange }: ShareBu
                       border: `1px solid ${C.border}`,
                       borderRadius: 7,
                       color: C.soft,
-                      fontSize: 12,
+                      fontSize: 11,
                       fontFamily: "'JetBrains Mono', monospace",
                     }}
                   />
@@ -440,7 +440,7 @@ export function AnalysisDetails({
         <div style={{ height: 52, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}`, marginBottom: 52 }}>
           <Link
             href="/dashboard/alyzitron"
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.muted, fontSize: 12, textDecoration: "none", transition: "color 0.2s ease" }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.muted, fontSize: 11, textDecoration: "none", transition: "color 0.2s ease" }}
             onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = C.soft)}
             onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = C.muted)}
           >
@@ -508,7 +508,7 @@ export function AnalysisDetails({
             >
               {overallScore}
             </div>
-            <div style={{ marginTop: 24, fontSize: 20, color: C.text, lineHeight: 1.35, fontWeight: 400, letterSpacing: "-0.01em" }}>
+            <div style={{ marginTop: 24, fontSize: 18, color: C.text, lineHeight: 1.35, fontWeight: 400, letterSpacing: "-0.01em" }}>
               {analysisData.remarks || analysisData.overview || "Analysis complete."}
             </div>
             <div
@@ -535,7 +535,7 @@ export function AnalysisDetails({
         {analysisData.target_audience && (
           <div style={{ marginBottom: 48, paddingBottom: 48, borderBottom: `1px solid ${C.border}` }}>
             <div className="mono" style={{ fontSize: 10, color: C.dim, letterSpacing: "0.08em", marginBottom: 12 }}>TARGET AUDIENCE</div>
-            <p style={{ fontSize: 15, color: C.soft, lineHeight: 1.65 }}>{analysisData.target_audience}</p>
+            <p style={{ fontSize: 14, color: C.soft, lineHeight: 1.65 }}>{analysisData.target_audience}</p>
           </div>
         )}
 
@@ -666,7 +666,7 @@ export function AnalysisDetails({
                         style={{ display: "grid", gridTemplateColumns: "200px 1fr auto", gap: 20, alignItems: "center", padding: "13px 6px", borderBottom: `1px solid ${C.border}` }}
                       >
                         <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{m.name}</span>
-                        <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.55 }}>
+                        <span style={{ fontSize: 11, color: C.muted, lineHeight: 1.55 }}>
                           <TimestampText text={m.description} onTimestampClick={handleTimestampClick} />
                         </span>
                         {m.score !== undefined && (
@@ -707,7 +707,7 @@ export function PrivateAnalysisView() {
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <div style={{ maxWidth: 1040, margin: "0 auto", padding: "0 28px" }}>
         <div style={{ height: 52, display: "flex", alignItems: "center", borderBottom: `1px solid ${C.border}`, marginBottom: 52 }}>
-          <Link href="/dashboard/alyzitron" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.muted, fontSize: 12, textDecoration: "none" }}>
+          <Link href="/dashboard/alyzitron" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.muted, fontSize: 11, textDecoration: "none" }}>
             <ArrowLeft size={13} />
             Dashboard
           </Link>
@@ -725,7 +725,7 @@ export function PrivateAnalysisView() {
           <div style={{ display: "flex", alignItems: "flex-start", gap: 20, marginBottom: 32 }}>
             <Shield size={20} color={C.muted} style={{ marginTop: 2, flexShrink: 0 }} />
             <div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 8 }}>Access Restricted</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 8 }}>Access Restricted</div>
               <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.65, maxWidth: 480 }}>
                 This report has been set to private by its creator and can only be viewed by the account that created it.
               </p>
@@ -770,7 +770,7 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", maxWidth: 1040, margin: "0 auto", padding: "0 28px 80px" }}>
       <div style={{ height: 52, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}`, marginBottom: 52 }}>
-        <Link href="/dashboard/alyzitron" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.muted, fontSize: 12, textDecoration: "none" }}>
+        <Link href="/dashboard/alyzitron" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.muted, fontSize: 11, textDecoration: "none" }}>
           <ArrowLeft size={13} />
           Dashboard
         </Link>
@@ -783,7 +783,7 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
         </div>
         <div>
           <div style={{ fontSize: 22, fontWeight: 700, color: C.text, marginBottom: 10, letterSpacing: "-0.02em" }}>Analysis Failed</div>
-          <p style={{ fontSize: 15, color: C.muted, lineHeight: 1.55 }}>
+          <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.55 }}>
             Looks like something's missing — check the video requirements and try again.
           </p>
           <div className="mono" style={{ marginTop: 16, fontSize: 10, color: C.dim, letterSpacing: "0.04em" }}>
@@ -805,12 +805,12 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
         <div style={{ marginBottom: 32, padding: 20, background: C.s1, border: `1px solid ${C.border}`, borderRadius: 8 }}>
           <div className="mono" style={{ fontSize: 10, color: C.dim, letterSpacing: "0.08em", marginBottom: 12 }}>VIDEO INFO</div>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginBottom: 8 }}>
-            <span style={{ fontSize: 12, color: C.dim }}>Title</span>
-            <span style={{ fontSize: 12, color: C.soft }}>{videoTitle || "Unknown"}</span>
+            <span style={{ fontSize: 11, color: C.dim }}>Title</span>
+            <span style={{ fontSize: 11, color: C.soft }}>{videoTitle || "Unknown"}</span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-            <span style={{ fontSize: 12, color: C.dim }}>URL</span>
-            <a href={videoUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: C.accent, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span style={{ fontSize: 11, color: C.dim }}>URL</span>
+            <a href={videoUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: C.accent, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {videoUrl}
             </a>
           </div>

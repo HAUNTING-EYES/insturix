@@ -90,7 +90,7 @@ export function EnhancedInput({
         </div>
 
       {/* Helper Text */}
-      <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
+      <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
         <span>
           Press Enter to submit
         </span>
