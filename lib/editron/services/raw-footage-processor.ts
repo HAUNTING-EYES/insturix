@@ -18,7 +18,6 @@ import { getTranscription } from '@/lib/editron/services/media';
 import { FILLER_WORDS } from '@/lib/editron/services/media/types';
 import type { TranscriptionData, TranscriptionWord, SilenceGap, DetectedFiller } from '@/lib/editron/services/media/types';
 import { detectContentType, type ContentTypeDetection } from '@/lib/editron/services/content-type-detector';
-import { classifyRepetitionIntent } from '@/lib/editron/services/repetition-intent-discriminator';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -221,103 +220,6 @@ function buildSegment(words: TranscriptionWord[], index: number): TranscriptSegm
   };
 }
 
-// ─── Step 4.75: Intra-Segment Repetition Splitting ───────────────
-
-/**
- * Detect repeated phrase clusters WITHIN a single segment and split them.
- *
- * When a speaker rapid-fires retakes without pausing (e.g., "grocery store
- * nice people go home... grocery store nice people hang out... grocery store
- * nice people they go home"), all attempts land in ONE segment because there's
- * no 1s silence gap between them. The best-take detector compares segments —
- * it never looks inside. This function splits such segments into sub-segments
- * so best-take detection can compare them.
- *
- * Uses word-level timestamps from transcription to find split points where
- * a phrase restarts. Detection: sliding window of 5-8 words compared via
- * Jaccard. When a later window matches an earlier one (> 0.5), the segment
- * is split at the boundary between the first match's end and the second's start.
- */
-function splitIntraSegmentRetakes(segments: TranscriptSegment[]): TranscriptSegment[] {
-  const MIN_WORDS_TO_CHECK = 8;
-  const WINDOW_SIZE = 4;
-  const INTRA_JACCARD_THRESHOLD = 0.5;
-  const result: TranscriptSegment[] = [];
-  let nextIndex = segments.length;
-
-  for (const seg of segments) {
-    if (seg.wordCount < MIN_WORDS_TO_CHECK || seg.words.length < MIN_WORDS_TO_CHECK) {
-      result.push(seg);
-      continue;
-    }
-
-    const words = seg.words;
-    const splitPoints: number[] = [];
-
-    for (let i = 0; i < words.length - WINDOW_SIZE; i++) {
-      const windowA = new Set(
-        words.slice(i, i + WINDOW_SIZE).map(w => w.word.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(w => w.length > 2)
-      );
-      if (windowA.size < 3) continue;
-
-      for (let j = i + WINDOW_SIZE; j <= words.length - WINDOW_SIZE; j++) {
-        const windowB = new Set(
-          words.slice(j, j + WINDOW_SIZE).map(w => w.word.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(w => w.length > 2)
-        );
-        if (windowB.size < 3) continue;
-
-        let intersection = 0;
-        for (const w of windowA) { if (windowB.has(w)) intersection++; }
-        const union = windowA.size + windowB.size - intersection;
-        const sim = union > 0 ? intersection / union : 0;
-
-        if (sim >= INTRA_JACCARD_THRESHOLD) {
-          splitPoints.push(j);
-          i = j - 1;
-          break;
-        }
-      }
-    }
-
-    if (splitPoints.length === 0) {
-      result.push(seg);
-      continue;
-    }
-
-    const uniqueSplits = [...new Set(splitPoints)].sort((a, b) => a - b);
-    const boundaries = [0, ...uniqueSplits, words.length];
-
-    for (let b = 0; b < boundaries.length - 1; b++) {
-      const start = boundaries[b];
-      const end = boundaries[b + 1];
-      const sliceWords = words.slice(start, end);
-      if (sliceWords.length < 2) continue;
-
-      const subText = sliceWords.map(w => w.word).join(' ');
-      const subStartMs = sliceWords[0].startMs;
-      const subEndMs = sliceWords[sliceWords.length - 1].endMs;
-      const totalGap = sliceWords.reduce((sum, w, idx) => {
-        if (idx === 0) return 0;
-        return sum + Math.max(0, w.startMs - sliceWords[idx - 1].endMs);
-      }, 0);
-
-      result.push({
-        text: subText,
-        startMs: subStartMs,
-        endMs: subEndMs,
-        wordCount: sliceWords.length,
-        words: sliceWords,
-        fillerCount: sliceWords.filter(w => FILLER_WORDS.includes(w.word.toLowerCase() as any)).length,
-        silenceGapCount: sliceWords.filter((w, idx) => idx > 0 && w.startMs - sliceWords[idx - 1].endMs > 500).length,
-        avgWordGapMs: sliceWords.length > 1 ? totalGap / (sliceWords.length - 1) : 0,
-        index: nextIndex++,
-      });
-    }
-  }
-
-  return result;
-}
-
 // ─── Step 5: Best-Take Detection ─────────────────────────────────
 
 function tokenize(text: string): Set<string> {
@@ -335,6 +237,38 @@ function getWords(text: string): string[] {
   return text.toLowerCase().replace(/[^a-z0-9'\s-]/g, '').split(/\s+/).filter(Boolean);
 }
 
+/**
+ * Extract uncommon keywords (≥5 chars) for paraphrase detection.
+ * Filters stop words and short common words — keeps content-carrying words
+ * like "grocery", "store", "internet", "anonymity" that identify the topic.
+ */
+function getKeywords(text: string): Set<string> {
+  const STOP = new Set([
+    // 4-char stop words
+    'also', 'been', 'come', 'does', 'done', 'each', 'even', 'from', 'gets',
+    'goes', 'gone', 'good', 'gotta', 'guys', 'have', 'here', 'into', 'it\'s',
+    'just', 'keep', 'kind', 'know', 'last', 'left', 'like', 'look', 'made',
+    'make', 'many', 'more', 'most', 'much', 'must', 'need', 'next', 'only',
+    'over', 'part', 'same', 'said', 'says', 'seem', 'some', 'sort', 'such',
+    'sure', 'take', 'tell', 'than', 'that', 'them', 'then', 'they', 'this',
+    'took', 'very', 'want', 'well', 'went', 'were', 'what', 'when', 'will',
+    'with', 'work', 'yeah',
+    // 5+ char stop words
+    'about', 'after', 'again', 'being', 'below', 'could', 'doing', 'during',
+    'every', 'first', 'going', 'gonna', 'great', 'having', 'maybe', 'might',
+    'never', 'other', 'quite', 'rally', 'ready', 'really', 'right', 'shall',
+    'since', 'still', 'their', 'there', 'these', 'thing', 'think', 'those',
+    'under', 'until', 'where', 'which', 'while', 'whole', 'would', 'years',
+    'should', 'because', 'doesn', 'people', 'pretty', 'actually', 'basically',
+    'always', 'around', 'before', 'between', 'coming', 'enough', 'getting',
+    'having', 'little', 'looking', 'making', 'nothing', 'saying', 'something',
+    'talking', 'trying', 'you\'re', 'you\'ve', 'we\'re', 'we\'ve', 'don\'t',
+  ]);
+  return new Set(
+    text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/)
+      .filter(w => w.length >= 4 && !STOP.has(w))
+  );
+}
 
 /**
  * Check if two segments share the same opening words (prefix match).
@@ -386,22 +320,15 @@ const FALSE_START_MAX_WORDS = 5;
 function detectBestTakes(
   segments: TranscriptSegment[],
   jaccardThreshold: number,
-  protectedIndices: Set<number> = new Set(),
-  contentType?: ContentTypeDetection,
 ): BestTakeSelection[] {
   const selections: BestTakeSelection[] = [];
-  // Track consumed segments by their .index (NOT array position).
-  // After intra-segment expansion, array positions ≠ segment indices.
-  // Bug was: consumed.has(i) checked array position while consumed.add(seg.index)
-  // stored segment index → broken tracking after expansion.
-  const consumed = new Set<number>();
+  const consumed = new Set<number>(); // segment indices already matched
 
   // Pre-compute word arrays for prefix matching
   const segWords = segments.map(s => getWords(s.text));
 
   for (let i = 0; i < segments.length; i++) {
-    if (consumed.has(segments[i].index)) continue;
-    if (protectedIndices.has(segments[i].index)) continue;
+    if (consumed.has(i)) continue;
     const tokensI = tokenize(segments[i].text);
 
     const group: TranscriptSegment[] = [segments[i]];
@@ -409,8 +336,7 @@ function detectBestTakes(
     // Look ahead within a reasonable window (repeated takes are usually nearby)
     const searchWindow = Math.min(segments.length, i + 30);
     for (let j = i + 1; j < searchWindow; j++) {
-      if (consumed.has(segments[j].index)) continue;
-      if (protectedIndices.has(segments[j].index)) continue;
+      if (consumed.has(j)) continue;
       const tokensJ = tokenize(segments[j].text);
 
       // Match strategy 1: Jaccard similarity (original — catches full repeated sentences)
@@ -435,17 +361,13 @@ function detectBestTakes(
       if (!isMatch) {
         const wordsI = segWords[i];
         const wordsJ = segWords[j];
-        const shortSeg = wordsI.length <= wordsJ.length ? segments[i] : segments[j];
         const shortWords = wordsI.length <= wordsJ.length ? wordsI : wordsJ;
         const longWords = wordsI.length <= wordsJ.length ? wordsJ : wordsI;
-        const shortText = shortSeg.text.trim();
-        const endsComplete = /[.!?]$/.test(shortText);
         if (
           shortWords.length >= 2 &&
           shortWords.length <= FALSE_START_MAX_WORDS &&
           longWords.length > shortWords.length &&
-          prefixOverlap(shortWords, longWords) === shortWords.length &&
-          !endsComplete
+          prefixOverlap(shortWords, longWords) === shortWords.length
         ) {
           isMatch = true;
         }
@@ -466,19 +388,12 @@ function detectBestTakes(
 
       if (isMatch) {
         group.push(segments[j]);
-        consumed.add(segments[j].index);
+        consumed.add(j);
       }
     }
 
     if (group.length > 1) {
-      // Ask the discriminator: is this group a retake cluster or intentional repetition?
-      const decision = classifyRepetitionIntent(group, contentType);
-      if (decision.verdict !== 'RETAKE') {
-        console.log(`[BestTake] Group of ${group.length} similar segments KEPT (${decision.verdict}): ${decision.reason} | "${group[0].text.substring(0, 60)}..."`);
-        continue;
-      }
-
-      // RETAKE — score each take and pick the best (longest complete take wins)
+      // Score each take and pick the best (longest complete take wins)
       const scored = group.map(seg => ({ seg, score: scoreSegmentQuality(seg) }));
       scored.sort((a, b) => b.score - a.score);
 
@@ -643,52 +558,22 @@ export async function processRawFootage(
   const segments = segmentTranscript(transcription.words, config.segmentPauseThresholdMs);
   console.log(`[RawFootage] ${segments.length} transcript segments`);
 
-  // Step 4.5: Holistic edit decisions (ONE Gemini call with FULL transcript)
-  // Replaces the fragment pipeline (editorial intent + best-take + discriminator +
-  // intra-segment splitter + argument protector) with a single LLM call that sees
-  // ALL segments and makes holistic KEEP/CUT decisions. Handles meta, stutters,
-  // retakes, false starts, and argument protection in ONE pass.
-  let holisticResult: import('./holistic-editor').HolisticEditResult | null = null;
+  // Step 4.5: Editorial intent detection (Gemini-powered)
   let editorialIntents: import('./editorial-intent-detector').EditorialIntentResult | undefined;
-  let bestTakeSelections: BestTakeSelection[] = [];
-
   try {
-    const { makeHolisticEditDecisions } = await import('./holistic-editor');
-    holisticResult = await makeHolisticEditDecisions(segments);
+    const { detectEditorialIntent } = await import('./editorial-intent-detector');
+    editorialIntents = await detectEditorialIntent(segments);
   } catch (err: any) {
-    console.warn(`[RawFootage] Holistic editor failed: ${err.message}`);
+    console.warn(`[RawFootage] Editorial intent detection failed (non-fatal): ${err.message}`);
   }
 
-  // Fallback: if holistic editor fails, use the fragment-based pipeline
-  if (!holisticResult) {
-    console.log(`[RawFootage] Using fragment-based fallback pipeline`);
-    try {
-      const { detectEditorialIntent } = await import('./editorial-intent-detector');
-      editorialIntents = await detectEditorialIntent(segments);
-    } catch (err: any) {
-      console.warn(`[RawFootage] Editorial intent detection failed (non-fatal): ${err.message}`);
-    }
-
-    const expandedSegments = splitIntraSegmentRetakes(segments);
-    if (expandedSegments.length > segments.length) {
-      console.log(`[RawFootage] Intra-segment splitting: ${segments.length} → ${expandedSegments.length} segments`);
-    }
-
-    const fallbackContentType = detectContentType(transcription.words, videoDurationSec, platform, userIntent);
-    const protectedIndices = new Set<number>();
-    if (editorialIntents) {
-      for (const idx of editorialIntents.contentSegmentIndices) {
-        const intent = editorialIntents.intents.find(i => i.segmentIndex === idx);
-        if (intent && intent.confidence >= 0.85) protectedIndices.add(idx);
-      }
-    }
-    bestTakeSelections = detectBestTakes(expandedSegments, config.bestTakeJaccardThreshold, protectedIndices, fallbackContentType);
-    if (bestTakeSelections.length > 0) {
-      console.log(`[RawFootage] ${bestTakeSelections.length} repeated phrases detected, best takes selected`);
-    }
+  // Step 5: Best-take detection
+  const bestTakeSelections = detectBestTakes(segments, config.bestTakeJaccardThreshold);
+  if (bestTakeSelections.length > 0) {
+    console.log(`[RawFootage] ${bestTakeSelections.length} repeated phrases detected, best takes selected`);
   }
 
-  // Step 5a: Classify content type (needed for Director regardless of edit path)
+  // Step 6: Classify content type
   const contentTypeDetection = detectContentType(
     transcription.words,
     videoDurationSec,
@@ -707,14 +592,8 @@ export async function processRawFootage(
     config.casualFillerRateThreshold,
   );
 
-  // Step 7.5: Merge edit decisions into the plan
-  if (holisticResult) {
-    // Holistic editor made all decisions — use its removals directly
-    silenceRemovalPlan.push(...holisticResult.removals);
-    silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
-    console.log(`[RawFootage] Added ${holisticResult.removals.length} holistic-editor removals to plan`);
-  } else if (editorialIntents?.additionalRemovals.length) {
-    // Fallback: fragment-based editorial intent removals
+  // Step 7.5: Merge editorial intent removals into the plan
+  if (editorialIntents?.additionalRemovals.length) {
     silenceRemovalPlan.push(...editorialIntents.additionalRemovals);
     silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
     console.log(`[RawFootage] Added ${editorialIntents.additionalRemovals.length} editorial-intent removals to plan`);
