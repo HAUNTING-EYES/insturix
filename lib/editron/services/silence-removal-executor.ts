@@ -262,9 +262,10 @@ export async function executeSilenceRemoval(
         if (newDuration >= minSegmentFrames) {
           ov.from = cutStart; // Moved to cut boundary, will be shifted left
           ov.durationInFrames = newDuration;
-          if (typeof ov.sourceStartFrame === 'number') {
-            ov.sourceStartFrame += trimAmount;
-          }
+          const currentSrc = typeof ov.sourceStartFrame === 'number'
+            ? ov.sourceStartFrame : (ov.videoStartTime || 0);
+          ov.sourceStartFrame = currentSrc + trimAmount;
+          ov.videoStartTime = ov.sourceStartFrame;
         } else {
           toDelete.push(i);
           warnings.push(`Trimmed overlay at frame ${ovStart} too short (${newDuration} < ${minSegmentFrames})`);
@@ -310,12 +311,11 @@ export async function executeSilenceRemoval(
     videoOverlaysForIndex[i].metadata.sceneIndex = i;
   }
 
-  // Fix tiny frame-rounding overlaps (1-3 frames) by snapping, not merging.
-  // Only merge if the overlap is significant (>30 frames = 1 second).
-  // The old code merged ANY overlap — 33 segments collapsed to 2, destroying
-  // all clip boundaries that transitions/captions/graphics need.
-  const MERGE_THRESHOLD_FRAMES = 30; // Only merge if >1s overlap (real duplicate, not rounding)
-  const videoOverlaysBefore = overlays.filter((o: any) => o.type === 'video').length;
+  // Fix frame-rounding overlaps by snapping prev to end where curr starts.
+  // NEVER merge overlays — merging extends prev's source playback range into
+  // territory that may contain removed content, causing bleed-through.
+  // Snap is always safe: it makes prev shorter, never longer.
+  let overlapsFixed = 0;
   let fixedThisPass = true;
   while (fixedThisPass) {
     fixedThisPass = false;
@@ -328,24 +328,17 @@ export async function executeSilenceRemoval(
       const prevEnd = prev.from + prev.durationInFrames;
       const overlap = prevEnd - curr.from;
       if (overlap > 0) {
-        if (overlap > MERGE_THRESHOLD_FRAMES) {
-          // Large overlap = real duplicate from a bug. Merge.
-          const currEnd = curr.from + curr.durationInFrames;
-          prev.durationInFrames = Math.max(prevEnd, currEnd) - prev.from;
-          overlays.splice(i, 1);
-          fixedThisPass = true;
-        } else {
-          // Small overlap = frame rounding artifact. Snap instead of merge.
-          // Trim the previous overlay to end exactly where the next starts.
-          prev.durationInFrames -= overlap;
-          fixedThisPass = true;
+        prev.durationInFrames -= overlap;
+        overlapsFixed++;
+        if (overlap > 30) {
+          warnings.push(`Large overlap (${overlap} frames) between overlays at ${prev.from} and ${curr.from} — snapped (not merged) to prevent bleed-through`);
         }
+        fixedThisPass = true;
       }
     }
   }
-  const videoOverlaysAfter = overlays.filter((o: any) => o.type === 'video').length;
-  if (videoOverlaysBefore !== videoOverlaysAfter) {
-    console.log(`[SilenceRemoval] Merged ${videoOverlaysBefore - videoOverlaysAfter} truly-overlapping video overlays (${videoOverlaysBefore} → ${videoOverlaysAfter})`);
+  if (overlapsFixed > 0) {
+    console.log(`[SilenceRemoval] Snapped ${overlapsFixed} overlapping video overlay boundaries`);
   }
 
   // Close gaps between adjacent video overlays (caused by rounding in shift calculations).

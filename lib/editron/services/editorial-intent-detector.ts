@@ -71,11 +71,13 @@ export async function detectEditorialIntent(
     };
   }
 
+  const transcriptContext = buildTranscriptContext(segments);
+
   // Batch segments for Gemini classification
   const allIntents: EditorialIntent[] = [];
   for (let batchStart = 0; batchStart < segments.length; batchStart += MAX_SEGMENTS_PER_BATCH) {
     const batch = segments.slice(batchStart, batchStart + MAX_SEGMENTS_PER_BATCH);
-    const batchIntents = await classifyBatch(batch, batchStart, segments);
+    const batchIntents = await classifyBatch(batch, batchStart, segments, transcriptContext);
     allIntents.push(...batchIntents);
   }
 
@@ -199,6 +201,7 @@ async function classifyBatch(
   batch: TranscriptSegment[],
   batchOffset: number,
   allSegments: TranscriptSegment[],
+  transcriptContext: string,
 ): Promise<EditorialIntent[]> {
   try {
     const { getGeneralModel } = await import('@/lib/editron/utils/gemini-model-factory');
@@ -209,7 +212,7 @@ async function classifyBatch(
       return `[${globalIdx}] (${formatMs(seg.startMs)}–${formatMs(seg.endMs)}) "${seg.text}"`;
     }).join('\n');
 
-    const prompt = buildClassificationPrompt(segmentList, allSegments.length);
+    const prompt = buildClassificationPrompt(segmentList, allSegments.length, transcriptContext);
 
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -245,8 +248,10 @@ async function classifyBatch(
   }
 }
 
-function buildClassificationPrompt(segmentList: string, totalSegments: number): string {
+function buildClassificationPrompt(segmentList: string, totalSegments: number, transcriptContext: string): string {
   return `You are a professional video editor analyzing raw footage transcript segments.
+
+${transcriptContext}
 
 TASK: Classify each segment into exactly one category:
 
@@ -367,4 +372,36 @@ function emptyResult(startTime: number): EditorialIntentResult {
     additionalRemovals: [],
     processingTimeMs: Date.now() - startTime,
   };
+}
+
+// ─── Transcript Context Builder ────────────────────────────────────
+
+function buildTranscriptContext(segments: TranscriptSegment[]): string {
+  const allText = segments.map(s => s.text || '').join(' ');
+  const allWords = allText.split(/\s+/).filter(Boolean);
+  const totalDurationMs = segments.length > 0
+    ? segments[segments.length - 1].endMs - segments[0].startMs
+    : 0;
+  const totalDurationMin = Math.round(totalDurationMs / 60000 * 10) / 10;
+
+  const openingWords = allWords.slice(0, 300).join(' ');
+  const closingWords = allWords.length > 400
+    ? allWords.slice(-100).join(' ')
+    : '';
+
+  return `VIDEO CONTEXT — Use this to understand what the video is about BEFORE classifying:
+This raw footage contains ${segments.length} speech segments spanning ${totalDurationMin} minutes.
+
+Opening (first ~300 words): "${openingWords}"
+${closingWords ? `Closing (last ~100 words): "${closingWords}"` : ''}
+
+CRITICAL — Topic-aware classification:
+Read the opening above to identify the video's PRIMARY TOPIC. When the speaker discusses that topic, classify as CONTENT — even if the language sounds production-adjacent.
+Examples of topic-aware decisions:
+- Video about cooking: "I'm gonna put this in the oven" = CONTENT (cooking instruction, not production)
+- Video about video editing: "That was me editing the timeline" = CONTENT (tutorial content, not meta)
+- Video about fitness: "One more time, squeeze at the top" = CONTENT (coaching, not retake)
+- Video about internet culture: "I don't know why I'm telling you this" = could be rhetorical vulnerability (CONTENT) or genuine digression (META) — use surrounding context to decide
+
+IMPORTANT — Topic pivots: The opening may only represent the FIRST topic. Speakers often pivot to personal stories, emotional confessions, or entirely different subjects mid-video. If a segment does not match the opening topic but is clearly substantive speech (emotional, informational, narrative), it is STILL CONTENT. Topic mismatch alone is NEVER a reason to classify as META_DISCARD. Only classify as META_DISCARD when the speaker is talking about THIS recording session, THIS camera, THIS microphone, or their OWN performance in making THIS video — regardless of whether it matches the opening topic.`;
 }
