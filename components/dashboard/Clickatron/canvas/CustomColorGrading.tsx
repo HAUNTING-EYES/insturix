@@ -92,8 +92,8 @@ export function CustomColorGrading({
           {controlsConfig.map(({ key, label, min, max }) => (
             <div key={key} className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-zinc-300">{label}</label>
-                <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded min-w-[32px] text-center">
+                <label className="text-[11px] font-medium text-zinc-300">{label}</label>
+                <span className="text-[11px] text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded min-w-[32px] text-center">
                   {controls[key] > 0 ? '+' : ''}{controls[key]}
                 </span>
               </div>

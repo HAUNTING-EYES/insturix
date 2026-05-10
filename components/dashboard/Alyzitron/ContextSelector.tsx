@@ -42,7 +42,7 @@ export function ContextSelector({
               <div className="flex items-center gap-3">
                 <Heart className="h-4 w-4 text-[#D4A652]" />
                 <div>
-                  <p className="text-base font-medium text-[#ECE9E1]">
+                  <p className="text-[14px] font-medium text-[#ECE9E1]">
                     Family Friendly
                   </p>
                   <p className="text-sm text-[#7A776E]">
@@ -63,7 +63,7 @@ export function ContextSelector({
             <div>
               <div className="mb-3 flex items-center gap-2">
                 <Monitor className="h-4 w-4 text-[#D4A652]" />
-                <p className="text-base font-medium text-[#ECE9E1]">Platform</p>
+                <p className="text-[14px] font-medium text-[#ECE9E1]">Platform</p>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -93,7 +93,7 @@ export function ContextSelector({
             <div>
               <div className="mb-3 flex items-center gap-2">
                 <MapPin className="h-4 w-4 text-[#D4A652]" />
-                <p className="text-base font-medium text-[#ECE9E1]">Location</p>
+                <p className="text-[14px] font-medium text-[#ECE9E1]">Location</p>
               </div>
 
               <Input
@@ -102,7 +102,7 @@ export function ContextSelector({
                 onChange={(e) =>
                   onChange({ ...value, location: e.target.value })
                 }
-                className="h-11 border-[#282724] bg-[#131312] text-base text-[#ECE9E1]"
+                className="h-11 border-[#282724] bg-[#131312] text-[14px] text-[#ECE9E1]"
               />
             </div>
 
@@ -110,7 +110,7 @@ export function ContextSelector({
             <div>
               <div className="mb-3 flex items-center gap-2">
                 <Info className="h-4 w-4 text-[#D4A652]" />
-                <p className="text-base font-medium text-[#ECE9E1]">
+                <p className="text-[14px] font-medium text-[#ECE9E1]">
                   Additional Details
                 </p>
               </div>

@@ -61,11 +61,11 @@ export function CanvasIdeaInput() {
               <Sparkles className="h-10 w-10 text-purple-400" />
             </div>
 
-            <h2 className="text-3xl font-bold text-zinc-100 tracking-tight">
+            <h2 className="text-[32px] font-bold text-zinc-100 tracking-tight">
               Ready to create something amazing?
             </h2>
 
-            <p className="text-zinc-400 text-base">
+            <p className="text-zinc-400 text-[14px]">
               Start a new project and use our AI-powered canvas to design
               stunning thumbnails in minutes.
             </p>

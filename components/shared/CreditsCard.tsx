@@ -98,7 +98,7 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
             </div>
 
             {/* Breakdown hint */}
-            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
               <span>{balance.subscriptionCredits} plan</span>
               <span className="opacity-50">·</span>
               <span>{balance.topupCredits} topup</span>
@@ -164,7 +164,7 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
                   <span className="font-medium tabular-nums">{balance.topupCredits}</span>
                 </div>
                 {expiryText && (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     Plan credits reset: {expiryText}
                   </p>
                 )}
@@ -174,7 +174,7 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
               {transactions.length > 0 && (
                 <div className="border-t border-border">
                   <div className="p-3 pb-2">
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Recent</h4>
+                    <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Recent</h4>
                   </div>
                   <div className="max-h-40 overflow-y-auto">
                     {transactions.slice(0, 5).map((txn) => {
@@ -189,7 +189,7 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
                               {transactionLabels[txn.type]}
                               {txn.service && <span className="text-muted-foreground font-normal"> · {txn.service}</span>}
                             </p>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-[11px] text-muted-foreground">
                               {formatDate(txn.timestamp)}
                             </p>
                           </div>
@@ -238,7 +238,7 @@ export function CreditsBadge({ className }: { className?: string }) {
 
   return (
     <div className={cn(
-      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium",
+      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium",
       "bg-muted text-muted-foreground",
       className
     )}>

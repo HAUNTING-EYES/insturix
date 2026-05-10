@@ -287,15 +287,15 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
             {/* View mode tabs */}
             <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
               <TabsList className="w-full bg-[#0F0F0E]/50 p-1">
-                <TabsTrigger value="timeline" className="flex-1 text-xs">
+                <TabsTrigger value="timeline" className="flex-1 text-[11px]">
                   <Clock className="h-3 w-3 mr-1" />
                   Timeline
                 </TabsTrigger>
-                <TabsTrigger value="linear" className="flex-1 text-xs">
+                <TabsTrigger value="linear" className="flex-1 text-[11px]">
                   <History className="h-3 w-3 mr-1" />
                   Linear
                 </TabsTrigger>
-                <TabsTrigger value="branched" className="flex-1 text-xs">
+                <TabsTrigger value="branched" className="flex-1 text-[11px]">
                   <GitFork className="h-3 w-3 mr-1" />
                   Branches
                 </TabsTrigger>
@@ -322,7 +322,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-mono text-[#7A776E]">
+                          <span className="text-[11px] font-mono text-[#7A776E]">
                             v{item.version}
                           </span>
                           {item.isHead && (
@@ -346,7 +346,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                         <p className="text-sm text-[#ECE9E1] truncate">
                           {item.description || 'No description'}
                         </p>
-                        <p className="text-xs text-[#5F5E5A] mt-1">
+                        <p className="text-[11px] text-[#5F5E5A] mt-1">
                           {formatTimestamp(item.timestamp)}
                         </p>
                       </div>
@@ -404,14 +404,14 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                         {previewBlocks.slice(0, 10).map((block, i) => (
                           <div
                             key={block.id || i}
-                            className="p-2 bg-[#1C1B19]/50 rounded text-xs text-[#7A776E]"
+                            className="p-2 bg-[#1C1B19]/50 rounded text-[11px] text-[#7A776E]"
                           >
                             <span className="text-[#5F5E5A]">[{block.type}]</span>{' '}
                             {JSON.stringify(block.children || block.content || '').slice(0, 100)}...
                           </div>
                         ))}
                         {previewBlocks.length > 10 && (
-                          <p className="text-xs text-[#5F5E5A] text-center">
+                          <p className="text-[11px] text-[#5F5E5A] text-center">
                             +{previewBlocks.length - 10} more blocks
                           </p>
                         )}

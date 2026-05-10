@@ -81,18 +81,18 @@ export function TwitterPermissionsStatus() {
                         Twitter / X Permissions
                     </div>
                     {status.allPermissionsGranted ? (
-                        <Badge className="bg-green-600 hover:bg-green-500 text-xs">
+                        <Badge className="bg-green-600 hover:bg-green-500 text-[11px]">
                             <CheckCircle className="h-3 w-3 mr-1" />
                             All Granted
                         </Badge>
                     ) : (
-                        <Badge variant="destructive" className="text-xs">
+                        <Badge variant="destructive" className="text-[11px]">
                             <AlertTriangle className="h-3 w-3 mr-1" />
                             Missing Permissions
                         </Badge>
                     )}
                 </CardTitle>
-                <CardDescription className="text-xs text-zinc-400">
+                <CardDescription className="text-[11px] text-zinc-400">
                     These permissions are required for full Twitter functionality
                 </CardDescription>
             </CardHeader>
@@ -120,10 +120,10 @@ export function TwitterPermissionsStatus() {
                                         <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
                                     )}
                                 </div>
-                                <p className="text-xs text-zinc-400 mt-0.5">
+                                <p className="text-[11px] text-zinc-400 mt-0.5">
                                     {perm.description}
                                 </p>
-                                <p className="text-xs text-zinc-500 font-mono mt-1">
+                                <p className="text-[11px] text-zinc-500 font-mono mt-1">
                                     {perm.scope}
                                 </p>
                             </div>
@@ -140,10 +140,10 @@ export function TwitterPermissionsStatus() {
                                 <p className="text-sm font-medium text-amber-200">
                                     Missing Permissions
                                 </p>
-                                <p className="text-xs text-amber-400/80 mt-1">
+                                <p className="text-[11px] text-amber-400/80 mt-1">
                                     The following permissions were not granted: {status.missingScopes.join(", ")}
                                 </p>
-                                <p className="text-xs text-amber-400/80 mt-2">
+                                <p className="text-[11px] text-amber-400/80 mt-2">
                                     Some features may not work correctly. Please reconnect your Twitter account.
                                 </p>
                             </div>
@@ -152,7 +152,7 @@ export function TwitterPermissionsStatus() {
                 )}
 
                 {/* Summary */}
-                <div className="flex items-center justify-between text-xs text-zinc-500 pt-2 border-t border-zinc-800">
+                <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-2 border-t border-zinc-800">
                     <span>
                         {status.grantedScopes?.length || 0} / {status.permissions.length} permissions granted
                     </span>

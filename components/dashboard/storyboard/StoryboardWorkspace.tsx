@@ -211,7 +211,7 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
             <h1 className="font-semibold text-lg">
               {storyboard.title || "Storyboard"}
             </h1>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {approvedCount}/{scenes.length} scenes approved
             </p>
           </div>
@@ -375,7 +375,7 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                   <p className="font-medium text-sm truncate">
                     {scene.descriptor.title || `Scene ${scene.sceneIndex + 1}`}
                   </p>
-                  <p className="text-xs text-muted-foreground line-clamp-2">
+                  <p className="text-[11px] text-muted-foreground line-clamp-2">
                     {scene.descriptor.narration || scene.descriptor.visualDescription}
                   </p>
                   <p className="text-[10px] text-muted-foreground">
@@ -475,7 +475,7 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                 {/* Narration */}
                 {selectedScene.descriptor.narration && (
                   <div className="bg-muted/50 rounded-lg p-3">
-                    <p className="text-xs font-medium text-muted-foreground mb-1">Narration</p>
+                    <p className="text-[11px] font-medium text-muted-foreground mb-1">Narration</p>
                     <p className="text-sm">{selectedScene.descriptor.narration}</p>
                   </div>
                 )}
@@ -490,7 +490,7 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                       </div>
                       <button
                         onClick={() => toggleSubShots(selectedScene.sceneIndex)}
-                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                        className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
                       >
                         {expandedSubShots.has(selectedScene.sceneIndex) ? 'Hide' : 'Review shots'}
                         <ChevronDown className={cn(
@@ -502,7 +502,7 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
 
                     {!collapsedScenes.has(selectedScene.sceneIndex) ? (
                       <>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-[11px] text-muted-foreground">
                           This scene has {getSubShots(selectedScene).length} distinct shots that will each generate a separate video clip.
                         </p>
 
@@ -520,14 +520,14 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                                   </div>
                                 ) : (
                                   <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
-                                    <span className="text-xs font-bold text-amber-500">{i + 1}</span>
+                                    <span className="text-[11px] font-bold text-amber-500">{i + 1}</span>
                                   </div>
                                 )}
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-medium truncate">
                                     {sub.description || sub.visualDescription || `Shot ${i + 1}`}
                                   </p>
-                                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                  <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
                                     <span>{sub.targetDurationSeconds || 2}s</span>
                                     <span>·</span>
                                     <span className="flex items-center gap-0.5">
@@ -539,14 +539,14 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                             ))}
 
                             <div className="flex items-center justify-between pt-2 border-t border-border/50">
-                              <div className="text-xs text-muted-foreground">
+                              <div className="text-[11px] text-muted-foreground">
                                 Total: <span className="font-medium text-foreground">{getSubShots(selectedScene).length * 3} credits</span> for {getSubShots(selectedScene).length} video clips
                               </div>
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => collapseScene(selectedScene.sceneIndex)}
-                                className="gap-1 text-xs h-7"
+                                className="gap-1 text-[11px] h-7"
                               >
                                 <Minimize2 className="h-3 w-3" />
                                 Collapse to 1 shot — {3} credits
@@ -557,14 +557,14 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                       </>
                     ) : (
                       <div className="flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-[11px] text-muted-foreground">
                           Collapsed to 1 shot (was {getSubShots(selectedScene).length} shots). Saves {(getSubShots(selectedScene).length - 1) * 3} credits.
                         </p>
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => expandScene(selectedScene.sceneIndex)}
-                          className="gap-1 text-xs h-7"
+                          className="gap-1 text-[11px] h-7"
                         >
                           <Layers className="h-3 w-3" />
                           Expand to {getSubShots(selectedScene).length} shots
@@ -603,7 +603,7 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
                 {/* Generation history */}
                 {selectedScene.generationHistory?.length > 1 && (
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">
+                    <p className="text-[11px] font-medium text-muted-foreground mb-2">
                       Previous versions
                     </p>
                     <div className="flex gap-2 overflow-x-auto pb-2">
@@ -655,13 +655,13 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
 
             {/* Cost breakdown */}
             <div className="bg-muted/50 rounded-lg p-3 space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Estimated Cost</p>
+              <p className="text-[11px] font-medium text-muted-foreground">Estimated Cost</p>
               {scenes.map((s: any) => {
                 const subs = getSubShots(s);
                 const isCollapsed = collapsedScenes.has(s.sceneIndex);
                 const shotCount = (subs.length > 0 && !isCollapsed) ? subs.length : 1;
                 return (
-                  <div key={s.sceneIndex} className="flex items-center justify-between text-xs">
+                  <div key={s.sceneIndex} className="flex items-center justify-between text-[11px]">
                     <span className="truncate max-w-[200px]">
                       {s.descriptor.title || `Scene ${s.sceneIndex + 1}`}
                       {getAssetLabel(s) && (

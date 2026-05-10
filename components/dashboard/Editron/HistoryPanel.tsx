@@ -160,7 +160,7 @@ export function HistoryPanel() {
                               {item.youtube_url}
                             </span>
                             <span
-                              className={`text-xs mt-0.5 ${
+                              className={`text-[11px] mt-0.5 ${
                                 isActive
                                   ? "text-blue-400"
                                   : isCompleted
@@ -170,7 +170,7 @@ export function HistoryPanel() {
                             >
                               {item.status}
                             </span>
-                            <span className="text-xs text-zinc-500">
+                            <span className="text-[11px] text-zinc-500">
                               {item.created_at
                                 ? new Date(item.created_at).toLocaleString()
                                 : ""}
@@ -178,7 +178,7 @@ export function HistoryPanel() {
                             {/* Removed video/download links from here */}
                             {isFailed && item.error?.message && (
                               <span
-                                className="text-xs text-red-400 mt-1 truncate"
+                                className="text-[11px] text-red-400 mt-1 truncate"
                                 title={item.error.message}
                               >
                                 Error: {item.error.message}
@@ -226,7 +226,7 @@ export function HistoryPanel() {
                 <div className="text-sm">
                   <span className="font-medium text-zinc-300">Status:</span>
                   <span
-                    className={`ml-2 px-2 py-0.5 rounded text-xs ${
+                    className={`ml-2 px-2 py-0.5 rounded text-[11px] ${
                       selectedTask.status === "COMPLETED"
                         ? "bg-green-600/30 text-green-300"
                         : selectedTask.status === "FAILED"

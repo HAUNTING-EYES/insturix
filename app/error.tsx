@@ -40,7 +40,7 @@ export default function GlobalError({ error, reset }: { error: Error; reset: () 
               <ellipse cx="110" cy="83" rx="3" ry="4" fill="#fff" opacity="0.7"/>
             </svg>
 
-            <h1 className="text-4xl font-bold primtext drop-shadow-sm">
+            <h1 className="text-[44px] font-bold primtext drop-shadow-sm">
               Something went wrong
             </h1>
 
@@ -60,7 +60,7 @@ export default function GlobalError({ error, reset }: { error: Error; reset: () 
             {!isProd && (
               <details className="mt-4 w-full max-w-prose text-left bg-[rgb(var(--surface-1))] p-3 rounded-md border border-neutral-200 dark:border-neutral-800 text-sm text-muted-foreground">
                 <summary className="cursor-pointer font-medium">Error details</summary>
-                <pre className="whitespace-pre-wrap mt-2 text-xs">{String(error?.stack || error?.message)}</pre>
+                <pre className="whitespace-pre-wrap mt-2 text-[11px]">{String(error?.stack || error?.message)}</pre>
               </details>
             )}
           </div>

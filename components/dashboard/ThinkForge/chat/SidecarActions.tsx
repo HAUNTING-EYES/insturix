@@ -29,7 +29,7 @@ export function SidecarActions({
         disabled={disabled || isLoading}
         title="Auto-generate a full set of project documents (scripts, briefs, shot lists)"
         className={cn(
-          "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all",
+          "flex items-center gap-2 px-3.5 py-2 rounded-xl text-[11px] font-medium transition-all",
           disabled
             ? "text-[#454340] cursor-not-allowed"
             : "text-[#B5B2A8] hover:text-[#ECE9E1] hover:bg-white/[0.08] ring-1 ring-white/[0.06] hover:ring-white/[0.12]",

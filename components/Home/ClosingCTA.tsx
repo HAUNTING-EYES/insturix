@@ -28,7 +28,7 @@ export default function ClosingCTA() {
               hidden: { opacity: 0, y: 30, scale: 0.95 },
               show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.7, ease } },
             }}
-            className="text-3xl md:text-5xl font-bold tracking-tight text-zinc-50 mb-6"
+            className="text-[32px] md:text-[44px] font-bold tracking-tight text-zinc-50 mb-6"
           >
             Ready to run your content like a studio?
           </motion.h2>

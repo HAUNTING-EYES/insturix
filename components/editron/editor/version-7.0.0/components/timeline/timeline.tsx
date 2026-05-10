@@ -531,7 +531,7 @@ const Timeline: React.FC<TimelineProps> = ({
                   >
                     <div className="flex items-center gap-2 px-3 py-2 bg-white/90 dark:bg-gray-800/90 rounded-lg shadow-sm ring-1 ring-black/5 dark:ring-white/10">
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-600 dark:text-gray-300" />
-                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                      <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
                         Loading project...
                       </span>
                     </div>

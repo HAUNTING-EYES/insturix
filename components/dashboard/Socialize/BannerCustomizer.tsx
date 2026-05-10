@@ -226,10 +226,10 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                     </div>
                     <div>
                         <div className="text-sm font-medium" style={{ color: '#EAE9E5' }}>Profile Banner</div>
-                        <div className="text-xs text-zinc-400">{banner.type === 'image' ? 'Image' : 'Color'}</div>
+                        <div className="text-[11px] text-zinc-400">{banner.type === 'image' ? 'Image' : 'Color'}</div>
                     </div>
                 </div>
-                <div className="text-xs text-zinc-400">{expanded ? 'Close' : 'Edit'}</div>
+                <div className="text-[11px] text-zinc-400">{expanded ? 'Close' : 'Edit'}</div>
             </button>
 
             {expanded ? (
@@ -253,7 +253,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                         </div>
                         <div className="flex items-center gap-2">
                             {banner.type === 'image' && banner.value ? (
-                                <button onClick={handleDeleteImage} disabled={currentUploading} className="text-xs text-zinc-300 px-2 py-1 border border-zinc-800 rounded">Remove</button>
+                                <button onClick={handleDeleteImage} disabled={currentUploading} className="text-[11px] text-zinc-300 px-2 py-1 border border-zinc-800 rounded">Remove</button>
                             ) : null}
                         </div>
                     </div>
@@ -304,12 +304,12 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
 
                                 <div className="flex-1 text-sm text-zinc-300">
                                     <div className="font-medium" style={{ color: '#EAE9E5' }}>{file ? file.name : (banner.type === 'image' && banner.value ? 'Current banner' : 'Upload banner image')}</div>
-                                    <div className="text-xs text-zinc-400 mt-1">{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : 'JPG, PNG, WebP, SVG — max 5MB'}</div>
+                                    <div className="text-[11px] text-zinc-400 mt-1">{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : 'JPG, PNG, WebP, SVG — max 5MB'}</div>
                                 </div>
 
                                 <div className="flex items-center gap-2">
                                     {file ? (
-                                        <button onClick={(e) => { e.stopPropagation(); setFile(null); }} className="text-xs text-zinc-300 px-2 py-1 border border-zinc-800 rounded">Clear</button>
+                                        <button onClick={(e) => { e.stopPropagation(); setFile(null); }} className="text-[11px] text-zinc-300 px-2 py-1 border border-zinc-800 rounded">Clear</button>
                                     ) : null}
                                     <button onClick={(e) => { e.stopPropagation(); handleUpload(); }} disabled={!file || currentUploading} className="px-3 py-2 text-sm rounded-[7px] border-none transition-opacity hover:opacity-90" style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}>
                                         {currentUploading ? 'Uploading...' : 'Upload'}
@@ -362,7 +362,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                                         </svg>
                                     </div>
                                     <div className="text-sm">No banner preview</div>
-                                    <div className="text-xs text-zinc-500 mt-1">Upload an image to show here</div>
+                                    <div className="text-[11px] text-zinc-500 mt-1">Upload an image to show here</div>
                                 </div>
                             )}
                         </div>

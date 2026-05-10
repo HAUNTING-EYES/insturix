@@ -104,13 +104,13 @@ export const SFXLibraryPanel: React.FC = () => {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              className="w-full h-8 pl-8 pr-3 text-xs bg-zinc-900 border border-zinc-700 rounded-md text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="w-full h-8 pl-8 pr-3 text-[11px] bg-zinc-900 border border-zinc-700 rounded-md text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
           </div>
           <button
             onClick={handleSearch}
             disabled={loading || !query.trim()}
-            className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-md disabled:opacity-40"
+            className="h-8 px-3 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-md disabled:opacity-40"
           >
             {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Search'}
           </button>
@@ -134,7 +134,7 @@ export const SFXLibraryPanel: React.FC = () => {
         {results.length === 0 && !loading && (
           <div className="text-center py-8">
             <Volume2 className="h-8 w-8 text-zinc-600 mx-auto mb-2" />
-            <p className="text-xs text-zinc-500">Search for sound effects</p>
+            <p className="text-[11px] text-zinc-500">Search for sound effects</p>
             <p className="text-[10px] text-zinc-600 mt-1">Freesound CC0 library — free for commercial use</p>
           </div>
         )}
@@ -159,7 +159,7 @@ export const SFXLibraryPanel: React.FC = () => {
               </button>
 
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-zinc-200 truncate">{sfx.title}</p>
+                <p className="text-[11px] text-zinc-200 truncate">{sfx.title}</p>
                 <p className="text-[10px] text-zinc-500">{sfx.duration}s • {sfx.source}</p>
               </div>
 

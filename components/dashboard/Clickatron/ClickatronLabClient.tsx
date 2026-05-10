@@ -52,7 +52,7 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <h2 className="text-xl font-semibold text-zinc-100 mb-2">Could not load session</h2>
+          <h2 className="text-[18px] font-semibold text-zinc-100 mb-2">Could not load session</h2>
           <p className="text-zinc-400 text-sm">The requested session could not be found or has expired.</p>
           <Button onClick={() => router.push('/dashboard/clickatron')} className="mt-4">
             Go back

@@ -147,8 +147,8 @@ export function ImageUpload({ onFileChange, isLoading, multiple = false }: Image
               <p className="text-sm font-medium text-zinc-300 mb-1">
                 {isDragActive ? "Drop here..." : "Upload Images"}
               </p>
-              <p className="text-xs text-zinc-500 leading-tight">Drag & drop or click to upload</p>
-              <p className="text-xs text-zinc-600 mt-1">Max 5MB per image</p>
+              <p className="text-[11px] text-zinc-500 leading-tight">Drag & drop or click to upload</p>
+              <p className="text-[11px] text-zinc-600 mt-1">Max 5MB per image</p>
             </motion.div>
           )}
           </AnimatePresence>

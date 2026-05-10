@@ -28,7 +28,7 @@ export default function AdminError({ error, reset }: { error: Error & { digest?:
         </Link>
       </div>
       {process.env.NODE_ENV === "development" && (
-        <pre className="mt-6 text-left text-xs max-w-3xl overflow-auto p-3 bg-zinc-100 dark:bg-zinc-900 rounded">
+        <pre className="mt-6 text-left text-[11px] max-w-3xl overflow-auto p-3 bg-zinc-100 dark:bg-zinc-900 rounded">
           {String(error?.stack || error?.message)}
         </pre>
       )}

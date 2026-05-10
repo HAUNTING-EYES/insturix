@@ -141,7 +141,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg bg-[#1C1B19] px-3 py-1.5 text-xs font-medium text-[#B5B2A8] hover:bg-[#282724] hover:text-[#ECE9E1] transition-colors"
+            className="rounded-lg bg-[#1C1B19] px-3 py-1.5 text-[11px] font-medium text-[#B5B2A8] hover:bg-[#282724] hover:text-[#ECE9E1] transition-colors"
           >
             Close
           </button>
@@ -151,18 +151,18 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
           {loading && (
             <div className="rounded-xl bg-[#0F0F0E] p-6 text-center">
               <div className="h-4 w-4 mx-auto mb-2 border-2 border-[#282724] border-t-[#D4A652] rounded-full animate-spin" />
-              <p className="text-xs text-[#7A776E]">Loading sessions…</p>
+              <p className="text-[11px] text-[#7A776E]">Loading sessions…</p>
             </div>
           )}
           {!loading && displaySessions.length === 0 && (
             <div className="rounded-xl bg-[#0F0F0E] p-6 text-center border border-[#1C1B19]">
               <FileText className="h-8 w-8 mx-auto mb-2 text-[#282724]" />
-              <p className="text-xs text-[#7A776E]">No sessions yet</p>
+              <p className="text-[11px] text-[#7A776E]">No sessions yet</p>
               <p className="text-[10px] text-[#454340] mt-1">Generate ideas to create your first session</p>
             </div>
           )}
           {!!loadError && (
-            <div className="rounded-xl bg-[#D4A652]/10 border border-[#D4A652]/20 p-4 text-xs text-[#D4A652] mb-4">
+            <div className="rounded-xl bg-[#D4A652]/10 border border-[#D4A652]/20 p-4 text-[11px] text-[#D4A652] mb-4">
               {loadError}
             </div>
           )}
@@ -201,10 +201,10 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
                         onChange={e=>setDraftName(e.target.value)}
                         onKeyDown={e=>{ if(e.key==='Enter') { e.preventDefault(); commitEdit(); } else if (e.key==='Escape') { cancelEdit(); } }}
                         onBlur={commitEdit}
-                        className="flex-1 min-w-0 bg-[#0B0B0A] border border-[#282724] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-[#454340] focus:outline-none focus:ring-2 focus:ring-[#D4A652]/40"
+                        className="flex-1 min-w-0 bg-[#0B0B0A] border border-[#282724] rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder:text-[#454340] focus:outline-none focus:ring-2 focus:ring-[#D4A652]/40"
                         placeholder="Session name"/>
                     ) : (
-                      <span className="truncate text-xs font-medium text-[#ECE9E1]">{s.name}</span>
+                      <span className="truncate text-[11px] font-medium text-[#ECE9E1]">{s.name}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">

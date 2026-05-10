@@ -97,13 +97,13 @@ export const LottiePanel: React.FC = () => {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              className="w-full h-8 pl-8 pr-3 text-xs bg-zinc-900 border border-zinc-700 rounded-md text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="w-full h-8 pl-8 pr-3 text-[11px] bg-zinc-900 border border-zinc-700 rounded-md text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
           </div>
           <button
             onClick={handleSearch}
             disabled={loading || !query.trim()}
-            className="h-8 px-3 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded-md disabled:opacity-40"
+            className="h-8 px-3 text-[11px] bg-purple-600 hover:bg-purple-700 text-white rounded-md disabled:opacity-40"
           >
             {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Search'}
           </button>
@@ -126,7 +126,7 @@ export const LottiePanel: React.FC = () => {
         {results.length === 0 && !loading && (
           <div className="text-center py-8">
             <Sparkles className="h-8 w-8 text-zinc-600 mx-auto mb-2" />
-            <p className="text-xs text-zinc-500">Search LottieFiles animations</p>
+            <p className="text-[11px] text-zinc-500">Search LottieFiles animations</p>
             <p className="text-[10px] text-zinc-600 mt-1">Animated graphics for lower thirds, callouts, decorations</p>
           </div>
         )}

@@ -243,7 +243,7 @@ export function CurveEditor({ curves, onChange, disabled = false }: CurveEditorP
           size="sm"
           onClick={resetChannel}
           disabled={disabled}
-          className="h-6 px-2 text-xs text-zinc-500 hover:text-zinc-300"
+          className="h-6 px-2 text-[11px] text-zinc-500 hover:text-zinc-300"
         >
           <RotateCcw className="w-3 h-3 mr-1" />
           Reset

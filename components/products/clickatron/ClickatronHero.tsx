@@ -88,7 +88,7 @@ export default function ClickatronHero() {
         {/* Main Heading */}
         <motion.h1
           variants={itemVariants}
-          className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight mb-6"
+          className="text-[44px] md:text-7xl lg:text-8xl font-bold tracking-tight mb-6"
         >
           <span className="bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-700 dark:from-white dark:via-neutral-200 dark:to-neutral-400 bg-clip-text text-transparent">
             Create Viral Thumbnails
@@ -102,7 +102,7 @@ export default function ClickatronHero() {
         {/* Subtitle */}
         <motion.p
           variants={itemVariants}
-          className="text-lg md:text-xl text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
+          className="text-lg md:text-[18px] text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
         >
           Clickatron is your thumbnail generator and editor that combines AI
           prompt optimization, a high-fidelity render pipeline, and Insturix
@@ -171,7 +171,7 @@ export default function ClickatronHero() {
             <div className="absolute inset-0 bg-gradient-to-br from-purple-400/10 via-transparent to-fuchsia-400/10 flex items-center justify-center z-10">
               <div className="text-center text-white">
                 <Sparkles className="w-16 h-16 mx-auto mb-4 opacity-70" />
-                <p className="text-xl font-semibold">
+                <p className="text-[18px] font-semibold">
                   See Clickatron in Action
                 </p>
                 <p className="text-sm opacity-60 mt-2">

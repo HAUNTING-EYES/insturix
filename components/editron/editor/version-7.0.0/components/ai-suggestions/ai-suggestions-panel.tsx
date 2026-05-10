@@ -293,7 +293,7 @@ export function AISuggestionsPanel() {
           size="sm"
           onClick={runAnalysis}
           disabled={isAnalyzing}
-          className="h-7 gap-1 text-xs"
+          className="h-7 gap-1 text-[11px]"
         >
           {isAnalyzing ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -312,7 +312,7 @@ export function AISuggestionsPanel() {
             <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin text-yellow-500" />
               <p className="text-sm">Analyzing your video...</p>
-              <p className="text-xs text-muted-foreground/70">
+              <p className="text-[11px] text-muted-foreground/70">
                 Checking for silences, filler words, and more
               </p>
             </div>
@@ -326,7 +326,7 @@ export function AISuggestionsPanel() {
                 variant="outline"
                 size="sm"
                 onClick={runAnalysis}
-                className="text-xs"
+                className="text-[11px]"
               >
                 Retry
               </Button>
@@ -343,7 +343,7 @@ export function AISuggestionsPanel() {
                 <p className="text-sm font-medium text-foreground">
                   All clear!
                 </p>
-                <p className="text-xs text-center max-w-[200px]">
+                <p className="text-[11px] text-center max-w-[200px]">
                   {appliedCount > 0
                     ? `${appliedCount} suggestion${appliedCount > 1 ? "s" : ""} applied.`
                     : "No issues found in your video."}{" "}
@@ -420,7 +420,7 @@ function SuggestionCard({
     >
       {/* Title row */}
       <div className="flex items-start gap-2 mb-1.5">
-        <span className="text-base leading-none mt-0.5" role="img">
+        <span className="text-[14px] leading-none mt-0.5" role="img">
           {suggestion.icon}
         </span>
         <div className="flex-1 min-w-0">
@@ -431,14 +431,14 @@ function SuggestionCard({
       </div>
 
       {/* Description */}
-      <p className="text-xs text-muted-foreground mb-3 pl-6">
+      <p className="text-[11px] text-muted-foreground mb-3 pl-6">
         {suggestion.description}
       </p>
 
       {/* Actions */}
       <div className="flex items-center gap-1.5 pl-6">
         {isApplied ? (
-          <span className="inline-flex items-center gap-1 text-xs text-green-500 font-medium">
+          <span className="inline-flex items-center gap-1 text-[11px] text-green-500 font-medium">
             <Check className="h-3 w-3" /> Applied
           </span>
         ) : (
@@ -446,7 +446,7 @@ function SuggestionCard({
             <Button
               size="sm"
               variant="default"
-              className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700 text-white"
+              className="h-7 text-[11px] gap-1 bg-green-600 hover:bg-green-700 text-white"
               disabled={isApplying}
               onClick={() => onAccept(suggestion.id)}
             >
@@ -466,7 +466,7 @@ function SuggestionCard({
             <Button
               size="sm"
               variant="ghost"
-              className="h-7 text-xs gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+              className="h-7 text-[11px] gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/10"
               disabled={isApplying}
               onClick={() => onDismiss(suggestion.id)}
             >
@@ -478,7 +478,7 @@ function SuggestionCard({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                className="h-7 text-[11px] gap-1 text-muted-foreground hover:text-foreground"
                 disabled={isApplying}
                 onClick={() => onPreview(suggestion)}
               >

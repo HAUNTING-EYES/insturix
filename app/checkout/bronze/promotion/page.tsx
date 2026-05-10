@@ -260,7 +260,7 @@ export default function BronzePromotionPage() {
           
           <div className="relative rounded-3xl border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-8">
             <div className="mb-6">
-              <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">
+              <h1 className="text-[32px] font-bold text-zinc-900 dark:text-zinc-100 mb-2">
                 Silver Pass - Promotion Tasks
               </h1>
               <p className="text-zinc-600 dark:text-zinc-400">
@@ -280,7 +280,7 @@ export default function BronzePromotionPage() {
                     <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-2">
                       Post an Instagram story promoting ICS'25 and tag <strong>@insturix</strong>
                     </p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-500">
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-500">
                       Include event details and your excitement about attending!
                     </p>
                   </div>
@@ -297,7 +297,7 @@ export default function BronzePromotionPage() {
                     <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-2">
                       Share a LinkedIn post about ICS'25 and tag <strong>Insturix</strong>
                     </p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-500">
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-500">
                       Share why you're attending and what you're looking forward to!
                     </p>
                   </div>
@@ -437,7 +437,7 @@ export default function BronzePromotionPage() {
                     placeholder="https://instagram.com/stories/..."
                     required={false}
                   />
-                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-500">
+                  <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-500">
                     Paste the link to your Instagram story (it should be public or saved to highlights)
                   </p>
                 </div>
@@ -452,7 +452,7 @@ export default function BronzePromotionPage() {
                     placeholder="https://linkedin.com/posts/..."
                     required={false}
                   />
-                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-500">
+                  <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-500">
                     Paste the link to your LinkedIn post
                   </p>
                 </div>
@@ -477,7 +477,7 @@ export default function BronzePromotionPage() {
                 {submitting ? "Submitting..." : "Submit for Review"}
               </Button>
 
-              <p className="text-xs text-center text-zinc-500">
+              <p className="text-[11px] text-center text-zinc-500">
                 By submitting, you confirm you've completed at least one of the promotional tasks.
               </p>
             </form>

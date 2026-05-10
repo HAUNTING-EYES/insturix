@@ -143,7 +143,7 @@ export default function TagEditor({
               animate={{ opacity: 1, scale: 1, x: 0 }}
               exit={{ opacity: 0, scale: 0.8, x: -10 }}
               transition={{ duration: 0.15 }}
-              className={`group relative inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-medium ${getTagColor(tag)} transition-all hover:scale-105`}
+              className={`group relative inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-medium ${getTagColor(tag)} transition-all hover:scale-105`}
             >
               <Tag size={10} className="shrink-0 opacity-70" />
               <span className="truncate max-w-[120px]">{tag}</span>
@@ -213,7 +213,7 @@ export default function TagEditor({
 
       {/* Helper Text */}
       {tags.length >= maxTags && (
-        <p className="mt-1.5 text-xs text-neutral-500">
+        <p className="mt-1.5 text-[11px] text-neutral-500">
           Maximum {maxTags} tags allowed
         </p>
       )}

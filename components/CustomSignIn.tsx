@@ -153,7 +153,7 @@ export default function CustomSignIn() {
                   <div className="absolute inset-0 flex items-center">
                     <span className="w-full border-t" />
                   </div>
-                  <div className="relative flex justify-center text-xs uppercase">
+                  <div className="relative flex justify-center text-[11px] uppercase">
                     <span className="bg-white dark:bg-[rgb(var(--surface-0))] px-4 relative text-muted-foreground">
                       Or
                     </span>
@@ -243,7 +243,7 @@ export default function CustomSignIn() {
                   Sign up
                 </Link>
               </p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2">
                 Secured by <span className="font-semibold">clerk</span>{" "}
                 <span className="text-amber-500">Development mode</span>
               </p>

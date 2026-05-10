@@ -272,7 +272,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
             <TooltipContent
               side="top"
               sideOffset={5}
-              className="bg-popover text-popover-foreground text-xs px-2 py-1 rounded-md z-[9999] border border-border"
+              className="bg-popover text-popover-foreground text-[11px] px-2 py-1 rounded-md z-[9999] border border-border"
               align="start"
             >
               <div className="flex items-center gap-1">
@@ -299,7 +299,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
             <TooltipContent
               side="top"
               sideOffset={5}
-              className="bg-popover text-popover-foreground text-xs px-2 py-1 rounded-md z-[9999] border border-border"
+              className="bg-popover text-popover-foreground text-[11px] px-2 py-1 rounded-md z-[9999] border border-border"
               align="start"
             >
               <div className="flex items-center gap-1">
@@ -316,7 +316,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
         {!SHOW_LOADING_PROJECT_ALERT && isLoadingAssets && (
           <div className="flex items-center gap-2 px-2 py-1 bg-zinc-50/90 dark:bg-zinc-900/20 rounded-md ml-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-600 dark:text-zinc-400" />
-            <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            <span className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300">
               Loading...
             </span>
           </div>
@@ -331,7 +331,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              className="hidden sm:flex border h-7 p-3 text-xs text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground hover:bg-transparent"
+              className="hidden sm:flex border h-7 p-3 text-[11px] text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground hover:bg-transparent"
             >
               {playbackRate}x
             </Button>
@@ -344,7 +344,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
               <DropdownMenuItem
                 key={speed}
                 onClick={() => setPlaybackRate(speed)}
-                className={`text-xs py-1.5 ${
+                className={`text-[11px] py-1.5 ${
                   playbackRate === speed
                     ? "text-foreground font-medium bg-accent"
                     : "text-muted-foreground"
@@ -374,7 +374,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
             <TooltipContent
               side="top"
               sideOffset={5}
-              className="bg-sidebar text-sidebar-foreground text-xs px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
+              className="bg-sidebar text-sidebar-foreground text-[11px] px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
               align="center"
             >
               <div className="flex items-center gap-1">
@@ -390,13 +390,13 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
         </TooltipProvider>
 
         <div className="flex items-center space-x-1">
-          <span className="text-xs font-medium text-foreground dark:text-foreground tabular-nums">
+          <span className="text-[11px] font-medium text-foreground dark:text-foreground tabular-nums">
             {formatTime(currentFrame)}
           </span>
-          <span className="text-xs font-medium text-muted-foreground dark:text-muted-foreground">
+          <span className="text-[11px] font-medium text-muted-foreground dark:text-muted-foreground">
             /
           </span>
-          <span className="text-xs font-medium text-muted-foreground dark:text-muted-foreground tabular-nums">
+          <span className="text-[11px] font-medium text-muted-foreground dark:text-muted-foreground tabular-nums">
             {formatTime(totalDuration)}
           </span>
         </div>
@@ -421,7 +421,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
               <TooltipContent
                 side="top"
                 sideOffset={5}
-                className="bg-sidebar text-sidebar-foreground text-xs px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
+                className="bg-sidebar text-sidebar-foreground text-[11px] px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
                 align="center"
               >
                 <span className="text-sidebar-foreground">
@@ -455,7 +455,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
               <TooltipContent
                 side="top"
                 sideOffset={5}
-                className="bg-sidebar text-sidebar-foreground text-xs px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
+                className="bg-sidebar text-sidebar-foreground text-[11px] px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
                 align="center"
               >
                 <span className="text-sidebar-foreground">
@@ -482,7 +482,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
             <TooltipContent
               side="top"
               sideOffset={5}
-              className="bg-sidebar text-sidebar-foreground text-xs px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
+              className="bg-sidebar text-sidebar-foreground text-[11px] px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
               align="end"
             >
               <span className="text-sidebar-foreground">
@@ -512,7 +512,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
             <TooltipContent
               side="top"
               sideOffset={5}
-              className="bg-sidebar text-sidebar-foreground text-xs px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
+              className="bg-sidebar text-sidebar-foreground text-[11px] px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
               align="end"
             >
               <span className="text-sidebar-foreground">
@@ -543,14 +543,14 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
             collisionPadding={16}
             avoidCollisions={false}
           >
-            <DropdownMenuLabel className="text-xs text-sidebar-foreground">
+            <DropdownMenuLabel className="text-[11px] text-sidebar-foreground">
               Timeline Settings
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="bg-sidebar-border" />
 
             {/* Row Controls */}
             <div className="px-2 py-2 space-y-1">
-              <Label className="text-xs text-sidebar-accent-foreground">
+              <Label className="text-[11px] text-sidebar-accent-foreground">
                 Rows
               </Label>
               <div className="flex gap-1 pt-1">
@@ -563,7 +563,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
                 >
                   <Minus className="h-4 w-4 text-sidebar-accent-foreground" />
                 </Button>
-                <span className="flex items-center justify-center w-12 text-xs text-sidebar-accent-foreground">
+                <span className="flex items-center justify-center w-12 text-[11px] text-sidebar-accent-foreground">
                   {visibleRows}/{MAX_ROWS}
                 </span>
                 <Button
@@ -581,7 +581,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
 
             {/* Aspect Ratio */}
             <div className="px-2 py-2 space-y-1">
-              <Label className="text-xs text-sidebar-accent-foreground">
+              <Label className="text-[11px] text-sidebar-accent-foreground">
                 Aspect Ratio
               </Label>
               <div className="grid grid-cols-3 gap-1 pt-1">

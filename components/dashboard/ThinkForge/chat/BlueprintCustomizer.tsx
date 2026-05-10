@@ -107,7 +107,7 @@ export function BlueprintCustomizer({ artifacts: initial, onSave, onCancel }: Bl
                 type="text"
                 value={item.label}
                 onChange={e => updateField(i, "label", e.target.value)}
-                className="flex-1 bg-transparent text-xs text-[#ECE9E1] outline-none placeholder:text-[#454340] min-w-0"
+                className="flex-1 bg-transparent text-[11px] text-[#ECE9E1] outline-none placeholder:text-[#454340] min-w-0"
                 placeholder="Document name"
               />
 

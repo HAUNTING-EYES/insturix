@@ -25,11 +25,11 @@ export function SocializeHeader({ user, bio, onEditBio }: SocializeHeaderProps) 
                 className="w-full h-full object-cover"
               />
             ) : (
-              <span className="text-xs text-gray-400">No Pic</span>
+              <span className="text-[11px] text-gray-400">No Pic</span>
             )}
           </div>
           <div>
-            <CardTitle className="text-xl font-medium" style={{ color: '#EAE9E5' }}>
+            <CardTitle className="text-[18px] font-medium" style={{ color: '#EAE9E5' }}>
               {user?.username}
             </CardTitle>
             <CardDescription style={{ color: '#B5B2A8' }}>

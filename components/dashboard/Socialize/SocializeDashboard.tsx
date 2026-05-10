@@ -722,7 +722,7 @@ export default function SocializeDashboard({
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
         <DialogContent className="text-[#EAE9E5] p-6 border-social-line" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
           <DialogHeader className="pb-4">
-            <DialogTitle className="flex items-center gap-2 text-xl font-medium">
+            <DialogTitle className="flex items-center gap-2 text-[18px] font-medium">
               <Plus className="w-5 h-5" style={{ color: '#D4A652' }} />
               Add New Link
             </DialogTitle>
@@ -810,7 +810,7 @@ export default function SocializeDashboard({
       <Dialog open={showEditBioModal} onOpenChange={setShowEditBioModal}>
         <DialogContent className="text-[#EAE9E5] p-6 border-social-line" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
           <DialogHeader className="pb-4">
-            <DialogTitle className="text-xl font-medium">Edit Bio</DialogTitle>
+            <DialogTitle className="text-[18px] font-medium">Edit Bio</DialogTitle>
             <DialogDescription>Update your profile bio</DialogDescription>
           </DialogHeader>
 
@@ -825,7 +825,7 @@ export default function SocializeDashboard({
                 rows={3}
                 maxLength={80}
               />
-              <div className="flex justify-end text-xs text-gray-400">
+              <div className="flex justify-end text-[11px] text-gray-400">
                 {bio.length} / 80
               </div>
             </div>
@@ -853,7 +853,7 @@ export default function SocializeDashboard({
       <Dialog open={showUpdatePopup} onOpenChange={setShowUpdatePopup}>
         <DialogContent className="text-[#EAE9E5] p-6 border-social-line" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
           <DialogHeader className="pb-4">
-            <DialogTitle className="flex items-center gap-2 text-xl font-medium">
+            <DialogTitle className="flex items-center gap-2 text-[18px] font-medium">
               <Bell className="w-5 h-5" style={{ color: '#D4A652' }} />
               Update Notification
             </DialogTitle>
@@ -885,7 +885,7 @@ export default function SocializeDashboard({
                 }}
                 className="border-transparent focus:border-[#D4A652] focus:ring-0 text-[#EAE9E5]" style={{ backgroundColor: '#0F0F0E' }}
               />
-              <p className="text-xs text-gray-400">Between 1 and 24 hours</p>
+              <p className="text-[11px] text-gray-400">Between 1 and 24 hours</p>
             </div>
 
             <div className="space-y-2">
@@ -898,7 +898,7 @@ export default function SocializeDashboard({
                 rows={3}
                 maxLength={150}
               />
-              <div className="flex justify-end text-xs text-gray-400">
+              <div className="flex justify-end text-[11px] text-gray-400">
                 {message.length} / 150
               </div>
             </div>
@@ -934,7 +934,7 @@ export default function SocializeDashboard({
       <Dialog open={showEditLinkModal} onOpenChange={setShowEditLinkModal}>
         <DialogContent className="text-[#EAE9E5] p-6 border-social-line" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
           <DialogHeader className="pb-4">
-            <DialogTitle className="flex items-center gap-2 text-xl font-medium">
+            <DialogTitle className="flex items-center gap-2 text-[18px] font-medium">
               <Plus className="w-5 h-5" style={{ color: '#D4A652' }} />
               Edit Link
             </DialogTitle>

@@ -57,7 +57,7 @@ export function TaskDetails({ task, signedUrlApi }: TaskDetailsProps) {
         <CardHeader className="flex flex-row items-center gap-3">
           <Music className="text-yellow-400" />
           <CardTitle className="flex-1 text-zinc-100">{task.title}</CardTitle>
-          <span className="ml-2 text-zinc-500 font-semibold text-base">Failed</span>
+          <span className="ml-2 text-zinc-500 font-semibold text-[14px]">Failed</span>
         </CardHeader>
         <Separator />
         <CardContent className="py-6 flex flex-col gap-4">
@@ -83,7 +83,7 @@ export function TaskDetails({ task, signedUrlApi }: TaskDetailsProps) {
           {/* Lyrics */}
           {task.lyrics && (
             <div className="mt-4">
-              <div className="text-xs text-zinc-400 mb-1 flex items-center gap-1">
+              <div className="text-[11px] text-zinc-400 mb-1 flex items-center gap-1">
                 <FileText className="w-4 h-4" />
                 Lyrics
               </div>
@@ -94,12 +94,12 @@ export function TaskDetails({ task, signedUrlApi }: TaskDetailsProps) {
           )}
           {/* Task ID */}
           <div className="mt-4">
-            <div className="text-xs text-zinc-400 mb-1 flex items-center gap-1">
+            <div className="text-[11px] text-zinc-400 mb-1 flex items-center gap-1">
               <Hash className="w-4 h-4" />
               Task ID
             </div>
             <div className="bg-zinc-900/50 p-2 rounded-lg border border-zinc-700">
-              <code className="text-xs text-zinc-200 font-mono">{task._id}</code>
+              <code className="text-[11px] text-zinc-200 font-mono">{task._id}</code>
             </div>
           </div>
         </CardContent>

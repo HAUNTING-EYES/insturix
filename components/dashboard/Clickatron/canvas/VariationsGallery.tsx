@@ -101,7 +101,7 @@ export function VariationsGallery({
       >
         <div className="text-sm font-medium text-zinc-200">
           <h3>Variations</h3>
-          <p className="text-xs text-zinc-500">
+          <p className="text-[11px] text-zinc-500">
             {variations.length} generated
           </p>
         </div>
@@ -326,7 +326,7 @@ export function VariationsGallery({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.15 }}
-              className="text-xs text-zinc-500 mt-1"
+              className="text-[11px] text-zinc-500 mt-1"
             >
               +{variations.length - 3}
             </motion.div>

@@ -114,7 +114,7 @@ export function NotificationPanel({ notifications, onClose }: NotificationPanelP
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm" style={{ color: '#EAE9E5' }}>{notification.message}</p>
-                    <p className="text-xs mt-1" style={{ color: '#B5B2A8' }}>{formatTime(notification)}</p>
+                    <p className="text-[11px] mt-1" style={{ color: '#B5B2A8' }}>{formatTime(notification)}</p>
                   </div>
                 </motion.div>
               ))}
@@ -134,11 +134,11 @@ export function NotificationPanel({ notifications, onClose }: NotificationPanelP
                 size="sm"
                 onClick={() => setCurrentPage((prev) => Math.max(0, prev - 1))}
                 disabled={currentPage === 0}
-                className="text-xs h-8"
+                className="text-[11px] h-8"
               >
                 Previous
               </Button>
-              <span className="text-xs text-gray-400">
+              <span className="text-[11px] text-gray-400">
                 {currentPage + 1} of {totalPages}
               </span>
               <Button
@@ -146,7 +146,7 @@ export function NotificationPanel({ notifications, onClose }: NotificationPanelP
                 size="sm"
                 onClick={() => setCurrentPage((prev) => Math.min(totalPages - 1, prev + 1))}
                 disabled={currentPage === totalPages - 1}
-                className="text-xs h-8"
+                className="text-[11px] h-8"
               >
                 Next
               </Button>

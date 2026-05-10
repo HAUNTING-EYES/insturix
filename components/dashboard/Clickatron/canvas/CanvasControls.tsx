@@ -68,7 +68,7 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                   size="sm"
                   onClick={handleReset}
                   disabled={disabled}
-                  className="text-zinc-500 hover:text-zinc-300 h-6 px-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-800/50 transition-all text-xs"
+                  className="text-zinc-500 hover:text-zinc-300 h-6 px-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-800/50 transition-all text-[11px]"
                 >
                   <RotateCcw className="w-3 h-3 mr-1" />
                   Reset
@@ -83,11 +83,11 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                 {/* Brightness */}
                 <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                        <Label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                        <Label className="text-[11px] font-medium text-zinc-300 flex items-center gap-1.5">
                             <div className="w-2 h-2 rounded-full bg-yellow-400/60" />
                             Brightness
                         </Label>
-                        <span className="text-xs text-zinc-400 font-mono tabular-nums">
+                        <span className="text-[11px] text-zinc-400 font-mono tabular-nums">
                             {brightness}%
                         </span>
                     </div>
@@ -111,11 +111,11 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                 {/* Contrast */}
                 <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                        <Label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                        <Label className="text-[11px] font-medium text-zinc-300 flex items-center gap-1.5">
                             <div className="w-2 h-2 rounded-full bg-blue-400/60" />
                             Contrast
                         </Label>
-                        <span className="text-xs text-zinc-400 font-mono tabular-nums">
+                        <span className="text-[11px] text-zinc-400 font-mono tabular-nums">
                             {contrast}%
                         </span>
                     </div>
@@ -139,11 +139,11 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                 {/* Saturation */}
                 <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                        <Label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                        <Label className="text-[11px] font-medium text-zinc-300 flex items-center gap-1.5">
                             <div className="w-2 h-2 rounded-full bg-green-400/60" />
                             Saturation
                         </Label>
-                        <span className="text-xs text-zinc-400 font-mono tabular-nums">
+                        <span className="text-[11px] text-zinc-400 font-mono tabular-nums">
                             {saturation}%
                         </span>
                     </div>
@@ -166,7 +166,7 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
 
                 {/* Curves */}
                 <div className="space-y-2">
-                    <Label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                    <Label className="text-[11px] font-medium text-zinc-300 flex items-center gap-1.5">
                         <div className="w-2 h-2 rounded-full bg-purple-400/60" />
                         Curves
                     </Label>
@@ -189,7 +189,7 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                 <>
                     <Separator className="bg-zinc-700/20" />
                     <div className="p-3 space-y-2">
-                        <Label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                        <Label className="text-[11px] font-medium text-zinc-300 flex items-center gap-1.5">
                             <div className="w-2 h-2 rounded-full bg-purple-400/60" />
                             Canvas Size
                         </Label>
@@ -200,7 +200,7 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
 
             {/* Footer Info */}
             <div className="p-2 border-t border-zinc-700/20 bg-gradient-to-t from-zinc-800/10 to-transparent">
-                <div className="text-xs text-zinc-500 text-center flex items-center justify-center gap-1">
+                <div className="text-[11px] text-zinc-500 text-center flex items-center justify-center gap-1">
                     <div className="w-1 h-1 rounded-full bg-green-400 animate-pulse" />
                     Real-time preview
                 </div>

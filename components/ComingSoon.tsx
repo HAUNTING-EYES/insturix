@@ -38,10 +38,10 @@ export function ComingSoon({ serviceName, progressPercentage }: ComingSoonProps)
 
           {/* Main Heading */}
           <div className="space-y-4">
-            <h1 className="text-6xl md:text-7xl font-bold bg-gradient-to-r from-zinc-100 via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
+            <h1 className="text-[110px] md:text-7xl font-bold bg-gradient-to-r from-zinc-100 via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
               {serviceName}
             </h1>
-            <h2 className="text-3xl md:text-4xl font-semibold text-zinc-400">
+            <h2 className="text-[32px] md:text-[44px] font-semibold text-zinc-400">
               Coming Soon
             </h2>
           </div>
@@ -52,7 +52,7 @@ export function ComingSoon({ serviceName, progressPercentage }: ComingSoonProps)
               <div className="mx-auto w-20 h-20 bg-gradient-to-br from-blue-500/20 to-purple-600/20 rounded-full flex items-center justify-center border border-blue-500/30 mb-4">
                 <RocketIcon className="w-10 h-10 text-blue-400" />
               </div>
-              <CardTitle className="text-xl text-zinc-100 font-semibold">
+              <CardTitle className="text-[18px] text-zinc-100 font-semibold">
                 We&#39;re Building Something Amazing
               </CardTitle>
             </CardHeader>

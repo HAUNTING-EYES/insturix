@@ -21,7 +21,7 @@ export default async function AdminCashbackTasksPage() {
           <AdminBackButton />
         </div>
         <div className="mb-8">
-          <h1 className="text-4xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100">
+          <h1 className="text-[44px] font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100">
             Cashback Tasks Management
           </h1>
           <p className="text-zinc-600 dark:text-zinc-400 mt-3 text-lg">

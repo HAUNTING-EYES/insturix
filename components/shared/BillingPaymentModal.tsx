@@ -311,7 +311,7 @@ export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackage
               <Sparkles className="w-5 h-5 text-amber-500/80" />
             </div>
             <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-bold text-white tracking-tight">
+              <h2 className="text-[18px] font-bold text-white tracking-tight">
                 {isSubscription ? 'Upgrade Plan' : 'Refuel Account'}
               </h2>
               <p className="text-[10px] text-white/20 font-bold uppercase tracking-widest mt-0.5">
@@ -341,13 +341,13 @@ export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackage
                         <p className="text-sm text-white/60">{plan.credits.toLocaleString()} credits / month</p>
                       </div>
                       <div className="text-right">
-                        <div className="text-xl font-black text-amber-500">${plan.price}</div>
+                        <div className="text-[18px] font-black text-amber-500">${plan.price}</div>
                         <div className="text-[10px] text-white/20 font-bold uppercase tracking-wider">USD / MO</div>
                       </div>
                     </div>
                     <div className="space-y-2 pt-2 border-t border-white/5">
                       {plan.features.slice(0, 3).map((feature, i) => (
-                        <div key={i} className="flex items-center gap-2 text-xs text-white/40">
+                        <div key={i} className="flex items-center gap-2 text-[11px] text-white/40">
                           <CheckCircle2 className="w-3 h-3 text-amber-500/50" />
                           {feature}
                         </div>
@@ -408,10 +408,10 @@ export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackage
                 >
                   <div>
                     <div className="flex items-baseline gap-2">
-                      <span className="text-xl font-semibold tabular-nums">{pkg.credits}</span>
+                      <span className="text-[18px] font-semibold tabular-nums">{pkg.credits}</span>
                       <span className="text-sm text-muted-foreground">credits</span>
                     </div>
-                    <p className="text-base font-medium mt-0.5 text-muted-foreground">
+                    <p className="text-[14px] font-medium mt-0.5 text-muted-foreground">
                       {formatPrice(pkg.prices[currency] || pkg.prices.USD, currency)}
                     </p>
                   </div>
@@ -442,7 +442,7 @@ export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackage
                   ? "bg-amber-500 text-black hover:bg-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.2)]"
                   : "bg-white text-black hover:bg-white/90 shadow-xl",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
-                "flex items-center justify-center gap-2 text-base"
+                "flex items-center justify-center gap-2 text-[14px]"
               )}
             >
               {!scriptLoaded ? (

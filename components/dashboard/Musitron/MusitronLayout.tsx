@@ -16,11 +16,11 @@ export function MusitronLayout() {
           {/* Hero Section - Load immediately */}
           <div className="pt-4 sm:pt-0">
             <div>
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold tracking-tight text-zinc-100 flex items-center gap-2 sm:gap-3">
+              <h1 className="text-2xl sm:text-[32px] lg:text-[44px] font-semibold tracking-tight text-zinc-100 flex items-center gap-2 sm:gap-3">
                 <AudioWaveform className="h-6 w-6 sm:h-7 sm:w-7 lg:h-8 lg:w-8 text-yellow-500" />
                 Music
               </h1>
-              <p className="mt-2 sm:mt-3 text-sm sm:text-base lg:text-lg text-zinc-400 font-light">
+              <p className="mt-2 sm:mt-3 text-sm sm:text-[14px] lg:text-lg text-zinc-400 font-light">
                 Transform your ideas into unique musical compositions
               </p>
             </div>

@@ -14,7 +14,7 @@ export default function Navbar() {
               className="h-9"
               alt="Editron Logo"
             />
-            <span className="self-center text-xl md:text-2xl font-light whitespace-nowrap text-white">
+            <span className="self-center text-[18px] md:text-2xl font-light whitespace-nowrap text-white">
               Editron
             </span>
           </Link>

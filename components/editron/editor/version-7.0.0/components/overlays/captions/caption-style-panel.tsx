@@ -99,7 +99,7 @@ const CollapsibleSection: React.FC<{
           <ChevronRight className="w-3 h-3 text-muted-foreground" />
         )}
         <span className="text-muted-foreground">{icon}</span>
-        <h4 className="text-xs font-medium text-foreground flex-1">{title}</h4>
+        <h4 className="text-[11px] font-medium text-foreground flex-1">{title}</h4>
       </button>
       {isOpen && <div className="px-3 pb-3 space-y-4">{children}</div>}
     </div>
@@ -164,7 +164,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
         >
-          <span className="flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-2 text-[11px]">
             <Film className="w-3 h-3" />
             Display
           </span>
@@ -174,7 +174,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
         >
-          <span className="flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-2 text-[11px]">
             <Layers className="w-3 h-3" />
             Templates
           </span>
@@ -184,7 +184,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
         >
-          <span className="flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-2 text-[11px]">
             <Settings2 className="w-3 h-3" />
             Styling
           </span>
@@ -195,7 +195,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
       <TabsContent value="display" className="space-y-4 mt-0 focus-visible:outline-none">
         {/* Display Mode Selection */}
         <div className="space-y-3">
-          <Label className="text-xs text-muted-foreground">Display Mode</Label>
+          <Label className="text-[11px] text-muted-foreground">Display Mode</Label>
           <div className="grid grid-cols-2 gap-2">
             {displayModes.map((mode) => (
               <button
@@ -208,7 +208,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
                     : "bg-muted/30 border-border hover:border-primary/50"
                 )}
               >
-                <div className="font-medium text-xs">{mode.label}</div>
+                <div className="font-medium text-[11px]">{mode.label}</div>
                 <div className="text-[10px] text-muted-foreground">{mode.description}</div>
               </button>
             ))}
@@ -218,8 +218,8 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
         {/* Words Per Group Slider */}
         <div className="space-y-2">
           <div className="flex justify-between">
-            <Label className="text-xs text-muted-foreground">Words Per Group</Label>
-            <span className="text-xs text-muted-foreground font-mono">{displayConfig.wordsPerGroup}</span>
+            <Label className="text-[11px] text-muted-foreground">Words Per Group</Label>
+            <span className="text-[11px] text-muted-foreground font-mono">{displayConfig.wordsPerGroup}</span>
           </div>
           <Slider
             value={[displayConfig.wordsPerGroup]}
@@ -238,8 +238,8 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
         {/* Max Words Per Line */}
         <div className="space-y-2">
           <div className="flex justify-between">
-            <Label className="text-xs text-muted-foreground">Max Words Per Line</Label>
-            <span className="text-xs text-muted-foreground font-mono">{displayConfig.maxWordsPerLine}</span>
+            <Label className="text-[11px] text-muted-foreground">Max Words Per Line</Label>
+            <span className="text-[11px] text-muted-foreground font-mono">{displayConfig.maxWordsPerLine}</span>
           </div>
           <Slider
             value={[displayConfig.maxWordsPerLine]}
@@ -253,7 +253,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
         {/* Progressive Reveal Toggle */}
         <div className="flex items-center justify-between py-2">
           <div>
-            <Label className="text-xs">Show Previous Words</Label>
+            <Label className="text-[11px]">Show Previous Words</Label>
             <p className="text-[10px] text-muted-foreground">Keep spoken words visible</p>
           </div>
           <Switch
@@ -266,7 +266,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
         {displayConfig.showPreviousWords && (
           <div className="flex items-center justify-between py-2">
             <div>
-              <Label className="text-xs">Fade Previous Words</Label>
+              <Label className="text-[11px]">Fade Previous Words</Label>
               <p className="text-[10px] text-muted-foreground">Dim words after speaking</p>
             </div>
             <Switch
@@ -278,7 +278,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
 
         {/* Position Presets */}
         <div className="space-y-3 pt-2 border-t mt-2">
-          <Label className="text-xs text-muted-foreground">Vertical Position</Label>
+          <Label className="text-[11px] text-muted-foreground">Vertical Position</Label>
           <div className="grid grid-cols-3 gap-2">
             {[
               { value: "top", label: "Top" },
@@ -289,7 +289,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
                 key={pos.value}
                 onClick={() => setLocalOverlay({ ...localOverlay, position: pos.value as any })}
                 className={cn(
-                  "py-2 px-3 text-xs rounded border transition-all",
+                  "py-2 px-3 text-[11px] rounded border transition-all",
                   localOverlay.position === pos.value
                     ? "bg-primary/10 border-primary text-primary"
                     : "bg-muted/30 border-border hover:border-primary/50 text-muted-foreground hover:text-foreground"
@@ -368,17 +368,17 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
         >
           {/* Font Family */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Font Family</Label>
+            <Label className="text-[11px] text-muted-foreground">Font Family</Label>
             <Select
               value={styles.fontFamily}
               onValueChange={(value) => updateStyles({ fontFamily: value })}
             >
-              <SelectTrigger className="w-full text-xs">
+              <SelectTrigger className="w-full text-[11px]">
                 <SelectValue placeholder="Select font" />
               </SelectTrigger>
               <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
                 {fonts.map((font) => (
-                  <SelectItem key={font.value} value={font.value} className={`${font.value} text-xs`}>
+                  <SelectItem key={font.value} value={font.value} className={`${font.value} text-[11px]`}>
                     {font.label}
                   </SelectItem>
                 ))}
@@ -389,8 +389,8 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           {/* Font Size */}
           <div className="space-y-2">
             <div className="flex justify-between">
-              <Label className="text-xs text-muted-foreground">Font Size</Label>
-              <span className="text-xs text-muted-foreground font-mono">{parseInt(styles.fontSize) || 32}px</span>
+              <Label className="text-[11px] text-muted-foreground">Font Size</Label>
+              <span className="text-[11px] text-muted-foreground font-mono">{parseInt(styles.fontSize) || 32}px</span>
             </div>
             <Slider
               value={[parseInt(styles.fontSize) || 32]}
@@ -403,17 +403,17 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
 
           {/* Font Weight */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Font Weight</Label>
+            <Label className="text-[11px] text-muted-foreground">Font Weight</Label>
             <Select
               value={String(styles.fontWeight || 500)}
               onValueChange={(value) => updateStyles({ fontWeight: parseInt(value) })}
             >
-              <SelectTrigger className="w-full text-xs">
+              <SelectTrigger className="w-full text-[11px]">
                 <SelectValue placeholder="Select weight" />
               </SelectTrigger>
               <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
                 {fontWeights.map((weight) => (
-                  <SelectItem key={weight.value} value={String(weight.value)} className="text-xs">
+                  <SelectItem key={weight.value} value={String(weight.value)} className="text-[11px]">
                     {weight.label}
                   </SelectItem>
                 ))}
@@ -423,7 +423,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
 
           {/* Text Color */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Text Color</Label>
+            <Label className="text-[11px] text-muted-foreground">Text Color</Label>
             <div className="flex items-center gap-2">
               <OptimizedColorPicker
                 value={styles.color}
@@ -433,21 +433,21 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
                 type="text"
                 value={styles.color}
                 onChange={(e) => updateStyles({ color: e.target.value })}
-                className="flex-1 px-2 py-1 text-xs rounded border bg-background"
+                className="flex-1 px-2 py-1 text-[11px] rounded border bg-background"
               />
             </div>
           </div>
 
           {/* Text Align */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Text Align</Label>
+            <Label className="text-[11px] text-muted-foreground">Text Align</Label>
             <div className="flex gap-1">
               {textAlignOptions.map((opt) => (
                 <button
                   key={opt.value}
                   onClick={() => updateStyles({ textAlign: opt.value as "left" | "center" | "right" })}
                   className={cn(
-                    "flex-1 px-3 py-1.5 text-xs rounded border transition-all",
+                    "flex-1 px-3 py-1.5 text-[11px] rounded border transition-all",
                     styles.textAlign === opt.value
                       ? "bg-primary text-primary-foreground border-primary"
                       : "bg-muted/50 border-border hover:border-primary/50"
@@ -462,8 +462,8 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           {/* Line Height */}
           <div className="space-y-2">
             <div className="flex justify-between">
-              <Label className="text-xs text-muted-foreground">Line Height</Label>
-              <span className="text-xs text-muted-foreground">{(styles.lineHeight || 1.4).toFixed(1)}</span>
+              <Label className="text-[11px] text-muted-foreground">Line Height</Label>
+              <span className="text-[11px] text-muted-foreground">{(styles.lineHeight || 1.4).toFixed(1)}</span>
             </div>
             <Slider
               value={[styles.lineHeight || 1.4]}
@@ -477,8 +477,8 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           {/* Letter Spacing */}
           <div className="space-y-2">
             <div className="flex justify-between">
-              <Label className="text-xs text-muted-foreground">Letter Spacing</Label>
-              <span className="text-xs text-muted-foreground">{styles.letterSpacing || "0em"}</span>
+              <Label className="text-[11px] text-muted-foreground">Letter Spacing</Label>
+              <span className="text-[11px] text-muted-foreground">{styles.letterSpacing || "0em"}</span>
             </div>
             <Slider
               value={[parseFloat(styles.letterSpacing || "0") * 100]}
@@ -491,13 +491,13 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
 
           {/* Text Shadow */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Text Shadow</Label>
+            <Label className="text-[11px] text-muted-foreground">Text Shadow</Label>
             <input
               type="text"
               value={styles.textShadow || ""}
               onChange={(e) => updateStyles({ textShadow: e.target.value })}
               placeholder="e.g., 2px 2px 4px rgba(0,0,0,0.5)"
-              className="w-full px-2 py-1 text-xs rounded border bg-background"
+              className="w-full px-2 py-1 text-[11px] rounded border bg-background"
             />
           </div>
         </CollapsibleSection>
@@ -510,7 +510,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
         >
           {/* Background Color */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Background Color</Label>
+            <Label className="text-[11px] text-muted-foreground">Background Color</Label>
             <div className="flex items-center gap-2">
               <OptimizedColorPicker
                 value={styles.backgroundColor?.replace(/rgba?\([^)]+\)/i, '#000000') || "#000000"}
@@ -521,56 +521,56 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
                 value={styles.backgroundColor || ""}
                 onChange={(e) => updateStyles({ backgroundColor: e.target.value })}
                 placeholder="transparent or rgba(0,0,0,0.5)"
-                className="flex-1 px-2 py-1 text-xs rounded border bg-background"
+                className="flex-1 px-2 py-1 text-[11px] rounded border bg-background"
               />
             </div>
           </div>
 
           {/* Background Gradient */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Background Gradient</Label>
+            <Label className="text-[11px] text-muted-foreground">Background Gradient</Label>
             <input
               type="text"
               value={styles.background || ""}
               onChange={(e) => updateStyles({ background: e.target.value })}
               placeholder="e.g., linear-gradient(135deg, #667eea, #764ba2)"
-              className="w-full px-2 py-1 text-xs rounded border bg-background"
+              className="w-full px-2 py-1 text-[11px] rounded border bg-background"
             />
           </div>
 
           {/* Backdrop Blur */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Backdrop Blur</Label>
+            <Label className="text-[11px] text-muted-foreground">Backdrop Blur</Label>
             <input
               type="text"
               value={styles.backdropFilter || ""}
               onChange={(e) => updateStyles({ backdropFilter: e.target.value })}
               placeholder="e.g., blur(8px)"
-              className="w-full px-2 py-1 text-xs rounded border bg-background"
+              className="w-full px-2 py-1 text-[11px] rounded border bg-background"
             />
           </div>
 
           {/* Padding */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Padding</Label>
+            <Label className="text-[11px] text-muted-foreground">Padding</Label>
             <input
               type="text"
               value={styles.padding || ""}
               onChange={(e) => updateStyles({ padding: e.target.value })}
               placeholder="e.g., 12px or 8px 16px"
-              className="w-full px-2 py-1 text-xs rounded border bg-background"
+              className="w-full px-2 py-1 text-[11px] rounded border bg-background"
             />
           </div>
 
           {/* Border Radius */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Border Radius</Label>
+            <Label className="text-[11px] text-muted-foreground">Border Radius</Label>
             <input
               type="text"
               value={styles.borderRadius || ""}
               onChange={(e) => updateStyles({ borderRadius: e.target.value })}
               placeholder="e.g., 8px or 50%"
-              className="w-full px-2 py-1 text-xs rounded border bg-background"
+              className="w-full px-2 py-1 text-[11px] rounded border bg-background"
             />
           </div>
         </CollapsibleSection>
@@ -583,7 +583,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
         >
           {/* Highlight Color */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Highlight Color</Label>
+            <Label className="text-[11px] text-muted-foreground">Highlight Color</Label>
             <div className="flex items-center gap-2">
               <OptimizedColorPicker
                 value={highlight?.color || "#FFFFFF"}
@@ -593,14 +593,14 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
                 type="text"
                 value={highlight?.color || "#FFFFFF"}
                 onChange={(e) => updateHighlight({ color: e.target.value })}
-                className="flex-1 px-2 py-1 text-xs rounded border bg-background"
+                className="flex-1 px-2 py-1 text-[11px] rounded border bg-background"
               />
             </div>
           </div>
 
           {/* Highlight Background */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Highlight Background</Label>
+            <Label className="text-[11px] text-muted-foreground">Highlight Background</Label>
             <div className="flex items-center gap-2">
               <OptimizedColorPicker
                 value={highlight?.backgroundColor?.replace(/rgba?\([^)]+\)/i, '#3B82F6') || "#3B82F6"}
@@ -610,24 +610,24 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
                 type="text"
                 value={highlight?.backgroundColor || "rgba(59, 130, 246, 0.92)"}
                 onChange={(e) => updateHighlight({ backgroundColor: e.target.value })}
-                className="flex-1 px-2 py-1 text-xs rounded border bg-background"
+                className="flex-1 px-2 py-1 text-[11px] rounded border bg-background"
               />
             </div>
           </div>
 
           {/* Highlight Font Weight */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Highlight Font Weight</Label>
+            <Label className="text-[11px] text-muted-foreground">Highlight Font Weight</Label>
             <Select
               value={String(highlight?.fontWeight || 600)}
               onValueChange={(value) => updateHighlight({ fontWeight: parseInt(value) })}
             >
-              <SelectTrigger className="w-full text-xs">
+              <SelectTrigger className="w-full text-[11px]">
                 <SelectValue placeholder="Select weight" />
               </SelectTrigger>
               <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
                 {fontWeights.map((weight) => (
-                  <SelectItem key={weight.value} value={String(weight.value)} className="text-xs">
+                  <SelectItem key={weight.value} value={String(weight.value)} className="text-[11px]">
                     {weight.label}
                   </SelectItem>
                 ))}
@@ -638,8 +638,8 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           {/* Scale */}
           <div className="space-y-2">
             <div className="flex justify-between">
-              <Label className="text-xs text-muted-foreground">Scale Effect</Label>
-              <span className="text-xs text-muted-foreground">{(highlight?.scale || 1).toFixed(2)}x</span>
+              <Label className="text-[11px] text-muted-foreground">Scale Effect</Label>
+              <span className="text-[11px] text-muted-foreground">{(highlight?.scale || 1).toFixed(2)}x</span>
             </div>
             <Slider
               value={[highlight?.scale || 1]}
@@ -652,17 +652,17 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
 
           {/* Effect Type */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Effect Type</Label>
+            <Label className="text-[11px] text-muted-foreground">Effect Type</Label>
             <Select
               value={highlight?.effect || "box"}
               onValueChange={(value) => updateHighlight({ effect: value as HighlightEffect })}
             >
-              <SelectTrigger className="w-full text-xs">
+              <SelectTrigger className="w-full text-[11px]">
                 <SelectValue placeholder="Select effect" />
               </SelectTrigger>
               <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
                 {effects.map((effect) => (
-                  <SelectItem key={effect.value} value={effect.value} className="text-xs">
+                  <SelectItem key={effect.value} value={effect.value} className="text-[11px]">
                     {effect.label}
                   </SelectItem>
                 ))}
@@ -672,17 +672,17 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
 
           {/* Animation */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Animation</Label>
+            <Label className="text-[11px] text-muted-foreground">Animation</Label>
             <Select
               value={highlight?.animation || "scale"}
               onValueChange={(value) => updateHighlight({ animation: value as HighlightAnimation })}
             >
-              <SelectTrigger className="w-full text-xs">
+              <SelectTrigger className="w-full text-[11px]">
                 <SelectValue placeholder="Select animation" />
               </SelectTrigger>
               <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
                 {animations.map((anim) => (
-                  <SelectItem key={anim.value} value={anim.value} className="text-xs">
+                  <SelectItem key={anim.value} value={anim.value} className="text-[11px]">
                     {anim.label}
                   </SelectItem>
                 ))}
@@ -692,37 +692,37 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
 
           {/* Highlight Text Shadow */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Highlight Text Shadow</Label>
+            <Label className="text-[11px] text-muted-foreground">Highlight Text Shadow</Label>
             <input
               type="text"
               value={highlight?.textShadow || ""}
               onChange={(e) => updateHighlight({ textShadow: e.target.value })}
               placeholder="e.g., 2px 2px 4px rgba(0,0,0,0.4)"
-              className="w-full px-2 py-1 text-xs rounded border bg-background"
+              className="w-full px-2 py-1 text-[11px] rounded border bg-background"
             />
           </div>
 
           {/* Highlight Padding */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Highlight Padding</Label>
+            <Label className="text-[11px] text-muted-foreground">Highlight Padding</Label>
             <input
               type="text"
               value={highlight?.padding || ""}
               onChange={(e) => updateHighlight({ padding: e.target.value })}
               placeholder="e.g., 4px 12px"
-              className="w-full px-2 py-1 text-xs rounded border bg-background"
+              className="w-full px-2 py-1 text-[11px] rounded border bg-background"
             />
           </div>
 
           {/* Highlight Border Radius */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Highlight Border Radius</Label>
+            <Label className="text-[11px] text-muted-foreground">Highlight Border Radius</Label>
             <input
               type="text"
               value={highlight?.borderRadius || ""}
               onChange={(e) => updateHighlight({ borderRadius: e.target.value })}
               placeholder="e.g., 6px"
-              className="w-full px-2 py-1 text-xs rounded border bg-background"
+              className="w-full px-2 py-1 text-[11px] rounded border bg-background"
             />
           </div>
         </CollapsibleSection>
@@ -764,7 +764,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
               console.error('[BatchCaption] Failed:', err);
             }
           }}
-          className="w-full px-3 py-2 text-xs bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 rounded-md transition-colors"
+          className="w-full px-3 py-2 text-[11px] bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 rounded-md transition-colors"
         >
           Apply Style to All Captions
         </button>

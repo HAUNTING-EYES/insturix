@@ -204,7 +204,7 @@ export function NavItem({
         >
           <p className="font-medium">{label}</p>
           {product?.description && (
-            <p className="text-xs text-zinc-400 mt-1">{product.description}</p>
+            <p className="text-[11px] text-zinc-400 mt-1">{product.description}</p>
           )}
         </TooltipContent>
       </Tooltip>

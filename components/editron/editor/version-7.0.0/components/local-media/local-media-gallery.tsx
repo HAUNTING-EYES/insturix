@@ -217,7 +217,7 @@ export function LocalMediaGallery({
                 alt={file.name}
                 className="w-full h-full object-cover bg-gray-50 dark:bg-gray-900"
               />
-              <div className="absolute bottom-1.5 right-1.5 bg-black/75 dark:bg-black/90 text-white text-xs px-1.5 py-0.5 rounded-md">
+              <div className="absolute bottom-1.5 right-1.5 bg-black/75 dark:bg-black/90 text-white text-[11px] px-1.5 py-0.5 rounded-md">
                 {formatDuration(file.duration)}
               </div>
             </>
@@ -235,7 +235,7 @@ export function LocalMediaGallery({
             {file.name}
           </p>
           <div className="flex items-center gap-1 mt-0.5">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
               {formatBytes(file.size)}
             </p>
             {file.score != null && (
@@ -315,7 +315,7 @@ export function LocalMediaGallery({
           placeholder="Search assets... (e.g. 'close-up of product')"
           value={searchQuery}
           onChange={(e) => handleSearch(e.target.value)}
-          className="w-full pl-8 pr-3 py-1.5 text-xs bg-muted/50 border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/60"
+          className="w-full pl-8 pr-3 py-1.5 text-[11px] bg-muted/50 border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/60"
         />
         {searching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 animate-spin text-muted-foreground" />}
       </div>
@@ -337,14 +337,14 @@ export function LocalMediaGallery({
             className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
           >
-            <span className="flex items-center gap-2 text-xs">All</span>
+            <span className="flex items-center gap-2 text-[11px]">All</span>
           </TabsTrigger>
           <TabsTrigger
             value="images"
             className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
           >
-            <span className="flex items-center gap-2 text-xs">
+            <span className="flex items-center gap-2 text-[11px]">
               <Image className="w-3 h-3" />
               Images
             </span>
@@ -354,7 +354,7 @@ export function LocalMediaGallery({
             className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
           >
-            <span className="flex items-center gap-2 text-xs">
+            <span className="flex items-center gap-2 text-[11px]">
               <Video className="w-3 h-3" />
               Videos
             </span>
@@ -364,7 +364,7 @@ export function LocalMediaGallery({
             className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
           >
-            <span className="flex items-center gap-2 text-xs">
+            <span className="flex items-center gap-2 text-[11px]">
               <Music className="w-3 h-3" />
               Audio
             </span>
@@ -384,7 +384,7 @@ export function LocalMediaGallery({
               </div>
               <div className="space-y-1">
                 <p className="text-sm font-medium">No assets yet</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-[11px] text-gray-500">
                   Upload your first asset to get started
                 </p>
               </div>
@@ -392,7 +392,7 @@ export function LocalMediaGallery({
                 variant="outline"
                 size="sm"
                 onClick={handleUploadClick}
-                className="text-xs"
+                className="text-[11px]"
               >
                 Upload Asset
               </Button>
@@ -424,7 +424,7 @@ export function LocalMediaGallery({
         <DialogContent className="max-w-2xl rounded-xl p-6 sm:p-8">
           <DialogHeader className="mb-3">
             <DialogTitle className="text-sm">{selectedFile?.name}</DialogTitle>
-            <DialogDescription className="text-xs">
+            <DialogDescription className="text-[11px]">
               {selectedFile?.type} • {formatBytes(selectedFile?.size)}
               {selectedFile?.duration ? ` • ${formatDuration(selectedFile.duration)}` : ''}
             </DialogDescription>

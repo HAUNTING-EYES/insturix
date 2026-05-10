@@ -130,7 +130,7 @@ function WordHeroSection({
             <span className="sr-only">you can ship things.</span>
           </h1>
 
-          <ul aria-hidden="true" className="font-bold list-none p-0 m-0 text-5xl sm:text-6xl md:text-7xl lg:text-8xl tracking-tight">
+          <ul aria-hidden="true" className="font-bold list-none p-0 m-0 text-[44px] sm:text-[110px] md:text-7xl lg:text-8xl tracking-tight">
             {items.map((word, i) => (
               <li
                 key={i}
@@ -150,14 +150,14 @@ function WordHeroSection({
       <div className="mt-[20vh] space-y-24 pb-24">
         {/* What Happens Next */}
         <section className="space-y-8">
-          <h2 className="text-3xl font-bold text-white">What Happens Next?</h2>
+          <h2 className="text-[32px] font-bold text-white">What Happens Next?</h2>
           <div className="space-y-6">
             <div className="flex items-start gap-4">
               <div className="w-8 h-8 rounded-full bg-[#ff5722]/10 flex items-center justify-center shrink-0 mt-1 border border-[#ff5722]/20">
                 <span className="text-sm font-bold text-[#ff5722]">1</span>
               </div>
               <div>
-                <p className="text-xl text-white font-medium">We'll review your inquiry</p>
+                <p className="text-[18px] text-white font-medium">We'll review your inquiry</p>
                 <p className="text-neutral-400 mt-2">Our team will carefully review your requirements to ensure we're the perfect fit.</p>
               </div>
             </div>
@@ -166,7 +166,7 @@ function WordHeroSection({
                 <span className="text-sm font-bold text-[#ff5722]">2</span>
               </div>
               <div>
-                <p className="text-xl text-white font-medium">A sales rep will contact you</p>
+                <p className="text-[18px] text-white font-medium">A sales rep will contact you</p>
                 <p className="text-neutral-400 mt-2">Within 24 hours via email or phone to curate a plan for you.</p>
               </div>
             </div>
@@ -175,7 +175,7 @@ function WordHeroSection({
                 <span className="text-sm font-bold text-[#ff5722]">3</span>
               </div>
               <div>
-                <p className="text-xl text-white font-medium">Schedule a personalized demo</p>
+                <p className="text-[18px] text-white font-medium">Schedule a personalized demo</p>
                 <p className="text-neutral-400 mt-2">See Insturix Business in action tailored to your workflow.</p>
               </div>
             </div>
@@ -184,7 +184,7 @@ function WordHeroSection({
 
         {/* Benefits */}
         <section className="space-y-8">
-          <h2 className="text-3xl font-bold text-white">Business Benefits</h2>
+          <h2 className="text-[32px] font-bold text-white">Business Benefits</h2>
           <div className="grid sm:grid-cols-2 gap-6">
             <Card className="p-6 bg-neutral-900/30 backdrop-blur-sm border border-neutral-800">
               <CheckCircle2 className="h-6 w-6 text-[#ff5722] mb-4" />
@@ -517,8 +517,8 @@ export default function ContactSalesForm() {
   const renderFormContent = (idPrefix = "") => (
     <>
       <div className="flex flex-col gap-0.5 mb-2">
-        <h2 className="text-xl font-semibold text-white">Let's talk business.</h2>
-        <p className="text-xs text-neutral-400">Tell us about your needs and we'll be in touch shortly.</p>
+        <h2 className="text-[18px] font-semibold text-white">Let's talk business.</h2>
+        <p className="text-[11px] text-neutral-400">Tell us about your needs and we'll be in touch shortly.</p>
       </div>
 
       <form onSubmit={formik.handleSubmit} className="space-y-2">
@@ -534,7 +534,7 @@ export default function ContactSalesForm() {
               }`}
           />
           {formik.touched.name && formik.errors.name && (
-            <p className="mt-0.5 text-xs text-red-500">
+            <p className="mt-0.5 text-[11px] text-red-500">
               {formik.errors.name}
             </p>
           )}
@@ -553,12 +553,12 @@ export default function ContactSalesForm() {
               }`}
           />
           {formik.touched.email && formik.errors.email && (
-            <p className="mt-0.5 text-xs text-red-500">
+            <p className="mt-0.5 text-[11px] text-red-500">
               {formik.errors.email}
             </p>
           )}
           {formik.values.email && !formik.errors.email && isPersonalEmail(formik.values.email) && (
-            <p className="mt-0.5 text-xs text-amber-500">
+            <p className="mt-0.5 text-[11px] text-amber-500">
               We recommend using your work email for faster assistance.
             </p>
           )}
@@ -585,11 +585,11 @@ export default function ContactSalesForm() {
             />
             <div className="flex justify-between items-center mt-0.5">
               {formik.touched.companyName && formik.errors.companyName ? (
-                <p className="text-xs text-red-500">
+                <p className="text-[11px] text-red-500">
                   {formik.errors.companyName}
                 </p>
               ) : <span />}
-              <span className={`text-xs ${formik.values.companyName.length >= 35 ? 'text-amber-500' : 'text-neutral-500'}`}>
+              <span className={`text-[11px] ${formik.values.companyName.length >= 35 ? 'text-amber-500' : 'text-neutral-500'}`}>
                 {formik.values.companyName.length}/40
               </span>
             </div>
@@ -618,7 +618,7 @@ export default function ContactSalesForm() {
             />
           </div>
           {formik.values.phoneNumber && formik.values.phoneNumber.replace(/\D/g, '').length > 15 && (
-            <p className="mt-0.5 text-xs text-amber-500">
+            <p className="mt-0.5 text-[11px] text-amber-500">
               Phone number seems too long. Please verify.
             </p>
           )}
@@ -637,7 +637,7 @@ export default function ContactSalesForm() {
               }`}
           />
           {formik.touched.message && formik.errors.message && (
-            <p className="mt-0.5 text-xs text-red-500">
+            <p className="mt-0.5 text-[11px] text-red-500">
               {formik.errors.message}
             </p>
           )}
@@ -651,12 +651,12 @@ export default function ContactSalesForm() {
             onChange={(e) => formik.setFieldValue("agreeToContact", e.target.checked)}
             className="mt-1 h-5 w-5 rounded border-neutral-700 bg-neutral-900 text-[#ff5722] focus:ring-[#ff5722]/20 accent-[#ff5722] cursor-pointer shrink-0 pointer-events-none"
           />
-          <Label htmlFor={`agreeToContact${idPrefix}`} className="text-xs text-neutral-400 cursor-pointer font-normal leading-relaxed pt-0.5 select-none">
+          <Label htmlFor={`agreeToContact${idPrefix}`} className="text-[11px] text-neutral-400 cursor-pointer font-normal leading-relaxed pt-0.5 select-none">
             I agree to allow Insturix to store and process my personal data to handle my request.
           </Label>
         </div>
         {formik.touched.agreeToContact && formik.errors.agreeToContact && (
-          <p className="text-xs text-red-500">
+          <p className="text-[11px] text-red-500">
             {formik.errors.agreeToContact}
           </p>
         )}
@@ -730,15 +730,15 @@ export default function ContactSalesForm() {
                 >
                   <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">
                     <span 
-                      className="text-white tracking-[0.3em] text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl"
+                      className="text-white tracking-[0.3em] text-[44px] sm:text-[44px] md:text-[110px] lg:text-7xl xl:text-8xl"
                       style={{ fontFamily: 'Blanka, sans-serif' }}
                     >
                       INSTURIX
                     </span>
-                    <span className="text-white font-bold text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl">
+                    <span className="text-white font-bold text-2xl sm:text-[32px] md:text-[44px] lg:text-[44px] xl:text-[110px]">
                       x
                     </span>
-                    <span className="text-white font-bold text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl break-words">
+                    <span className="text-white font-bold text-[44px] sm:text-[44px] md:text-[110px] lg:text-7xl xl:text-8xl break-words">
                       {submittedCompanyName}
                       <motion.span
                         initial={{ opacity: 0, x: -10 }}
@@ -772,14 +772,14 @@ export default function ContactSalesForm() {
               <div className="max-w-4xl mx-auto space-y-16">
                 {/* What Happens Next */}
                 <section className="space-y-8">
-                  <h2 className="text-3xl font-bold text-white">What Happens Next?</h2>
+                  <h2 className="text-[32px] font-bold text-white">What Happens Next?</h2>
                   <div className="space-y-6">
                     <div className="flex items-start gap-4">
                       <div className="w-8 h-8 rounded-full bg-[#ff5722]/10 flex items-center justify-center shrink-0 mt-1 border border-[#ff5722]/20">
                         <span className="text-sm font-bold text-[#ff5722]">1</span>
                       </div>
                       <div>
-                        <p className="text-xl text-white font-medium">We'll review your inquiry</p>
+                        <p className="text-[18px] text-white font-medium">We'll review your inquiry</p>
                         <p className="text-neutral-400 mt-2">Our team will carefully review your requirements to ensure we're the perfect fit.</p>
                       </div>
                     </div>
@@ -788,7 +788,7 @@ export default function ContactSalesForm() {
                         <span className="text-sm font-bold text-[#ff5722]">2</span>
                       </div>
                       <div>
-                        <p className="text-xl text-white font-medium">A sales rep will contact you</p>
+                        <p className="text-[18px] text-white font-medium">A sales rep will contact you</p>
                         <p className="text-neutral-400 mt-2">Within 24 hours via email or phone to curate a plan for you.</p>
                       </div>
                     </div>
@@ -797,7 +797,7 @@ export default function ContactSalesForm() {
                         <span className="text-sm font-bold text-[#ff5722]">3</span>
                       </div>
                       <div>
-                        <p className="text-xl text-white font-medium">Schedule a personalized demo</p>
+                        <p className="text-[18px] text-white font-medium">Schedule a personalized demo</p>
                         <p className="text-neutral-400 mt-2">See Insturix Business in action tailored to your workflow.</p>
                       </div>
                     </div>
@@ -806,7 +806,7 @@ export default function ContactSalesForm() {
 
                 {/* Business Benefits */}
                 <section className="space-y-8">
-                  <h2 className="text-3xl font-bold text-white">Business Benefits</h2>
+                  <h2 className="text-[32px] font-bold text-white">Business Benefits</h2>
                   <div className="grid sm:grid-cols-2 gap-6">
                     <Card className="p-6 bg-neutral-900/30 backdrop-blur-sm border border-neutral-800">
                       <CheckCircle2 className="h-6 w-6 text-[#ff5722] mb-4" />
@@ -849,7 +849,7 @@ export default function ContactSalesForm() {
                   <div className="text-white flex items-center w-full transition-all duration-300">
                     {/* INSTURIX - using Blanka font */}
                     <span 
-                      className="shrink-0 tracking-[0.3em] whitespace-nowrap leading-none text-5xl"
+                      className="shrink-0 tracking-[0.3em] whitespace-nowrap leading-none text-[44px]"
                       style={{ fontFamily: 'Blanka, sans-serif' }}
                     >
                       {xText.slice(0, 8)}
@@ -866,7 +866,7 @@ export default function ContactSalesForm() {
                     <span className="shrink-0 w-6"></span>
                     {/* Brand - same size as INSTURIX, word-wraps when needed */}
                     <span 
-                      className="font-bold min-w-0 flex-1 transition-all duration-200 text-5xl break-words"
+                      className="font-bold min-w-0 flex-1 transition-all duration-200 text-[44px] break-words"
                       style={{ lineHeight: '1.1' }}
                     >
                       {companyNameForHeader}
@@ -889,11 +889,11 @@ export default function ContactSalesForm() {
                   <div className="mt-4 flex justify-center gap-6 text-neutral-500">
                     <div className="flex items-center gap-2">
                       <Mail className="h-3.5 w-3.5" />
-                      <span className="text-xs">support@insturix.com</span>
+                      <span className="text-[11px]">support@insturix.com</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Phone className="h-3.5 w-3.5" />
-                      <span className="text-xs">+91 92201-21372</span>
+                      <span className="text-[11px]">+91 92201-21372</span>
                     </div>
                   </div>
                 </div>
@@ -907,20 +907,20 @@ export default function ContactSalesForm() {
                 <div className="text-white flex items-center flex-wrap justify-center gap-2 transition-all duration-300">
                   {/* INSTURIX - using Blanka font */}
                   <span 
-                    className="shrink-0 tracking-[0.3em] whitespace-nowrap leading-none text-2xl sm:text-3xl md:text-4xl"
+                    className="shrink-0 tracking-[0.3em] whitespace-nowrap leading-none text-2xl sm:text-[32px] md:text-[44px]"
                     style={{ fontFamily: 'Blanka, sans-serif' }}
                   >
                     {xText.slice(0, 8)}
                   </span>
                   {/* x - smaller, vertically centered */}
                   {xText.length > 10 && (
-                    <span className="font-bold shrink-0 text-base sm:text-lg md:text-xl mx-2 sm:mx-4">
+                    <span className="font-bold shrink-0 text-[14px] sm:text-lg md:text-[18px] mx-2 sm:mx-4">
                       x
                     </span>
                   )}
                   {/* Brand - same size as INSTURIX */}
                   <span 
-                    className="font-bold transition-all duration-200 text-2xl sm:text-3xl md:text-4xl break-words text-center"
+                    className="font-bold transition-all duration-200 text-2xl sm:text-[32px] md:text-[44px] break-words text-center"
                     style={{ lineHeight: '1.1' }}
                   >
                     {companyNameForHeader}

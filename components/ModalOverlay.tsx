@@ -116,7 +116,7 @@ export default function ModalOverlay({
                           {icon}
                         </div>
                       ) : null}
-                      <div id="modal-title" className="text-base font-semibold tracking-wide text-white">
+                      <div id="modal-title" className="text-[14px] font-semibold tracking-wide text-white">
                         {title ?? "Details"}
                       </div>
                     </div>
@@ -126,7 +126,7 @@ export default function ModalOverlay({
                   </div>
 
                   {/* Content */}
-                  <div className="max-h-[72vh] overflow-y-auto px-6 py-5 text-[15px] leading-relaxed text-zinc-200 [mask-image:linear-gradient(#000,rgba(0,0,0,0.92)_96%,transparent)]">
+                  <div className="max-h-[72vh] overflow-y-auto px-6 py-5 text-[14px] leading-relaxed text-zinc-200 [mask-image:linear-gradient(#000,rgba(0,0,0,0.92)_96%,transparent)]">
                     <div className="space-y-4">{children}</div>
                   </div>
                 </div>

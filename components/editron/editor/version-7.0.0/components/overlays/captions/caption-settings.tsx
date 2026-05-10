@@ -73,7 +73,7 @@ export const CaptionSettings: React.FC<CaptionSettingsProps> = ({
           className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
         >
-          <span className="flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-2 text-[11px]">
             <AlignLeft className="w-3 h-3" />
             Captions
           </span>
@@ -85,7 +85,7 @@ export const CaptionSettings: React.FC<CaptionSettingsProps> = ({
           className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
             rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
         >
-          <span className="flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-2 text-[11px]">
             <PaintBucket className="w-3 h-3" />
             Style
           </span>
@@ -97,7 +97,7 @@ export const CaptionSettings: React.FC<CaptionSettingsProps> = ({
           disabled
           className="cursor-not-allowed opacity-50 rounded-sm transition-all duration-200 text-muted-foreground"
         >
-          <span className="flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-2 text-[11px]">
             <Mic className="w-3 h-3" />
             Voice
             <span className="text-[9px] ml-2 text-amber-700 dark:text-amber-400 font-medium bg-amber-100/50 dark:bg-yellow-800/50 rounded-sm px-1 py-0.5">

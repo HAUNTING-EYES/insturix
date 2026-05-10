@@ -155,7 +155,7 @@ export const Editor: React.FC = () => {
     return (
       <div className="flex items-center justify-center h-screen bg-white dark:bg-gray-900 p-6">
         <div className="text-center text-gray-900 dark:text-white">
-          <h2 className="text-xl font-bold mb-3">Editron</h2>
+          <h2 className="text-[18px] font-bold mb-3">Editron</h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 font-light mb-4">
             Currently, Editron is designed as a full-screen desktop
             experience. We&apos;re actively working on making it

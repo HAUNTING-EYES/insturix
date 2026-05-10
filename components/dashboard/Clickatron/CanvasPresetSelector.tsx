@@ -104,8 +104,8 @@ const PresetCard = ({ preset, isSelected, onSelect }: { preset: Preset, isSelect
       )}
     </AnimatePresence>
     <preset.icon className={cn("w-6 h-6 mb-2 transition-colors", isSelected ? "text-purple-400" : "text-zinc-400 group-hover:text-zinc-300")} />
-    <p className={cn("text-xs font-medium transition-colors text-center leading-tight mb-1", isSelected ? "text-zinc-100" : "text-zinc-300 group-hover:text-zinc-100")}>{preset.name}</p>
-    <p className={cn("text-xs transition-colors", isSelected ? "text-purple-300" : "text-zinc-500 group-hover:text-zinc-400")}>{preset.ratio}</p>
+    <p className={cn("text-[11px] font-medium transition-colors text-center leading-tight mb-1", isSelected ? "text-zinc-100" : "text-zinc-300 group-hover:text-zinc-100")}>{preset.name}</p>
+    <p className={cn("text-[11px] transition-colors", isSelected ? "text-purple-300" : "text-zinc-500 group-hover:text-zinc-400")}>{preset.ratio}</p>
   </div>
 );
 

@@ -52,17 +52,17 @@ function ScriptParserTab() {
             value={script}
             onChange={(e) => setScript(e.target.value)}
             rows={12}
-            className="font-mono text-xs"
+            className="font-mono text-[11px]"
           />
           <div className="flex gap-2 items-center">
-            <select value={artStyle} onChange={(e) => setArtStyle(e.target.value)} className="px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-xs">
+            <select value={artStyle} onChange={(e) => setArtStyle(e.target.value)} className="px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-[11px]">
               <option value="cinematic">Cinematic</option>
               <option value="anime">Anime</option>
               <option value="corporate">Corporate</option>
               <option value="pixel-art">Pixel Art</option>
               <option value="watercolor">Watercolor</option>
             </select>
-            <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-xs">
+            <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-[11px]">
               <option value="16:9">16:9</option>
               <option value="9:16">9:16</option>
               <option value="1:1">1:1</option>
@@ -72,9 +72,9 @@ function ScriptParserTab() {
               {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <FileText className="w-3 h-3 mr-1" />}
               Parse Script
             </Button>
-            <span className="text-xs text-zinc-500">{script.length} chars</span>
+            <span className="text-[11px] text-zinc-500">{script.length} chars</span>
           </div>
-          {error && <div className="text-red-400 text-xs p-2 bg-red-950/30 rounded">{error}</div>}
+          {error && <div className="text-red-400 text-[11px] p-2 bg-red-950/30 rounded">{error}</div>}
         </CardContent>
       </Card>
 
@@ -90,17 +90,17 @@ function ScriptParserTab() {
           <CardContent className="space-y-3">
             {/* Global metadata */}
             {result.overallMusicPrompt && (
-              <div className="text-xs p-2 bg-zinc-800/50 rounded">
+              <div className="text-[11px] p-2 bg-zinc-800/50 rounded">
                 <span className="text-zinc-400">Music:</span> {result.overallMusicPrompt}
               </div>
             )}
             {result.characterDescriptions && Object.keys(result.characterDescriptions).length > 0 && (
-              <div className="text-xs p-2 bg-zinc-800/50 rounded">
+              <div className="text-[11px] p-2 bg-zinc-800/50 rounded">
                 <span className="text-zinc-400">Characters:</span> {JSON.stringify(result.characterDescriptions)}
               </div>
             )}
             {result.globalEditDirections && (
-              <div className="text-xs p-2 bg-zinc-800/50 rounded">
+              <div className="text-[11px] p-2 bg-zinc-800/50 rounded">
                 <span className="text-zinc-400">Global Edit Directions:</span>
                 <pre className="mt-1 text-[10px] text-zinc-300 overflow-x-auto">{JSON.stringify(result.globalEditDirections, null, 2)}</pre>
               </div>
@@ -151,7 +151,7 @@ function ScriptParserTab() {
             ))}
 
             {/* Raw JSON toggle */}
-            <details className="text-xs">
+            <details className="text-[11px]">
               <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Raw JSON</summary>
               <pre className="mt-2 p-2 bg-zinc-950 rounded text-[10px] max-h-96 overflow-auto">{JSON.stringify(result, null, 2)}</pre>
             </details>
@@ -204,12 +204,12 @@ function ProjectInspectorTab() {
         </CardHeader>
         <CardContent>
           <div className="flex gap-2">
-            <Input placeholder="Project ID (e.g. proj_abc123)" value={projectId} onChange={(e) => setProjectId(e.target.value)} className="font-mono text-xs" />
+            <Input placeholder="Project ID (e.g. proj_abc123)" value={projectId} onChange={(e) => setProjectId(e.target.value)} className="font-mono text-[11px]" />
             <Button onClick={loadProject} disabled={loading} size="sm">
               {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />}
             </Button>
           </div>
-          {error && <div className="text-red-400 text-xs mt-2">{error}</div>}
+          {error && <div className="text-red-400 text-[11px] mt-2">{error}</div>}
         </CardContent>
       </Card>
 
@@ -238,7 +238,7 @@ function ProjectInspectorTab() {
 
             {/* Timeline view — simplified */}
             <div className="space-y-1">
-              <div className="text-xs text-zinc-400 font-medium">Timeline Layout:</div>
+              <div className="text-[11px] text-zinc-400 font-medium">Timeline Layout:</div>
               {Object.keys(overlaysByRow).sort().map(row => {
                 const rowNum = parseInt(row.replace('Row ', ''));
                 const rowOverlays = overlays.filter((o: any) => o.row === rowNum).sort((a: any, b: any) => a.from - b.from);
@@ -264,7 +264,7 @@ function ProjectInspectorTab() {
             </div>
 
             {/* Per-overlay detail */}
-            <details className="text-xs">
+            <details className="text-[11px]">
               <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">All Overlays ({overlays.length})</summary>
               <div className="mt-2 space-y-1 max-h-96 overflow-y-auto">
                 {overlays.sort((a: any, b: any) => a.from - b.from).map((o: any) => (
@@ -296,7 +296,7 @@ function ProjectInspectorTab() {
               </div>
             </details>
 
-            <details className="text-xs">
+            <details className="text-[11px]">
               <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Raw Project JSON</summary>
               <pre className="mt-2 p-2 bg-zinc-950 rounded text-[10px] max-h-96 overflow-auto">{JSON.stringify(project, null, 2)}</pre>
             </details>
@@ -339,12 +339,12 @@ function AssetAnalysisTab() {
         </CardHeader>
         <CardContent>
           <div className="flex gap-2">
-            <Input placeholder="Asset ID (e.g. asset_xyz123 or sfx_abc)" value={assetId} onChange={(e) => setAssetId(e.target.value)} className="font-mono text-xs" />
+            <Input placeholder="Asset ID (e.g. asset_xyz123 or sfx_abc)" value={assetId} onChange={(e) => setAssetId(e.target.value)} className="font-mono text-[11px]" />
             <Button onClick={loadAnalysis} disabled={loading} size="sm">
               {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
             </Button>
           </div>
-          {error && <div className="text-red-400 text-xs mt-2">{error}</div>}
+          {error && <div className="text-red-400 text-[11px] mt-2">{error}</div>}
         </CardContent>
       </Card>
 
@@ -401,13 +401,13 @@ function EDLViewerTab() {
         </CardHeader>
         <CardContent>
           <div className="flex gap-2">
-            <Input placeholder="Project ID" value={projectId} onChange={(e) => setProjectId(e.target.value)} className="font-mono text-xs" />
+            <Input placeholder="Project ID" value={projectId} onChange={(e) => setProjectId(e.target.value)} className="font-mono text-[11px]" />
             <Button onClick={runAnalysis} disabled={loading} size="sm" variant="destructive">
               {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wand2 className="w-3 h-3 mr-1" />}
               Run Analysis
             </Button>
           </div>
-          {error && <div className="text-red-400 text-xs mt-2">{error}</div>}
+          {error && <div className="text-red-400 text-[11px] mt-2">{error}</div>}
         </CardContent>
       </Card>
 
@@ -428,7 +428,7 @@ function EDLViewerTab() {
             </div>
 
             {edl.editDecisionList?.stats && (
-              <div className="text-xs p-2 bg-zinc-800/50 rounded grid grid-cols-3 gap-2">
+              <div className="text-[11px] p-2 bg-zinc-800/50 rounded grid grid-cols-3 gap-2">
                 <div>Cuts/min: {edl.editDecisionList.stats.cutsPerMinute?.toFixed(1)}</div>
                 <div>Transitions: {edl.editDecisionList.stats.transitionCount}</div>
                 <div>Graphics: {edl.editDecisionList.stats.graphicCount}</div>
@@ -458,7 +458,7 @@ function EDLViewerTab() {
               </table>
             </div>
 
-            <details className="text-xs">
+            <details className="text-[11px]">
               <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Raw JSON</summary>
               <pre className="mt-2 p-2 bg-zinc-950 rounded text-[10px] max-h-96 overflow-auto">{JSON.stringify(edl, null, 2)}</pre>
             </details>
@@ -511,15 +511,15 @@ function VideoAnalysisTestTab() {
           <CardDescription>Test 5-Track analysis on a single video URL. Shows EXACTLY where each step succeeds or fails. Costs ~$0.05-0.10.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Input placeholder="Video URL (GCS signed URL or any video URL)" value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} className="font-mono text-xs" />
+          <Input placeholder="Video URL (GCS signed URL or any video URL)" value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} className="font-mono text-[11px]" />
           <div className="flex gap-2 items-center">
-            <Input placeholder="Duration (ms)" value={durationMs} onChange={(e) => setDurationMs(e.target.value)} className="font-mono text-xs w-32" />
+            <Input placeholder="Duration (ms)" value={durationMs} onChange={(e) => setDurationMs(e.target.value)} className="font-mono text-[11px] w-32" />
             <Button onClick={runTest} disabled={loading || !videoUrl.trim()} size="sm" variant="destructive">
               {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
               Run Diagnostic
             </Button>
           </div>
-          {error && <div className="text-red-400 text-xs p-2 bg-red-950/30 rounded">{error}</div>}
+          {error && <div className="text-red-400 text-[11px] p-2 bg-red-950/30 rounded">{error}</div>}
         </CardContent>
       </Card>
 
@@ -528,7 +528,7 @@ function VideoAnalysisTestTab() {
           {/* Pre-flight checks */}
           <Card>
             <CardHeader><CardTitle className="text-sm">Pre-Flight Checks</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-xs">
+            <CardContent className="space-y-2 text-[11px]">
               <div className="flex items-center gap-2">
                 <Badge variant={result.testResults.fetchTest.status === 'ok' ? 'default' : 'destructive'} className="text-[10px]">
                   {result.testResults.fetchTest.status === 'ok' ? '✅' : '❌'} Video Fetch
@@ -556,9 +556,9 @@ function VideoAnalysisTestTab() {
             <CardHeader><CardTitle className="text-sm">Diagnostic Trace (Step by Step)</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-1">
-                {trace.length === 0 && <div className="text-zinc-500 text-xs">No trace data — analysis may not have run</div>}
+                {trace.length === 0 && <div className="text-zinc-500 text-[11px]">No trace data — analysis may not have run</div>}
                 {trace.map((t: any, i: number) => (
-                  <div key={i} className="flex items-center gap-2 text-xs p-1.5 rounded bg-zinc-900">
+                  <div key={i} className="flex items-center gap-2 text-[11px] p-1.5 rounded bg-zinc-900">
                     <Badge
                       variant={t.status === 'ok' || t.status?.startsWith('ok') ? 'default' : t.status === 'FAILED' ? 'destructive' : 'outline'}
                       className="text-[9px] w-16 justify-center"
@@ -579,7 +579,7 @@ function VideoAnalysisTestTab() {
           {result.analysisResult && (
             <Card>
               <CardHeader><CardTitle className="text-sm">Analysis Output</CardTitle></CardHeader>
-              <CardContent className="text-xs space-y-2">
+              <CardContent className="text-[11px] space-y-2">
                 <div className="grid grid-cols-4 gap-2">
                   <div className={result.analysisResult.motionSegments > 0 ? 'text-green-400' : 'text-red-400'}>Motion: {result.analysisResult.motionSegments}</div>
                   <div className={result.analysisResult.keyframes > 1 ? 'text-green-400' : 'text-red-400'}>Keyframes: {result.analysisResult.keyframes}</div>
@@ -602,7 +602,7 @@ function VideoAnalysisTestTab() {
             </Card>
           )}
 
-          <details className="text-xs">
+          <details className="text-[11px]">
             <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Full Raw Response</summary>
             <pre className="mt-2 p-2 bg-zinc-950 rounded text-[10px] max-h-96 overflow-auto">{JSON.stringify(result, null, 2)}</pre>
           </details>
@@ -665,16 +665,16 @@ function AssemblySimulatorTab() {
             value={scenesJson}
             onChange={(e) => setScenesJson(e.target.value)}
             rows={8}
-            className="font-mono text-xs"
+            className="font-mono text-[11px]"
           />
           <div className="flex gap-2 items-center">
             <Button onClick={simulate} disabled={loading || !scenesJson.trim()} size="sm">
               {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Layers className="w-3 h-3 mr-1" />}
               Simulate Assembly
             </Button>
-            <span className="text-xs text-zinc-500">No media generated — just overlay structure</span>
+            <span className="text-[11px] text-zinc-500">No media generated — just overlay structure</span>
           </div>
-          {error && <div className="text-red-400 text-xs p-2 bg-red-950/30 rounded">{error}</div>}
+          {error && <div className="text-red-400 text-[11px] p-2 bg-red-950/30 rounded">{error}</div>}
         </CardContent>
       </Card>
 
@@ -689,7 +689,7 @@ function AssemblySimulatorTab() {
           </CardHeader>
           <CardContent className="space-y-3">
             {/* Visual timeline */}
-            <div className="text-xs text-zinc-400 font-medium mb-1">Timeline Layout (Row → Overlays):</div>
+            <div className="text-[11px] text-zinc-400 font-medium mb-1">Timeline Layout (Row → Overlays):</div>
             <div className="space-y-1.5 border border-zinc-800 rounded p-3 bg-zinc-900/50">
               {[0, 1, 2, 3, 4, 5, 6].map(rowNum => {
                 const rowOverlays = overlays.filter((o: any) => o.row === rowNum).sort((a: any, b: any) => a.from - b.from);
@@ -727,7 +727,7 @@ function AssemblySimulatorTab() {
             </div>
 
             {/* Overlay list */}
-            <details className="text-xs">
+            <details className="text-[11px]">
               <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">All Overlays ({overlays.length})</summary>
               <div className="mt-2 space-y-1 max-h-96 overflow-y-auto">
                 {overlays.sort((a: any, b: any) => a.row - b.row || a.from - b.from).map((o: any) => (
@@ -743,7 +743,7 @@ function AssemblySimulatorTab() {
               </div>
             </details>
 
-            <details className="text-xs">
+            <details className="text-[11px]">
               <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Raw JSON</summary>
               <pre className="mt-2 p-2 bg-zinc-950 rounded text-[10px] max-h-96 overflow-auto">{JSON.stringify(result, null, 2)}</pre>
             </details>
@@ -762,33 +762,33 @@ export default function EditronDebugPage() {
     <div className="min-h-screen bg-zinc-950 text-white p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold flex items-center gap-2">
+          <h1 className="text-[18px] font-bold flex items-center gap-2">
             <Layers className="w-5 h-5 text-blue-400" />
             Editron Debug Panel
           </h1>
-          <p className="text-xs text-zinc-500 mt-1">Test individual pipeline steps without running the full generation</p>
+          <p className="text-[11px] text-zinc-500 mt-1">Test individual pipeline steps without running the full generation</p>
         </div>
         <Badge variant="outline" className="text-amber-400 border-amber-400/30">DEV ONLY</Badge>
       </div>
 
       <Tabs defaultValue="parser" className="w-full">
         <TabsList className="bg-zinc-900 border border-zinc-800">
-          <TabsTrigger value="parser" className="text-xs data-[state=active]:bg-zinc-700">
+          <TabsTrigger value="parser" className="text-[11px] data-[state=active]:bg-zinc-700">
             <FileText className="w-3 h-3 mr-1" /> Script Parser
           </TabsTrigger>
-          <TabsTrigger value="assembly" className="text-xs data-[state=active]:bg-zinc-700">
+          <TabsTrigger value="assembly" className="text-[11px] data-[state=active]:bg-zinc-700">
             <Layers className="w-3 h-3 mr-1" /> Assembly Sim
           </TabsTrigger>
-          <TabsTrigger value="project" className="text-xs data-[state=active]:bg-zinc-700">
+          <TabsTrigger value="project" className="text-[11px] data-[state=active]:bg-zinc-700">
             <Database className="w-3 h-3 mr-1" /> Project Inspector
           </TabsTrigger>
-          <TabsTrigger value="analysis" className="text-xs data-[state=active]:bg-zinc-700">
+          <TabsTrigger value="analysis" className="text-[11px] data-[state=active]:bg-zinc-700">
             <Brain className="w-3 h-3 mr-1" /> Asset Analysis
           </TabsTrigger>
-          <TabsTrigger value="video-test" className="text-xs data-[state=active]:bg-zinc-700 data-[state=active]:text-red-400">
+          <TabsTrigger value="video-test" className="text-[11px] data-[state=active]:bg-zinc-700 data-[state=active]:text-red-400">
             <CheckCircle2 className="w-3 h-3 mr-1" /> Video Diagnostic
           </TabsTrigger>
-          <TabsTrigger value="edl" className="text-xs data-[state=active]:bg-zinc-700">
+          <TabsTrigger value="edl" className="text-[11px] data-[state=active]:bg-zinc-700">
             <Wand2 className="w-3 h-3 mr-1" /> EDL Viewer
           </TabsTrigger>
         </TabsList>

@@ -19,7 +19,7 @@ export default function NotSignedIn() {
         transition={{ duration: 0.5, ease: "easeOut" }}
         className="w-full max-w-md mx-auto text-center"
       >
-        <h1 className="text-3xl font-semibold mb-4 tracking-tight">
+        <h1 className="text-[32px] font-semibold mb-4 tracking-tight">
           You need to sign up
         </h1>
         <p className="text-muted-foreground mb-8">

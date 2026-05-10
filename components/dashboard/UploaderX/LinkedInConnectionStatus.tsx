@@ -303,12 +303,12 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
                 </div>
                 <div className="ml-6 space-y-1">
                   {status.organizations.slice(0, 3).map((org) => (
-                    <div key={org.id} className="text-xs text-zinc-600">
+                    <div key={org.id} className="text-[11px] text-zinc-600">
                       {org.name}
                     </div>
                   ))}
                   {status.organizations.length > 3 && (
-                    <div className="text-xs text-zinc-500">
+                    <div className="text-[11px] text-zinc-500">
                       +{status.organizations.length - 3} more
                     </div>
                   )}
@@ -317,17 +317,17 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
             )}
 
             {!status.canPostPersonal && (
-              <p className="text-xs text-yellow-500">
+              <p className="text-[11px] text-yellow-500">
                 {status.message || "Personal posting is unavailable until profile permissions are granted."}
               </p>
             )}
             {!!status.missingScopes?.length && (
-              <p className="text-xs text-zinc-500">
+              <p className="text-[11px] text-zinc-500">
                 Missing LinkedIn scopes: {status.missingScopes.join(", ")}
               </p>
             )}
             {status.connectedAt && (
-              <p className="text-xs text-zinc-500">
+              <p className="text-[11px] text-zinc-500">
                 Connected {new Date(status.connectedAt).toLocaleDateString()}
               </p>
             )}

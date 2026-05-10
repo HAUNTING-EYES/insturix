@@ -96,7 +96,7 @@ export function SocializeLinkPreviewCard({
                   </>
                 )}
                 <div className="mt-4 flex items-center justify-between">
-                  <Badge variant="outline" className="text-xs truncate max-w-[180px] capitalize border-social-line" style={{ color: '#B5B2A8' }}>
+                  <Badge variant="outline" className="text-[11px] truncate max-w-[180px] capitalize border-social-line" style={{ color: '#B5B2A8' }}>
                     {userLinks?.[selectedLinkIndex]?.platform}
                   </Badge>
                   <Button variant="link" size="sm" className="hover:opacity-80 p-0 transition-opacity" style={{ color: '#D4A652' }} asChild>

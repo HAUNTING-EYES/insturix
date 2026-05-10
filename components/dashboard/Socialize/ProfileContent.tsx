@@ -96,7 +96,7 @@ export function ProfileContent({
       return (
         <div className={cn("w-full h-24 bg-[#1B1A18] flex flex-col items-center justify-center text-zinc-500", isPreview && "h-16")}>
           <div className="text-center p-4">
-            <div className="text-xl mb-1 opacity-50">🖼️</div>
+            <div className="text-[18px] mb-1 opacity-50">🖼️</div>
             <div className="text-[10px] font-medium uppercase tracking-widest" style={{ fontFamily: 'JetBrains Mono' }}>Banner Expired</div>
             <div className="text-[9px] mt-1 opacity-40">Refresh or re-upload image</div>
           </div>
@@ -218,7 +218,7 @@ export function ProfileContent({
               <p
                 className={cn(
                   "text-sm mt-2 text-[#B5B2A8] font-jakarta",
-                  isPreview && "text-xs"
+                  isPreview && "text-[11px]"
                 )}
               >
                 {bio}
@@ -301,7 +301,7 @@ export function ProfileContent({
                 </div>
               </div>
               <div className="flex-1 overflow-hidden">
-                <span className={cn("font-medium text-sm", isPreview && "text-xs")} style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                <span className={cn("font-medium text-sm", isPreview && "text-[11px]")} style={{ fontFamily: 'Plus Jakarta Sans' }}>
                   {link.title && link.title.trim() !== ""
                     ? link.title
                     : link.platform.charAt(0).toUpperCase() +
@@ -341,7 +341,7 @@ export function ProfileContent({
               )}
               style={{ backgroundColor: 'var(--social-well, #1B1A18)' }}
             >
-              <span className={cn("text-2xl", isPreview && "text-xl")}>✨</span>
+              <span className={cn("text-2xl", isPreview && "text-[18px]")}>✨</span>
             </div>
             <p className={cn("text-social-muted text-[10px] uppercase", isPreview && "text-[9px]")} style={{ fontFamily: 'JetBrains Mono', letterSpacing: '0.08em' }}>
               No links added yet

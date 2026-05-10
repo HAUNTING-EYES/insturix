@@ -44,7 +44,7 @@ export default function ChatToggleButton({
         </Tooltip.Trigger>
         <Tooltip.Portal>
           <Tooltip.Content
-            className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-xs px-3 py-1.5 rounded-lg shadow-xl"
+            className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-[11px] px-3 py-1.5 rounded-lg shadow-xl"
             side="left"
             sideOffset={8}
           >

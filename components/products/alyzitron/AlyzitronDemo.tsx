@@ -91,7 +91,7 @@ export default function AlyzitronDemo() {
             Interactive Demo
           </div>
           
-          <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
+          <h2 className="text-[44px] md:text-[110px] font-bold tracking-tight mb-6">
             <span className="bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-700 dark:from-white dark:via-neutral-200 dark:to-neutral-400 bg-clip-text text-transparent">
               See Alyzitron
             </span>
@@ -255,7 +255,7 @@ export default function AlyzitronDemo() {
                     </p>
                   </div>
                   
-                  <div className="text-xs text-neutral-500 font-mono">
+                  <div className="text-[11px] text-neutral-500 font-mono">
                     {step.duration}
                   </div>
                 </motion.div>

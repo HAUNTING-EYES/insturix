@@ -19,7 +19,7 @@ function AiGeneration() {
       <div className="relative">
         <div className="absolute inset-0 bg-[#ff5722]/20 blur-2xl rounded-full" />
         <motion.span
-          className="relative text-6xl md:text-8xl text-white font-bold tracking-tighter"
+          className="relative text-[110px] md:text-8xl text-white font-bold tracking-tighter"
           animate={{ scale }}
           transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
         >
@@ -91,7 +91,7 @@ function AnalyticsLoader() {
               key="text"
               initial={{ y: 20, opacity: 0, filter: "blur(5px)" }}
               animate={{ y: 0, opacity: 1, filter: "blur(0px)" }}
-              className="text-3xl md:text-4xl font-sans font-bold text-white tracking-tight"
+              className="text-[32px] md:text-[44px] font-sans font-bold text-white tracking-tight"
             >
               10x
             </motion.span>
@@ -188,7 +188,7 @@ export default function EnterpriseFeatures() {
           <p className="text-[#ff5722] text-sm uppercase tracking-widest font-medium mb-4">
             Business Features
           </p>
-          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
+          <h2 className="text-[32px] sm:text-[44px] font-bold tracking-tight mb-4">
             Everything needed to scale.
           </h2>
           <p className="text-neutral-400 text-lg max-w-2xl">
@@ -211,7 +211,7 @@ export default function EnterpriseFeatures() {
               <AiGeneration />
             </div>
             <div className="mt-6 relative z-10">
-              <h3 className="text-xl text-white font-semibold flex items-center gap-2 mb-2">
+              <h3 className="text-[18px] text-white font-semibold flex items-center gap-2 mb-2">
                 <Video className="w-5 h-5 text-[#ff5722]" />
                 AI Video Production
               </h3>
@@ -259,7 +259,7 @@ export default function EnterpriseFeatures() {
               </div>
             </div>
             <div className="mt-auto relative z-20 bg-zinc-900/80 backdrop-blur-md rounded-2xl p-4 border border-zinc-800">
-              <h3 className="text-xl text-white flex items-center gap-2 font-semibold mb-1">
+              <h3 className="text-[18px] text-white flex items-center gap-2 font-semibold mb-1">
                 <ChartNoAxesColumnIncreasing className="w-5 h-5 text-[#ff5722]" />
                 Global Trends
               </h3>
@@ -305,7 +305,7 @@ export default function EnterpriseFeatures() {
               <SecurityBadges />
             </div>
             <div className="mt-4">
-              <h3 className="text-xl text-white flex items-center gap-2 font-semibold mb-2">
+              <h3 className="text-[18px] text-white flex items-center gap-2 font-semibold mb-2">
                 <Lock className="w-5 h-5 text-[#ff5722]" />
                 Business Security
               </h3>
@@ -329,7 +329,7 @@ export default function EnterpriseFeatures() {
                  <div className="absolute inset-0 bg-orange-500/20 blur-xl rounded-full opacity-50" />
                  <Users className="w-16 h-16 text-orange-200 relative z-10" />
                  <motion.div 
-                    className="absolute -top-4 -right-4 w-8 h-8 bg-[#ff5722] rounded-full border-2 border-zinc-900 flex items-center justify-center text-xs font-bold"
+                    className="absolute -top-4 -right-4 w-8 h-8 bg-[#ff5722] rounded-full border-2 border-zinc-900 flex items-center justify-center text-[11px] font-bold"
                     animate={{ y: [0, -5, 0] }}
                     transition={{ duration: 2, repeat: Infinity }}
                  >
@@ -338,7 +338,7 @@ export default function EnterpriseFeatures() {
               </div>
             </div>
             <div className="mt-4">
-              <h3 className="text-xl text-white font-semibold flex items-center gap-2 mb-2">
+              <h3 className="text-[18px] text-white font-semibold flex items-center gap-2 mb-2">
                 <BrainCircuit className="w-5 h-5 text-orange-400" />
                 Team Collaboration
               </h3>
