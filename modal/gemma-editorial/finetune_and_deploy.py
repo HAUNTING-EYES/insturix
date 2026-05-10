@@ -73,10 +73,10 @@ MODEL_DIR = "/model"
 
 @app.function(
     image=finetune_image,
-    gpu=modal.gpu.A10G(),
+    gpu="A10G",
     timeout=3600,
     volumes={MODEL_DIR: model_volume},
-    secrets=[modal.Secret.from_name("huggingface-secret")],
+    # secrets=[modal.Secret.from_name("huggingface-secret")],  # Create this secret before fine-tuning
 )
 def finetune(
     training_data_path: str = "/data/training_data.jsonl",
@@ -151,11 +151,10 @@ def finetune(
 
 @app.cls(
     image=inference_image,
-    gpu=modal.gpu.A10G(),
+    gpu="A10G",
     volumes={MODEL_DIR: model_volume},
     timeout=300,
-    container_idle_timeout=300,
-    allow_concurrent_inputs=4,
+    scaledown_window=300,
 )
 class EditorialClassifier:
     @modal.enter()
@@ -232,7 +231,7 @@ class EditorialClassifier:
 
         return decisions
 
-    @modal.web_endpoint(method="POST")
+    @modal.fastapi_endpoint(method="POST")
     def classify(self, payload: dict) -> dict:
         """HTTP endpoint for classification."""
         segments = payload.get("segments", [])
