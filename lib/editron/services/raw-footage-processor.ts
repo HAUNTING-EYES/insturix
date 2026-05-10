@@ -220,6 +220,103 @@ function buildSegment(words: TranscriptionWord[], index: number): TranscriptSegm
   };
 }
 
+// ─── Step 4.75: Intra-Segment Repetition Splitting ───────────────
+
+/**
+ * Detect repeated phrase clusters WITHIN a single segment and split them.
+ *
+ * When a speaker rapid-fires retakes without pausing (e.g., "grocery store
+ * nice people go home... grocery store nice people hang out... grocery store
+ * nice people they go home"), all attempts land in ONE segment because there's
+ * no 1s silence gap between them. The best-take detector compares segments —
+ * it never looks inside. This function splits such segments into sub-segments
+ * so best-take detection can compare them.
+ *
+ * Uses word-level timestamps from transcription to find split points where
+ * a phrase restarts. Detection: sliding window of 5-8 words compared via
+ * Jaccard. When a later window matches an earlier one (> 0.5), the segment
+ * is split at the boundary between the first match's end and the second's start.
+ */
+function splitIntraSegmentRetakes(segments: TranscriptSegment[]): TranscriptSegment[] {
+  const MIN_WORDS_TO_CHECK = 15;
+  const WINDOW_SIZE = 6;
+  const INTRA_JACCARD_THRESHOLD = 0.5;
+  const result: TranscriptSegment[] = [];
+  let nextIndex = segments.length;
+
+  for (const seg of segments) {
+    if (seg.wordCount < MIN_WORDS_TO_CHECK || seg.words.length < MIN_WORDS_TO_CHECK) {
+      result.push(seg);
+      continue;
+    }
+
+    const words = seg.words;
+    const splitPoints: number[] = [];
+
+    for (let i = 0; i < words.length - WINDOW_SIZE; i++) {
+      const windowA = new Set(
+        words.slice(i, i + WINDOW_SIZE).map(w => w.word.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(w => w.length > 2)
+      );
+      if (windowA.size < 3) continue;
+
+      for (let j = i + WINDOW_SIZE; j <= words.length - WINDOW_SIZE; j++) {
+        const windowB = new Set(
+          words.slice(j, j + WINDOW_SIZE).map(w => w.word.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(w => w.length > 2)
+        );
+        if (windowB.size < 3) continue;
+
+        let intersection = 0;
+        for (const w of windowA) { if (windowB.has(w)) intersection++; }
+        const union = windowA.size + windowB.size - intersection;
+        const sim = union > 0 ? intersection / union : 0;
+
+        if (sim >= INTRA_JACCARD_THRESHOLD) {
+          splitPoints.push(j);
+          i = j - 1;
+          break;
+        }
+      }
+    }
+
+    if (splitPoints.length === 0) {
+      result.push(seg);
+      continue;
+    }
+
+    const uniqueSplits = [...new Set(splitPoints)].sort((a, b) => a - b);
+    const boundaries = [0, ...uniqueSplits, words.length];
+
+    for (let b = 0; b < boundaries.length - 1; b++) {
+      const start = boundaries[b];
+      const end = boundaries[b + 1];
+      const sliceWords = words.slice(start, end);
+      if (sliceWords.length < 2) continue;
+
+      const subText = sliceWords.map(w => w.word).join(' ');
+      const subStartMs = sliceWords[0].startMs;
+      const subEndMs = sliceWords[sliceWords.length - 1].endMs;
+      const totalGap = sliceWords.reduce((sum, w, idx) => {
+        if (idx === 0) return 0;
+        return sum + Math.max(0, w.startMs - sliceWords[idx - 1].endMs);
+      }, 0);
+
+      result.push({
+        text: subText,
+        startMs: subStartMs,
+        endMs: subEndMs,
+        wordCount: sliceWords.length,
+        words: sliceWords,
+        fillerCount: sliceWords.filter(w => FILLER_WORDS.includes(w.word.toLowerCase() as any)).length,
+        silenceGapCount: sliceWords.filter((w, idx) => idx > 0 && w.startMs - sliceWords[idx - 1].endMs > 500).length,
+        avgWordGapMs: sliceWords.length > 1 ? totalGap / (sliceWords.length - 1) : 0,
+        index: nextIndex++,
+      });
+    }
+  }
+
+  return result;
+}
+
 // ─── Step 5: Best-Take Detection ─────────────────────────────────
 
 function tokenize(text: string): Set<string> {
@@ -320,6 +417,7 @@ const FALSE_START_MAX_WORDS = 5;
 function detectBestTakes(
   segments: TranscriptSegment[],
   jaccardThreshold: number,
+  protectedIndices: Set<number> = new Set(),
 ): BestTakeSelection[] {
   const selections: BestTakeSelection[] = [];
   const consumed = new Set<number>(); // segment indices already matched
@@ -329,6 +427,7 @@ function detectBestTakes(
 
   for (let i = 0; i < segments.length; i++) {
     if (consumed.has(i)) continue;
+    if (protectedIndices.has(segments[i].index)) continue;
     const tokensI = tokenize(segments[i].text);
 
     const group: TranscriptSegment[] = [segments[i]];
@@ -337,6 +436,7 @@ function detectBestTakes(
     const searchWindow = Math.min(segments.length, i + 30);
     for (let j = i + 1; j < searchWindow; j++) {
       if (consumed.has(j)) continue;
+      if (protectedIndices.has(segments[j].index)) continue;
       const tokensJ = tokenize(segments[j].text);
 
       // Match strategy 1: Jaccard similarity (original — catches full repeated sentences)
@@ -361,13 +461,17 @@ function detectBestTakes(
       if (!isMatch) {
         const wordsI = segWords[i];
         const wordsJ = segWords[j];
+        const shortSeg = wordsI.length <= wordsJ.length ? segments[i] : segments[j];
         const shortWords = wordsI.length <= wordsJ.length ? wordsI : wordsJ;
         const longWords = wordsI.length <= wordsJ.length ? wordsJ : wordsI;
+        const shortText = shortSeg.text.trim();
+        const endsComplete = /[.!?]$/.test(shortText);
         if (
           shortWords.length >= 2 &&
           shortWords.length <= FALSE_START_MAX_WORDS &&
           longWords.length > shortWords.length &&
-          prefixOverlap(shortWords, longWords) === shortWords.length
+          prefixOverlap(shortWords, longWords) === shortWords.length &&
+          !endsComplete
         ) {
           isMatch = true;
         }
@@ -567,8 +671,27 @@ export async function processRawFootage(
     console.warn(`[RawFootage] Editorial intent detection failed (non-fatal): ${err.message}`);
   }
 
-  // Step 5: Best-take detection
-  const bestTakeSelections = detectBestTakes(segments, config.bestTakeJaccardThreshold);
+  // Step 4.75: Intra-segment repetition splitting
+  // When a speaker rapid-fires retakes without pausing (< 1s gap), all attempts
+  // land in ONE segment. The best-take detector compares SEGMENTS — it's blind to
+  // repetition WITHIN a segment. This pass finds repeated phrase clusters inside
+  // long segments and splits them into sub-segments for best-take detection.
+  const expandedSegments = splitIntraSegmentRetakes(segments);
+  if (expandedSegments.length > segments.length) {
+    console.log(`[RawFootage] Intra-segment splitting: ${segments.length} → ${expandedSegments.length} segments (${expandedSegments.length - segments.length} rapid-fire retakes found)`);
+  }
+
+  // Step 5: Best-take detection (uses editorial intent to protect confirmed CONTENT)
+  const protectedIndices = new Set<number>();
+  if (editorialIntents) {
+    for (const idx of editorialIntents.contentSegmentIndices) {
+      const intent = editorialIntents.intents.find(i => i.segmentIndex === idx);
+      if (intent && intent.confidence >= 0.85) {
+        protectedIndices.add(idx);
+      }
+    }
+  }
+  const bestTakeSelections = detectBestTakes(expandedSegments, config.bestTakeJaccardThreshold, protectedIndices);
   if (bestTakeSelections.length > 0) {
     console.log(`[RawFootage] ${bestTakeSelections.length} repeated phrases detected, best takes selected`);
   }
