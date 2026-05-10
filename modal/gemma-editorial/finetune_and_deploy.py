@@ -80,7 +80,7 @@ MODEL_DIR = "/model"
 )
 def finetune(
     training_data_path: str = "/data/training_data.jsonl",
-    base_model: str = "google/gemma-3-4b-it",
+    base_model: str = "google/gemma-4-26B-A4B-it",
     epochs: int = 3,
     lr: float = 2e-4,
     batch_size: int = 4,
@@ -169,7 +169,7 @@ class EditorialClassifier:
             # tagging and editorial classification without fine-tuning.
             # Determinism from: temp=0, enforce_eager, seed=42.
             # Fine-tuned version replaces this once trained.
-            model_path = "google/gemma-3-12b-it"
+            model_path = "google/gemma-4-26B-A4B-it"
             print(f"[Editorial] Using base model: {model_path}")
         else:
             print(f"[Editorial] Loading fine-tuned model from {model_path}")
