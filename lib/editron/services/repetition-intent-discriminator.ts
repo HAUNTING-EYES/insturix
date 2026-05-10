@@ -58,6 +58,12 @@ export function classifyRepetitionIntent(
     return { verdict: 'INTENTIONAL', reason: 'Single segment — nothing to compare' };
   }
 
+  // Speaker diarization check: if segments have DIFFERENT primary speakers,
+  // they cannot be retakes — it's different people saying similar things (agreement, echo, response)
+  if (hasDifferentSpeakers(group)) {
+    return { verdict: 'INTENTIONAL', reason: 'Different speakers — not a retake (agreement/echo/response)' };
+  }
+
   const completeness = analyzeCompleteness(group);
   const variation = analyzeVariation(group);
   const timing = analyzeTiming(group);
@@ -210,6 +216,29 @@ function applyAmbiguousTiebreakers(
 
   // Dead zone (10-30s) = err toward preservation (Fix 1)
   return { verdict: 'INTENTIONAL', reason: `${context} — dead zone (10-30s gap), defaulting to preservation` };
+}
+
+// ─── Speaker Diarization ────────────────────────────────────────────
+
+function hasDifferentSpeakers(group: TranscriptSegment[]): boolean {
+  const speakerPerSegment = group.map(seg => {
+    const speakers = seg.words
+      .filter(w => w.speaker !== undefined)
+      .map(w => w.speaker!);
+    if (speakers.length === 0) return undefined;
+    const counts = new Map<number, number>();
+    for (const s of speakers) counts.set(s, (counts.get(s) || 0) + 1);
+    let maxCount = 0;
+    let primarySpeaker = 0;
+    for (const [id, count] of counts) {
+      if (count > maxCount) { maxCount = count; primarySpeaker = id; }
+    }
+    return primarySpeaker;
+  });
+
+  const definedSpeakers = speakerPerSegment.filter(s => s !== undefined) as number[];
+  if (definedSpeakers.length < 2) return false;
+  return new Set(definedSpeakers).size > 1;
 }
 
 // ─── Heuristic Fixes ────────────────────────────────────────────────
