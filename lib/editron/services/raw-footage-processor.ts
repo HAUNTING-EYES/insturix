@@ -643,6 +643,17 @@ export async function processRawFootage(
   const segments = segmentTranscript(transcription.words, config.segmentPauseThresholdMs);
   console.log(`[RawFootage] ${segments.length} transcript segments`);
 
+  // Step 4.25: Argument structure protection (ONE Gemini call with FULL transcript)
+  // Identifies the 10-20 essential segments that form the argument backbone.
+  // These are ABSOLUTELY PROTECTED — no downstream rule can cut them.
+  let essentialIndices = new Set<number>();
+  try {
+    const { identifyEssentialSegments } = await import('./argument-structure-protector');
+    essentialIndices = await identifyEssentialSegments(segments);
+  } catch (err: any) {
+    console.warn(`[RawFootage] Argument protection failed (non-fatal): ${err.message}`);
+  }
+
   // Step 4.5: Editorial intent detection (Gemini-powered)
   let editorialIntents: import('./editorial-intent-detector').EditorialIntentResult | undefined;
   try {
@@ -670,8 +681,11 @@ export async function processRawFootage(
     userIntent,
   );
 
-  // Step 5b: Best-take detection (uses editorial intent protection + repetition discriminator)
+  // Step 5b: Best-take detection (uses argument protection + editorial intent protection + discriminator)
   const protectedIndices = new Set<number>();
+  // Argument structure protection: essential segments identified by full-context LLM call
+  for (const idx of essentialIndices) protectedIndices.add(idx);
+  // Editorial intent protection: high-confidence CONTENT classifications
   if (editorialIntents) {
     for (const idx of editorialIntents.contentSegmentIndices) {
       const intent = editorialIntents.intents.find(i => i.segmentIndex === idx);
@@ -697,10 +711,24 @@ export async function processRawFootage(
   );
 
   // Step 7.5: Merge editorial intent removals into the plan
+  // EXCEPT: essential segments (argument backbone) are NEVER removed, even if Gemini says META_DISCARD
   if (editorialIntents?.additionalRemovals.length) {
-    silenceRemovalPlan.push(...editorialIntents.additionalRemovals);
+    const essentialTimeRanges = [...essentialIndices].map(idx => {
+      const seg = segments.find(s => s.index === idx);
+      return seg ? { startMs: seg.startMs, endMs: seg.endMs } : null;
+    }).filter(Boolean) as { startMs: number; endMs: number }[];
+
+    const filteredRemovals = editorialIntents.additionalRemovals.filter(removal => {
+      const isProtected = essentialTimeRanges.some(
+        range => removal.startMs >= range.startMs - 100 && removal.endMs <= range.endMs + 100
+      );
+      return !isProtected;
+    });
+
+    const blocked = editorialIntents.additionalRemovals.length - filteredRemovals.length;
+    silenceRemovalPlan.push(...filteredRemovals);
     silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
-    console.log(`[RawFootage] Added ${editorialIntents.additionalRemovals.length} editorial-intent removals to plan`);
+    console.log(`[RawFootage] Added ${filteredRemovals.length} editorial-intent removals to plan${blocked > 0 ? ` (${blocked} blocked by argument protection)` : ''}`);
   }
 
   // Estimate clean duration
