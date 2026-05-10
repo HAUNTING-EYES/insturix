@@ -643,61 +643,58 @@ export async function processRawFootage(
   const segments = segmentTranscript(transcription.words, config.segmentPauseThresholdMs);
   console.log(`[RawFootage] ${segments.length} transcript segments`);
 
-  // Step 4.25: Argument structure protection (ONE Gemini call with FULL transcript)
-  // Identifies the 10-20 essential segments that form the argument backbone.
-  // These are ABSOLUTELY PROTECTED — no downstream rule can cut them.
-  let essentialIndices = new Set<number>();
-  try {
-    const { identifyEssentialSegments } = await import('./argument-structure-protector');
-    essentialIndices = await identifyEssentialSegments(segments);
-  } catch (err: any) {
-    console.warn(`[RawFootage] Argument protection failed (non-fatal): ${err.message}`);
-  }
-
-  // Step 4.5: Editorial intent detection (Gemini-powered)
+  // Step 4.5: Holistic edit decisions (ONE Gemini call with FULL transcript)
+  // Replaces the fragment pipeline (editorial intent + best-take + discriminator +
+  // intra-segment splitter + argument protector) with a single LLM call that sees
+  // ALL segments and makes holistic KEEP/CUT decisions. Handles meta, stutters,
+  // retakes, false starts, and argument protection in ONE pass.
+  let holisticResult: import('./holistic-editor').HolisticEditResult | null = null;
   let editorialIntents: import('./editorial-intent-detector').EditorialIntentResult | undefined;
+  let bestTakeSelections: BestTakeSelection[] = [];
+
   try {
-    const { detectEditorialIntent } = await import('./editorial-intent-detector');
-    editorialIntents = await detectEditorialIntent(segments);
+    const { makeHolisticEditDecisions } = await import('./holistic-editor');
+    holisticResult = await makeHolisticEditDecisions(segments);
   } catch (err: any) {
-    console.warn(`[RawFootage] Editorial intent detection failed (non-fatal): ${err.message}`);
+    console.warn(`[RawFootage] Holistic editor failed: ${err.message}`);
   }
 
-  // Step 4.75: Intra-segment repetition splitting
-  // When a speaker rapid-fires retakes without pausing (< 1s gap), all attempts
-  // land in ONE segment. The best-take detector compares SEGMENTS — it's blind to
-  // repetition WITHIN a segment. This pass finds repeated phrase clusters inside
-  // long segments and splits them into sub-segments for best-take detection.
-  const expandedSegments = splitIntraSegmentRetakes(segments);
-  if (expandedSegments.length > segments.length) {
-    console.log(`[RawFootage] Intra-segment splitting: ${segments.length} → ${expandedSegments.length} segments (${expandedSegments.length - segments.length} rapid-fire retakes found)`);
+  // Fallback: if holistic editor fails, use the fragment-based pipeline
+  if (!holisticResult) {
+    console.log(`[RawFootage] Using fragment-based fallback pipeline`);
+    try {
+      const { detectEditorialIntent } = await import('./editorial-intent-detector');
+      editorialIntents = await detectEditorialIntent(segments);
+    } catch (err: any) {
+      console.warn(`[RawFootage] Editorial intent detection failed (non-fatal): ${err.message}`);
+    }
+
+    const expandedSegments = splitIntraSegmentRetakes(segments);
+    if (expandedSegments.length > segments.length) {
+      console.log(`[RawFootage] Intra-segment splitting: ${segments.length} → ${expandedSegments.length} segments`);
+    }
+
+    const fallbackContentType = detectContentType(transcription.words, videoDurationSec, platform, userIntent);
+    const protectedIndices = new Set<number>();
+    if (editorialIntents) {
+      for (const idx of editorialIntents.contentSegmentIndices) {
+        const intent = editorialIntents.intents.find(i => i.segmentIndex === idx);
+        if (intent && intent.confidence >= 0.85) protectedIndices.add(idx);
+      }
+    }
+    bestTakeSelections = detectBestTakes(expandedSegments, config.bestTakeJaccardThreshold, protectedIndices, fallbackContentType);
+    if (bestTakeSelections.length > 0) {
+      console.log(`[RawFootage] ${bestTakeSelections.length} repeated phrases detected, best takes selected`);
+    }
   }
 
-  // Step 5a: Classify content type (moved before best-take — discriminator needs it)
+  // Step 5a: Classify content type (needed for Director regardless of edit path)
   const contentTypeDetection = detectContentType(
     transcription.words,
     videoDurationSec,
     platform,
     userIntent,
   );
-
-  // Step 5b: Best-take detection (uses argument protection + editorial intent protection + discriminator)
-  const protectedIndices = new Set<number>();
-  // Argument structure protection: essential segments identified by full-context LLM call
-  for (const idx of essentialIndices) protectedIndices.add(idx);
-  // Editorial intent protection: high-confidence CONTENT classifications
-  if (editorialIntents) {
-    for (const idx of editorialIntents.contentSegmentIndices) {
-      const intent = editorialIntents.intents.find(i => i.segmentIndex === idx);
-      if (intent && intent.confidence >= 0.85) {
-        protectedIndices.add(idx);
-      }
-    }
-  }
-  const bestTakeSelections = detectBestTakes(expandedSegments, config.bestTakeJaccardThreshold, protectedIndices, contentTypeDetection);
-  if (bestTakeSelections.length > 0) {
-    console.log(`[RawFootage] ${bestTakeSelections.length} repeated phrases detected, best takes selected`);
-  }
 
   // Step 7: Build atomic silence removal plan
   const silenceRemovalPlan = buildSilenceRemovalPlan(
@@ -710,25 +707,17 @@ export async function processRawFootage(
     config.casualFillerRateThreshold,
   );
 
-  // Step 7.5: Merge editorial intent removals into the plan
-  // EXCEPT: essential segments (argument backbone) are NEVER removed, even if Gemini says META_DISCARD
-  if (editorialIntents?.additionalRemovals.length) {
-    const essentialTimeRanges = [...essentialIndices].map(idx => {
-      const seg = segments.find(s => s.index === idx);
-      return seg ? { startMs: seg.startMs, endMs: seg.endMs } : null;
-    }).filter(Boolean) as { startMs: number; endMs: number }[];
-
-    const filteredRemovals = editorialIntents.additionalRemovals.filter(removal => {
-      const isProtected = essentialTimeRanges.some(
-        range => removal.startMs >= range.startMs - 100 && removal.endMs <= range.endMs + 100
-      );
-      return !isProtected;
-    });
-
-    const blocked = editorialIntents.additionalRemovals.length - filteredRemovals.length;
-    silenceRemovalPlan.push(...filteredRemovals);
+  // Step 7.5: Merge edit decisions into the plan
+  if (holisticResult) {
+    // Holistic editor made all decisions — use its removals directly
+    silenceRemovalPlan.push(...holisticResult.removals);
     silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
-    console.log(`[RawFootage] Added ${filteredRemovals.length} editorial-intent removals to plan${blocked > 0 ? ` (${blocked} blocked by argument protection)` : ''}`);
+    console.log(`[RawFootage] Added ${holisticResult.removals.length} holistic-editor removals to plan`);
+  } else if (editorialIntents?.additionalRemovals.length) {
+    // Fallback: fragment-based editorial intent removals
+    silenceRemovalPlan.push(...editorialIntents.additionalRemovals);
+    silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
+    console.log(`[RawFootage] Added ${editorialIntents.additionalRemovals.length} editorial-intent removals to plan`);
   }
 
   // Estimate clean duration
