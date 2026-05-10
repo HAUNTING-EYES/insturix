@@ -37,26 +37,40 @@ from pathlib import Path
 def format_tagged_example(disfluent_text: str, clean_text: str) -> dict:
     """Create a training example from paired disfluent/clean text.
 
-    Constructs the tagged output by finding the disfluent prefix
-    (the part in disfluent_text that doesn't appear in clean_text)
-    and wrapping it in <reparandum> tags.
+    Uses word-level diff to find which words in disfluent_text are NOT
+    in clean_text, then wraps those in <reparandum> tags. Handles
+    disfluencies at the start, middle, or end of the sentence.
     """
-    # Find where clean_text starts within disfluent_text
-    # The disfluent portion is everything before the clean match
-    clean_lower = clean_text.lower().strip()
-    disf_lower = disfluent_text.lower().strip()
+    import difflib
 
-    # Try to find the clean text as a suffix of the disfluent text
-    tagged = disfluent_text  # default: return as-is if can't find match
-    for start_pos in range(len(disfluent_text)):
-        remaining = disfluent_text[start_pos:].strip()
-        if remaining.lower() == clean_lower or remaining.lower().startswith(clean_lower[:20]):
-            prefix = disfluent_text[:start_pos].strip()
-            if prefix:
-                tagged = f"<reparandum>{prefix}</reparandum> {remaining}"
-            else:
-                tagged = remaining
-            break
+    disf_words = disfluent_text.split()
+    clean_words = clean_text.split()
+
+    matcher = difflib.SequenceMatcher(None,
+        [w.lower().strip('.,!?"\'-') for w in disf_words],
+        [w.lower().strip('.,!?"\'-') for w in clean_words],
+    )
+
+    tagged_parts = []
+    reparandum_buf = []
+
+    for op, i1, i2, j1, j2 in matcher.get_opcodes():
+        if op == 'equal':
+            # Flush any accumulated reparandum
+            if reparandum_buf:
+                tagged_parts.append(f"<reparandum>{' '.join(reparandum_buf)}</reparandum>")
+                reparandum_buf = []
+            tagged_parts.extend(disf_words[i1:i2])
+        elif op in ('delete', 'replace', 'insert'):
+            # Words in disfluent but not in clean = reparandum
+            if op != 'insert':
+                reparandum_buf.extend(disf_words[i1:i2])
+
+    # Flush final buffer
+    if reparandum_buf:
+        tagged_parts.append(f"<reparandum>{' '.join(reparandum_buf)}</reparandum>")
+
+    tagged = ' '.join(tagged_parts) if tagged_parts else disfluent_text
 
     return {
         "messages": [
