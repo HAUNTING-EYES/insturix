@@ -52,13 +52,17 @@ export async function getChatModel() {
 }
 
 /**
- * Get a model for general tasks — Gemini 3.1 Flash.
- * Used by: consistency scoring, quality review.
+ * Get a model for general tasks — Gemini 3.1 Pro (best reasoning).
+ * Used by: editorial intent classification, consistency scoring, quality review.
+ * Upgraded from gemini-2.5-flash to gemini-3.1-pro-preview (2026-05-10):
+ *   Editorial intent classification needs highest accuracy for KEEP/CUT decisions.
+ *   Pro model is slower (~2-3x) but significantly more capable on classification.
+ *   Acceptable because this runs in background workers (800s timeout), not user-facing.
  * Override: LLM_GENERAL_MODEL env var.
  */
 export async function getGeneralModel() {
   const genAI = await getGenAI();
-  const modelName = process.env.LLM_GENERAL_MODEL || 'gemini-2.5-flash';
+  const modelName = process.env.LLM_GENERAL_MODEL || 'gemini-3.1-pro-preview';
   return genAI.getGenerativeModel({ model: modelName });
 }
 
