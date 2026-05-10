@@ -239,8 +239,8 @@ function buildSegment(words: TranscriptionWord[], index: number): TranscriptSegm
  * is split at the boundary between the first match's end and the second's start.
  */
 function splitIntraSegmentRetakes(segments: TranscriptSegment[]): TranscriptSegment[] {
-  const MIN_WORDS_TO_CHECK = 15;
-  const WINDOW_SIZE = 6;
+  const MIN_WORDS_TO_CHECK = 8;
+  const WINDOW_SIZE = 4;
   const INTRA_JACCARD_THRESHOLD = 0.5;
   const result: TranscriptSegment[] = [];
   let nextIndex = segments.length;
@@ -390,13 +390,17 @@ function detectBestTakes(
   contentType?: ContentTypeDetection,
 ): BestTakeSelection[] {
   const selections: BestTakeSelection[] = [];
-  const consumed = new Set<number>(); // segment indices already matched
+  // Track consumed segments by their .index (NOT array position).
+  // After intra-segment expansion, array positions ≠ segment indices.
+  // Bug was: consumed.has(i) checked array position while consumed.add(seg.index)
+  // stored segment index → broken tracking after expansion.
+  const consumed = new Set<number>();
 
   // Pre-compute word arrays for prefix matching
   const segWords = segments.map(s => getWords(s.text));
 
   for (let i = 0; i < segments.length; i++) {
-    if (consumed.has(i)) continue;
+    if (consumed.has(segments[i].index)) continue;
     if (protectedIndices.has(segments[i].index)) continue;
     const tokensI = tokenize(segments[i].text);
 
@@ -405,7 +409,7 @@ function detectBestTakes(
     // Look ahead within a reasonable window (repeated takes are usually nearby)
     const searchWindow = Math.min(segments.length, i + 30);
     for (let j = i + 1; j < searchWindow; j++) {
-      if (consumed.has(j)) continue;
+      if (consumed.has(segments[j].index)) continue;
       if (protectedIndices.has(segments[j].index)) continue;
       const tokensJ = tokenize(segments[j].text);
 
@@ -462,7 +466,7 @@ function detectBestTakes(
 
       if (isMatch) {
         group.push(segments[j]);
-        consumed.add(j);
+        consumed.add(segments[j].index);
       }
     }
 
