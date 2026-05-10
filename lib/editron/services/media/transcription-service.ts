@@ -122,18 +122,15 @@ async function generateTranscription(
         }
         if (!mediaUrl) throw new Error('No URL for asset');
 
-        // Prefer GCS signed URL over CDN for Grok STT — the CDN proxy may not
-        // serve correct content-type headers, causing "Could not detect audio format"
-        // 400 errors. GCS signed URLs have proper content-type from upload metadata.
-        let grokUrl = mediaUrl;
-        if (asset.gcsPath) {
-          try {
-            const signed = await refreshSignedUrl(asset.gcsPath);
-            grokUrl = signed.url;
-          } catch { /* fall back to mediaUrl */ }
-        }
+        // NOTE: Grok STT 400 "Could not detect audio format" is a known issue.
+        // Root cause: R2 CDN worker (editron-asset-proxy) may not serve headers that
+        // let xAI's format detection work. Fix options (not yet implemented):
+        //   a) R2 Worker: serve Content-Type from stored metadata (separate deploy)
+        //   b) Download file + upload directly as FormData 'file' (doubles bandwidth)
+        //   c) xAI fix: they should detect MP4 from magic bytes regardless of headers
+        // Until fixed: Grok fails with 400, falls through to Whisper (works, no diarization).
 
-        console.log(`[Transcription] Grok STT: transcribing ${asset.assetId} via ${grokUrl.includes('storage.googleapis') ? 'GCS' : 'CDN'}...`);
+        console.log(`[Transcription] Grok STT: transcribing ${asset.assetId} via CDN URL...`);
 
         // xAI STT API expects FormData (multipart/form-data), NOT JSON.
         // Retry on 429 — CDN rate-limits when multiple services download simultaneously
@@ -142,7 +139,7 @@ async function generateTranscription(
         const maxRetries = 3;
         for (let attempt = 0; attempt < maxRetries; attempt++) {
           const formData = new FormData();
-          formData.append('url', grokUrl);
+          formData.append('url', mediaUrl);
           formData.append('language', language || 'en');
           formData.append('format', 'true');
           formData.append('diarize', 'true');
