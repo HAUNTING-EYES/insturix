@@ -31,6 +31,12 @@ export interface RepetitionDecision {
   reason: string;
 }
 
+export interface ProsodicFeatures {
+  energy: number;
+  emotionIntensity: number;
+  pitchVariability: number;
+}
+
 // ─── Constants ──────────────────────────────────────────────────────
 
 const IDENTICAL_THRESHOLD = 0.95;
@@ -53,6 +59,7 @@ const WORD_COUNT_VARIANCE_THRESHOLD = 0.5;
 export function classifyRepetitionIntent(
   group: TranscriptSegment[],
   contentType?: ContentTypeDetection,
+  prosodic?: ProsodicFeatures[],
 ): RepetitionDecision {
   if (group.length < 2) {
     return { verdict: 'INTENTIONAL', reason: 'Single segment — nothing to compare' };
@@ -72,6 +79,17 @@ export function classifyRepetitionIntent(
 
   // All complete + identical = deliberate emphasis (keep all)
   if (completeness === 'ALL_COMPLETE' && variation === 'IDENTICAL') {
+    // Phase 3: Prosodic override — identical text but different emotional delivery = acting takes
+    if (prosodic && prosodic.length === group.length) {
+      const emotionDiffs = [];
+      for (let i = 1; i < prosodic.length; i++) {
+        emotionDiffs.push(Math.abs(prosodic[i].emotionIntensity - prosodic[i - 1].emotionIntensity));
+      }
+      const maxEmotionDiff = Math.max(...emotionDiffs, 0);
+      if (maxEmotionDiff > 0.3) {
+        return { verdict: 'RETAKE', reason: `Identical text but emotion varies by ${maxEmotionDiff.toFixed(2)} — different acting takes` };
+      }
+    }
     // Fix 3: Restraint profile override — minimalist/luxury content shouldn't keep duplicates
     if (isRestraintProfile(contentType)) {
       return applyAmbiguousTiebreakers(group, timing, contentType, 'Restraint profile — identical segments in minimalist aesthetic');
@@ -105,6 +123,20 @@ export function classifyRepetitionIntent(
   // Fix 4: Semantic polarity check — if variation shows contradiction/negation, it's a pivot
   if (variation === 'REPHRASING' && hasSemanticPolarity(group)) {
     return { verdict: 'NARRATIVE_PIVOT', reason: 'Segments contradict each other — narrative pivot, not retake' };
+  }
+
+  // Phase 3: Prosodic energy escalation check — if energy increases across repetitions, it's building
+  if (prosodic && prosodic.length === group.length && prosodic.length >= 2) {
+    let energyIncreasing = true;
+    for (let i = 1; i < prosodic.length; i++) {
+      if (prosodic[i].energy < prosodic[i - 1].energy + 0.05) {
+        energyIncreasing = false;
+        break;
+      }
+    }
+    if (energyIncreasing) {
+      return { verdict: 'INTENTIONAL', reason: 'Energy increases across repetitions — building emphasis (prosodic signal)' };
+    }
   }
 
   // All complete + rephrasing = AMBIGUOUS (apply tiebreakers)
