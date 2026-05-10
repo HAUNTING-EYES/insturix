@@ -335,38 +335,6 @@ function getWords(text: string): string[] {
   return text.toLowerCase().replace(/[^a-z0-9'\s-]/g, '').split(/\s+/).filter(Boolean);
 }
 
-/**
- * Extract uncommon keywords (≥5 chars) for paraphrase detection.
- * Filters stop words and short common words — keeps content-carrying words
- * like "grocery", "store", "internet", "anonymity" that identify the topic.
- */
-function getKeywords(text: string): Set<string> {
-  const STOP = new Set([
-    // 4-char stop words
-    'also', 'been', 'come', 'does', 'done', 'each', 'even', 'from', 'gets',
-    'goes', 'gone', 'good', 'gotta', 'guys', 'have', 'here', 'into', 'it\'s',
-    'just', 'keep', 'kind', 'know', 'last', 'left', 'like', 'look', 'made',
-    'make', 'many', 'more', 'most', 'much', 'must', 'need', 'next', 'only',
-    'over', 'part', 'same', 'said', 'says', 'seem', 'some', 'sort', 'such',
-    'sure', 'take', 'tell', 'than', 'that', 'them', 'then', 'they', 'this',
-    'took', 'very', 'want', 'well', 'went', 'were', 'what', 'when', 'will',
-    'with', 'work', 'yeah',
-    // 5+ char stop words
-    'about', 'after', 'again', 'being', 'below', 'could', 'doing', 'during',
-    'every', 'first', 'going', 'gonna', 'great', 'having', 'maybe', 'might',
-    'never', 'other', 'quite', 'rally', 'ready', 'really', 'right', 'shall',
-    'since', 'still', 'their', 'there', 'these', 'thing', 'think', 'those',
-    'under', 'until', 'where', 'which', 'while', 'whole', 'would', 'years',
-    'should', 'because', 'doesn', 'people', 'pretty', 'actually', 'basically',
-    'always', 'around', 'before', 'between', 'coming', 'enough', 'getting',
-    'having', 'little', 'looking', 'making', 'nothing', 'saying', 'something',
-    'talking', 'trying', 'you\'re', 'you\'ve', 'we\'re', 'we\'ve', 'don\'t',
-  ]);
-  return new Set(
-    text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/)
-      .filter(w => w.length >= 4 && !STOP.has(w))
-  );
-}
 
 /**
  * Check if two segments share the same opening words (prefix match).
@@ -502,7 +470,7 @@ function detectBestTakes(
       // Ask the discriminator: is this group a retake cluster or intentional repetition?
       const decision = classifyRepetitionIntent(group, contentType);
       if (decision.verdict !== 'RETAKE') {
-        // INTENTIONAL or NARRATIVE_PIVOT — keep all segments, don't cut
+        console.log(`[BestTake] Group of ${group.length} similar segments KEPT (${decision.verdict}): ${decision.reason} | "${group[0].text.substring(0, 60)}..."`);
         continue;
       }
 
