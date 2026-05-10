@@ -18,6 +18,7 @@ import { getTranscription } from '@/lib/editron/services/media';
 import { FILLER_WORDS } from '@/lib/editron/services/media/types';
 import type { TranscriptionData, TranscriptionWord, SilenceGap, DetectedFiller } from '@/lib/editron/services/media/types';
 import { detectContentType, type ContentTypeDetection } from '@/lib/editron/services/content-type-detector';
+import { classifyRepetitionIntent } from '@/lib/editron/services/repetition-intent-discriminator';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -418,6 +419,7 @@ function detectBestTakes(
   segments: TranscriptSegment[],
   jaccardThreshold: number,
   protectedIndices: Set<number> = new Set(),
+  contentType?: ContentTypeDetection,
 ): BestTakeSelection[] {
   const selections: BestTakeSelection[] = [];
   const consumed = new Set<number>(); // segment indices already matched
@@ -497,7 +499,14 @@ function detectBestTakes(
     }
 
     if (group.length > 1) {
-      // Score each take and pick the best (longest complete take wins)
+      // Ask the discriminator: is this group a retake cluster or intentional repetition?
+      const decision = classifyRepetitionIntent(group, contentType);
+      if (decision.verdict !== 'RETAKE') {
+        // INTENTIONAL or NARRATIVE_PIVOT — keep all segments, don't cut
+        continue;
+      }
+
+      // RETAKE — score each take and pick the best (longest complete take wins)
       const scored = group.map(seg => ({ seg, score: scoreSegmentQuality(seg) }));
       scored.sort((a, b) => b.score - a.score);
 
@@ -681,7 +690,15 @@ export async function processRawFootage(
     console.log(`[RawFootage] Intra-segment splitting: ${segments.length} → ${expandedSegments.length} segments (${expandedSegments.length - segments.length} rapid-fire retakes found)`);
   }
 
-  // Step 5: Best-take detection (uses editorial intent to protect confirmed CONTENT)
+  // Step 5a: Classify content type (moved before best-take — discriminator needs it)
+  const contentTypeDetection = detectContentType(
+    transcription.words,
+    videoDurationSec,
+    platform,
+    userIntent,
+  );
+
+  // Step 5b: Best-take detection (uses editorial intent protection + repetition discriminator)
   const protectedIndices = new Set<number>();
   if (editorialIntents) {
     for (const idx of editorialIntents.contentSegmentIndices) {
@@ -691,18 +708,10 @@ export async function processRawFootage(
       }
     }
   }
-  const bestTakeSelections = detectBestTakes(expandedSegments, config.bestTakeJaccardThreshold, protectedIndices);
+  const bestTakeSelections = detectBestTakes(expandedSegments, config.bestTakeJaccardThreshold, protectedIndices, contentTypeDetection);
   if (bestTakeSelections.length > 0) {
     console.log(`[RawFootage] ${bestTakeSelections.length} repeated phrases detected, best takes selected`);
   }
-
-  // Step 6: Classify content type
-  const contentTypeDetection = detectContentType(
-    transcription.words,
-    videoDurationSec,
-    platform,
-    userIntent,
-  );
 
   // Step 7: Build atomic silence removal plan
   const silenceRemovalPlan = buildSilenceRemovalPlan(
