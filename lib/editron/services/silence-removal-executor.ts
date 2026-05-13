@@ -194,7 +194,7 @@ export async function executeSilenceRemoval(
         toDelete.push(i);
         // Ghost: preserve the removed overlay for potential restoration
         const reasonMap: Record<string, GhostSegment['removalReason']> = {
-          'silence': 'silence', 'filler': 'filler', 'inferior-take': 'duplicate_take', 'meta-discard': 'meta_commentary',
+          'silence': 'silence', 'filler': 'filler', 'inferior-take': 'duplicate_take', 'meta-discard': 'meta_commentary', 'transcript-edit': 'meta_commentary',
         };
         ghostSegments.push({
           id: `ghost_${projectId}_${action.startMs}_${action.endMs}`,

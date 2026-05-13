@@ -28,7 +28,7 @@ export interface SilenceRemovalAction {
   action: 'remove' | 'shorten';
   /** Target duration in ms (only for 'shorten') */
   shortenToMs?: number;
-  reason: 'silence' | 'filler' | 'inferior-take' | 'meta-discard';
+  reason: 'silence' | 'filler' | 'inferior-take' | 'meta-discard' | 'transcript-edit';
 }
 
 export interface TranscriptSegment {
@@ -70,6 +70,10 @@ export interface RawFootageAnalysis {
   estimatedCleanDurationMs: number;
   /** Original video duration (ms) */
   originalDurationMs: number;
+  /** Which editorial decision path was used */
+  editMethod?: 'transcript-editor' | 'fragment-pipeline';
+  /** Keep ranges from transcript editor (for debugging/UI) */
+  transcriptEditRanges?: import('./transcript-editor').TranscriptEditKeepRange[];
 }
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -554,26 +558,7 @@ export async function processRawFootage(
     : 0;
   console.log(`[RawFootage] Found ${fillerWords.length} fillers (rate=${(fillerRate * 100).toFixed(1)}%)`);
 
-  // Step 4: Segment transcript
-  const segments = segmentTranscript(transcription.words, config.segmentPauseThresholdMs);
-  console.log(`[RawFootage] ${segments.length} transcript segments`);
-
-  // Step 4.5: Editorial intent detection (Gemini-powered)
-  let editorialIntents: import('./editorial-intent-detector').EditorialIntentResult | undefined;
-  try {
-    const { detectEditorialIntent } = await import('./editorial-intent-detector');
-    editorialIntents = await detectEditorialIntent(segments);
-  } catch (err: any) {
-    console.warn(`[RawFootage] Editorial intent detection failed (non-fatal): ${err.message}`);
-  }
-
-  // Step 5: Best-take detection
-  const bestTakeSelections = detectBestTakes(segments, config.bestTakeJaccardThreshold);
-  if (bestTakeSelections.length > 0) {
-    console.log(`[RawFootage] ${bestTakeSelections.length} repeated phrases detected, best takes selected`);
-  }
-
-  // Step 6: Classify content type
+  // Step 4: Classify content type (moved before editorial decisions — needed for context)
   const contentTypeDetection = detectContentType(
     transcription.words,
     videoDurationSec,
@@ -581,19 +566,71 @@ export async function processRawFootage(
     userIntent,
   );
 
+  // Step 5: Transcript Editor (primary) — word-level Gemini call
+  // Falls back to fragment pipeline (segment + editorial intent + best-take) on failure
+  let transcriptEditRemovals: SilenceRemovalAction[] = [];
+  let editMethod: 'transcript-editor' | 'fragment-pipeline' = 'fragment-pipeline';
+  let transcriptEditRanges: import('./transcript-editor').TranscriptEditKeepRange[] | undefined;
+  let segments: TranscriptSegment[] = [];
+  let bestTakeSelections: BestTakeSelection[] = [];
+  let editorialIntents: import('./editorial-intent-detector').EditorialIntentResult | undefined;
+
+  try {
+    const { editTranscript } = await import('./transcript-editor');
+    const editResult = await editTranscript(transcription.words, videoDurationMs, {
+      contentType: contentTypeDetection.contentType,
+      platform,
+      userIntent,
+      speakerCount: transcription.speakerCount,
+    });
+
+    if (editResult.method === 'transcript-editor') {
+      transcriptEditRemovals = editResult.removals;
+      transcriptEditRanges = editResult.keepRanges;
+      editMethod = 'transcript-editor';
+      // Still segment for downstream consumers (Director, captions) that expect segments
+      segments = segmentTranscript(transcription.words, config.segmentPauseThresholdMs);
+      console.log(`[RawFootage] ${segments.length} transcript segments (for downstream consumers)`);
+    }
+  } catch (err: any) {
+    console.warn(`[RawFootage] Transcript editor import/call failed: ${err.message}`);
+  }
+
+  // Fallback: fragment pipeline (segment → editorial intent → best-take)
+  if (editMethod === 'fragment-pipeline') {
+    segments = segmentTranscript(transcription.words, config.segmentPauseThresholdMs);
+    console.log(`[RawFootage] ${segments.length} transcript segments`);
+
+    try {
+      const { detectEditorialIntent } = await import('./editorial-intent-detector');
+      editorialIntents = await detectEditorialIntent(segments);
+    } catch (err: any) {
+      console.warn(`[RawFootage] Editorial intent detection failed (non-fatal): ${err.message}`);
+    }
+
+    bestTakeSelections = detectBestTakes(segments, config.bestTakeJaccardThreshold);
+    if (bestTakeSelections.length > 0) {
+      console.log(`[RawFootage] ${bestTakeSelections.length} repeated phrases detected, best takes selected`);
+    }
+  }
+
   // Step 7: Build atomic silence removal plan
   const silenceRemovalPlan = buildSilenceRemovalPlan(
     silenceGaps,
     fillerWords,
-    bestTakeSelections,
+    editMethod === 'fragment-pipeline' ? bestTakeSelections : [],
     contentTypeDetection.silenceThreshold,
     config.fillerRemovalMode,
     fillerRate,
     config.casualFillerRateThreshold,
   );
 
-  // Step 7.5: Merge editorial intent removals into the plan
-  if (editorialIntents?.additionalRemovals.length) {
+  // Step 7.5: Merge editorial removals into the plan
+  if (editMethod === 'transcript-editor' && transcriptEditRemovals.length > 0) {
+    silenceRemovalPlan.push(...transcriptEditRemovals);
+    silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
+    console.log(`[RawFootage] Added ${transcriptEditRemovals.length} transcript-edit removals to plan`);
+  } else if (editorialIntents?.additionalRemovals.length) {
     silenceRemovalPlan.push(...editorialIntents.additionalRemovals);
     silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
     console.log(`[RawFootage] Added ${editorialIntents.additionalRemovals.length} editorial-intent removals to plan`);
@@ -607,7 +644,7 @@ export async function processRawFootage(
   }, 0);
   const estimatedCleanDurationMs = videoDurationMs - totalRemovedMs;
 
-  console.log(`[RawFootage] Plan: ${silenceRemovalPlan.length} actions, ${Math.round(totalRemovedMs / 1000)}s removed, clean=${Math.round(estimatedCleanDurationMs / 1000)}s (was ${Math.round(videoDurationSec)}s)`);
+  console.log(`[RawFootage] Plan (${editMethod}): ${silenceRemovalPlan.length} actions, ${Math.round(totalRemovedMs / 1000)}s removed, clean=${Math.round(estimatedCleanDurationMs / 1000)}s (was ${Math.round(videoDurationSec)}s)`);
 
   return {
     transcription,
@@ -620,5 +657,7 @@ export async function processRawFootage(
     silenceRemovalPlan,
     estimatedCleanDurationMs,
     originalDurationMs: videoDurationMs,
+    editMethod,
+    transcriptEditRanges,
   };
 }
