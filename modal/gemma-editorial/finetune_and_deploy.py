@@ -39,7 +39,6 @@ app = modal.App("gemma-editorial")
 finetune_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
-        "unsloth[colab-new]>=2024.12",
         "torch>=2.4",
         "transformers>=4.46",
         "datasets>=3.0",
@@ -80,40 +79,49 @@ MODEL_DIR = "/model"
 )
 def finetune(
     training_data_path: str = "/data/training_data.jsonl",
-    base_model: str = "google/gemma-4-26B-A4B-it",
+    base_model: str = "Qwen/Qwen2.5-3B-Instruct",
     epochs: int = 3,
     lr: float = 2e-4,
     batch_size: int = 4,
 ):
-    """Fine-tune Gemma on KEEP/CUT classification data."""
-    from unsloth import FastModel
+    """Fine-tune Gemma on disfluency tagging data using PEFT + TRL (no Unsloth)."""
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    from peft import LoraConfig, get_peft_model
     from trl import SFTTrainer, SFTConfig
-    from datasets import load_dataset
     import os
 
     print(f"[FineTune] Loading base model: {base_model}")
 
-    # Load model with QLoRA
-    model, tokenizer = FastModel.from_pretrained(
-        model_name=base_model,
-        max_seq_length=2048,
+    bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype="bfloat16",
+    )
+    tokenizer = AutoTokenizer.from_pretrained(base_model)
+    model = AutoModelForCausalLM.from_pretrained(
+        base_model, quantization_config=bnb_config, device_map="auto",
     )
 
-    # Add LoRA adapters
-    model = FastModel.get_peft_model(
-        model,
-        r=16,
-        lora_alpha=16,
-        lora_dropout=0.05,
-        target_modules=[
-            "q_proj", "k_proj", "v_proj", "o_proj",
-            "gate_proj", "up_proj", "down_proj",
-        ],
+    lora_config = LoraConfig(
+        r=16, lora_alpha=16, lora_dropout=0.05,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        task_type="CAUSAL_LM",
     )
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()
 
     print(f"[FineTune] Loading training data: {training_data_path}")
-    dataset = load_dataset("json", data_files=training_data_path, split="train")
+    import json as _json
+    raw_data = []
+    with open(training_data_path) as f:
+        for line in f:
+            item = _json.loads(line)
+            msgs = item["messages"]
+            text = f"<|im_start|>user\n{msgs[0]['content']}<|im_end|>\n<|im_start|>assistant\n{msgs[1]['content']}<|im_end|>"
+            raw_data.append({"text": text})
+
+    from datasets import Dataset
+    dataset = Dataset.from_list(raw_data)
 
     print(f"[FineTune] {len(dataset)} training examples loaded")
     print(f"[FineTune] Starting fine-tuning: {epochs} epochs, lr={lr}, batch={batch_size}")
@@ -122,6 +130,7 @@ def finetune(
         model=model,
         tokenizer=tokenizer,
         train_dataset=dataset,
+        dataset_text_field="text",
         args=SFTConfig(
             output_dir=os.path.join(MODEL_DIR, "checkpoints"),
             num_train_epochs=epochs,
@@ -130,7 +139,7 @@ def finetune(
             warmup_steps=10,
             logging_steps=10,
             save_strategy="epoch",
-            fp16=True,
+            bf16=True,
             seed=42,
         ),
     )
@@ -140,7 +149,8 @@ def finetune(
     # Save merged model (LoRA merged into base weights)
     save_path = os.path.join(MODEL_DIR, "gemma-editorial-classifier")
     print(f"[FineTune] Saving merged model to {save_path}")
-    model.save_pretrained_merged(save_path, tokenizer, save_method="merged_16bit")
+    merged = model.merge_and_unload()
+    merged.save_pretrained(save_path)
     tokenizer.save_pretrained(save_path)
 
     model_volume.commit()
@@ -168,7 +178,10 @@ class EditorialClassifier:
             # tagging and editorial classification without fine-tuning.
             # Determinism from: temp=0, enforce_eager, seed=42.
             # Fine-tuned version replaces this once trained.
-            model_path = "google/gemma-4-26B-A4B-it"
+            # 26B-A4B needs >24GB VRAM even in bf16 (full weights loaded).
+            # E4B fits A10G easily (~5GB bf16) and is still Gemma 4 architecture.
+            # Upgrade to A100 (80GB) for 26B when ready.
+            model_path = "Qwen/Qwen2.5-3B-Instruct"
             print(f"[Editorial] Using base model: {model_path}")
         else:
             print(f"[Editorial] Loading fine-tuned model from {model_path}")
@@ -177,7 +190,7 @@ class EditorialClassifier:
             model=model_path,
             max_model_len=8192,
             enforce_eager=True,
-            quantization="awq",
+            dtype="float16",
         )
 
         self.sampling_params = SamplingParams(
