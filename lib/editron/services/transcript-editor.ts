@@ -76,37 +76,59 @@ function buildPrompt(
     context.speakerCount && context.speakerCount > 1 && `Speakers: ${context.speakerCount}`,
   ].filter(Boolean).join('. ');
 
-  return `You are a professional video editor making a rough cut of raw footage. Your goal is a clean, watchable video. Be CONSERVATIVE — when unsure, KEEP.
-${contextLine ? `\n${contextLine}\n` : ''}
-Below is the COMPLETE word-level transcript. Identify ranges of words to KEEP. Everything not in a keep-range will be cut.
+  return `<role>You are a professional video editor making a rough cut of raw footage. Be CONSERVATIVE — when unsure, KEEP the content.</role>
+${contextLine ? `\n<context>${contextLine}</context>\n` : ''}
+<task>
+Read the full word-level transcript below. Identify ranges of word indices to KEEP in the final edit. Everything NOT covered by a keep-range will be cut.
 
+First, scan the transcript for retake patterns — places where the speaker repeats the same words in immediate succession. Then produce keep-ranges that exclude only those retakes and the other patterns listed below.
+</task>
+
+<rules>
 ONLY CUT these specific patterns:
-1. IMMEDIATE RETAKES: the speaker says the SAME WORDS 2-3 times in a row, trying to get the line right. Cut prior attempts, keep the final one.
-   Example: "We all, we all know, we all know that the anonymity..." → cut "We all, we all know," keep from "we all know that the anonymity..."
-2. FALSE STARTS: speaker begins a sentence, abandons it within 1-4 words, and restarts. Cut the abandoned fragment only.
-   Example: "I th- I think" → cut "I th-" keep "I think"
-3. PRODUCTION META: speaker talks directly about the recording process — mic checks, "let me restart", "cut that", "I'll edit this out". NOT topic meta-commentary.
-4. DEAD AIR PREAMBLE: extended silence or "um okay so" before the actual content begins at the start of the recording.
 
-DO NOT CUT:
+1. IMMEDIATE RETAKES: the speaker says the SAME WORDS 2-3 times in a row trying to get the line right. Cut all prior attempts. Keep only the final complete attempt.
+2. FALSE STARTS: speaker begins a sentence, abandons it within 1-4 words, and restarts with different words. Cut only the abandoned fragment.
+3. PRODUCTION META: speaker talks directly about the recording process — mic checks, "let me restart", "cut that", "I'll edit this out". NOT topic meta-commentary or opinions about the subject matter.
+4. DEAD AIR PREAMBLE: filler at the very start of the recording before actual content begins.
+
+DO NOT CUT any of these:
 - Different phrasings of the same idea — that is rhetoric/emphasis, NOT a retake
 - The speaker returning to a topic after a digression — that is structure
 - Imperfect but complete deliveries — a stumble mid-sentence is fine if the sentence finishes
-- Asides, jokes, personality moments, reactions ("I like it", "okay that's good")
-- Transitions between topics ("so", "anyway", "but here's the thing")
-- Any content where you're not sure if it's a retake — if unsure, KEEP
+- Asides, jokes, personality moments, reactions
+- Transitions between topics
+- Any content where you are not certain it is a retake
 
-A RETAKE is ONLY when the same words appear multiple times in immediate succession. Two sentences about the same TOPIC with different wording are NOT retakes.
+A RETAKE is ONLY when the same words appear multiple times in IMMEDIATE SUCCESSION. Two sentences about the same TOPIC using different words are NOT retakes — they are elaboration.
+</rules>
 
-TRANSCRIPT (${wordCount} words):
-Format: index\\tword\\tstartMs\\tendMs${context.speakerCount && context.speakerCount > 1 ? '\\tspeaker' : ''}
+<examples>
+Example 1 — Retake (vlog):
+Input words: 0:We 1:all 2:we 3:all 4:know 5:we 6:all 7:know 8:that 9:the 10:anonymity 11:of 12:the 13:internet
+The speaker tried "we all" three times. The final complete attempt starts at word 5.
+Output: [{"s":5,"e":13}]
 
-${wordList}
+Example 2 — False start (tutorial):
+Input words: 0:So 1:the 2:way 3:this 4:works 5:is 6:actually 7:no 8:let 9:me 10:back 11:up 12:the 13:fundamental 14:concept 15:here 16:is 17:recursion
+Words 0-6 are an abandoned approach. Words 7-11 are production meta ("no let me back up"). Content starts at word 12.
+Output: [{"s":12,"e":17}]
 
-OUTPUT: JSON array of keep-ranges using word indices (inclusive on both sides):
+Example 3 — NOT a retake (interview — keep both):
+Input words: 0:The 1:internet 2:brings 3:out 4:the 5:worst 6:in 7:people 8:I 9:mean 10:you 11:see 12:it 13:in 14:the 15:comments 16:people 17:say 18:terrible 19:things 20:online
+These are two DIFFERENT sentences about the same topic. The second elaborates. Keep both.
+Output: [{"s":0,"e":20}]
+</examples>
+
+<output_format>
+JSON array of keep-ranges using word indices (inclusive on both sides):
 [{"s": startIndex, "e": endIndex}, ...]
+Ranges must be non-overlapping, sorted by "s". Every index from 0 to ${wordCount - 1} must be either inside a keep-range or intentionally excluded.
+</output_format>
 
-Ranges must be non-overlapping and sorted by "s".`;
+<transcript words="${wordCount}" format="index\\tword\\tstartMs\\tendMs${context.speakerCount && context.speakerCount > 1 ? '\\tspeaker' : ''}">
+${wordList}
+</transcript>`;
 }
 
 // ─── Gemini Call ────────────────────────────────────────────────────
