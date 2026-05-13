@@ -134,7 +134,7 @@ async function callGemini(
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0.0,
-      seed: 42,
+      seed: 1,
     },
   });
 
