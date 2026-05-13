@@ -93,9 +93,9 @@ export function ImageUpload({ onFileChange, isLoading, multiple = false }: Image
   };
 
   const dropzoneStateStyles = useMemo(() => {
-    if (isDragActive) return "border-purple-500 bg-purple-950/30";
-    if (isLoading) return "border-zinc-700 bg-zinc-900/20 cursor-not-allowed";
-    return "border-zinc-800/70 hover:border-purple-600/70 bg-zinc-950/40";
+    if (isDragActive) return "border-[#D4A652] bg-[#D4A652]/10";
+    if (isLoading) return "border-[#282724] bg-[#131312]/20 cursor-not-allowed";
+    return "border-[#1C1B19]/70 hover:border-[#D4A652]/70 bg-[#0B0B0A]/40";
   }, [isDragActive, isLoading]);
 
   return (
@@ -122,7 +122,7 @@ export function ImageUpload({ onFileChange, isLoading, multiple = false }: Image
                   <img src={preview} alt={`Preview ${index + 1}`} className="w-12 h-12 rounded object-cover" />
                   <button
                     onClick={(e) => removeFile(e, index)}
-                    className="absolute -top-1 -right-1 bg-zinc-800 rounded-full p-0.5 text-zinc-400 hover:text-white hover:bg-red-500/80 transition-all"
+                    className="absolute -top-1 -right-1 bg-[#1B1A18] rounded-full p-0.5 text-[#7A776E] hover:text-white hover:bg-[#D46A5C]/80 transition-all"
                     aria-label="Remove image"
                     disabled={isLoading}
                   >
@@ -138,17 +138,17 @@ export function ImageUpload({ onFileChange, isLoading, multiple = false }: Image
               initial="initial"
               animate="animate"
               exit="exit"
-              className="flex flex-col items-center justify-center text-zinc-400"
+              className="flex flex-col items-center justify-center text-[#7A776E]"
             >
               <div className="relative mb-2">
-                <div className="absolute inset-0 rounded-full bg-purple-500/20 blur-lg scale-90 opacity-60 transition-all duration-300 group-hover:opacity-80 group-hover:scale-100"></div>
-                <ImageIcon className="h-8 w-8 text-purple-400/80 relative z-10 transition-colors duration-300 group-hover:text-purple-400" />
+                <div className="absolute inset-0 rounded-full bg-[#D4A652]/20 blur-lg scale-90 opacity-60 transition-all duration-300 group-hover:opacity-80 group-hover:scale-100"></div>
+                <ImageIcon className="h-8 w-8 text-[#D4A652]/80 relative z-10 transition-colors duration-300 group-hover:text-[#D4A652]" />
               </div>
-              <p className="text-sm font-medium text-zinc-300 mb-1">
+              <p className="text-sm font-medium text-[#B5B2A8] mb-1">
                 {isDragActive ? "Drop here..." : "Upload Images"}
               </p>
-              <p className="text-[11px] text-zinc-500 leading-tight">Drag & drop or click to upload</p>
-              <p className="text-[11px] text-zinc-600 mt-1">Max 5MB per image</p>
+              <p className="text-[11px] text-[#7A776E] leading-tight">Drag & drop or click to upload</p>
+              <p className="text-[11px] text-[#7A776E]/70 mt-1">Max 5MB per image</p>
             </motion.div>
           )}
           </AnimatePresence>

@@ -86,8 +86,8 @@ const PresetCard = ({ preset, isSelected, onSelect }: { preset: Preset, isSelect
   <div
     onClick={onSelect}
     className={cn(
-      "relative rounded-lg border p-3 cursor-pointer transition-all duration-200 group bg-zinc-900/50 hover:bg-zinc-800/70 flex flex-col items-center justify-center",
-      isSelected ? 'border-purple-500/60 bg-purple-500/10' : 'border-zinc-700/50 hover:border-zinc-600'
+      "relative rounded-lg border p-3 cursor-pointer transition-all duration-200 group bg-[#131312]/50 hover:bg-[#1B1A18]/70 flex flex-col items-center justify-center",
+      isSelected ? 'border-[#D4A652]/60 bg-[#D4A652]/10' : 'border-[#282724]/50 hover:border-[#282724]'
     )}
     style={{ minHeight: '90px' }}
   >
@@ -97,15 +97,15 @@ const PresetCard = ({ preset, isSelected, onSelect }: { preset: Preset, isSelect
           initial={{ opacity: 0, scale: 0.5 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.5 }}
-          className="absolute top-1 right-1 bg-purple-500 rounded-full p-0.5"
+          className="absolute top-1 right-1 bg-[#D4A652] rounded-full p-0.5"
         >
           <Check className="w-2.5 h-2.5 text-white" />
         </motion.div>
       )}
     </AnimatePresence>
-    <preset.icon className={cn("w-6 h-6 mb-2 transition-colors", isSelected ? "text-purple-400" : "text-zinc-400 group-hover:text-zinc-300")} />
-    <p className={cn("text-[11px] font-medium transition-colors text-center leading-tight mb-1", isSelected ? "text-zinc-100" : "text-zinc-300 group-hover:text-zinc-100")}>{preset.name}</p>
-    <p className={cn("text-[11px] transition-colors", isSelected ? "text-purple-300" : "text-zinc-500 group-hover:text-zinc-400")}>{preset.ratio}</p>
+    <preset.icon className={cn("w-6 h-6 mb-2 transition-colors", isSelected ? "text-[#D4A652]" : "text-[#7A776E] group-hover:text-[#B5B2A8]")} />
+    <p className={cn("text-[11px] font-medium transition-colors text-center leading-tight mb-1", isSelected ? "text-[#ECE9E1]" : "text-[#B5B2A8] group-hover:text-[#ECE9E1]")}>{preset.name}</p>
+    <p className={cn("text-[11px] transition-colors", isSelected ? "text-[#D4A652]" : "text-[#7A776E] group-hover:text-[#7A776E]")}>{preset.ratio}</p>
   </div>
 );
 

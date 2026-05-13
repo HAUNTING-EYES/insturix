@@ -475,7 +475,7 @@ export const SketchOverlay = forwardRef<SketchOverlayHandle, SketchOverlayProps>
             defaultValue={editingText?.text ?? ""}
             onKeyDown={(e) => handleTextInputKeyDown(e, !!newTextAt)}
             onBlur={() => handleTextBlur(!!newTextAt)}
-            className="block min-w-[80px] max-w-[280px] min-h-[28px] px-2 py-1 text-[14px] bg-black/60 border border-white/30 rounded focus:outline-none focus:ring-1 focus:ring-white/50 resize-none placeholder:text-zinc-400"
+            className="block min-w-[80px] max-w-[280px] min-h-[28px] px-2 py-1 text-[14px] bg-black/60 border border-white/30 rounded focus:outline-none focus:ring-1 focus:ring-white/50 resize-none placeholder:text-[#7A776E]"
             style={{
               color: editingText?.color ?? PENCIL_COLORS[pencilColor],
               font: "24px sans-serif",

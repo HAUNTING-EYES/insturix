@@ -85,7 +85,7 @@ const BlankCanvas: React.FC<{ aspectRatio: string }> = ({ aspectRatio }) => {
 
   return (
     <div
-      className="bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center rounded-lg transition-all duration-300"
+      className="bg-[#1B1A18]/30 border-2 border-dashed border-[#282724]/50 flex items-center justify-center rounded-lg transition-all duration-300"
       style={{
         width: `${dimensions.width}px`,
         height: `${dimensions.height}px`,
@@ -94,13 +94,13 @@ const BlankCanvas: React.FC<{ aspectRatio: string }> = ({ aspectRatio }) => {
       }}
     >
       <div className="text-center">
-        <div className="text-zinc-400 text-lg mb-2">
+        <div className="text-[#7A776E] text-lg mb-2">
           Create Variation to Start
         </div>
-        <div className="text-zinc-500/70 text-sm">
+        <div className="text-[#7A776E]/70 text-sm">
           Use the AI console below to generate an image
         </div>
-        <div className="text-zinc-600 text-[11px] mt-2">
+        <div className="text-[#282724] text-[11px] mt-2">
           {aspectRatio} aspect ratio
         </div>
       </div>
@@ -133,7 +133,7 @@ const NoVariationSelected: React.FC<{ aspectRatio: string }> = ({
 
   return (
     <div
-      className="bg-zinc-800/20 border-2 border-dashed border-zinc-700/30 flex items-center justify-center rounded-lg transition-all duration-300"
+      className="bg-[#1B1A18]/20 border-2 border-dashed border-[#282724]/30 flex items-center justify-center rounded-lg transition-all duration-300"
       style={{
         width: `${dimensions.width}px`,
         height: `${dimensions.height}px`,
@@ -142,11 +142,11 @@ const NoVariationSelected: React.FC<{ aspectRatio: string }> = ({
       }}
     >
       <div className="text-center">
-        <div className="text-zinc-400 text-lg mb-2">Select a Variation</div>
-        <div className="text-zinc-500/70 text-sm">
+        <div className="text-[#7A776E] text-lg mb-2">Select a Variation</div>
+        <div className="text-[#7A776E]/70 text-sm">
           Choose a variation from the gallery to view and edit
         </div>
-        <div className="text-zinc-600 text-[11px] mt-2">
+        <div className="text-[#282724] text-[11px] mt-2">
           {aspectRatio} aspect ratio
         </div>
       </div>
@@ -1176,8 +1176,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto mb-4"></div>
-          <p className="text-zinc-400">Loading Canvas...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#D4A652] mx-auto mb-4"></div>
+          <p className="text-[#7A776E]">Loading Canvas...</p>
         </div>
       </div>
     );
@@ -1186,11 +1186,11 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   return (
     <motion.div
       {...fadeIn}
-      className="fixed inset-0 bg-zinc-950 flex flex-row gap-0 overflow-hidden h-screen"
+      className="fixed inset-0 bg-[#0B0B0A] flex flex-row gap-0 overflow-hidden h-screen"
     >
       {/* Left Sidebar - Variations Gallery - Hidden on mobile */}
       <div
-        className="hidden md:flex flex-col h-full flex-shrink-0 w-80 bg-zinc-900/95 border-r border-zinc-700/80 relative z-10"
+        className="hidden md:flex flex-col h-full flex-shrink-0 w-80 bg-[#131312] border-r border-[#282724]/80 relative z-10"
         style={{ marginLeft: "64px" }}
       >
         <VariationsGallery
@@ -1208,7 +1208,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       {/* Main Canvas Area */}
       <div className="flex-1 flex flex-col h-full min-w-0 relative w-full">
           {/* Top Header */}
-          <div className="p-4 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-sm relative z-10 flex flex-col items-center gap-2">
+          <div className="p-4 border-b border-[#1C1B19]/80 bg-[#0B0B0A]/90 relative z-10 flex flex-col items-center gap-2">
             <div className="flex flex-col items-center pb-6 md:pb-0">
               {isEditingTitle ? (
                 <Input
@@ -1228,12 +1228,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                       setIsEditingTitle(false);
                     }
                   }}
-                  className="text-lg font-semibold text-zinc-100 text-center"
+                  className="text-lg font-semibold text-[#ECE9E1] text-center"
                   autoFocus
                 />
               ) : (
                 <h2
-                  className="text-lg font-semibold text-zinc-100 cursor-pointer hover:bg-zinc-800/50 rounded px-2 py-1 text-center"
+                  className="text-lg font-semibold text-[#ECE9E1] cursor-pointer hover:bg-[#1B1A18]/50 rounded px-2 py-1 text-center"
                   onClick={() => {
                     setEditedTitle(task?.title || videoIdea);
                     setIsEditingTitle(true);
@@ -1257,12 +1257,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               </button>
             )}
         {/* Mobile Bottom Navigation */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800/80 p-3 flex justify-between items-center h-16 gap-4">
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0B0B0A]/95 border-t border-[#1C1B19]/80 p-3 flex justify-between items-center h-16 gap-4">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setMobilePanel('gallery')}
-            className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'gallery' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
+            className={`p-3 h-12 w-12 bg-[#1B1A18]/50 hover:bg-[#282724]/70 shadow-lg rounded-full transition-all ${mobilePanel === 'gallery' ? 'bg-[#282724] text-white shadow-xl' : 'text-[#B5B2A8] hover:text-white'}`}
           >
             <Grid className="h-5 w-5" />
           </Button>
@@ -1270,7 +1270,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             variant="ghost"
             size="sm"
             onClick={() => setMobilePanel('fine-tune')}
-            className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'fine-tune' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
+            className={`p-3 h-12 w-12 bg-[#1B1A18]/50 hover:bg-[#282724]/70 shadow-lg rounded-full transition-all ${mobilePanel === 'fine-tune' ? 'bg-[#282724] text-white shadow-xl' : 'text-[#B5B2A8] hover:text-white'}`}
           >
             <Sliders className="h-5 w-5" />
           </Button>
@@ -1279,7 +1279,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         </div>
   
         {/* Canvas Display Area */}
-        <div className="flex flex-1 overflow-hidden relative bg-zinc-900/20 h-full">
+        <div className="flex flex-1 overflow-hidden relative bg-[#131312]/20 h-full">
           {/* Main Canvas Container */}
           <div className="flex-1 flex items-center justify-center overflow-hidden relative h-full">
             {/* Canvas Actions - Top Center - Only show for completed variations */}
@@ -1431,7 +1431,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
         {/* Mobile Panels - Toggled full-width sections below canvas */}
         {mobilePanel === "gallery" && (
-          <div className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-zinc-800/80 bg-zinc-900 md:hidden overflow-y-auto pt-4">
+          <div className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-[#1C1B19]/80 bg-[#131312] md:hidden overflow-y-auto pt-4">
             <VariationsGallery
               variations={variations}
               activeVariationId={localActiveVariation}
@@ -1455,17 +1455,17 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               animate="visible"
               exit="exit"
               transition={{ duration: 0.3, ease: "easeOut" }}
-              className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-zinc-800/80 bg-zinc-900 md:hidden overflow-hidden flex flex-col max-h-[calc(100vh-10rem)]"
+              className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-[#1C1B19]/80 bg-[#131312] md:hidden overflow-hidden flex flex-col max-h-[calc(100vh-10rem)]"
             >
-              <div className="flex items-center justify-between p-4 border-b border-zinc-800/80 bg-zinc-900/50">
-                <h3 className="text-sm font-medium text-zinc-200">
+              <div className="flex items-center justify-between p-4 border-b border-[#1C1B19]/80 bg-[#131312]/50">
+                <h3 className="text-sm font-medium text-[#ECE9E1]">
                   Fine Tuning
                 </h3>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setMobilePanel("none")}
-                  className="p-1 h-6 w-6 text-zinc-400 hover:text-zinc-200"
+                  className="p-1 h-6 w-6 text-[#7A776E] hover:text-[#ECE9E1]"
                 >
                   <X className="h-3 w-3" />
                 </Button>
@@ -1521,7 +1521,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               <NewVariationConsole
                 onGenerate={handleAIGenerate}
                 isGenerating={newVariationCreating}
-                className="border-t border-zinc-800/80 mr-0 mx-auto"
+                className="border-t border-[#1C1B19]/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
               />
@@ -1530,7 +1530,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                 onGenerate={handleAIGenerate}
                 onSketchToEditSubmit={handleSketchToEditSubmit}
                 isGenerating={newVariationCreating}
-                className="border-t border-zinc-800/80 mr-0 mx-auto"
+                className="border-t border-[#1C1B19]/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
                 currentImageUrl={activeVariation?.imageRef || ''}
@@ -1561,7 +1561,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       </div>
 
       {/* Right Sidebar - Full height, next to main canvas */}
-      <div className="hidden md:flex flex-col h-full flex-shrink-0 w-80 bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-700/80 shadow-2xl">
+      <div className="hidden md:flex flex-col h-full flex-shrink-0 w-80 bg-[#131312] border-l border-[#282724]/80 shadow-2xl">
         {activeVariation?.fineTuning ? (
           <CanvasControls
             brightness={activeVariation.fineTuning.brightness}
@@ -1589,7 +1589,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           />
         ) : (
           <div className="flex-1 flex items-center justify-center p-6">
-            <div className="text-center text-zinc-500">
+            <div className="text-center text-[#7A776E]">
               <Settings className="w-6 h-6 mx-auto mb-2 opacity-50" />
               <p className="text-[11px]">
                 {!activeVariation

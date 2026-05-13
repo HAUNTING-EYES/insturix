@@ -36,7 +36,7 @@ export function EnhancedInput({
 
   return (
     <div className="w-full max-w-2xl">
-      <div className="relative flex flex-col sm:flex-row sm:items-center gap-3 p-3 sm:p-2 rounded-xl border border-zinc-800 bg-zinc-900/50 transition-all duration-200">
+      <div className="relative flex flex-col sm:flex-row sm:items-center gap-3 p-3 sm:p-2 rounded-xl border border-[#1C1B19] bg-[#131312]/50 transition-all duration-200">
           
           {/* Text Input - Textarea on mobile, Input on desktop */}
           <div className="flex-1">
@@ -46,7 +46,7 @@ export function EnhancedInput({
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={placeholder}
-              className="block sm:hidden w-full min-h-[80px] max-h-[120px] resize-none border-0 bg-transparent text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-0 text-sm leading-relaxed p-2"
+              className="block sm:hidden w-full min-h-[80px] max-h-[120px] resize-none border-0 bg-transparent text-[#ECE9E1] placeholder:text-[#7A776E] focus:outline-none focus:ring-0 text-sm leading-relaxed p-2"
               disabled={disabled}
               rows={3}
             />
@@ -57,7 +57,7 @@ export function EnhancedInput({
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={placeholder}
-              className="hidden sm:block border-0 bg-transparent text-zinc-100 placeholder:text-zinc-500 h-10 focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="hidden sm:block border-0 bg-transparent text-[#ECE9E1] placeholder:text-[#7A776E] h-10 focus-visible:ring-0 focus-visible:ring-offset-0"
               disabled={disabled}
             />
           </div>
@@ -69,7 +69,7 @@ export function EnhancedInput({
               type="button"
               onClick={onSubmit}
               disabled={isLoading || !value.trim() || disabled}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-4 h-8 shrink-0"
+              className="bg-[#D4A652] hover:bg-[#D4A652]/90 text-[#0B0B0A] px-4 h-8 shrink-0"
               size="sm"
             >
               {isLoading ? (
@@ -90,7 +90,7 @@ export function EnhancedInput({
         </div>
 
       {/* Helper Text */}
-      <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
+      <div className="mt-2 flex items-center justify-between text-[11px] text-[#7A776E]">
         <span>
           Press Enter to submit
         </span>

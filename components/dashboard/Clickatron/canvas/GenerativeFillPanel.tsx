@@ -65,17 +65,17 @@ export const GenerativeFillPanel: React.FC<GenerativeFillPanelProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#0F0F0E]">
+      <div className="bg-[#131312] border border-[#1C1B19] rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <Wand2 className="w-5 h-5 text-gray-300" />
+            <Wand2 className="w-5 h-5 text-[#B5B2A8]" />
             <h2 className="text-lg font-semibold text-white">Generative Fill</h2>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="text-[#7A776E] hover:text-white transition-colors"
             disabled={isGenerating}
           >
             <X className="w-5 h-5" />
@@ -86,14 +86,14 @@ export const GenerativeFillPanel: React.FC<GenerativeFillPanelProps> = ({
         <div className="p-6 space-y-4">
           {/* Model Selector */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-[#B5B2A8] mb-2">
               Model
             </label>
             <select
               value={selectedModelId}
               onChange={(e) => setSelectedModelId(e.target.value)}
               disabled={isGenerating}
-              className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-4 py-2.5 bg-[#1B1A18] border border-[#1C1B19] rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#282724] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {availableModels.map((model) => (
                 <option key={model.id} value={model.id}>
@@ -101,14 +101,14 @@ export const GenerativeFillPanel: React.FC<GenerativeFillPanelProps> = ({
                 </option>
               ))}
             </select>
-            <p className="mt-1.5 text-[11px] text-gray-400">
+            <p className="mt-1.5 text-[11px] text-[#7A776E]">
               Select the AI model to fill the selected area
             </p>
           </div>
 
           {/* Prompt Input */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Prompt</label>
+            <label className="block text-sm font-medium text-[#B5B2A8] mb-2">Prompt</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -116,20 +116,20 @@ export const GenerativeFillPanel: React.FC<GenerativeFillPanelProps> = ({
               disabled={isGenerating}
               placeholder="Describe what you want to generate in the selected area..."
               rows={4}
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-600 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-4 py-3 bg-[#1B1A18] border border-[#1C1B19] rounded-lg text-white placeholder-[#7A776E] focus:outline-none focus:ring-2 focus:ring-[#282724] resize-none disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <p className="mt-1.5 text-[11px] text-gray-400">Describe what you want to fill the selection with</p>
+            <p className="mt-1.5 text-[11px] text-[#7A776E]">Describe what you want to fill the selection with</p>
           </div>
           {/* Negative Prompt Input */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Negative Prompt (optional)</label>
+            <label className="block text-sm font-medium text-[#B5B2A8] mb-2">Negative Prompt (optional)</label>
             <input
               type="text"
               value={negativePrompt}
               onChange={(e) => setNegativePrompt(e.target.value)}
               disabled={isGenerating}
               placeholder="What should the AI avoid? (e.g. blurry, distorted)"
-              className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-4 py-2 bg-[#1B1A18] border border-[#1C1B19] rounded-lg text-white placeholder-[#7A776E] focus:outline-none focus:ring-2 focus:ring-[#282724] disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 

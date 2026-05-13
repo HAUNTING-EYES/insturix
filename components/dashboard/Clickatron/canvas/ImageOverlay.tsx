@@ -117,7 +117,7 @@ export function ImageOverlay({ data, containerWidth, containerHeight, isSelected
         {isSelected && (
           <button
             onClick={handleDelete}
-            className="absolute -mt-2 -mr-2 top-0 right-0 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center transition-colors shadow-lg z-70"
+            className="absolute -mt-2 -mr-2 top-0 right-0 w-6 h-6 bg-[#D46A5C] hover:bg-[#C25E50] text-white rounded-full flex items-center justify-center transition-colors shadow-lg z-70"
             title="Delete image"
           >
             <X className="w-4 h-4" />

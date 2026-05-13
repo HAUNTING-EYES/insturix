@@ -98,20 +98,20 @@ export function FineTuningPanel({
   return (
     <motion.div
       {...fadeIn}
-      className="w-80 bg-zinc-900/50 border-l border-zinc-800/80 flex flex-col h-full"
+      className="w-80 bg-[#131312]/50 border-l border-[#1C1B19]/80 flex flex-col h-full"
     >
       {/* Header */}
-      <div className="p-4 border-b border-zinc-800/80 flex items-center justify-between">
+      <div className="p-4 border-b border-[#1C1B19]/80 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Palette className="h-4 w-4 text-purple-400" />
-          <h3 className="text-sm font-medium text-zinc-200">Fine-Tuning</h3>
+          <Palette className="h-4 w-4 text-[#D4A652]" />
+          <h3 className="text-sm font-medium text-[#ECE9E1]">Fine-Tuning</h3>
         </div>
         <Button
           variant="ghost"
           size="sm"
           onClick={onReset}
           disabled={isDisabled}
-          className="text-zinc-400 hover:text-zinc-200 p-1"
+          className="text-[#7A776E] hover:text-[#ECE9E1] p-1"
         >
           <RotateCcw className="h-4 w-4" />
         </Button>
@@ -121,15 +121,15 @@ export function FineTuningPanel({
       <div className={`flex-1 overflow-y-auto p-4 space-y-6 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}>
         {/* Basic Adjustments - Most commonly used */}
         <div className="space-y-4">
-          <h4 className="text-[11px] font-medium text-zinc-400 uppercase tracking-wide">
+          <h4 className="text-[11px] font-medium text-[#7A776E] uppercase tracking-wide">
             Basic Adjustments
           </h4>
           
           <div className="space-y-3">
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm text-zinc-300">Brightness</label>
-                <span className="text-[11px] text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                <label className="text-sm text-[#B5B2A8]">Brightness</label>
+                <span className="text-[11px] text-[#7A776E] bg-[#1B1A18] px-2 py-0.5 rounded">
                   {controls.brightness}%
                 </span>
               </div>
@@ -145,8 +145,8 @@ export function FineTuningPanel({
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm text-zinc-300">Contrast</label>
-                <span className="text-[11px] text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                <label className="text-sm text-[#B5B2A8]">Contrast</label>
+                <span className="text-[11px] text-[#7A776E] bg-[#1B1A18] px-2 py-0.5 rounded">
                   {controls.contrast}%
                 </span>
               </div>
@@ -162,8 +162,8 @@ export function FineTuningPanel({
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm text-zinc-300">Saturation</label>
-                <span className="text-[11px] text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                <label className="text-sm text-[#B5B2A8]">Saturation</label>
+                <span className="text-[11px] text-[#7A776E] bg-[#1B1A18] px-2 py-0.5 rounded">
                   {controls.saturation}%
                 </span>
               </div>
@@ -181,15 +181,15 @@ export function FineTuningPanel({
 
         {/* Aspect Ratio */}
         <div className="space-y-4">
-          <h4 className="text-[11px] font-medium text-zinc-400 uppercase tracking-wide">
+          <h4 className="text-[11px] font-medium text-[#7A776E] uppercase tracking-wide">
             Aspect Ratio
           </h4>
           
           <Select value={aspectRatio} onValueChange={onAspectRatioChange}>
-            <SelectTrigger className="w-full bg-zinc-800 border-zinc-700 text-zinc-200">
+            <SelectTrigger className="w-full bg-[#1B1A18] border-[#282724] text-[#ECE9E1]">
               <SelectValue placeholder="Select aspect ratio" />
             </SelectTrigger>
-            <SelectContent className="bg-zinc-900 border-zinc-700">
+            <SelectContent className="bg-[#131312] border-[#282724]">
               <SelectItem value="16:9">YouTube Thumbnail (16:9)</SelectItem>
               <SelectItem value="9:16">Reels/TikTok (9:16)</SelectItem>
               <SelectItem value="1:1">Instagram Post (1:1)</SelectItem>
@@ -203,7 +203,7 @@ export function FineTuningPanel({
 
         {/* Color Styles - Changed to pills */}
         <div className="space-y-4">
-          <h4 className="text-[11px] font-medium text-zinc-400 uppercase tracking-wide">
+          <h4 className="text-[11px] font-medium text-[#7A776E] uppercase tracking-wide">
             Color Styles
           </h4>
           
@@ -214,16 +214,16 @@ export function FineTuningPanel({
                 onClick={() => onColorLookApply(look.id)}
                 className="
                   group relative px-2.5 py-1 rounded-full text-[11px] font-medium
-                  border border-zinc-700 hover:border-zinc-500 hover:bg-zinc-800/50
+                  border border-[#282724] hover:border-[#282724] hover:bg-[#1B1A18]/50
                   transition-all duration-200 hover:scale-105
-                  flex items-center gap-1.5 min-w-0 bg-zinc-900/50
+                  flex items-center gap-1.5 min-w-0 bg-[#131312]/50
                 "
               >
                 <div
-                  className="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-zinc-600"
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-[#282724]"
                   style={{ background: look.preview }}
                 />
-                <span className="text-zinc-300 group-hover:text-zinc-100 truncate">
+                <span className="text-[#B5B2A8] group-hover:text-[#ECE9E1] truncate">
                   {look.name}
                 </span>
               </button>
@@ -235,7 +235,7 @@ export function FineTuningPanel({
             variant="outline"
             size="sm"
             onClick={() => setShowCustomGrading(true)}
-            className="w-full border-zinc-700 text-zinc-300 justify-start hover:bg-zinc-800"
+            className="w-full border-[#282724] text-[#B5B2A8] justify-start hover:bg-[#1B1A18]"
             disabled={isDisabled}
           >
             <Palette className="h-4 w-4 mr-2" />
@@ -244,8 +244,8 @@ export function FineTuningPanel({
         </div>
 
         {/* Quick Enhancement Tools */}
-        <div className="space-y-3 pt-2 border-t border-zinc-800">
-          <h4 className="text-[11px] font-medium text-zinc-400 uppercase tracking-wide">
+        <div className="space-y-3 pt-2 border-t border-[#1C1B19]">
+          <h4 className="text-[11px] font-medium text-[#7A776E] uppercase tracking-wide">
             Enhancement Tools
           </h4>
           
@@ -253,7 +253,7 @@ export function FineTuningPanel({
             <Button
               variant="outline"
               size="sm"
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-[11px]"
+              className="border-[#282724] text-[#B5B2A8] hover:bg-[#1B1A18] text-[11px]"
               disabled={isDisabled}
             >
               Auto Enhance
@@ -261,7 +261,7 @@ export function FineTuningPanel({
             <Button
               variant="outline"
               size="sm"
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-[11px]"
+              className="border-[#282724] text-[#B5B2A8] hover:bg-[#1B1A18] text-[11px]"
               disabled={isDisabled}
             >
               Match Colors
@@ -278,7 +278,7 @@ export function FineTuningPanel({
       />
       
       {/* Credits Display */}
-      <div className="p-4 border-t border-zinc-800/80">
+      <div className="p-4 border-t border-[#1C1B19]/80">
         <CreditsBadge />
       </div>
     </motion.div>

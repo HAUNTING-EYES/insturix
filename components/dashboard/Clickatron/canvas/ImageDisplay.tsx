@@ -284,16 +284,16 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     if (isLoading) {
       return (
         <div
-          className={`bg-gradient-to-br from-zinc-800/60 to-zinc-800/40 flex items-center justify-center rounded-xl border border-zinc-700/50 ${className}`}
+          className={`bg-gradient-to-br from-[#1B1A18]/60 to-[#1B1A18]/40 flex items-center justify-center rounded-xl border border-[#282724]/50 ${className}`}
         >
           {/* Ambient background gradient */}
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5 opacity-60 rounded-xl" />
+          <div className="absolute inset-0 bg-gradient-to-br from-[#D4A652]/5 to-[#D4A652]/5 opacity-60 rounded-xl" />
 
           <div className="text-center relative z-10">
             {/* Enhanced loading animation */}
             <div className="relative mb-4">
               {/* Outer glow ring */}
-              <div className="absolute inset-0 w-16 h-16 mx-auto rounded-full bg-purple-500/20 blur-lg animate-pulse" />
+              <div className="absolute inset-0 w-16 h-16 mx-auto rounded-full bg-[#D4A652]/20 blur-lg animate-pulse" />
 
               {/* Main spinner */}
               <div className="relative w-16 h-16 mx-auto">
@@ -306,7 +306,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                     stroke="currentColor"
                     strokeWidth="4"
                     fill="none"
-                    className="text-zinc-700/30"
+                    className="text-[#282724]/30"
                   />
                   {/* Progress circle */}
                   <circle
@@ -317,7 +317,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                     strokeWidth="4"
                     fill="none"
                     strokeLinecap="round"
-                    className="text-purple-400"
+                    className="text-[#D4A652]"
                     strokeDasharray="176"
                     strokeDashoffset="44"
                   />
@@ -325,29 +325,29 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
                 {/* Center icon */}
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <Sparkles className="h-6 w-6 text-purple-400 animate-pulse" />
+                  <Sparkles className="h-6 w-6 text-[#D4A652] animate-pulse" />
                 </div>
               </div>
             </div>
 
             <div className="space-y-2">
-              <div className="text-zinc-300 font-medium">
+              <div className="text-[#B5B2A8] font-medium">
                 {status === "generating"
                   ? "Creating your thumbnail..."
                   : "Loading image..."}
               </div>
 
               {status === "generating" && (
-                <div className="text-zinc-500 text-sm">
+                <div className="text-[#7A776E] text-sm">
                   AI is working its magic
                 </div>
               )}
 
               {/* Progress bar for generation */}
               {status === "generating" && (
-                <div className="mt-4 w-48 h-2 bg-zinc-700/50 rounded-full overflow-hidden mx-auto">
+                <div className="mt-4 w-48 h-2 bg-[#282724]/50 rounded-full overflow-hidden mx-auto">
                   <div
-                    className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full animate-pulse"
+                    className="h-full bg-gradient-to-r from-[#D4A652] to-[#D4A652]/70 rounded-full animate-pulse"
                     style={{ width: "60%", animation: "pulse 2s infinite" }}
                   />
                 </div>
@@ -394,7 +394,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     if (status === "blank" && !proxyUrl) {
       return (
         <div
-          className={`bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center rounded-lg transition-all duration-300 ${className}`}
+          className={`bg-[#1B1A18]/30 border-2 border-dashed border-[#282724]/50 flex items-center justify-center rounded-lg transition-all duration-300 ${className}`}
           style={{
             width: `${dimensions.width}px`,
             height: `${dimensions.height}px`,
@@ -403,13 +403,13 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           }}
         >
           <div className="text-center">
-            <div className="text-zinc-400 text-lg mb-2">
+            <div className="text-[#7A776E] text-lg mb-2">
               Create Variation to Start
             </div>
-            <div className="text-zinc-500/70 text-sm">
+            <div className="text-[#7A776E]/70 text-sm">
               Use the AI console below to generate an image
             </div>
-            <div className="text-zinc-600 text-[11px] mt-2">
+            <div className="text-[#282724] text-[11px] mt-2">
               {aspectRatio} aspect ratio
             </div>
           </div>
@@ -434,7 +434,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     if (status === "generating" && !imageRef) {
       return (
         <div
-          className={`relative bg-gradient-to-br from-zinc-800/60 to-zinc-800/40 flex items-center justify-center rounded-lg border border-zinc-600/50 overflow-hidden ${className}`}
+          className={`relative bg-gradient-to-br from-[#1B1A18]/60 to-[#1B1A18]/40 flex items-center justify-center rounded-lg border border-[#282724]/50 overflow-hidden ${className}`}
           style={{
             width: `${dimensions.width}px`,
             height: `${dimensions.height}px`,
@@ -443,7 +443,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           }}
         >
           {/* Ambient background */}
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5 opacity-60" />
+          <div className="absolute inset-0 bg-gradient-to-br from-[#D4A652]/5 to-[#D4A652]/5 opacity-60" />
 
           {/* Loading indicator - centered */}
           <div className="relative z-10 flex flex-col items-center justify-center space-y-4">
@@ -456,7 +456,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                   stroke="currentColor"
                   strokeWidth="2"
                   fill="none"
-                  className="text-zinc-600/30"
+                  className="text-[#282724]/30"
                 />
                 <circle
                   cx="12"
@@ -466,17 +466,17 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                   strokeWidth="2"
                   fill="none"
                   strokeLinecap="round"
-                  className="text-purple-400"
+                  className="text-[#D4A652]"
                   strokeDasharray="63"
                   strokeDashoffset="16"
                 />
               </svg>
             </div>
             <div className="text-center space-y-1">
-              <div className="text-zinc-300 font-medium">
+              <div className="text-[#B5B2A8] font-medium">
                 Creating your thumbnail...
               </div>
-              <div className="text-zinc-500 text-sm">
+              <div className="text-[#7A776E] text-sm">
                 AI is working its magic
               </div>
             </div>
@@ -539,7 +539,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               <div className="relative w-full h-full" style={aspectRatioStyle}>
                 {/* Gradient placeholder - shows immediately */}
                 {!imageLoaded && (
-                  <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-zinc-800/80 via-zinc-700/60 to-zinc-800/80 animate-pulse" />
+                  <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[#1B1A18]/80 via-[#282724]/60 to-[#1B1A18]/80 animate-pulse" />
                 )}
                 {/* Blurred image placeholder - shows once image starts loading */}
                 {!imageLoaded && proxyUrl && (
@@ -599,7 +599,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           >
             {/* Gradient placeholder - shows immediately */}
             {!imageLoaded && (
-              <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-zinc-800/80 via-zinc-700/60 to-zinc-800/80 animate-pulse" />
+              <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[#1B1A18]/80 via-[#282724]/60 to-[#1B1A18]/80 animate-pulse" />
             )}
             {/* Blurred image placeholder - shows once image starts loading */}
             {!imageLoaded && proxyUrl && (
@@ -659,7 +659,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             <div className="text-center">
               {/* Spinning loader */}
               <div className="relative mb-4">
-                <div className="absolute inset-0 w-16 h-16 mx-auto rounded-full bg-purple-500/30 blur-xl animate-pulse" />
+                <div className="absolute inset-0 w-16 h-16 mx-auto rounded-full bg-[#D4A652]/30 blur-xl animate-pulse" />
                 <div className="relative w-16 h-16 mx-auto">
                   <svg className="w-16 h-16 animate-spin" viewBox="0 0 64 64">
                     <circle
@@ -669,7 +669,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                       stroke="currentColor"
                       strokeWidth="4"
                       fill="none"
-                      className="text-zinc-700/30"
+                      className="text-[#282724]/30"
                     />
                     <circle
                       cx="32"
@@ -679,13 +679,13 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                       strokeWidth="4"
                       fill="none"
                       strokeLinecap="round"
-                      className="text-purple-400"
+                      className="text-[#D4A652]"
                       strokeDasharray="176"
                       strokeDashoffset="44"
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <Sparkles className="h-7 w-7 text-purple-400 animate-pulse" />
+                    <Sparkles className="h-7 w-7 text-[#D4A652] animate-pulse" />
                   </div>
                 </div>
               </div>
@@ -695,15 +695,15 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                 <p className="text-white text-lg font-semibold">
                   Generative Fill
                 </p>
-                <p className="text-zinc-300 text-sm">
+                <p className="text-[#B5B2A8] text-sm">
                   AI is filling your selection...
                 </p>
               </div>
 
               {/* Progress bar */}
-              <div className="mt-4 w-48 h-2 bg-zinc-700/50 rounded-full overflow-hidden mx-auto">
+              <div className="mt-4 w-48 h-2 bg-[#282724]/50 rounded-full overflow-hidden mx-auto">
                 <div
-                  className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500 rounded-full"
+                  className="h-full bg-gradient-to-r from-[#D4A652] via-[#D4A652]/70 to-[#D4A652] rounded-full"
                   style={{
                     width: "70%",
                     animation: "pulse 2s ease-in-out infinite",
@@ -767,7 +767,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               return (
                 <div className="absolute bottom-0 left-0 right-0 p-4 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
                   <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-3 shadow-xl max-w-2xl mx-auto pointer-events-auto">
-                    <div className="text-[11px] text-zinc-400 font-medium mb-1 uppercase tracking-wider">
+                    <div className="text-[11px] text-[#7A776E] font-medium mb-1 uppercase tracking-wider">
                       Prompt
                     </div>
                     <p className="text-sm text-white/90 leading-relaxed line-clamp-3">

@@ -41,8 +41,8 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto mb-4"></div>
-          <p className="text-zinc-400">Loading Thumbnail Lab...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#D4A652] mx-auto mb-4"></div>
+          <p className="text-[#7A776E]">Loading Thumbnail Lab...</p>
         </div>
       </div>
     );
@@ -52,8 +52,8 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <h2 className="text-[18px] font-semibold text-zinc-100 mb-2">Could not load session</h2>
-          <p className="text-zinc-400 text-sm">The requested session could not be found or has expired.</p>
+          <h2 className="text-[18px] font-semibold text-[#ECE9E1] mb-2">Could not load session</h2>
+          <p className="text-[#7A776E] text-sm">The requested session could not be found or has expired.</p>
           <Button onClick={() => router.push('/dashboard/clickatron')} className="mt-4">
             Go back
           </Button>
