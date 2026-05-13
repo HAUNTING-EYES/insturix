@@ -11,7 +11,7 @@ export default async function UploaderXDashboard() {
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 relative">
       <section className="relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-gradient-to-b from-zinc-950/90 to-zinc-900/40 p-5 sm:p-7 md:p-10">
         <div className="max-w-3xl">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-100">
+          <h1 className="text-[32px] sm:text-[44px] lg:text-[44px] font-semibold tracking-tight text-zinc-100">
             Upload
           </h1>
           <p className="mt-3 text-zinc-300 max-w-2xl">

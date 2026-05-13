@@ -193,7 +193,7 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
             </Button>
           )}
           <div className="space-y-0.5">
-            <h2 className="text-xl font-semibold tracking-tight text-[#ECE9E1] flex items-center gap-2">
+            <h2 className="text-[18px] font-semibold tracking-tight text-[#ECE9E1] flex items-center gap-2">
               <Settings className="h-5 w-5 text-[#D4A652]" />
               Session Settings
             </h2>
@@ -347,7 +347,7 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
             {/* Tone Selection */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold tracking-wider text-[#7A776E] uppercase">Thinking Approach</span>
+                <span className="text-[11px] font-semibold tracking-wider text-[#7A776E] uppercase">Thinking Approach</span>
                 <span className="text-[10px] font-medium text-[#5F5E5A]">{getToneDescription(localIdea.tone)}</span>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -358,7 +358,7 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
                       key={t.value}
                       type="button"
                       onClick={() => handleTone(t.value)}
-                      className={`group relative flex items-center gap-2 rounded-full px-3 py-2 text-xs font-medium transition-all border ${active ? 'border-[#D4A652]/60 bg-[#D4A652]/15 text-[#ECE9E1]' : 'border-[#1C1B19] bg-[#131312] text-[#7A776E] hover:text-[#ECE9E1] hover:border-[#282724]'}`}
+                      className={`group relative flex items-center gap-2 rounded-full px-3 py-2 text-[11px] font-medium transition-all border ${active ? 'border-[#D4A652]/60 bg-[#D4A652]/15 text-[#ECE9E1]' : 'border-[#1C1B19] bg-[#131312] text-[#7A776E] hover:text-[#ECE9E1] hover:border-[#282724]'}`}
                       title={t.desc}
                     >
                       <span className={`h-3 w-3 rounded-full ${t.swatch} shadow ring-1 ring-black/30`}></span>
@@ -506,7 +506,7 @@ function MultiValueEditor({ label, values, onChange, placeholder, options }: Mul
           {values.map(v => (
             <span
               key={v}
-              className="flex items-center gap-1 rounded-full border border-[#282724] bg-[#1C1B19] px-3 py-1 text-xs font-medium text-[#ECE9E1] shadow-sm"
+              className="flex items-center gap-1 rounded-full border border-[#282724] bg-[#1C1B19] px-3 py-1 text-[11px] font-medium text-[#ECE9E1] shadow-sm"
             >
               <span>{v}</span>
               <button
@@ -544,7 +544,7 @@ function MultiValueEditor({ label, values, onChange, placeholder, options }: Mul
                 key={s + idx}
                 onMouseEnter={() => setHighlight(idx)}
                 onClick={() => commit(s)}
-                className={`w-full text-left rounded-lg px-3 py-2 text-xs font-medium transition-colors ${active ? 'bg-[#D4A652]/30 text-[#ECE9E1]' : 'text-[#B5B2A8] hover:bg-[#1C1B19] hover:text-[#ECE9E1]'} ${isCustom ? 'opacity-60 italic' : ''}`}
+                className={`w-full text-left rounded-lg px-3 py-2 text-[11px] font-medium transition-colors ${active ? 'bg-[#D4A652]/30 text-[#ECE9E1]' : 'text-[#B5B2A8] hover:bg-[#1C1B19] hover:text-[#ECE9E1]'} ${isCustom ? 'opacity-60 italic' : ''}`}
               >
                 {s}
                 {isCustom && <span className="ml-2 text-[10px] uppercase tracking-wide text-[#5F5E5A]">New</span>}

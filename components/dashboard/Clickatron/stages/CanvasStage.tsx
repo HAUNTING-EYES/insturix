@@ -100,7 +100,7 @@ const BlankCanvas: React.FC<{ aspectRatio: string }> = ({ aspectRatio }) => {
         <div className="text-zinc-500/70 text-sm">
           Use the AI console below to generate an image
         </div>
-        <div className="text-zinc-600 text-xs mt-2">
+        <div className="text-zinc-600 text-[11px] mt-2">
           {aspectRatio} aspect ratio
         </div>
       </div>
@@ -146,7 +146,7 @@ const NoVariationSelected: React.FC<{ aspectRatio: string }> = ({
         <div className="text-zinc-500/70 text-sm">
           Choose a variation from the gallery to view and edit
         </div>
-        <div className="text-zinc-600 text-xs mt-2">
+        <div className="text-zinc-600 text-[11px] mt-2">
           {aspectRatio} aspect ratio
         </div>
       </div>
@@ -1251,7 +1251,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             {process.env.NODE_ENV === 'development' && (
               <button
                 onClick={handleManualSync}
-                className="text-xs bg-blue-60 text-white px-2 py-1 rounded mt-1"
+                className="text-[11px] bg-blue-60 text-white px-2 py-1 rounded mt-1"
               >
                 Manual Sync (Debug)
               </button>
@@ -1338,7 +1338,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                       </div>
 
                       <div className="space-y-4">
-                        <div className="text-red-300 text-xl font-semibold">
+                        <div className="text-red-300 text-[18px] font-semibold">
                           Generation Failed
                         </div>
                         <div className="text-red-40/70 text-sm max-w-md mx-auto">
@@ -1355,7 +1355,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                           </button>
                         </div> */}
 
-                        <div className="mt-4 text-xs text-red-50/60">
+                        <div className="mt-4 text-[11px] text-red-50/60">
                           Consider adjusting your prompt or trying different
                           settings
                         </div>
@@ -1591,7 +1591,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           <div className="flex-1 flex items-center justify-center p-6">
             <div className="text-center text-zinc-500">
               <Settings className="w-6 h-6 mx-auto mb-2 opacity-50" />
-              <p className="text-xs">
+              <p className="text-[11px]">
                 {!activeVariation
                   ? "Select a variation to adjust"
                   : "No adjustments available"}

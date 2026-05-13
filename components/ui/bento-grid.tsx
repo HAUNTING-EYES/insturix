@@ -135,7 +135,7 @@ const BentoCard = ({
       {/* Title and Description */}
       <div className="flex-1 space-y-2 sm:space-y-3 md:space-y-4">
         <div className="relative">
-          <h3 className="text-lg sm:text-xl md:text-2xl lg:text-2xl font-bold tracking-tight text-neutral-900 dark:text-white mb-1 sm:mb-2 transition-colors duration-300">
+          <h3 className="text-lg sm:text-[18px] md:text-2xl lg:text-2xl font-bold tracking-tight text-neutral-900 dark:text-white mb-1 sm:mb-2 transition-colors duration-300">
             {name}
           </h3>
           <div
@@ -144,7 +144,7 @@ const BentoCard = ({
           />
         </div>
 
-        <p className="text-sm sm:text-sm md:text-base text-neutral-600 dark:text-neutral-400 leading-relaxed sm:leading-relaxed transition-colors duration-300">
+        <p className="text-sm sm:text-sm md:text-[14px] text-neutral-600 dark:text-neutral-400 leading-relaxed sm:leading-relaxed transition-colors duration-300">
           {description}
         </p>
       </div>
@@ -154,7 +154,7 @@ const BentoCard = ({
         <Link 
           href={dashboardHref} 
           data-cta-button
-          className="group/button relative overflow-hidden rounded-md sm:rounded-lg text-xs sm:text-sm transition-all duration-300 hover:pl-4 sm:hover:pl-6 flex items-center gap-1 sm:gap-2 inline-flex"
+          className="group/button relative overflow-hidden rounded-md sm:rounded-lg text-[11px] sm:text-sm transition-all duration-300 hover:pl-4 sm:hover:pl-6 flex items-center gap-1 sm:gap-2 inline-flex"
           style={{
             color: accentColor,
             border: `1px solid ${accentColor}20`,

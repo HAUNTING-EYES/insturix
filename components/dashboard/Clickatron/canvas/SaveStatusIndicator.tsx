@@ -83,7 +83,7 @@ export function SaveStatusIndicator({
           exit={{ opacity: 0, y: 5 }}
           transition={{ duration: 0.2 }}
           className={`
-            inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium
+            inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-medium
             border backdrop-blur-sm ${status.className}
           `}
         >

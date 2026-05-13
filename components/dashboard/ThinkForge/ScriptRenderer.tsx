@@ -97,7 +97,7 @@ function RenderTiptapBlock({ node, keyPrefix = '' }: { node: TiptapBlockContent;
       return (
         <Tag className={clsx("font-semibold mt-4 mb-2", {
           "text-2xl": level === 1,
-          "text-xl": level === 2,
+          "text-[18px]": level === 2,
           "text-lg": level === 3,
         })}>
           {renderTextNodes(content as TiptapTextNode[], keyPrefix)}
@@ -153,7 +153,7 @@ function RenderTiptapBlock({ node, keyPrefix = '' }: { node: TiptapBlockContent;
       const content = 'content' in node ? node.content : undefined;
       const text = (content as TiptapTextNode[] | undefined)?.map(n => n.text).join('') || '';
       return (
-        <pre className="mt-2 mb-3 rounded-lg bg-black/50 border border-[#1C1B19] p-3 overflow-x-auto text-[12px] leading-snug">
+        <pre className="mt-2 mb-3 rounded-lg bg-black/50 border border-[#1C1B19] p-3 overflow-x-auto text-[11px] leading-snug">
           <code>{text}</code>
         </pre>
       );
@@ -293,9 +293,9 @@ function RenderLegacyBlock({ block }: { block: LegacyBlock }) {
     const H: any = ("h" + String(lvl)) as any;
     return <H className={clsx("font-semibold mt-4 mb-2", {
       "text-2xl": lvl === 1,
-      "text-xl": lvl === 2,
+      "text-[18px]": lvl === 2,
       "text-lg": lvl === 3,
-      "text-base": lvl >= 4,
+      "text-[14px]": lvl >= 4,
     })}>{renderInlineLegacy(text)}</H>;
   }
   if (type === "numberedlistitem") {
@@ -306,7 +306,7 @@ function RenderLegacyBlock({ block }: { block: LegacyBlock }) {
   }
   if (type === "code" || type === "codeblock" || type === "pre") {
     return (
-      <pre className="mt-2 mb-3 rounded-lg bg-black/50 border border-[#1C1B19] p-3 overflow-x-auto text-[12px] leading-snug">
+      <pre className="mt-2 mb-3 rounded-lg bg-black/50 border border-[#1C1B19] p-3 overflow-x-auto text-[11px] leading-snug">
         <code>{text}</code>
       </pre>
     );

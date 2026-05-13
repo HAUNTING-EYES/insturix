@@ -7,7 +7,7 @@ export default function StatsCreators() {
       <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center backdrop-blur supports-[backdrop-filter]:bg-white/5">
           <p className="text-sm text-white/60">Creators on Insturix</p>
-          <div className="mt-2 text-4xl sm:text-5xl font-semibold tracking-tight">
+          <div className="mt-2 text-[44px] sm:text-[44px] font-semibold tracking-tight">
             <CountUp
               from={0}
               to={6100}
@@ -18,7 +18,7 @@ export default function StatsCreators() {
             />
             <span className="ml-1 text-white/70">+</span>
           </div>
-          <p className="mt-2 text-xs text-white/50">and counting…</p>
+          <p className="mt-2 text-[11px] text-white/50">and counting…</p>
         </div>
       </div>
     </section>

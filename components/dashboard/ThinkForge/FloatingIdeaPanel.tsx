@@ -81,12 +81,12 @@ export default function FloatingIdeaPanel({ event, onClose, onUpdate }: Floating
           placeholder="Idea…"
         />
 
-        <div className="flex gap-2 items-center text-xs text-neutral-400">
+        <div className="flex gap-2 items-center text-[11px] text-neutral-400">
           {statusOptions.map((s) => (
             <button
               key={s}
               onClick={() => handleStatusChange(s)}
-              className={`px-2.5 py-1 rounded-lg border text-xs transition ${
+              className={`px-2.5 py-1 rounded-lg border text-[11px] transition ${
                 s === status
                   ? "bg-[#D4A652]/20 border-[#D4A652]/50 text-[#D4A652]"
                   : "bg-[#0F0F0E]/50 border-[#1C1B19]/70 hover:bg-[#1C1B19]/60"
@@ -108,10 +108,10 @@ export default function FloatingIdeaPanel({ event, onClose, onUpdate }: Floating
           className="w-full bg-[#0F0F0E]/60 border border-[#1C1B19]/70 rounded-xl px-3 py-2 text-sm text-neutral-200 placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-[#D4A652]/40 resize-none"
         />
 
-        <div className="flex items-center justify-between text-xs text-neutral-500">
+        <div className="flex items-center justify-between text-[11px] text-neutral-500">
           <span>Last edited just now</span>
           <button
-            className="px-3 py-1.5 rounded-lg bg-gradient-to-br from-[#D4A652] to-[#D4A652] text-white text-xs shadow-md"
+            className="px-3 py-1.5 rounded-lg bg-gradient-to-br from-[#D4A652] to-[#D4A652] text-white text-[11px] shadow-md"
             onClick={onClose}
           >
             Open Script

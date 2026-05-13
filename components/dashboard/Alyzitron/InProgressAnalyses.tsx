@@ -23,7 +23,7 @@ export function InProgressAnalyses() {
 
   return (
     <div>
-      <h2 className="text-lg sm:text-xl font-medium text-zinc-100 mb-4 sm:mb-6">
+      <h2 className="text-lg sm:text-[18px] font-medium text-zinc-100 mb-4 sm:mb-6">
         In Progress
       </h2>
       <div className="space-y-3 sm:space-y-4">

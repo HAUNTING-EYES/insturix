@@ -142,7 +142,7 @@ const AnimationSection: React.FC<AnimationSectionProps> = ({
       <div className="border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden">
         <CollapsibleTrigger className="w-full flex justify-between items-center px-4 py-3 bg-gray-50 dark:bg-gray-900/80 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
           <div className="flex items-center">
-            <span className="font-medium text-xs text-gray-700 dark:text-gray-300">
+            <span className="font-medium text-[11px] text-gray-700 dark:text-gray-300">
               {title}
             </span>
             <span className="ml-2 text-[10px] px-[5.2px] py-0.5 rounded-full bg-gray-200/80 dark:bg-gray-700/80 text-gray-600 dark:text-gray-400">

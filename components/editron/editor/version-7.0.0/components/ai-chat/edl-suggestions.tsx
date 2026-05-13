@@ -141,7 +141,7 @@ export function EDLSuggestions({ projectId, onSuggestionClick }: EDLSuggestionsP
       {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800/50 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800/50 transition-colors"
       >
         <span className="flex items-center gap-1.5">
           <Sparkles className="h-3.5 w-3.5 text-amber-400" />

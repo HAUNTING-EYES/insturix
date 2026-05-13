@@ -224,7 +224,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
           <div className="space-y-1.5">
             <h4 className="text-sm font-medium">Recent Renders</h4>
             {renders.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No renders yet</p>
+              <p className="text-[11px] text-muted-foreground">No renders yet</p>
             ) : (
               renders.map((render) => (
                 <div
@@ -236,7 +236,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
                   }`}
                 >
                   <div className="flex flex-col">
-                    <div className="text-xs text-zinc-200">
+                    <div className="text-[11px] text-zinc-200">
                       {render.status === "error" ? (
                         <span className="text-red-400 font-medium">
                           Render Failed

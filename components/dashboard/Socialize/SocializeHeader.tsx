@@ -12,10 +12,10 @@ interface SocializeHeaderProps {
 
 export function SocializeHeader({ user, bio, onEditBio }: SocializeHeaderProps) {
   return (
-    <Card className="bg-black/30 border-[#0e6b9c]/20 backdrop-blur-sm">
+    <Card className="border-none shadow-none" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
       <CardHeader>
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-[#0e6b9c] bg-gray-800 flex items-center justify-center">
+          <div className="w-16 h-16 rounded-full overflow-hidden border flex items-center justify-center" style={{ backgroundColor: '#1B1A18', borderColor: '#D4A652' }}>
             {user?.imageUrl ? (
               <Image
                 src={user.imageUrl}
@@ -25,21 +25,22 @@ export function SocializeHeader({ user, bio, onEditBio }: SocializeHeaderProps) 
                 className="w-full h-full object-cover"
               />
             ) : (
-              <span className="text-xs text-gray-400">No Pic</span>
+              <span className="text-[11px] text-gray-400">No Pic</span>
             )}
           </div>
           <div>
-            <CardTitle className="text-xl text-white">
+            <CardTitle className="text-[18px] font-medium" style={{ color: '#EAE9E5' }}>
               {user?.username}
             </CardTitle>
-            <CardDescription className="text-gray-300">
+            <CardDescription style={{ color: '#B5B2A8' }}>
               {bio || "No bio yet. Click edit to add one."}
             </CardDescription>
           </div>
           <Button
             variant="outline"
             size="sm"
-            className="ml-auto"
+            className="ml-auto border-transparent hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: '#1B1A18', color: '#EAE9E5' }}
             onClick={onEditBio}
           >
             Edit Bio

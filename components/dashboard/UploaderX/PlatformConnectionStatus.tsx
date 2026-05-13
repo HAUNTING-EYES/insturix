@@ -174,7 +174,7 @@ export function PlatformConnectionStatus() {
           <>
             <CheckCircle className="h-4 w-4 text-green-500" />
             {twitterStatus.userName && (
-              <span className="text-xs text-zinc-500">@{twitterStatus.userName}</span>
+              <span className="text-[11px] text-zinc-500">@{twitterStatus.userName}</span>
             )}
           </>
         ) : (
@@ -209,7 +209,7 @@ export function PlatformConnectionStatus() {
               // Clerk will handle redirect to profile
             }
           }}
-          className="text-xs text-blue-400 hover:underline flex items-center gap-1"
+          className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"
         >
           <Link2 className="h-3 w-3" />
           Connect YouTube
@@ -219,7 +219,7 @@ export function PlatformConnectionStatus() {
       {!connections.facebook && (
         <a
           href="/api/services/uploaderx/facebook/auth"
-          className="text-xs text-blue-400 hover:underline flex items-center gap-1"
+          className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"
           target="_blank"
           rel="noopener noreferrer"
         >
@@ -232,7 +232,7 @@ export function PlatformConnectionStatus() {
       {!connections.instagram && (
         <a
           href="/api/services/uploaderx/instagram/auth"
-          className="text-xs text-pink-400 hover:underline flex items-center gap-1"
+          className="text-[11px] text-pink-400 hover:underline flex items-center gap-1"
           target="_blank"
           rel="noopener noreferrer"
         >
@@ -244,7 +244,7 @@ export function PlatformConnectionStatus() {
       {!twitterStatus.connected && (
         <a
           href="/api/services/uploaderx/twitter/auth"
-          className="text-xs text-sky-400 hover:underline flex items-center gap-1"
+          className="text-[11px] text-sky-400 hover:underline flex items-center gap-1"
         >
           <Link2 className="h-3 w-3" />
           Connect Twitter
@@ -254,7 +254,7 @@ export function PlatformConnectionStatus() {
       {!connections.linkedin && (
         <a
           href="/api/services/uploaderx/linkedin/auth"
-          className="text-xs text-blue-400 hover:underline flex items-center gap-1"
+          className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"
         >
           <Link2 className="h-3 w-3" />
           Connect LinkedIn

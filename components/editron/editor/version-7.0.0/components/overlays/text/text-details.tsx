@@ -179,7 +179,7 @@ export const TextDetails: React.FC<TextDetailsProps> = ({
             className="data-[state=active]:bg-zinc-500/20 data-[state=active]:text-zinc-900 dark:data-[state=active]:text-white 
             rounded-sm transition-all duration-200 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50"
           >
-            <span className="flex items-center gap-2 text-xs">
+            <span className="flex items-center gap-2 text-[11px]">
               <Settings className="w-3 h-3" />
               Settings
             </span>
@@ -189,7 +189,7 @@ export const TextDetails: React.FC<TextDetailsProps> = ({
             className="data-[state=active]:bg-zinc-500/20 data-[state=active]:text-zinc-900 dark:data-[state=active]:text-white 
             rounded-sm transition-all duration-200 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50"
           >
-            <span className="flex items-center gap-2 text-xs">
+            <span className="flex items-center gap-2 text-[11px]">
               <PaintBucket className="w-3 h-3" />
               Style
             </span>

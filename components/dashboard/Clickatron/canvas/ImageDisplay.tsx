@@ -382,7 +382,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               </div>
 
               {/* Retry hint */}
-              <div className="mt-4 text-xs text-red-500/60">
+              <div className="mt-4 text-[11px] text-red-500/60">
                 Try adjusting your prompt or generating again
               </div>
             </div>
@@ -409,7 +409,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             <div className="text-zinc-500/70 text-sm">
               Use the AI console below to generate an image
             </div>
-            <div className="text-zinc-600 text-xs mt-2">
+            <div className="text-zinc-600 text-[11px] mt-2">
               {aspectRatio} aspect ratio
             </div>
           </div>
@@ -745,7 +745,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             <div className="absolute inset-0 flex items-center justify-center z-10">
               <div className="text-center bg-black/50 backdrop-blur-md rounded-2xl px-8 py-4 border border-white/30 shadow-2xl relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-pink-400/20 via-cyan-400/20 to-yellow-400/20 rounded-2xl blur animate-pulse"></div>
-                <div className="relative text-white font-semibold text-xl mb-1">
+                <div className="relative text-white font-semibold text-[18px] mb-1">
                   Generating...
                 </div>
                 <div className="relative text-white/90 text-sm">
@@ -767,7 +767,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               return (
                 <div className="absolute bottom-0 left-0 right-0 p-4 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
                   <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-3 shadow-xl max-w-2xl mx-auto pointer-events-auto">
-                    <div className="text-xs text-zinc-400 font-medium mb-1 uppercase tracking-wider">
+                    <div className="text-[11px] text-zinc-400 font-medium mb-1 uppercase tracking-wider">
                       Prompt
                     </div>
                     <p className="text-sm text-white/90 leading-relaxed line-clamp-3">

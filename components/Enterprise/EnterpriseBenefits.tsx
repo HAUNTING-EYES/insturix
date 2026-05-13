@@ -114,7 +114,7 @@ export default function EnterpriseBenefits() {
           transition={{ duration: 0.6 }}
           className="mb-20 text-center max-w-3xl mx-auto"
         >
-          <h2 className="text-3xl sm:text-5xl font-bold tracking-tight mb-6">
+          <h2 className="text-[32px] sm:text-[44px] font-bold tracking-tight mb-6">
             How Businesses scale up with Insturix ?
           </h2>
           <p className="text-lg text-neutral-400">
@@ -149,7 +149,7 @@ export default function EnterpriseBenefits() {
                       {benefit.title}
                     </h3>
                     
-                    <p className="text-base text-neutral-400 leading-relaxed">
+                    <p className="text-[14px] text-neutral-400 leading-relaxed">
                       {benefit.description}
                     </p>
                   </div>

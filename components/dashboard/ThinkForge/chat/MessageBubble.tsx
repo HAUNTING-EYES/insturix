@@ -41,7 +41,7 @@ export function MessageBubble({ message, onCardAction, onCardDismiss }: MessageB
           {message.selectionText && (
             <div className="rounded-lg border border-[#D4A652]/30 bg-[#D4A652]/10 px-3 py-2">
               <div className="text-[10px] uppercase tracking-[0.18em] text-[#D4A652]/80 font-semibold">Selected</div>
-              <div className="text-xs text-[#D4A652]/90 italic line-clamp-3">“{message.selectionText}”</div>
+              <div className="text-[11px] text-[#D4A652]/90 italic line-clamp-3">“{message.selectionText}”</div>
             </div>
           )}
           <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
@@ -76,7 +76,7 @@ export function MessageBubble({ message, onCardAction, onCardDismiss }: MessageB
                 strong: ({ children }) => <strong className="font-semibold text-[#ECE9E1]">{children}</strong>,
                 em: ({ children }) => <em className="italic text-[#B5B2A8]">{children}</em>,
                 h1: ({ children }) => <h1 className="text-lg font-semibold text-[#ECE9E1] mb-2 mt-4 first:mt-0">{children}</h1>,
-                h2: ({ children }) => <h2 className="text-base font-semibold text-[#ECE9E1] mb-2 mt-3 first:mt-0">{children}</h2>,
+                h2: ({ children }) => <h2 className="text-[14px] font-semibold text-[#ECE9E1] mb-2 mt-3 first:mt-0">{children}</h2>,
                 h3: ({ children }) => <h3 className="text-sm font-semibold text-[#ECE9E1] mb-1.5 mt-2 first:mt-0">{children}</h3>,
                 blockquote: ({ children }) => (
                   <blockquote className="border-l-2 border-[#282724] pl-3 my-2 text-[#7A776E] italic">{children}</blockquote>
@@ -86,14 +86,14 @@ export function MessageBubble({ message, onCardAction, onCardDismiss }: MessageB
                   const isInline = !match && !className?.includes("language-");
                   return isInline ? (
                     <code
-                      className="bg-[#1C1B19] rounded px-1.5 py-0.5 font-mono text-xs text-[#ECE9E1]"
+                      className="bg-[#1C1B19] rounded px-1.5 py-0.5 font-mono text-[11px] text-[#ECE9E1]"
                       {...props}
                     >
                       {children}
                     </code>
                   ) : (
                     <code
-                      className="block bg-[#0B0B0A] rounded-lg p-3 font-mono text-xs overflow-x-auto my-3 text-[#ECE9E1] ring-1 ring-[#1C1B19]"
+                      className="block bg-[#0B0B0A] rounded-lg p-3 font-mono text-[11px] overflow-x-auto my-3 text-[#ECE9E1] ring-1 ring-[#1C1B19]"
                       {...props}
                     >
                       {children}

@@ -218,12 +218,12 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
   return (
     <motion.div {...fadeIn} className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <h2 className="text-xl font-semibold text-zinc-100 flex items-center gap-2">
+        <h2 className="text-[18px] font-semibold text-zinc-100 flex items-center gap-2">
           <Clock className="h-5 w-5 text-zinc-400" />
           Past Sessions
         </h2>
         {history && history.length > 0 && (
-          <span className="text-xs text-zinc-500">Showing {history.length} of {total} sessions</span>
+          <span className="text-[11px] text-zinc-500">Showing {history.length} of {total} sessions</span>
         )}
       </div>
 
@@ -305,7 +305,7 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
                       </DropdownMenu>
                     </div>
                   )}
-                  <div className="flex items-center justify-between text-xs text-zinc-400">
+                  <div className="flex items-center justify-between text-[11px] text-zinc-400">
                     <div className="flex items-center gap-1.5">
                       <div className="p-0.5 bg-purple-900/20 rounded-full">
                         <Image className="h-3 w-3 text-purple-400" />

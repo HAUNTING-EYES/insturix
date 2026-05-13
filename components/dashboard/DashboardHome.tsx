@@ -386,7 +386,7 @@ export function DashboardHome() {
                 onChange={(e) => setGroupBy(e.target.value as GroupBy)}
                 style={{
                   background: C.deeper, border: `1px solid ${C.border}`, borderRadius: 5,
-                  padding: "4px 8px", fontSize: 12, color: C.text, fontFamily: "inherit",
+                  padding: "4px 8px", fontSize: 11, color: C.text, fontFamily: "inherit",
                   cursor: "pointer", outline: "none",
                   appearance: "none", WebkitAppearance: "none",
                   paddingRight: 22,
@@ -435,7 +435,7 @@ export function DashboardHome() {
           <Link href="/dashboard/editron" style={{ textDecoration: "none" }}>
             <button style={{
               background: C.accent, color: C.bg, border: "none",
-              padding: "8px 20px", borderRadius: 7, fontSize: 12, fontWeight: 800,
+              padding: "8px 20px", borderRadius: 7, fontSize: 11, fontWeight: 800,
               cursor: "pointer", fontFamily: "inherit",
               display: "flex", alignItems: "center", gap: 6,
             }}>
@@ -584,7 +584,7 @@ function BoardView({ groups }: { groups: { key: string; label: string; color: st
                   borderRadius: 8, border: `1px dashed ${C.borderL}`,
                   padding: 24, minHeight: 80,
                 }}>
-                  <span style={{ fontSize: 12, color: C.faint }}>No projects</span>
+                  <span style={{ fontSize: 11, color: C.faint }}>No projects</span>
                 </div>
               )}
             </div>
@@ -621,7 +621,7 @@ function BoardCard({ project, stageColor }: { project: Project; stageColor: stri
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
           {!isUrl && (
-            <span style={{ fontSize: 16, fontWeight: 800, color: C.faint }}>
+            <span style={{ fontSize: 14, fontWeight: 800, color: C.faint }}>
               {project.name.charAt(0).toUpperCase()}
             </span>
           )}
@@ -733,7 +733,7 @@ function ListView({
                 {p.name}
               </span>
               {/* Brand */}
-              <span style={{ fontSize: 12, color: C.muted }}>{p.brand || "Personal"}</span>
+              <span style={{ fontSize: 11, color: C.muted }}>{p.brand || "Personal"}</span>
               {/* Stage */}
               <span className="dh-mono" style={{
                 fontSize: 11, fontWeight: 500, color: stageColor,
@@ -745,13 +745,13 @@ function ListView({
                 {stage?.label ?? p.stage}
               </span>
               {/* Status */}
-              <span style={{ fontSize: 12, color: C.soft, textTransform: "capitalize" }}>
+              <span style={{ fontSize: 11, color: C.soft, textTransform: "capitalize" }}>
                 {p.status.replace("_", " ")}
               </span>
               {/* Score */}
               {p.score !== null ? (
                 <span className="dh-mono" style={{
-                  fontSize: 12, fontWeight: 500,
+                  fontSize: 11, fontWeight: 500,
                   color: p.score >= 85 ? C.green : p.score >= 70 ? C.accent : C.red,
                   padding: "3px 8px", background: `${p.score >= 85 ? C.green : p.score >= 70 ? C.accent : C.red}12`,
                   borderRadius: 3, textAlign: "center",
@@ -812,7 +812,7 @@ function SplitView({
                 position: "sticky", top: 0, background: C.raised, zIndex: 1,
               }}>
                 <div style={{ width: 3, height: 12, borderRadius: 1, background: group.color }} />
-                <span style={{ fontSize: 12, fontWeight: 500 }}>{group.label}</span>
+                <span style={{ fontSize: 11, fontWeight: 500 }}>{group.label}</span>
                 <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{group.projects.length}</span>
               </div>
               {group.projects.map((p) => (
@@ -841,7 +841,7 @@ function SplitView({
               ))}
               {group.projects.length === 0 && (
                 <div style={{ padding: "16px", textAlign: "center" }}>
-                  <span style={{ fontSize: 12, color: C.faint }}>Empty</span>
+                  <span style={{ fontSize: 11, color: C.faint }}>Empty</span>
                 </div>
               )}
             </div>
@@ -901,7 +901,7 @@ function SplitDetail({ project }: { project: Project }) {
         }}>
           {stage?.label ?? project.stage}
         </span>
-        <span style={{ fontSize: 12, color: C.muted }}>{project.brand || "Personal"}</span>
+        <span style={{ fontSize: 11, color: C.muted }}>{project.brand || "Personal"}</span>
         {project.aspectRatio && (
           <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{project.aspectRatio}</span>
         )}
@@ -909,17 +909,17 @@ function SplitDetail({ project }: { project: Project }) {
       <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
         <div>
           <span style={{ fontSize: 11, color: C.faint, display: "block", marginBottom: 2 }}>Updated</span>
-          <span className="dh-mono" style={{ fontSize: 12, color: C.soft }}>{timeAgo(project.updatedAt)}</span>
+          <span className="dh-mono" style={{ fontSize: 11, color: C.soft }}>{timeAgo(project.updatedAt)}</span>
         </div>
         <div>
           <span style={{ fontSize: 11, color: C.faint, display: "block", marginBottom: 2 }}>Status</span>
-          <span style={{ fontSize: 12, color: C.soft, textTransform: "capitalize" }}>{project.status.replace("_", " ")}</span>
+          <span style={{ fontSize: 11, color: C.soft, textTransform: "capitalize" }}>{project.status.replace("_", " ")}</span>
         </div>
         {project.score !== null && (
           <div>
             <span style={{ fontSize: 11, color: C.faint, display: "block", marginBottom: 2 }}>Score</span>
             <span className="dh-mono" style={{
-              fontSize: 12, fontWeight: 500,
+              fontSize: 11, fontWeight: 500,
               color: project.score >= 85 ? C.green : project.score >= 70 ? C.accent : C.red,
             }}>{project.score}</span>
           </div>
@@ -1059,7 +1059,7 @@ function CinematicView({
                 </div>
                 <div style={{ padding: "8px 10px" }}>
                   <div style={{
-                    fontSize: 12, fontWeight: 500, marginBottom: 4,
+                    fontSize: 11, fontWeight: 500, marginBottom: 4,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>{p.name}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

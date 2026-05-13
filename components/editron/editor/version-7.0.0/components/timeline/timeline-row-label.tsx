@@ -100,7 +100,7 @@ export const TimelineRowLabel: React.FC<TimelineRowLabelProps> = ({
         <div className="w-6 h-5 relative flex items-center justify-center group">
           {/* Label text - fades out on hover */}
           <span
-            className={`absolute inset-0 flex items-center justify-center text-xs font-semibold transition-all duration-150 ease-in-out ${
+            className={`absolute inset-0 flex items-center justify-center text-[11px] font-semibold transition-all duration-150 ease-in-out ${
               hasContent
                 ? "text-gray-700 dark:text-gray-200"
                 : "text-gray-400 dark:text-gray-600"
@@ -128,7 +128,7 @@ export const TimelineRowLabel: React.FC<TimelineRowLabelProps> = ({
                     <X className="h-3 w-3 text-red-600 dark:text-red-400" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="right" className="text-xs">
+                <TooltipContent side="right" className="text-[11px]">
                   <p>
                     {canDelete
                       ? hasContent
@@ -163,7 +163,7 @@ export const TimelineRowLabel: React.FC<TimelineRowLabelProps> = ({
                 <Plus className="h-3.5 w-3.5 text-zinc-600 dark:text-zinc-400" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right" className="text-xs">
+            <TooltipContent side="right" className="text-[11px]">
               <p>{canAdd ? `Add layer below L${rowIndex + 1}` : "Max 20 layers reached"}</p>
             </TooltipContent>
           </Tooltip>

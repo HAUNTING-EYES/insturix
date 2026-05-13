@@ -80,7 +80,7 @@ export const ProductOrbit = ({ progress }: ProductOrbitProps) => {
                 className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap"
                 style={{ opacity: useTransform(progress, [0, 0.3], [1, 0]) }}
               >
-                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                   {product.name}
                 </span>
               </motion.div>

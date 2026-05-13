@@ -569,7 +569,7 @@ export default function MailingDashboard() {
                 </Button>
               </Link>
               <div>
-                <h1 className="text-3xl font-bold tracking-tight">
+                <h1 className="text-[32px] font-bold tracking-tight">
                   Email Marketing Center
                 </h1>
                 <p className="text-muted-foreground mt-1">
@@ -820,7 +820,7 @@ export default function MailingDashboard() {
                           document.execCommand('fontSize', false, '3');
                         }
                       }}>
-                      <SelectTrigger className="h-7 w-20 text-xs">
+                      <SelectTrigger className="h-7 w-20 text-[11px]">
                         <Type className="h-3 w-3" />
                       </SelectTrigger>
                       <SelectContent className="bg-black border-neutral-800">
@@ -864,7 +864,7 @@ export default function MailingDashboard() {
                     cursor: text;
                   }
                 `}</style>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   {testCustomMessage.length} characters | Rich text formatting enabled
                 </p>
               </div>
@@ -1032,7 +1032,7 @@ export default function MailingDashboard() {
               <div className="text-2xl font-bold">
                 {cooldownStatus?.totalUsers.toLocaleString() || 0}
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {(bulkEmailTemplate === 'ticket-confirmation-initial' ||
                   bulkEmailTemplate?.startsWith('ticket-confirmation-reminder'))
                   ? 'ICS\'25 Attendees'
@@ -1052,7 +1052,7 @@ export default function MailingDashboard() {
                   ? formatDate(cooldownStatus.lastSent).split(',')[0]
                   : 'Never'}
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {cooldownStatus?.lastSent
                   ? formatDate(cooldownStatus.lastSent).split(',')[1]
                   : 'No emails sent yet'}
@@ -1284,7 +1284,7 @@ export default function MailingDashboard() {
                         document.execCommand('fontSize', false, '3');
                       }
                     }}>
-                    <SelectTrigger className="h-7 w-20 text-xs">
+                    <SelectTrigger className="h-7 w-20 text-[11px]">
                       <Type className="h-3 w-3" />
                     </SelectTrigger>
                     <SelectContent className="bg-black border-neutral-800">
@@ -1328,7 +1328,7 @@ export default function MailingDashboard() {
                   cursor: text;
                 }
               `}</style>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {customMessage.replace(/<[^>]*>/g, '').length} characters | Rich text formatting enabled
               </p>
             </div>
@@ -1505,11 +1505,11 @@ export default function MailingDashboard() {
             </p>
             <div className="bg-muted p-4 rounded-lg border space-y-2">
               <div>
-                <span className="text-xs text-muted-foreground">Subject:</span>
+                <span className="text-[11px] text-muted-foreground">Subject:</span>
                 <p className="font-medium text-sm">{customSubject}</p>
               </div>
               <div>
-                <span className="text-xs text-muted-foreground">Message Preview:</span>
+                <span className="text-[11px] text-muted-foreground">Message Preview:</span>
                 <div className="text-sm whitespace-pre-wrap max-h-32 overflow-y-auto" dangerouslySetInnerHTML={{ __html: customMessage }} />
               </div>
             </div>

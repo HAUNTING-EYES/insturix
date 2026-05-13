@@ -117,7 +117,7 @@ export const HtmlScenePanel: React.FC = () => {
             <h3 className="font-semibold text-foreground">
               {localOverlay.type === OverlayType.HTML_STICKER ? 'Custom Sticker' : 'Custom Scene'}
             </h3>
-            <p className="text-xs text-muted-foreground truncate max-w-[180px]">
+            <p className="text-[11px] text-muted-foreground truncate max-w-[180px]">
               {localOverlay.prompt?.split(' ').slice(0, 4).join(' ')}...
             </p>
           </div>
@@ -131,7 +131,7 @@ export const HtmlScenePanel: React.FC = () => {
             <Sparkles className={`h-4 w-4 ${localOverlay.type === OverlayType.HTML_STICKER ? 'text-pink-500' : 'text-cyan-500'}`} />
             <Label className="font-medium">Refine with AI</Label>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[11px] text-muted-foreground">
             Describe changes to this {localOverlay.type === OverlayType.HTML_STICKER ? 'sticker' : 'scene'} and the AI will update it for you.
           </p>
           <Textarea
@@ -164,7 +164,7 @@ export const HtmlScenePanel: React.FC = () => {
 
         {/* Original Prompt */}
         <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Description</Label>
+          <Label className="text-[11px] text-muted-foreground">Description</Label>
           <div className="p-3 rounded-lg bg-muted/50 border">
             <p className="text-sm text-foreground">
               {localOverlay.prompt || "No description"}
@@ -175,13 +175,13 @@ export const HtmlScenePanel: React.FC = () => {
         {/* Properties */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Duration</Label>
+            <Label className="text-[11px] text-muted-foreground">Duration</Label>
             <div className="text-sm font-medium">
               {Math.round(localOverlay.durationInFrames / 30)}s
             </div>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Start</Label>
+            <Label className="text-[11px] text-muted-foreground">Start</Label>
             <div className="text-sm font-medium">
               {Math.round(localOverlay.from / 30)}s
             </div>
@@ -195,7 +195,7 @@ export const HtmlScenePanel: React.FC = () => {
             <div className="space-y-2">
               <button
                 onClick={() => setShowCode(!showCode)}
-                className="flex items-center gap-2 text-xs text-yellow-500 hover:text-yellow-400 transition-colors"
+                className="flex items-center gap-2 text-[11px] text-yellow-500 hover:text-yellow-400 transition-colors"
               >
                 <Code className="h-4 w-4" />
                 <span>DEV: View Generated Code</span>
@@ -203,7 +203,7 @@ export const HtmlScenePanel: React.FC = () => {
               </button>
               {showCode && (
                 <div className="p-3 rounded-lg bg-zinc-900 border border-yellow-500/30 max-h-[300px] overflow-auto">
-                  <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono">
+                  <pre className="text-[11px] text-green-400 whitespace-pre-wrap font-mono">
                     {localOverlay.content || "No HTML content"}
                   </pre>
                 </div>

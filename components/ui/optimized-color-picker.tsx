@@ -61,7 +61,7 @@ export const OptimizedColorPicker: React.FC<OptimizedColorPickerProps> = ({
           <HexColorPicker color={value} onChange={onChange} />
           
           {/* Current color display */}
-          <div className="flex items-center gap-2 text-xs mt-3">
+          <div className="flex items-center gap-2 text-[11px] mt-3">
             <div 
               className="w-6 h-6 rounded border"
               style={{ backgroundColor: value }}

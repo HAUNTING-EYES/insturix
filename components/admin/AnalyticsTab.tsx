@@ -676,7 +676,7 @@ export default function AnalyticsTab() {
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Analytics Dashboard</h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Real-time metrics and insights</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
+        <div className="flex items-center gap-2 text-[11px] text-zinc-500">
           <Activity className="w-3.5 h-3.5 text-emerald-500" />
           <span>Last 30 days</span>
         </div>
@@ -689,18 +689,18 @@ export default function AnalyticsTab() {
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">New Users</p>
-                <p className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">{usersTotal}</p>
+                <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">New Users</p>
+                <p className="text-[32px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">{usersTotal}</p>
                 <div className="flex items-center gap-1 mt-2">
                   {usersTrend >= 0 ? (
                     <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
                   ) : (
                     <TrendingDown className="w-3.5 h-3.5 text-red-500" />
                   )}
-                  <span className={`text-xs font-medium ${usersTrend >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                  <span className={`text-[11px] font-medium ${usersTrend >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                     {usersTrend >= 0 ? '+' : ''}{usersTrend}%
                   </span>
-                  <span className="text-xs text-zinc-500">vs last week</span>
+                  <span className="text-[11px] text-zinc-500">vs last week</span>
                 </div>
               </div>
               <div className="p-2.5 rounded-xl bg-emerald-500/20">
@@ -715,18 +715,18 @@ export default function AnalyticsTab() {
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Revenue</p>
-                <p className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">${revenueTotal.toFixed(0)}</p>
+                <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Revenue</p>
+                <p className="text-[32px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">${revenueTotal.toFixed(0)}</p>
                 <div className="flex items-center gap-1 mt-2">
                   {revenueTrend >= 0 ? (
                     <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
                   ) : (
                     <TrendingDown className="w-3.5 h-3.5 text-red-500" />
                   )}
-                  <span className={`text-xs font-medium ${revenueTrend >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                  <span className={`text-[11px] font-medium ${revenueTrend >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                     {revenueTrend >= 0 ? '+' : ''}{revenueTrend}%
                   </span>
-                  <span className="text-xs text-zinc-500">vs last week</span>
+                  <span className="text-[11px] text-zinc-500">vs last week</span>
                 </div>
               </div>
               <div className="p-2.5 rounded-xl bg-amber-500/20">
@@ -741,12 +741,12 @@ export default function AnalyticsTab() {
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Total Inquiries</p>
-                <p className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">{(pagination?.total || 0) + (agencyPagination?.total || 0)}</p>
+                <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Total Inquiries</p>
+                <p className="text-[32px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">{(pagination?.total || 0) + (agencyPagination?.total || 0)}</p>
                 <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-zinc-500">{pagination?.total || 0} contacts</span>
+                  <span className="text-[11px] text-zinc-500">{pagination?.total || 0} contacts</span>
                   <span className="text-zinc-300">•</span>
-                  <span className="text-xs text-zinc-500">{agencyPagination?.total || 0} agencies</span>
+                  <span className="text-[11px] text-zinc-500">{agencyPagination?.total || 0} agencies</span>
                 </div>
               </div>
               <div className="p-2.5 rounded-xl bg-blue-500/20">
@@ -761,12 +761,12 @@ export default function AnalyticsTab() {
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Unread Messages</p>
-                <p className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">{unreadCount + agencyUnreadCount}</p>
+                <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Unread Messages</p>
+                <p className="text-[32px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">{unreadCount + agencyUnreadCount}</p>
                 <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-zinc-500">{unreadCount} contacts</span>
+                  <span className="text-[11px] text-zinc-500">{unreadCount} contacts</span>
                   <span className="text-zinc-300">•</span>
-                  <span className="text-xs text-zinc-500">{agencyUnreadCount} agencies</span>
+                  <span className="text-[11px] text-zinc-500">{agencyUnreadCount} agencies</span>
                 </div>
               </div>
               <div className="p-2.5 rounded-xl bg-fuchsia-500/20">
@@ -784,12 +784,12 @@ export default function AnalyticsTab() {
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-base font-semibold">User Registrations</CardTitle>
-                <CardDescription className="text-xs mt-1">Daily signups over the past 30 days</CardDescription>
+                <CardTitle className="text-[14px] font-semibold">User Registrations</CardTitle>
+                <CardDescription className="text-[11px] mt-1">Daily signups over the past 30 days</CardDescription>
               </div>
               <div className="text-right">
                 <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{usersTotal}</p>
-                <p className="text-xs text-zinc-500">total users</p>
+                <p className="text-[11px] text-zinc-500">total users</p>
               </div>
             </div>
           </CardHeader>
@@ -819,7 +819,7 @@ export default function AnalyticsTab() {
                           style={{ height: `${Math.max(height, 2)}%` }}
                         />
                         <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
-                          <div className="bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
+                          <div className="bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[11px] px-2 py-1 rounded shadow-lg whitespace-nowrap">
                             <p className="font-medium">{value} users</p>
                             <p className="text-zinc-400 dark:text-zinc-600 text-[10px]">{format(new Date(p._id), 'MMM dd')}</p>
                           </div>
@@ -843,12 +843,12 @@ export default function AnalyticsTab() {
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-base font-semibold">Revenue</CardTitle>
-                <CardDescription className="text-xs mt-1">Daily earnings from plan activations</CardDescription>
+                <CardTitle className="text-[14px] font-semibold">Revenue</CardTitle>
+                <CardDescription className="text-[11px] mt-1">Daily earnings from plan activations</CardDescription>
               </div>
               <div className="text-right">
                 <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">${revenueTotal.toFixed(0)}</p>
-                <p className="text-xs text-zinc-500">total revenue</p>
+                <p className="text-[11px] text-zinc-500">total revenue</p>
               </div>
             </div>
           </CardHeader>
@@ -878,7 +878,7 @@ export default function AnalyticsTab() {
                           style={{ height: `${Math.max(height, 2)}%` }}
                         />
                         <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
-                          <div className="bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
+                          <div className="bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[11px] px-2 py-1 rounded shadow-lg whitespace-nowrap">
                             <p className="font-medium">${value.toFixed(0)}</p>
                             <p className="text-zinc-400 dark:text-zinc-600 text-[10px]">{format(new Date(p._id), 'MMM dd')}</p>
                           </div>
@@ -908,19 +908,19 @@ export default function AnalyticsTab() {
                   <Inbox className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Inbox</h2>
-                  <p className="text-xs text-zinc-500">Manage all incoming messages</p>
+                  <h2 className="text-[14px] font-semibold text-zinc-900 dark:text-zinc-100">Inbox</h2>
+                  <p className="text-[11px] text-zinc-500">Manage all incoming messages</p>
                 </div>
               </div>
               <TabsList className="bg-zinc-100 dark:bg-zinc-800 p-1">
-                <TabsTrigger value="contacts" className="text-xs px-3 py-1.5 data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-700 gap-1.5">
+                <TabsTrigger value="contacts" className="text-[11px] px-3 py-1.5 data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-700 gap-1.5">
                   <MessageSquare className="w-3.5 h-3.5" />
                   Contacts
                   {unreadCount > 0 && (
                     <span className="ml-1 px-1.5 py-0.5 text-[10px] font-medium bg-fuchsia-500 text-white rounded-full">{unreadCount}</span>
                   )}
                 </TabsTrigger>
-                <TabsTrigger value="agencies" className="text-xs px-3 py-1.5 data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-700 gap-1.5">
+                <TabsTrigger value="agencies" className="text-[11px] px-3 py-1.5 data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-700 gap-1.5">
                   <Building2 className="w-3.5 h-3.5" />
                   Agencies
                   {agencyUnreadCount > 0 && (
@@ -936,7 +936,7 @@ export default function AnalyticsTab() {
             {/* Toolbar */}
             <div className="px-5 py-3 bg-zinc-50/50 dark:bg-zinc-800/30 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <button onClick={selectAllContacts} className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors">
+                <button onClick={selectAllContacts} className="flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors">
                   {selectedContacts.size === messages.length && messages.length > 0 ? (
                     <CheckSquare className="w-4 h-4 text-fuchsia-500" />
                   ) : (
@@ -948,22 +948,22 @@ export default function AnalyticsTab() {
                   <div className="flex items-center gap-1 pl-3 border-l border-zinc-200 dark:border-zinc-700">
                     {!isContactsDeleted ? (
                       <>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={() => handleBulkContactAction('read')} disabled={bulkLoading}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1.5" onClick={() => handleBulkContactAction('read')} disabled={bulkLoading}>
                           <MailOpen className="w-3.5 h-3.5" /> Read
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={() => handleBulkContactAction('unread')} disabled={bulkLoading}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1.5" onClick={() => handleBulkContactAction('unread')} disabled={bulkLoading}>
                           <MailX className="w-3.5 h-3.5" /> Unread
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={() => handleBulkContactAction('delete')} disabled={bulkLoading}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={() => handleBulkContactAction('delete')} disabled={bulkLoading}>
                           <Trash2 className="w-3.5 h-3.5" /> Delete
                         </Button>
                       </>
                     ) : (
                       <>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={() => handleBulkContactAction('restore')} disabled={bulkLoading}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1.5" onClick={() => handleBulkContactAction('restore')} disabled={bulkLoading}>
                           <RotateCcw className="w-3.5 h-3.5" /> Restore
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={() => handleBulkContactAction('permanent-delete')} disabled={bulkLoading}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={() => handleBulkContactAction('permanent-delete')} disabled={bulkLoading}>
                           <Trash2 className="w-3.5 h-3.5" /> Delete Forever
                         </Button>
                       </>
@@ -983,7 +983,7 @@ export default function AnalyticsTab() {
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
-                <Button variant="ghost" size="sm" onClick={() => fetchMessages(currentPage)} disabled={loading} className="h-7 px-2 text-xs">
+                <Button variant="ghost" size="sm" onClick={() => fetchMessages(currentPage)} disabled={loading} className="h-7 px-2 text-[11px]">
                   {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
                   <span className="ml-1.5">Refresh</span>
                 </Button>
@@ -1035,7 +1035,7 @@ export default function AnalyticsTab() {
                             <p className="text-[11px] text-zinc-400 shrink-0">{format(new Date(msg.createdAt), 'MMM dd, HH:mm')}</p>
                           </div>
                           <p className="text-sm text-zinc-600 dark:text-zinc-400 truncate mt-0.5">{msg.subject}</p>
-                          <p className="text-xs text-zinc-400 truncate mt-1">{msg.message.slice(0, 80)}...</p>
+                          <p className="text-[11px] text-zinc-400 truncate mt-1">{msg.message.slice(0, 80)}...</p>
                         </div>
                         
                         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -1094,22 +1094,22 @@ export default function AnalyticsTab() {
                             <div className="flex justify-end gap-2">
                               {!isContactsDeleted ? (
                                 <>
-                                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={(e) => handleContactReadToggle(msg, e)}>
+                                  <Button variant="ghost" size="sm" className="h-8 text-[11px]" onClick={(e) => handleContactReadToggle(msg, e)}>
                                     {msg.read ? 'Mark Unread' : 'Mark Read'}
                                   </Button>
-                                  <Button variant="ghost" size="sm" className="h-8 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={(e) => handleContactDelete(msg, e)}>
+                                  <Button variant="ghost" size="sm" className="h-8 text-[11px] text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={(e) => handleContactDelete(msg, e)}>
                                     <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete
                                   </Button>
-                                  <Button size="sm" className="h-8 text-xs" onClick={(e) => { e.stopPropagation(); openReply(msg, 'contact'); }}>
+                                  <Button size="sm" className="h-8 text-[11px]" onClick={(e) => { e.stopPropagation(); openReply(msg, 'contact'); }}>
                                     <Send className="w-3.5 h-3.5 mr-1.5" /> Reply
                                   </Button>
                                 </>
                               ) : (
                                 <>
-                                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={(e) => handleContactRestore(msg, e)}>
+                                  <Button variant="ghost" size="sm" className="h-8 text-[11px]" onClick={(e) => handleContactRestore(msg, e)}>
                                     <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Restore
                                   </Button>
-                                  <Button variant="ghost" size="sm" className="h-8 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={(e) => handleContactPermanentDelete(msg, e)}>
+                                  <Button variant="ghost" size="sm" className="h-8 text-[11px] text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={(e) => handleContactPermanentDelete(msg, e)}>
                                     <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete Forever
                                   </Button>
                                 </>
@@ -1126,10 +1126,10 @@ export default function AnalyticsTab() {
             
             {pagination && pagination.totalPages > 1 && (
               <div className="px-5 py-3 bg-zinc-50/50 dark:bg-zinc-800/30 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-                <p className="text-xs text-zinc-500">{(currentPage - 1) * 10 + 1}-{Math.min(currentPage * 10, pagination.total)} of {pagination.total}</p>
+                <p className="text-[11px] text-zinc-500">{(currentPage - 1) * 10 + 1}-{Math.min(currentPage * 10, pagination.total)} of {pagination.total}</p>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-7 w-7 p-0"><ChevronLeft className="w-4 h-4" /></Button>
-                  <span className="text-xs text-zinc-600 px-2">{currentPage} / {pagination.totalPages}</span>
+                  <span className="text-[11px] text-zinc-600 px-2">{currentPage} / {pagination.totalPages}</span>
                   <Button variant="ghost" size="sm" onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))} disabled={currentPage === pagination.totalPages} className="h-7 w-7 p-0"><ChevronRight className="w-4 h-4" /></Button>
                 </div>
               </div>
@@ -1141,7 +1141,7 @@ export default function AnalyticsTab() {
             {/* Toolbar */}
             <div className="px-5 py-3 bg-zinc-50/50 dark:bg-zinc-800/30 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <button onClick={selectAllAgencies} className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors">
+                <button onClick={selectAllAgencies} className="flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors">
                   {selectedAgencies.size === agencies.length && agencies.length > 0 ? (
                     <CheckSquare className="w-4 h-4 text-sky-500" />
                   ) : (
@@ -1153,22 +1153,22 @@ export default function AnalyticsTab() {
                   <div className="flex items-center gap-1 pl-3 border-l border-zinc-200 dark:border-zinc-700">
                     {!isAgenciesDeleted ? (
                       <>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={() => handleBulkAgencyAction('read')} disabled={bulkLoading}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1.5" onClick={() => handleBulkAgencyAction('read')} disabled={bulkLoading}>
                           <MailOpen className="w-3.5 h-3.5" /> Read
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={() => handleBulkAgencyAction('unread')} disabled={bulkLoading}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1.5" onClick={() => handleBulkAgencyAction('unread')} disabled={bulkLoading}>
                           <MailX className="w-3.5 h-3.5" /> Unread
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={() => handleBulkAgencyAction('delete')} disabled={bulkLoading}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={() => handleBulkAgencyAction('delete')} disabled={bulkLoading}>
                           <Trash2 className="w-3.5 h-3.5" /> Delete
                         </Button>
                       </>
                     ) : (
                       <>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={() => handleBulkAgencyAction('restore')} disabled={bulkLoading}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1.5" onClick={() => handleBulkAgencyAction('restore')} disabled={bulkLoading}>
                           <RotateCcw className="w-3.5 h-3.5" /> Restore
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={() => handleBulkAgencyAction('permanent-delete')} disabled={bulkLoading}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={() => handleBulkAgencyAction('permanent-delete')} disabled={bulkLoading}>
                           <Trash2 className="w-3.5 h-3.5" /> Delete Forever
                         </Button>
                       </>
@@ -1188,7 +1188,7 @@ export default function AnalyticsTab() {
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
-                <Button variant="ghost" size="sm" onClick={() => fetchAgencies(agencyCurrentPage)} disabled={agencyLoading} className="h-7 px-2 text-xs">
+                <Button variant="ghost" size="sm" onClick={() => fetchAgencies(agencyCurrentPage)} disabled={agencyLoading} className="h-7 px-2 text-[11px]">
                   {agencyLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
                   <span className="ml-1.5">Refresh</span>
                 </Button>
@@ -1243,8 +1243,8 @@ export default function AnalyticsTab() {
                             </div>
                             <p className="text-[11px] text-zinc-400 shrink-0">{format(new Date(agency.createdAt), 'MMM dd, HH:mm')}</p>
                           </div>
-                          <p className="text-xs text-zinc-400 mt-1">{agency.email} {agency.companySize && `• ${agency.companySize}`}</p>
-                          <p className="text-xs text-zinc-500 truncate mt-1">{agency.message.slice(0, 80)}...</p>
+                          <p className="text-[11px] text-zinc-400 mt-1">{agency.email} {agency.companySize && `• ${agency.companySize}`}</p>
+                          <p className="text-[11px] text-zinc-500 truncate mt-1">{agency.message.slice(0, 80)}...</p>
                         </div>
                         
                         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -1312,22 +1312,22 @@ export default function AnalyticsTab() {
                             <div className="flex justify-end gap-2">
                               {!isAgenciesDeleted ? (
                                 <>
-                                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={(e) => handleAgencyReadToggle(agency, e)}>
+                                  <Button variant="ghost" size="sm" className="h-8 text-[11px]" onClick={(e) => handleAgencyReadToggle(agency, e)}>
                                     {agency.read ? 'Mark Unread' : 'Mark Read'}
                                   </Button>
-                                  <Button variant="ghost" size="sm" className="h-8 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={(e) => handleAgencyDelete(agency, e)}>
+                                  <Button variant="ghost" size="sm" className="h-8 text-[11px] text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={(e) => handleAgencyDelete(agency, e)}>
                                     <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete
                                   </Button>
-                                  <Button size="sm" className="h-8 text-xs" onClick={(e) => { e.stopPropagation(); openReply(agency, 'agency'); }}>
+                                  <Button size="sm" className="h-8 text-[11px]" onClick={(e) => { e.stopPropagation(); openReply(agency, 'agency'); }}>
                                     <Send className="w-3.5 h-3.5 mr-1.5" /> Reply
                                   </Button>
                                 </>
                               ) : (
                                 <>
-                                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={(e) => handleAgencyRestore(agency, e)}>
+                                  <Button variant="ghost" size="sm" className="h-8 text-[11px]" onClick={(e) => handleAgencyRestore(agency, e)}>
                                     <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Restore
                                   </Button>
-                                  <Button variant="ghost" size="sm" className="h-8 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={(e) => handleAgencyPermanentDelete(agency, e)}>
+                                  <Button variant="ghost" size="sm" className="h-8 text-[11px] text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={(e) => handleAgencyPermanentDelete(agency, e)}>
                                     <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete Forever
                                   </Button>
                                 </>
@@ -1344,10 +1344,10 @@ export default function AnalyticsTab() {
             
             {agencyPagination && agencyPagination.totalPages > 1 && (
               <div className="px-5 py-3 bg-zinc-50/50 dark:bg-zinc-800/30 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-                <p className="text-xs text-zinc-500">{(agencyCurrentPage - 1) * 10 + 1}-{Math.min(agencyCurrentPage * 10, agencyPagination.total)} of {agencyPagination.total}</p>
+                <p className="text-[11px] text-zinc-500">{(agencyCurrentPage - 1) * 10 + 1}-{Math.min(agencyCurrentPage * 10, agencyPagination.total)} of {agencyPagination.total}</p>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="sm" onClick={() => setAgencyCurrentPage(p => Math.max(1, p - 1))} disabled={agencyCurrentPage === 1} className="h-7 w-7 p-0"><ChevronLeft className="w-4 h-4" /></Button>
-                  <span className="text-xs text-zinc-600 px-2">{agencyCurrentPage} / {agencyPagination.totalPages}</span>
+                  <span className="text-[11px] text-zinc-600 px-2">{agencyCurrentPage} / {agencyPagination.totalPages}</span>
                   <Button variant="ghost" size="sm" onClick={() => setAgencyCurrentPage(p => Math.min(agencyPagination.totalPages, p + 1))} disabled={agencyCurrentPage === agencyPagination.totalPages} className="h-7 w-7 p-0"><ChevronRight className="w-4 h-4" /></Button>
                 </div>
               </div>
@@ -1378,17 +1378,17 @@ export default function AnalyticsTab() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{replyTarget?.name}</p>
-              <p className="text-xs text-zinc-500 truncate">{replyTarget?.email}</p>
+              <p className="text-[11px] text-zinc-500 truncate">{replyTarget?.email}</p>
             </div>
             {replyType === 'agency' && (replyTarget as AgencyMessage)?.companyName && (
-              <div className="px-2 py-1 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 text-xs font-medium">
+              <div className="px-2 py-1 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 text-[11px] font-medium">
                 {(replyTarget as AgencyMessage).companyName}
               </div>
             )}
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="subject" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Subject</Label>
+            <Label htmlFor="subject" className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Subject</Label>
             <Input 
               id="subject"
               value={replySubject} 
@@ -1399,7 +1399,7 @@ export default function AnalyticsTab() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="message" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Message</Label>
+            <Label htmlFor="message" className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Message</Label>
             <Textarea 
               id="message"
               value={replyMessage} 

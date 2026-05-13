@@ -98,7 +98,7 @@ export default function TutorialContent() {
         >
           {/* Search Section */}
           <div className="relative flex flex-col items-center text-center space-y-4">
-            <h1 className="text-3xl font-semibold mb-2">
+            <h1 className="text-[32px] font-semibold mb-2">
               Tutorials & Documentation
               <div className="absolute -top-1.5 -left-3 w-12 h-12 bg-blue-500/10 rounded-full blur-xl" />
             </h1>

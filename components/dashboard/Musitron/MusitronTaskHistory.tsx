@@ -43,7 +43,7 @@ function MusitronTaskCard({ task }: { task: MusitronTaskWithCreator }) {
                 {displayTitle}
               </h3>
             </div>
-            <div className="flex items-center gap-3 text-xs text-zinc-500">
+            <div className="flex items-center gap-3 text-[11px] text-zinc-500">
               <div className="flex items-center gap-1">
                 <Calendar className="h-3 w-3" />
                 {new Date(task.createdAt).toLocaleDateString()}
@@ -74,7 +74,7 @@ function MusitronTaskCard({ task }: { task: MusitronTaskWithCreator }) {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="flex items-center gap-3 text-base text-yellow-300 font-semibold px-3 py-2 rounded-lg bg-yellow-900/20 shadow animate-pulse"
+                    className="flex items-center gap-3 text-[14px] text-yellow-300 font-semibold px-3 py-2 rounded-lg bg-yellow-900/20 shadow animate-pulse"
                   >
                     <Loader2 className="h-5 w-5 mr-2 animate-spin text-yellow-400" />
                     <span>Processing</span>
@@ -87,7 +87,7 @@ function MusitronTaskCard({ task }: { task: MusitronTaskWithCreator }) {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="text-xs text-zinc-400"
+                    className="text-[11px] text-zinc-400"
                   >
                     Listed
                   </motion.div>
@@ -102,7 +102,7 @@ function MusitronTaskCard({ task }: { task: MusitronTaskWithCreator }) {
                     className="flex items-center gap-2"
                   >
                     <div className="flex flex-col items-end">
-                      <span className="text-xs text-red-400 flex items-center gap-1">
+                      <span className="text-[11px] text-red-400 flex items-center gap-1">
                         <AlertCircle className="h-3 w-3" />
                         Failed
                       </span>
@@ -199,8 +199,8 @@ export function MusitronTaskHistory() {
     <div className="space-y-6">
       <div className="flex items-center gap-3 mb-4">
         <History className="h-5 w-5 text-yellow-400" />
-        <h2 className="text-lg sm:text-xl font-medium text-zinc-100">Task History</h2>
-        <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-xs text-zinc-400">
+        <h2 className="text-lg sm:text-[18px] font-medium text-zinc-100">Task History</h2>
+        <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-[11px] text-zinc-400">
           {totalItems} total
         </span>
       </div>
@@ -247,9 +247,9 @@ export function MusitronTaskHistory() {
             className="w-full sm:w-auto order-2 sm:order-1"
           >
             <ChevronLeft className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="text-xs sm:text-sm">Previous</span>
+            <span className="text-[11px] sm:text-sm">Previous</span>
           </Button>
-          <span className="text-xs sm:text-sm text-zinc-400 order-1 sm:order-2 text-center">
+          <span className="text-[11px] sm:text-sm text-zinc-400 order-1 sm:order-2 text-center">
             Page {currentPage} of {totalPages}
             <span className="hidden sm:inline"> ({totalItems} total)</span>
           </span>
@@ -260,7 +260,7 @@ export function MusitronTaskHistory() {
             disabled={currentPage >= totalPages || isLoading}
             className="w-full sm:w-auto order-3"
           >
-            <span className="text-xs sm:text-sm">Next</span>
+            <span className="text-[11px] sm:text-sm">Next</span>
             <ChevronRight className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4" />
           </Button>
         </div>

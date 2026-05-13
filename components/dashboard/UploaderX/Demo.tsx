@@ -126,7 +126,7 @@ export function UploaderXDemo() {
     <div className="space-y-6">
       {/* Header */}
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-zinc-200 mb-2">UploaderX Demo</h1>
+        <h1 className="text-[32px] font-bold text-zinc-200 mb-2">UploaderX Demo</h1>
         <p className="text-zinc-400">Complete video upload and management workflow</p>
       </div>
 
@@ -224,7 +224,7 @@ export function UploaderXDemo() {
                   
                   <div className="flex gap-1">
                     {video.platforms.map(platform => (
-                      <Badge key={platform} variant="outline" className="text-xs">
+                      <Badge key={platform} variant="outline" className="text-[11px]">
                         {platform}
                       </Badge>
                     ))}

@@ -108,7 +108,7 @@ export default function AlyzitronFeatures() {
             Powerful Features
           </div>
           
-          <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
+          <h2 className="text-[44px] md:text-[110px] font-bold tracking-tight mb-6">
             <span className="bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-700 dark:from-white dark:via-neutral-200 dark:to-neutral-400 bg-clip-text text-transparent">
               Everything You Need to
             </span>
@@ -142,7 +142,7 @@ export default function AlyzitronFeatures() {
                 </div>
 
                 {/* Content */}
-                <h3 className="text-xl font-bold text-neutral-900 dark:text-white mb-4">
+                <h3 className="text-[18px] font-bold text-neutral-900 dark:text-white mb-4">
                   {feature.title}
                 </h3>
                 

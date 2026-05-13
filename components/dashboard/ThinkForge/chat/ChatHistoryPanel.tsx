@@ -165,7 +165,7 @@ export function ChatHistoryPanel({
                   <div className="text-center py-12">
                     <MessageSquare className="h-8 w-8 mx-auto mb-2 text-[#454340]" />
                     <p className="text-sm text-[#5F5E5A]">No chat tabs found</p>
-                    <p className="text-xs text-[#454340] mt-1">
+                    <p className="text-[11px] text-[#454340] mt-1">
                       Start chatting to create your first tab
                     </p>
                   </div>

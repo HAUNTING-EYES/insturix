@@ -119,7 +119,7 @@ export default function SponsorForm() {
           transition={{ duration: 0.5 }}
           className="max-w-5xl mx-auto"
         >
-          <h1 className="text-3xl font-semibold mb-2 relative">
+          <h1 className="text-[32px] font-semibold mb-2 relative">
             Support Us
             <div className="absolute -top-1.5 -left-3 w-12 h-12 bg-blue-500/10 rounded-full blur-xl"></div>
           </h1>

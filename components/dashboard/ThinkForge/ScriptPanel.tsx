@@ -144,7 +144,7 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
              <button
                 onClick={() => setMode('scripting')}
                 className={clsx(
-                   "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
+                   "flex items-center gap-2 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all duration-200",
                    mode === 'scripting' 
                       ? "bg-[#1C1B19] text-[#ECE9E1] shadow-sm ring-1 ring-[#282724]" 
                       : "text-[#5F5E5A] hover:text-[#B5B2A8] hover:bg-[#131312]"
@@ -156,7 +156,7 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
              <button
                 onClick={() => setMode('whiteboard')}
                 className={clsx(
-                   "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
+                   "flex items-center gap-2 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all duration-200",
                    mode === 'whiteboard' 
                       ? "bg-[#1C1B19] text-[#ECE9E1] shadow-sm ring-1 ring-[#282724]" 
                       : "text-[#5F5E5A] hover:text-[#B5B2A8] hover:bg-[#131312]"

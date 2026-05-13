@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -129,7 +130,7 @@ export default function SocializeDashboard({
   const [banner, setBanner] = useState<BannerConfig>(
     initialData?.banner || {
       type: 'color',
-      value: '#0e6b9c',
+      value: '#D4A652',
       gradientType: 'linear',
       gradientColors: []
     }
@@ -258,7 +259,7 @@ export default function SocializeDashboard({
       setBio(response.data.profile.bio || "");
       setBanner(response.data.profile.banner || {
         type: 'color',
-        value: '#0e6b9c',
+        value: '#D4A652',
         gradientType: 'linear',
         gradientColors: []
       });
@@ -299,7 +300,7 @@ export default function SocializeDashboard({
           setBio(response.data.profile.bio || "");
           setBanner(response.data.profile.banner || {
             type: 'color',
-            value: '#0e6b9c',
+            value: '#D4A652',
             gradientType: 'linear',
             gradientColors: []
           });
@@ -340,7 +341,7 @@ export default function SocializeDashboard({
           setBio(response.data.profile.bio || "");
           setBanner(response.data.profile.banner || {
             type: 'color',
-            value: '#0e6b9c',
+            value: '#D4A652',
             gradientType: 'linear',
             gradientColors: []
           });
@@ -380,7 +381,7 @@ export default function SocializeDashboard({
           setBio(response.data.profile.bio || "");
           setBanner(response.data.profile.banner || {
             type: 'color',
-            value: '#0e6b9c',
+            value: '#D4A652',
             gradientType: 'linear',
             gradientColors: []
           });
@@ -406,7 +407,7 @@ export default function SocializeDashboard({
           setLinks(response.data.profile.links || []);
           setBanner(response.data.profile.banner || {
             type: 'color',
-            value: '#0e6b9c',
+            value: '#D4A652',
             gradientType: 'linear',
             gradientColors: []
           });
@@ -494,7 +495,7 @@ export default function SocializeDashboard({
           setBio(response.data.profile.bio || "");
           setBanner(response.data.profile.banner || {
             type: 'color',
-            value: '#0e6b9c',
+            value: '#D4A652',
             gradientType: 'linear',
             gradientColors: []
           });
@@ -528,7 +529,7 @@ export default function SocializeDashboard({
       setDuration(data.notifications?.[0]?.duration ?? 1);
       setBanner(data.banner || {
         type: 'color',
-        value: '#0e6b9c',
+        value: '#D4A652',
         gradientType: 'linear',
         gradientColors: []
       });
@@ -542,7 +543,7 @@ export default function SocializeDashboard({
         // Update the local state to reflect the changes immediately
         setBanner(response.data.profile.banner || {
           type: 'color',
-          value: '#0e6b9c',
+          value: '#D4A652',
           gradientType: 'linear',
           gradientColors: []
         });
@@ -578,9 +579,9 @@ export default function SocializeDashboard({
         transition={{ duration: 0.5 }}
         className="relative z-10 space-y-6"
       >
-        <div className="grid lg:grid-cols-3 gap-8">
+        <div className="grid lg:grid-cols-3 gap-8 font-jakarta">
           {/* Main Content Area */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-6 lg:border-r lg:border-social-line lg:pr-8">
             <BannerCustomizer
               banner={banner}
               onBannerChange={handleBannerChange}
@@ -622,7 +623,7 @@ export default function SocializeDashboard({
               <div className="mb-6">
                 <Button
                   variant="outline"
-                  className="border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+                  className="border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-[#EAE9E5]"
                   onClick={() => setShowUpdatePopup(true)}
                 >
                   <Bell className="w-4 h-4 mr-2" />
@@ -652,7 +653,8 @@ export default function SocializeDashboard({
                 ))}
                 <Button
                   variant="outline"
-                  className="w-full border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+                  className="w-full border-social-line bg-white text-black hover:bg-white/90 font-jetbrains tracking-[0.08em] uppercase text-[10px] rounded-[7px] transition-colors"
+                  style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }}
                   onClick={() => {
                     setEditingNotificationIndex(null);
                     setMessage("");
@@ -668,7 +670,8 @@ export default function SocializeDashboard({
               <div className="mb-6">
                 <Button
                   variant="outline"
-                  className="w-full border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+                  className="w-full border-social-line bg-white text-black hover:bg-white/90 font-jetbrains tracking-[0.08em] uppercase text-[10px] rounded-[7px] transition-colors"
+                  style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }}
                   onClick={() => {
                     setEditingNotificationIndex(null);
                     setMessage("");
@@ -717,10 +720,10 @@ export default function SocializeDashboard({
 
       {/* Modals */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent className="bg-black text-white p-6">
+        <DialogContent className="text-[#EAE9E5] p-6 border-social-line" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
           <DialogHeader className="pb-4">
-            <DialogTitle className="flex items-center gap-2 text-xl">
-              <Plus className="w-5 h-5 text-[#0e6b9c]" />
+            <DialogTitle className="flex items-center gap-2 text-[18px] font-medium">
+              <Plus className="w-5 h-5" style={{ color: '#D4A652' }} />
               Add New Link
             </DialogTitle>
             <DialogDescription>
@@ -740,7 +743,7 @@ export default function SocializeDashboard({
                   const platform = detectPlatformFromUrl(url);
                   setNewLink({ ...newLink, url, platform });
                 }}
-                className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                className="border-transparent focus:border-[#D4A652] focus:ring-0 text-[#EAE9E5]" style={{ backgroundColor: '#0F0F0E' }}
               />
             </div>
             <div className="space-y-2">
@@ -752,7 +755,7 @@ export default function SocializeDashboard({
                 onChange={(e) =>
                   setNewLink({ ...newLink, title: e.target.value })
                 }
-                className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                className="border-transparent focus:border-[#D4A652] focus:ring-0 text-[#EAE9E5]" style={{ backgroundColor: '#0F0F0E' }}
               />
             </div>
             <div className="space-y-2">
@@ -763,10 +766,10 @@ export default function SocializeDashboard({
                   setNewLink({ ...newLink, platform: value })
                 }
               >
-                <SelectTrigger className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30">
+                <SelectTrigger className="border-transparent focus:border-[#D4A652] focus:ring-0" style={{ backgroundColor: '#0F0F0E' }}>
                   <SelectValue placeholder="Select platform" />
                 </SelectTrigger>
-                <SelectContent className="bg-[#121212] border-[#0e6b9c]/30">
+                <SelectContent className="border-social-line" style={{ backgroundColor: '#0F0F0E' }}>
                   <SelectItem value="youtube">YouTube</SelectItem>
                   <SelectItem value="instagram">Instagram</SelectItem>
                   <SelectItem value="tiktok">TikTok</SelectItem>
@@ -793,9 +796,10 @@ export default function SocializeDashboard({
               onClick={handleAddLink}
               disabled={!newLink.url.trim() || updateUserDataMutation.isPending}
               className={`${newLink.url.trim()
-                ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
-                : "bg-gray-800 text-gray-400 cursor-not-allowed"
+                ? "text-social-canvas font-jetbrains uppercase tracking-[0.05em] rounded-[7px] border-none hover:opacity-90 transition-opacity"
+                : "bg-social-well text-social-muted cursor-not-allowed rounded-[7px] border-none"
                 }`}
+              style={{ backgroundColor: newLink.url.trim() ? '#D4A652' : undefined }}
             >
               {updateUserDataMutation.isPending ? "Adding..." : "Add Link"}
             </Button>
@@ -804,9 +808,9 @@ export default function SocializeDashboard({
       </Dialog>
 
       <Dialog open={showEditBioModal} onOpenChange={setShowEditBioModal}>
-        <DialogContent className="bg-black text-white p-6">
+        <DialogContent className="text-[#EAE9E5] p-6 border-social-line" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
           <DialogHeader className="pb-4">
-            <DialogTitle className="text-xl">Edit Bio</DialogTitle>
+            <DialogTitle className="text-[18px] font-medium">Edit Bio</DialogTitle>
             <DialogDescription>Update your profile bio</DialogDescription>
           </DialogHeader>
 
@@ -817,11 +821,11 @@ export default function SocializeDashboard({
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
                 placeholder="Tell people about yourself..."
-                className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white resize-none"
+                className="border-transparent focus:border-[#D4A652] focus:ring-0 text-[#EAE9E5] resize-none" style={{ backgroundColor: '#0F0F0E' }}
                 rows={3}
                 maxLength={80}
               />
-              <div className="flex justify-end text-xs text-gray-400">
+              <div className="flex justify-end text-[11px] text-gray-400">
                 {bio.length} / 80
               </div>
             </div>
@@ -837,7 +841,8 @@ export default function SocializeDashboard({
             <Button
               onClick={handleSaveBio}
               disabled={updateUserDataMutation.isPending}
-              className="bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
+              className="text-[#EAE9E5] rounded-[7px] border-none hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#D4A652' }}
             >
               {updateUserDataMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
@@ -846,10 +851,10 @@ export default function SocializeDashboard({
       </Dialog>
 
       <Dialog open={showUpdatePopup} onOpenChange={setShowUpdatePopup}>
-        <DialogContent className="bg-black text-white p-6">
+        <DialogContent className="text-[#EAE9E5] p-6 border-social-line" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
           <DialogHeader className="pb-4">
-            <DialogTitle className="flex items-center gap-2 text-xl">
-              <Bell className="w-5 h-5 text-[#0e6b9c]" />
+            <DialogTitle className="flex items-center gap-2 text-[18px] font-medium">
+              <Bell className="w-5 h-5" style={{ color: '#D4A652' }} />
               Update Notification
             </DialogTitle>
             <DialogDescription>
@@ -878,9 +883,9 @@ export default function SocializeDashboard({
                   if (duration === "" || isNaN(Number(duration)))
                     setDuration(1);
                 }}
-                className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                className="border-transparent focus:border-[#D4A652] focus:ring-0 text-[#EAE9E5]" style={{ backgroundColor: '#0F0F0E' }}
               />
-              <p className="text-xs text-gray-400">Between 1 and 24 hours</p>
+              <p className="text-[11px] text-gray-400">Between 1 and 24 hours</p>
             </div>
 
             <div className="space-y-2">
@@ -889,11 +894,11 @@ export default function SocializeDashboard({
                 value={message}
                 onChange={(e) => setMessage(e.target.value.slice(0, 150))}
                 placeholder="Enter your notification message..."
-                className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white resize-none"
+                className="border-transparent focus:border-[#D4A652] focus:ring-0 text-[#EAE9E5] resize-none" style={{ backgroundColor: '#0F0F0E' }}
                 rows={3}
                 maxLength={150}
               />
-              <div className="flex justify-end text-xs text-gray-400">
+              <div className="flex justify-end text-[11px] text-gray-400">
                 {message.length} / 150
               </div>
             </div>
@@ -912,13 +917,12 @@ export default function SocializeDashboard({
                 Number(duration) > 24 ||
                 updateUserDataMutation.isPending
               }
-              className={`${message &&
-                duration !== "" &&
-                Number(duration) >= 1 &&
-                Number(duration) <= 24
-                ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
-                : "bg-gray-800 text-gray-400 cursor-not-allowed"
-                }`}
+              className={cn("text-[#EAE9E5] rounded-[7px] border-none transition-opacity", 
+                (message && duration !== "" && Number(duration) >= 1 && Number(duration) <= 24)
+                ? "hover:opacity-90"
+                : "opacity-50 cursor-not-allowed"
+              )}
+              style={{ backgroundColor: (message && duration !== "" && Number(duration) >= 1 && Number(duration) <= 24) ? '#D4A652' : '#1B1A18' }}
             >
               {updateUserDataMutation.isPending ? "Saving..." : "Save Notification"}
             </Button>
@@ -928,10 +932,10 @@ export default function SocializeDashboard({
 
       {/* Edit Link Modal */}
       <Dialog open={showEditLinkModal} onOpenChange={setShowEditLinkModal}>
-        <DialogContent className="bg-black text-white p-6">
+        <DialogContent className="text-[#EAE9E5] p-6 border-social-line" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
           <DialogHeader className="pb-4">
-            <DialogTitle className="flex items-center gap-2 text-xl">
-              <Plus className="w-5 h-5 text-[#0e6b9c]" />
+            <DialogTitle className="flex items-center gap-2 text-[18px] font-medium">
+              <Plus className="w-5 h-5" style={{ color: '#D4A652' }} />
               Edit Link
             </DialogTitle>
             <DialogDescription>
@@ -952,7 +956,7 @@ export default function SocializeDashboard({
                     const platform = detectPlatformFromUrl(url);
                     setEditingLink({ ...editingLink, url, platform });
                   }}
-                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                  className="border-transparent focus:border-[#D4A652] focus:ring-0 text-[#EAE9E5]" style={{ backgroundColor: '#0F0F0E' }}
                 />
               </div>
               <div className="space-y-2">
@@ -966,7 +970,7 @@ export default function SocializeDashboard({
                   onChange={(e) =>
                     setEditingLink({ ...editingLink, title: e.target.value })
                   }
-                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                  className="border-transparent focus:border-[#D4A652] focus:ring-0 text-[#EAE9E5]" style={{ backgroundColor: '#0F0F0E' }}
                 />
               </div>
               <div className="space-y-2">
@@ -977,10 +981,10 @@ export default function SocializeDashboard({
                     setEditingLink({ ...editingLink, platform: value })
                   }
                 >
-                  <SelectTrigger className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30">
+                  <SelectTrigger className="border-transparent focus:border-[#D4A652] focus:ring-0" style={{ backgroundColor: '#0F0F0E' }}>
                     <SelectValue placeholder="Select platform" />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#121212] border-[#0e6b9c]/30">
+                  <SelectContent className="border-social-line" style={{ backgroundColor: '#0F0F0E' }}>
                     <SelectItem value="youtube">YouTube</SelectItem>
                     <SelectItem value="instagram">Instagram</SelectItem>
                     <SelectItem value="tiktok">TikTok</SelectItem>
@@ -1010,10 +1014,12 @@ export default function SocializeDashboard({
             <Button
               onClick={handleUpdateLink}
               disabled={!editingLink?.url.trim() || updateUserDataMutation.isPending}
-              className={`${editingLink?.url.trim()
-                ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
-                : "bg-gray-800 text-gray-400 cursor-not-allowed"
-                }`}
+              className={cn("text-[#EAE9E5] rounded-[7px] border-none transition-opacity", 
+                editingLink?.url.trim()
+                ? "hover:opacity-90"
+                : "opacity-50 cursor-not-allowed"
+              )}
+              style={{ backgroundColor: editingLink?.url.trim() ? '#D4A652' : '#1B1A18' }}
             >
               {updateUserDataMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>

@@ -311,7 +311,7 @@ export const AutoCaptionButton: React.FC = () => {
             <p className="text-destructive">{error}</p>
             <button
               onClick={() => { setState('idle'); setError(null); }}
-              className="text-xs text-muted-foreground hover:text-foreground mt-1 underline"
+              className="text-[11px] text-muted-foreground hover:text-foreground mt-1 underline"
             >
               Try again
             </button>
@@ -320,7 +320,7 @@ export const AutoCaptionButton: React.FC = () => {
       )}
 
       {/* Info Text */}
-      <p className="text-xs text-muted-foreground text-center">
+      <p className="text-[11px] text-muted-foreground text-center">
         Powered by Deepgram AI • Supports 20+ languages
       </p>
     </div>

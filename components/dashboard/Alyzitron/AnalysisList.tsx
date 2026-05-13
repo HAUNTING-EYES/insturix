@@ -92,7 +92,7 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
   return (
     <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
       <CardHeader className="pb-4">
-        <CardTitle className="text-base sm:text-lg font-medium text-zinc-100 flex items-center gap-2">
+        <CardTitle className="text-[14px] sm:text-lg font-medium text-zinc-100 flex items-center gap-2">
           <ListChecks className="h-4 w-4 sm:h-5 sm:w-5" color="#8B5CF6" />
           Completed Analyses
         </CardTitle>
@@ -150,9 +150,9 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
               className="w-full sm:w-auto order-2 sm:order-1"
             >
               <ChevronLeft className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Previous</span>
+              <span className="text-[11px] sm:text-sm">Previous</span>
             </Button>
-            <span className="text-xs sm:text-sm text-zinc-400 order-1 sm:order-2 text-center">
+            <span className="text-[11px] sm:text-sm text-zinc-400 order-1 sm:order-2 text-center">
               Page {currentPage} of {actualTotalPages}
               <span className="hidden sm:inline"> ({totalItems} total)</span>
             </span>
@@ -163,7 +163,7 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
               disabled={currentPage >= actualTotalPages || isLoading}
               className="w-full sm:w-auto order-3"
             >
-              <span className="text-xs sm:text-sm">Next</span>
+              <span className="text-[11px] sm:text-sm">Next</span>
               <ChevronRight className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4" />
             </Button>
           </div>

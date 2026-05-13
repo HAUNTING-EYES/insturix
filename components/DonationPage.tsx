@@ -248,11 +248,11 @@ export default function DonationPage() {
           transition={{ duration: 0.5 }}
           className="max-w-5xl mx-auto"
         >
-          <h1 className="text-2xl md:text-3xl font-semibold mb-2 relative">
+          <h1 className="text-2xl md:text-[32px] font-semibold mb-2 relative">
             Support Our Mission
             <div className="absolute -top-1.5 -left-3 w-12 h-12 bg-blue-500/10 rounded-full blur-xl" />
           </h1>
-          <p className="text-sm md:text-base text-zinc-600 dark:text-zinc-400 mb-8 md:mb-12">
+          <p className="text-sm md:text-[14px] text-zinc-600 dark:text-zinc-400 mb-8 md:mb-12">
             Your support helps us create better tools and experiences for
             everyone. Choose a contribution that feels right for you.
           </p>
@@ -276,7 +276,7 @@ export default function DonationPage() {
                 >
                   <Card className="p-4 md:p-6 h-full bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 transition-all duration-300 group">
                     {option.popularTag && (
-                      <div className="absolute -top-3 -right-2 bg-blue-500 text-white text-xs py-1 px-3 rounded-full shadow-lg">
+                      <div className="absolute -top-3 -right-2 bg-blue-500 text-white text-[11px] py-1 px-3 rounded-full shadow-lg">
                         Popular
                       </div>
                     )}
