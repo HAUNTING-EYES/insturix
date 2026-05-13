@@ -76,35 +76,27 @@ function buildPrompt(
     context.speakerCount && context.speakerCount > 1 && `Speakers: ${context.speakerCount}`,
   ].filter(Boolean).join('. ');
 
-  return `You are a professional video editor making a rough cut of raw footage.
-
-Below is the COMPLETE word-level transcript with timestamps. The speaker recorded this in one take with retakes, stutters, meta-commentary, and false starts mixed in with actual content.
-
-Your job: identify the CLEAN ranges of speech to KEEP. Everything not in a keep-range will be cut.
+  return `You are a professional video editor making a rough cut of raw footage. Your goal is a clean, watchable video. Be CONSERVATIVE — when unsure, KEEP.
 ${contextLine ? `\n${contextLine}\n` : ''}
-REMOVE (do not include in keep-ranges):
-- Retakes: when the speaker repeats the same phrase, keep ONLY the final complete version
-- False starts: abandoned sentence beginnings that restart ("I th- I think" → cut "I th-")
-- Meta-commentary: "is my mic on", "let me start over", "I'll edit this out", "cut that"
-- Standalone fillers between content: isolated "okay", "um", "alright"
-- Trailing incomplete thoughts that go nowhere ("but then they...")
-- Warm-up/preamble before the actual content begins
+Below is the COMPLETE word-level transcript. Identify ranges of words to KEEP. Everything not in a keep-range will be cut.
 
-KEEP:
-- The final, cleanest delivery of each idea — even if it has minor imperfections
-- Arguments, examples, punchlines, emotional moments, conclusions
-- Natural speech rhythm — do NOT over-trim
-- Sign-offs and deliberate asides that add personality
+ONLY CUT these specific patterns:
+1. IMMEDIATE RETAKES: the speaker says the SAME WORDS 2-3 times in a row, trying to get the line right. Cut prior attempts, keep the final one.
+   Example: "We all, we all know, we all know that the anonymity..." → cut "We all, we all know," keep from "we all know that the anonymity..."
+2. FALSE STARTS: speaker begins a sentence, abandons it within 1-4 words, and restarts. Cut the abandoned fragment only.
+   Example: "I th- I think" → cut "I th-" keep "I think"
+3. PRODUCTION META: speaker talks directly about the recording process — mic checks, "let me restart", "cut that", "I'll edit this out". NOT topic meta-commentary.
+4. DEAD AIR PREAMBLE: extended silence or "um okay so" before the actual content begins at the start of the recording.
 
-RETAKE DETECTION (critical rule):
-When the speaker starts saying the same phrase multiple times in quick succession,
-that is a retake sequence. Keep ONLY the final complete version. Cut all prior attempts.
+DO NOT CUT:
+- Different phrasings of the same idea — that is rhetoric/emphasis, NOT a retake
+- The speaker returning to a topic after a digression — that is structure
+- Imperfect but complete deliveries — a stumble mid-sentence is fine if the sentence finishes
+- Asides, jokes, personality moments, reactions ("I like it", "okay that's good")
+- Transitions between topics ("so", "anyway", "but here's the thing")
+- Any content where you're not sure if it's a retake — if unsure, KEEP
 
-Example: Words "We all, we all know, we all know that the anonymity of the internet..."
-→ The final complete attempt starts at "we all know that the anonymity" — cut everything before it.
-→ The speaker tried the line 3 times. Only the last attempt ran to completion.
-
-When in doubt, KEEP. A slightly imperfect take is better than cutting real content.
+A RETAKE is ONLY when the same words appear multiple times in immediate succession. Two sentences about the same TOPIC with different wording are NOT retakes.
 
 TRANSCRIPT (${wordCount} words):
 Format: index\\tword\\tstartMs\\tendMs${context.speakerCount && context.speakerCount > 1 ? '\\tspeaker' : ''}
@@ -114,7 +106,7 @@ ${wordList}
 OUTPUT: JSON array of keep-ranges using word indices (inclusive on both sides):
 [{"s": startIndex, "e": endIndex}, ...]
 
-Ranges must be non-overlapping and sorted by "s". Every word NOT covered by a range will be cut.`;
+Ranges must be non-overlapping and sorted by "s".`;
 }
 
 // ─── Gemini Call ────────────────────────────────────────────────────
