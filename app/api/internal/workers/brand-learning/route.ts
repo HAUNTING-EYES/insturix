@@ -142,7 +142,7 @@ async function handleVideoRendered(
   const { userId, projectId, payload } = event;
   const qualityScore = typeof payload.qualityScore === 'number'
     ? payload.qualityScore
-    : 50;
+    : null;
 
   if (!projectId) {
     return { action: 'skipped', detail: 'No projectId on event' };
@@ -150,17 +150,21 @@ async function handleVideoRendered(
 
   const actions: string[] = [];
 
-  // 1. Feed bandit with userRendered=true
-  try {
-    const { recordProjectOutcome } = await import(
-      '@/lib/editron/services/genre-parameter-bandit'
-    );
-    await recordProjectOutcome(userId, projectId, qualityScore, true);
-    actions.push('bandit_updated(rendered)');
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[BrandLearning] Bandit update on render failed: ${msg}`);
-    actions.push(`bandit_failed: ${msg}`);
+  // 1. Feed bandit with userRendered=true (only if quality score is available)
+  if (qualityScore !== null) {
+    try {
+      const { recordProjectOutcome } = await import(
+        '@/lib/editron/services/genre-parameter-bandit'
+      );
+      await recordProjectOutcome(userId, projectId, qualityScore, true);
+      actions.push('bandit_updated(rendered)');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[BrandLearning] Bandit update on render failed: ${msg}`);
+      actions.push(`bandit_failed: ${msg}`);
+    }
+  } else {
+    actions.push('bandit_skipped(no_quality_score)');
   }
 
   // 2. Fire Post-Mortem if sessionId is available
@@ -257,7 +261,11 @@ async function handleVideoPublished(
 
   const qualityScore = typeof payload.qualityScore === 'number'
     ? payload.qualityScore
-    : 50;
+    : null;
+
+  if (qualityScore === null) {
+    return { action: 'skipped', detail: 'No qualityScore for publish event' };
+  }
 
   try {
     const { recordProjectOutcome } = await import(
