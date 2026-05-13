@@ -615,25 +615,31 @@ export async function processRawFootage(
   }
 
   // Step 7: Build atomic silence removal plan
-  const silenceRemovalPlan = buildSilenceRemovalPlan(
-    silenceGaps,
-    fillerWords,
-    editMethod === 'fragment-pipeline' ? bestTakeSelections : [],
-    contentTypeDetection.silenceThreshold,
-    config.fillerRemovalMode,
-    fillerRate,
-    config.casualFillerRateThreshold,
-  );
+  let silenceRemovalPlan: SilenceRemovalAction[];
 
-  // Step 7.5: Merge editorial removals into the plan
-  if (editMethod === 'transcript-editor' && transcriptEditRemovals.length > 0) {
-    silenceRemovalPlan.push(...transcriptEditRemovals);
+  if (editMethod === 'transcript-editor') {
+    // Transcript editor made the holistic decision — it already accounts for
+    // pauses within kept content. Adding silence/filler removals on top would
+    // double-cut and destroy the edit (bug: 1175s→23s estimated clean).
+    silenceRemovalPlan = [...transcriptEditRemovals];
     silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
-    console.log(`[RawFootage] Added ${transcriptEditRemovals.length} transcript-edit removals to plan`);
-  } else if (editorialIntents?.additionalRemovals.length) {
-    silenceRemovalPlan.push(...editorialIntents.additionalRemovals);
-    silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
-    console.log(`[RawFootage] Added ${editorialIntents.additionalRemovals.length} editorial-intent removals to plan`);
+    console.log(`[RawFootage] Using ${transcriptEditRemovals.length} transcript-edit removals (no silence/filler merge)`);
+  } else {
+    // Fragment pipeline: merge silence + filler + best-take + editorial intent
+    silenceRemovalPlan = buildSilenceRemovalPlan(
+      silenceGaps,
+      fillerWords,
+      bestTakeSelections,
+      contentTypeDetection.silenceThreshold,
+      config.fillerRemovalMode,
+      fillerRate,
+      config.casualFillerRateThreshold,
+    );
+    if (editorialIntents?.additionalRemovals.length) {
+      silenceRemovalPlan.push(...editorialIntents.additionalRemovals);
+      silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
+      console.log(`[RawFootage] Added ${editorialIntents.additionalRemovals.length} editorial-intent removals to plan`);
+    }
   }
 
   // Estimate clean duration
