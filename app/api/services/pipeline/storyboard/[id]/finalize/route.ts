@@ -1046,6 +1046,29 @@ export async function POST(
       console.log(`[Finalize] ${pipelineWarnings.getSummary()}`);
     }
 
+    // ─── Brand Intelligence: emit project_created + set status to generating ───
+    try {
+      const { emitBrandEvent } = await import('@/lib/shared/brand-events');
+      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+
+      await transitionProjectStatus(project.projectId, userId, 'generating', 'pipeline_finalize');
+
+      emitBrandEvent({
+        userId,
+        projectId: project.projectId,
+        service: 'pipeline',
+        type: 'project_created',
+        payload: {
+          overlayCount: overlays.length,
+          durationFrames: currentFrame,
+          sceneCount: storyboard.scenes?.length ?? 0,
+          warningCount: warnings.length,
+        },
+      }).catch((e) => console.warn('[Finalize] Brand event failed:', e));
+    } catch (brandErr: any) {
+      console.warn(`[Finalize] Brand intelligence wiring failed: ${brandErr.message}`);
+    }
+
     return NextResponse.json({
       success: true,
       projectId: project.projectId,

@@ -117,7 +117,16 @@ export async function POST(request: Request) {
       console.log('Render job saved to database:', renderId);
     } catch (dbError) {
       console.error('Failed to save render job to DB:', dbError);
-      // Don't fail the request, just log the error
+    }
+
+    // Brand Intelligence: transition to rendering
+    if (projectId) {
+      try {
+        const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+        await transitionProjectStatus(projectId, userId, 'rendering', 'render_started');
+      } catch (brandErr: any) {
+        console.warn(`[Render] Status transition failed: ${brandErr.message}`);
+      }
     }
 
     // Return the render ID and bucket info

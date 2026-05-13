@@ -735,9 +735,108 @@ export async function executeDirectorPlan(
 
     result.success = true;
     onProgress?.(totalSteps, totalSteps, 'Director Agent execution complete');
+
+    // ─── Brand Intelligence: emit director_completed + transition status ───
+    try {
+      const { emitBrandEvent } = await import('@/lib/shared/brand-events');
+      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+
+      await transitionProjectStatus(projectId, userId, 'reviewing', 'director_completed');
+
+      // Read actual quality score from project doc (persisted by quality_review step above)
+      const { getDatabase: getBrandDb } = await import('@/lib/editron/db/mongodb');
+      const brandDb = await getBrandDb();
+      const projectDoc = await brandDb.collection('projects').findOne({ projectId });
+      const actualQualityScore = projectDoc?.qualityReview?.overallScore;
+
+      emitBrandEvent({
+        userId,
+        projectId,
+        service: 'editron',
+        type: 'director_completed',
+        payload: {
+          profileId: effectiveProfile.profileId,
+          actionsExecuted: result.actionsExecuted,
+          actionsSkipped: result.actionsSkipped.length,
+          sceneCount: storyboardScenes.length,
+          durationSec: Math.round((project.durationInFrames || 0) / (project.fps || 30)),
+          ...(typeof actualQualityScore === 'number' && { qualityScore: actualQualityScore }),
+        },
+      }).catch((e) => console.warn('[Director] Brand event failed:', e));
+    } catch (brandErr: any) {
+      console.warn(`[Director] Brand intelligence wiring failed: ${brandErr.message}`);
+    }
+
+    // ─── Graph sync: update Project + Scene nodes after Director ───
+    try {
+      const qstashToken = process.env.QSTASH_TOKEN;
+      if (qstashToken) {
+        const graphSyncUrl = (() => {
+          const base = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+          return `${base}/api/internal/workers/graph-sync`;
+        })();
+
+        const { Client } = await import('@upstash/qstash');
+        const qstash = new Client({ token: qstashToken, baseUrl: process.env.QSTASH_URL || undefined });
+
+        const currentVersion = ((project as any).directorVersion || 0) + 1;
+
+        await qstash.publishJSON({
+          url: graphSyncUrl,
+          body: {
+            action: 'project_director_complete',
+            data: {
+              projectId,
+              update: {
+                profileUsed: effectiveProfile.profileId,
+                profileOverridden: profile.profileId !== effectiveProfile.profileId,
+                overriddenTo: profile.profileId !== effectiveProfile.profileId ? effectiveProfile.profileId : undefined,
+                qualityScore: 0,
+                sceneCount: storyboardScenes.length,
+                durationSec: (project.durationInFrames || 0) / (project.fps || 30),
+                currentVersion,
+              },
+            },
+          },
+          retries: 3,
+        });
+
+        console.log(`[Director] Graph sync dispatched: project_director_complete v${currentVersion}`);
+
+        // Graphiti episode: project outcome for learning
+        const { addGraphitiEpisode } = await import('@/lib/editron/services/graph-service');
+        const sceneDescriptions = storyboardScenes
+          .map((s: any, i: number) => `scene ${i}: ${s.mood || 'neutral'} ${s.sceneType || 'continuous'}`)
+          .join(', ');
+
+        await addGraphitiEpisode({
+          type: 'project_outcome',
+          name: `director_complete_${projectId}_v${currentVersion}`,
+          body: `Director completed project ${projectId} using profile ${effectiveProfile.profileId} (${effectiveProfile.name}). `
+            + `${result.actionsExecuted} actions executed, ${result.actionsSkipped.length} skipped. `
+            + `${storyboardScenes.length} scenes: ${sceneDescriptions}. `
+            + `Duration: ${Math.round((project.durationInFrames || 0) / (project.fps || 30))}s. `
+            + `Profile was ${profile.profileId !== effectiveProfile.profileId ? `overridden from ${profile.profileId} to ${effectiveProfile.profileId}` : 'auto-detected'}.`,
+          sourceDescription: 'director_completion',
+          groupId: userId,
+        });
+      }
+    } catch (graphErr: any) {
+      console.warn(`[Director] Graph sync dispatch failed: ${graphErr.message}`);
+    }
   } catch (err: any) {
     result.warnings.push(`Director Agent failed: ${err.message}`);
     console.error('[Director] Execution failed:', err.message);
+
+    try {
+      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+      await transitionProjectStatus(
+        projectId, userId, 'failed', 'director_error',
+        { message: err.message, service: 'editron' },
+      );
+    } catch { /* best-effort */ }
   }
 
   // E2 FIX: Release project lock (always, even on error)

@@ -17,9 +17,8 @@ export const dynamic = 'force-dynamic';
  * Body: { sessionId: string, projectTitle?: string }
  */
 export async function POST(req: Request) {
-  // SECOND BRAIN DISABLED
-  if (true) {
-    return NextResponse.json({ success: true, message: 'Second Brain Disabled' });
+  if (process.env.POSTMORTEM_ENABLED !== 'true') {
+    return NextResponse.json({ success: true, message: 'Post-Mortem disabled' });
   }
 
   const { userId } = await auth();

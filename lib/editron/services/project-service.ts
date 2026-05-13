@@ -39,14 +39,19 @@ export interface Project {
   updatedAt: Date;
   lastAutosaveAt?: Date;
   // Organization support
-  orgId?: string;              // null = personal project, set = org project
-  sharedWith?: string[];       // explicit user IDs for sharing
-  visibility: 'private' | 'org' | 'shared';  // access level
+  orgId?: string;
+  sharedWith?: string[];
+  visibility: 'private' | 'org' | 'shared';
   // Dashboard fields (added for production floor dashboard)
-  brand?: string | null;       // Client/brand name (e.g., "Chaayos"). null = personal project.
+  brand?: string | null;
   pipelineStage?: 'script' | 'edit' | 'analyze' | 'thumbnails' | 'publish' | 'complete';
-  qualityScore?: number | null; // Alyzitron score 0-100. null = not yet analyzed.
+  qualityScore?: number | null;
   projectStatus?: 'active' | 'needs-attention' | 'complete' | 'failed';
+  // Brand Intelligence + Project Tracking
+  status?: import('@/lib/shared/project-status').ProjectStatus;
+  statusHistory?: import('@/lib/shared/project-status').StatusTransition[];
+  brandId?: string;
+  lastError?: import('@/lib/shared/project-status').ProjectError;
 }
 
 export interface ProjectListItem {

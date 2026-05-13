@@ -4,7 +4,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { createModelByTier, ModelTier } from '@/lib/thinkforge/agents/model-factory';
 import { addDataBankEntry, type DataBankScope } from '@/lib/thinkforge/services/db';
-import { embedDataBankEntry, checkDuplicateBeforeSave } from '@/lib/thinkforge/services/embedding-service';
+import { embedDataBankEntry, checkDuplicateBeforeSave, processPendingEmbeddings } from '@/lib/thinkforge/services/embedding-service';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,8 +28,7 @@ const extractionSchema = z.object({
  * Returns 202 immediately; extraction and storage happen asynchronously.
  */
 export async function POST(req: Request) {
-  // SECOND BRAIN DISABLED
-  if (true) {
+  if (process.env.OBSERVER_ENABLED !== 'true') {
     return NextResponse.json({ accepted: true, disabled: true }, { status: 202 });
   }
 
@@ -94,7 +93,9 @@ ${text.slice(0, 1500)}
     return;
   }
 
-  const highConfidence = object.facts.filter((f) => f.confidence >= 0.5);
+  const highConfidence = object.facts.filter((f) =>
+    f.scope === 'global' ? f.confidence >= 0.65 : f.confidence >= 0.5,
+  );
   console.log(`[Observer] ${highConfidence.length}/${object.facts.length} facts passed confidence filter`);
 
   for (const fact of highConfidence) {
@@ -124,4 +125,8 @@ ${text.slice(0, 1500)}
     console.log('[Observer] Saved fact:', fact.content.slice(0, 60), '| scope:', fact.scope, '| id:', (entry as any)._id);
     embedDataBankEntry(entry).catch((err) => console.error('[Observer] Embedding failed:', err));
   }
+
+  processPendingEmbeddings(20).catch((err) =>
+    console.error('[Observer] Batch embedding sweep failed:', err),
+  );
 }

@@ -82,6 +82,8 @@ export async function initializeIndexes(): Promise<void> {
     { key: { projectId: 1 }, name: 'projectId_unique', unique: true },
     { key: { userId: 1, createdAt: -1 }, name: 'userId_createdAt' },
     { key: { userId: 1, updatedAt: -1 }, name: 'userId_updatedAt' },
+    { key: { status: 1, updatedAt: -1 }, name: 'status_updatedAt' },
+    { key: { brandId: 1, status: 1 }, name: 'brandId_status' },
   ]);
 
   // Checkpoints indexes with TTL
