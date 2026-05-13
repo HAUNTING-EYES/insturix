@@ -222,8 +222,8 @@ importers:
         specifier: ^3.11.0
         version: 3.11.0(@tiptap/pm@3.11.0)
       '@tiptap/extension-highlight':
-        specifier: ^3.11.0
-        version: 3.15.3(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))
+        specifier: 3.11.0
+        version: 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))
       '@tiptap/extension-link':
         specifier: ^3.11.0
         version: 3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))(@tiptap/pm@3.11.0)
@@ -4624,10 +4624,10 @@ packages:
     peerDependencies:
       '@tiptap/core': ^3.11.0
 
-  '@tiptap/extension-highlight@3.15.3':
-    resolution: {integrity: sha512-ZZyuKGW4WrMx3pBEfsHqOcqEklfiiAjVuvhji9FJcip1w0B2OnMWkgZw7rdAlsQG8pGH6NWh9Gf2DOUsjuAa6A==}
+  '@tiptap/extension-highlight@3.11.0':
+    resolution: {integrity: sha512-1Yzz77Nr4JB22WwAHKgfBsO+4fTaDdCsYVx9HDFkfGk6hliATwtNXvoi/7srfNjSpZzLUeqmPLjOhx3WS/hwtw==}
     peerDependencies:
-      '@tiptap/core': ^3.15.3
+      '@tiptap/core': ^3.11.0
 
   '@tiptap/extension-horizontal-rule@3.11.0':
     resolution: {integrity: sha512-FugFHZG+oiMBV6k42hn9NOA4wRNc2b9UeEIMR+XwEMpWJInV4VwSwDvu8JClgkDo8z7FEnker9e51DZ00CLWqg==}
@@ -14602,14 +14602,14 @@ snapshots:
       '@remotion/media-parser': 4.0.398
       '@remotion/studio': 4.0.398(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
       '@remotion/studio-shared': 4.0.398(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
-      css-loader: 5.2.7(webpack@5.96.1)
+      css-loader: 5.2.7(webpack@5.96.1(esbuild@0.25.0))
       esbuild: 0.25.0
       react: 19.1.2
       react-dom: 19.1.2(react@19.1.2)
       react-refresh: 0.9.0
       remotion: 4.0.398(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
       source-map: 0.7.3
-      style-loader: 4.0.0(webpack@5.96.1)
+      style-loader: 4.0.0(webpack@5.96.1(esbuild@0.25.0))
       webpack: 5.96.1(esbuild@0.25.0)
     transitivePeerDependencies:
       - '@swc/core'
@@ -14938,11 +14938,11 @@ snapshots:
     dependencies:
       '@remotion/bundler': 4.0.398(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
       autoprefixer: 10.4.20(postcss@8.4.47)
-      css-loader: 5.2.7(webpack@5.96.1)
+      css-loader: 5.2.7(webpack@5.96.1(esbuild@0.25.0))
       postcss: 8.4.47
       postcss-loader: 7.3.4(postcss@8.4.47)(typescript@5.9.3)(webpack@5.96.1)
       postcss-preset-env: 8.5.1(postcss@8.4.47)
-      style-loader: 4.0.0(webpack@5.96.1)
+      style-loader: 4.0.0(webpack@5.96.1(esbuild@0.25.0))
       tailwindcss: 3.4.13(ts-node@10.9.2(@types/node@24.10.1)(typescript@5.9.3))
     transitivePeerDependencies:
       - ts-node
@@ -16009,7 +16009,7 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.11.0(@tiptap/pm@3.11.0)
 
-  '@tiptap/extension-highlight@3.15.3(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))':
+  '@tiptap/extension-highlight@3.11.0(@tiptap/core@3.11.0(@tiptap/pm@3.11.0))':
     dependencies:
       '@tiptap/core': 3.11.0(@tiptap/pm@3.11.0)
 
@@ -17505,7 +17505,7 @@ snapshots:
     dependencies:
       utrie: 1.0.2
 
-  css-loader@5.2.7(webpack@5.96.1):
+  css-loader@5.2.7(webpack@5.96.1(esbuild@0.25.0)):
     dependencies:
       icss-utils: 5.1.0(postcss@8.5.6)
       loader-utils: 2.0.4
@@ -21833,7 +21833,7 @@ snapshots:
 
   stubs@3.0.0: {}
 
-  style-loader@4.0.0(webpack@5.96.1):
+  style-loader@4.0.0(webpack@5.96.1(esbuild@0.25.0)):
     dependencies:
       webpack: 5.96.1(esbuild@0.25.0)
 
@@ -22001,7 +22001,7 @@ snapshots:
       - encoding
       - supports-color
 
-  terser-webpack-plugin@5.3.14(esbuild@0.25.0)(webpack@5.96.1):
+  terser-webpack-plugin@5.3.14(esbuild@0.25.0)(webpack@5.96.1(esbuild@0.25.0)):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       jest-worker: 27.5.1
@@ -22577,7 +22577,7 @@ snapshots:
       neo-async: 2.6.2
       schema-utils: 3.3.0
       tapable: 2.2.3
-      terser-webpack-plugin: 5.3.14(esbuild@0.25.0)(webpack@5.96.1)
+      terser-webpack-plugin: 5.3.14(esbuild@0.25.0)(webpack@5.96.1(esbuild@0.25.0))
       watchpack: 2.4.4
       webpack-sources: 3.3.3
     transitivePeerDependencies:
