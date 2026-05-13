@@ -8,25 +8,8 @@ export default async function UploaderXDashboard() {
   if (!session?.userId) return null;
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8 relative">
-      <section className="relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-gradient-to-b from-zinc-950/90 to-zinc-900/40 p-5 sm:p-7 md:p-10">
-        <div className="max-w-3xl">
-          <h1 className="text-[32px] sm:text-[44px] lg:text-[44px] font-semibold tracking-tight text-zinc-100">
-            Upload
-          </h1>
-          <p className="mt-3 text-zinc-300 max-w-2xl">
-            A service in Insturix that allows users to upload content to multiple platforms from one place.
-          </p>
-        </div>
-
-        <div className="mt-6 sm:mt-8">
-          <UploaderXClientWrapper />
-        </div>
-
-        <div className="pointer-events-none absolute -top-20 -right-24 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
-      </section>
+    <div style={{ padding: "0 24px", maxWidth: 860, margin: "0 auto" }}>
+      <UploaderXClientWrapper />
     </div>
   );
 }
-
-

@@ -1,26 +1,73 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
-const UploadForm = dynamic(() => import("@/components/dashboard/UploaderX/UploadForm").then(m => m.UploadForm), { ssr: false });
-const PlatformEditor = dynamic(() => import("@/components/dashboard/UploaderX/PlatformEditor").then(m => m.PlatformEditor), { ssr: false });
-const VideoManager = dynamic(() => import("@/components/dashboard/UploaderX/VideoManager").then(m => m.VideoManager), { ssr: false });
-const YouTubeConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/YouTubeConnectionStatus").then(m => m.YouTubeConnectionStatus), { ssr: false });
-const FacebookConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/FacebookConnectionStatus").then(m => m.FacebookConnectionStatus), { ssr: false });
-const InstagramConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/InstagramConnectionStatus").then(m => m.InstagramConnectionStatus), { ssr: false });
-const TwitterConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/TwitterConnectionStatus").then(m => m.TwitterConnectionStatus), { ssr: false });
-const LinkedInConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/LinkedInConnectionStatus").then(m => m.LinkedInConnectionStatus), { ssr: false });
-const TwitterPermissionsStatus = dynamic(() => import("@/components/dashboard/UploaderX/TwitterPermissionsStatus").then(m => m.TwitterPermissionsStatus), { ssr: false });
+// ─── Design tokens (Insturix design system) ───────────────────
+const C = {
+  bg: "#0B0B0A", raised: "#0F0F0E", deeper: "#131312", well: "#1B1A18",
+  border: "#1C1B19", borderL: "#282724",
+  t1: "#ECE9E1", t2: "#B5B2A8", t3: "#7A776E", t4: "#5F5E5A", t5: "#454340",
+  gold: "#D4A652", goldH: "#C49840", goldBg: "rgba(212,166,82,.08)", goldBd: "rgba(212,166,82,.16)",
+  green: "#5EC97E", red: "#D46A5C", purple: "#9088D4", pink: "#D088B4",
+} as const;
+const EASE = "cubic-bezier(.16,1,.3,1)";
+
+// ─── Types ─────────────────────────────────────────────────────
+type ViewState = "floor" | "fragmentation" | "reveal";
+
+interface PlatformStatus {
+  key: string;
+  label: string;
+  connected: boolean;
+  userName?: string;
+  authUrl: string;
+}
+
+interface VideoItem {
+  videoUuid: string;
+  filename: string;
+  publicUrl: string;
+  fileSize: number;
+  uploadedAt: string;
+  status: string;
+  platforms?: string[];
+  editronProjectId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+// ─── Platform definitions ──────────────────────────────────────
+const PLATFORMS = [
+  { key: "youtube", label: "YouTube", statusUrl: "", authUrl: "", aspect: "16:9", fmt: "Short · #Shorts appended" },
+  { key: "instagram", label: "Instagram", statusUrl: "/api/services/uploaderx/instagram/status", authUrl: "/api/services/uploaderx/instagram/auth", aspect: "9:16", fmt: "Reel · vertical crop" },
+  { key: "facebook", label: "Facebook", statusUrl: "/api/services/uploaderx/facebook/pages", authUrl: "/api/services/uploaderx/facebook/auth", aspect: "16:9", fmt: "Video post" },
+  { key: "twitter", label: "X", statusUrl: "/api/services/uploaderx/twitter/status", authUrl: "/api/services/uploaderx/twitter/auth", aspect: "16:9", fmt: "Post · native" },
+  { key: "linkedin", label: "LinkedIn", statusUrl: "/api/services/uploaderx/linkedin/status", authUrl: "/api/services/uploaderx/linkedin/auth", aspect: "4:3", fmt: "Post · square crop" },
+] as const;
+
+// ─── Pipeline stages ───────────────────────────────────────────
+const STAGES = [
+  { key: "script", label: "Script" },
+  { key: "edit", label: "Edit" },
+  { key: "analyze", label: "Analyze" },
+  { key: "thumbnails", label: "Thumbnails" },
+  { key: "publish", label: "Publish" },
+  { key: "share", label: "Share" },
+] as const;
 
 export function UploaderXClientWrapper() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<string>("videos");
+  const [view, setView] = useState<ViewState>("floor");
+  const [platformStatuses, setPlatformStatuses] = useState<PlatformStatus[]>([]);
+  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
+  const [loadingPlatforms, setLoadingPlatforms] = useState(true);
+  const [loadingVideos, setLoadingVideos] = useState(true);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // ✅ Add this useEffect block for YouTube token capture
   useEffect(() => {
@@ -173,113 +220,376 @@ export function UploaderXClientWrapper() {
     }
   }, [toast]);
 
-  const supportedPlatforms = useMemo(() => (
-    [
-      { key: "youtube", label: "YouTube" },
-      { key: "instagram", label: "Instagram" },
-      { key: "facebook", label: "Facebook" },
-      { key: "twitter", label: "Twitter" },
-      { key: "linkedin", label: "LinkedIn" },
-    ] as const
-  ), []);
+  // ─── Fetch platform connection statuses ───────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingPlatforms(true);
+      const statuses: PlatformStatus[] = [];
 
-  const handleUploadNew = () => setActiveTab("upload");
-  const handleEditVideo = (videoUuid: string) =>
-    toast({ title: "Edit video", description: `Editing video ${videoUuid.slice(0, 8)}...` });
-  const handleDeleteVideo = (videoUuid: string) =>
-    toast({ title: "Video deleted", description: `Video ${videoUuid.slice(0, 8)} has been deleted.` });
-  const handleUploadSuccess = () => {
-    toast({
-      title: "Upload complete",
-      description: "Your video has been uploaded successfully.",
-    });
-    setActiveTab("videos");
+      // YouTube — check via Clerk external accounts (no API endpoint)
+      // For now, mark as needing status check from the component level
+      statuses.push({ key: "youtube", label: "YouTube", connected: false, authUrl: "" });
+
+      // Fetch other platforms in parallel
+      const fetches = PLATFORMS.filter(p => p.statusUrl).map(async (p) => {
+        try {
+          const res = await fetch(p.statusUrl, { credentials: "include" });
+          if (!res.ok) return { key: p.key, label: p.label, connected: false, authUrl: p.authUrl };
+          const data = await res.json();
+          return {
+            key: p.key,
+            label: p.label,
+            connected: Boolean(data.connected),
+            userName: data.userName || data.name || undefined,
+            authUrl: p.authUrl,
+          };
+        } catch {
+          return { key: p.key, label: p.label, connected: false, authUrl: p.authUrl };
+        }
+      });
+
+      const results = await Promise.all(fetches);
+      if (!cancelled) {
+        setPlatformStatuses([statuses[0], ...results]);
+        setLoadingPlatforms(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ─── Fetch recent videos ─────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingVideos(true);
+      try {
+        const res = await fetch("/api/services/uploaderx/videos", { credentials: "include" });
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setVideos(Array.isArray(data) ? data.slice(0, 5) : []);
+        }
+      } catch { /* silent — empty list */ }
+      if (!cancelled) setLoadingVideos(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ─── File handling ───────────────────────────────────────────
+  const handleFile = useCallback((file: File) => {
+    if (!file.type.startsWith("video/")) {
+      toast({ title: "Invalid file", description: "Please upload a video file (MP4, MOV, WebM).", variant: "destructive" });
+      return;
+    }
+    setSelectedFile(file);
+  }, [toast]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const handleConnect = useCallback((platform: PlatformStatus) => {
+    if (platform.authUrl) {
+      window.location.href = platform.authUrl;
+    }
+  }, []);
+
+  const connectedCount = platformStatuses.filter(p => p.connected).length;
+
+  // ─── Helper: format file size ────────────────────────────────
+  const fmtSize = (bytes: number) => {
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
+  const fmtDate = (d: string) => {
+    const date = new Date(d);
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════
+
   return (
-    <div className="space-y-6">
-      <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
-        <CardContent className="p-0">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <div className="flex items-center justify-between px-4 pt-4">
-              <div className="flex items-center gap-3">
-                <TabsList className="bg-zinc-900/60 border border-zinc-800">
-                  <TabsTrigger value="videos">My Videos</TabsTrigger>
-                  <TabsTrigger value="upload">Upload</TabsTrigger>
-                  <TabsTrigger value="connections">Connections</TabsTrigger>
-                  <TabsTrigger value="metadata">Per-Platform Details</TabsTrigger>
-                </TabsList>
+    <div style={{ fontFamily: "var(--font-sans, 'Plus Jakarta Sans', sans-serif)" }}>
+
+      {/* ━━━ FLOOR VIEW ━━━ */}
+      {view === "floor" && (
+        <div style={{ display: "flex", flexDirection: "column", minHeight: "70vh" }}>
+
+          {/* Pipeline breadcrumb */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "14px 0", borderBottom: `1px solid ${C.border}`, marginBottom: 24, overflowX: "auto" }}>
+            {STAGES.map((s, i) => {
+              const isDone = i < 4; // Script through Thumbnails done
+              const isCurrent = s.key === "publish";
+              const isFuture = i > 4;
+              return (
+                <React.Fragment key={s.key}>
+                  {i > 0 && <span style={{ color: C.t5, fontSize: 10, margin: "0 2px" }}>→</span>}
+                  <span style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "5px 12px", borderRadius: 5,
+                    fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)", fontSize: 10, letterSpacing: ".04em",
+                    color: isDone ? C.green : isCurrent ? C.gold : C.t5,
+                    background: isCurrent ? C.goldBg : "transparent",
+                    border: isCurrent ? `1px solid ${C.goldBd}` : "1px solid transparent",
+                    whiteSpace: "nowrap",
+                  }}>
+                    <span style={{
+                      width: 5, height: 5, borderRadius: 3, flexShrink: 0,
+                      background: isDone ? C.green : isCurrent ? C.gold : C.t5,
+                      boxShadow: isDone ? "0 0 4px rgba(94,201,126,.25)" : isCurrent ? "0 0 4px rgba(212,166,82,.25)" : "none",
+                    }} />
+                    {s.label}
+                  </span>
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          {/* Upload zone — direct upload */}
+          {!selectedFile ? (
+            <div
+              ref={dropZoneRef}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              style={{
+                border: `1.5px dashed ${isDragging ? C.gold : C.borderL}`,
+                borderStyle: isDragging ? "solid" : "dashed",
+                borderRadius: 12, padding: "28px", display: "flex", alignItems: "center", gap: 20,
+                marginBottom: 24, cursor: "pointer",
+                background: isDragging ? C.goldBg : "transparent",
+                transition: `all .4s ${EASE}`,
+              }}
+            >
+              <div style={{
+                width: 48, height: 48, borderRadius: 12,
+                border: `1px solid ${C.borderL}`, background: C.deeper,
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.t4} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  className="border-zinc-800 text-zinc-200"
-                  onClick={() => toast({
-                    title: "Draft saved",
-                    description: "Your inputs are stored locally for this session."
-                  })}
-                >
-                  Save Draft
-                </Button>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: C.t2, marginBottom: 3 }}>Drop a video or click to browse</div>
+                <div style={{ fontSize: 12, color: C.t5 }}>MP4, MOV, WebM · Up to 2 GB</div>
+              </div>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".06em", marginLeft: "auto" }}>
+                or drag & drop
+              </span>
+              <input ref={fileInputRef} type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleFile(f);
+              }} />
+            </div>
+          ) : (
+            /* Uploaded file preview */
+            <div style={{
+              border: `1px solid ${C.goldBd}`, borderRadius: 12, padding: "16px 20px",
+              display: "flex", alignItems: "center", gap: 16, marginBottom: 24, background: C.raised,
+            }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 8, background: C.goldBg, border: `1px solid ${C.goldBd}`,
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                </svg>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: C.t1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {selectedFile.name}
+                </div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t4, marginTop: 2 }}>
+                  {fmtSize(selectedFile.size)} · {selectedFile.type.split("/")[1]?.toUpperCase() || "VIDEO"}
+                </div>
+              </div>
+              <button onClick={() => { setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} style={{
+                fontSize: 12, color: C.t5, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit",
+              }}>
+                Change
+              </button>
+              <button onClick={() => setView("fragmentation")} style={{
+                background: C.gold, color: C.bg, border: "none", padding: "8px 20px", borderRadius: 7,
+                fontWeight: 800, fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+                transition: `all .2s ${EASE}`,
+              }}>
+                Publish
+              </button>
+            </div>
+          )}
+
+          {/* Divider */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+            <div style={{ flex: 1, height: 1, background: C.border }} />
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: C.t5, letterSpacing: ".08em", textTransform: "uppercase" as const }}>
+              from pipeline
+            </span>
+            <div style={{ flex: 1, height: 1, background: C.border }} />
+          </div>
+
+          {/* Hero card — most recent unpublished video from pipeline */}
+          {videos.length > 0 && videos[0].status !== "live" ? (
+            <div style={{
+              border: `1px solid ${C.goldBd}`, borderRadius: 12, background: C.raised,
+              padding: 24, display: "flex", gap: 20, marginBottom: 32, position: "relative", overflow: "hidden",
+            }}>
+              {/* Glow */}
+              <div style={{ position: "absolute", inset: -40, background: "radial-gradient(circle at 30% 50%,rgba(212,166,82,.03) 0%,transparent 60%)", pointerEvents: "none" }} />
+              {/* Badge */}
+              <div style={{
+                position: "absolute", top: 12, right: 16,
+                fontFamily: "var(--font-mono)", fontSize: 9, color: C.gold, letterSpacing: ".06em", textTransform: "uppercase" as const,
+                padding: "3px 8px", borderRadius: 4, background: C.goldBg, border: `1px solid ${C.goldBd}`,
+              }}>
+                Ready to publish
+              </div>
+              {/* Thumbnail */}
+              <div style={{
+                width: 200, height: 114, borderRadius: 8, background: C.deeper, border: `1px solid ${C.border}`,
+                flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.t5} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+              </div>
+              {/* Info */}
+              <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", flex: 1, minWidth: 0, position: "relative", zIndex: 1 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: C.t1, letterSpacing: "-.02em", marginBottom: 4 }}>
+                  {videos[0].filename}
+                </div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t4, display: "flex", gap: 10, marginBottom: 12 }}>
+                  <span>{fmtSize(videos[0].fileSize)}</span>
+                  <span>{String(videos[0].metadata?.format || "H.264")}</span>
+                </div>
+                <div style={{ fontSize: 13, color: C.t3, marginBottom: 16, lineHeight: 1.5 }}>
+                  {connectedCount} platform{connectedCount !== 1 ? "s" : ""} connected · Ready to distribute
+                </div>
+                <button onClick={() => { setSelectedVideo(videos[0]); setView("fragmentation"); }} style={{
+                  background: C.gold, color: C.bg, border: "none", padding: "10px 24px", borderRadius: 7,
+                  fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", alignSelf: "flex-start",
+                  transition: `all .2s ${EASE}`,
+                }}>
+                  Publish this
+                </button>
               </div>
             </div>
+          ) : !loadingVideos && videos.length === 0 ? (
+            <div style={{
+              border: `1px solid ${C.border}`, borderRadius: 12, background: C.raised,
+              padding: "32px 24px", textAlign: "center", marginBottom: 32,
+            }}>
+              <div style={{ fontSize: 14, color: C.t3, marginBottom: 4 }}>No videos in pipeline yet</div>
+              <div style={{ fontSize: 12, color: C.t5 }}>Upload a video above or produce one from the Edit room</div>
+            </div>
+          ) : null}
 
-            <Separator className="bg-zinc-800 my-4" />
-
-            <TabsContent value="videos" className="px-4 pb-6">
-              <Suspense fallback={<div className="h-40" />}>
-                <VideoManager
-                  onUploadNew={handleUploadNew}
-                  onEditVideo={handleEditVideo}
-                  onDeleteVideo={handleDeleteVideo}
-                />
-              </Suspense>
-            </TabsContent>
-
-            <TabsContent value="upload" className="px-4 pb-6">
-              <Suspense fallback={<div className="h-40" />}>
-                <UploadForm
-                  platforms={supportedPlatforms as unknown as { key: string; label: string }[]}
-                  onUploadSuccess={handleUploadSuccess}
-                />
-              </Suspense>
-            </TabsContent>
-
-            <TabsContent value="connections" className="px-4 pb-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <Suspense fallback={<div className="h-40" />}>
-                  <YouTubeConnectionStatus />
-                </Suspense>
-                <Suspense fallback={<div className="h-40" />}>
-                  <FacebookConnectionStatus />
-                </Suspense>
-                <Suspense fallback={<div className="h-40" />}>
-                  <InstagramConnectionStatus />
-                </Suspense>
-                <Suspense fallback={<div className="h-40" />}>
-                  <TwitterConnectionStatus />
-                </Suspense>
-                <Suspense fallback={<div className="h-40" />}>
-                  <TwitterPermissionsStatus />
-                </Suspense>
-                <Suspense fallback={<div className="h-40" />}>
-                  <LinkedInConnectionStatus />
-                </Suspense>
+          {/* Recent videos */}
+          {videos.length > 0 && (
+            <>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".08em", textTransform: "uppercase" as const, marginBottom: 12 }}>
+                Recent
               </div>
-            </TabsContent>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 32 }}>
+                {videos.slice(0, 5).map((v) => (
+                  <div
+                    key={v.videoUuid}
+                    onClick={() => { setSelectedVideo(v); setView("fragmentation"); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 7,
+                      border: `1px solid ${C.border}`, background: C.raised, cursor: "pointer",
+                      transition: `all .25s ${EASE}`,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.borderL; e.currentTarget.style.transform = "translateX(4px)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.transform = "translateX(0)"; }}
+                  >
+                    <div style={{ width: 48, height: 28, borderRadius: 4, background: C.deeper, border: `1px solid ${C.border}`, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, fontWeight: 500, color: C.t2, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {v.filename}
+                    </span>
+                    <span style={{
+                      fontFamily: "var(--font-mono)", fontSize: 10,
+                      color: v.status === "ready" || v.platforms?.length ? C.green : C.t4,
+                    }}>
+                      {v.platforms?.length ? "LIVE" : v.status?.toUpperCase() || "DRAFT"}
+                    </span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5 }}>
+                      {fmtDate(v.uploadedAt)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
-            <TabsContent value="metadata" className="px-4 pb-6">
-              <Suspense fallback={<div className="h-40" />}>
-                <PlatformEditor platforms={supportedPlatforms as unknown as { key: string; label: string }[]} />
-              </Suspense>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+          {/* Platform health strip */}
+          <div style={{ display: "flex", gap: 16, padding: "16px 0", borderTop: `1px solid ${C.border}`, marginTop: "auto" }}>
+            {loadingPlatforms ? (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5 }}>Checking connections...</span>
+            ) : (
+              platformStatuses.map((p) => (
+                <div
+                  key={p.key}
+                  onClick={() => !p.connected && handleConnect(p)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, cursor: p.connected ? "default" : "pointer", transition: "opacity .2s" }}
+                  onMouseEnter={(e) => { if (!p.connected) e.currentTarget.style.opacity = "0.7"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+                >
+                  <span style={{
+                    width: 6, height: 6, borderRadius: 3,
+                    background: p.connected ? C.green : C.red,
+                    boxShadow: p.connected ? "0 0 4px rgba(94,201,126,.2)" : "none",
+                  }} />
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t4, letterSpacing: ".04em" }}>
+                    {p.label}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ━━━ FRAGMENTATION VIEW (Phase 2) ━━━ */}
+      {view === "fragmentation" && (
+        <div style={{ padding: "32px 0", textAlign: "center" }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".08em", marginBottom: 12 }}>
+            FRAGMENTATION VIEW
+          </div>
+          <div style={{ fontSize: 14, color: C.t3, marginBottom: 24 }}>Phase 2 — coming next</div>
+          <button onClick={() => setView("floor")} style={{
+            background: "transparent", color: C.t3, border: `1px solid ${C.borderL}`, padding: "8px 20px",
+            borderRadius: 7, fontSize: 13, cursor: "pointer", fontFamily: "inherit",
+          }}>
+            Back to floor
+          </button>
+        </div>
+      )}
+
+      {/* ━━━ REVEAL VIEW (Phase 3) ━━━ */}
+      {view === "reveal" && (
+        <div style={{ padding: "32px 0", textAlign: "center" }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".08em", marginBottom: 12 }}>
+            REVEAL VIEW
+          </div>
+          <div style={{ fontSize: 14, color: C.t3, marginBottom: 24 }}>Phase 3 — coming next</div>
+          <button onClick={() => setView("floor")} style={{
+            background: "transparent", color: C.t3, border: `1px solid ${C.borderL}`, padding: "8px 20px",
+            borderRadius: 7, fontSize: 13, cursor: "pointer", fontFamily: "inherit",
+          }}>
+            Back to floor
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 export default UploaderXClientWrapper;
-
-
