@@ -200,35 +200,6 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // ─── Step 1.55: Vision-based silence classification (dead air vs intentional) ─────
-    // Only runs when transcript-editor is active and video was uploaded to Gemini
-    const geminiFileUri = syntheticStoryboard?.geminiFileUri;
-    if (
-      rawFootageAnalysis?.editMethod === 'transcript-editor' &&
-      rawFootageAnalysis?.transcriptEditRanges?.length &&
-      rawFootageAnalysis?.silenceGaps?.length &&
-      geminiFileUri
-    ) {
-      try {
-        const { classifySilenceWithVision } = await import('@/lib/editron/services/silence-vision-classifier');
-        const visionResult = await classifySilenceWithVision(
-          rawFootageAnalysis.silenceGaps,
-          rawFootageAnalysis.transcriptEditRanges,
-          rawFootageAnalysis.transcription.words,
-          geminiFileUri,
-          durationSec,
-        );
-        if (visionResult.deadAirRemovals.length > 0) {
-          rawFootageAnalysis.silenceRemovalPlan.push(...visionResult.deadAirRemovals);
-          rawFootageAnalysis.silenceRemovalPlan.sort((a: any, b: any) => a.startMs - b.startMs);
-          console.log(`[VideoAnalysisWorker] Vision silence: ${visionResult.deadAirRemovals.length} dead-air gaps (${(visionResult.totalDeadAirMs / 1000).toFixed(1)}s), ${visionResult.classifications.length - visionResult.deadAirRemovals.length} intentional kept`);
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[VideoAnalysisWorker] Vision silence classification failed (non-fatal): ${msg}`);
-      }
-    }
-
     // ─── Step 1.6: Execute Silence Removal (BEFORE Director) ─────
     if (rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
       try {
