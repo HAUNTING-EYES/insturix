@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
+import { useUser, useClerk } from "@clerk/nextjs";
 
 // ─── Design tokens (Insturix design system) ───────────────────
 const C = {
@@ -58,6 +59,8 @@ const STAGES = [
 
 export function UploaderXClientWrapper() {
   const { toast } = useToast();
+  const { user } = useUser();
+  const { openUserProfile } = useClerk();
   const [view, setView] = useState<ViewState>("floor");
   const [platformStatuses, setPlatformStatuses] = useState<PlatformStatus[]>([]);
   const [videos, setVideos] = useState<VideoItem[]>([]);
@@ -253,8 +256,12 @@ export function UploaderXClientWrapper() {
       const statuses: PlatformStatus[] = [];
 
       // YouTube — check via Clerk external accounts (no API endpoint)
-      // For now, mark as needing status check from the component level
-      statuses.push({ key: "youtube", label: "YouTube", connected: false, authUrl: "" });
+      const googleAccount = user?.externalAccounts.find(
+        (acc) => acc.provider === "google" || (acc.provider as string) === "oauth_google"
+      );
+      const ytScope = "https://www.googleapis.com/auth/youtube.upload";
+      const ytConnected = !!googleAccount && (googleAccount.approvedScopes?.includes(ytScope) !== false);
+      statuses.push({ key: "youtube", label: "YouTube", connected: ytConnected, userName: googleAccount?.emailAddress || undefined, authUrl: "" });
 
       // Fetch other platforms in parallel
       const fetches = PLATFORMS.filter(p => p.statusUrl).map(async (p) => {
@@ -316,11 +323,24 @@ export function UploaderXClientWrapper() {
     if (file) handleFile(file);
   }, [handleFile]);
 
-  const handleConnect = useCallback((platform: PlatformStatus) => {
-    if (platform.authUrl) {
+  const handleConnect = useCallback(async (platform: PlatformStatus) => {
+    if (platform.key === "youtube") {
+      // YouTube uses Clerk OAuth, not a custom redirect
+      const YT_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
+      try {
+        await user?.createExternalAccount({
+          strategy: "oauth_google",
+          redirectUrl: window.location.href,
+          additionalScopes: [YT_SCOPE],
+        });
+      } catch {
+        // Fallback: open Clerk profile to connect manually
+        openUserProfile();
+      }
+    } else if (platform.authUrl) {
       window.location.href = platform.authUrl;
     }
-  }, []);
+  }, [user, openUserProfile]);
 
   const connectedCount = platformStatuses.filter(p => p.connected).length;
 
