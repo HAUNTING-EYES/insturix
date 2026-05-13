@@ -1,20 +1,54 @@
-
-
 "use client";
 
 import { useState, useEffect } from "react";
-import { Bell, ExternalLink } from "lucide-react";
-import { motion } from "framer-motion";
+import { Bell, ExternalLink, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { getPlatformIcon } from "@/components/dashboard/Socialize/SocializeIcons";
-import { NotificationPanel } from "@/components/dashboard/Socialize/NotificationPanel";
 import { SocializeUser } from "@/lib/socialize/main";
 import type { BannerConfig } from "@/schemas/Socialize";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { isNotificationExpired } from "@/lib/utils/notification";
 import { cn } from "@/lib/utils";
+
+const PLATFORM_COLORS: Record<string, string> = {
+  youtube: "#FF0000",
+  instagram: "#E4405F",
+  twitter: "#1DA1F2",
+  x: "#1DA1F2",
+  facebook: "#1877F2",
+  linkedin: "#0A66C2",
+  github: "#E6EDF3",
+  tiktok: "#00F2EA",
+  spotify: "#1DB954",
+  twitch: "#9146FF",
+  discord: "#5865F2",
+  reddit: "#FF4500",
+  snapchat: "#FFFC00",
+  dribbble: "#EA4C89",
+  figma: "#F24E1E",
+  codepen: "#E6EDF3",
+  slack: "#611F69",
+  mail: "#D4A652",
+  globe: "#D4A652",
+  music: "#D4A652",
+};
+
+const ACCENT_PALETTE: Record<string, string> = {
+  gold: "#D4A652",
+  cyan: "#5CB8CC",
+  rose: "#D088B4",
+  green: "#5EC97E",
+  purple: "#9088D4",
+  coral: "#D46A5C",
+};
+
+function getPlatformColor(platform: string): string {
+  return PLATFORM_COLORS[platform.toLowerCase()] || "#D4A652";
+}
+
+function getAccentHex(name?: string): string {
+  return ACCENT_PALETTE[name || "gold"] || ACCENT_PALETTE.gold;
+}
 
 interface ProfileContentProps {
   socializeData: SocializeUser;
@@ -22,23 +56,17 @@ interface ProfileContentProps {
   isPreview?: boolean;
 }
 
+const EASE = [0.16, 1, 0.3, 1] as const;
+
 export function ProfileContent({
   socializeData,
   uniqueUsername,
   isPreview = false,
 }: ProfileContentProps) {
-  const [showNotification, setShowNotification] = useState(false);
+  const [notifIndex, setNotifIndex] = useState(0);
+  const [notifDismissed, setNotifDismissed] = useState(false);
+  const [bannerError, setBannerError] = useState(false);
 
-  // Auto-close notification after 5 seconds
-  useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    if (showNotification) {
-      timeout = setTimeout(() => setShowNotification(false), 5000);
-    }
-    return () => clearTimeout(timeout);
-  }, [showNotification]);
-
-  // Extract profile data
   const {
     username,
     bio,
@@ -46,92 +74,114 @@ export function ProfileContent({
     notifications = [],
     profileImage,
     banner,
+    status,
+    accentColor,
   } = socializeData;
 
+  const accent = getAccentHex(accentColor);
   const displayName = username || uniqueUsername;
+  const hasBio = bio && bio.trim().length > 0;
+  const hasStatus = status && status.trim().length > 0;
 
-  // ✅ Safe filtering: prevents errors from invalid/missing data
   const validNotifications = Array.isArray(notifications)
     ? notifications.filter(
         (n) => n && typeof n === "object" && !isNotificationExpired(n)
       )
     : [];
+  const showNotif = validNotifications.length > 0 && !notifDismissed && !isPreview;
 
-  const hasNotifications = validNotifications.length > 0;
-  const hasBio = bio && bio.length > 0;
+  useEffect(() => {
+    if (validNotifications.length <= 1) return;
+    const interval = setInterval(() => {
+      setNotifIndex((prev) => (prev + 1) % validNotifications.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [validNotifications.length]);
 
-  // Default banner fallback
+  useEffect(() => {
+    setBannerError(false);
+  }, [banner?.value, banner?.type]);
+
   const defaultBanner: BannerConfig = {
     type: "color",
-    value: "#0e6b9c",
+    value: accent,
     gradientType: "linear",
     gradientColors: [],
   };
-
   const bannerConfig = banner || defaultBanner;
 
-  const createGradientCSS = (
-    colors: Array<{ color: string; position: number }>,
-    type: string
-  ) => {
-    if (type === "radial") {
-      return `radial-gradient(circle, ${colors
-        .map((c) => `${c.color} ${c.position}%`)
-        .join(", ")})`;
-    }
-    return `linear-gradient(135deg, ${colors
-      .map((c) => `${c.color} ${c.position}%`)
-      .join(", ")})`;
+  const featuredLink = links[0] || null;
+  const regularLinks = links.slice(1);
+
+  const containerVariants = {
+    hidden: {},
+    show: {
+      transition: { staggerChildren: 0.06, delayChildren: isPreview ? 0 : 0.3 },
+    },
   };
 
-  const [bannerError, setBannerError] = useState(false);
+  const itemVariants = {
+    hidden: { opacity: 0, y: 16 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
+  };
 
-  // Reset error state when banner config changes
-  useEffect(() => {
-    setBannerError(false);
-  }, [bannerConfig.value, bannerConfig.type]);
+  const heroVariants = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } },
+  };
 
-  const renderBanner = () => {
+  function createGradientCSS(
+    colors: Array<{ color: string; position: number }>,
+    type: string
+  ) {
+    const stops = colors.map((c) => `${c.color} ${c.position}%`).join(", ");
+    return type === "radial"
+      ? `radial-gradient(circle, ${stops})`
+      : `linear-gradient(135deg, ${stops})`;
+  }
+
+  function renderBanner() {
     if (bannerError) {
       return (
-        <div className={cn("w-full h-24 bg-[#1B1A18] flex flex-col items-center justify-center text-zinc-500", isPreview && "h-16")}>
-          <div className="text-center p-4">
-            <div className="text-[18px] mb-1 opacity-50">🖼️</div>
-            <div className="text-[10px] font-medium uppercase tracking-widest" style={{ fontFamily: 'JetBrains Mono' }}>Banner Expired</div>
-            <div className="text-[9px] mt-1 opacity-40">Refresh or re-upload image</div>
+        <div
+          className="w-full h-full flex flex-col items-center justify-center"
+          style={{ backgroundColor: "#1B1A18" }}
+        >
+          <div className="text-lg mb-1 opacity-40">🖼️</div>
+          <div
+            className="text-[10px] font-medium uppercase"
+            style={{
+              fontFamily: "JetBrains Mono",
+              letterSpacing: "0.08em",
+              color: "#5F5E5A",
+            }}
+          >
+            Banner Expired
           </div>
         </div>
       );
     }
-
     switch (bannerConfig.type) {
       case "image":
         return (
-          <div
-            className={cn(
-              "w-full h-24 bg-[#23232a] flex items-center justify-center",
-              isPreview && "h-16"
-            )}
-          >
-            <img
-              src={bannerConfig.value}
-              alt="Profile banner"
-              className="w-full h-full object-cover"
-              onError={() => setBannerError(true)}
-            />
-          </div>
+          <img
+            src={bannerConfig.value}
+            alt="Profile banner"
+            className="w-full h-full object-cover"
+            onError={() => setBannerError(true)}
+          />
         );
       case "color":
         return (
           <div
-            className={cn("w-full h-24", isPreview && "h-16")}
+            className="w-full h-full"
             style={{ backgroundColor: bannerConfig.value }}
           />
         );
       case "gradient":
         return (
           <div
-            className={cn("w-full h-24", isPreview && "h-16")}
+            className="w-full h-full"
             style={{
               background:
                 bannerConfig.gradientColors &&
@@ -140,215 +190,477 @@ export function ProfileContent({
                       bannerConfig.gradientColors,
                       bannerConfig.gradientType || "linear"
                     )
-                  : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  : `linear-gradient(135deg, ${accent}80 0%, ${accent}20 100%)`,
             }}
           />
         );
       default:
         return (
           <div
-            className={cn("w-full h-24 bg-[#23232a]", isPreview && "h-16")}
+            className="w-full h-full"
+            style={{ backgroundColor: "#1B1A18" }}
           />
         );
     }
-  };
+  }
 
   return (
     <div
       className={cn(
-        "w-full max-w-md flex flex-col items-center z-10 gap-4 font-jakarta relative",
-        isPreview && "gap-2"
+        "relative w-full flex flex-col items-center",
+        isPreview ? "max-w-full" : "max-w-lg mx-auto"
       )}
+      style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}
     >
-      {/* Spotlight Effect */}
-      <div className="absolute inset-0 -z-10 pointer-events-none" style={{ background: 'radial-gradient(circle, #131312 0%, #0B0B0A 100%)' }} />
-
-      {/* Profile header */}
-      <Card
-        className={cn(
-          "w-full border-social-line shadow-none overflow-hidden",
-          isPreview && "border-none"
-        )}
-        style={{ backgroundColor: 'var(--social-raised, #0F0F0E)', borderRadius: '12px' }}
-      >
-        {renderBanner()}
-
-        <CardContent className={cn("p-6 relative text-center", isPreview && "p-3")}>
-          <Avatar
-            className={cn(
-              "w-24 h-24 border-4 absolute -top-12 left-1/2 -translate-x-1/2 shadow-none",
-              isPreview && "w-16 h-16 -top-8"
-            )}
-            style={{ borderRadius: '12px', borderColor: 'var(--social-raised, #0F0F0E)' }}
-          >
-            <AvatarImage
-              src={profileImage || "/placeholder.svg"}
-              alt={displayName}
-            />
-            <AvatarFallback
-              className={cn(
-                "text-2xl font-medium bg-[#D4A652] text-[#0B0B0A]",
-                isPreview && "text-lg"
-              )}
-            >
-              {typeof displayName === "string"
-                ? displayName.charAt(0).toUpperCase()
-                : "?"}
-            </AvatarFallback>
-          </Avatar>
-
-          <div className={cn("mt-12 flex flex-col items-center", isPreview && "mt-8")}>
-            <h1
-              className={cn(
-                "flex items-center justify-center gap-2 uppercase text-[10px] mb-1",
-                isPreview && "text-[9px]"
-              )}
-              style={{ fontFamily: 'JetBrains Mono', letterSpacing: '0.08em', color: '#5F5E5A' }}
-            >
-              @{displayName}
-              <Badge
-                variant="outline"
-                className="px-2 py-0 uppercase"
-                style={{ fontFamily: 'JetBrains Mono', letterSpacing: '0.08em', color: '#5F5E5A', fontSize: '9px', borderRadius: '4px', backgroundColor: 'transparent', borderColor: '#5F5E5A' }}
-              >
-                SOCIAL
-              </Badge>
-            </h1>
-            {hasBio && (
-              <p
-                className={cn(
-                  "text-sm mt-2 text-[#B5B2A8] font-jakarta",
-                  isPreview && "text-[11px]"
-                )}
-              >
-                {bio}
-              </p>
-            )}
-          </div>
-
-          {/* Notification Button */}
-          {hasNotifications && !isPreview && (
-            <Button
-              onClick={() => setShowNotification(!showNotification)}
-              size="icon"
-              variant="outline"
-              className={cn(
-                "absolute top-6 right-6 w-10 h-10 hover:bg-social-raised shadow-none",
-                showNotification && "bg-social-raised"
-              )}
-              style={{ backgroundColor: 'var(--social-well, #1B1A18)', borderRadius: '7px', borderColor: showNotification ? '#D4A652' : 'var(--social-line, transparent)' }}
-              aria-label="Show notifications"
-            >
-              <Bell className="w-5 h-5 text-social-muted transition-colors" style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }} />
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-[4px] text-[9px] flex items-center justify-center" style={{ fontFamily: 'JetBrains Mono', backgroundColor: '#D4A652', color: '#0B0B0A' }}>
-                {validNotifications.length}
-              </span>
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Notification Panel */}
-      {hasNotifications && showNotification && !isPreview && (
-        <NotificationPanel
-          notifications={validNotifications ?? []}
-          onClose={() => setShowNotification(false)}
-        />
+      {!isPreview && (
+        <style>{`
+          @keyframes socialize-breathe {
+            0%, 100% { box-shadow: 0 0 0 0 ${accent}66; }
+            50% { box-shadow: 0 0 0 6px ${accent}00; }
+          }
+          @keyframes socialize-mesh {
+            0% { transform: translate(0, 0); }
+            33% { transform: translate(10px, -10px); }
+            66% { transform: translate(-5px, 5px); }
+            100% { transform: translate(0, 0); }
+          }
+        `}</style>
       )}
 
-      {/* Social Links */}
-      <motion.div 
-        className={cn("w-full space-y-3", isPreview && "space-y-2")}
-        initial="hidden"
-        whileInView="show"
-        viewport={{ once: false }}
-        variants={{
-          hidden: {},
-          show: {
-            transition: {
-              staggerChildren: 0.08
-            }
-          }
-        }}
+      {/* Mesh gradient background */}
+      {!isPreview && (
+        <div
+          className="fixed inset-0 -z-10 pointer-events-none overflow-hidden"
+          style={{ backgroundColor: "#0B0B0A" }}
+        >
+          <div
+            className="absolute w-[600px] h-[600px] rounded-full opacity-[0.04]"
+            style={{
+              background: `radial-gradient(circle, ${accent}, transparent 70%)`,
+              top: "10%",
+              left: "15%",
+              animation: "socialize-mesh 20s ease-in-out infinite",
+            }}
+          />
+          <div
+            className="absolute w-[500px] h-[500px] rounded-full opacity-[0.03]"
+            style={{
+              background: `radial-gradient(circle, ${accent}, transparent 70%)`,
+              bottom: "10%",
+              right: "10%",
+              animation: "socialize-mesh 25s ease-in-out infinite reverse",
+            }}
+          />
+        </div>
+      )}
+
+      {/* Hero */}
+      <motion.div
+        className="w-full"
+        variants={isPreview ? undefined : heroVariants}
+        initial={isPreview ? false : "hidden"}
+        animate="show"
       >
-        {links && links.length > 0 ? (
-          links.map((link, i) => (
-            <motion.a
-              variants={{
-                hidden: { opacity: 0, y: 10 },
-                show: { opacity: 1, y: 0, transition: { ease: [0.16, 1, 0.3, 1], duration: 0.5 } }
+        {/* Banner */}
+        <div
+          className={cn(
+            "w-full overflow-hidden relative",
+            isPreview ? "h-20 rounded-t-xl" : "h-40 sm:h-48 rounded-t-2xl"
+          )}
+        >
+          {renderBanner()}
+          <div
+            className="absolute bottom-0 left-0 right-0"
+            style={{
+              height: isPreview ? "40px" : "80px",
+              background: isPreview
+                ? "linear-gradient(to top, #13131a, transparent)"
+                : "linear-gradient(to top, #0B0B0A, transparent)",
+            }}
+          />
+        </div>
+
+        {/* Avatar */}
+        <div
+          className={cn("flex justify-center", isPreview ? "-mt-7" : "-mt-11")}
+        >
+          <div
+            className="relative rounded-full"
+            style={{
+              animation: !isPreview
+                ? "socialize-breathe 3s ease-in-out infinite"
+                : undefined,
+            }}
+          >
+            <Avatar
+              className={cn(
+                "border-[3px]",
+                isPreview ? "w-14 h-14" : "w-[88px] h-[88px]"
+              )}
+              style={{ borderColor: accent }}
+            >
+              <AvatarImage
+                src={profileImage || "/placeholder.svg"}
+                alt={displayName}
+              />
+              <AvatarFallback
+                className={cn(
+                  "font-bold",
+                  isPreview ? "text-lg" : "text-2xl"
+                )}
+                style={{ backgroundColor: accent, color: "#0B0B0A" }}
+              >
+                {typeof displayName === "string"
+                  ? displayName.charAt(0).toUpperCase()
+                  : "?"}
+              </AvatarFallback>
+            </Avatar>
+          </div>
+        </div>
+
+        {/* Name + Bio + Status */}
+        <div
+          className={cn("text-center px-6", isPreview ? "mt-2" : "mt-4")}
+        >
+          <h1
+            className={cn(
+              "font-extrabold tracking-tight",
+              isPreview ? "text-base" : "text-2xl sm:text-3xl"
+            )}
+            style={{ color: "#ECE9E1" }}
+          >
+            {displayName}
+          </h1>
+
+          {hasBio && (
+            <p
+              className={cn(
+                "mt-1.5 leading-relaxed",
+                isPreview ? "text-[11px]" : "text-sm"
+              )}
+              style={{ color: "#B5B2A8" }}
+            >
+              {bio}
+            </p>
+          )}
+
+          {hasStatus && (
+            <div
+              className={cn(
+                "inline-flex items-center gap-1.5 mt-3 rounded-full",
+                isPreview ? "px-2 py-0.5 text-[9px]" : "px-3 py-1 text-xs"
+              )}
+              style={{
+                backgroundColor: `${accent}14`,
+                color: accent,
+                fontFamily: "JetBrains Mono",
+                fontWeight: 500,
               }}
-              whileHover={{ scale: 1.02, borderColor: '#D4A652' }}
+            >
+              <span
+                className={cn(
+                  "rounded-full flex-shrink-0",
+                  isPreview ? "w-1 h-1" : "w-1.5 h-1.5"
+                )}
+                style={{ backgroundColor: accent }}
+              />
+              {status}
+            </div>
+          )}
+        </div>
+      </motion.div>
+
+      {/* Notification toast */}
+      <AnimatePresence>
+        {showNotif && (
+          <motion.div
+            className="w-full px-4 mt-6"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3, ease: EASE }}
+          >
+            <div
+              className="flex items-center gap-3 px-4 py-3 rounded-xl"
+              style={{
+                backgroundColor: "#0F0F0E",
+                borderLeft: `3px solid ${accent}`,
+              }}
+            >
+              <Bell
+                className="w-4 h-4 flex-shrink-0"
+                style={{ color: accent }}
+              />
+              <p className="flex-1 text-sm" style={{ color: "#ECE9E1" }}>
+                {validNotifications[notifIndex]?.message}
+              </p>
+              {validNotifications.length > 1 && (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() =>
+                      setNotifIndex(
+                        (prev) =>
+                          (prev - 1 + validNotifications.length) %
+                          validNotifications.length
+                      )
+                    }
+                    className="p-0.5 rounded hover:bg-[#1B1A18] transition-colors"
+                    aria-label="Previous notification"
+                  >
+                    <ChevronLeft
+                      className="w-3.5 h-3.5"
+                      style={{ color: "#7A776E" }}
+                    />
+                  </button>
+                  <span
+                    className="text-[10px] min-w-[24px] text-center"
+                    style={{ color: "#5F5E5A", fontFamily: "JetBrains Mono" }}
+                  >
+                    {notifIndex + 1}/{validNotifications.length}
+                  </span>
+                  <button
+                    onClick={() =>
+                      setNotifIndex(
+                        (prev) => (prev + 1) % validNotifications.length
+                      )
+                    }
+                    className="p-0.5 rounded hover:bg-[#1B1A18] transition-colors"
+                    aria-label="Next notification"
+                  >
+                    <ChevronRight
+                      className="w-3.5 h-3.5"
+                      style={{ color: "#7A776E" }}
+                    />
+                  </button>
+                </div>
+              )}
+              <button
+                onClick={() => setNotifDismissed(true)}
+                className="p-0.5 rounded hover:bg-[#1B1A18] transition-colors flex-shrink-0"
+                aria-label="Dismiss notification"
+              >
+                <X className="w-3.5 h-3.5" style={{ color: "#5F5E5A" }} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Link grid */}
+      {links.length > 0 ? (
+        <motion.div
+          className={cn(
+            "w-full grid gap-3",
+            isPreview
+              ? "grid-cols-1 mt-3 px-0"
+              : "grid-cols-1 sm:grid-cols-2 mt-6 px-4"
+          )}
+          variants={isPreview ? undefined : containerVariants}
+          initial={isPreview ? false : "hidden"}
+          animate="show"
+        >
+          {/* Featured link */}
+          {featuredLink && (
+            <motion.a
+              variants={isPreview ? undefined : itemVariants}
+              href={featuredLink.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                "group relative overflow-hidden flex items-center border border-transparent rounded-xl",
+                isPreview
+                  ? "px-3 py-2.5 gap-3 col-span-1"
+                  : "px-5 py-5 gap-4 col-span-1 sm:col-span-2"
+              )}
+              style={{ backgroundColor: "#131312" }}
+              whileHover={
+                !isPreview
+                  ? {
+                      y: -2,
+                      scale: 1.01,
+                      boxShadow: `0 0 24px ${getPlatformColor(featuredLink.platform)}18, 0 4px 16px rgba(0,0,0,0.3)`,
+                      borderColor: `${getPlatformColor(featuredLink.platform)}30`,
+                    }
+                  : undefined
+              }
+              transition={{ duration: 0.3, ease: EASE }}
+            >
+              {/* Platform accent line */}
+              <div
+                className="absolute top-0 left-0 right-0 h-[2px]"
+                style={{
+                  background: `linear-gradient(90deg, ${getPlatformColor(featuredLink.platform)}, ${getPlatformColor(featuredLink.platform)}00)`,
+                }}
+              />
+              <div
+                className={cn(
+                  "flex items-center justify-center rounded-full flex-shrink-0",
+                  isPreview ? "w-8 h-8" : "w-11 h-11"
+                )}
+                style={{ backgroundColor: "#1B1A18" }}
+              >
+                <div className="text-[#ECE9E1]">
+                  {getPlatformIcon(featuredLink.platform, isPreview)}
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <span
+                  className={cn(
+                    "font-semibold block",
+                    isPreview ? "text-[11px]" : "text-[15px]"
+                  )}
+                  style={{ color: "#ECE9E1" }}
+                >
+                  {featuredLink.title?.trim() ||
+                    featuredLink.platform.charAt(0).toUpperCase() +
+                      featuredLink.platform.slice(1)}
+                </span>
+                {!isPreview && (
+                  <p
+                    className="text-[10px] truncate mt-0.5 uppercase"
+                    style={{
+                      color: "#5F5E5A",
+                      fontFamily: "JetBrains Mono",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    {featuredLink.url
+                      .replace(/^https?:\/\//, "")
+                      .replace(/\/$/, "")}
+                  </p>
+                )}
+              </div>
+              <ExternalLink
+                className={cn(
+                  "flex-shrink-0 transition-colors",
+                  isPreview ? "w-3.5 h-3.5" : "w-4 h-4"
+                )}
+                style={{ color: "#5F5E5A" }}
+              />
+            </motion.a>
+          )}
+
+          {/* Regular links */}
+          {regularLinks.map((link, i) => (
+            <motion.a
               key={i}
+              variants={isPreview ? undefined : itemVariants}
               href={link.url}
               target="_blank"
               rel="noopener noreferrer"
               className={cn(
-                "flex items-center gap-3 px-5 py-4 text-[#EAE9E5] transition-all w-full border border-transparent group",
-                isPreview && "px-3 py-2 gap-2"
+                "group relative overflow-hidden flex items-center gap-3 border border-transparent rounded-xl",
+                isPreview ? "px-3 py-2" : "px-4 py-3.5"
               )}
-              style={{ backgroundColor: 'var(--social-well, #1B1A18)', borderRadius: '12px', transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }}
+              style={{ backgroundColor: "#131312" }}
+              whileHover={
+                !isPreview
+                  ? {
+                      y: -2,
+                      scale: 1.02,
+                      boxShadow: `0 0 20px ${getPlatformColor(link.platform)}18, 0 4px 12px rgba(0,0,0,0.2)`,
+                      borderColor: `${getPlatformColor(link.platform)}30`,
+                    }
+                  : undefined
+              }
+              transition={{ duration: 0.3, ease: EASE }}
             >
               <div
                 className={cn(
-                  "w-10 h-10 flex items-center justify-center transition-colors",
-                  isPreview && "w-8 h-8"
+                  "flex items-center justify-center rounded-full flex-shrink-0",
+                  isPreview ? "w-7 h-7" : "w-9 h-9"
                 )}
-                style={{ backgroundColor: 'var(--social-raised, #0F0F0E)', borderRadius: '50%', transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }}
+                style={{ backgroundColor: "#1B1A18" }}
               >
-                <div className="text-social-muted transition-colors" style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }}>
+                <div className="text-[#ECE9E1]">
                   {getPlatformIcon(link.platform, isPreview)}
                 </div>
               </div>
-              <div className="flex-1 overflow-hidden">
-                <span className={cn("font-medium text-sm", isPreview && "text-[11px]")} style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                  {link.title && link.title.trim() !== ""
-                    ? link.title
-                    : link.platform.charAt(0).toUpperCase() +
+              <div className="flex-1 min-w-0">
+                <span
+                  className={cn(
+                    "font-medium block truncate",
+                    isPreview ? "text-[10px]" : "text-sm"
+                  )}
+                  style={{ color: "#ECE9E1" }}
+                >
+                  {link.title?.trim() ||
+                    link.platform.charAt(0).toUpperCase() +
                       link.platform.slice(1)}
                 </span>
-                <p
-                  className={cn(
-                    "text-[10px] text-social-muted uppercase truncate mt-0.5",
-                    isPreview && "hidden"
-                  )}
-                  style={{ fontFamily: 'JetBrains Mono', letterSpacing: '0.05em' }}
-                >
-                  {link.url}
-                </p>
               </div>
               <ExternalLink
                 className={cn(
-                  "w-5 h-5 text-social-muted transition-colors",
-                  isPreview && "w-4 h-4"
+                  "flex-shrink-0 transition-colors",
+                  isPreview ? "w-3 h-3" : "w-4 h-4"
                 )}
-                style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }}
+                style={{ color: "#454340" }}
               />
             </motion.a>
-          ))
-        ) : (
-          <Card
+          ))}
+        </motion.div>
+      ) : (
+        <motion.div
+          className={cn("w-full", isPreview ? "mt-3 px-0" : "mt-6 px-4")}
+          variants={isPreview ? undefined : itemVariants}
+          initial={isPreview ? false : "hidden"}
+          animate="show"
+        >
+          <div
             className={cn(
-              "w-full border-social-line shadow-none text-center py-8",
-              isPreview && "py-4"
+              "flex flex-col items-center justify-center rounded-xl border border-dashed",
+              isPreview ? "py-6" : "py-10"
             )}
-            style={{ backgroundColor: 'var(--social-raised, #0F0F0E)', borderRadius: '12px' }}
+            style={{
+              backgroundColor: "#0F0F0E",
+              borderColor: "#282724",
+            }}
           >
             <div
               className={cn(
-                "w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4",
-                isPreview && "w-12 h-12 mb-2"
+                "rounded-full flex items-center justify-center mb-3",
+                isPreview ? "w-10 h-10" : "w-14 h-14"
               )}
-              style={{ backgroundColor: 'var(--social-well, #1B1A18)' }}
+              style={{ backgroundColor: "#1B1A18" }}
             >
-              <span className={cn("text-2xl", isPreview && "text-[18px]")}>✨</span>
+              <span className={cn(isPreview ? "text-lg" : "text-2xl")}>
+                ✨
+              </span>
             </div>
-            <p className={cn("text-social-muted text-[10px] uppercase", isPreview && "text-[9px]")} style={{ fontFamily: 'JetBrains Mono', letterSpacing: '0.08em' }}>
+            <p
+              className={cn("uppercase", isPreview ? "text-[8px]" : "text-[10px]")}
+              style={{
+                color: "#5F5E5A",
+                fontFamily: "JetBrains Mono",
+                letterSpacing: "0.08em",
+              }}
+            >
               No links added yet
             </p>
-          </Card>
-        )}
-      </motion.div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Footer watermark */}
+      {!isPreview && (
+        <motion.div
+          className="mt-8 mb-6 text-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1, duration: 0.5 }}
+        >
+          <span
+            className="text-[10px]"
+            style={{
+              color: "#454340",
+              fontFamily: "JetBrains Mono",
+              letterSpacing: "0.04em",
+            }}
+          >
+            Built with Insturix
+          </span>
+        </motion.div>
+      )}
     </div>
   );
 }

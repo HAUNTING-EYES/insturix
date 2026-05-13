@@ -21,7 +21,7 @@ export default async function Page({
     return (
       <>
         <Navbar />
-        <div className="min-h-screen bg-[#0e1117] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        <div className="min-h-screen bg-[#0B0B0A] flex flex-col items-center justify-center p-4 relative overflow-hidden">
           <Suspense fallback={<ProfileSkeleton />}>
             <ProfileContent
               socializeData={socializeData}
@@ -37,7 +37,7 @@ export default async function Page({
     return (
       <>
         <Navbar />
-        <div className="min-h-screen bg-[#0e1117] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        <div className="min-h-screen bg-[#0B0B0A] flex flex-col items-center justify-center p-4 relative overflow-hidden">
           <ProfileError />
         </div>
         <Footer />
