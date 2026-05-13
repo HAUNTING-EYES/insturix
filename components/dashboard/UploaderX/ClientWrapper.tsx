@@ -821,21 +821,143 @@ export function UploaderXClientWrapper() {
         </div>
       )}
 
-      {/* ━━━ REVEAL VIEW (Phase 3) ━━━ */}
-      {view === "reveal" && (
-        <div style={{ padding: "32px 0", textAlign: "center" }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".08em", marginBottom: 12 }}>
-            REVEAL VIEW
+      {/* ━━━ REVEAL VIEW ━━━ */}
+      {view === "reveal" && (() => {
+        const resultEntries = Object.entries(publishResults);
+        const successCount = resultEntries.filter(([, r]) => r.success).length;
+        const failCount = resultEntries.filter(([, r]) => !r.success).length;
+        const allDone = resultEntries.length === armedPlatforms.size && resultEntries.length > 0;
+        const platformLabel = (key: string) => PLATFORMS.find(p => p.key === key)?.label || key;
+
+        return (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "70vh", padding: "48px 24px", textAlign: "center" }}>
+
+            {/* Status label */}
+            <div style={{
+              fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase" as const,
+              marginBottom: 24, display: "flex", alignItems: "center", gap: 8,
+              color: allDone ? (failCount === 0 ? C.green : C.gold) : C.t5,
+              transition: `all .6s ${EASE}`,
+            }}>
+              <span style={{
+                width: 6, height: 6, borderRadius: 3,
+                background: allDone ? (failCount === 0 ? C.green : C.gold) : C.t5,
+                boxShadow: allDone && failCount === 0 ? "0 0 8px rgba(94,201,126,.4)" : "none",
+              }} />
+              {allDone ? (failCount === 0 ? "Live · Published" : `${successCount} published · ${failCount} failed`) : "Publishing..."}
+            </div>
+
+            {/* Title */}
+            <div style={{
+              fontSize: 48, fontWeight: 800, letterSpacing: "-.04em", lineHeight: 1.05, marginBottom: 8,
+              color: allDone && failCount === 0 ? C.gold : C.t1,
+              transition: `all 1s ${EASE}`,
+            }}>
+              {selectedFile?.name || selectedVideo?.filename || "Untitled"}
+            </div>
+            <div style={{ fontSize: 14, color: C.t3, marginBottom: 48 }}>
+              {fmtSize(selectedFile?.size || selectedVideo?.fileSize || 0)}
+            </div>
+
+            {/* Platform results */}
+            <div style={{ display: "flex", justifyContent: "center", gap: 36, marginBottom: 40 }}>
+              {[...armedPlatforms].map((key, i) => {
+                const result = publishResults[key];
+                const done = Boolean(result);
+                const success = result?.success;
+
+                return (
+                  <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                    {/* Beam */}
+                    <div style={{
+                      width: 2, borderRadius: 1, marginBottom: -4,
+                      height: done ? (success ? 56 : 32) : 0,
+                      background: `linear-gradient(to bottom, ${success ? C.green : done ? C.red : C.gold}, transparent)`,
+                      transition: `height .6s ${EASE} ${i * 0.15}s`,
+                    }} />
+                    {/* Bulb */}
+                    <div style={{
+                      width: 52, height: 52, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                      fontFamily: "var(--font-mono)", fontSize: 11,
+                      background: done ? (success ? "rgba(94,201,126,.04)" : "rgba(212,106,92,.04)") : C.raised,
+                      border: `1.5px solid ${done ? (success ? C.green : C.red) : C.goldBd}`,
+                      color: done ? (success ? C.green : C.red) : C.gold,
+                      boxShadow: done && success ? "0 0 24px rgba(94,201,126,.1)" : "none",
+                      transition: `all .4s ${EASE} ${i * 0.15}s`,
+                    }}>
+                      {done ? (success ? "✓" : "✗") : platformLabel(key).substring(0, 2).toUpperCase()}
+                    </div>
+                    {/* Label */}
+                    <span style={{
+                      fontSize: 10,
+                      color: done ? (success ? C.green : C.red) : C.t5,
+                      transition: `color .3s ${EASE}`,
+                    }}>
+                      {platformLabel(key)}
+                    </span>
+                    {/* Error detail */}
+                    {result && !result.success && result.error && (
+                      <span style={{ fontSize: 9, color: C.red, maxWidth: 100, lineHeight: 1.3, fontFamily: "var(--font-mono)" }}>
+                        {result.error.length > 40 ? result.error.slice(0, 40) + "..." : result.error}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Status summary */}
+            {allDone && (
+              <div style={{
+                fontFamily: "var(--font-mono)", fontSize: 11, color: C.t5, marginBottom: 32,
+              }}>
+                Published to {successCount} platform{successCount !== 1 ? "s" : ""}
+                {failCount > 0 ? ` · ${failCount} failed` : ""}
+              </div>
+            )}
+
+            {/* Analytics placeholder — no backend exists */}
+            {allDone && (
+              <div style={{
+                padding: "16px 24px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.raised,
+                marginBottom: 32, maxWidth: 400,
+              }}>
+                <div style={{ fontSize: 13, color: C.t3, marginBottom: 4 }}>Analytics</div>
+                <div style={{ fontSize: 12, color: C.t5 }}>
+                  Check back soon with our next update — platform analytics are coming.
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            {allDone && (
+              <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+                <button onClick={() => {
+                  setView("floor");
+                  setSelectedFile(null);
+                  setSelectedVideo(null);
+                  setUploadedGcsPath(null);
+                  setUploadedVideoUuid(null);
+                  setPublishResults({});
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }} style={{
+                  background: "transparent", color: C.t3, border: `1px solid ${C.borderL}`,
+                  padding: "8px 20px", borderRadius: 7, fontSize: 13, cursor: "pointer", fontFamily: "inherit",
+                }}>
+                  New Upload
+                </button>
+                <button onClick={() => setView("floor")} style={{
+                  background: C.gold, color: C.bg, border: "none",
+                  padding: "10px 28px", borderRadius: 7, fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit",
+                  transition: `all .2s ${EASE}`,
+                }}>
+                  Back to Dashboard
+                </button>
+              </div>
+            )}
           </div>
-          <div style={{ fontSize: 14, color: C.t3, marginBottom: 24 }}>Phase 3 — coming next</div>
-          <button onClick={() => setView("floor")} style={{
-            background: "transparent", color: C.t3, border: `1px solid ${C.borderL}`, padding: "8px 20px",
-            borderRadius: 7, fontSize: 13, cursor: "pointer", fontFamily: "inherit",
-          }}>
-            Back to floor
-          </button>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
