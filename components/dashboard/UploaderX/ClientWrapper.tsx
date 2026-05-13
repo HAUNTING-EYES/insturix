@@ -325,22 +325,41 @@ export function UploaderXClientWrapper() {
 
   const handleConnect = useCallback(async (platform: PlatformStatus) => {
     if (platform.key === "youtube") {
-      // YouTube uses Clerk OAuth, not a custom redirect
       const YT_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
-      try {
-        await user?.createExternalAccount({
-          strategy: "oauth_google",
-          redirectUrl: window.location.href,
-          additionalScopes: [YT_SCOPE],
-        });
-      } catch {
-        // Fallback: open Clerk profile to connect manually
-        openUserProfile();
+      const googleAccount = user?.externalAccounts.find(
+        (acc) => acc.provider === "google" || (acc.provider as string) === "oauth_google"
+      );
+
+      if (googleAccount) {
+        // Google already connected — check if YouTube scope is missing
+        const hasScope = googleAccount.approvedScopes?.includes(YT_SCOPE);
+        if (hasScope === false) {
+          // Scope missing — user needs to disconnect and reconnect with the scope
+          toast({
+            title: "YouTube permissions needed",
+            description: "Your Google account is connected but missing YouTube upload permissions. Go to Connected Accounts, remove Google, then reconnect and check 'Manage YouTube Videos'.",
+          });
+          openUserProfile();
+        } else {
+          // Already connected with scope — mark as connected
+          toast({ title: "YouTube already connected", description: "Your Google account has YouTube permissions." });
+        }
+      } else {
+        // Not connected at all — start OAuth flow
+        try {
+          await user?.createExternalAccount({
+            strategy: "oauth_google",
+            redirectUrl: window.location.href,
+            additionalScopes: [YT_SCOPE],
+          });
+        } catch {
+          openUserProfile();
+        }
       }
     } else if (platform.authUrl) {
       window.location.href = platform.authUrl;
     }
-  }, [user, openUserProfile]);
+  }, [user, openUserProfile, toast]);
 
   const connectedCount = platformStatuses.filter(p => p.connected).length;
 
