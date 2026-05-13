@@ -508,34 +508,43 @@ function AttentionZone() {
       .catch(() => {});
   }, []);
 
-  if (items.length === 0) return null;
-
   return (
     <section style={{ marginBottom: 24 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <div style={{ width: 6, height: 6, borderRadius: 3, background: C.red }} />
+        <div style={{ width: 6, height: 6, borderRadius: 3, background: items.length > 0 ? C.red : C.green }} />
         <span className="dh-mono" style={{ fontSize: 11, color: C.dim, letterSpacing: "0.06em" }}>
           NEEDS ATTENTION
         </span>
-        <span style={{ fontSize: 11, color: C.red, fontFamily: "'JetBrains Mono', monospace" }}>{items.length}</span>
+        {items.length > 0 && (
+          <span style={{ fontSize: 11, color: C.red, fontFamily: "'JetBrains Mono', monospace" }}>{items.length}</span>
+        )}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {items.map((item) => (
-          <div key={item.id} style={{
-            padding: "12px 16px", background: C.raised,
-            border: `1px solid ${item.severity === "high" ? `${C.red}30` : C.border}`,
-            borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center",
-          }}>
-            <div>
-              <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{item.title}</span>
-              <span style={{ fontSize: 11, color: C.muted, display: "block", marginTop: 2 }}>{item.detail}</span>
+      {items.length === 0 ? (
+        <div style={{
+          padding: "12px 16px", background: C.raised,
+          border: `1px solid ${C.border}`, borderRadius: 8,
+        }}>
+          <span style={{ fontSize: 13, color: C.muted }}>No items need attention</span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {items.map((item) => (
+            <div key={item.id} style={{
+              padding: "12px 16px", background: C.raised,
+              border: `1px solid ${item.severity === "high" ? `${C.red}30` : C.border}`,
+              borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{item.title}</span>
+                <span style={{ fontSize: 11, color: C.muted, display: "block", marginTop: 2 }}>{item.detail}</span>
+              </div>
+              <span className="dh-mono" style={{ fontSize: 10, color: C.dim, whiteSpace: "nowrap" }}>
+                {new Date(item.time).toLocaleDateString()}
+              </span>
             </div>
-            <span className="dh-mono" style={{ fontSize: 10, color: C.dim, whiteSpace: "nowrap" }}>
-              {new Date(item.time).toLocaleDateString()}
-            </span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
