@@ -15,7 +15,7 @@ const C = {
 const EASE = "cubic-bezier(.16,1,.3,1)";
 
 // ─── Types ─────────────────────────────────────────────────────
-type ViewState = "floor" | "fragmentation" | "reveal";
+type ViewState = "floor" | "library" | "fragmentation" | "reveal";
 
 interface PlatformStatus {
   key: string;
@@ -74,6 +74,25 @@ export function UploaderXClientWrapper() {
   const [uploadedGcsPath, setUploadedGcsPath] = useState<string | null>(null);
   const [uploadedVideoUuid, setUploadedVideoUuid] = useState<string | null>(null);
   const { uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, isUploading, uploadProgress } = useUploaderXUpload();
+
+  // ─── Metadata state ──────────────────────────────────────────
+  const [metaTitle, setMetaTitle] = useState("");
+  const [metaDescription, setMetaDescription] = useState("");
+  const [metaTags, setMetaTags] = useState("");
+  const [metaPrivacy, setMetaPrivacy] = useState<"public" | "unlisted" | "private">("public");
+  const [metaVideoType, setMetaVideoType] = useState<"short" | "long">("short");
+  const [metaThumbnail, setMetaThumbnail] = useState<File | null>(null);
+  const [metaSchedule, setMetaSchedule] = useState("");
+  const [showPerPlatform, setShowPerPlatform] = useState(false);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
+
+  // Per-platform overrides
+  const [ytCategory, setYtCategory] = useState("22"); // People & Blogs
+  const [igCaption, setIgCaption] = useState("");
+  const [igLocation, setIgLocation] = useState("");
+  const [fbMessage, setFbMessage] = useState("");
+  const [fbPrivacy, setFbPrivacy] = useState<"everyone" | "friends" | "only_me">("everyone");
+  const [liPostType, setLiPostType] = useState<"personal" | "organization">("personal");
 
   // ✅ Add this useEffect block for YouTube token capture
   useEffect(() => {
@@ -335,14 +354,24 @@ export function UploaderXClientWrapper() {
 
   // ─── Publish to all armed platforms ──────────────────────────
   const handlePublish = useCallback(async () => {
-    // Step 1: If we have a file but no gcsPath yet, upload first
     let gcsPath = uploadedGcsPath;
     let videoUuid = uploadedVideoUuid;
-    const videoName = selectedFile?.name || selectedVideo?.filename || "Untitled";
+    const title = metaTitle || selectedFile?.name || selectedVideo?.filename || "Untitled";
+    const description = metaDescription;
+    const isShort = metaVideoType === "short";
+    const ytTitle = isShort && !title.includes("#Shorts") ? `${title} #Shorts` : title;
+    const ytDesc = isShort && description && !description.includes("#Shorts") ? `${description}\n#Shorts` : description;
 
+    // Step 1: Upload file to R2 if needed
     if (selectedFile && !gcsPath) {
       setIsPublishing(true);
-      const result = await uploadWithProgress(selectedFile);
+      const result = await uploadWithProgress(selectedFile, undefined, {
+        title,
+        description,
+        tags: metaTags.split(",").map(t => t.trim()).filter(Boolean),
+        privacyStatus: metaPrivacy,
+        videoType: metaVideoType,
+      });
       if (!result.success) {
         toast({ title: "Upload failed", description: result.error || "Could not upload video", variant: "destructive" });
         setIsPublishing(false);
@@ -366,25 +395,25 @@ export function UploaderXClientWrapper() {
     setIsPublishing(true);
     const results: Record<string, { success: boolean; error?: string }> = {};
 
-    // Step 2: Publish to each armed platform sequentially
+    // Step 2: Publish to each armed platform with proper metadata
     for (const key of armedPlatforms) {
       try {
         let res: { success: boolean; error?: string };
         switch (key) {
           case "youtube":
-            res = await uploadToYouTube(videoUuid, gcsPath, videoName, videoName);
+            res = await uploadToYouTube(videoUuid, gcsPath, selectedFile?.name || selectedVideo?.filename || "video", ytTitle, ytDesc, metaPrivacy);
             break;
           case "facebook":
-            res = await uploadToFacebook(videoUuid, gcsPath, videoName);
+            res = await uploadToFacebook(videoUuid, gcsPath, title, fbMessage || description);
             break;
           case "instagram":
-            res = await uploadToInstagram(videoUuid, gcsPath, videoName);
+            res = await uploadToInstagram(videoUuid, gcsPath, title, igCaption || description);
             break;
           case "twitter":
-            res = await uploadToTwitter(videoUuid, gcsPath, videoName);
+            res = await uploadToTwitter(videoUuid, gcsPath, title, description);
             break;
           case "linkedin":
-            res = await uploadToLinkedIn(videoUuid, gcsPath, videoName);
+            res = await uploadToLinkedIn(videoUuid, gcsPath, title, description, liPostType);
             break;
           default:
             res = { success: false, error: "Unknown platform" };
@@ -393,13 +422,12 @@ export function UploaderXClientWrapper() {
       } catch (err) {
         results[key] = { success: false, error: err instanceof Error ? err.message : "Failed" };
       }
-      // Update results progressively so reveal can show them
       setPublishResults({ ...results });
     }
 
     setIsPublishing(false);
     setView("reveal");
-  }, [armedPlatforms, selectedFile, selectedVideo, uploadedGcsPath, uploadedVideoUuid, uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, toast]);
+  }, [armedPlatforms, selectedFile, selectedVideo, uploadedGcsPath, uploadedVideoUuid, uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, toast, metaTitle, metaDescription, metaTags, metaPrivacy, metaVideoType, fbMessage, igCaption, liPostType]);
 
   const armedCount = armedPlatforms.size;
 
@@ -587,8 +615,19 @@ export function UploaderXClientWrapper() {
           {/* Recent videos */}
           {videos.length > 0 && (
             <>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".08em", textTransform: "uppercase" as const, marginBottom: 12 }}>
-                Recent
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".08em", textTransform: "uppercase" as const }}>
+                  Recent
+                </span>
+                <button onClick={() => setView("library")} style={{
+                  fontSize: 12, color: C.t4, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit",
+                  transition: `color .2s ${EASE}`,
+                }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = C.gold; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = C.t4; }}
+                >
+                  View all →
+                </button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 32 }}>
                 {videos.slice(0, 5).map((v) => (
@@ -799,6 +838,211 @@ export function UploaderXClientWrapper() {
             </div>
           </div>
 
+          {/* ── Metadata section ── */}
+          <div style={{ borderTop: `1px solid ${C.border}`, padding: "20px 0", marginTop: 16 }}>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".08em", textTransform: "uppercase" as const, marginBottom: 16 }}>
+              Details
+            </div>
+
+            {/* Row 1: Title + Video type */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, marginBottom: 12 }}>
+              <input
+                value={metaTitle}
+                onChange={(e) => setMetaTitle(e.target.value)}
+                placeholder="Title (uses filename if empty)"
+                style={{
+                  background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: "10px 14px",
+                  fontSize: 14, color: C.t1, fontFamily: "inherit", outline: "none", width: "100%",
+                  transition: `border-color .2s ${EASE}`,
+                }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = C.gold; }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = C.border; }}
+              />
+              <div style={{ display: "flex", borderRadius: 7, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+                {(["short", "long"] as const).map(t => (
+                  <button key={t} onClick={() => setMetaVideoType(t)} style={{
+                    padding: "10px 16px", fontSize: 12, fontWeight: metaVideoType === t ? 800 : 400,
+                    color: metaVideoType === t ? C.gold : C.t4,
+                    background: metaVideoType === t ? C.goldBg : C.raised,
+                    border: "none", cursor: "pointer", fontFamily: "inherit",
+                    transition: `all .2s ${EASE}`,
+                  }}>
+                    {t === "short" ? "Short" : "Long"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Row 2: Description */}
+            <textarea
+              value={metaDescription}
+              onChange={(e) => setMetaDescription(e.target.value)}
+              placeholder="Description (optional)"
+              rows={3}
+              style={{
+                background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: "10px 14px",
+                fontSize: 13, color: C.t1, fontFamily: "inherit", outline: "none", width: "100%",
+                resize: "vertical", marginBottom: 12, lineHeight: 1.5,
+                transition: `border-color .2s ${EASE}`,
+              }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = C.gold; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = C.border; }}
+            />
+
+            {/* Row 3: Tags + Privacy + Thumbnail */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 12, marginBottom: 12 }}>
+              <input
+                value={metaTags}
+                onChange={(e) => setMetaTags(e.target.value)}
+                placeholder="Tags (comma separated)"
+                style={{
+                  background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: "10px 14px",
+                  fontSize: 13, color: C.t1, fontFamily: "inherit", outline: "none", width: "100%",
+                  transition: `border-color .2s ${EASE}`,
+                }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = C.gold; }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = C.border; }}
+              />
+              <select
+                value={metaPrivacy}
+                onChange={(e) => setMetaPrivacy(e.target.value as "public" | "unlisted" | "private")}
+                style={{
+                  background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: "10px 14px",
+                  fontSize: 12, color: C.t2, fontFamily: "inherit", outline: "none", cursor: "pointer",
+                  appearance: "none", minWidth: 100,
+                }}
+              >
+                <option value="public">Public</option>
+                <option value="unlisted">Unlisted</option>
+                <option value="private">Private</option>
+              </select>
+              <button
+                onClick={() => thumbnailInputRef.current?.click()}
+                style={{
+                  background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: "10px 14px",
+                  fontSize: 12, color: metaThumbnail ? C.green : C.t4, cursor: "pointer", fontFamily: "inherit",
+                  display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+                  transition: `all .2s ${EASE}`,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                {metaThumbnail ? "Thumbnail ✓" : "Thumbnail"}
+              </button>
+              <input ref={thumbnailInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) setMetaThumbnail(f);
+              }} />
+            </div>
+
+            {/* Row 4: Schedule (optional) */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <input
+                type="datetime-local"
+                value={metaSchedule}
+                onChange={(e) => setMetaSchedule(e.target.value)}
+                style={{
+                  background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: "10px 14px",
+                  fontSize: 12, color: metaSchedule ? C.t2 : C.t5, fontFamily: "inherit", outline: "none",
+                  colorScheme: "dark",
+                  transition: `border-color .2s ${EASE}`,
+                }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = C.gold; }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = C.border; }}
+              />
+              <span style={{ fontSize: 12, color: C.t5 }}>{metaSchedule ? "Scheduled" : "Schedule (optional)"}</span>
+              {metaSchedule && (
+                <button onClick={() => setMetaSchedule("")} style={{ fontSize: 11, color: C.t4, background: "none", border: "none", cursor: "pointer" }}>Clear</button>
+              )}
+            </div>
+
+            {/* Per-platform overrides (collapsible) */}
+            <button
+              onClick={() => setShowPerPlatform(!showPerPlatform)}
+              style={{
+                fontSize: 12, color: C.t4, background: "none", border: "none", cursor: "pointer",
+                fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6, padding: "4px 0",
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: showPerPlatform ? "rotate(90deg)" : "none", transition: "transform .2s" }}>
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+              Per-platform overrides
+            </button>
+
+            {showPerPlatform && (
+              <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12, padding: "16px", background: C.deeper, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                {/* YouTube */}
+                {armedPlatforms.has("youtube") && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: C.t2, marginBottom: 8 }}>YouTube</div>
+                    <select value={ytCategory} onChange={(e) => setYtCategory(e.target.value)} style={{
+                      background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
+                      fontSize: 12, color: C.t2, fontFamily: "inherit", outline: "none", width: "100%",
+                    }}>
+                      <option value="22">People & Blogs</option>
+                      <option value="24">Entertainment</option>
+                      <option value="25">News & Politics</option>
+                      <option value="26">Howto & Style</option>
+                      <option value="27">Education</option>
+                      <option value="28">Science & Technology</option>
+                    </select>
+                  </div>
+                )}
+                {/* Instagram */}
+                {armedPlatforms.has("instagram") && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: C.t2, marginBottom: 8 }}>Instagram</div>
+                    <input value={igCaption} onChange={(e) => setIgCaption(e.target.value)} placeholder="Caption (with hashtags)" style={{
+                      background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
+                      fontSize: 12, color: C.t1, fontFamily: "inherit", outline: "none", width: "100%", marginBottom: 6,
+                    }} />
+                    <input value={igLocation} onChange={(e) => setIgLocation(e.target.value)} placeholder="Location (optional)" style={{
+                      background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
+                      fontSize: 12, color: C.t1, fontFamily: "inherit", outline: "none", width: "100%",
+                    }} />
+                  </div>
+                )}
+                {/* Facebook */}
+                {armedPlatforms.has("facebook") && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: C.t2, marginBottom: 8 }}>Facebook</div>
+                    <input value={fbMessage} onChange={(e) => setFbMessage(e.target.value)} placeholder="Post message" style={{
+                      background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
+                      fontSize: 12, color: C.t1, fontFamily: "inherit", outline: "none", width: "100%", marginBottom: 6,
+                    }} />
+                    <select value={fbPrivacy} onChange={(e) => setFbPrivacy(e.target.value as "everyone" | "friends" | "only_me")} style={{
+                      background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
+                      fontSize: 12, color: C.t2, fontFamily: "inherit", outline: "none", width: "100%",
+                    }}>
+                      <option value="everyone">Public</option>
+                      <option value="friends">Friends</option>
+                      <option value="only_me">Only Me</option>
+                    </select>
+                  </div>
+                )}
+                {/* LinkedIn */}
+                {armedPlatforms.has("linkedin") && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: C.t2, marginBottom: 8 }}>LinkedIn</div>
+                    <div style={{ display: "flex", borderRadius: 5, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+                      {(["personal", "organization"] as const).map(t => (
+                        <button key={t} onClick={() => setLiPostType(t)} style={{
+                          flex: 1, padding: "8px 12px", fontSize: 12,
+                          fontWeight: liPostType === t ? 800 : 400,
+                          color: liPostType === t ? C.gold : C.t4,
+                          background: liPostType === t ? C.goldBg : C.raised,
+                          border: "none", cursor: "pointer", fontFamily: "inherit",
+                        }}>
+                          {t === "personal" ? "Personal" : "Organization"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Publish bar */}
           <div style={{ padding: "16px 0", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16 }}>
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t4 }}>
@@ -818,6 +1062,107 @@ export function UploaderXClientWrapper() {
               {isPublishing ? "Publishing..." : `Publish to ${armedCount} platform${armedCount !== 1 ? "s" : ""}`}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ━━━ LIBRARY VIEW ━━━ */}
+      {view === "library" && (
+        <div style={{ display: "flex", flexDirection: "column", minHeight: "70vh" }}>
+          {/* Topbar */}
+          <div style={{ display: "flex", alignItems: "center", padding: "12px 0", borderBottom: `1px solid ${C.border}`, gap: 12, marginBottom: 24 }}>
+            <button onClick={() => setView("floor")} style={{
+              display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: C.t4,
+              fontFamily: "inherit", fontSize: 13, cursor: "pointer", padding: "6px 10px", borderRadius: 6,
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+              Back
+            </button>
+            <span style={{ fontWeight: 800, fontSize: 14 }}>Video Library</span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, marginLeft: "auto" }}>
+              {videos.length} video{videos.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          {/* Video list */}
+          {loadingVideos ? (
+            <div style={{ textAlign: "center", padding: 48, color: C.t5, fontSize: 13 }}>Loading videos...</div>
+          ) : videos.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 48 }}>
+              <div style={{ fontSize: 14, color: C.t3, marginBottom: 8 }}>No videos yet</div>
+              <div style={{ fontSize: 12, color: C.t5 }}>Upload a video to get started</div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {videos.map((v) => (
+                <div
+                  key={v.videoUuid}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderRadius: 8,
+                    border: `1px solid ${C.border}`, background: C.raised, transition: `all .25s ${EASE}`,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.borderL; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.border; }}
+                >
+                  {/* Thumbnail */}
+                  <div style={{
+                    width: 64, height: 36, borderRadius: 4, background: C.deeper, border: `1px solid ${C.border}`,
+                    flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    {v.publicUrl ? (
+                      <video src={v.publicUrl} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted preload="metadata" />
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t5} strokeWidth="1.5"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: C.t1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {v.filename}
+                    </div>
+                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, marginTop: 2, display: "flex", gap: 8 }}>
+                      <span>{fmtSize(v.fileSize)}</span>
+                      <span>{fmtDate(v.uploadedAt)}</span>
+                      {v.platforms && v.platforms.length > 0 && (
+                        <span style={{ color: C.green }}>{v.platforms.length} platform{v.platforms.length !== 1 ? "s" : ""}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Status */}
+                  <span style={{
+                    fontFamily: "var(--font-mono)", fontSize: 10, padding: "3px 8px", borderRadius: 4,
+                    color: v.platforms?.length ? C.green : v.status === "ready" ? C.gold : C.t4,
+                    background: v.platforms?.length ? "rgba(94,201,126,.08)" : v.status === "ready" ? C.goldBg : "transparent",
+                    border: `1px solid ${v.platforms?.length ? "rgba(94,201,126,.15)" : v.status === "ready" ? C.goldBd : C.border}`,
+                  }}>
+                    {v.platforms?.length ? "LIVE" : v.status?.toUpperCase() || "DRAFT"}
+                  </span>
+
+                  {/* Actions */}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={() => { setSelectedVideo(v); setView("fragmentation"); }}
+                      style={{
+                        fontSize: 11, color: C.gold, background: "none", border: `1px solid ${C.goldBd}`,
+                        padding: "4px 12px", borderRadius: 5, cursor: "pointer", fontFamily: "inherit",
+                      }}
+                    >
+                      Publish
+                    </button>
+                    {v.publicUrl && (
+                      <a href={v.publicUrl} download={v.filename} style={{
+                        fontSize: 11, color: C.t4, background: "none", border: `1px solid ${C.border}`,
+                        padding: "4px 10px", borderRadius: 5, textDecoration: "none", display: "flex", alignItems: "center",
+                      }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
