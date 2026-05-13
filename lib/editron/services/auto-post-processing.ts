@@ -72,7 +72,7 @@ export const TRANSITION_SFX_MAP: Record<string, {
   },
   'flash': {
     sfxQueries: ['bright camera flash snap', 'crisp light burst click', 'sharp electric spark sound'],
-    volume: 0.25,
+    volume: DEFAULT_CONFIG.audio.defaultSfxVolume,
     timing: 'start',
     description: 'Quick bright sound matching the white flash burst',
   },
@@ -96,7 +96,7 @@ export const TRANSITION_SFX_MAP: Record<string, {
   },
   'swish-pan': {
     sfxQueries: ['fast camera whoosh swish pan', 'rapid horizontal air movement', 'quick whip pan swoosh'],
-    volume: 0.25,
+    volume: DEFAULT_CONFIG.audio.defaultSfxVolume,
     timing: 'midpoint',
     description: 'Fast air movement matching camera whip speed',
   },

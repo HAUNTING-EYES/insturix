@@ -1,6 +1,16 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getUserBrandDNA, updateUserBrandDNA } from '@/lib/thinkforge/services/db';
+import { z } from 'zod';
+
+const BrandDNAPatchSchema = z.object({
+  voiceLock: z.any().optional(),
+  nicheMap: z.any().optional(),
+  killList: z.any().optional(),
+  hookArchetypes: z.any().optional(),
+  structuralHabits: z.any().optional(),
+  recurringAssets: z.any().optional(),
+}).passthrough();
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,14 +34,18 @@ export async function PATCH(req: Request) {
   const { userId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
-  let body: any;
+  let raw: unknown;
   try {
-    body = await req.json();
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { voiceLock, nicheMap, killList, hookArchetypes, structuralHabits, recurringAssets } = body;
+  const parsed = BrandDNAPatchSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request body', details: parsed.error.issues }, { status: 400 });
+  }
+  const { voiceLock, nicheMap, killList, hookArchetypes, structuralHabits, recurringAssets } = parsed.data;
 
   const updated = await updateUserBrandDNA(userId, {
     ...(voiceLock !== undefined && { voiceLock }),

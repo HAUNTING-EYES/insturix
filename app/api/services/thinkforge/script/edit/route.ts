@@ -6,6 +6,7 @@ import { generateScriptDraft } from '@/lib/thinkforge/agents/script-draft-agent'
 import type { SessionState } from '@/lib/thinkforge/state/types';
 import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
+import { checkCredits } from '@/lib/services/creditsMiddleware';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,10 @@ export async function POST(req: Request) {
   if (!instruction) {
     return NextResponse.json({ error: 'Missing instruction' }, { status: 400 });
   }
+
+  const creditCheck = await checkCredits(userId, 'thinkforge', 'document_creation', { taskId: sessionId });
+  if (!creditCheck.allowed) return creditCheck.errorResponse;
+  await creditCheck.deduct();
 
   try {
     // Get existing script if not provided
@@ -101,6 +106,7 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error('Error editing script:', error);
+    await creditCheck.refund(error?.message || 'Script edit failed');
     const normalized = toThinkForgeErrorResponse(error);
     return NextResponse.json(normalized.body, { status: normalized.status });
   }

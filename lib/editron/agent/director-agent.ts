@@ -22,6 +22,7 @@
  */
 
 import type { EditProfile, EditProfileAction, DirectorResult, ProjectBrief, ProfileId } from '@/lib/editron/data/edit-profile-types';
+import type { GateResult } from '@/lib/editron/services/quality-gate';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import { projectService } from '@/lib/editron/services/project-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -102,6 +103,13 @@ export async function executeDirectorPlan(
     // Previously declared inside the { } block below → caused "storyboardScenes is not defined"
     // which silently killed captions, filters, transitions, and quality review.
     let storyboardScenes: any[] = [];
+    // Fix 24: Hoist per-asset analysis data to function scope so continuity scoring
+    // can use real 5-Track visual data (dominant colors, energy) instead of empty arrays.
+    const perAssetAnalysis = new Map<string, any>();
+    let projectDoc: any = null;
+    // Path D: hoisted constraint violations + genre params for quality review step 11
+    let pathDConstraintViolations: any[] | undefined;
+    let pathDGenreParams: any | undefined;
 
     const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
@@ -118,9 +126,10 @@ export async function executeDirectorPlan(
       const analyses: any[] = [];
       try {
         const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-        const projectDoc = await db.collection('projects').findOne({ projectId }) as any;
+        projectDoc = await db.collection('projects').findOne({ projectId }) as any;
         const storyboardId = projectDoc?.sourceStoryboardId;
         if (storyboardId) {
+          // Path A: ThinkForge storyboard (Mode 1: script → AI video)
           const { getStoryboard } = await import('@/lib/pipeline/storyboard-db');
           const sb = await getStoryboard(storyboardId, userId);
           if (sb) {
@@ -136,6 +145,50 @@ export async function executeDirectorPlan(
             }));
             console.log(`[Director] Found storyboard with ${storyboardScenes.length} scenes`);
           }
+        } else if (projectDoc?.rawFootageAnalysis?.segments?.length > 0) {
+          // Path C: Raw Footage Analysis (Mode 2 with transcript intelligence)
+          // Built by raw-footage-processor.ts from real transcript data.
+          // Preferred over SyntheticStoryboard when available — transcript segments
+          // are real topical boundaries, not Gemini Vision's guessed scene breaks.
+          const rfa = projectDoc.rawFootageAnalysis;
+          storyboardScenes = rfa.segments.map((seg: any, idx: number) => ({
+            sceneIndex: idx,
+            sceneType: 'talking-head',
+            narration: seg.text || '',
+            visualDescription: `Transcript segment ${idx + 1}: ${(seg.text || '').substring(0, 80)}`,
+            mood: 'neutral',
+            audioDescription: seg.fillerCount > 0 ? `speech with ${seg.fillerCount} fillers` : 'clean speech',
+            cameraDirection: 'static',
+            editDirections: {
+              transition: { type: 'hard-cut' },
+              pacing: rfa.contentTypeDetection?.contentType === 'vlog' ? 'fast' : 'medium',
+              onScreenText: [],
+            },
+          }));
+          // Carry Gemini file URI from VU (if VU ran in parallel and produced one)
+          // so 5-Track can skip redundant CDN download + Gemini upload (saves ~30s).
+          if (projectDoc.syntheticStoryboard?.geminiFileUri) {
+            (projectDoc as any)._vuGeminiFileUri = projectDoc.syntheticStoryboard.geminiFileUri;
+          }
+          console.log(`[Director] Found rawFootageAnalysis with ${storyboardScenes.length} transcript segments (Mode 2 — transcript-driven, vuUri=${!!(projectDoc as any)._vuGeminiFileUri})`);
+        } else if (projectDoc?.syntheticStoryboard) {
+          // Path B: SyntheticStoryboard (Mode 2 fallback: no transcript available)
+          const ssb = projectDoc.syntheticStoryboard;
+          storyboardScenes = (ssb.scenes || []).map((s: any) => ({
+            sceneIndex: s.sceneIndex ?? 0,
+            sceneType: s.sceneType || 'continuous',
+            narration: s.descriptor?.narration || '',
+            visualDescription: s.descriptor?.visualDescription || '',
+            mood: s.descriptor?.mood || 'neutral',
+            audioDescription: s.descriptor?.audioDescription || '',
+            cameraDirection: s.descriptor?.cameraDirection || 'static',
+            editDirections: s.descriptor?.editDirections,
+          }));
+          // Carry Gemini file URI from VideoUnderstanding so 5-Track can skip redundant CDN download
+          if (ssb.geminiFileUri) {
+            (projectDoc as any)._vuGeminiFileUri = ssb.geminiFileUri;
+          }
+          console.log(`[Director] Found SyntheticStoryboard with ${storyboardScenes.length} scenes (Mode 2 — vision-based fallback)`);
         }
       } catch (sbErr: any) {
         console.warn(`[Director] Storyboard load failed (non-fatal): ${sbErr.message}`);
@@ -235,6 +288,7 @@ export async function executeDirectorPlan(
             words,
             storyboardScene,
             sourceType: isAIProject ? 'ai-generated' : 'real-footage',
+            geminiFileUri: (projectDoc as any)?._vuGeminiFileUri,
           });
 
           if (analysis) {
@@ -258,8 +312,158 @@ export async function executeDirectorPlan(
         }
       }
 
+      // ── PATH D: Signal-Driven Execution (Mode 2 + v3 Knowledge Graph) ──
+      // When raw footage analysis exists AND the creative knowledge graph loads,
+      // bypass LLM-based intelligence entirely. The signal executor evaluates
+      // 95 mappings from the graph against detected signals to produce EDL decisions.
+      // Falls through to Unified Intelligence / Reactive Engine if Path D fails.
+      let pathDHandled = false;
+      if (projectDoc?.rawFootageAnalysis?.segments?.length > 0 && analyses.length > 0) {
+        try {
+          const { loadGraph } = await import('@/lib/editron/services/graph-query');
+          const graphIndex = loadGraph();
+
+          if (graphIndex) {
+            onProgress?.(0, 0, 'Signal-driven editing (v3 knowledge graph)...');
+            console.log(`[Director] Path D: Signal-driven execution (${graphIndex.mappings.size} mappings, ${graphIndex.constraints.size} constraints)`);
+
+            const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
+            const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
+            const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores, applyBanditAdjustments } = await import('@/lib/editron/services/moment-weight-service');
+            const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+            const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
+            const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
+
+            // Use project fps (not hardcoded 30 — real footage may be 24/29.97/60)
+            const pathDFps = project.fps || 30;
+
+            // Step D.1: Compute genre parameters from signals
+            const genreOutput = computeGenreParameters({
+              rawFootage: projectDoc.rawFootageAnalysis,
+              analyses,
+              videoDurationSec: (project.durationInFrames || 900) / pathDFps,
+              userPlatform: brief?.platform,
+              userIntent: brief?.intent,
+            });
+            console.log(`[Director] Path D: Genre params computed (confidence: ${genreOutput.confidence}, fps: ${pathDFps})`);
+
+            // Step D.2: Build moment weight map — enriched with V-JEPA + Wav2Vec if pre-computed
+            // Worker (video-analysis/route.ts) stores vjepaAnalysis + wav2vecAnalysis on project doc.
+            // Phase 2 formula: 50% gemini + 30% vjepa + 20% wav2vec + thompson_adjustment
+            // Falls back to flat Phase 0 weights when GPU analysis data is unavailable.
+            let weightMap = buildMomentWeightMap(null, projectDoc.rawFootageAnalysis);
+
+            // Enrich with V-JEPA visual significance (30% of Phase 2 weight)
+            if (projectDoc.vjepaAnalysis?.segments?.length > 0) {
+              const { toVjepaWeightFormat } = await import('@/lib/editron/services/vjepa-service');
+              const vjepaWeights = toVjepaWeightFormat(projectDoc.vjepaAnalysis);
+              weightMap = integrateVjepaScores(weightMap, vjepaWeights);
+              console.log(`[Director] Path D: V-JEPA weights integrated (${projectDoc.vjepaAnalysis.segments.length} segments)`);
+            }
+
+            // Enrich with Wav2Vec vocal emotion (20% of Phase 2 weight)
+            if (projectDoc.wav2vecAnalysis?.segments?.length > 0) {
+              const { toWav2VecWeightFormat } = await import('@/lib/editron/services/wav2vec-service');
+              const wav2vecWeights = toWav2VecWeightFormat(projectDoc.wav2vecAnalysis);
+              weightMap = integrateWav2vecScores(weightMap, wav2vecWeights);
+              console.log(`[Director] Path D: Wav2Vec weights integrated (${projectDoc.wav2vecAnalysis.segments.length} segments)`);
+            }
+
+            // Apply Thompson Sampling bandit adjustments (learned per-user corrections)
+            if (projectDoc.momentWeightMap?.computation_phase >= 1) {
+              // Pre-computed bandit adjustments from worker — use them directly
+              weightMap = { ...weightMap, ...projectDoc.momentWeightMap };
+              console.log(`[Director] Path D: Using pre-computed Phase ${projectDoc.momentWeightMap.computation_phase} weight map`);
+            }
+
+            console.log(`[Director] Path D: Moment weights Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
+
+            // Step D.3: Build signal timeline (dual timing: grid + event)
+            const overlayInfos = overlays.map((o: any) => ({
+              id: o.id, type: o.type, from: o.from,
+              durationInFrames: o.durationInFrames, row: o.row, assetId: o.assetId,
+            }));
+            // Pass V-JEPA + Wav2Vec data for signal enrichment (replaces NEEDS_INFRA placeholders).
+            // When present: visual.action_type, visual.motion_type, visual.face_emotion,
+            // visual.eye_contact, speech.emotional_valence + 5 more signals activate graph mappings.
+            // When absent: existing heuristic signals remain (graceful degradation).
+            const signalTimeline = buildSignalTimeline(
+              analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps,
+              projectDoc.vjepaAnalysis ?? null,
+              projectDoc.wav2vecAnalysis ?? null,
+            );
+
+            // Step D.4: Execute signal-driven edit (evaluate 95 mappings)
+            const signalEdl = executeSignalDrivenEdit(
+              signalTimeline, genreOutput.genreParams, weightMap, graphIndex, overlayInfos
+            );
+            console.log(`[Director] Path D: ${signalEdl.metadata.totalMappingsFired} mappings fired → ${signalEdl.metadata.totalDecisionsGenerated} decisions (${signalEdl.metadata.totalDecisionsSuppressed} suppressed) in ${signalEdl.metadata.executionTimeMs}ms`);
+
+            // Step D.5: Humanize pass (organic imperfection injection)
+            const humanizedEdl = humanizeEdl(signalEdl, projectId, projectDoc.rawFootageAnalysis, pathDFps);
+
+            // Step D.6: Constraint enforcement (8-pass ordered)
+            const constraintResult = enforceConstraints(
+              humanizedEdl.decisions, overlayInfos, graphIndex, projectDoc.rawFootageAnalysis, pathDFps
+            );
+            if (constraintResult.totalViolations > 0) {
+              console.log(`[Director] Path D: ${constraintResult.totalViolations} constraint violations (${constraintResult.totalAutoCorrected} auto-corrected, ${constraintResult.totalUncorrectable} uncorrectable)`);
+            }
+            // Hoist for quality review step 11
+            pathDConstraintViolations = constraintResult.violations;
+            pathDGenreParams = genreOutput.genreParams;
+
+            // Convert to standard EDL format for executeEDL (backward compatible)
+            edlSummary.totalDecisions = humanizedEdl.decisions.length;
+            const edl = {
+              projectId,
+              generatedAt: new Date(),
+              totalDecisions: humanizedEdl.decisions.length,
+              decisions: humanizedEdl.decisions.map(d => ({
+                type: d.type,
+                frame: d.frame,
+                durationFrames: Number(d.params['duration_frames'] ?? (d.params['duration_s'] ? Number(d.params['duration_s']) * pathDFps : pathDFps)),
+                priority: d.confidence > 0.8 ? 2 : d.confidence > 0.6 ? 3 : 4,
+                source: d.source,
+                signal: d.type,
+                reason: d.reason ?? '',
+                params: d.params,
+                confidence: d.confidence,
+              })),
+              stats: {
+                cutsPerMinute: 0,
+                transitionCount: humanizedEdl.decisions.filter(d => d.type === 'transition').length,
+                graphicCount: humanizedEdl.decisions.filter(d => d.type === 'graphic').length,
+                zoomCount: humanizedEdl.decisions.filter(d => d.type === 'zoom').length,
+                speedChangeCount: humanizedEdl.decisions.filter(d => d.type === 'speed-change').length,
+                averageConfidence: humanizedEdl.decisions.length > 0
+                  ? humanizedEdl.decisions.reduce((s, d) => s + d.confidence, 0) / humanizedEdl.decisions.length
+                  : 0,
+              },
+            };
+
+            // Execute EDL (same as other paths)
+            const { executeEDL: executeEDLPathD } = await import('@/lib/editron/services/edl-executor');
+            const canvas = project.playerDimensions || { width: 1920, height: 1080 };
+            const analysesMap = new Map<string, any>();
+            for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
+            await executeEDLPathD(edl, projectId, userId, overlays, canvas, analysesMap);
+
+            for (const d of edl.decisions) {
+              edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
+            }
+
+            pathDHandled = true;
+            console.log(`[Director] Path D: Signal-driven execution COMPLETE — ${edl.totalDecisions} decisions applied`);
+          }
+        } catch (pathDErr: any) {
+          console.warn(`[Director] Path D failed (${pathDErr.message}), falling through to Unified Intelligence`);
+          // Fall through to existing paths below
+        }
+      }
+
       // ── Generate Edit Plan — prefer Unified Intelligence, fallback to old EDL ──
-      if (analyses.length > 0) {
+      if (!pathDHandled && analyses.length > 0) {
         try {
           onProgress?.(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
 
@@ -267,7 +471,10 @@ export async function executeDirectorPlan(
           // the creative intent translator and the EDL executor.
           const analysesMap = new Map<string, any>();
           for (const a of analyses) {
-            if (a.assetId) analysesMap.set(a.assetId, a);
+            if (a.assetId) {
+              analysesMap.set(a.assetId, a);
+              perAssetAnalysis.set(a.assetId, a); // Fix 24: hoist to function scope
+            }
           }
 
           // TRY: Creative Intent Intelligence (3-layer architecture)
@@ -440,10 +647,9 @@ export async function executeDirectorPlan(
           result.warnings.push(`EDL: ${edlErr.message}`);
           pipelineWarnings.errorSwallowed('director', edlErr, 'EDL generation/execution');
         }
-      } else {
-        // C6 FIX: Zero assets analyzed — skip EDL but STILL run profile-based steps
-        // (filters, transitions, captions, motion graphics). Don't skip the entire
-        // intelligence block — profile actions are rule-based and don't need analyses.
+      } else if (!pathDHandled) {
+        // C6 FIX: Zero assets analyzed AND Path D didn't run — skip EDL but STILL
+        // run profile-based steps (filters, transitions, captions, motion graphics).
         const failMsg = `Intelligence: 0/${videoOverlays.length} video assets analyzed (${edlSummary.failedAssets.join(', ')}). EDL skipped — profile-based steps (filters, transitions, captions) will still run.`;
         console.warn(`[Director] ${failMsg}`);
         result.warnings.push(failMsg);
@@ -496,7 +702,7 @@ export async function executeDirectorPlan(
     }
 
     const actions = profileActions
-      .filter(action => checkCondition(action.condition, overlays))
+      .filter(action => checkCondition(action.condition, overlays, projectDoc))
       .sort((a, b) => a.order - b.order);
 
     // ─── Step 2.5: Continuity analysis (pure, zero-cost) ─────
@@ -507,13 +713,28 @@ export async function executeDirectorPlan(
     if (videoOverlaysForContinuity.length > 1 && storyboardScenes.length > 0) {
       try {
         const { analyzeAllScenePairs } = await import('@/lib/editron/services/continuity-service');
+        // Fix 24: Wire 5-Track visual data into continuity scoring.
+        // OLD: colorPalette was always [] (empty), mood from text-only storyboard.
+        // NEW: extract dominantColors + energyLevel from actual 5-Track keyframe analysis.
         const scenesForContinuity = videoOverlaysForContinuity.map((vo: any, idx: number) => {
           const sbScene = storyboardScenes.find((s: any) => s.sceneIndex === (vo.metadata?.sceneIndex ?? idx));
+          // Look up 5-Track analysis for this video's asset
+          // perAssetAnalysis is function-scope Map populated during 5-Track step
+          const assetAnalysis = vo.assetId ? perAssetAnalysis.get(vo.assetId) : null;
+          const kfAnalyses = assetAnalysis?.keyframeAnalyses || [];
+          // Extract actual dominant colors from keyframes (flattened + deduplicated)
+          const dominantColors = [...new Set(
+            kfAnalyses.flatMap((kf: any) => kf.dominantColors || []).filter(Boolean)
+          )] as string[];
+          // Use real energy from analysis if available, fall back to storyboard mood
+          const analysisEnergy = kfAnalyses.length > 0
+            ? kfAnalyses.reduce((sum: number, kf: any) => sum + (kf.energyLevel ?? 0.5), 0) / kfAnalyses.length
+            : null;
           return {
             sceneIndex: vo.metadata?.sceneIndex ?? idx,
-            visualDescription: sbScene?.visualDescription || '',
+            visualDescription: sbScene?.visualDescription || kfAnalyses.map((kf: any) => kf.description || '').join(' '),
             mood: sbScene?.mood || 'neutral',
-            colorPalette: [] as string[],
+            colorPalette: dominantColors,
             durationSeconds: (vo.durationInFrames || 150) / 30,
           };
         });
@@ -526,20 +747,49 @@ export async function executeDirectorPlan(
       }
     }
 
-    const totalSteps = actions.length;
+    // Path D: suppress fancy_captions (creates non-editable html-scene overlays).
+    // Instead, keep standard add_captions which creates proper caption overlays.
+    const filteredActions = pathDConstraintViolations
+      ? actions.map(a => {
+          if (a.tool === 'add_fancy_captions') {
+            // Replace with standard captions for Mode 2 (editable, proper timeline row)
+            return { ...a, tool: 'add_captions' as const, description: 'Add captions from transcript' };
+          }
+          return a;
+        })
+      : actions;
+
+    const totalSteps = filteredActions.length;
     onProgress?.(0, totalSteps, 'Starting Director Agent execution...');
 
+    // ─── QualityGate: per-action measurement (TRIBE Phase 1) ──
+    const { takeSnapshot, compareSnapshots, summarizeGateSession } = await import('@/lib/editron/services/quality-gate');
+    const gateResults: GateResult[] = [];
+    const fps = project.fps || 30;
+
     // ─── Step 3: Execute actions sequentially ────────────────
-    for (let i = 0; i < actions.length; i++) {
-      const action = actions[i];
+    for (let i = 0; i < filteredActions.length; i++) {
+      const action = filteredActions[i];
       onProgress?.(i + 1, totalSteps, action.description);
 
       try {
-        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis);
+        const beforeSnapshot = takeSnapshot(overlays, fps);
+        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, pathDConstraintViolations, pathDGenreParams);
+        const afterSnapshot = takeSnapshot(overlays, fps);
+        const gateResult = compareSnapshots(beforeSnapshot, afterSnapshot, action.description);
+        gateResults.push(gateResult);
+
         result.overlaysModified += modified;
         result.actionsExecuted++;
 
-        console.log(`[Director] Action ${i + 1}/${totalSteps}: ${action.description} — ${modified} overlays modified`);
+        if (!gateResult.passed) {
+          console.warn(`[Director] Action ${i + 1}/${totalSteps}: ${action.description} — ${modified} modified, GATE DEGRADATION (${gateResult.degradations.length} issues)`);
+          for (const d of gateResult.degradations) {
+            result.warnings.push(`[QualityGate] ${d.message}`);
+          }
+        } else {
+          console.log(`[Director] Action ${i + 1}/${totalSteps}: ${action.description} — ${modified} overlays modified`);
+        }
       } catch (err: any) {
         const errMsg = err?.message || 'Unknown error';
         console.error(`[Director] Action failed: ${action.description}:`, errMsg);
@@ -553,6 +803,23 @@ export async function executeDirectorPlan(
           result.warnings.push(`${action.description}: ${errMsg}`);
         }
       }
+    }
+
+    // ─── QualityGate session summary ──────────────────────────
+    if (gateResults.length > 0) {
+      const gateSummary = summarizeGateSession(gateResults);
+      console.log(
+        `[Director] QualityGate summary: ${gateSummary.passedActions}/${gateSummary.totalActions} passed, ` +
+        `${gateSummary.criticalDegradations} critical, trend: ${gateSummary.overallTrend}`,
+      );
+      result.qualityGate = {
+        totalActions: gateSummary.totalActions,
+        passedActions: gateSummary.passedActions,
+        failedActions: gateSummary.failedActions,
+        totalDegradations: gateSummary.totalDegradations,
+        criticalDegradations: gateSummary.criticalDegradations,
+        overallTrend: gateSummary.overallTrend,
+      };
     }
 
     // ─── Step 3.4: Transition dedup safety net (B3) ──────────────
@@ -865,6 +1132,10 @@ async function executeAction(
   profile: EditProfile,
   storyboardScenes: any[] = [],
   scenePairAnalysis: Array<{ sceneA: number; sceneB: number; score: { overall: number; visualSimilarity: number; energyMatch?: number }; recommendedTransition: string; flagForReview: boolean }> = [],
+  /** Path D: constraint violations for quality review scoring */
+  constraintViolations?: any[],
+  /** Path D: computed genre params for pacing validation */
+  genreParams?: any,
 ): Promise<number> {
   let modified = 0;
 
@@ -1044,6 +1315,17 @@ async function executeAction(
     case 'add_captions':
     case 'add_fancy_captions':
     case 'sync_cuts_to_beats': {
+      // For add_captions with Path D: compute caption style from signals BEFORE delegation
+      if (action.tool === 'add_captions' && genreParams && !action.params?.style) {
+        const formality = genreParams.formality ?? 0.5;
+        const speakingRate = Math.max(100, 220 - (genreParams.pacing_tolerance * 10));
+        let signalStyle = 'minimal';
+        if (formality > 0.7 && speakingRate < 160) signalStyle = 'subtitle';
+        else if (speakingRate > 180) signalStyle = 'minimal';
+        else if (formality < 0.4) signalStyle = 'bold';
+        console.log(`[Director] Caption style from signals: formality=${formality.toFixed(2)}, rate~${Math.round(speakingRate)}WPM → "${signalStyle}"`);
+        action = { ...action, params: { ...action.params, style: signalStyle } };
+      }
       // These are AI tools — delegate to invokeAITool which handles per-video iteration
       modified = await invokeAITool(action, userId, projectId, profile, overlays);
       break;
@@ -1096,8 +1378,28 @@ async function executeAction(
         console.log(`[Director] add_transition: ${gapCount} gaps without transitions, filling with profile default`);
       }
 
-      // Get transition type from params or profile default
+      // Get transition type: script param → Graphiti brand preference → profile default
       let transType: string = action.params.type || profile.defaultTransition || 'soft-cut';
+
+      if (!action.params.type) {
+        try {
+          const { searchGraphitiFacts } = await import('@/lib/editron/services/graph-service');
+          const brandFacts = await searchGraphitiFacts(
+            `What transitions work best for this content type and mood?`,
+            userId,
+            3,
+          );
+          if (brandFacts.length > 0) {
+            const validTypes = ['dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut', 'zoom-punch', 'whip-pan', 'glitch',
+              'match-cut', 'cutaway', 'smash-cut', 'iris', 'film-burn', 'light-leak'];
+            const preferred = validTypes.find(t => brandFacts.some(f => f.toLowerCase().includes(t)));
+            if (preferred) {
+              console.log(`[Director] Graphiti suggests transition: ${preferred} (from ${brandFacts.length} facts)`);
+              transType = preferred;
+            }
+          }
+        } catch { /* Graphiti unavailable — use profile default */ }
+      }
 
       // 'hard-cut' means no transition overlay — skip entirely
       if (transType === 'hard-cut' || transType === 'none') {
@@ -1309,7 +1611,7 @@ async function executeAction(
       try {
         const { runQualityReview } = await import('@/lib/editron/services/quality-review-service');
         const fps = 30; // Standard
-        const report = runQualityReview(overlays, fps);
+        const report = runQualityReview(overlays, fps, undefined, undefined, constraintViolations, genreParams);
         console.log(`[Director] Quality review: score=${report.overallScore}/100, issues=${report.issues.length}`);
         if (report.issues.length > 0) {
           const criticalCount = report.issues.filter(i => i.severity === 'critical').length;
@@ -1318,6 +1620,27 @@ async function executeAction(
         }
         if (report.suggestions.length > 0) {
           report.suggestions.forEach(s => console.log(`[Director] Suggestion: ${s}`));
+        }
+
+        // Persist quality review to project doc — consumed by bandit reward feedback
+        // (video-analysis worker Step 7.1 reads qualityReview.overallScore)
+        try {
+          const qrDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+          await qrDb.collection('projects').updateOne(
+            { projectId },
+            {
+              $set: {
+                qualityReview: {
+                  overallScore: report.overallScore,
+                  issueCount: report.issues.length,
+                  criticalCount: report.issues.filter(i => i.severity === 'critical').length,
+                  reviewedAt: new Date(),
+                },
+              },
+            },
+          );
+        } catch {
+          // Non-fatal — quality review storage is best-effort
         }
       } catch (qrErr: any) {
         console.error(`[Director] Quality review failed: ${qrErr.message}`);
@@ -1376,25 +1699,67 @@ async function invokeAITool(
         console.log(`[Director] add_captions: no video overlays found, skipping`);
         return 0;
       }
-      const captionStyle = params.style || profile.captionStyle || 'subtitle';
+      // Caption style: already computed by executeAction from signals (if Path D active)
+      // or from profile mapping. params.style is set upstream. Map any remaining invalid values.
+      const CAPTION_STYLE_MAP: Record<string, string> = {
+        'creator': 'bold', 'fancy': 'bold', 'word-by-word': 'bold',
+        'kinetic': 'bold', 'none': 'subtitle',
+      };
+      const rawCaptionStyle = params.style || profile.captionStyle || 'subtitle';
+      const captionStyle = CAPTION_STYLE_MAP[rawCaptionStyle] || rawCaptionStyle;
 
-      // Pre-warm transcription cache for all voiceover assets.
-      // The add_captions tool needs word-level timing from voiceover audio.
-      // If transcription isn't cached, the tool will try to generate it on-demand,
-      // which can fail due to timeouts. Pre-warming ensures it's ready.
+      // ── Mode 2 FIX: Seed transcription cache from rawFootageAnalysis ──
+      // In Mode 2, Grok STT transcription is stored on the PROJECT doc
+      // (rawFootageAnalysis.transcription) but the add_captions tool looks for
+      // it in MEDIA_ASSETS (per-asset cache). Without seeding, the tool tries
+      // on-demand re-transcription of the full video → times out on long videos.
+      // Fix: copy the existing transcription to the asset's cache before captioning.
+      try {
+        const captionDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+        const projDoc = await captionDb.collection('projects').findOne(
+          { projectId },
+          { projection: { 'rawFootageAnalysis.transcription': 1 } },
+        );
+        const rfaTranscription = projDoc?.rawFootageAnalysis?.transcription;
+        if (rfaTranscription?.words?.length > 0) {
+          const videoAssetIds = [...new Set(videoOverlays.map((v: any) => v.assetId).filter(Boolean))];
+          for (const vid of videoAssetIds) {
+            const existing = await captionDb.collection('media_assets').findOne(
+              { assetId: vid },
+              { projection: { 'transcription.words': { $slice: 1 } } },
+            );
+            if (!existing?.transcription?.words?.length) {
+              await captionDb.collection('media_assets').updateOne(
+                { assetId: vid },
+                { $set: { transcription: rfaTranscription } },
+              );
+              console.log(`[Director] add_captions: seeded transcription cache for ${vid} from rawFootageAnalysis (${rfaTranscription.words.length} words)`);
+            } else {
+              console.log(`[Director] add_captions: transcription already cached for ${vid}`);
+            }
+          }
+        }
+      } catch (seedErr: any) {
+        console.warn(`[Director] add_captions: transcription seed failed (non-fatal): ${seedErr.message}`);
+      }
+
+      // Pre-warm transcription cache for voiceover assets (Mode 1 path).
+      // In Mode 2, there are no voiceover overlays — this block is a no-op.
       try {
         const { getTranscription } = await import('@/lib/editron/services/media/transcription-service');
         const voiceoverOverlays = overlays.filter(o =>
           o.type === 'sound' && ((o.assetId || '').startsWith('voiceover_') || o.row === ROW.VOICEOVER)
         );
-        console.log(`[Director] add_captions: pre-warming transcriptions for ${voiceoverOverlays.length} voiceovers`);
-        for (const vo of voiceoverOverlays) {
-          if (!vo.assetId) continue;
-          try {
-            await getTranscription(vo.assetId, userId);
-            console.log(`[Director] add_captions: transcription ready for ${vo.assetId}`);
-          } catch (tErr: any) {
-            console.warn(`[Director] add_captions: transcription warm-up failed for ${vo.assetId}: ${tErr.message}`);
+        if (voiceoverOverlays.length > 0) {
+          console.log(`[Director] add_captions: pre-warming transcriptions for ${voiceoverOverlays.length} voiceovers`);
+          for (const vo of voiceoverOverlays) {
+            if (!vo.assetId) continue;
+            try {
+              await getTranscription(vo.assetId, userId);
+              console.log(`[Director] add_captions: transcription ready for ${vo.assetId}`);
+            } catch (tErr: any) {
+              console.warn(`[Director] add_captions: transcription warm-up failed for ${vo.assetId}: ${tErr.message}`);
+            }
           }
         }
       } catch (warmErr: any) {
@@ -1402,17 +1767,40 @@ async function invokeAITool(
       }
       console.log(`[Director] add_captions: ${videoOverlays.length} videos, style=${captionStyle}`);
 
-      // Caption each video sequentially — tool.invoke handles transcription + caption creation
+      // Caption each video sequentially — tool.invoke handles transcription + caption creation.
+      // Track which voiceover assetIds already produced captions → prevent duplicates.
+      // Without this, 3 videos overlapping the same VO → 3 identical caption blocks.
       let captionCount = 0;
+      const captionedVoiceoverIds = new Set<string>();
       for (const vo of videoOverlays) {
         try {
+          // Dedup: check if this video's overlapping voiceover was already captioned
+          const voFrom = vo.from;
+          const voEnd = voFrom + (vo.durationInFrames || 0);
+          const overlappingVO = overlays.find((o: any) => {
+            if (o.type !== 'sound') return false;
+            const isVO = o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_');
+            if (!isVO) return false;
+            const oEnd = o.from + (o.durationInFrames || 0);
+            return !(oEnd <= voFrom || o.from >= voEnd);
+          });
+          if (overlappingVO?.assetId && captionedVoiceoverIds.has(overlappingVO.assetId)) {
+            console.log(`[Director] add_captions: video ${vo.id} skipped — voiceover ${overlappingVO.assetId} already captioned`);
+            continue;
+          }
+
           const captionParams = { videoOverlayId: vo.id, style: captionStyle, position: 'bottom', overwrite: true };
           console.log(`[Director] add_captions: video ${vo.id} (${captionCount + 1}/${videoOverlays.length}), type=${vo.type}, assetId=${vo.assetId}, from=${vo.from}`);
           const resultStr = await tool.invoke(captionParams);
           const result = JSON.parse(resultStr);
           if (result.status === 'success') {
             captionCount++;
+            // Mark VO as captioned → prevent duplicate captions from other videos overlapping same VO
+            if (overlappingVO?.assetId) captionedVoiceoverIds.add(overlappingVO.assetId);
             console.log(`[Director] add_captions: video ${vo.id} SUCCESS — ${result.captionCount || 0} segments, row=${result.row || '?'}`);
+          } else if (result.status === 'skipped') {
+            // Expected: AI-gen video with no voiceover in range — not an error
+            console.log(`[Director] add_captions: video ${vo.id} skipped — ${result.message || 'no voiceover overlap'}`);
           } else {
             console.error(`[Director] add_captions: video ${vo.id} FAILED — ${result.message || JSON.stringify(result)}`);
           }
@@ -1426,8 +1814,15 @@ async function invokeAITool(
     case 'add_fancy_captions': {
       const videoOverlays = overlays.filter(o => o.type === 'video');
       if (videoOverlays.length === 0) return 0;
-      const fancyStyle = params.style || 'kinetic';
-      console.log(`[Director] add_fancy_captions: ${videoOverlays.length} videos, style=${fancyStyle}`);
+      // Map profile caption styles to valid fancy_captions enum values
+      // Valid: bento | scattered | minimal | static | kinetic
+      const FANCY_STYLE_MAP: Record<string, string> = {
+        'creator': 'kinetic', 'word-by-word': 'kinetic', 'fancy': 'kinetic',
+        'hormozi': 'bento', 'mrbeast': 'scattered', 'corporate': 'minimal',
+      };
+      const rawStyle = params.style || 'kinetic';
+      const fancyStyle = FANCY_STYLE_MAP[rawStyle] || rawStyle;
+      console.log(`[Director] add_fancy_captions: ${videoOverlays.length} videos, style=${fancyStyle}${rawStyle !== fancyStyle ? ` (mapped from "${rawStyle}")` : ''}`);
 
       let fancyCaptionCount = 0;
       for (const vo of videoOverlays) {
@@ -1507,17 +1902,23 @@ async function invokeAITool(
 
 // ─── Condition Checker ───────────────────────────────────────────
 
-function checkCondition(condition: string | undefined, overlays: any[]): boolean {
+function checkCondition(condition: string | undefined, overlays: any[], projectDoc?: any): boolean {
   if (!condition) return true;
+
+  // Mode 2: raw footage has speech IN the video, not as separate voiceover overlay
+  const isRawFootage = !!(projectDoc?.rawFootageAnalysis?.segments?.length > 0);
 
   switch (condition) {
     case 'hasVideoOverlays':
       return overlays.some(o => o.type === 'video');
     case 'hasSpeech':
-      return overlays.some(o => o.type === 'sound' && (o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_')));
     case 'hasVoiceover':
+      // Mode 2: video itself contains speech — treat as having voiceover
+      if (isRawFootage) return true;
       return overlays.some(o => o.type === 'sound' && (o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_')));
     case 'hasMultipleScenes':
+      // Mode 2: transcript segments count as multiple scenes even with 1 video clip
+      if (isRawFootage && (projectDoc.rawFootageAnalysis.segments.length > 1)) return true;
       return overlays.filter(o => o.type === 'image' || o.type === 'video').length > 1;
     case 'hasBGM':
       return overlays.some(o => o.type === 'sound' && (o.row === ROW.BGM || (o.assetId || '').startsWith('bgm_')));

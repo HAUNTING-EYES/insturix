@@ -60,20 +60,24 @@ const DELIVERABLE_SUGGESTIONS = [
   "🔄 Create an alternative version of this script",
 ];
 
-function getContextualSuggestions(hasScript: boolean, messageCount: number = 0, count: number = 3): string[] {
-  // After some messages with a script, mix in deliverable suggestions
+function getContextualSuggestions(hasScript: boolean, messageCount: number = 0, count: number = 3, seed: string = ''): string[] {
+  // Deterministic selection seeded by idea text — prevents re-randomization on every render.
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+  const pick = (arr: readonly string[], n: number) => {
+    const out: string[] = [];
+    const idx = arr.map((_, i) => i);
+    for (let i = 0; i < Math.min(n, idx.length); i++) {
+      const j = Math.abs(h + i * 7) % idx.length;
+      out.push(arr[idx[j]]);
+      idx.splice(j, 1);
+    }
+    return out;
+  };
   if (hasScript && messageCount >= 3) {
-    const scriptPool = [...HAS_SCRIPT_SUGGESTIONS];
-    const deliverablePool = [...DELIVERABLE_SUGGESTIONS];
-    const combined = [
-      ...scriptPool.sort(() => Math.random() - 0.5).slice(0, 2),
-      ...deliverablePool.sort(() => Math.random() - 0.5).slice(0, 1),
-    ];
-    return combined.slice(0, count);
+    return [...pick(HAS_SCRIPT_SUGGESTIONS, 2), ...pick(DELIVERABLE_SUGGESTIONS, 1)].slice(0, count);
   }
-  const pool = hasScript ? HAS_SCRIPT_SUGGESTIONS : EMPTY_SCRIPT_SUGGESTIONS;
-  const shuffled = [...pool].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
+  return pick(hasScript ? HAS_SCRIPT_SUGGESTIONS : EMPTY_SCRIPT_SUGGESTIONS, count);
 }
 
 const STYLE_CORRECTION_RE = /\b(too formal|too casual|punchier|more concise|shorter|longer|simpler|friendlier|serious|tone|less wordy|rewrite|rephrase|sound more|sound less)\b/i;
@@ -217,23 +221,38 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   // Initialize context-aware suggestions
   useEffect(() => {
     const hasContent = !!script?.content;
-    setSuggestions(getContextualSuggestions(hasContent, chat.messages.length));
+    setSuggestions(getContextualSuggestions(hasContent, chat.messages.length, 3, selectedIdea?.idea || ''));
   }, [!!script?.content, chat.messages.length, selectedIdea]);
 
-  // Auto-starter script: when entering editor with no script, auto-generate a draft
+  // Auto-starter: generate a draft ONLY for genuinely new projects (no saved script).
+  // Ref tracks the latest script across re-renders so the timer reads fresh state.
   const autoStartFired = React.useRef(false);
+  const scriptRef = React.useRef(script);
+  scriptRef.current = script;
+
   useEffect(() => {
     if (autoStartFired.current) return;
     if (!sessionId) return;
-    if (script?.content) return; // Already has content
-    if (chat.messages.length > 0) return; // Chat already has messages (returning user)
-    if (chat.isStreaming) return;
     if (!selectedIdea?.idea) return;
+    if (chat.messages.length > 0) return;
+    if (chat.isStreaming) return;
 
-    autoStartFired.current = true;
+    // Check content AND blocks — ThinkForge stores scripts as Tiptap blocks,
+    // so content can be "" while blocks holds the actual data.
+    const hasData = !!(script?.content || (Array.isArray(script?.blocks) && script.blocks.length > 0));
+    if (hasData) return;
 
-    // Small delay so the UI settles first
+    // Wait long enough for the saved script to load from the server.
+    // Vercel cold starts can take 2-3s, so 800ms was too short and caused
+    // false auto-drafts on every project open. At fire time, re-read the
+    // latest script from the ref (the closure captures the stale value).
     const timer = setTimeout(() => {
+      if (autoStartFired.current) return;
+      const latest = scriptRef.current;
+      const latestHasData = !!(latest?.content || (Array.isArray(latest?.blocks) && latest.blocks.length > 0));
+      if (latestHasData) return;
+
+      autoStartFired.current = true;
       const autoPrompt = `Write a short starter draft for this idea: "${selectedIdea.idea}". Keep it concise — just enough to give me something to work with. Include a hook, a brief body, and a closing.`;
       const currentScriptId = scriptIdRef.current || undefined;
       chat.sendMessage(autoPrompt, {
@@ -250,7 +269,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
           lastUserAction: 'auto_start',
         },
       });
-    }, 800);
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [sessionId, selectedIdea?.idea]);

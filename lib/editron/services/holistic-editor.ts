@@ -1,0 +1,121 @@
+/**
+ * Holistic Editor — ONE Gemini call for ALL cut decisions.
+ *
+ * Replaces the fragment-based pipeline (editorial intent + best-take +
+ * discriminator + intra-segment splitter + argument protector) with a
+ * single LLM call that sees the FULL transcript and makes holistic
+ * KEEP/CUT decisions for every segment.
+ *
+ * Why: A human editor watches the whole thing, understands the argument,
+ * and cuts. They don't classify 248 segments individually. This call
+ * gives the LLM the same full context a human editor would have.
+ *
+ * Handles in ONE pass: meta-commentary, stutters/disfluencies, retakes,
+ * false starts, argument structure protection, duplicate detection.
+ */
+
+import type { TranscriptSegment, SilenceRemovalAction } from './raw-footage-processor';
+
+export interface HolisticEditResult {
+  /** Segment indices to KEEP */
+  keepIndices: number[];
+  /** Segment indices to CUT */
+  cutIndices: number[];
+  /** Removal actions for the silence removal plan */
+  removals: SilenceRemovalAction[];
+  /** Processing time */
+  processingTimeMs: number;
+}
+
+export async function makeHolisticEditDecisions(
+  segments: TranscriptSegment[],
+): Promise<HolisticEditResult | null> {
+  if (segments.length < 5) return null;
+
+  const start = Date.now();
+
+  try {
+    const { getGeneralModel } = await import('@/lib/editron/utils/gemini-model-factory');
+    const model = await getGeneralModel();
+
+    const segmentList = segments.map(s =>
+      `[${s.index}] (${Math.round(s.startMs / 1000)}s) "${s.text}"`
+    ).join('\n');
+
+    const prompt = `You are a professional video editor making a rough cut of raw footage.
+
+Below is the COMPLETE transcript, segmented by pauses. The speaker recorded this in one session with retakes, stutters, meta-commentary, and false starts mixed in with the actual content.
+
+Your job: for each segment, decide KEEP or CUT. The goal is a clean, watchable video where only the final, polished delivery of each idea remains.
+
+CUT these:
+- Stutters and false starts: "I th- I think" → cut, the completed version is elsewhere
+- Retakes: when the speaker says the same thing multiple times, keep ONLY the best/most complete version, cut the rest
+- Meta-commentary: "that was me editing a video", "I'll put this at the beginning", "is my mic on"
+- Incomplete trailing thoughts: sentences that trail off without finishing ("but then they...")
+- Filler segments: "okay", "um", standalone words that aren't content
+- Warm-up/preamble: speaker warming up before actual content delivery
+
+KEEP these:
+- The thesis/main argument (the point of the video)
+- Supporting arguments and examples
+- Punchlines and emotional moments
+- The conclusion
+- Natural speech — don't over-cut. Keep the speaker's voice and personality.
+
+CRITICAL: When the speaker attempts the same line multiple times, keep ONLY ONE — the most complete, cleanest version. Not two, not three. One.
+
+There are ${segments.length} segments:
+
+${segmentList}
+
+Respond with a JSON object: {"keep": [array of segment indices to KEEP], "cut": [array of segment indices to CUT]}
+Every segment index must appear in exactly one array. Do not skip any.`;
+
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.0,
+      },
+    });
+
+    const text = result.response.text();
+    const parsed = JSON.parse(text);
+
+    if (!parsed.keep || !parsed.cut || !Array.isArray(parsed.keep) || !Array.isArray(parsed.cut)) {
+      console.warn('[HolisticEditor] Invalid response format, returning null');
+      return null;
+    }
+
+    const keepSet = new Set<number>(parsed.keep);
+    const cutSet = new Set<number>(parsed.cut);
+
+    // Build removal actions for CUT segments
+    const removals: SilenceRemovalAction[] = [];
+    for (const idx of cutSet) {
+      const seg = segments.find(s => s.index === idx);
+      if (seg) {
+        removals.push({
+          startMs: seg.startMs,
+          endMs: seg.endMs,
+          action: 'remove',
+          reason: 'meta-discard' as any,
+        });
+      }
+    }
+
+    const elapsed = Date.now() - start;
+    console.log(`[HolisticEditor] ${segments.length} segments → ${keepSet.size} KEEP, ${cutSet.size} CUT (${elapsed}ms)`);
+
+    return {
+      keepIndices: [...keepSet],
+      cutIndices: [...cutSet],
+      removals,
+      processingTimeMs: elapsed,
+    };
+  } catch (err: any) {
+    console.warn(`[HolisticEditor] Failed: ${err.message}. Falling back to fragment-based pipeline.`);
+    return null;
+  }
+}

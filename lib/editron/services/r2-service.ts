@@ -14,7 +14,18 @@
  * GCS is kept ONLY for Gemini Vision integration (requires gs:// URIs).
  */
 
-import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { nanoid } from 'nanoid';
 
 // ─── Configuration ────────────────────────────────────────────────
@@ -163,6 +174,47 @@ export async function r2FileExists(r2Key: string): Promise<boolean> {
 // ─── URL Helpers ──────────────────────────────────────────────────
 
 /**
+ * Generate a presigned PUT URL for direct client-side upload to R2.
+ * Used by Mode 2 "Edit My Video" when GCS is unavailable (Preview env).
+ * Returns the upload URL + assetId + public read URL (via CDN Worker).
+ * Client PUTs the file directly to this URL — no server proxy needed.
+ */
+export async function generateR2UploadUrl(
+  userId: string,
+  filename: string,
+  contentType: string,
+): Promise<{
+  uploadUrl: string;
+  assetId: string;
+  r2Key: string;
+  readUrl: string;
+  readUrlExpiresAt: Date;
+}> {
+  const client = getS3Client();
+  const assetId = `upload_${nanoid(12)}`;
+  const r2Key = assetId;
+
+  const command = new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: r2Key,
+    ContentType: contentType,
+    Metadata: {
+      userId,
+      filename,
+      uploadedAt: new Date().toISOString(),
+    },
+  });
+
+  const uploadUrl = await getSignedUrl(client, command, { expiresIn: 900 }); // 15 min
+  const readUrl = getR2PublicUrl(assetId);
+  const readUrlExpiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // R2 CDN URLs never expire
+
+  console.log(`[R2] Presigned upload URL for ${assetId} (${contentType}, user=${userId.slice(0, 12)})`);
+
+  return { uploadUrl, assetId, r2Key, readUrl, readUrlExpiresAt };
+}
+
+/**
  * Get the public CDN URL for an asset.
  * Unlike GCS, this never expires and doesn't need refresh.
  */
@@ -172,4 +224,150 @@ export function getR2PublicUrl(assetId: string): string {
   }
   // Fallback: direct R2 URL (no CORS, not ideal)
   return `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET_NAME}/${assetId}`;
+}
+
+/**
+ * Generate a presigned GET URL for direct R2 access (bypasses Cloudflare Worker).
+ *
+ * Use this for SERVER-TO-SERVER downloads (Gemini, xAI, fal.ai, Deepgram).
+ * The Worker URL is for BROWSER access only (CORS, edge caching).
+ *
+ * Why: The Worker proxies files through a JS invocation. Multiple concurrent
+ * 91MB downloads saturate Worker concurrency → 429 rate limits. Presigned
+ * GETs go direct to R2 storage — no Worker, no concurrency limit, no 429.
+ *
+ * @param r2Key The R2 object key (usually same as assetId)
+ * @param expiresIn Seconds until URL expires (default 1 hour)
+ */
+export async function getR2PresignedReadUrl(r2Key: string, expiresIn = 3600): Promise<string> {
+  const client = getS3Client();
+  const command = new GetObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: r2Key,
+  });
+  return getSignedUrl(client, command, { expiresIn });
+}
+
+// ─── Multipart Upload ────────────────────────────────────────────
+
+export interface MultipartInitResult {
+  uploadId: string;
+  r2Key: string;
+  assetId: string;
+}
+
+export interface MultipartPart {
+  ETag: string;
+  PartNumber: number;
+}
+
+/**
+ * Initiate an S3 multipart upload on R2.
+ * Returns the uploadId needed for subsequent part uploads and completion.
+ */
+export async function initiateMultipartUpload(
+  userId: string,
+  filename: string,
+  contentType: string,
+): Promise<MultipartInitResult> {
+  const client = getS3Client();
+  const assetId = `upload_${nanoid(12)}`;
+  const r2Key = assetId;
+
+  const { UploadId } = await client.send(new CreateMultipartUploadCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: r2Key,
+    ContentType: contentType,
+    Metadata: {
+      userId,
+      filename,
+      uploadedAt: new Date().toISOString(),
+    },
+  }));
+
+  if (!UploadId) {
+    throw new Error('R2 CreateMultipartUpload returned no UploadId');
+  }
+
+  console.log(`[R2] Initiated multipart upload ${UploadId} for ${assetId} (${contentType})`);
+
+  return { uploadId: UploadId, r2Key, assetId };
+}
+
+/**
+ * Generate a presigned PUT URL for uploading a single part.
+ * Client PUTs the chunk directly to this URL, then sends back the ETag.
+ */
+export async function generatePartUploadUrl(
+  r2Key: string,
+  uploadId: string,
+  partNumber: number,
+): Promise<string> {
+  const client = getS3Client();
+
+  const command = new UploadPartCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: r2Key,
+    UploadId: uploadId,
+    PartNumber: partNumber,
+  });
+
+  // 30 min expiry — large parts on slow connections need time
+  const url = await getSignedUrl(client, command, { expiresIn: 1800 });
+  return url;
+}
+
+/**
+ * Complete a multipart upload by assembling all parts.
+ * Returns the public CDN URL for the assembled object.
+ */
+export async function completeMultipartUpload(
+  r2Key: string,
+  uploadId: string,
+  parts: MultipartPart[],
+): Promise<string> {
+  const client = getS3Client();
+
+  await client.send(new CompleteMultipartUploadCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: r2Key,
+    UploadId: uploadId,
+    MultipartUpload: {
+      Parts: parts.map(p => ({
+        ETag: p.ETag,
+        PartNumber: p.PartNumber,
+      })),
+    },
+  }));
+
+  const publicUrl = getR2PublicUrl(r2Key);
+  console.log(`[R2] Completed multipart upload ${uploadId} → ${publicUrl}`);
+  return publicUrl;
+}
+
+/**
+ * Abort a multipart upload, cleaning up any uploaded parts.
+ * Safe to call multiple times (idempotent).
+ */
+export async function abortMultipartUpload(
+  r2Key: string,
+  uploadId: string,
+): Promise<void> {
+  const client = getS3Client();
+
+  try {
+    await client.send(new AbortMultipartUploadCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: r2Key,
+      UploadId: uploadId,
+    }));
+    console.log(`[R2] Aborted multipart upload ${uploadId}`);
+  } catch (err: any) {
+    // NoSuchUpload = already completed or aborted — safe to ignore
+    if (err.name === 'NoSuchUpload') {
+      console.log(`[R2] Multipart ${uploadId} already completed/aborted`);
+      return;
+    }
+    throw err;
+  }
 }

@@ -162,7 +162,7 @@ export async function oauth1aRequest(
     let data: any;
     try {
         data = responseText ? JSON.parse(responseText) : {};
-    } catch (parseError) {
+    } catch (_parseError) {
         console.error("❌ Failed to parse Twitter API response:", responseText);
         throw new Error(`Twitter API returned invalid JSON (HTTP ${response.status}): ${responseText.substring(0, 200)}`);
     }

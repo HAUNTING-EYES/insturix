@@ -28,6 +28,8 @@ import type {
   TiptapOrderedList,
   TiptapListItem,
   TiptapHorizontalRule,
+  TiptapSceneBlock,
+  TiptapEditorialBlock,
 } from '../schemas/tiptap-schema';
 import { createEmptyDoc } from '../schemas/tiptap-schema';
 
@@ -289,6 +291,8 @@ const KIND_TO_TIPTAP_TYPE: Record<ThinkForgeBlockKind, string> = {
   why: 'whyBlock',
   example: 'exampleBlock',
   paragraph: 'paragraph',
+  scene: 'sceneBlock',
+  editorial: 'editorialBlock',
 };
 
 /**
@@ -415,6 +419,46 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
         content: [codeBlock],
       };
       return [exampleBlock];
+    }
+
+    case 'scene': {
+      // V2: SceneBlock — narration text as content, typed slots as attrs
+      const narrationParagraph: TiptapParagraph = {
+        type: 'paragraph',
+        content: tiptapContent,
+      };
+      const sceneAttrs: Record<string, unknown> = { id };
+      if (block.scene) {
+        sceneAttrs.visualDescription = block.scene.visualDescription || '';
+        sceneAttrs.subjects = JSON.stringify(block.scene.subjects || []);
+        if (block.scene.duration != null) sceneAttrs.duration = block.scene.duration;
+        if (block.scene.durationExplicit) sceneAttrs.durationExplicit = true;
+        if (block.scene.mood) sceneAttrs.mood = block.scene.mood;
+      }
+      // Cast needed: TiptapBlockContent is a Zod-inferred union; SceneBlockNodeSchema
+      // is in the union but TS can't narrow from the interface to the z.infer type.
+      return [{
+        type: 'sceneBlock' as const,
+        attrs: sceneAttrs,
+        content: [narrationParagraph],
+      } as TiptapBlockContent];
+    }
+
+    case 'editorial': {
+      // V2: EditorialBlock — production notes as content, type as attr
+      const editorialParagraph: TiptapParagraph = {
+        type: 'paragraph',
+        content: tiptapContent,
+      };
+      const editorialAttrs: Record<string, unknown> = {
+        id,
+        editorialType: block.editorial?.editorialType || 'custom',
+      };
+      return [{
+        type: 'editorialBlock' as const,
+        attrs: editorialAttrs,
+        content: [editorialParagraph],
+      } as TiptapBlockContent];
     }
 
     case 'paragraph':

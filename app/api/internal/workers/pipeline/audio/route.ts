@@ -174,13 +174,24 @@ async function handler(request: NextRequest) {
       // newly generated BGM.
       try {
         console.log(`[AudioWorker] Starting automatic beat alignment for montages...`);
-        const { AudioContext } = await import('node-web-audio-api');
-        const ctx = new AudioContext();
-        // Convert Node.js Buffer to ArrayBuffer for decoding
+        // OLD: node-web-audio-api AudioContext — requires libasound.so.2 (ALSA) which
+        // doesn't exist on Vercel serverless. Crashed with:
+        //   "libasound.so.2: cannot open shared object file: No such file or directory"
+        // NEW: audio-decode — pure WASM MP3/WAV decoder, no native dependencies.
+        // Returns AudioBuffer-compatible object (sampleRate, getChannelData, duration, length).
         if (!bgm.buffer) throw new Error('No audio buffer returned from BGM generation');
         const arrayBuffer = bgm.buffer.buffer.slice(bgm.buffer.byteOffset, bgm.buffer.byteOffset + bgm.buffer.byteLength) as ArrayBuffer;
-        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-        await ctx.close();
+        const decode = (await import('audio-decode')).default;
+        const decoded = await decode(arrayBuffer);
+        // Adapt audio-decode's AudioData → the duck-typed AudioBuffer shape
+        // that analyzeBeatsFull expects (sampleRate, length, numberOfChannels, getChannelData, duration).
+        const audioBuffer = {
+          sampleRate: decoded.sampleRate,
+          length: decoded.channelData[0]?.length ?? 0,
+          numberOfChannels: decoded.channelData.length,
+          getChannelData: (ch: number) => decoded.channelData[ch] ?? decoded.channelData[0],
+          duration: (decoded.channelData[0]?.length ?? 0) / decoded.sampleRate,
+        };
 
         const beatAnalysis = await analyzeBeatsFull(audioBuffer);
         const beatFrames = beatAnalysis.beats.map(b => ({
@@ -209,7 +220,14 @@ async function handler(request: NextRequest) {
         }
       } catch (alignErr: any) {
         console.error(`[AudioWorker] Beat alignment enhancement failed: ${alignErr.message}`);
-        // Non-critical: do not persist as an error or fail the worker
+        // Non-critical: worker still succeeds (BGM is already saved).
+        // But Rule 18N: fail VISIBLE — surface in project warnings so it's not invisible.
+        warnings.add({
+          severity: 'warning',
+          phase: 'bgm',
+          message: `Beat alignment failed: ${alignErr.message}. Montage cuts may not sync to music beats.`,
+          details: { stack: alignErr.stack?.split('\n').slice(0, 3).join(' → ') },
+        });
       }
 
       await persistWarnings(db, projectId, warnings);

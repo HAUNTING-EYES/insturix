@@ -726,6 +726,59 @@ export async function POST(
       },
     );
 
+    // ─── Graph sync: create Project + Scene nodes in Neo4j ────────
+    try {
+      if (process.env.QSTASH_TOKEN) {
+        const graphSyncUrl = (() => {
+          const base = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+          return `${base}/api/internal/workers/graph-sync`;
+        })();
+        const qstashGraph = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
+
+        await qstashGraph.publishJSON({
+          url: graphSyncUrl,
+          body: {
+            action: 'project_created',
+            data: {
+              projectId: project.projectId,
+              userId,
+              contentType: (storyboard as any).suggestedProfileCategory || 'brand-ad',
+              sceneCount: storyboard.scenes.length,
+              durationSec: currentFrame / fps,
+            },
+          },
+          retries: 3,
+        });
+
+        const sceneInputs = storyboard.scenes.map((s: any, idx: number) => ({
+          sceneIndex: idx,
+          mood: s.mood || null,
+          sceneType: s.sceneType || 'continuous',
+          contentSummary: (s.visualDescription || '').slice(0, 200),
+          subjects: (s.subjects || []).slice(0, 10),
+        }));
+
+        await qstashGraph.publishJSON({
+          url: graphSyncUrl,
+          body: {
+            action: 'scene_batch',
+            data: {
+              projectId: project.projectId,
+              version: 1,
+              scenes: sceneInputs,
+            },
+          },
+          retries: 3,
+        });
+
+        console.log(`[Finalize] Graph sync dispatched: project + ${sceneInputs.length} scenes`);
+      }
+    } catch (graphErr: any) {
+      console.warn(`[Finalize] Graph sync dispatch failed: ${graphErr.message}`);
+    }
+
     // ─── Dispatch BGM + SFX workers via QStash (fire-and-forget) ────
     // These run asynchronously AFTER the project is created. Each worker
     // has its own 300s timeout. They add overlays to the project via
@@ -1027,7 +1080,28 @@ export async function POST(
         suggestedProfileCategory: (storyboard as any).suggestedProfileCategory || undefined,
       };
       // Use embedding-enhanced detection (async, Gemini API). Falls back to keyword-only if unavailable.
-      const { profile: detectedProfile, autoSelected, detection } = await getAutoSelectedProfileWithEmbeddings(thinkforgeMetadata).catch(() => getAutoSelectedProfile(thinkforgeMetadata));
+      let { profile: detectedProfile, autoSelected, detection } = await getAutoSelectedProfileWithEmbeddings(thinkforgeMetadata).catch(() => getAutoSelectedProfile(thinkforgeMetadata));
+
+      // Phase 4b: Graphiti preference boost (server-side only)
+      try {
+        const { searchGraphitiFacts } = await import('@/lib/editron/services/graph-service');
+        const facts = await searchGraphitiFacts(
+          'What editing profile does this user prefer or override to?',
+          userId,
+          3,
+        );
+        if (facts.length > 0) {
+          const { EDIT_PROFILES } = await import('@/lib/editron/data/edit-profiles');
+          const profileIds = Object.keys(EDIT_PROFILES);
+          const preferred = profileIds.find(id => facts.some(f => f.includes(id)));
+          if (preferred && preferred !== detectedProfile.profileId) {
+            console.log(`[Finalize] Graphiti suggests profile ${preferred} over detected ${detectedProfile.profileId}`);
+            detectedProfile = EDIT_PROFILES[preferred as keyof typeof EDIT_PROFILES];
+            detection = { ...detection, confidence: Math.min(1.0, detection.confidence + 0.15), reasoning: [...detection.reasoning, `Graphiti: user historically prefers ${preferred}`] };
+          }
+        }
+      } catch { /* Graphiti unavailable */ }
+
       console.log(`[Finalize] Profile detection: ${detectedProfile.profileId} confidence=${detection.confidence.toFixed(2)} auto=${autoSelected} reasoning=[${detection.reasoning.slice(0, 3).join('; ')}]`);
       const profileId = detectedProfile.profileId;
       // Store on project so video worker can dispatch Director with correct profile

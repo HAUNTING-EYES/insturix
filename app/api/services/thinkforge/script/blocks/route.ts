@@ -3,6 +3,24 @@ import { auth } from '@clerk/nextjs/server';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import * as db from '@/lib/thinkforge/services/db';
 import { safeParseTiptapJSON } from '@/lib/thinkforge/schemas/tiptap-validation';
+import { z } from 'zod';
+
+// V2: Block-level validation — checks kind enum when present, allows extra fields
+const ThinkForgeBlockSchema = z.object({
+  id: z.string().optional(),
+  kind: z.enum(['header', 'action', 'why', 'example', 'paragraph', 'scene', 'editorial']).optional(),
+  content: z.array(z.any()).optional(),
+}).passthrough();
+
+const SaveBlocksSchema = z.object({
+  sessionId: z.string().min(1),
+  scriptId: z.string().optional(),
+  blocks: z.array(ThinkForgeBlockSchema).optional(),
+  richText: z.any().optional(),
+  title: z.string().optional(),
+  content: z.string().optional(),
+  baseVersion: z.number().optional(),
+}).passthrough();
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,30 +90,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let sessionId: string | undefined;
-  let scriptId: string | undefined;
-  let blocks: any[] | undefined;
-  let richText: any | undefined;
-  let title: string | undefined;
-  let content: string | undefined;
-  let baseVersion: number | undefined;
-
+  let raw: unknown;
   try {
-    const body = await req.json();
-    sessionId = body?.sessionId ? String(body.sessionId) : undefined;
-    scriptId = body?.scriptId ? String(body.scriptId) : undefined;
-    blocks = body?.blocks;
-    richText = body?.richText; // Tiptap JSON AST
-    title = body?.title;
-    content = body?.content;
-    baseVersion = typeof body?.baseVersion === 'number' ? body.baseVersion : undefined;
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  if (!sessionId) {
-    return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
+  const parsed = SaveBlocksSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request body', details: parsed.error.issues }, { status: 400 });
   }
+  const { sessionId, scriptId, blocks, richText, title, content, baseVersion } = parsed.data;
 
   // Validate richText (Tiptap JSON) if provided
   let validatedRichText = undefined;

@@ -11,8 +11,7 @@
  */
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
-import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
-import { projectService } from '@/lib/editron/services/project-service';
+import { DEFAULT_TRANSITION_FRAMES, createTrueDissolve } from '@/lib/editron/data/transition-templates';
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -80,6 +79,12 @@ export function snapToClipBoundary(
     .filter(o => o.type === 'video' || o.type === 'image')
     .sort((a, b) => a.from - b.from);
 
+  // Post-silence-removal projects have many small clips with potential tiny gaps.
+  // Increase tolerance to account for frame rounding gaps between consecutive clips.
+  const effectiveTolerance = visualOverlays.length > 20
+    ? Math.max(maxTolerance, 60)
+    : maxTolerance;
+
   let best: ClipBoundaryMatch | null = null;
 
   for (let i = 0; i < visualOverlays.length - 1; i++) {
@@ -88,7 +93,7 @@ export function snapToClipBoundary(
     const boundary = a.from + a.durationInFrames;
     const drift = Math.abs(boundary - decisionFrame);
 
-    if (drift <= maxTolerance && (!best || drift < best.drift)) {
+    if (drift <= effectiveTolerance && (!best || drift < best.drift)) {
       best = { boundaryFrame: boundary, clipA: a, clipB: b, drift };
     }
   }
@@ -232,6 +237,33 @@ export async function executeEDL(
         console.warn(`[EDL-Exec] SFX pre-resolve failed for "${token}": ${err.message}`);
       }
     }
+  }
+
+  // ── Single-source detection: suppress transitions for same-camera cuts ──
+  // When all video overlays share the same source assetId, every cut is a
+  // CONTINUITY cut (same camera, same angle, same person). Transitions between
+  // same-source segments are visually wrong (dissolving from frame N to frame
+  // N+32 of the same video = glitch, not a professional transition). SFX triggers
+  // paired with transitions are also wrong (no visual scene change to sync with).
+  // Zooms, emphasis, filter changes, pacing, and camera-shake still apply — they
+  // modify the visual within a segment, not between segments.
+  const videoOverlaysForSourceCheck = overlays.filter(o => o.type === 'video');
+  const uniqueSourceAssets = new Set(
+    videoOverlaysForSourceCheck.map(o => (o as any).assetId).filter(Boolean)
+  );
+  const isSingleSource = uniqueSourceAssets.size === 1 && videoOverlaysForSourceCheck.length > 1;
+
+  if (isSingleSource) {
+    const suppressTypes = new Set(['transition', 'sfx-trigger']);
+    const before = actionable.length;
+    const filtered = actionable.filter(d => !suppressTypes.has(d.type));
+    const suppressed = before - filtered.length;
+    if (suppressed > 0) {
+      console.log(`[EDL-Exec] Single-source project (${uniqueSourceAssets.values().next().value}) — suppressed ${suppressed} transition/sfx-trigger decisions (same-camera cuts don't need transitions)`);
+    }
+    // Replace actionable in-place (it's already a filtered copy from line 209)
+    actionable.length = 0;
+    actionable.push(...filtered);
   }
 
   let budgetRejected = 0;
@@ -387,7 +419,7 @@ async function applyDecision(
         content: cached.audioUrl,
         src: cached.audioUrl,
         assetId: cached.audioAssetId,
-        styles: { volume: 0.25, opacity: 1 },
+        styles: { volume: DEFAULT_CONFIG.audio.defaultSfxVolume, opacity: 1 },
         metadata: { source: 'edl-sfx-trigger', sfxType },
       } as any);
 
@@ -460,7 +492,12 @@ function applyTransition(
   decisionIndex: number = 0,
 ): { created: number; modified: number } | null {
   const transType = (decision.params.transitionType || 'soft-cut') as string;
-  const durationFrames = decision.durationFrames || (DEFAULT_TRANSITION_FRAMES as any)[transType] || 15;
+  let durationFrames = decision.durationFrames || (DEFAULT_TRANSITION_FRAMES as any)[transType] || 15;
+  // Dissolve needs minimum duration to feel like a real crossfade, not a flash.
+  // Intelligence layer often sets 15 frames (0.5s) → too fast. Clamp to 30+ (1s).
+  if (transType === 'dissolve' && durationFrames < 30) {
+    durationFrames = Math.max(durationFrames, DEFAULT_TRANSITION_FRAMES['dissolve'] || 36);
+  }
 
   // hard-cut and editorial cuts don't produce visual transitions
   if (['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
@@ -532,12 +569,28 @@ function applyTransition(
     metadata: {
       isTransition: true,
       transitionType: transType,
+      keyframeBased: transType === 'dissolve',
       source: 'edl',
       edlReason: decision.reason,
     },
   };
 
   overlays.push(transitionOverlay as any);
+
+  // For dissolve: apply keyframe-based opacity crossfade to the two clips.
+  // The Remotion renderer (transition-layer-content.tsx:78-90) already returns
+  // { opacity: 0 } for dissolve — the visual comes from clip opacity keyframes,
+  // not an HTML overlay. The transition tile exists for timeline visualization only.
+  if (transType === 'dissolve') {
+    const { outgoing, incoming } = createTrueDissolve(clipA, clipB, durationFrames);
+    // Apply keyframe tracks back to the live overlays
+    clipA.keyframeTracks = outgoing.keyframeTracks;
+    clipB.keyframeTracks = incoming.keyframeTracks;
+    clipB.from = incoming.from;
+    clipB.durationInFrames = incoming.durationInFrames;
+    console.log(`[EDL-Exec] True dissolve applied: clipA opacity fade-out over ${durationFrames} frames, clipB overlap + fade-in`);
+    return { created: 1, modified: 2 };
+  }
 
   // Clean up clip-overlap opacity keyframes that edit-direction-applier may
   // have placed on the adjacent clips at this boundary. Without this, both
@@ -605,6 +658,22 @@ function applyZoom(
     console.log(`[EDL-Exec] Zoom at frame ${decision.frame}: snapped to clip at ${clipMatch.clip.from} (drift: ${clipMatch.drift} frames)`);
   }
   const videoOverlay = clipMatch.clip;
+
+  // Guard: never zoom at frame 0 — no baseline established, viewer just arrived.
+  // Per creative doc v3 mapping:structural.hook_zone_treatment: "first frame must be
+  // visually compelling" but zoom needs a starting reference. Shift to first motion peak
+  // or skip entirely if within first 1 second.
+  if (decision.frame <= videoOverlay.from + 30) { // within first 1s of clip
+    const analysis = analyses?.get(videoOverlay.assetId);
+    const peaks = (analysis as any)?.motionPeaks || [];
+    if (peaks.length > 0 && peaks[0] > 30) {
+      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} too early (hook zone) — shifted to first motion peak at frame ${videoOverlay.from + peaks[0]}`);
+      decision.frame = videoOverlay.from + peaks[0];
+    } else {
+      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} too early (hook zone) — SKIPPED (no suitable motion peak)`);
+      return null;
+    }
+  }
 
   // Validate zoom placement against 5-Track motion data when available.
   // Reject zoom decisions not near a motion peak or natural cut point (±10 frames).
@@ -785,7 +854,7 @@ function applyGraphic(
   // DEDUP: Don't create graphic if one already exists at this frame range.
   // Multiple systems (finalize, EDL, Director, chat) can create graphics.
   // First one wins — no visual clutter from overlapping graphics.
-  const graphicCheckDur = decision.durationFrames || 90;
+  const _graphicCheckDur = decision.durationFrames || 90;
   const existingGraphic = overlays.find(o =>
     (o.type === 'html-scene' || (o as any).type === 'sticker') &&
     o.from <= decision.frame + 15 &&
@@ -816,7 +885,7 @@ function applyGraphic(
 
   // Aspect-ratio-aware positioning
   const isPortrait = canvas.height > canvas.width;
-  const isSquare = Math.abs(canvas.width - canvas.height) < 100;
+  const _isSquare = Math.abs(canvas.width - canvas.height) < 100;
   const safeMargin = canvas.width * 0.05;
 
   // Position + dimensions per graphic type (responsive)
@@ -1038,7 +1107,7 @@ function applyAudioDuck(
   return { created: 0, modified: 1 };
 }
 
-function applyFilterChange(
+function _applyFilterChange(
   decision: EditDecision,
   overlays: Overlay[],
 ): { created: number; modified: number } | null {

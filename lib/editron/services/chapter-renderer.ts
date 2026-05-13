@@ -15,7 +15,7 @@
  */
 
 import { renderMediaOnLambda, getRenderProgress } from '@remotion/lambda/client';
-import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -78,7 +78,7 @@ interface ChapterRenderJob {
 export function detectChapterBoundaries(
   overlays: Overlay[],
   totalFrames: number,
-  fps: number,
+  _fps: number,
 ): { startFrame: number; endFrame: number }[] {
   if (totalFrames <= CHAPTER_SPLIT_THRESHOLD) {
     // Short video — single chapter, no splitting needed

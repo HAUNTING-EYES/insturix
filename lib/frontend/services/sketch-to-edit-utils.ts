@@ -6,7 +6,7 @@ import { SketchAnnotations, SketchStroke, TextAnnotation } from "@/types/clickat
 
 /**
  * Convert an image URL to base64 data URL
- * Handles image sources with proper CORS support
+ * Handles GCS URLs and other image sources with proper CORS support
  * 
  * @param imageUrl - The URL of the image to convert
  * @param timeout - Timeout in milliseconds (default: 10000)
@@ -20,12 +20,43 @@ export async function imageUrlToBase64(
     // Step 1: Fetch the image
     console.log("[imageUrlToBase64] Fetching image from:", imageUrl);
     
-    const response = await Promise.race([
-      fetch(imageUrl, { method: 'GET' }),
-      new Promise<Response>((_, reject) =>
-        setTimeout(() => reject(new Error('Fetch timeout')), timeout)
-      ),
-    ]);
+    let response: Response;
+    
+    // For GCS URLs, use proxy to avoid CORS issues
+    if (imageUrl.includes('storage.googleapis.com')) {
+      console.log("[imageUrlToBase64] Detected GCS URL, attempting direct fetch first...");
+      try {
+        response = await Promise.race([
+          fetch(imageUrl, { 
+            method: 'GET',
+            headers: { 'Accept': 'image/*' }
+          }),
+          new Promise<Response>((_, reject) =>
+            setTimeout(() => reject(new Error('Fetch timeout')), timeout)
+          ),
+        ]);
+      } catch (_error) {
+        console.log("[imageUrlToBase64] Direct fetch failed, trying through API proxy");
+        // Fallback to API proxy
+        const proxyUrl = new URL(imageUrl);
+        const response = await fetch('/api/proxy/image?' + new URLSearchParams({
+          path: proxyUrl.pathname.replace('/instruix-dev/', '')
+        }).toString());
+        
+        if (!response.ok) {
+          throw new Error(`Proxy failed with status ${response.status}`);
+        }
+        return await blobToBase64(await response.blob());
+      }
+    } else {
+      // For other URLs, fetch normally with timeout
+      response = await Promise.race([
+        fetch(imageUrl, { method: 'GET' }),
+        new Promise<Response>((_, reject) =>
+          setTimeout(() => reject(new Error('Fetch timeout')), timeout)
+        ),
+      ]);
+    }
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);

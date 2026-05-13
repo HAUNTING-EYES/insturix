@@ -57,10 +57,16 @@ export interface UnifiedContext {
   colorPalette?: string[];
   environmentNotes?: string;
   editProfileName?: string;
+
+  /** True when project is Mode 2 raw footage with transcript-driven scenes */
+  isRawFootage?: boolean;
+  /** Detected content type from transcript analysis */
+  rawFootageContentType?: string;
 }
 
 export interface SceneContext {
   sceneIndex: number;
+  assetId?: string;
   fromFrame: number;
   durationFrames: number;
 
@@ -239,6 +245,7 @@ export async function assembleUnifiedContext(
 
     scenes.push({
       sceneIndex: i,
+      assetId: (vo as any).assetId || '',
       fromFrame: vo.from,
       durationFrames: vo.durationInFrames,
       title: descriptor.title || `Scene ${i + 1}`,
@@ -355,6 +362,28 @@ export async function assembleUnifiedContext(
 
   console.log(`[UnifiedIntel] Anchors: ${mergedAnchors.length} total (${mergedAnchors.filter(a => a.isCompound).length} compound), from ${anchors.length} raw sources`);
 
+  // Detect raw footage mode
+  const rfa = project.rawFootageAnalysis;
+  const isRawFootage = !!(rfa?.segments?.length > 0);
+
+  // For raw footage: enrich scenes with emphasis word positions as natural cut points
+  if (isRawFootage && rfa.transcription?.words) {
+    for (const scene of scenes) {
+      if (scene.voiceoverWords?.length > 0) continue; // Already has VO words
+      // Find transcript words that fall within this scene's time range
+      const sceneStartMs = (scene.fromFrame / fps) * 1000;
+      const sceneEndMs = ((scene.fromFrame + scene.durationFrames) / fps) * 1000;
+      const wordsInScene = rfa.transcription.words.filter(
+        (w: any) => w.startMs >= sceneStartMs && w.endMs <= sceneEndMs,
+      );
+      if (wordsInScene.length > 0) {
+        scene.voiceoverWords = wordsInScene.map((w: any) => ({
+          word: w.word, startMs: w.startMs - sceneStartMs, endMs: w.endMs - sceneStartMs,
+        }));
+      }
+    }
+  }
+
   return {
     projectId,
     fps,
@@ -366,6 +395,8 @@ export async function assembleUnifiedContext(
     overallMusicPrompt,
     colorPalette,
     environmentNotes,
+    isRawFootage,
+    rawFootageContentType: rfa?.contentTypeDetection?.contentType,
   };
 }
 
@@ -613,12 +644,13 @@ export async function generateCreativeIntentPlan(
 
   const model = google(DEFAULT_CONFIG.aiModels.unifiedIntelligenceModel);
 
-  const { object } = await generateObject({
+  const { geminiRetry } = await import('@/lib/pipeline/gemini-retry');
+  const { object } = await geminiRetry(() => generateObject({
     model,
     schema: CreativeIntentPlanSchema,
     prompt: contextSummary,
     temperature: DEFAULT_CONFIG.aiModels.editingTemperature,
-  });
+  }));
 
   // Defensive: Vercel AI SDK's generateObject can return undefined for nested
   // arrays/objects when Gemini omits optional fields. Guard every access.
@@ -756,10 +788,10 @@ After high-intensity, the next scene MUST be low-intensity.
     prompt += `Narration: "${scene.narration || '(silent)'}"\n`;
     prompt += `Mood: ${scene.mood}\n`;
 
-    // Use compressed asset briefing if available, otherwise fall back to raw data
-    // Asset briefings are keyed by assetId — find the matching one for this scene's video
-    const briefing = options.assetBriefings?.values()
-      ? Array.from(options.assetBriefings.values()).find((_, idx) => idx === scene.sceneIndex)
+    // Use compressed asset briefing if available, otherwise fall back to raw data.
+    // Briefings Map is keyed by assetId. Match via scene.assetId (added to context).
+    const briefing = scene.assetId && options.assetBriefings
+      ? options.assetBriefings.get(scene.assetId) || null
       : null;
 
     if (briefing) {
@@ -990,13 +1022,31 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
   This is the Hormozi signature: freeze → stat-counter animates → hold → unfreeze.
 - S-002: AI-generated video: NEVER below 0.5x speed (artifacts become obvious).\n`;
 
+  // ─── Part 8: Eisenstein Montage Vocabulary (Fix 21) ─────────
+  prompt += `\n## MONTAGE METHODS (Sergei Eisenstein — select the most appropriate for each scene's pacing):
+- **METRIC**: Fixed rhythmic cutting. Every N beats = a cut. For: music-driven montages, lyric videos, product reveals timed to BPM.
+- **RHYTHMIC**: Content-driven rhythm. Cut length follows the ACTION in frame (fast action = short cut, slow action = long cut). For: sports highlights, cooking, dance.
+- **TONAL**: Emotional tone determines cut timing. Sad = long holds, joyful = quick cuts, tense = accelerating. For: brand stories, testimonials, documentaries.
+- **OVERTONAL**: Multiple signals layered — motion + color + composition + sound all influence cuts simultaneously. For: cinematic trailers, luxury brand films, music videos.
+- **INTELLECTUAL**: Contrasting images juxtaposed to create NEW meaning neither has alone. For: social commentary, before/after, problem-solution ads.
+
+Select ONE method per scene based on content type and mood. Default to RHYTHMIC for most content.\n`;
+
   // ─── Part 9: SFX Pairing Rules ────────────────────────────────
-  prompt += `\n## SFX PAIRING RULES:
-- A-002: Zoom-punch and flash transitions MUST have impact-hit SFX (bass thud)
-- A-010: Before major reveals, add a riser SFX (1.5-2.0s ascending tone)
-- A-020: Graphic entrances get a subtle pop/notification SFX
-- A-021: Stat-counter completion gets a click SFX when landing on final number
-- A-032: Dramatic pause in voiceover → silence-beat (drop ALL audio for 0.5-0.8s)\n`;
+  prompt += `\n## SFX PAIRING TABLE (transition type → sound):
+| Transition | SFX | Volume | Rule |
+|------------|-----|--------|------|
+| dissolve, wipe-*, iris-wipe, blur, slide-* | whoosh (subtle swoosh) | -10dB | A-001 |
+| zoom-punch, flash, glitch | impact (bass thud) | -5dB | A-002 |
+| whip-pan | whoosh (fast) | -8dB | A-001 |
+| dip-to-black, dip-to-white, soft-cut | SILENCE (intentional) | — | — |
+| film-burn | NONE (crackle IS the transition) | — | — |
+
+OTHER SFX RULES:
+- A-010: Before major reveals → riser SFX (1.5-2.0s ascending tone)
+- A-020: Graphic entrance → subtle pop/notification
+- A-021: Stat-counter landing → click SFX
+- A-032: Dramatic VO pause → silence-beat (drop ALL audio 0.5-0.8s)\n`;
 
   prompt += `\n## SCENES (with ALL available context):\n\n`;
 

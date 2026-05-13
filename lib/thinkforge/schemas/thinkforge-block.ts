@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 
-export type ThinkForgeBlockKind = 'header' | 'action' | 'why' | 'example' | 'paragraph';
+export type ThinkForgeBlockKind = 'header' | 'action' | 'why' | 'example' | 'paragraph' | 'scene' | 'editorial';
 
 export interface RichTextNode {
   type: 'text' | 'link';
@@ -12,6 +12,35 @@ export interface RichTextNode {
 
 export type RichTextAST = RichTextNode[];
 
+export interface SceneSubject {
+  name: string;
+  category: 'person' | 'product' | 'location' | 'object' | 'brand' | 'other';
+}
+
+export interface SceneSlots {
+  visualDescription: string;
+  subjects: SceneSubject[];
+  duration?: number;
+  durationExplicit?: boolean;
+  mood?: string;
+  onScreenText?: string[];
+  sfxDescription?: string;
+  musicDescription?: string;
+}
+
+export type EditorialType =
+  | 'emotional_target'
+  | 'instrumentation'
+  | 'production_note'
+  | 'style_guide'
+  | 'color_palette'
+  | 'pacing_note'
+  | 'custom';
+
+export interface EditorialSlots {
+  editorialType: EditorialType;
+}
+
 export interface ThinkForgeBlock {
   id: string;
   kind: ThinkForgeBlockKind;
@@ -20,8 +49,10 @@ export interface ThinkForgeBlock {
   meta?: {
     role?: string;
     goal?: string;
-    level?: number; // For headers: 1, 2, or 3 (h1, h2, h3)
+    level?: number;
   };
+  scene?: SceneSlots;
+  editorial?: EditorialSlots;
 }
 
 /**
@@ -121,7 +152,7 @@ export function isThinkForgeBlock(value: unknown): value is ThinkForgeBlock {
   const b = value as Record<string, unknown>;
   if (typeof b.id !== 'string' || b.id.length < 4) return false;
   if (typeof b.kind !== 'string') return false;
-  const allowed: ThinkForgeBlockKind[] = ['header', 'action', 'why', 'example', 'paragraph'];
+  const allowed: ThinkForgeBlockKind[] = ['header', 'action', 'why', 'example', 'paragraph', 'scene', 'editorial'];
   if (!allowed.includes(b.kind as ThinkForgeBlockKind)) return false;
   
   if (!isRichTextAST(b.content)) return false;
@@ -150,18 +181,37 @@ export function validateThinkForgeBlocks(blocks: unknown[]): ThinkForgeBlock[] {
       if (!b || typeof b !== 'object') return null;
       const raw = b as any;
       
-      const kind = ['header', 'action', 'why', 'example', 'paragraph'].includes(raw.kind) 
-        ? raw.kind 
+      const kind = ['header', 'action', 'why', 'example', 'paragraph', 'scene', 'editorial'].includes(raw.kind)
+        ? raw.kind
         : 'paragraph';
 
       const candidate: ThinkForgeBlock = {
         id: ensureThinkForgeBlockId(raw.id),
         kind: kind as ThinkForgeBlockKind,
         content: normalizeThinkForgeRichText(raw.content ?? raw.text ?? []),
-        // Normalize meta: convert null/undefined to undefined (not null)
-        meta: raw.meta && typeof raw.meta === 'object' && Object.keys(raw.meta).length > 0 
-          ? raw.meta 
+        meta: raw.meta && typeof raw.meta === 'object' && Object.keys(raw.meta).length > 0
+          ? raw.meta
           : undefined,
+        // V2: Preserve Editron-ready structured slots when present
+        ...(kind === 'scene' && raw.scene && typeof raw.scene === 'object' ? {
+          scene: {
+            visualDescription: String(raw.scene.visualDescription ?? ''),
+            subjects: Array.isArray(raw.scene.subjects) ? raw.scene.subjects : [],
+            ...(typeof raw.scene.duration === 'number' ? { duration: raw.scene.duration } : {}),
+            ...(typeof raw.scene.durationExplicit === 'boolean' ? { durationExplicit: raw.scene.durationExplicit } : {}),
+            ...(typeof raw.scene.mood === 'string' ? { mood: raw.scene.mood } : {}),
+            ...(Array.isArray(raw.scene.onScreenText) ? { onScreenText: raw.scene.onScreenText } : {}),
+            ...(typeof raw.scene.sfxDescription === 'string' ? { sfxDescription: raw.scene.sfxDescription } : {}),
+            ...(typeof raw.scene.musicDescription === 'string' ? { musicDescription: raw.scene.musicDescription } : {}),
+          },
+        } : {}),
+        ...(kind === 'editorial' && raw.editorial && typeof raw.editorial === 'object' ? {
+          editorial: {
+            editorialType: ['emotional_target', 'instrumentation', 'production_note', 'style_guide', 'color_palette', 'pacing_note', 'custom'].includes(raw.editorial.editorialType)
+              ? raw.editorial.editorialType
+              : 'custom',
+          },
+        } : {}),
       };
 
       if (!isThinkForgeBlock(candidate)) {

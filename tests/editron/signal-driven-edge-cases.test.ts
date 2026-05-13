@@ -1,0 +1,279 @@
+/**
+ * Adversarial edge-case tests for the signal-driven executor pipeline.
+ * Tests: empty inputs, budget exhaustion, mid-word protection, constraint ordering.
+ *
+ * Run: npx vitest run lib/editron/services/__tests__/signal-driven-edge-cases.test.ts
+ */
+
+import { describe, it, expect } from 'vitest';
+
+// ─── humanize-pass.ts edge cases ────────────────────────────────────────────
+
+describe('humanize-pass', () => {
+  it('handles empty decision list without crashing', async () => {
+    const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
+    const result = humanizeEdl(
+      { decisions: [], metadata: { totalMappingsEvaluated: 0, totalMappingsFired: 0, totalDecisionsGenerated: 0, totalDecisionsSuppressed: 0, executionTimeMs: 0 } },
+      'test-project-123',
+      null,
+      30
+    );
+    expect(result.decisions).toEqual([]);
+  });
+
+  it('does NOT jitter montage-mode sections', async () => {
+    const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
+    // Create 6 rapid-fire cuts (montage pattern: <2s apart, should be exempt)
+    const montageCuts = Array.from({ length: 6 }, (_, i) => ({
+      type: 'cut' as const, frame: i * 30, confidence: 0.7, // every 1s
+      source: 'mapping:audio.cut_on_downbeat', technique: 'technique:transition.hard_cut',
+      params: { type: 'hard-cut' },
+    }));
+    const result = humanizeEdl(
+      { decisions: montageCuts, metadata: { totalMappingsEvaluated: 6, totalMappingsFired: 6, totalDecisionsGenerated: 6, totalDecisionsSuppressed: 0, executionTimeMs: 1 } },
+      'test-montage-project',
+      null,
+      30
+    );
+    // Montage cuts should be UNCHANGED (exempt from humanization)
+    expect(result.decisions.map(d => d.frame)).toEqual(montageCuts.map(d => d.frame));
+  });
+
+  it('never pushes cuts INTO mid-word positions via jitter', async () => {
+    const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
+    const rawFootage = {
+      transcription: {
+        words: [
+          { word: 'hello', startMs: 0, endMs: 400 },
+          { word: 'world', startMs: 600, endMs: 900 },
+          { word: 'test', startMs: 1100, endMs: 1400 },
+          { word: 'data', startMs: 1600, endMs: 1900 },
+          { word: 'here', startMs: 2100, endMs: 2400 },
+          { word: 'again', startMs: 2600, endMs: 2900 },
+          { word: 'more', startMs: 3100, endMs: 3400 },
+          { word: 'words', startMs: 3600, endMs: 3900 },
+        ],
+      },
+      segments: [],
+      originalDurationMs: 5000,
+    };
+    // Place cuts BETWEEN words (at the gaps: 450ms, 1000ms, 1500ms, 2000ms, 2500ms, 3000ms, 3500ms, 4000ms)
+    // These start at word boundaries — humanize must NOT jitter them INTO words
+    const gapTimesMs = [450, 1000, 1500, 2000, 2500, 3000, 3500, 4000];
+    const cuts = gapTimesMs.map(ms => ({
+      type: 'transition' as const, frame: Math.round((ms / 1000) * 30), confidence: 0.7,
+      source: 'mapping:audio.cut_on_downbeat', technique: 'technique:transition.hard_cut',
+      params: { type: 'hard-cut' },
+    }));
+    const result = humanizeEdl(
+      { decisions: cuts, metadata: { totalMappingsEvaluated: 8, totalMappingsFired: 8, totalDecisionsGenerated: 8, totalDecisionsSuppressed: 0, executionTimeMs: 1 } },
+      'test-word-protect',
+      rawFootage as any,
+      30
+    );
+    // Verify no cut was jittered INTO a word (with 50ms buffer)
+    for (const d of result.decisions) {
+      const timestampMs = (d.frame / 30) * 1000;
+      for (const w of rawFootage.transcription.words) {
+        if (timestampMs > w.startMs + 50 && timestampMs < w.endMs - 50) {
+          throw new Error(`Cut at frame ${d.frame} (${timestampMs}ms) was jittered into word "${w.word}" (${w.startMs}-${w.endMs}ms)`);
+        }
+      }
+    }
+  });
+
+  it('is deterministic (same projectId = same output)', async () => {
+    const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
+    const decisions = Array.from({ length: 10 }, (_, i) => ({
+      type: 'zoom' as const, frame: i * 90, confidence: 0.7,
+      source: 'mapping:speech.speaker_building_energy', technique: 'technique:zoom.zoom_push',
+      params: { end_scale: 1.1, duration_s: 3 },
+    }));
+    const edl = { decisions, metadata: { totalMappingsEvaluated: 10, totalMappingsFired: 10, totalDecisionsGenerated: 10, totalDecisionsSuppressed: 0, executionTimeMs: 1 } };
+
+    const result1 = humanizeEdl(edl, 'deterministic-test', null, 30);
+    const result2 = humanizeEdl(edl, 'deterministic-test', null, 30);
+    expect(result1.decisions).toEqual(result2.decisions);
+  });
+});
+
+// ─── constraint-enforcer.ts edge cases ──────────────────────────────────────
+
+describe('constraint-enforcer', () => {
+  it('handles empty decisions array', async () => {
+    const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const graphIndex = loadGraph();
+
+    const result = enforceConstraints([], [], graphIndex!, null, 30);
+    expect(result.totalViolations).toBe(0);
+    expect(result.totalChecked).toBe(0);
+  });
+
+  it('shifts cut_mid_word violations to word boundaries', async () => {
+    const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const graphIndex = loadGraph();
+
+    const rawFootage = {
+      transcription: {
+        words: [
+          { word: 'important', startMs: 1000, endMs: 1500 },
+          { word: 'word', startMs: 1600, endMs: 1900 },
+        ],
+      },
+    };
+
+    // Cut at frame 38 = 1266ms — lands inside "important" (1000-1500ms)
+    const decisions = [{
+      type: 'cut' as const, frame: 38, confidence: 0.7,
+      source: 'test', technique: 'technique:transition.hard_cut',
+      params: { type: 'hard-cut' },
+    }];
+
+    const result = enforceConstraints(decisions, [], graphIndex!, rawFootage as any, 30);
+
+    // Should have auto-corrected the mid-word cut
+    const midWordViolation = result.violations.find(v => v.constraintId === 'constraint:temporal.cut_mid_word');
+    expect(midWordViolation).toBeDefined();
+    expect(midWordViolation!.autoCorrected).toBe(true);
+
+    // Decision frame should now be at word boundary (end of "important" = 1500ms = frame 45)
+    expect(decisions[0].frame).toBe(45);
+  });
+
+  it('removes excess flashes for accessibility (NON-OVERRIDABLE)', async () => {
+    const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const graphIndex = loadGraph();
+
+    // 5 flashes within 1 second (30 frames) — exceeds 3/sec limit
+    const decisions = Array.from({ length: 5 }, (_, i) => ({
+      type: 'transition' as const, frame: i * 5, confidence: 0.9,
+      source: 'test', technique: 'technique:transition.flash',
+      params: { type: 'flash' },
+    }));
+
+    const result = enforceConstraints(decisions, [], graphIndex!, null, 30);
+
+    // Should have removed 2 excess flashes (5 - 3 = 2)
+    const flashViolations = result.violations.filter(v => v.constraintId === 'constraint:accessibility.flash_rate_violation');
+    expect(flashViolations.length).toBe(2);
+    expect(flashViolations.every(v => v.autoCorrected)).toBe(true);
+
+    // Only 3 flash decisions should remain
+    const remainingFlashes = decisions.filter(d => d.params['type'] === 'flash');
+    expect(remainingFlashes.length).toBe(3);
+  });
+});
+
+// ─── signal-executor.ts edge cases ──────────────────────────────────────────
+
+describe('signal-executor', () => {
+  it('handles empty signal timeline gracefully', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph();
+    const weightMap = buildMomentWeightMap(null, null);
+
+    const emptyTimeline = {
+      gridSignals: new Map(),
+      eventSignals: [],
+      globalSignals: {},
+      fps: 30,
+      totalFrames: 0,
+      gridInterval: 15,
+    };
+
+    const result = executeSignalDrivenEdit(emptyTimeline, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.5,
+    }, weightMap, graphIndex!, []);
+
+    expect(result.decisions).toEqual([]);
+    expect(result.metadata.totalDecisionsGenerated).toBe(0);
+  });
+
+  it('respects zoom budget (no more than zoom_budget zooms)', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph();
+    const weightMap = buildMomentWeightMap(null, null);
+
+    // Create a timeline with MANY high-energy speech peaks (all want zoom)
+    const gridSignals = new Map<number, any>();
+    for (let frame = 0; frame < 900; frame += 15) {
+      gridSignals.set(frame, {
+        frame,
+        timestampMs: (frame / 30) * 1000,
+        'speech.energy': 0.9,  // Very high — triggers zoom mappings
+        'speech.energy_delta': 0.2,
+        'visual.motion_intensity': 0.1,
+        'audio.music_energy': 0,
+        'structural.position_in_video': frame / 900,
+        'structural.time_since_last_cut': frame / 30,
+        'structural.active_overlays_count': 0,
+        'structural.cumulative_edit_density': 0,
+        'composite.narrative_pressure': 0.7,
+        'composite.montage_mode': false,
+        'composite.cinematic_moment': 0,
+      });
+    }
+
+    const timeline = {
+      gridSignals,
+      eventSignals: [],
+      globalSignals: { 'content.formality': 0.3 },
+      fps: 30,
+      totalFrames: 900,
+      gridInterval: 15,
+    };
+
+    const result = executeSignalDrivenEdit(timeline, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 3, // Only 3 allowed!
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.3,
+    }, weightMap, graphIndex!, []);
+
+    const zoomDecisions = result.decisions.filter(d => d.type === 'zoom');
+    // Should not exceed budget (3) + at most 1 override for weight > 0.9
+    expect(zoomDecisions.length).toBeLessThanOrEqual(4);
+  });
+});
+
+// ─── graph-query.ts edge cases ──────────────────────────────────────────────
+
+describe('graph-query', () => {
+  it('loads graph and has expected node counts', async () => {
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const index = loadGraph();
+
+    expect(index).not.toBeNull();
+    expect(index!.signals.size).toBe(49);
+    expect(index!.mappings.size).toBe(95);
+    expect(index!.techniques.size).toBe(115);
+    expect(index!.constraints.size).toBe(50);
+  });
+
+  it('resolves aliases correctly', async () => {
+    const { loadGraph, resolveAlias } = await import('@/lib/editron/services/graph-query');
+    const index = loadGraph()!;
+
+    // Known alias from the graph
+    expect(resolveAlias(index, 'technique:zoom.punch')).toBe('technique:zoom.zoom_punch');
+    expect(resolveAlias(index, 'technique:zoom.push')).toBe('technique:zoom.zoom_push');
+    // Non-alias returns input
+    expect(resolveAlias(index, 'technique:zoom.zoom_punch')).toBe('technique:zoom.zoom_punch');
+  });
+
+  it('returns empty array for unknown signal (not crash)', async () => {
+    const { loadGraph, getMappingsForSignal } = await import('@/lib/editron/services/graph-query');
+    const index = loadGraph()!;
+
+    const result = getMappingsForSignal(index, 'signal:nonexistent.fake');
+    expect(result).toEqual([]);
+  });
+});

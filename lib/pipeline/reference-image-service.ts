@@ -26,7 +26,7 @@ import type { ExtractedSubject } from './llm-scene-parser';
 import { IMAGE_MODELS, type ImageModelKey } from './storyboard-service';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { falRetry } from './fal-retry';
-import { IMAGE_MODEL_REGISTRY, getImageModelConfig, buildImageInputFromConfig } from './adapters/image-model-configs';
+import { IMAGE_MODEL_REGISTRY, buildImageInputFromConfig } from './adapters/image-model-configs';
 
 // Configure fal.ai
 let _falConfigured = false;

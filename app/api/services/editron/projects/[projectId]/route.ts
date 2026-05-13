@@ -32,9 +32,29 @@ export async function GET(
       );
     }
 
+    // Check if any video overlay references a proxy asset (original still uploading)
+    let proxyAssets: Array<{ assetId: string; filename: string }> = [];
+    try {
+      const videoAssetIds = (project.overlays || [])
+        .filter((o: any) => o.type === 'video' && o.assetId)
+        .map((o: any) => o.assetId);
+      if (videoAssetIds.length > 0) {
+        const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+        const db = await getDatabase();
+        const proxies = await db.collection(COLLECTIONS.MEDIA_ASSETS)
+          .find({ assetId: { $in: videoAssetIds }, isProxy: true })
+          .project({ assetId: 1, filename: 1, _id: 0 })
+          .toArray();
+        proxyAssets = proxies as Array<{ assetId: string; filename: string }>;
+      }
+    } catch {
+      // Non-fatal — project still loads, just without proxy info
+    }
+
     return NextResponse.json({
       success: true,
       project,
+      ...(proxyAssets.length > 0 && { proxyAssets }),
     });
   } catch (error: any) {
     console.error('Error loading project:', error);

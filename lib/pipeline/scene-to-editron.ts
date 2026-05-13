@@ -93,7 +93,7 @@ export function scenesToOverlays(
   }
 
   // Track generation units to avoid duplicate video placement
-  const placedUnits = new Set<string>();
+  const _placedUnits = new Set<string>();
 
   for (const scene of scenes) {
     const sceneDurationFrames = Math.round(scene.durationSeconds * fps);
@@ -328,7 +328,7 @@ export function alignCutsToBeats(
   let snappedCount = 0;
   const SNAP_THRESHOLD = Math.round(fps * 0.5); // Max 0.5s snap distance
 
-  for (const [sceneIndex, group] of montageGroups) {
+  for (const [_sceneIndex, group] of montageGroups) {
     if (group.length < 2) continue; // Need at least 2 sub-shots to have a cut point
 
     // Sort by from frame

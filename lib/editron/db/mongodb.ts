@@ -66,6 +66,7 @@ export const COLLECTIONS = {
   CHECKPOINTS: 'checkpoints',
   CHAT_SESSIONS: 'chatSessions',
   MEDIA_ASSETS: 'mediaAssets',
+  MEDIA_UPLOADS: 'mediaUploads',
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
   STYLE_PROFILES: 'styleProfiles',
 } as const;
@@ -108,6 +109,16 @@ export async function initializeIndexes(): Promise<void> {
     { key: { userId: 1, uploadedAt: -1 }, name: 'userId_uploadedAt' },
     { key: { projectId: 1 }, name: 'projectId' },
     { key: { assetId: 1, userId: 1 }, name: 'assetId_userId', unique: true },
+  ]);
+
+  // Media uploads tracking (multipart) — TTL on lastActivityAt so active slow uploads survive
+  await db.collection(COLLECTIONS.MEDIA_UPLOADS).createIndexes([
+    { key: { assetId: 1, userId: 1 }, name: 'assetId_userId', unique: true },
+    {
+      key: { lastActivityAt: 1 },
+      name: 'ttl_lastActivity',
+      expireAfterSeconds: 604800, // 7 days
+    },
   ]);
 
   console.log('Database indexes initialized successfully');

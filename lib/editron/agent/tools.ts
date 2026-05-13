@@ -2092,7 +2092,21 @@ Use this to understand what exists. Then decide what to do based on user intent.
           return !(oEnd <= videoFrom || o.from >= videoEnd);
         });
 
-        // If voiceover exists, use its assetId for transcription instead of the silent video
+        // If voiceover exists, use its assetId for transcription instead of the silent video.
+        // If NO voiceover overlaps AND video is pipeline-generated (AI clip = no real speech),
+        // skip gracefully. User-uploaded footage (no generationUnitId) still falls through
+        // to video-based transcription for talking heads / lectures / interviews.
+        if (!voiceoverOverlay) {
+          const isPipelineGenerated = (overlay as any).metadata?.generationUnitId != null;
+          if (isPipelineGenerated) {
+            console.log(`[add_captions] Skipping AI-gen video ${overlay.id}: no voiceover in time range [${videoFrom}-${videoEnd}], AI videos have no captionable speech`);
+            return JSON.stringify({
+              status: 'skipped',
+              data: null,
+              message: `No voiceover covers this video's time range. AI-generated videos have no captionable speech.`,
+            });
+          }
+        }
         const transcriptionAssetId = voiceoverOverlay?.assetId || overlay.assetId;
         console.log(`[add_captions] Using ${voiceoverOverlay ? 'voiceover' : 'video'} asset for transcription: ${transcriptionAssetId}`);
 
@@ -5380,6 +5394,66 @@ All Pixabay content is free for commercial use.`,
     },
   );
 
+  // ─── Mode 3: Use Matching Footage ───────────────────────────────
+  const useMatchingFootageSchema = z.object({
+    sceneIndex: z.coerce.number().describe("Scene index to replace with user footage"),
+    assetId: z.string().describe("Asset ID of user footage to use (from media library)"),
+  });
+
+  const useMatchingFootage = tool(
+    async (rawInput: z.infer<typeof useMatchingFootageSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const project = await loadProject();
+
+        // Find video overlay for this scene.
+        // metadata.sceneIndex is set by scene-to-editron.ts on pipeline-generated overlays.
+        // Cast needed: base Overlay type doesn't include metadata (it's on the MongoDB doc, not the TS interface).
+        const sceneOverlays = project.overlays.filter(
+          (o: any) => o.type === 'video' && (o.metadata?.sceneIndex === input.sceneIndex)
+        );
+        if (sceneOverlays.length === 0) {
+          return JSON.stringify({ status: 'error', message: `No video overlay found for scene ${input.sceneIndex}` });
+        }
+
+        // Resolve new asset URL
+        const newUrl = await assetResolver.resolveAssetUrl(input.assetId, userId);
+        if (!newUrl) {
+          return JSON.stringify({ status: 'error', message: `Asset ${input.assetId} not found or URL unresolvable` });
+        }
+
+        // Swap: update overlay's src + assetId, keep timing/position
+        const overlay = sceneOverlays[0];
+        await projectService.updateOverlay(userId, projectId, overlay.id, {
+          src: newUrl,
+          assetId: input.assetId,
+          metadata: { ...(overlay as any).metadata, swappedFrom: overlay.assetId, swapSource: 'user_footage' },
+        });
+
+        return JSON.stringify({
+          status: 'success',
+          data: {
+            sceneIndex: input.sceneIndex,
+            oldAssetId: overlay.assetId,
+            newAssetId: input.assetId,
+            message: `Scene ${input.sceneIndex} now uses your footage (${input.assetId})`,
+          },
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'use_matching_footage',
+      description: `Replace an AI-generated video in a scene with user's own footage from the media library.
+Use when user says "use my video for scene X" or "replace scene X with my footage".
+The footage must already be uploaded to the asset library.
+
+Example: use_matching_footage({ sceneIndex: 2, assetId: "a_Xk7pqR2m" })`,
+      schema: useMatchingFootageSchema,
+    },
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -5426,6 +5500,7 @@ All Pixabay content is free for commercial use.`,
     addSFX,               // NEW: Add SFX from Freesound (search + download + place)
     batchEditCaptions,    // NEW: Edit all captions at once for consistency
     searchStockFootage,   // NEW: Search Pixabay for stock videos/images
+    useMatchingFootage,   // Mode 3: Swap AI video with user footage per scene
   ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };

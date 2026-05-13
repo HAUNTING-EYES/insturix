@@ -53,7 +53,7 @@ export async function getTranscription(
   }
   
   // Generate new transcription
-  const transcription = await generateTranscription(asset, options.language);
+  const transcription = await generateTranscription(asset, options.language, { preferWordLevel: options.preferWordLevel });
   
   // Cache to database
   await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
@@ -92,7 +92,8 @@ export async function hasTranscription(
  */
 async function generateTranscription(
   asset: MediaAsset,
-  language?: string
+  language?: string,
+  options?: { preferWordLevel?: boolean }
 ): Promise<TranscriptionData> {
   const { refreshSignedUrl } = await import('../gcs-service');
 
@@ -103,6 +104,100 @@ async function generateTranscription(
   if (narrationText) {
     console.log(`[Transcription] Using synthetic timings from narration text for ${asset.assetId}`);
     return generateSyntheticTimings(narrationText, asset);
+  }
+
+  // ─── Mode 2: Grok STT for real footage (word-level timestamps) ──
+  // Grok STT: $0.10/hr (3.6x cheaper than Deepgram), word-level timestamps,
+  // accepts URL directly (no download), 500MB max, speaker diarization.
+  // Per v3 constraint:overlay.caption_timing_drift — "max 0.5s before speech onset."
+  // Wizper only returns segment-level → 10-30s drift on long videos.
+  if (options?.preferWordLevel) {
+    const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
+    if (xaiKey) {
+      try {
+        let mediaUrl = asset.cachedUrl;
+        if (!mediaUrl && asset.gcsPath) {
+          const signed = await refreshSignedUrl(asset.gcsPath);
+          mediaUrl = signed.url;
+        }
+        if (!mediaUrl) throw new Error('No URL for asset');
+
+        // NOTE: Grok STT 400 "Could not detect audio format" is a known issue.
+        // Root cause: R2 CDN worker (editron-asset-proxy) may not serve headers that
+        // let xAI's format detection work. Fix options (not yet implemented):
+        //   a) R2 Worker: serve Content-Type from stored metadata (separate deploy)
+        //   b) Download file + upload directly as FormData 'file' (doubles bandwidth)
+        //   c) xAI fix: they should detect MP4 from magic bytes regardless of headers
+        // Until fixed: Grok fails with 400, falls through to Whisper (works, no diarization).
+
+        console.log(`[Transcription] Grok STT: transcribing ${asset.assetId} via CDN URL...`);
+
+        // xAI STT API expects FormData (multipart/form-data), NOT JSON.
+        // Retry on 429 — CDN rate-limits when multiple services download simultaneously
+        // (VideoUnderstanding + multipart upload + Grok all hit CDN around the same time)
+        let response: Response | null = null;
+        const maxRetries = 3;
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          const formData = new FormData();
+          formData.append('url', mediaUrl);
+          formData.append('language', language || 'en');
+          formData.append('format', 'true');
+          formData.append('diarize', 'true');
+
+          response = await fetch('https://api.x.ai/v1/stt', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${xaiKey}`,
+            },
+            body: formData,
+          });
+
+          if (response.ok) break;
+
+          const bodyText = await response.text().catch(() => 'no body');
+          const is429 = response.status === 429 || bodyText.includes('429');
+          if (is429 && attempt < maxRetries - 1) {
+            const delayMs = (attempt + 1) * 5000; // 5s, 10s backoff
+            console.warn(`[Transcription] Grok STT 429 (attempt ${attempt + 1}/${maxRetries}), retrying in ${delayMs / 1000}s...`);
+            await new Promise(r => setTimeout(r, delayMs));
+            continue;
+          }
+
+          throw new Error(`Grok STT returned ${response.status}: ${bodyText}`);
+        }
+
+        if (!response || !response.ok) {
+          throw new Error('Grok STT: all retry attempts failed');
+        }
+
+        const data = await response.json();
+        if (data.words && data.words.length > 0) {
+          const words: TranscriptionWord[] = data.words.map((w: any) => ({
+            word: w.text || '',
+            startMs: Math.round((w.start || 0) * 1000),
+            endMs: Math.round((w.end || 0) * 1000),
+            confidence: 0.95,
+            ...(w.speaker !== undefined && { speaker: w.speaker }),
+          }));
+
+          // Count distinct speakers from diarization (0 if no speaker labels)
+          const speakerIds = new Set(words.filter(w => w.speaker !== undefined).map(w => w.speaker));
+          const speakerCount = speakerIds.size;
+          console.log(`[Transcription] Grok STT: ${words.length} words, ${speakerCount} speakers, duration=${data.duration?.toFixed(1)}s for ${asset.assetId}`);
+          return {
+            words,
+            transcript: data.text || words.map((w: any) => w.word).join(' '),
+            language: data.language || language || 'en',
+            confidence: 0.95,
+            generatedAt: new Date(),
+            ...(speakerCount > 1 && { speakerCount }),
+          };
+        }
+        console.warn(`[Transcription] Grok STT returned 0 words for ${asset.assetId}, falling through`);
+      } catch (grokErr: any) {
+        console.warn(`[Transcription] Grok STT failed for ${asset.assetId}: ${grokErr.message}, falling through to Wizper`);
+      }
+    }
   }
 
   // ─── Get accessible URL for external transcription ──────────────
@@ -133,30 +228,51 @@ async function generateTranscription(
   // Better than Gemma/Gemini for transcription (dedicated speech model).
   try {
     const { fal } = await import('@fal-ai/client');
-    const whisperResult = await fal.subscribe('fal-ai/whisper', {
+    const falKey = process.env.FAL_AI_API_KEY || process.env.FAL_KEY;
+    if (falKey) fal.config({ credentials: falKey });
+    const whisperResult = await fal.subscribe('fal-ai/wizper', {
       input: {
         audio_url: mediaUrl,
         task: 'transcribe',
         language: (language || undefined) as any,
-        chunk_level: 'word' as const, // word-level timestamps for captions
+        // chunk_level: only "segment" is valid per fal.ai/wizper docs.
+        // Word-level timestamps are derived by splitting segments below.
+        chunk_level: 'segment',
       },
       logs: false,
     });
     const data = whisperResult.data as any;
     if (data?.chunks && data.chunks.length > 0) {
-      const words: TranscriptionWord[] = data.chunks.map((chunk: any) => ({
-        word: chunk.text?.trim() || '',
-        startMs: Math.round((chunk.timestamp?.[0] || 0) * 1000),
-        endMs: Math.round((chunk.timestamp?.[1] || 0) * 1000),
-        confidence: 0.95, // Whisper doesn't return per-word confidence
-      })).filter((w: any) => w.word);
+      // Wizper returns segment-level chunks. Split each segment into word-level
+      // timestamps by distributing the segment duration proportionally by word length.
+      const words: TranscriptionWord[] = [];
+      for (const chunk of data.chunks) {
+        const segText = (chunk.text || '').trim();
+        const segStart = (chunk.timestamp?.[0] || 0) * 1000;
+        const segEnd = (chunk.timestamp?.[1] || 0) * 1000;
+        const segWords = segText.split(/\s+/).filter(Boolean);
+        if (segWords.length === 0) continue;
 
-      console.log(`[Transcription] Whisper: ${words.length} words for ${asset.assetId}`);
+        const totalChars = segWords.reduce((sum: number, w: string) => sum + w.length, 0);
+        let cursor = segStart;
+        for (const w of segWords) {
+          const wordDuration = ((w.length / totalChars) * (segEnd - segStart));
+          words.push({
+            word: w,
+            startMs: Math.round(cursor),
+            endMs: Math.round(cursor + wordDuration),
+            confidence: 0.9,
+          });
+          cursor += wordDuration;
+        }
+      }
+
+      console.log(`[Transcription] Whisper: ${words.length} words (from ${data.chunks.length} segments) for ${asset.assetId}`);
       return {
         words,
         transcript: data.text || words.map((w: any) => w.word).join(' '),
         language: data.inferred_languages?.[0] || language || 'en',
-        confidence: 0.95,
+        confidence: 0.9,
         generatedAt: new Date(),
       };
     }

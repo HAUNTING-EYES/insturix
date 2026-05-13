@@ -133,7 +133,7 @@ async function handler(request: NextRequest) {
           }),
           new Promise<string>((_, reject) => setTimeout(() => reject(new Error('LLM refinement timeout')), 30000)),
         ]);
-        console.log(`[VideoWorker] Scene ${sceneIndex}: prompt refined (${refinedPrompt.length} chars)`);
+        console.log(`[VideoWorker] Scene ${sceneIndex}: prompt refined (${refinedPrompt.length} chars): "${refinedPrompt.substring(0, 200)}"`);
       } catch (refineErr: any) {
         // Refinement failed — use the basic prompt. Still generates video, just less polished prompt.
         console.warn(`[VideoWorker] Scene ${sceneIndex}: refinement failed (${refineErr.message}), using basic prompt`);
@@ -368,10 +368,14 @@ async function handler(request: NextRequest) {
           (motionScore * 0.30 + stabilityScore * 0.25 + descOverlap * 0.25 + compositionScore * 0.20) * 10
         );
 
-        // ── Tier 2: Gemini Vision artifact check (only on borderline or low scores) ──
+        // ── Tier 2: Gemini Vision artifact check (runs on ALL videos per Fix 6) ──
+        // OLD: gated by `deterministicScore < 75` — most videos scored above 75 so
+        // vision check NEVER ran. Combined with the gemini-2.0-flash deprecation,
+        // this meant zero artifact detection for months.
+        // NEW: runs on every video with keyframe data. Cost: ~$0.003/video.
         let visionScore: number | null = null;
         let visionIssues: string[] = [];
-        const shouldRunVision = deterministicScore < 75 && kfAnalyses.length > 0;
+        const shouldRunVision = kfAnalyses.length > 0;
 
         if (shouldRunVision) {
           try {
@@ -379,7 +383,7 @@ async function handler(request: NextRequest) {
             if (apiKey && kfAnalyses[0]?.description) {
               const { GoogleGenerativeAI } = await import('@google/generative-ai');
               const genAI = new GoogleGenerativeAI(apiKey);
-              const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+              const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
               const kfSummary = kfAnalyses.slice(0, 3).map((kf: any, i: number) =>
                 `Frame ${i + 1}: ${(kf.description || '').substring(0, 200)}`
@@ -427,7 +431,7 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
         console.log(`[VideoWorker] Quality ${qualityScore}/100 (${qualitySource}) for scene ${sceneIndex}${visionIssues.length > 0 ? ` — issues: ${visionIssues.join(', ')}` : ''}`);
 
         if (qualityScore < 40) {
-          console.warn(`[VideoWorker] LOW QUALITY (${qualityScore}/100) for scene ${sceneIndex}`);
+          console.warn(`[VideoWorker] LOW QUALITY (${qualityScore}/100) for scene ${sceneIndex}. Prompt sent: "${refinedPrompt?.substring(0, 150)}". Model: ${videoModel}`);
           await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
             { _id: jobId } as any,
             { $set: { qualityFlag: 'low', qualityShouldRegenerate: true } },

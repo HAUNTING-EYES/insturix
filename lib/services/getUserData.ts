@@ -9,7 +9,7 @@ type UserDocument = mongoose.Document & IUser & {
   save: () => Promise<UserDocument>;
 };
 
-async function checkAndUpdateExpiredPlans(user: UserDocument) {
+async function _checkAndUpdateExpiredPlans(user: UserDocument) {
   const now = new Date();
   
   if (user.currentPlan &&

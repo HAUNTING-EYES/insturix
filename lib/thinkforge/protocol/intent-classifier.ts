@@ -37,6 +37,7 @@ export async function classifyIntent(input: {
     console.error('[IntentClassifier] Failed to classify intent:', error);
   }
 
-  // Safe default
-  return ScriptIntent.EDIT;
+  // Default to CONTINUE (non-destructive) when classification fails.
+  // EDIT was the prior default but it rewrites content — dangerous as a silent fallback.
+  return ScriptIntent.CONTINUE;
 }

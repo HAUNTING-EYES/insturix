@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { executeScriptOperation } from '@/lib/thinkforge/services/script-service';
+import { z } from 'zod';
+
+const ScriptOpSchema = z.object({
+  sessionId: z.string().min(1),
+  action: z.enum(['get', 'save', 'update']),
+  script: z.any().optional(),
+  baseVersion: z.number().optional(),
+}).passthrough();
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,28 +23,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let sessionId: string | undefined;
-  let action: 'get' | 'save' | 'update' | undefined;
-  let script: any | undefined;
-  let baseVersion: number | undefined;
-
+  let raw: unknown;
   try {
-    const body = await req.json();
-    sessionId = body?.sessionId ? String(body.sessionId) : undefined;
-    action = body?.action;
-    script = body?.script;
-    baseVersion = typeof body?.baseVersion === 'number' ? body.baseVersion : undefined;
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  if (!sessionId) {
-    return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
+  const parsed = ScriptOpSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request body', details: parsed.error.issues }, { status: 400 });
   }
-
-  if (!action || !['get', 'save', 'update'].includes(action)) {
-    return NextResponse.json({ error: 'Invalid action. Must be: get, save, or update' }, { status: 400 });
-  }
+  const { sessionId, action, script, baseVersion } = parsed.data;
 
   try {
     const result = await executeScriptOperation({

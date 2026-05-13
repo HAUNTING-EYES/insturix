@@ -19,6 +19,8 @@ export interface TranscriptionWord {
   startMs: number;  // 0-based, relative to video start
   endMs: number;    // 0-based, relative to video start
   confidence: number;
+  /** Speaker ID from diarization (Grok STT). 0-indexed. Absent for single-speaker content. */
+  speaker?: number;
 }
 
 /**
@@ -30,6 +32,8 @@ export interface TranscriptionData {
   language: string;
   confidence: number;
   generatedAt: Date;
+  /** Number of distinct speakers detected via diarization. 0 or absent = unknown/single. */
+  speakerCount?: number;
 }
 
 /**
@@ -38,6 +42,8 @@ export interface TranscriptionData {
 export interface TranscriptionOptions {
   forceRefresh?: boolean;
   language?: string;
+  /** Mode 2: try Deepgram first for accurate word-level timestamps (vs Wizper segment-level) */
+  preferWordLevel?: boolean;
 }
 
 // ============================================================================

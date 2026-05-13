@@ -125,7 +125,9 @@ const TRANSITION_FACTORIES: Record<string, (frames: number, w: number, h: number
 @keyframes softDip { 0%,100%{opacity:0} 40%{opacity:0.7} 60%{opacity:0.7} }
 </style>`,
 
-  // Alias dissolve to soft-cut until keyframe system enables true dissolve
+  // DEAD CODE: TRANSITION_FACTORIES are unused — EDL executor creates transitions directly,
+  // Remotion renderer (transition-layer-content.tsx) handles visuals via switch/case.
+  // Dissolve visual comes from clip opacity keyframes (createTrueDissolve in edl-executor).
   'dissolve': (frames, w, h) => `
 <div style="position:absolute;inset:0;background:#000;animation:softDip ${frames / 30}s ease-in-out forwards;">
 </div>
@@ -287,8 +289,8 @@ export const DEFAULT_TRANSITION_FRAMES: Record<TransitionType, number> = {
   'iris-wipe': 15,        // 0.5s
   'blur-transition': 15,  // 0.5s
   // Long transitions (smooth)
-  'soft-cut': 18,         // 0.6s
-  'dissolve': 18,         // 0.6s
+  'soft-cut': 24,         // 0.8s (was 0.6s — too abrupt per user feedback)
+  'dissolve': 36,         // 1.2s (real cross-dissolve needs more time to feel natural)
   'film-burn': 20,        // 0.67s
   'slide-up': 15,         // 0.5s
   'slide-down': 15,       // 0.5s
@@ -380,6 +382,9 @@ export function normalizeTransitionType(type: string): TransitionType {
     'wipe-left': 'whip-pan', // closest available
     'glitch': 'glitch',
     'soft-cut': 'soft-cut',
+    'invisible-cut': 'match-cut', // Fix 23: alias — invisible cut IS match-cut (compositions match so viewer doesn't notice)
+    'l-cut': 'hard-cut',         // L-cut is an AUDIO boundary edit (audioEndFrame), not a visual transition
+    'j-cut': 'hard-cut',         // J-cut is an AUDIO boundary edit (audioStartFrame), not a visual transition
     'fade': 'dip-to-black',
   };
   return map[type] || 'hard-cut';

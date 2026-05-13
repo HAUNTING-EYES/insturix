@@ -42,7 +42,7 @@ export function getUploaderXR2Client() {
 }
 
 export function getUploaderXR2BucketName() {
-  return getRequiredEnv("R2_BUCKET_NAME");
+  return process.env.UPLOADERX_R2_BUCKET_NAME || getRequiredEnv("R2_BUCKET_NAME");
 }
 
 export function buildUploaderXPublicUrl(key: string) {

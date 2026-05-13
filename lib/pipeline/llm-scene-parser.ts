@@ -82,7 +82,54 @@ const GlobalEditDirectionsSchema = z.object({
   pacing: z.string().optional().describe('Overall pacing from the script (e.g. "fast-paced", "building tension", "slow and deliberate"). null if not mentioned.'),
   graphicsDensity: z.enum(['heavy', 'moderate', 'minimal']).optional().describe('How graphic-heavy the edit should be, inferred from production notes. null if not mentioned.'),
   musicMood: z.string().optional().describe('Music mood/style beyond overallMusicPrompt — from production notes section. null if not mentioned.'),
-  narrativeArc: z.enum(['three-act', 'aida', 'hero-journey', 'gap-method', 'before-after']).optional().describe('Narrative structure if detectable from the script. null if not clear.'),
+  narrativeArc: z.enum([
+    // ── Classical & Long-Form Structures (§1.2) ──────────────────────────────
+    // Works at any length but needs enough time to hit all beats.
+    'three-act',           // Setup → Confrontation → Resolution. Universal default for product/brand ads.
+    'five-act',            // Freytag's Pyramid. Use for 2-5 min content; too many beats for <60s.
+    'hero-journey',        // Ordinary world → disruption → transformation → return. Testimonials, founder stories.
+    'story-circle',        // Dan Harmon's 8 beats. Episodic/series content — each piece feels complete but connected.
+    'kishotenketsu',       // 起承転結: intro → development → twist → reconciliation. No conflict. Lifestyle/food/family brands.
+    'save-the-cat',        // Blake Snyder's 15 beats. Long-form brand films ≥2 min. Too dense for <2 min.
+    'pixar-spine',         // "Once upon a time… until one day… because of that… until finally…". Origin/change narratives.
+    'rasa',                // Indian classical aesthetic flavor. Organizes content around one of 9 emotional rasas. Indian-audience content.
+    // ── Short-Form Native Structures (§1.2) ──────────────────────────────────
+    // Designed for sub-60s social content. Work at any length.
+    'hook-value-cta',      // Attention grab → deliver value → call to action. Default for social media ads.
+    'problem-agitate-solve', // Name the pain → intensify → offer solution. Direct-response, SaaS, health.
+    'before-after',        // Dissatisfied state → transformation moment → satisfied state. Fitness, beauty, renovation.
+    'myth-truth',          // Common belief → shatter it → replace with truth. Educational, contrarian positioning.
+    'countdown-ranking',   // #N down to #1. Retention-boosting; viewer stays for #1. Listicles, "top X" content.
+    'day-in-the-life',     // Morning → activities → evening. Influencer, brand culture, behind-the-scenes.
+    'testimonial-arc',     // Who I am → my problem → found solution → result → recommendation. Customer stories.
+    'versus-comparison',   // Option A → Option B → optional verdict. Product comparisons, competitive positioning.
+    'challenge-attempt',   // Set challenge → attempt(s) → outcome. Social challenges, product stress tests.
+    'what-if',             // Pose question → explore possibility → reveal implication. Thought leadership, innovation.
+    'loop',                // End leads back to beginning — designed for replay. Short-form social optimized for algorithm.
+    'reveal-unboxing',     // Conceal → build anticipation → reveal → reaction. Product launches, unboxing, mystery.
+    'micro-narrative-stack', // 3-5s micro-stories stacked until theme emerges. Testimonial compilations, community content.
+    // ── Non-Linear Structures (§1.2) ─────────────────────────────────────────
+    'in-medias-res',       // Start at climax → flashback to beginning → catch up → resolve. High-stakes, action.
+    'circular',            // Starts and ends with same image/moment — changed meaning. Brand films, emotional storytelling.
+    'fragmented-mosaic',   // Disconnected pieces assemble into meaning. Art-house brand films, music videos, mood pieces.
+    'rashomon',            // Same event from 2+ viewpoints. Multi-segment brand campaigns, "many voices" content.
+    'parallel-narrative',  // Two stories told simultaneously, converging at the end. "Two worlds collide" brand stories.
+  ]).optional().describe(
+    'Narrative structure this script follows, detected from its shape and content. ' +
+    'Use §1.3 selection criteria — pick the structure whose definition best matches the script:\n' +
+    '• Content type: product/explainer → hook-value-cta | problem-agitate-solve; ' +
+    'transformation → before-after | hero-journey; episodic/series → story-circle; ' +
+    'comparison → versus-comparison; unboxing/reveal → reveal-unboxing; testimonial → testimonial-arc\n' +
+    '• Duration: five-act and save-the-cat require 2+ min (too many beats for shorter content). ' +
+    'hook-value-cta, before-after, kishotenketsu work at any length.\n' +
+    '• Brand voice: warm/lifestyle/harmony brands → kishotenketsu | day-in-the-life | rasa; ' +
+    'disruptive/tech/problem-framing brands → myth-truth | problem-agitate-solve\n' +
+    '• Cultural context: Indian audience → rasa; East Asian audience → kishotenketsu; ' +
+    'Western default → three-act | hero-journey\n' +
+    '• Platform: TikTok/Reels → hook-value-cta | loop | countdown-ranking; ' +
+    'YouTube → story-circle | pixar-spine; LinkedIn → what-if | testimonial-arc\n' +
+    'null if the structure is genuinely mixed or not identifiable from the script.',
+  ),
 }).describe('Global editing directions for the entire video. ONLY populate from explicit script/production notes content.');
 
 const ParseResultSchema = z.object({
@@ -147,7 +194,7 @@ export async function parseScriptWithLLM(
   const { object } = await geminiRetry(() => generateObject({
     model,
     schema: ParseResultSchema,
-    temperature: 0.3,
+    temperature: 0.05,
     // 2026-04-17: bumped 120s → 180s after witnessing cold-start timeouts on the
     // new GCP project (insturix-493414). First Gemini call of the day often takes
     // 120-150s (structured output on complex Zod schema). 180s gives headroom while
@@ -1828,7 +1875,7 @@ IMPORTANT: For image-to-video, describe ONLY motion — never re-describe the im
 5-element hierarchy: cinematography → setting → subject → action → optional dialogue.
 Use professional film terminology ("slow dolly forward", "crane descending", "Dutch angle").
 Lighting terms work well: "golden hour backlighting", "volumetric fog rays", "dappled light".
-DO NOT overload — one primary action per generation. 60-100 words MAX.`,
+DO NOT overload — one primary action per generation. Target 150-300 characters.`,
 
     seedance: `Seedance 1.5/2.0: 4-LAYER STRUCTURE (unique to Seedance — follow exactly):
 Layer 1: Primary action/subject — core visual element and movement.
@@ -1870,7 +1917,7 @@ Weave these specific ambient/foley sounds into Layer 3: ${context.sfxDescription
   const { object } = await generateObject({
     model,
     schema: RefinedVideoPromptSchema,
-    temperature: 0.7,
+    temperature: 0.2,
     abortSignal: AbortSignal.timeout(60_000),
     prompt: `You are VideoPromptMaster — a prompt engineer for image-to-video AI models.
 
@@ -1927,7 +1974,29 @@ ${modelGuide}
 80-150 words. ONE paragraph. No bullet points. Return in the prompt field.`,
   });
 
-  return object.prompt;
+  let finalPrompt = object.prompt;
+
+  // ─── Post-processing: Model-specific length enforcement ──────────
+  if (context.targetModel === 'veo') {
+    // [Video Gen] Veo length enforcement: 150-300 characters optimal.
+    // Quality degrades significantly above 400 chars.
+    if (finalPrompt.length > 300) {
+      console.log(`[VideoPromptMaster] Veo prompt too long (${finalPrompt.length} chars) — truncating to 300 chars`);
+      finalPrompt = finalPrompt.substring(0, 300);
+      // Try to end at a clean sentence or word boundary if possible within the 150-300 range
+      const lastPeriod = finalPrompt.lastIndexOf('.');
+      if (lastPeriod > 150) {
+        finalPrompt = finalPrompt.substring(0, lastPeriod + 1);
+      } else {
+        const lastSpace = finalPrompt.lastIndexOf(' ');
+        if (lastSpace > 150) {
+          finalPrompt = finalPrompt.substring(0, lastSpace);
+        }
+      }
+    }
+  }
+
+  return finalPrompt;
 }
 
 /**

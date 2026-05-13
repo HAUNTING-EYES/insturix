@@ -329,6 +329,42 @@ export interface TiptapExampleBlock {
   content?: (TiptapParagraph | TiptapCodeBlock)[];
 }
 
+// SceneBlock - V2: structured scene with typed slots for Editron-ready output
+export const SceneBlockNodeSchema = z.object({
+  type: z.literal('sceneBlock'),
+  attrs: z.record(z.string(), z.unknown()).optional(),
+  content: z.lazy(() => z.array(z.union([
+    ParagraphNodeSchema,
+    HeadingNodeSchema,
+    BulletListNodeSchema,
+    OrderedListNodeSchema,
+  ]))).optional(),
+}).catchall(z.unknown());
+
+export interface TiptapSceneBlock {
+  type: 'sceneBlock';
+  attrs?: Record<string, unknown>;
+  content?: (TiptapParagraph | TiptapHeading | TiptapBulletList | TiptapOrderedList)[];
+}
+
+// EditorialBlock - V2: production notes callout (replaces regex-detected headers)
+export const EditorialBlockNodeSchema = z.object({
+  type: z.literal('editorialBlock'),
+  attrs: z.record(z.string(), z.unknown()).optional(),
+  content: z.lazy(() => z.array(z.union([
+    ParagraphNodeSchema,
+    HeadingNodeSchema,
+    BulletListNodeSchema,
+    OrderedListNodeSchema,
+  ]))).optional(),
+}).catchall(z.unknown());
+
+export interface TiptapEditorialBlock {
+  type: 'editorialBlock';
+  attrs?: Record<string, unknown>;
+  content?: (TiptapParagraph | TiptapHeading | TiptapBulletList | TiptapOrderedList)[];
+}
+
 // =============================================================================
 // DOCUMENT SCHEMA
 // =============================================================================
@@ -355,6 +391,8 @@ export const BlockContentSchema = z.union([
   ActionBlockNodeSchema,
   WhyBlockNodeSchema,
   ExampleBlockNodeSchema,
+  SceneBlockNodeSchema,
+  EditorialBlockNodeSchema,
   GenericBlockSchema, // Fallback for any other node types
 ]);
 

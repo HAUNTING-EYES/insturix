@@ -1,0 +1,1653 @@
+{
+  "part": 5,
+  "name": "Irreducible Creative Knowledge",
+  "sourceLines": [5146, 5466],
+  "nodes": [
+    {
+      "id": "theory:murch.rule_of_six",
+      "type": "Theory",
+      "category": "editing-principle",
+      "name": "Murch's Rule of Six",
+      "summary": "Every cut must be judged against six criteria in strict priority order. When criteria conflict, sacrifice from the bottom, never from the top. Emotion outweighs everything.",
+      "details": {
+        "principle": "Every cut must be judged against six criteria, in strict priority order. When criteria conflict, sacrifice from the bottom, never from the top. Emotion outweighs everything.",
+        "author": "Walter Murch, 'In the Blink of an Eye' (2001)",
+        "application": "The signal system primarily operates on criteria 3-6 (rhythm, eye-trace, planarity, spatial) because these are measurable. Criteria 1-2 (emotion, story) require understanding MEANING — provided by the Unified Intelligence Engine through creative intent and moment weighting. The moment_weight_map IS the emotion/story layer.",
+        "examples": ["A cut emotionally perfect that advances the story is forgiven for awkward eye-trace", "A spatially perfect cut that's emotionally wrong cannot be saved"],
+        "implications": ["Satisfying higher criteria obscures problems with lower criteria", "Signal-based mechanical precision is subordinate to emotion and story", "moment_weight_map is the emotion/story layer above mechanical signals"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5155, 5176]
+    },
+    {
+      "id": "theory:murch.priority_emotion",
+      "type": "Theory",
+      "category": "editing-principle",
+      "name": "Rule of Six — Priority 1: Emotion (51%)",
+      "summary": "The dominant criterion. Does the cut feel right? What should the audience feel at this moment?",
+      "details": {
+        "principle": "EMOTION (51%) — Does the cut feel right? What should the audience feel at this moment?",
+        "author": "Walter Murch",
+        "application": "When the cut is emotionally perfect, the viewer forgives all lower-tier failures. This is the LLM/creative-intent layer.",
+        "implications": ["Emotion is the single most weighted criterion", "Creative intent decisions trump mechanical signal decisions"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5162, 5162]
+    },
+    {
+      "id": "theory:murch.priority_story",
+      "type": "Theory",
+      "category": "editing-principle",
+      "name": "Rule of Six — Priority 2: Story (23%)",
+      "summary": "Does the cut advance the narrative? Does it bring new information?",
+      "details": {
+        "principle": "STORY (23%) — Does the cut advance the narrative? Does it bring new information?",
+        "author": "Walter Murch",
+        "application": "Combined with emotion, accounts for 74% of cut judgment. Information must move forward across the cut.",
+        "implications": ["Cuts that don't advance narrative are suspect", "New information per cut is the second-highest virtue"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5163, 5163]
+    },
+    {
+      "id": "theory:murch.priority_rhythm",
+      "type": "Theory",
+      "category": "editing-principle",
+      "name": "Rule of Six — Priority 3: Rhythm (10%)",
+      "summary": "Is the timing musically right? Does it feel natural in the sequence's flow?",
+      "details": {
+        "principle": "RHYTHM (10%) — Is the timing musically right? Does it feel natural in the sequence's flow?",
+        "author": "Walter Murch",
+        "application": "First measurable criterion — handled by Editron's signal system (pacing mappings, beat-sync).",
+        "implications": ["Rhythm is the gateway between meaning-driven and mechanical criteria", "Signal system can compute this directly"]
+      },
+      "tags": ["DETERMINISTIC_HINT"],
+      "sourceLines": [5164, 5164]
+    },
+    {
+      "id": "theory:murch.priority_eye_trace",
+      "type": "Theory",
+      "category": "editing-principle",
+      "name": "Rule of Six — Priority 4: Eye-Trace (7%)",
+      "summary": "Does the viewer's eye land naturally on the important element in the next shot?",
+      "details": {
+        "principle": "EYE-TRACE (7%) — Does the viewer's eye land naturally on the important element in the next shot?",
+        "author": "Walter Murch",
+        "application": "Across-cut visual continuity for attention. Subject-position tracking and salience mapping inform this.",
+        "implications": ["Subject position from clip A should align with subject position in clip B", "Visual saliency analysis can support this signal"]
+      },
+      "tags": ["DETERMINISTIC_HINT"],
+      "sourceLines": [5165, 5165]
+    },
+    {
+      "id": "theory:murch.priority_planarity",
+      "type": "Theory",
+      "category": "editing-principle",
+      "name": "Rule of Six — Priority 5: Planarity (5%)",
+      "summary": "Does the 2D screen composition read correctly?",
+      "details": {
+        "principle": "PLANARITY (5%) — Does the 2D screen composition read correctly?",
+        "author": "Walter Murch",
+        "application": "2D screen composition continuity across cuts. Rule of thirds, balance, framing alignment.",
+        "implications": ["Composition jumps create visual discomfort even when content is right"]
+      },
+      "tags": ["DETERMINISTIC_HINT"],
+      "sourceLines": [5166, 5166]
+    },
+    {
+      "id": "theory:murch.priority_spatial",
+      "type": "Theory",
+      "category": "editing-principle",
+      "name": "Rule of Six — Priority 6: Spatial (4%)",
+      "summary": "Does 3D space make sense across the cut?",
+      "details": {
+        "principle": "SPATIAL (4%) — Does 3D space make sense across the cut?",
+        "author": "Walter Murch",
+        "application": "180-degree rule, screen direction continuity, spatial geography of the scene.",
+        "implications": ["Lowest-priority criterion — sacrificed first when higher criteria conflict", "Crossing the line is forgivable when emotion/story benefit"]
+      },
+      "tags": ["DETERMINISTIC_HINT"],
+      "sourceLines": [5167, 5167]
+    },
+    {
+      "id": "theory:murch.blink_theory",
+      "type": "Theory",
+      "category": "editing-principle",
+      "name": "Murch's Blink Theory",
+      "summary": "Cuts should land where the viewer would naturally blink — at cognitive/emotional transition points where the brain has completed processing and is ready for new input.",
+      "details": {
+        "principle": "Cuts should land where the viewer would naturally blink — at cognitive/emotional transition points. Blinks occur when the brain completes processing a thought and is ready for new input. A well-timed cut feels like blinking — invisible. A badly-timed cut feels like someone forced your eyes shut mid-thought.",
+        "author": "Walter Murch",
+        "application": "Cuts at semantic/cognitive boundaries (end of phrase, post-action, post-emotional-beat) feel invisible; cuts mid-thought feel violent.",
+        "implications": ["Detect cognitive completion points as cut candidates", "Topic boundaries and speech endings are blink candidates"]
+      },
+      "tags": ["LLM_REQUIRED", "DETERMINISTIC_HINT"],
+      "sourceLines": [5174, 5174]
+    },
+    {
+      "id": "theory:murch.lingering_principle",
+      "type": "Theory",
+      "category": "editing-principle",
+      "name": "Murch's Lingering Principle",
+      "summary": "Cutting away before the speaker finishes makes the audience take words at face value. Lingering 1-2 seconds after speech ends invites the audience to study the face and read deeper meaning.",
+      "details": {
+        "principle": "Cutting away BEFORE the speaker finishes = audience takes words at face value. Lingering 1-2 seconds AFTER speech ends = audience studies the face, questions sincerity, reads deeper meaning. The same content with different cut timing creates different interpretations.",
+        "author": "Walter Murch",
+        "application": "Hold duration after speech ending is itself a creative decision — same words, different meanings depending on linger time.",
+        "implications": ["Post-speech hold length determines interpretation depth", "The editor doesn't change what was said — they change how the viewer PROCESSES what was said", "Useful for sincerity testing, dramatic irony, post-statement weight"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5176, 5176]
+    },
+    {
+      "id": "theory:pearlman.breath_rhythm",
+      "type": "Theory",
+      "category": "rhythm-theory",
+      "name": "Pearlman's Breath-Rhythm Model",
+      "summary": "Editing rhythm follows the body's rhythm — we perceive time in breath cycles of inhale (tension/anticipation) and exhale (release/satisfaction).",
+      "details": {
+        "principle": "Editing rhythm is not mechanical — it follows the body's rhythm. We perceive time in breath cycles.",
+        "author": "Karen Pearlman, 'Cutting Rhythms' (2009, 3rd ed. 2024)",
+        "application": "Without Pearlman's model, the system would produce mechanically correct but physically exhausting output. The breath model is why the system needs to HOLD sometimes (inhale) and CUT sometimes (exhale), and why the pattern must vary.",
+        "implications": ["Pacing must alternate hold and release", "organic_imperfection_injection and post_peak_decompression mappings implement breath", "The pattern of inhale/exhale must vary, not metronomic"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5179, 5197]
+    },
+    {
+      "id": "theory:pearlman.inhale",
+      "type": "Theory",
+      "category": "rhythm-theory",
+      "name": "Inhale — Tension/Anticipation",
+      "summary": "Holding a shot past comfortable creates an inhale — the viewer tenses, expects the cut. The moment before the cut is charged with anticipation.",
+      "details": {
+        "principle": "Inhale = tension/anticipation. Holding a shot past comfortable creates an inhale — the viewer tenses, expects the cut. The moment BEFORE the cut is charged with anticipation. Energy is building. The viewer's body is literally bracing.",
+        "author": "Karen Pearlman",
+        "application": "Deliberately holding past comfort point builds tension. Used before climactic cuts.",
+        "implications": ["Hold-past-expected creates physical tension in the viewer", "Inhale phase is preparation for impact"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5185, 5185]
+    },
+    {
+      "id": "theory:pearlman.exhale",
+      "type": "Theory",
+      "category": "rhythm-theory",
+      "name": "Exhale — Release/Satisfaction",
+      "summary": "Cutting provides release — the viewer exhales, energy dissipates. Early cuts create propulsion; late cuts amplify release.",
+      "details": {
+        "principle": "Exhale = release/satisfaction. Cutting provides release — the viewer exhales, energy dissipates. The new shot is fresh input. If the cut comes slightly EARLY (before the viewer fully expects it), it creates propulsion — the viewer is pulled forward. If the cut comes slightly LATE, the tension builds and the release is more powerful.",
+        "author": "Karen Pearlman",
+        "application": "Cut timing relative to expectation: early = propulsion, late = amplified release.",
+        "implications": ["Early cuts pull viewer forward (propulsion)", "Late cuts amplify the release felt at the cut", "Exact-on-expectation cuts are neutral/comfortable"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5187, 5187]
+    },
+    {
+      "id": "theory:pearlman.movement_phrases",
+      "type": "Theory",
+      "category": "rhythm-theory",
+      "name": "Movement Phrases — Build/Peak/Release",
+      "summary": "Like music, editing has phrases — build to peak to release. Each phrase is a complete rhythmic unit.",
+      "details": {
+        "principle": "Like music, editing has phrases — build → peak → release. Each phrase is a complete rhythmic unit. Cutting mid-phrase (during the build, before the peak) feels premature. Cutting at the peak feels powerful. Cutting during the release feels comfortable and resolved.",
+        "author": "Karen Pearlman",
+        "application": "Identify phrase boundaries; cut at peak for power, at release for comfort.",
+        "implications": ["Cutting mid-build is premature", "Peak cuts are most powerful", "Release-phase cuts feel resolved"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5189, 5189]
+    },
+    {
+      "id": "theory:pearlman.kinesthetic_empathy",
+      "type": "Theory",
+      "category": "rhythm-theory",
+      "name": "Kinesthetic Empathy",
+      "summary": "Viewers physically empathize with on-screen movement — the body mirrors the camera's movement through mirror neuron activation.",
+      "details": {
+        "principle": "Viewers physically empathize with on-screen movement. When the camera pushes in, the viewer's body feels forward motion. When speed ramps create deceleration, the viewer physically feels braking.",
+        "author": "Karen Pearlman",
+        "application": "zoom_push feels like 'leaning in'; zoom_pull_back feels like 'stepping away'. Speed ramps are felt as physical acceleration/deceleration.",
+        "implications": ["Camera movement is bodily experienced, not just observed", "Mirror neuron activation underlies viewer engagement"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5191, 5191]
+    },
+    {
+      "id": "theory:pearlman.pulse",
+      "type": "Theory",
+      "category": "rhythm-theory",
+      "name": "The Pulse — On-Pulse vs Off-Pulse",
+      "summary": "Underneath the surface rhythm of cuts, a sequence has an underlying pulse like a heartbeat. The art is in establishing a pulse and deviating from it at meaningful moments.",
+      "details": {
+        "principle": "Underneath the surface rhythm of cuts, a sequence has an underlying PULSE — like a heartbeat. Cuts can be ON the pulse (stability, satisfaction) or OFF the pulse (syncopation, tension, surprise). Being consistently on-pulse is metronomic and dead. Being consistently off-pulse is chaotic and anxious.",
+        "author": "Karen Pearlman",
+        "application": "Establish a pulse, then deviate from it strategically. All-on-pulse = dead. All-off-pulse = chaos. Variation = art.",
+        "implications": ["Pulse establishment then deviation drives engagement", "On-pulse = stability, off-pulse = tension/surprise"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5193, 5193]
+    },
+    {
+      "id": "theory:pearlman.fractality",
+      "type": "Theory",
+      "category": "rhythm-theory",
+      "name": "Rhythmic Fractality",
+      "summary": "The rhythms of a well-edited piece are fractal — shot-level rhythms echo scene-level rhythms echo overall structure rhythms.",
+      "details": {
+        "principle": "The rhythms of a well-edited piece are fractal. Shot-level rhythms echo scene-level rhythms echo overall structure rhythms. A scene that builds → peaks → releases mirrors the overall video's build → peak → resolution.",
+        "author": "Karen Pearlman",
+        "application": "Self-similarity at shot/scene/structure levels creates organic wholeness. Shot rhythms should mirror overall structure rhythm.",
+        "implications": ["Edit cohesion comes from rhythmic self-similarity at multiple scales", "Each scene is a microcosm of the whole"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5195, 5195]
+    },
+    {
+      "id": "theory:eisenstein.metric_montage",
+      "type": "Theory",
+      "category": "montage-method",
+      "name": "Metric Montage",
+      "summary": "Cuts at fixed time intervals regardless of content. Creates mechanical tension, escalation, inevitability — like a ticking clock.",
+      "details": {
+        "principle": "Cuts at fixed time intervals regardless of content. Creates mechanical tension, escalation, inevitability. Like a ticking clock. The interval can shorten progressively (acceleration) to build dread or excitement.",
+        "author": "Sergei Eisenstein, 'Film Form' (1949)",
+        "application": "Used for: countdown sequences, time-pressure, rapid product showcases. In Editron: montage_mode with beat-locked cuts IS metric montage.",
+        "examples": ["Countdown sequences", "Time-pressure scenes", "Rapid product showcases"],
+        "implications": ["Beat-locked cuts implement metric montage", "Progressive acceleration intensifies effect"]
+      },
+      "tags": ["DETERMINISTIC_HINT"],
+      "sourceLines": [5206, 5206]
+    },
+    {
+      "id": "theory:eisenstein.rhythmic_montage",
+      "type": "Theory",
+      "category": "montage-method",
+      "name": "Rhythmic Montage",
+      "summary": "Cuts based on the visual rhythm of the content. Action within the shots determines when to cut, not a fixed timer.",
+      "details": {
+        "principle": "Cuts based on the visual rhythm OF the content. The action within the shots determines when to cut — not a fixed timer. Creates organic flow, the video breathes with the action.",
+        "author": "Sergei Eisenstein",
+        "application": "Used for: music-synced editing, dance, action sequences. In Editron: cut_on_action and high_motion_fast_pacing implement rhythmic montage principles.",
+        "examples": ["Music-synced editing", "Dance sequences", "Action sequences"],
+        "implications": ["Content motion drives cut timing", "Organic, breathing pacing"]
+      },
+      "tags": ["DETERMINISTIC_HINT"],
+      "sourceLines": [5208, 5208]
+    },
+    {
+      "id": "theory:eisenstein.tonal_montage",
+      "type": "Theory",
+      "category": "montage-method",
+      "name": "Tonal Montage",
+      "summary": "Cuts based on emotional tone — shots assembled by mood. Creates sustained emotional states, immersion.",
+      "details": {
+        "principle": "Cuts based on the emotional tone of shots, not their rhythm or timing. Shots are assembled by MOOD — dark shots grouped with dark shots, bright with bright. Creates sustained emotional states, immersion.",
+        "author": "Sergei Eisenstein",
+        "application": "Used for: brand atmosphere pieces, emotional narratives, mood maintenance. In Editron: genre_parameters and moment_weight_map create the conditions for tonal montage.",
+        "examples": ["Brand atmosphere pieces", "Emotional narratives", "Mood maintenance sequences"],
+        "implications": ["Mood consistency across cuts", "Genre and emotional weighting drive grouping"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5210, 5210]
+    },
+    {
+      "id": "theory:eisenstein.overtonal_montage",
+      "type": "Theory",
+      "category": "montage-method",
+      "name": "Overtonal Montage",
+      "summary": "The combination of metric + rhythmic + tonal aligned simultaneously. The highest form of purely sensory montage.",
+      "details": {
+        "principle": "The combination of metric + rhythmic + tonal. All three dimensions aligned simultaneously. Creates complex, multilayered emotional experience. The highest form of purely sensory montage.",
+        "author": "Sergei Eisenstein",
+        "application": "Used for: climactic sequences where everything converges. In Editron: cinematic_moment detection is essentially detecting overtonal convergence — multiple tracks peaking simultaneously.",
+        "examples": ["Climactic sequences", "Cinematic moments where multiple tracks peak"],
+        "implications": ["cinematic_moment detection is overtonal convergence detection", "All three montage dimensions aligning simultaneously"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5212, 5212]
+    },
+    {
+      "id": "theory:eisenstein.intellectual_montage",
+      "type": "Theory",
+      "category": "montage-method",
+      "name": "Intellectual Montage",
+      "summary": "Juxtaposition creates meaning neither shot has alone — 1+1=3. The viewer's brain creates the third meaning from the collision.",
+      "details": {
+        "principle": "The most radical — juxtaposition creates MEANING neither shot has alone. 1+1=3. A shot of a peacock followed by a shot of a politician = 'this politician is vain.' Neither shot says this alone. The viewer's brain creates the third meaning from the collision.",
+        "author": "Sergei Eisenstein",
+        "application": "In Editron: match_cut is the closest technique. This level of meaning-making generally requires human creative direction — difficult to automate because the meaning is CONCEPTUAL, not signal-based.",
+        "examples": ["Peacock + politician = 'vain politician'", "Match cut juxtapositions"],
+        "implications": ["Meaning emerges from collision, not from individual shots", "Generally requires human creative direction", "match_cut is the closest automated technique"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5214, 5214]
+    },
+    {
+      "id": "theory:eisenstein.collision_vs_linkage",
+      "type": "Theory",
+      "category": "montage-method",
+      "name": "Collision vs Linkage",
+      "summary": "Eisenstein's collision (opposing elements juxtaposed for dialectical meaning) vs Pudovkin's linkage (smooth narrative connection). Most commercial editing is linkage.",
+      "details": {
+        "principle": "Eisenstein's approach (collision — opposing elements juxtaposed for dialectical meaning) contrasts with Pudovkin's approach (linkage — smooth connection between shots for narrative flow). Most commercial editing is linkage.",
+        "author": "Sergei Eisenstein vs Vsevolod Pudovkin",
+        "application": "Eisenstein's collision is used in: political content, artistic brand films, when the brand wants to make a POINT through visual argument. The smash_cut technique is the simplest form of collision.",
+        "examples": ["Political content uses collision", "Artistic brand films use collision", "smash_cut is collision"],
+        "implications": ["Linkage is the commercial default", "Collision is for argument/statement-making content", "smash_cut is collision's simplest expression"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5216, 5216]
+    },
+    {
+      "id": "theory:tarkovsky.time_pressure",
+      "type": "Theory",
+      "category": "editing-principle",
+      "name": "Tarkovsky's Time-Pressure",
+      "summary": "A shot contains time under pressure — the accumulation of information, emotion, and tension within the shot. Pressure comes from what the viewer KNOWS, not from what's ON SCREEN.",
+      "details": {
+        "principle": "A shot contains TIME under pressure. The 'pressure' is the accumulation of information, emotion, and tension within the shot. A boring shot has no time-pressure — nothing is accumulating. A charged shot has HIGH time-pressure even if 'nothing is happening.' The key insight: time-pressure comes from what the viewer KNOWS, not from what's ON SCREEN.",
+        "author": "Andrei Tarkovsky, 'Sculpting in Time' (1986)",
+        "application": "The narrative_pressure composite signal attempts to detect charged moments — but it can only approximate. True time-pressure requires understanding the STORY. The Unified Intelligence Engine's moment_weight_map identifies which moments carry narrative weight that signals alone can't detect.",
+        "examples": ["Empty chair where someone used to sit (charged)", "Spinning top in Inception (high pressure from narrative context)", "Long hallway with closed door at end (charged by accumulation)", "Pause after 'We grew 300%' is charged; pause after 'So anyway...' is dead air"],
+        "implications": ["Content determines pressure, not silence itself", "narrative_pressure signal is only a proxy", "moment weighting from LLM is the deeper authority", "charged_silence_protection mapping uses narrative_pressure as proxy"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5219, 5231]
+    },
+    {
+      "id": "theory:chion.synchresis",
+      "type": "Theory",
+      "category": "cross-modal",
+      "name": "Synchresis",
+      "summary": "When sound and visual event occur simultaneously, the brain automatically fuses them into a single percept — even if the sound doesn't actually come from the visual source.",
+      "details": {
+        "principle": "When a sound and a visual event occur simultaneously, the brain automatically fuses them into a single percept — even if the sound doesn't actually come from the visual source. A random 'crack' at the moment someone sets down a cup = perceived as the cup's sound. The fusion is automatic and happens within ~40ms. Beyond 40ms offset, the brain separates them.",
+        "author": "Michel Chion, 'Audio-Vision' (1994)",
+        "application": "This is why SFX timing precision is non-negotiable — sfx_timing_drift < 3 frames constraint. SFX can be totally arbitrary as long as it lands on a visual event within the synchresis window.",
+        "examples": ["Random 'crack' at cup placement = perceived as cup sound", "SFX synced within 40ms = fuses with visual"],
+        "implications": ["~40ms synchresis window", "SFX timing < 3 frames is non-negotiable", "Sound source need not be diegetic — only synced"]
+      },
+      "tags": ["DETERMINISTIC_HINT", "LLM_REQUIRED"],
+      "sourceLines": [5240, 5240]
+    },
+    {
+      "id": "theory:mcgurk.effect",
+      "type": "Theory",
+      "category": "cross-modal",
+      "name": "The McGurk Effect",
+      "summary": "Visual input changes what you hear. If you see a mouth saying 'ga' but hear 'ba,' the brain perceives 'da' — a fusion of both.",
+      "details": {
+        "principle": "Visual input changes what you HEAR. If you see a mouth saying 'ga' but hear 'ba,' the brain perceives 'da' — a fusion of both inputs. The visual mouth movement overrides the auditory signal.",
+        "author": "McGurk & MacDonald (1976)",
+        "application": "When a speaker's lip movements are visible, audio must be tightly synced. This is why cut_mid_word is a critical constraint — the viewer's brain is actively fusing mouth movement with speech sound.",
+        "examples": ["See 'ga' + hear 'ba' = perceive 'da'", "cut_mid_word constraint prevents mouth/audio mismatch"],
+        "implications": ["Lip-visible speakers require tight audio sync", "cut_mid_word is critical constraint", "Visual mouth movement overrides audio at perception level"]
+      },
+      "tags": ["DETERMINISTIC_HINT"],
+      "sourceLines": [5242, 5242]
+    },
+    {
+      "id": "theory:spence.cross_modal_correspondences",
+      "type": "Theory",
+      "category": "cross-modal",
+      "name": "Cross-Modal Correspondences",
+      "summary": "The brain has innate mappings between senses: brightness ↔ pitch, size ↔ loudness, sharpness ↔ timbre. Audio and visual design should be coherent.",
+      "details": {
+        "principle": "The brain has innate mappings between senses: brightness ↔ pitch (bright images feel high-pitched), size ↔ loudness (large objects feel louder), sharpness ↔ timbre (angular shapes feel like sharp sounds, round shapes feel like smooth sounds). These correspondences mean that audio and visual design should be COHERENT.",
+        "author": "Charles Spence (2011)",
+        "application": "Bright visuals with high-pitched accents, dark visuals with low-frequency drones. Mismatches create subtle but real cognitive dissonance.",
+        "examples": ["Bright images = high pitch expected", "Large objects = louder sound expected", "Angular shapes = sharp timbre expected"],
+        "implications": ["Audio-visual design must be cross-modally coherent", "Mismatches create subtle cognitive dissonance"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5244, 5244]
+    },
+    {
+      "id": "theory:sound_symbolism.bouba_kiki",
+      "type": "Theory",
+      "category": "cross-modal",
+      "name": "Sound Symbolism (Bouba/Kiki)",
+      "summary": "Round sounds ('bouba') feel soft, organic, friendly. Angular sounds ('kiki') feel sharp, precise, aggressive. This extends to editing transitions.",
+      "details": {
+        "principle": "Round sounds ('bouba') feel soft, organic, friendly. Angular sounds ('kiki') feel sharp, precise, aggressive. This extends to editing: round transitions (dissolve, blur) pair with soft sounds. Sharp transitions (hard cut, smash cut, flash) pair with impact sounds.",
+        "author": "Sound symbolism research (bouba/kiki paradigm)",
+        "application": "Round transitions (dissolve, blur) pair with soft sounds; sharp transitions (hard cut, smash cut, flash) pair with impact sounds. The viewer's brain expects this sensory coherence.",
+        "examples": ["Dissolve + soft pad", "Smash cut + impact hit", "Blur transition + warm drone"],
+        "implications": ["Transition shape determines paired sound character", "Sensory coherence is innate expectation"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5246, 5246]
+    },
+    {
+      "id": "theory:audio.frequency_masking",
+      "type": "Theory",
+      "category": "cross-modal",
+      "name": "Frequency Masking",
+      "summary": "When two sounds occupy the same frequency range, the louder masks the quieter. Speech (200Hz-4kHz) and music mid-range compete directly.",
+      "details": {
+        "principle": "When two sounds occupy the same frequency range, the louder one masks the quieter one. Speech (200Hz-4kHz) and music mid-range compete directly. This is why music ducking is a non-negotiable constraint — without it, the viewer can't hear the words. The solution: duck music mids specifically, not just overall level (the bass and highs can stay).",
+        "author": "Psychoacoustics (frequency masking)",
+        "application": "Duck music mids specifically (200Hz-4kHz range), not just overall level. Bass and highs can stay.",
+        "examples": ["Speech 200Hz-4kHz vs music mid-range competition", "Mid-frequency ducking preserves bass and highs"],
+        "implications": ["Music ducking is non-negotiable when speech is present", "Frequency-specific ducking is superior to broadband ducking"]
+      },
+      "tags": ["DETERMINISTIC_HINT"],
+      "sourceLines": [5248, 5248]
+    },
+    {
+      "id": "theory:friston.predictive_coding",
+      "type": "Theory",
+      "category": "cognitive-science",
+      "name": "Predictive Processing in Film Viewing",
+      "summary": "The brain is a prediction machine — constantly predicting next frame, next cut, next sound. Editing works by managing these predictions.",
+      "details": {
+        "principle": "The brain is a prediction machine. It constantly predicts the next frame, the next cut, the next sound. Editing works by MANAGING these predictions.",
+        "author": "Karl Friston (predictive coding framework)",
+        "application": "Frames editing as a system of confirmed and violated predictions. The signal system primarily produces CONFIRMED-prediction cuts. Deliberate prediction VIOLATIONS — the smash_cut, the syncopation, the held shot past expected cut point — are creative tools for surprise and emphasis.",
+        "implications": ["Confirmed predictions = invisible/comfortable", "Violated predictions = surprise/tension/engagement", "Both required: predictable baseline + strategic violations"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5251, 5263]
+    },
+    {
+      "id": "theory:cognition.confirmed_predictions",
+      "type": "Theory",
+      "category": "cognitive-science",
+      "name": "Confirmed Predictions = Invisible Cuts",
+      "summary": "When the brain correctly predicts the next shot (based on dialogue rhythm, visual cues, musical structure), the cut feels natural and invisible.",
+      "details": {
+        "principle": "When the brain correctly predicts the next shot (based on dialogue rhythm, visual cues, musical structure), the cut feels natural and invisible. This is Murch's 'invisible cut' — it works because the brain already expected it. Professional editors achieve this intuitively by cutting at 'blink points'.",
+        "author": "Predictive processing / Murch synthesis",
+        "application": "Signal-driven cuts at speech boundaries, beat positions, action peaks all confirm prediction.",
+        "implications": ["Invisible cuts = brain pre-expected them", "Beat positions, speech endings, action peaks are prediction-confirmed", "Comfortable baseline pacing"]
+      },
+      "tags": ["DETERMINISTIC_HINT"],
+      "sourceLines": [5257, 5257]
+    },
+    {
+      "id": "theory:cognition.violated_predictions",
+      "type": "Theory",
+      "category": "cognitive-science",
+      "name": "Violated Predictions = Surprise/Tension/Engagement",
+      "summary": "When the cut comes at an unexpected moment, the brain generates a prediction error. Theta oscillations spike at unpredicted edit boundaries.",
+      "details": {
+        "principle": "When the cut comes at an unexpected moment, or the incoming shot is unexpected, the brain generates a prediction error. Drew & Soto-Faraco (2024) showed that theta oscillations spike at unpredicted edit boundaries — the brain's 'wait, that wasn't expected' signal. This can be positive (delightful surprise, pattern interrupt, comedy) or negative (confusion, disorientation, annoyance). The difference depends on whether the violation SERVES the story.",
+        "author": "Drew & Soto-Faraco (2024) — EEG + film editing",
+        "application": "Strategic prediction violations at high-weight moments create engagement. Unmotivated violations create confusion.",
+        "examples": ["smash_cut violates prediction for emphasis", "Syncopation creates engaging off-pulse moments", "Held shots past expected cut create tension"],
+        "implications": ["Theta oscillation spikes at unpredicted boundaries", "Violations must serve the story to be positive", "Strategic violations at moment-weight peaks"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5259, 5259]
+    },
+    {
+      "id": "theory:zacks.event_segmentation",
+      "type": "Theory",
+      "category": "cognitive-science",
+      "name": "Event Segmentation Theory",
+      "summary": "The brain segments continuous experience into discrete events at boundaries — moments where goals change, locations shift, or actors enter/exit. Cuts at boundaries are invisible.",
+      "details": {
+        "principle": "The brain naturally segments continuous experience into discrete events at 'event boundaries' — moments where goals change, locations shift, or actors enter/exit. Professional editors intuitively place cuts at these boundaries because that's where the brain EXPECTS a change. Cuts at event boundaries are invisible. Cuts within events are noticeable.",
+        "author": "Zacks & Swallow (2007)",
+        "application": "In Editron: topic_boundary signal detects semantic event boundaries. Cuts at these points feel natural. Cuts between them require stronger motivation (action, energy, rhythm).",
+        "examples": ["Goal change = event boundary", "Location shift = event boundary", "Actor enter/exit = event boundary", "topic_boundary signal detects these"],
+        "implications": ["topic_boundary signal aligns with event segmentation", "Cuts mid-event need stronger justification", "Boundary cuts are invisible by default"]
+      },
+      "tags": ["DETERMINISTIC_HINT"],
+      "sourceLines": [5261, 5261]
+    },
+    {
+      "id": "theory:cognition.attentional_synchrony",
+      "type": "Theory",
+      "category": "cognitive-science",
+      "name": "Attentional Synchrony in Film",
+      "summary": "The mix of confirmed predictions (comfortable invisible cuts) and strategic violations (surprise, emphasis) is what keeps viewers engaged without exhausting them.",
+      "details": {
+        "principle": "The signal system primarily produces CONFIRMED-prediction cuts (rhythmically expected, at speech boundaries, at beat positions). Deliberate prediction VIOLATIONS — the smash_cut, the syncopation, the held shot past expected cut point — are the creative tools for surprise and emphasis. The system needs BOTH: a baseline of predictable cuts (comfortable, invisible) with strategic violations at high-weight moments (engaging, emphatic). A video that's all predictable is boring. A video that's all surprising is exhausting.",
+        "author": "Synthesis of predictive coding + editing practice",
+        "application": "Both predictable baseline and strategic violations are required. All-predictable = boring. All-surprising = exhausting.",
+        "implications": ["Need baseline of predictable cuts", "Strategic violations at high-weight moments", "Mix is the engagement engine"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5263, 5263]
+    },
+    {
+      "id": "theory:culture.kishotenketsu",
+      "type": "Theory",
+      "category": "cultural-tradition",
+      "name": "Kishōtenketsu (起承転結) — East Asian Four-Act Structure",
+      "summary": "Introduction → Development → Twist → Reconciliation. Builds without conflict — no antagonist, no problem to solve. The 'twist' is a perspective shift, not a confrontation.",
+      "details": {
+        "principle": "Introduction (起) → Development (承) → Twist (転) → Reconciliation (結). Crucially, it builds WITHOUT CONFLICT. There is no antagonist, no problem to solve. The 'twist' is a perspective shift, not a confrontation. The resolution is HARMONY, not victory.",
+        "author": "Classical East Asian narrative tradition",
+        "application": "For brands that don't want to frame value as 'solving a problem' — comfort/lifestyle, food, family, cultural celebration — Kishōtenketsu is more authentic than three-act problem/solution.",
+        "examples": ["Japanese manga", "Chinese classical poetry", "Korean drama"],
+        "implications": ["Conflict-free narrative is valid", "Twist = perspective shift, not confrontation", "Resolution = harmony, not victory"],
+        "culturalContext": "East Asian (Japanese, Chinese, Korean). Native to Japanese manga, Chinese classical poetry, Korean drama."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5270, 5271]
+    },
+    {
+      "id": "theory:culture.rasa_theory",
+      "type": "Theory",
+      "category": "cultural-tradition",
+      "name": "Rasa Theory — Indian Classical Aesthetics",
+      "summary": "Nine aesthetic emotions (rasas). Content organized around evoking a specific rasa rather than following a plot structure. Predates Western narrative theory by over a millennium.",
+      "details": {
+        "principle": "Nine aesthetic emotions (rasas): Shringara (love/beauty), Hasya (humor), Karuna (compassion/sorrow), Raudra (fury), Veera (heroism), Bhayanaka (terror), Bibhatsa (disgust), Adbhuta (wonder), Shanta (peace). Content can be organized around evoking a specific rasa rather than following a plot structure.",
+        "author": "Bharata's Natyashastra (~200 BCE)",
+        "application": "A food ad might target Shringara + Adbhuta. A sports ad might target Veera + Raudra. This predates Western narrative theory by over a millennium and offers a fundamentally different way to think about 'what should this content make the viewer feel?'",
+        "examples": ["Food ad: Shringara (beauty) + Adbhuta (wonder)", "Sports ad: Veera (heroism) + Raudra (fury)"],
+        "implications": ["Emotion-first design vs plot-first design", "9 named aesthetic emotions provide vocabulary", "Multiple rasas can combine"],
+        "culturalContext": "Indian classical aesthetics. Foundational text: Bharata's Natyashastra (~200 BCE). Predates Western narrative theory."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5273, 5274]
+    },
+    {
+      "id": "theory:culture.bollywood_visual_grammar",
+      "type": "Theory",
+      "category": "cultural-tradition",
+      "name": "Bollywood Visual Grammar",
+      "summary": "Center framing for protagonists, crash zooms for emphasis, orbit shots for hero introductions. Dynamic camera as emotional participant. Rich saturation.",
+      "details": {
+        "principle": "Center framing for protagonists (hero gets frame center — power position). Crash zooms for dramatic emphasis (reaction shots, villain reveals). Orbit shots for hero introductions (camera circles the protagonist in glory). Song sequences have their own visual language: wide for choreography, close-up for lip-sync, rapid intercutting for energy. Dynamic camera as emotional participant, not passive observer. Rich saturation — gold, magenta, deep red, emerald. Color IS expression. High edit density during musical sequences (16-24 cuts/min), deliberate pacing for contrast during dialogue.",
+        "author": "Indian commercial cinema tradition",
+        "application": "Center frame = protagonist; crash zoom = dramatic emphasis; orbit = hero introduction; song sequences use wide/CU/intercut grammar.",
+        "examples": ["Reaction shots use crash zooms", "Hero introductions use orbit shots", "Song sequences: 16-24 cuts/min", "Color palette: gold, magenta, deep red, emerald"],
+        "implications": ["Center framing for power positions", "Camera is emotional participant, not observer", "Color is expression, not just palette"],
+        "culturalContext": "Indian (Bollywood) commercial cinema."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5276, 5277]
+    },
+    {
+      "id": "theory:culture.kdrama_patience",
+      "type": "Theory",
+      "category": "cultural-tradition",
+      "name": "K-Drama Editing Patience",
+      "summary": "Shots hold 30-100% longer than Western equivalents. The 'reaction hold' — 3-5 seconds of sustained close-up on a face — is signature.",
+      "details": {
+        "principle": "Shots hold 30-100% LONGER than Western equivalents. The 'reaction hold' — 3-5 seconds of sustained close-up on a face after dialogue, in silence — is a signature technique. The viewer reads the face. The silence IS the content. Soft focus, shallow DOF for intimacy. Naturalistic framing. The camera OBSERVES with patience — it lets moments breathe. Golden hour lighting for romance is practically mandatory.",
+        "author": "Korean drama tradition",
+        "application": "Hold durations 30-100% longer than Western default. Reaction holds 3-5s. Silence is content. Soft focus + shallow DOF + naturalistic framing.",
+        "examples": ["Reaction hold: 3-5s post-dialogue", "Golden hour for romance scenes", "Soft focus + shallow DOF"],
+        "implications": ["Opposite of MrBeast aesthetic", "Patience as virtue", "Silence as content", "Equally valid for its audience"],
+        "culturalContext": "Korean (K-Drama) tradition. Counter to fast-cut Western/algorithmic content."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5279, 5280]
+    },
+    {
+      "id": "theory:culture.nordic_minimalism",
+      "type": "Theory",
+      "category": "cultural-tradition",
+      "name": "Nordic/Scandinavian Minimalism",
+      "summary": "Static wide shots with negative space. Muted compositions. The landscape IS a character. Stillness as a storytelling tool.",
+      "details": {
+        "principle": "Static wide shots with negative space. Muted compositions. Minimal camera movement. Deep focus. Desaturated, low-contrast, cool-dominant color. Gray and blue-green palette. Stillness as a storytelling tool. The landscape IS a character. Silence is comfortable, not empty. This aesthetic values what's NOT there as much as what is. Editing interventions (zooms, graphics, SFX) should be minimal — the content speaks through restraint.",
+        "author": "Nordic/Scandinavian cinematic tradition",
+        "application": "Static wides + negative space + deep focus + desaturated cool palette. Landscape as character. Restraint over intervention.",
+        "examples": ["Gray and blue-green palette", "Static wides with negative space", "Deep focus", "Minimal SFX/graphics"],
+        "implications": ["Negative space is content", "Stillness is storytelling", "Minimal editing intervention"],
+        "culturalContext": "Nordic/Scandinavian cinema and design tradition."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5282, 5283]
+    },
+    {
+      "id": "theory:culture.latin_american_energy",
+      "type": "Theory",
+      "category": "cultural-tradition",
+      "name": "Latin American Visual Energy",
+      "summary": "Warm, saturated compositions. Close physical proximity. Handheld energy. Telenovela tradition: dramatic close-ups, emotional eye lines.",
+      "details": {
+        "principle": "Warm, saturated compositions. Close physical proximity between subjects. Handheld energy. Fluid tracking shots through tight spaces. Telenovela tradition: dramatic close-ups, emotional eye lines, heightened composition. Color is warm, contrast is high, earth tones dominate. The editing rhythm follows emotional escalation (tonal montage), not strict timing.",
+        "author": "Latin American cinema and television tradition",
+        "application": "Warm saturated palette + handheld + close subject proximity + tonal-montage emotional escalation.",
+        "examples": ["Telenovela close-ups", "Handheld tracking through tight spaces", "Warm earth tones, high contrast"],
+        "implications": ["Emotional escalation drives pacing (not metric)", "Close proximity = intimacy", "Warm palette is default"],
+        "culturalContext": "Latin American cinema and television, especially the telenovela tradition."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5285, 5286]
+    },
+    {
+      "id": "theory:culture.middle_eastern_arab",
+      "type": "Theory",
+      "category": "cultural-tradition",
+      "name": "Middle Eastern/Arab Cinema",
+      "summary": "Geometric framing influenced by Islamic architectural patterns. Symmetry as visual principle. Warm desert palettes. Long takes that respect the weight of moments.",
+      "details": {
+        "principle": "Geometric framing influenced by Islamic architectural patterns. Symmetry as visual principle. Warm desert palettes — gold, deep blue, turquoise accents. Deliberate pacing. Long takes that respect the weight of moments. Contemporary Gulf content increasingly blends this with high-production Western technique.",
+        "author": "Middle Eastern/Arab cinematic tradition",
+        "application": "Geometric/symmetric framing + warm desert palette (gold, deep blue, turquoise) + long takes + deliberate pacing.",
+        "examples": ["Islamic architectural geometry in framing", "Gold + deep blue + turquoise palette", "Symmetric compositions"],
+        "implications": ["Symmetry as primary visual principle", "Long-take patience", "Architectural-geometric framing"],
+        "culturalContext": "Middle Eastern/Arab cinema. Influenced by Islamic architectural patterns. Contemporary Gulf content blends with Western technique."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5288, 5289]
+    },
+    {
+      "id": "theory:culture.japanese_live_action",
+      "type": "Theory",
+      "category": "cultural-tradition",
+      "name": "Japanese Live-Action",
+      "summary": "Ozu's tatami-level camera (low, static, observational) remains influential. Stillness and composition privileged over movement. Wide range in pacing — sub-1s for action, 5-10s for emotion.",
+      "details": {
+        "principle": "Ozu's tatami-level camera (low, static, observational) remains influential. Stillness and composition privileged over movement. Wide range in pacing — anime uses sub-1s cuts for action and 5-10+ second holds for emotion. The common thread is intentionality — every shot earns its duration, whether that's 0.5s or 15s.",
+        "author": "Japanese cinematic tradition (Yasujirō Ozu lineage)",
+        "application": "Tatami-level (low static observational) camera + stillness/composition primacy + bimodal pacing (very fast for action, very slow for emotion).",
+        "examples": ["Ozu's tatami-level static camera", "Anime sub-1s action cuts", "Anime 5-10+ second emotion holds"],
+        "implications": ["Intentionality per shot", "Bimodal pacing valid", "Stillness > movement as default"],
+        "culturalContext": "Japanese live-action and animation cinema. Foundational influence: Yasujirō Ozu."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5291, 5292]
+    },
+    {
+      "id": "theory:culture.nollywood",
+      "type": "Theory",
+      "category": "cultural-tradition",
+      "name": "Nollywood (Nigerian)",
+      "summary": "Direct framing, conversational medium shots, practical locations, mobile-first composition awareness, strong close-ups for dialogue-heavy storytelling.",
+      "details": {
+        "principle": "Direct framing, conversational medium shots, practical locations, mobile-first composition awareness, strong close-ups for dialogue-heavy storytelling. Growing cinematographic sophistication while maintaining accessibility and directness.",
+        "author": "Nigerian (Nollywood) cinematic tradition",
+        "application": "Conversational medium shots + practical locations + mobile-first composition + dialogue close-ups.",
+        "examples": ["Direct framing approach", "Conversational medium shots", "Mobile-first composition awareness"],
+        "implications": ["Accessibility and directness as virtue", "Mobile-first composition is native", "Dialogue is foreground"],
+        "culturalContext": "Nigerian (Nollywood) cinema, the second-largest film industry by output."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5294, 5295]
+    },
+    {
+      "id": "theory:vonnegut.story_shapes",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Vonnegut's Story Shapes",
+      "summary": "Every story is a curve on a good-fortune axis. 'Man in Hole' (things get worse, then better) is the most universal. The shape determines where the viewer's emotions go.",
+      "details": {
+        "principle": "Every story is a curve on a good-fortune axis. 'Man in Hole' (things get worse, then get better) is the most universal. The shape determines where the viewer's emotions go.",
+        "author": "Kurt Vonnegut",
+        "application": "Every narrative structure can be described as a curve on a good-fortune/tension axis. Use the curve shape to plan emotional progression.",
+        "examples": ["Man in Hole = down then up", "Boy Meets Girl = up, down, up", "Cinderella = up-down-up"],
+        "implications": ["All structures are emotional shapes", "Plot is secondary to emotional curve", "Map every structure to a fortune curve"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5302, 5302]
+    },
+    {
+      "id": "theory:mckee.gap_theory",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "McKee's Gap Theory",
+      "summary": "Story = gap between expectation and result. Every scene starts with a character expecting something. What actually happens is different. That gap IS the story.",
+      "details": {
+        "principle": "Story = gap between expectation and result. Every scene starts with a character expecting something. What actually happens is different. That gap IS the story. If no gap exists (everything goes as expected), there's no story — just information.",
+        "author": "Robert McKee",
+        "application": "Every scene must contain a gap. No gap = pure information delivery, not story. Editor must locate and emphasize gaps.",
+        "examples": ["Character expects A, B happens = story", "Character expects A, A happens = information"],
+        "implications": ["Gap is the elemental unit of story", "Information without gap is not story", "Each scene must produce expectation-result mismatch"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5304, 5304]
+    },
+    {
+      "id": "theory:zeigarnik.effect",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "The Zeigarnik Effect",
+      "summary": "Unresolved questions create cognitive tension that drives retention. Open loops (questions asked but not yet answered) keep viewers watching.",
+      "details": {
+        "principle": "Unresolved questions create cognitive tension that drives retention. Open loops (questions asked but not yet answered) keep viewers watching. Every structure uses this — the question 'what happens next?' is the retention engine.",
+        "author": "Bluma Zeigarnik",
+        "application": "Use open loops to drive retention. Question 'what happens next?' is the universal retention engine across all structures.",
+        "examples": ["Cliffhangers", "Unresolved teaser questions", "Mystery setup before reveal"],
+        "implications": ["Open loops drive retention", "Resolved questions release tension; keep them open", "All narrative structures depend on Zeigarnik tension"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5306, 5306]
+    },
+    {
+      "id": "theory:structure.three_act",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Three-Act Structure",
+      "summary": "Setup → Confrontation → Resolution. Stability → Disruption → New stability. Universal but Western-dominant.",
+      "details": {
+        "principle": "Shape: Setup → Confrontation → Resolution. Emotional arc: Stability → Disruption → New stability.",
+        "author": "Western dramatic tradition (Aristotle lineage)",
+        "application": "Best for: product ads with problem/solution, brand narratives, explainers. Compression to 30-60s: hook (0-5s) = setup, body (5-40s) = confrontation, close (40-60s) = resolution.",
+        "examples": ["Product ads with problem/solution", "Brand narratives", "Explainers"],
+        "implications": ["Compresses well to 30-60s commercial format", "'Problem' framing can feel aggressive in harmony-oriented cultures"],
+        "culturalContext": "Universal but Western-dominant. 'Problem' framing can feel aggressive in harmony-oriented cultures."
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5311, 5316]
+    },
+    {
+      "id": "theory:structure.five_act_freytag",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Five-Act Structure (Freytag's Pyramid)",
+      "summary": "Exposition → Rising Action → Climax → Falling Action → Denouement. For longer-form content.",
+      "details": {
+        "principle": "Shape: Exposition → Rising Action → Climax → Falling Action → Denouement.",
+        "author": "Gustav Freytag (Freytag's Pyramid)",
+        "application": "Best for: longer content (2-5 min), brand films, documentary-style. Compression: rarely works below 60s — too many beats.",
+        "examples": ["2-5 min brand films", "Documentary-style content"],
+        "implications": ["Requires 2+ minutes minimum", "Five distinct beats need time to land", "Not suitable for sub-60s formats"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5318, 5321]
+    },
+    {
+      "id": "theory:structure.heros_journey",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Hero's Journey / Monomyth",
+      "summary": "Ordinary World → Call → Threshold → Ordeal → Reward → Return. Deeply Western. Resonates most with individualist cultures.",
+      "details": {
+        "principle": "Shape: Ordinary World → Call → Threshold → Ordeal → Reward → Return.",
+        "author": "Joseph Campbell / Christopher Vogler",
+        "application": "Best for: testimonials, founder stories, transformation narratives, fitness/health.",
+        "examples": ["Founder origin stories", "Transformation testimonials", "Fitness/health journeys"],
+        "implications": ["6-stage structure", "Deeply individualist worldview", "Transformation is the heart of the structure"],
+        "culturalContext": "Deeply Western. Resonates most with individualist cultures."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5323, 5326]
+    },
+    {
+      "id": "theory:structure.harmon_story_circle",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Dan Harmon's Story Circle (8 beats)",
+      "summary": "Comfort → Want → Unfamiliar → Adapt → Find → Pay → Return → Change. Designed for episodic TV — each piece complete but connected.",
+      "details": {
+        "principle": "Shape: Comfort → Want → Unfamiliar → Adapt → Find → Pay → Return → Change.",
+        "author": "Dan Harmon",
+        "application": "Best for: episodic content, series, recurring campaigns. Designed for episodic TV — each piece complete but connected.",
+        "examples": ["Episodic series content", "Recurring brand campaigns"],
+        "implications": ["8-beat structure", "Episodic-friendly: complete-but-connected", "Built on Hero's Journey lineage"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5328, 5331]
+    },
+    {
+      "id": "theory:structure.kishotenketsu",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Kishōtenketsu (起承転結) — Narrative Structure",
+      "summary": "Introduction → Development → Twist → Reconciliation. Builds without conflict — increasingly relevant globally.",
+      "details": {
+        "principle": "Shape: Introduction → Development → Twist → Reconciliation.",
+        "author": "Classical East Asian narrative tradition",
+        "application": "Best for: lifestyle brands, food/beverage, family, cultural celebration. Native East Asian. Builds without conflict. Increasingly relevant globally.",
+        "examples": ["Lifestyle brands", "Food/beverage", "Family content", "Cultural celebration"],
+        "implications": ["Conflict-free narrative", "Twist as perspective shift", "Reconciliation = harmony"],
+        "culturalContext": "Native East Asian (Japanese, Chinese, Korean). Increasingly relevant globally."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5333, 5336]
+    },
+    {
+      "id": "theory:structure.save_the_cat",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Save the Cat (Blake Snyder, 15 beats)",
+      "summary": "15-beat detailed structure for long-form brand films, short films, narrative cinema ads. Too many beats for sub-2-minute content.",
+      "details": {
+        "principle": "15-beat narrative structure derived from screenwriting analysis.",
+        "author": "Blake Snyder",
+        "application": "Best for: long-form brand films (3-10 min), short films, narrative cinema ads. Too many beats for anything under 2 minutes.",
+        "examples": ["3-10 min brand films", "Short films", "Narrative cinema ads"],
+        "implications": ["15 beats need 2+ minutes minimum", "Most granular Western structure", "Heavy structure that doesn't compress"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5338, 5340]
+    },
+    {
+      "id": "theory:structure.pixar_story_spine",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Pixar Story Spine",
+      "summary": "'Once upon a time... Every day... Until one day... Because of that... Until finally... And ever since then...' Forces causal connection between events.",
+      "details": {
+        "principle": "Shape: 'Once upon a time... Every day... Until one day... Because of that... Until finally... And ever since then...'",
+        "author": "Pixar / Kenn Adams",
+        "application": "Best for: founder stories, product origin, change narratives. Forces CAUSAL connection between events — 'because of that' prevents random sequences. Excellent LLM prompt structure.",
+        "examples": ["Founder stories", "Product origin stories", "Change narratives"],
+        "implications": ["Forces causal connection ('because of that')", "Prevents random/disconnected sequences", "Excellent as LLM prompt scaffolding"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5342, 5345]
+    },
+    {
+      "id": "theory:structure.rasa_based_design",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Rasa-Based Design (Indian Classical)",
+      "summary": "Not linear — organized by evoking a specific aesthetic emotion (rasa). For content using Indian aesthetic tradition.",
+      "details": {
+        "principle": "Shape: not linear — organized by evoking a specific aesthetic emotion (rasa).",
+        "author": "Bharata's Natyashastra / Indian classical aesthetics",
+        "application": "Best for: content designed for Indian audiences or using Indian aesthetic tradition. Application: food ad → Shringara (beauty) + Adbhuta (wonder). Sports → Veera (heroism) + Raudra (fury).",
+        "examples": ["Food ad: Shringara + Adbhuta", "Sports: Veera + Raudra"],
+        "implications": ["Non-linear structure", "Emotion-first organization", "Combinable rasas"],
+        "culturalContext": "Indian classical aesthetics. Best for Indian audiences or content using Indian aesthetic tradition."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5347, 5350]
+    },
+    {
+      "id": "theory:structure.hook_value_cta",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Hook-Value-CTA",
+      "summary": "Attention grab → Deliver value → Ask for action. The default short-form structure when no other fits.",
+      "details": {
+        "principle": "Shape: Attention grab → Deliver value → Ask for action.",
+        "author": "Social media / direct response convention",
+        "application": "Best for: social media ads, product demos, educational, most sub-60s commercial. Default: when no other structure fits, this works.",
+        "examples": ["Social media ads", "Product demos", "Educational sub-60s content"],
+        "implications": ["Default short-form structure", "Three simple beats", "Always-applicable fallback"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5356, 5359]
+    },
+    {
+      "id": "theory:structure.problem_agitate_solve",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Problem-Agitate-Solve (PAS)",
+      "summary": "Name the pain → Make it worse → Offer solution. Direct response standard. Can feel manipulative in cultures valuing subtlety.",
+      "details": {
+        "principle": "Shape: Name the pain → Make it worse → Offer solution.",
+        "author": "Direct response copywriting tradition",
+        "application": "Best for: direct response, SaaS demos, health/wellness, clear pain points. Can feel manipulative in cultures valuing subtlety. Use gently in East Asian and Nordic markets.",
+        "examples": ["Direct response ads", "SaaS demos", "Health/wellness pain-point content"],
+        "implications": ["Effective for clear pain points", "Aggressive framing", "Reduce intensity for harmony-oriented cultures"],
+        "culturalContext": "Western direct response tradition. Can feel manipulative in cultures valuing subtlety. Use gently in East Asian and Nordic markets."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5361, 5364]
+    },
+    {
+      "id": "theory:structure.before_after_transformation",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Before/After Transformation",
+      "summary": "'Before' state → Transformation moment → 'After' state. The cut between before and after is the most important cut.",
+      "details": {
+        "principle": "Shape: 'Before' state → Transformation moment → 'After' state.",
+        "author": "Transformation marketing convention",
+        "application": "Best for: fitness, beauty, renovation, cleaning, any visual transformation. Key: the cut between before and after is the most important cut. Use strongest transition — match cut, whip pan, or flash. Dissolve undermines impact.",
+        "examples": ["Fitness transformations", "Beauty before/after", "Renovation reveals", "Cleaning content"],
+        "implications": ["Critical cut: before→after transition", "Strongest transitions: match cut, whip pan, flash", "Avoid dissolves — they undermine impact"]
+      },
+      "tags": ["LLM_REQUIRED", "DETERMINISTIC_HINT"],
+      "sourceLines": [5366, 5369]
+    },
+    {
+      "id": "theory:structure.myth_truth_pattern_interrupt",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Myth-Truth (Pattern Interrupt)",
+      "summary": "State common belief → Shatter it → Replace with truth. Educational, contrarian positioning, 'everything you know is wrong' hooks.",
+      "details": {
+        "principle": "Shape: State common belief → Shatter it → Replace with truth.",
+        "author": "Educational/contrarian content convention",
+        "application": "Best for: educational, contrarian positioning, 'everything you know is wrong' hooks. Key: the 'shatter' moment needs audio support — record scratch, impact hit, or silence. Visual: zoom punch or flash.",
+        "examples": ["'Everything you know is wrong' educational", "Contrarian positioning content"],
+        "implications": ["Shatter moment requires audio support: record scratch, impact, or silence", "Visual: zoom punch or flash", "Pattern interrupt is the engine"]
+      },
+      "tags": ["LLM_REQUIRED", "DETERMINISTIC_HINT"],
+      "sourceLines": [5371, 5374]
+    },
+    {
+      "id": "theory:structure.countdown_ranking",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Countdown/Ranking",
+      "summary": "#N → #N-1 → ... → #1. Inherently retention-boosting — viewer wants to see #1.",
+      "details": {
+        "principle": "Shape: #N → #N-1 → ... → #1.",
+        "author": "List-content convention",
+        "application": "Best for: listicles, comparisons, 'top X' content. Why: inherently retention-boosting — viewer wants to see #1. Each item is a micro-resolution that re-hooks.",
+        "examples": ["Top 10 lists", "Best-of comparisons", "Ranking content"],
+        "implications": ["Built-in retention via Zeigarnik (waiting for #1)", "Each item = micro-resolution + re-hook", "Linear countdown is unbreakable"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5376, 5379]
+    },
+    {
+      "id": "theory:structure.day_in_the_life",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Day-in-the-Life",
+      "summary": "Morning → Activities → Evening. Strong in Japanese (密着) and Korean vlog cultures.",
+      "details": {
+        "principle": "Shape: Morning → Activities → Evening.",
+        "author": "Vlog/lifestyle content convention",
+        "application": "Best for: influencer/creator, behind-the-scenes, company culture, vlog-style.",
+        "examples": ["Creator daily routine", "Company culture content", "Behind-the-scenes vlog"],
+        "implications": ["Time-of-day chronology", "Naturally observational", "Vlog-native"],
+        "culturalContext": "Especially popular in Japanese content culture (密着 — 'attached observation'). Strong in Korean vlog culture."
+      },
+      "tags": ["CULTURAL", "LLM_REQUIRED"],
+      "sourceLines": [5381, 5384]
+    },
+    {
+      "id": "theory:structure.testimonial_arc",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Testimonial Arc",
+      "summary": "Who I am → My problem → How I found solution → My result → My recommendation.",
+      "details": {
+        "principle": "Shape: Who I am → My problem → How I found solution → My result → My recommendation.",
+        "author": "Testimonial/customer story convention",
+        "application": "Best for: customer stories, reviews, case studies.",
+        "examples": ["Customer testimonials", "Product reviews", "Case studies"],
+        "implications": ["5-beat structure", "First-person voice", "Result-driven payoff"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5386, 5388]
+    },
+    {
+      "id": "theory:structure.versus_comparison",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Versus/Comparison",
+      "summary": "Option A → Option B → (Verdict). Visual: split-screen or alternating shots with consistent framing.",
+      "details": {
+        "principle": "Shape: Option A → Option B → (Verdict).",
+        "author": "Comparison-content convention",
+        "application": "Best for: product comparisons, 'this vs that,' competitive positioning. Visual: split-screen or alternating shots with consistent framing.",
+        "examples": ["Product comparisons", "'This vs that' content", "Competitive positioning"],
+        "implications": ["Split-screen or alternating shots", "Consistent framing across alternates", "Verdict is optional"]
+      },
+      "tags": ["LLM_REQUIRED", "DETERMINISTIC_HINT"],
+      "sourceLines": [5390, 5393]
+    },
+    {
+      "id": "theory:structure.challenge_attempt",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Challenge/Attempt",
+      "summary": "Set challenge → Attempt(s) → Outcome. For social challenges, product stress tests, 'will it work?' content.",
+      "details": {
+        "principle": "Shape: Set challenge → Attempt(s) → Outcome.",
+        "author": "Challenge-content convention",
+        "application": "Best for: social challenges, product stress tests, 'will it work?'",
+        "examples": ["Social challenges", "Product stress tests", "'Will it work?' demos"],
+        "implications": ["Outcome uncertainty drives retention", "Attempts can iterate", "Inherent Zeigarnik tension"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5395, 5397]
+    },
+    {
+      "id": "theory:structure.loop_infinite_scroll",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Loop/Infinite Scroll",
+      "summary": "End leads seamlessly back to beginning. Last frame matches first frame composition. Audio loops seamlessly.",
+      "details": {
+        "principle": "Shape: end leads seamlessly back to beginning.",
+        "author": "Algorithmic short-form convention",
+        "application": "Best for: short-form optimized for replay (algorithm rewards replays). Key: last frame matches first frame composition. Audio loops seamlessly.",
+        "examples": ["TikTok loops", "Reel replay-optimized content"],
+        "implications": ["Algorithm rewards replays", "First frame == last frame composition", "Audio must loop seamlessly"]
+      },
+      "tags": ["LLM_REQUIRED", "DETERMINISTIC_HINT"],
+      "sourceLines": [5399, 5402]
+    },
+    {
+      "id": "theory:structure.reveal_unboxing",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "The Reveal/Unboxing",
+      "summary": "Concealment → Build anticipation → Reveal → Reaction. Product launches, mystery/surprise.",
+      "details": {
+        "principle": "Shape: Concealment → Build anticipation → Reveal → Reaction.",
+        "author": "Reveal-content convention",
+        "application": "Best for: product launches, unboxing, mystery/surprise content.",
+        "examples": ["Product launches", "Unboxing videos", "Mystery/surprise content"],
+        "implications": ["Anticipation is the engine", "Reveal must justify the build", "Reaction shot is essential payoff"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5404, 5406]
+    },
+    {
+      "id": "theory:structure.micro_narrative_stack",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Micro-Narrative Stack",
+      "summary": "Story 1 (3-5s) → Story 2 (3-5s) → Story 3 → ... → Theme emerges. Hard cuts between stories. Consistent music as connecting thread.",
+      "details": {
+        "principle": "Shape: Story 1 (3-5s) → Story 2 (3-5s) → Story 3 → ... → Theme emerges.",
+        "author": "Multi-vignette content convention",
+        "application": "Best for: testimonial compilations, multi-use-case ads, community content. Key: hard cuts between stories. Consistent music as connecting thread.",
+        "examples": ["Testimonial compilations", "Multi-use-case ads", "Community content"],
+        "implications": ["Hard cuts between vignettes (no transitions)", "Consistent music as connecting thread", "Theme emerges from accumulation"]
+      },
+      "tags": ["LLM_REQUIRED", "DETERMINISTIC_HINT"],
+      "sourceLines": [5408, 5411]
+    },
+    {
+      "id": "theory:structure.in_medias_res",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "In Medias Res",
+      "summary": "Start at climax → Flash back → Catch up → Continue. Color/filter shift between timelines.",
+      "details": {
+        "principle": "Shape: Start at climax → Flash back → Catch up → Continue.",
+        "author": "Classical non-linear narrative tradition (Aristotle/Homer lineage)",
+        "application": "Best for: high-stakes, dramatic, event recaps. Key: opening shot must be visually striking enough to earn the non-linear approach. Color/filter shift between timelines (desaturated flashback, full color present).",
+        "examples": ["Event recaps", "High-stakes drama", "Dramatic openings"],
+        "implications": ["Opening shot must be visually striking", "Color/filter signal time shifts (desaturated past, full present)", "Non-linear approach must be earned"]
+      },
+      "tags": ["LLM_REQUIRED", "DETERMINISTIC_HINT"],
+      "sourceLines": [5417, 5420]
+    },
+    {
+      "id": "theory:structure.circular_narrative",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Circular Narrative",
+      "summary": "Starts and ends with same image/moment, but with changed meaning. Bookend shots composed identically with subtle differences.",
+      "details": {
+        "principle": "Shape: Starts and ends with same image/moment, but with changed meaning.",
+        "author": "Literary circular structure tradition",
+        "application": "Best for: brand films, emotional storytelling, 'full circle' campaigns. Key: bookend shots should be composed identically but with subtle differences.",
+        "examples": ["Brand films", "Emotional storytelling", "'Full circle' campaigns"],
+        "implications": ["Identical bookend composition", "Subtle differences carry meaning", "Meaning-change is the payoff"]
+      },
+      "tags": ["LLM_REQUIRED", "DETERMINISTIC_HINT"],
+      "sourceLines": [5422, 5425]
+    },
+    {
+      "id": "theory:structure.fragmented_mosaic",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Fragmented/Mosaic",
+      "summary": "Disconnected pieces assembling into meaning — viewer constructs the story. For art-house, music videos, mood pieces.",
+      "details": {
+        "principle": "Shape: Disconnected pieces assembling into meaning — viewer constructs the story.",
+        "author": "Experimental/art-film tradition",
+        "application": "Best for: art-house brand films, music videos, experimental, mood pieces. Risk: requires viewer trust. Works for premium positioning, risky for mass commercial.",
+        "examples": ["Art-house brand films", "Music videos", "Experimental content", "Mood pieces"],
+        "implications": ["Viewer constructs meaning actively", "Premium positioning advantage", "Risky for mass commercial — requires trust"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5427, 5430]
+    },
+    {
+      "id": "theory:structure.parallel_narrative",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Parallel Narrative (Cross-Cutting)",
+      "summary": "Two or more stories told simultaneously, converging at the end. 'Two worlds collide,' simultaneous timelines.",
+      "details": {
+        "principle": "Shape: Two or more stories told simultaneously, converging at the end.",
+        "author": "Cross-cutting narrative tradition (Griffith lineage)",
+        "application": "Best for: 'two worlds collide,' product connecting different users, simultaneous timelines.",
+        "examples": ["'Two worlds collide' brand films", "Product connecting different users", "Simultaneous timelines"],
+        "implications": ["Cross-cut between threads", "Convergence is the payoff", "Can show product as connector"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5432, 5434]
+    },
+    {
+      "id": "theory:structure.selection_guide",
+      "type": "Theory",
+      "category": "narrative-structure",
+      "name": "Structure Selection Guide",
+      "summary": "Select narrative structure by content type, duration, brand voice, cultural context, platform, and emotional goal. Work backwards from target emotion.",
+      "details": {
+        "principle": "The LLM Scene Parser should select based on: 1) Content type — what is being communicated? 2) Duration — structures with many beats need more time. 3) Brand voice — confrontational brands → PAS, Myth-Truth. Warm brands → Kishōtenketsu, Day-in-the-Life. 4) Cultural context — target audience's storytelling traditions. 5) Platform — TikTok rewards hooks and loops. YouTube allows slower builds. LinkedIn rewards educational framing. 6) Emotional goal — what should the viewer FEEL at the end? Work backwards from target emotion.",
+        "author": "Editron synthesis",
+        "application": "LLM Scene Parser uses these 6 axes to select narrative structure for any project.",
+        "examples": ["Confrontational brand → PAS", "Warm brand → Kishōtenketsu", "TikTok → loops/hooks", "YouTube → slower builds"],
+        "implications": ["6 selection axes", "Work backwards from target emotion", "Structure is consequence of brand+culture+platform+goal"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5437, 5445]
+    },
+    {
+      "id": "theory:system.automatic_car_principle",
+      "type": "Theory",
+      "category": "system-principle",
+      "name": "The Automatic Car Principle",
+      "summary": "UX philosophy governing all creative decisions: auto mode = professional output by default, manual mode always available, heavy lifting never leaves the system.",
+      "details": {
+        "principle": "Auto mode (default): User provides input → professional output. Platform makes all editorial decisions automatically. Every decision is deterministic and rule-driven. User doesn't need to understand the decisions. Manual mode (always available): User can override ANY decision at ANY point. Switching is instant and lossless — no regeneration. Heavy lifting never leaves: Even in full manual mode, the system handles color grading (skin-tone protection), audio mixing (LUFS, ducking), asset management (CDN, versioning), quality review (anti-pattern detection), render pipeline.",
+        "author": "Insturix Vision",
+        "application": "Constraint on constraints — governs how Parts 1-4 are applied, not what they contain. The LLM uses all theory in Part 5 internally; the user should never need to know this theory exists. The theory produces the result; the result is what the user experiences.",
+        "examples": ["System uses Pearlman's breath model internally; user sees 'pacing feels natural'", "System uses Murch's Rule of Six internally; user sees 'cuts feel right'"],
+        "implications": ["Auto mode produces professional output by default", "Manual override always available, instant, lossless", "Heavy lifting (LUFS, codecs, color) always handled even in manual", "Theory is internal; result is what the user experiences"]
+      },
+      "tags": ["LLM_REQUIRED"],
+      "sourceLines": [5448, 5458]
+    }
+  ],
+  "edges": [
+    {
+      "from": "theory:murch.rule_of_six",
+      "to": "theory:murch.priority_emotion",
+      "type": "extends",
+      "label": "contains as priority 1",
+      "sourceLines": [5162, 5162]
+    },
+    {
+      "from": "theory:murch.rule_of_six",
+      "to": "theory:murch.priority_story",
+      "type": "extends",
+      "label": "contains as priority 2",
+      "sourceLines": [5163, 5163]
+    },
+    {
+      "from": "theory:murch.rule_of_six",
+      "to": "theory:murch.priority_rhythm",
+      "type": "extends",
+      "label": "contains as priority 3",
+      "sourceLines": [5164, 5164]
+    },
+    {
+      "from": "theory:murch.rule_of_six",
+      "to": "theory:murch.priority_eye_trace",
+      "type": "extends",
+      "label": "contains as priority 4",
+      "sourceLines": [5165, 5165]
+    },
+    {
+      "from": "theory:murch.rule_of_six",
+      "to": "theory:murch.priority_planarity",
+      "type": "extends",
+      "label": "contains as priority 5",
+      "sourceLines": [5166, 5166]
+    },
+    {
+      "from": "theory:murch.rule_of_six",
+      "to": "theory:murch.priority_spatial",
+      "type": "extends",
+      "label": "contains as priority 6",
+      "sourceLines": [5167, 5167]
+    },
+    {
+      "from": "theory:murch.priority_emotion",
+      "to": "theory:murch.priority_story",
+      "type": "extends",
+      "label": "outranks",
+      "sourceLines": [5159, 5170]
+    },
+    {
+      "from": "theory:murch.priority_rhythm",
+      "to": "theory:murch.priority_eye_trace",
+      "type": "extends",
+      "label": "outranks",
+      "sourceLines": [5159, 5170]
+    },
+    {
+      "from": "theory:murch.blink_theory",
+      "to": "theory:zacks.event_segmentation",
+      "type": "extends",
+      "label": "blink points align with event boundaries",
+      "sourceLines": [5174, 5261]
+    },
+    {
+      "from": "theory:cognition.confirmed_predictions",
+      "to": "theory:murch.blink_theory",
+      "type": "extends",
+      "label": "predictive coding explains blink-point invisibility",
+      "sourceLines": [5257, 5257]
+    },
+    {
+      "from": "theory:murch.lingering_principle",
+      "to": "technique:transition.j_cut",
+      "type": "motivates",
+      "label": "post-speech hold determines interpretation",
+      "sourceLines": [5176, 5176]
+    },
+    {
+      "from": "theory:murch.priority_rhythm",
+      "to": "theory:pearlman.breath_rhythm",
+      "type": "extends",
+      "label": "breath model deepens rhythm criterion",
+      "sourceLines": [5164, 5183]
+    },
+    {
+      "from": "theory:pearlman.breath_rhythm",
+      "to": "theory:pearlman.inhale",
+      "type": "extends",
+      "label": "phase 1 of breath cycle",
+      "sourceLines": [5185, 5185]
+    },
+    {
+      "from": "theory:pearlman.breath_rhythm",
+      "to": "theory:pearlman.exhale",
+      "type": "extends",
+      "label": "phase 2 of breath cycle",
+      "sourceLines": [5187, 5187]
+    },
+    {
+      "from": "theory:pearlman.breath_rhythm",
+      "to": "theory:pearlman.movement_phrases",
+      "type": "extends",
+      "label": "phrase-level structure of breath",
+      "sourceLines": [5189, 5189]
+    },
+    {
+      "from": "theory:pearlman.breath_rhythm",
+      "to": "theory:pearlman.kinesthetic_empathy",
+      "type": "extends",
+      "label": "embodied breath response to camera movement",
+      "sourceLines": [5191, 5191]
+    },
+    {
+      "from": "theory:pearlman.breath_rhythm",
+      "to": "theory:pearlman.pulse",
+      "type": "extends",
+      "label": "underlying pulse beneath surface rhythm",
+      "sourceLines": [5193, 5193]
+    },
+    {
+      "from": "theory:pearlman.breath_rhythm",
+      "to": "theory:pearlman.fractality",
+      "type": "extends",
+      "label": "self-similar rhythms across scales",
+      "sourceLines": [5195, 5195]
+    },
+    {
+      "from": "theory:pearlman.inhale",
+      "to": "theory:pearlman.exhale",
+      "type": "extends",
+      "label": "inhale-then-exhale cycle",
+      "sourceLines": [5185, 5187]
+    },
+    {
+      "from": "theory:pearlman.kinesthetic_empathy",
+      "to": "technique:zoom.zoom_push",
+      "type": "applies_to",
+      "label": "viewer feels 'leaning in'",
+      "sourceLines": [5191, 5191]
+    },
+    {
+      "from": "theory:pearlman.kinesthetic_empathy",
+      "to": "technique:zoom.zoom_pull_back",
+      "type": "applies_to",
+      "label": "viewer feels 'stepping away'",
+      "sourceLines": [5191, 5191]
+    },
+    {
+      "from": "theory:eisenstein.metric_montage",
+      "to": "technique:montage.beat_locked_cuts",
+      "type": "motivates",
+      "label": "metric montage = beat-locked cuts",
+      "sourceLines": [5206, 5206]
+    },
+    {
+      "from": "theory:eisenstein.rhythmic_montage",
+      "to": "technique:cut.cut_on_action",
+      "type": "motivates",
+      "label": "content motion drives cut",
+      "sourceLines": [5208, 5208]
+    },
+    {
+      "from": "theory:eisenstein.rhythmic_montage",
+      "to": "technique:pacing.high_motion_fast_pacing",
+      "type": "motivates",
+      "label": "rhythmic montage principle",
+      "sourceLines": [5208, 5208]
+    },
+    {
+      "from": "theory:eisenstein.tonal_montage",
+      "to": "mapping:moment_weight_map",
+      "type": "applies_to",
+      "label": "moment weighting enables tonal grouping",
+      "sourceLines": [5210, 5210]
+    },
+    {
+      "from": "theory:eisenstein.overtonal_montage",
+      "to": "signal:cinematic_moment",
+      "type": "applies_to",
+      "label": "cinematic_moment = overtonal convergence",
+      "sourceLines": [5212, 5212]
+    },
+    {
+      "from": "theory:eisenstein.intellectual_montage",
+      "to": "technique:cut.match_cut",
+      "type": "motivates",
+      "label": "match_cut is closest automated technique",
+      "sourceLines": [5214, 5214]
+    },
+    {
+      "from": "theory:eisenstein.collision_vs_linkage",
+      "to": "technique:cut.smash_cut",
+      "type": "motivates",
+      "label": "smash_cut is simplest collision form",
+      "sourceLines": [5216, 5216]
+    },
+    {
+      "from": "theory:eisenstein.metric_montage",
+      "to": "theory:tarkovsky.time_pressure",
+      "type": "contradicts",
+      "label": "mechanical interval vs charged sustained time",
+      "sourceLines": [5206, 5223]
+    },
+    {
+      "from": "theory:tarkovsky.time_pressure",
+      "to": "signal:narrative_pressure",
+      "type": "applies_to",
+      "label": "narrative_pressure is approximation",
+      "sourceLines": [5231, 5231]
+    },
+    {
+      "from": "theory:tarkovsky.time_pressure",
+      "to": "mapping:charged_silence_protection",
+      "type": "motivates",
+      "label": "charged silence requires content-derived pressure",
+      "sourceLines": [5231, 5231]
+    },
+    {
+      "from": "theory:chion.synchresis",
+      "to": "constraint:sfx_timing_drift",
+      "type": "motivates",
+      "label": "synchresis window mandates < 3 frame drift",
+      "sourceLines": [5240, 5240]
+    },
+    {
+      "from": "theory:mcgurk.effect",
+      "to": "constraint:cut_mid_word",
+      "type": "motivates",
+      "label": "lip-visible cuts forbidden mid-word",
+      "sourceLines": [5242, 5242]
+    },
+    {
+      "from": "theory:spence.cross_modal_correspondences",
+      "to": "theory:sound_symbolism.bouba_kiki",
+      "type": "extends",
+      "label": "shape-sound mapping is one correspondence",
+      "sourceLines": [5244, 5246]
+    },
+    {
+      "from": "theory:sound_symbolism.bouba_kiki",
+      "to": "technique:transition.dissolve",
+      "type": "applies_to",
+      "label": "round transition pairs with soft sound",
+      "sourceLines": [5246, 5246]
+    },
+    {
+      "from": "theory:sound_symbolism.bouba_kiki",
+      "to": "technique:cut.smash_cut",
+      "type": "applies_to",
+      "label": "sharp transition pairs with impact sound",
+      "sourceLines": [5246, 5246]
+    },
+    {
+      "from": "theory:audio.frequency_masking",
+      "to": "constraint:music_ducking",
+      "type": "motivates",
+      "label": "frequency competition mandates mid-range duck",
+      "sourceLines": [5248, 5248]
+    },
+    {
+      "from": "theory:friston.predictive_coding",
+      "to": "theory:cognition.confirmed_predictions",
+      "type": "extends",
+      "label": "confirmed = invisible cuts",
+      "sourceLines": [5257, 5257]
+    },
+    {
+      "from": "theory:friston.predictive_coding",
+      "to": "theory:cognition.violated_predictions",
+      "type": "extends",
+      "label": "violated = surprise/tension",
+      "sourceLines": [5259, 5259]
+    },
+    {
+      "from": "theory:friston.predictive_coding",
+      "to": "theory:zacks.event_segmentation",
+      "type": "extends",
+      "label": "event boundaries are prediction-confirmed cut points",
+      "sourceLines": [5261, 5261]
+    },
+    {
+      "from": "theory:friston.predictive_coding",
+      "to": "theory:cognition.attentional_synchrony",
+      "type": "extends",
+      "label": "balanced confirmed/violated mix drives engagement",
+      "sourceLines": [5263, 5263]
+    },
+    {
+      "from": "theory:cognition.confirmed_predictions",
+      "to": "theory:cognition.violated_predictions",
+      "type": "contradicts",
+      "label": "balance — neither alone is sufficient",
+      "sourceLines": [5263, 5263]
+    },
+    {
+      "from": "theory:zacks.event_segmentation",
+      "to": "signal:topic_boundary",
+      "type": "applies_to",
+      "label": "topic_boundary detects event boundaries",
+      "sourceLines": [5261, 5261]
+    },
+    {
+      "from": "theory:cognition.violated_predictions",
+      "to": "technique:cut.smash_cut",
+      "type": "motivates",
+      "label": "smash_cut violates prediction for emphasis",
+      "sourceLines": [5263, 5263]
+    },
+    {
+      "from": "theory:culture.kishotenketsu",
+      "to": "theory:structure.kishotenketsu",
+      "type": "applies_to",
+      "label": "cultural tradition produces narrative structure",
+      "sourceLines": [5270, 5333]
+    },
+    {
+      "from": "theory:culture.rasa_theory",
+      "to": "theory:structure.rasa_based_design",
+      "type": "applies_to",
+      "label": "rasa theory produces rasa-based structure",
+      "sourceLines": [5273, 5347]
+    },
+    {
+      "from": "theory:culture.kishotenketsu",
+      "to": "theory:structure.three_act",
+      "type": "contradicts",
+      "label": "conflict-free vs problem-solution",
+      "sourceLines": [5270, 5316]
+    },
+    {
+      "from": "theory:culture.rasa_theory",
+      "to": "theory:structure.three_act",
+      "type": "contradicts",
+      "label": "emotion-organized vs plot-organized",
+      "sourceLines": [5273, 5311]
+    },
+    {
+      "from": "theory:culture.kdrama_patience",
+      "to": "theory:culture.bollywood_visual_grammar",
+      "type": "contradicts",
+      "label": "patient holds vs high cut density",
+      "sourceLines": [5277, 5280]
+    },
+    {
+      "from": "theory:culture.nordic_minimalism",
+      "to": "theory:culture.latin_american_energy",
+      "type": "contradicts",
+      "label": "restraint vs heightened emotion",
+      "sourceLines": [5283, 5286]
+    },
+    {
+      "from": "theory:vonnegut.story_shapes",
+      "to": "theory:structure.three_act",
+      "type": "applies_to",
+      "label": "every structure is a fortune curve",
+      "sourceLines": [5302, 5311]
+    },
+    {
+      "from": "theory:vonnegut.story_shapes",
+      "to": "theory:structure.heros_journey",
+      "type": "applies_to",
+      "label": "hero's journey maps to fortune curve",
+      "sourceLines": [5302, 5323]
+    },
+    {
+      "from": "theory:mckee.gap_theory",
+      "to": "theory:structure.before_after_transformation",
+      "type": "applies_to",
+      "label": "transformation IS the gap",
+      "sourceLines": [5304, 5366]
+    },
+    {
+      "from": "theory:zeigarnik.effect",
+      "to": "theory:structure.countdown_ranking",
+      "type": "applies_to",
+      "label": "countdown built on Zeigarnik",
+      "sourceLines": [5306, 5379]
+    },
+    {
+      "from": "theory:zeigarnik.effect",
+      "to": "theory:structure.reveal_unboxing",
+      "type": "applies_to",
+      "label": "reveal built on Zeigarnik",
+      "sourceLines": [5306, 5404]
+    },
+    {
+      "from": "theory:zeigarnik.effect",
+      "to": "theory:structure.challenge_attempt",
+      "type": "applies_to",
+      "label": "challenge built on Zeigarnik",
+      "sourceLines": [5306, 5395]
+    },
+    {
+      "from": "theory:structure.heros_journey",
+      "to": "theory:structure.harmon_story_circle",
+      "type": "extends",
+      "label": "Harmon's circle is condensed Hero's Journey",
+      "sourceLines": [5328, 5331]
+    },
+    {
+      "from": "theory:structure.three_act",
+      "to": "theory:structure.five_act_freytag",
+      "type": "extends",
+      "label": "five-act elaborates three-act",
+      "sourceLines": [5311, 5318]
+    },
+    {
+      "from": "theory:structure.three_act",
+      "to": "theory:structure.save_the_cat",
+      "type": "extends",
+      "label": "save the cat elaborates three-act with 15 beats",
+      "sourceLines": [5311, 5338]
+    },
+    {
+      "from": "theory:structure.before_after_transformation",
+      "to": "technique:cut.match_cut",
+      "type": "motivates",
+      "label": "transformation cut = strongest transition",
+      "sourceLines": [5369, 5369]
+    },
+    {
+      "from": "theory:structure.before_after_transformation",
+      "to": "technique:transition.whip_pan",
+      "type": "motivates",
+      "label": "whip pan for transformation cut",
+      "sourceLines": [5369, 5369]
+    },
+    {
+      "from": "theory:structure.before_after_transformation",
+      "to": "technique:transition.flash",
+      "type": "motivates",
+      "label": "flash for transformation cut",
+      "sourceLines": [5369, 5369]
+    },
+    {
+      "from": "theory:structure.before_after_transformation",
+      "to": "technique:transition.dissolve",
+      "type": "contradicts",
+      "label": "dissolve undermines transformation impact",
+      "sourceLines": [5369, 5369]
+    },
+    {
+      "from": "theory:structure.myth_truth_pattern_interrupt",
+      "to": "technique:zoom.zoom_punch",
+      "type": "motivates",
+      "label": "shatter moment uses zoom punch",
+      "sourceLines": [5374, 5374]
+    },
+    {
+      "from": "theory:structure.myth_truth_pattern_interrupt",
+      "to": "technique:transition.flash",
+      "type": "motivates",
+      "label": "shatter moment uses flash",
+      "sourceLines": [5374, 5374]
+    },
+    {
+      "from": "theory:structure.in_medias_res",
+      "to": "technique:color.desaturated_flashback",
+      "type": "motivates",
+      "label": "desaturated flashback distinguishes timeline",
+      "sourceLines": [5420, 5420]
+    },
+    {
+      "from": "theory:structure.versus_comparison",
+      "to": "technique:layout.split_screen",
+      "type": "motivates",
+      "label": "split-screen for versus comparisons",
+      "sourceLines": [5393, 5393]
+    },
+    {
+      "from": "theory:structure.loop_infinite_scroll",
+      "to": "technique:audio.seamless_loop",
+      "type": "motivates",
+      "label": "audio must loop seamlessly",
+      "sourceLines": [5402, 5402]
+    },
+    {
+      "from": "theory:structure.micro_narrative_stack",
+      "to": "technique:cut.hard_cut",
+      "type": "motivates",
+      "label": "hard cuts between vignettes",
+      "sourceLines": [5411, 5411]
+    },
+    {
+      "from": "theory:structure.circular_narrative",
+      "to": "technique:composition.bookend_framing",
+      "type": "motivates",
+      "label": "identical bookend composition",
+      "sourceLines": [5425, 5425]
+    },
+    {
+      "from": "theory:structure.selection_guide",
+      "to": "theory:structure.hook_value_cta",
+      "type": "applies_to",
+      "label": "default short-form selection",
+      "sourceLines": [5359, 5445]
+    },
+    {
+      "from": "theory:system.automatic_car_principle",
+      "to": "theory:murch.rule_of_six",
+      "type": "applies_to",
+      "label": "rule of six is internal; user sees 'cuts feel right'",
+      "sourceLines": [5458, 5458]
+    },
+    {
+      "from": "theory:system.automatic_car_principle",
+      "to": "theory:pearlman.breath_rhythm",
+      "type": "applies_to",
+      "label": "breath model is internal; user sees 'pacing feels natural'",
+      "sourceLines": [5458, 5458]
+    }
+  ]
+}
