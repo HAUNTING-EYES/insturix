@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import React, { Suspense } from "react";
 import { LoadingScreen } from "@/components/Loader/LoadingScreen";
 import { fetchSocializeUser } from "@/lib/socialize/main";
+import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadcrumb";
 
 export const revalidate = 0; // Revalidate on every request
 
@@ -27,6 +28,7 @@ export default async function SocializePage() {
 
   return (
     <div className="container mx-auto p-8">
+      <PipelineBreadcrumb currentStep="share" />
       {/* Page Header */}
       <div className="mb-8">
         <h1 className="text-[44px] font-semibold tracking-tight text-zinc-10 flex items-center gap-3">
