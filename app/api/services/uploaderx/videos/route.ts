@@ -59,6 +59,8 @@ export async function POST(req: Request) {
         await projectService.updateProjectMetadata(editronProjectId, {
           pipelineStage: "publish",
         });
+        // Refresh derived project status after stage change
+        await projectService.refreshProjectStatus(editronProjectId);
       } catch (e) {
         console.warn("[uploaderx] Failed to update project stage:", e);
       }

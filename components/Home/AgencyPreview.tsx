@@ -62,7 +62,7 @@ export default function AgencyPreview() {
               <motion.div
                 variants={{ hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease } } }}
               >
-                <Link href="/insturix-creatives-agency">
+                <Link href="/showcase">
                   <motion.button
                     whileHover={{ scale: 1.04, boxShadow: "0 10px 40px rgba(0,0,0,0.2)" }}
                     whileTap={{ scale: 0.97 }}

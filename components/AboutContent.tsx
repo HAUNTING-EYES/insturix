@@ -81,7 +81,7 @@ export default function AboutContent() {
                   digital presence and providing the technical orchestration required 
                   to scale their impact globally.
                 </p>
-                <Link href="/about/team">
+                <Link href="/about">
                   <motion.button 
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
@@ -162,7 +162,7 @@ export default function AboutContent() {
 
           {/* CTA Section */}
           <section className="text-center py-16">
-            <Link href="/about/team">
+            <Link href="/about">
               <motion.button 
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.98 }}

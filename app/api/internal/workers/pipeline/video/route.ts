@@ -537,7 +537,15 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   const resolvedProjectId = batch.projectId
     || (batch.storyboardId ? (await db.collection('storyboards').findOne({ storyboardId: batch.storyboardId }) as any)?.projectId : null);
 
+  // Refresh derived project status whenever a batch finishes
   if (done >= batch.totalScenes && resolvedProjectId) {
+    try {
+      const { projectService } = await import('@/lib/editron/services/project-service');
+      await projectService.refreshProjectStatus(resolvedProjectId);
+    } catch (statusErr: any) {
+      console.warn(`[VideoWorker] Failed to refresh project status for ${resolvedProjectId}:`, statusErr.message);
+    }
+
     try {
       const project = await db.collection('projects').findOne({ projectId: resolvedProjectId }) as any;
       let profileId = project?.pendingDirectorProfileId;

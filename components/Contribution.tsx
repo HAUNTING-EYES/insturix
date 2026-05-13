@@ -28,7 +28,7 @@ export default function ContributionPage() {
       icon: HeartHandshake,
       description:
         "Support us financially to help us maintain and improve our platform.",
-      link: "/donate",
+      link: "/support-us",
       color: "bg-green-500/10 dark:bg-green-500/5",
       iconColor: "text-green-500",
     },
@@ -64,7 +64,7 @@ export default function ContributionPage() {
       icon: HandHeart,
       description:
         "Become a sponsor and help us grow. Your support is greatly appreciated.",
-      link: "/sponsor",
+      link: "/support-us",
       color: "bg-red-500/10 dark:bg-red-500/5",
       iconColor: "text-red-500",
     },

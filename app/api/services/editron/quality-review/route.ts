@@ -33,6 +33,9 @@ export async function POST(req: NextRequest) {
       pipelineStage: 'analyze',
     });
 
+    // Refresh derived project status after stage change
+    await projectService.refreshProjectStatus(projectId);
+
     return NextResponse.json({
       success: true,
       ...report,
