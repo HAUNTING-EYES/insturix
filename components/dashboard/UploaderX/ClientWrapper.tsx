@@ -330,31 +330,34 @@ export function UploaderXClientWrapper() {
         (acc) => acc.provider === "google" || (acc.provider as string) === "oauth_google"
       );
 
-      if (googleAccount) {
-        // Google already connected — check if YouTube scope is missing
-        const hasScope = googleAccount.approvedScopes?.includes(YT_SCOPE);
-        if (hasScope === false) {
-          // Scope missing — user needs to disconnect and reconnect with the scope
-          toast({
-            title: "YouTube permissions needed",
-            description: "Your Google account is connected but missing YouTube upload permissions. Go to Connected Accounts, remove Google, then reconnect and check 'Manage YouTube Videos'.",
-          });
-          openUserProfile();
-        } else {
-          // Already connected with scope — mark as connected
-          toast({ title: "YouTube already connected", description: "Your Google account has YouTube permissions." });
+      try {
+        if (googleAccount) {
+          const hasScope = googleAccount.approvedScopes?.includes(YT_SCOPE);
+          if (hasScope !== false) {
+            // Already has scope — just refresh status
+            toast({ title: "YouTube connected", description: "Your Google account has YouTube permissions." });
+            return;
+          }
+          // Has Google but missing YouTube scope — remove and re-add with scope
+          toast({ title: "Reconnecting...", description: "Adding YouTube upload permissions to your Google account." });
+          await googleAccount.destroy();
+          // Small delay to let Clerk process the removal
+          await new Promise(r => setTimeout(r, 500));
         }
-      } else {
-        // Not connected at all — start OAuth flow
-        try {
-          await user?.createExternalAccount({
-            strategy: "oauth_google",
-            redirectUrl: window.location.href,
-            additionalScopes: [YT_SCOPE],
-          });
-        } catch {
-          openUserProfile();
-        }
+        // Create fresh connection with YouTube scope
+        await user?.createExternalAccount({
+          strategy: "oauth_google",
+          redirectUrl: `${window.location.origin}/dashboard/uploaderx`,
+          additionalScopes: [YT_SCOPE],
+        });
+      } catch (err) {
+        console.error("[YouTube connect]", err);
+        toast({
+          title: "YouTube connection issue",
+          description: "Could not connect automatically. Try connecting Google from your account settings.",
+          variant: "destructive",
+        });
+        openUserProfile();
       }
     } else if (platform.authUrl) {
       window.location.href = platform.authUrl;
