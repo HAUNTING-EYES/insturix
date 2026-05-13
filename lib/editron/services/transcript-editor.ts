@@ -103,23 +103,6 @@ DO NOT CUT any of these:
 A RETAKE is ONLY when the same words appear multiple times in IMMEDIATE SUCCESSION. Two sentences about the same TOPIC using different words are NOT retakes — they are elaboration.
 </rules>
 
-<examples>
-Example 1 — Retake (vlog):
-Input words: 0:We 1:all 2:we 3:all 4:know 5:we 6:all 7:know 8:that 9:the 10:anonymity 11:of 12:the 13:internet
-The speaker tried "we all" three times. The final complete attempt starts at word 5.
-Output: [{"s":5,"e":13}]
-
-Example 2 — False start (tutorial):
-Input words: 0:So 1:the 2:way 3:this 4:works 5:is 6:actually 7:no 8:let 9:me 10:back 11:up 12:the 13:fundamental 14:concept 15:here 16:is 17:recursion
-Words 0-6 are an abandoned approach. Words 7-11 are production meta ("no let me back up"). Content starts at word 12.
-Output: [{"s":12,"e":17}]
-
-Example 3 — NOT a retake (interview — keep both):
-Input words: 0:The 1:internet 2:brings 3:out 4:the 5:worst 6:in 7:people 8:I 9:mean 10:you 11:see 12:it 13:in 14:the 15:comments 16:people 17:say 18:terrible 19:things 20:online
-These are two DIFFERENT sentences about the same topic. The second elaborates. Keep both.
-Output: [{"s":0,"e":20}]
-</examples>
-
 <output_format>
 JSON array of keep-ranges using word indices (inclusive on both sides):
 [{"s": startIndex, "e": endIndex}, ...]
