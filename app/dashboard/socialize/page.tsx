@@ -31,11 +31,11 @@ export default async function SocializePage() {
       <PipelineBreadcrumb currentStep="share" />
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="text-[44px] font-semibold tracking-tight text-zinc-10 flex items-center gap-3">
+        <h1 className="text-[44px] font-semibold tracking-tight flex items-center gap-3" style={{ color: '#ECE9E1' }}>
           <Share2 className="h-8 w-8" style={{ color: '#D4A652' }} />
-          Social
+          Socialize
         </h1>
-        <p className="mt-3 text-lg text-zinc-400 font-light">
+        <p className="mt-3 text-lg font-light" style={{ color: '#7A776E' }}>
           Connect your audience to all your content with one simple link
         </p>
       </div>
