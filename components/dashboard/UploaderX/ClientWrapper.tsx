@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
 
 // ─── Design tokens (Insturix design system) ───────────────────
 const C = {
@@ -67,6 +68,12 @@ export function UploaderXClientWrapper() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [armedPlatforms, setArmedPlatforms] = useState<Set<string>>(new Set());
+  const [publishResults, setPublishResults] = useState<Record<string, { success: boolean; error?: string }>>({});
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [uploadedGcsPath, setUploadedGcsPath] = useState<string | null>(null);
+  const [uploadedVideoUuid, setUploadedVideoUuid] = useState<string | null>(null);
+  const { uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, isUploading, uploadProgress } = useUploaderXUpload();
 
   // ✅ Add this useEffect block for YouTube token capture
   useEffect(() => {
@@ -308,6 +315,93 @@ export function UploaderXClientWrapper() {
     const date = new Date(d);
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
+
+  // ─── Auto-arm connected platforms when entering fragmentation ─
+  useEffect(() => {
+    if (view === "fragmentation") {
+      const connected = new Set(platformStatuses.filter(p => p.connected).map(p => p.key));
+      setArmedPlatforms(connected);
+      setPublishResults({});
+    }
+  }, [view, platformStatuses]);
+
+  const toggleArm = useCallback((key: string) => {
+    setArmedPlatforms(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // ─── Publish to all armed platforms ──────────────────────────
+  const handlePublish = useCallback(async () => {
+    // Step 1: If we have a file but no gcsPath yet, upload first
+    let gcsPath = uploadedGcsPath;
+    let videoUuid = uploadedVideoUuid;
+    const videoName = selectedFile?.name || selectedVideo?.filename || "Untitled";
+
+    if (selectedFile && !gcsPath) {
+      setIsPublishing(true);
+      const result = await uploadWithProgress(selectedFile);
+      if (!result.success) {
+        toast({ title: "Upload failed", description: result.error || "Could not upload video", variant: "destructive" });
+        setIsPublishing(false);
+        return;
+      }
+      gcsPath = result.gcsPath || null;
+      videoUuid = result.videoUuid || null;
+      setUploadedGcsPath(gcsPath);
+      setUploadedVideoUuid(videoUuid);
+    } else if (selectedVideo) {
+      gcsPath = selectedVideo.publicUrl || null;
+      videoUuid = selectedVideo.videoUuid;
+    }
+
+    if (!gcsPath || !videoUuid) {
+      toast({ title: "No video", description: "Select or upload a video first.", variant: "destructive" });
+      setIsPublishing(false);
+      return;
+    }
+
+    setIsPublishing(true);
+    const results: Record<string, { success: boolean; error?: string }> = {};
+
+    // Step 2: Publish to each armed platform sequentially
+    for (const key of armedPlatforms) {
+      try {
+        let res: { success: boolean; error?: string };
+        switch (key) {
+          case "youtube":
+            res = await uploadToYouTube(videoUuid, gcsPath, videoName, videoName);
+            break;
+          case "facebook":
+            res = await uploadToFacebook(videoUuid, gcsPath, videoName);
+            break;
+          case "instagram":
+            res = await uploadToInstagram(videoUuid, gcsPath, videoName);
+            break;
+          case "twitter":
+            res = await uploadToTwitter(videoUuid, gcsPath, videoName);
+            break;
+          case "linkedin":
+            res = await uploadToLinkedIn(videoUuid, gcsPath, videoName);
+            break;
+          default:
+            res = { success: false, error: "Unknown platform" };
+        }
+        results[key] = res;
+      } catch (err) {
+        results[key] = { success: false, error: err instanceof Error ? err.message : "Failed" };
+      }
+      // Update results progressively so reveal can show them
+      setPublishResults({ ...results });
+    }
+
+    setIsPublishing(false);
+    setView("reveal");
+  }, [armedPlatforms, selectedFile, selectedVideo, uploadedGcsPath, uploadedVideoUuid, uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, toast]);
+
+  const armedCount = armedPlatforms.size;
 
   // ═══════════════════════════════════════════════════════════════
   // RENDER
@@ -556,19 +650,174 @@ export function UploaderXClientWrapper() {
         </div>
       )}
 
-      {/* ━━━ FRAGMENTATION VIEW (Phase 2) ━━━ */}
+      {/* ━━━ FRAGMENTATION VIEW ━━━ */}
       {view === "fragmentation" && (
-        <div style={{ padding: "32px 0", textAlign: "center" }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".08em", marginBottom: 12 }}>
-            FRAGMENTATION VIEW
+        <div style={{ display: "flex", flexDirection: "column", minHeight: "70vh" }}>
+
+          {/* Topbar */}
+          <div style={{ display: "flex", alignItems: "center", padding: "12px 0", borderBottom: `1px solid ${C.border}`, gap: 12, marginBottom: 24 }}>
+            <button onClick={() => { setView("floor"); setUploadedGcsPath(null); setUploadedVideoUuid(null); }} style={{
+              display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: C.t4,
+              fontFamily: "inherit", fontSize: 13, cursor: "pointer", padding: "6px 10px", borderRadius: 6,
+              transition: `all .2s ${EASE}`,
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+              Back
+            </button>
+            <span style={{ fontWeight: 800, fontSize: 14, letterSpacing: "-.01em" }}>
+              {selectedFile?.name || selectedVideo?.filename || "Untitled"}
+            </span>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 10, color: C.gold, letterSpacing: ".06em",
+              marginLeft: "auto", padding: "3px 10px", borderRadius: 4, background: C.goldBg, border: `1px solid ${C.goldBd}`,
+            }}>
+              Select destinations
+            </span>
           </div>
-          <div style={{ fontSize: 14, color: C.t3, marginBottom: 24 }}>Phase 2 — coming next</div>
-          <button onClick={() => setView("floor")} style={{
-            background: "transparent", color: C.t3, border: `1px solid ${C.borderL}`, padding: "8px 20px",
-            borderRadius: 7, fontSize: 13, cursor: "pointer", fontFamily: "inherit",
-          }}>
-            Back to floor
-          </button>
+
+          {/* Split layout */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", flex: 1, gap: 0 }}>
+
+            {/* Source side */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 32, borderRight: `1px solid ${C.border}`, position: "relative" }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".1em", textTransform: "uppercase" as const, position: "absolute", top: 0, left: 0 }}>
+                Source
+              </span>
+              <div style={{
+                width: "100%", maxWidth: 360, aspectRatio: "16/9", borderRadius: 12,
+                background: C.deeper, border: `1px solid ${C.border}`, position: "relative", overflow: "hidden",
+                transition: `all .8s ${EASE}`,
+                ...(isPublishing ? { opacity: 0.3, transform: "scale(.92)", filter: "blur(3px)" } : {}),
+              }}>
+                <div style={{ position: "absolute", inset: -40, background: "radial-gradient(circle at center,rgba(212,166,82,.03) 0%,transparent 60%)" }} />
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", position: "relative", zIndex: 1 }}>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={C.t5} strokeWidth="1.5"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                </div>
+              </div>
+              <div style={{ marginTop: 20, textAlign: "center" }}>
+                <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.03em", color: C.t1 }}>
+                  {selectedFile?.name || selectedVideo?.filename || "Untitled"}
+                </div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t4, marginTop: 6, display: "flex", gap: 12, justifyContent: "center" }}>
+                  <span>{fmtSize(selectedFile?.size || selectedVideo?.fileSize || 0)}</span>
+                  <span>{selectedFile?.type?.split("/")[1]?.toUpperCase() || "H.264"}</span>
+                </div>
+              </div>
+              {/* Upload progress */}
+              {isUploading && uploadProgress && (
+                <div style={{ marginTop: 16, width: "100%", maxWidth: 360 }}>
+                  <div style={{ height: 3, background: C.well, borderRadius: 2, overflow: "hidden" }}>
+                    <div style={{ height: "100%", borderRadius: 2, background: C.gold, width: `${uploadProgress.percentage}%`, transition: `width .3s ${EASE}` }} />
+                  </div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t4, marginTop: 4, textAlign: "center" }}>
+                    Uploading... {uploadProgress.percentage}%
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Destinations side */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 32, gap: 10, position: "relative" }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, letterSpacing: ".1em", textTransform: "uppercase" as const, position: "absolute", top: 0, left: 0 }}>
+                Destinations
+              </span>
+
+              {PLATFORMS.map((p) => {
+                const status = platformStatuses.find(s => s.key === p.key);
+                const connected = status?.connected || false;
+                const armed = armedPlatforms.has(p.key);
+
+                return (
+                  <div
+                    key={p.key}
+                    onClick={() => connected && toggleArm(p.key)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 16, width: "100%", maxWidth: 380,
+                      padding: "14px 16px", borderRadius: 8, cursor: connected ? "pointer" : "default",
+                      border: `1px solid ${armed ? C.goldBd : C.border}`,
+                      background: armed ? C.goldBg : C.raised,
+                      opacity: connected ? 1 : 0.5,
+                      transition: `all .3s ${EASE}`,
+                    }}
+                  >
+                    {/* Aspect ratio preview */}
+                    <div style={{
+                      flexShrink: 0, background: C.deeper, border: `1px solid ${armed ? C.goldBd : C.border}`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontFamily: "var(--font-mono)", fontSize: 9, color: armed ? C.gold : C.t5,
+                      borderRadius: 4, overflow: "hidden",
+                      width: p.aspect === "9:16" ? 36 : p.aspect === "4:3" ? 52 : 64,
+                      height: p.aspect === "9:16" ? 64 : p.aspect === "4:3" ? 40 : 36,
+                      transition: `all .3s ${EASE}`,
+                    }}>
+                      {p.aspect}
+                    </div>
+
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: armed ? C.t1 : connected ? C.t3 : C.t5, transition: "color .2s" }}>
+                        {p.label}
+                      </div>
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, marginTop: 2 }}>
+                        {connected ? p.fmt : "Not connected"}
+                      </div>
+                    </div>
+
+                    {/* Connection dot + toggle or connect button */}
+                    {connected ? (
+                      <>
+                        <span style={{ width: 6, height: 6, borderRadius: 3, background: C.green, boxShadow: "0 0 6px rgba(94,201,126,.3)", flexShrink: 0 }} />
+                        <div style={{
+                          width: 36, height: 20, borderRadius: 10, position: "relative", flexShrink: 0,
+                          background: armed ? C.goldBg : C.well,
+                          border: `1px solid ${armed ? C.goldBd : C.border}`,
+                          transition: `all .3s ${EASE}`,
+                        }}>
+                          <div style={{
+                            position: "absolute", top: 2, width: 14, height: 14, borderRadius: "50%",
+                            left: armed ? 18 : 2,
+                            background: armed ? C.gold : C.t4,
+                            transition: `all .3s ${EASE}`,
+                          }} />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ width: 6, height: 6, borderRadius: 3, background: C.red, flexShrink: 0 }} />
+                        <button onClick={(e) => { e.stopPropagation(); if (status) handleConnect(status); }} style={{
+                          fontSize: 11, color: C.gold, background: "none", border: `1px solid ${C.goldBd}`,
+                          padding: "4px 12px", borderRadius: 5, cursor: "pointer", fontFamily: "inherit",
+                          transition: `all .2s ${EASE}`,
+                        }}>
+                          Connect
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Publish bar */}
+          <div style={{ padding: "16px 0", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16 }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t4 }}>
+              {armedCount} of {PLATFORMS.length} armed
+            </span>
+            <button
+              onClick={handlePublish}
+              disabled={armedCount === 0 || isPublishing}
+              style={{
+                background: armedCount > 0 ? C.gold : C.t5, color: C.bg,
+                fontFamily: "inherit", fontWeight: 800, fontSize: 13, border: "none",
+                padding: "10px 28px", borderRadius: 7, cursor: armedCount > 0 ? "pointer" : "not-allowed",
+                opacity: armedCount > 0 && !isPublishing ? 1 : 0.4,
+                transition: `all .2s ${EASE}`,
+              }}
+            >
+              {isPublishing ? "Publishing..." : `Publish to ${armedCount} platform${armedCount !== 1 ? "s" : ""}`}
+            </button>
+          </div>
         </div>
       )}
 
