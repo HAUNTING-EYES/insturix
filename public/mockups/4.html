@@ -83,8 +83,8 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
 /* ── Main Layout ── */
 .main{display:flex;padding:0 40px;gap:0;min-height:calc(100vh - 120px)}
-.col-timeline{flex:0 0 55%;padding:20px 32px 60px 0;position:relative}
-.col-preview{flex:0 0 45%;position:relative}
+.col-timeline{flex:0 0 52%;padding:20px 28px 60px 0;position:relative}
+.col-preview{flex:0 0 48%;position:relative}
 .preview-sticky{position:sticky;top:80px;padding:20px 0 20px 32px;border-left:1px solid var(--border-subtle)}
 
 /* ── Timeline Spine ── */
@@ -137,20 +137,22 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   display:flex;align-items:center;gap:8px;margin-bottom:4px;
 }
 .moment-label-text{
-  font-family:var(--font-mono);font-size:11px;font-weight:500;
+  font-family:var(--font-mono);font-size:12px;font-weight:500;
   color:var(--gold);letter-spacing:.08em;text-transform:uppercase;
 }
 
 /* Card */
 .card{
-  background:var(--bg-raised);border:1px solid var(--border-subtle);
-  border-radius:var(--radius-card);padding:12px;position:relative;
+  background:linear-gradient(180deg, var(--bg-raised) 0%, rgba(15,15,14,.85) 100%);
+  border:1px solid var(--border-subtle);
+  border-radius:var(--radius-card);padding:14px;position:relative;
   transition:all .35s var(--ease);
+  box-shadow:0 2px 8px rgba(0,0,0,.15);
 }
 .card:hover{
   transform:translateY(-2px);
   border-color:var(--gold-border);
-  box-shadow:0 8px 32px rgba(0,0,0,.3);
+  box-shadow:0 8px 32px rgba(0,0,0,.3),0 0 20px rgba(212,166,82,.05);
 }
 .card-status{
   position:absolute;top:10px;right:10px;
@@ -209,10 +211,10 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 .underline-input.status-input{font-size:.78rem;color:var(--text-secondary)}
 .bio-row{display:flex;align-items:flex-start;gap:8px}
 .bio-area{
-  font-family:var(--font-body);font-size:.8rem;color:var(--text-secondary);
+  font-family:var(--font-body);font-size:.85rem;color:var(--text-secondary);
   background:var(--bg-well);border:1px solid var(--border-subtle);
-  border-radius:var(--radius-btn);padding:6px 8px;
-  resize:none;outline:none;width:100%;height:40px;line-height:1.4;
+  border-radius:var(--radius-btn);padding:8px 10px;
+  resize:none;outline:none;width:100%;height:44px;line-height:1.4;
 }
 .bio-area:focus{border-color:var(--gold)}
 .char-count{
@@ -222,19 +224,20 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
 /* ── Moment 3: Links ── */
 .link-row{
-  display:flex;align-items:center;gap:8px;padding:6px 8px;
+  display:flex;align-items:center;gap:10px;padding:8px 10px;
   border-radius:8px;background:var(--bg-well);margin-bottom:6px;
-  transition:all .25s var(--ease);
+  transition:all .25s var(--ease);position:relative;overflow:hidden;
 }
 .link-row:last-of-type{margin-bottom:0}
-.link-row:hover{background:var(--bg-deeper)}
-.link-color-bar{width:4px;height:28px;border-radius:2px;flex-shrink:0}
+.link-row:hover{background:var(--bg-deeper);transform:translateX(2px)}
+.link-color-bar{width:4px;height:32px;border-radius:2px;flex-shrink:0}
 .link-icon{
-  width:24px;height:24px;border-radius:6px;
+  width:28px;height:28px;border-radius:7px;
   display:flex;align-items:center;justify-content:center;flex-shrink:0;
-  font-size:11px;font-weight:800;color:#fff;
+  font-size:12px;font-weight:800;color:#fff;
+  box-shadow:0 0 12px var(--link-glow,transparent);
 }
-.link-name{flex:1;font-size:.8rem;color:var(--text-secondary)}
+.link-name{flex:1;font-size:.85rem;color:var(--text-primary);font-weight:500}
 .link-toggle{
   width:32px;height:18px;border-radius:9px;background:var(--green);
   position:relative;cursor:pointer;flex-shrink:0;transition:background .25s;
@@ -268,7 +271,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   width:8px;height:8px;border-radius:50%;background:var(--gold);flex-shrink:0;
   animation:livePulse 1.5s ease-in-out infinite;
 }
-.notif-text{flex:1;font-size:.8rem;color:var(--text-primary)}
+.notif-text{flex:1;font-size:.85rem;color:var(--text-primary)}
 .notif-time{
   font-family:var(--font-mono);font-size:11px;color:var(--text-dim);
   padding:2px 6px;border-radius:4px;background:var(--bg-deeper);
@@ -315,9 +318,9 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
 /* Phone Frame */
 .phone-frame{
-  width:380px;background:var(--bg-deeper);border-radius:28px;
-  border:1px solid var(--border-emphasis);
-  box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.03);
+  width:420px;background:var(--bg-deeper);border-radius:32px;
+  border:2px solid var(--border-emphasis);
+  box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.03),0 0 80px rgba(212,166,82,.04);
   overflow:hidden;position:relative;
 }
 .phone-notch{
@@ -344,13 +347,13 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   0%,100%{box-shadow:0 0 0 3px rgba(212,166,82,.1)}
   50%{box-shadow:0 0 0 6px rgba(212,166,82,.2)}
 }
-.prev-name{text-align:center;font-size:1.05rem;font-weight:800;margin-top:8px;color:var(--text-primary)}
+.prev-name{text-align:center;font-size:1.1rem;font-weight:800;margin-top:8px;color:var(--text-primary)}
 .prev-status{
   display:flex;align-items:center;justify-content:center;gap:5px;margin-top:4px;
 }
 .prev-status-dot{width:5px;height:5px;border-radius:50%;background:var(--gold)}
-.prev-status-text{font-size:.78rem;color:var(--text-secondary)}
-.prev-bio{text-align:center;font-size:.78rem;color:var(--text-muted);margin-top:6px;line-height:1.4;padding:0 10px}
+.prev-status-text{font-size:.82rem;color:var(--text-secondary)}
+.prev-bio{text-align:center;font-size:.82rem;color:var(--text-muted);margin-top:6px;line-height:1.45;padding:0 12px}
 
 /* Preview notification */
 .prev-notif{
@@ -388,7 +391,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   display:flex;align-items:center;justify-content:center;
   font-size:12px;font-weight:800;flex-shrink:0;
 }
-.prev-bento-label{font-size:.78rem;color:var(--text-secondary)}
+.prev-bento-label{font-size:.82rem;color:var(--text-secondary);font-weight:500}
 
 .prev-footer{
   text-align:center;margin-top:14px;
@@ -540,21 +543,21 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
           </div>
 
           <!-- LinkedIn -->
-          <div class="link-row">
+          <div class="link-row" style="--link-glow:rgba(10,102,194,.3)">
             <div class="link-color-bar" style="background:var(--linkedin)"></div>
             <div class="link-icon" style="background:var(--linkedin)">in</div>
             <span class="link-name">My LinkedIn</span>
             <div class="link-toggle"></div>
           </div>
           <!-- YouTube -->
-          <div class="link-row">
+          <div class="link-row" style="--link-glow:rgba(255,0,0,.25)">
             <div class="link-color-bar" style="background:var(--youtube)"></div>
             <div class="link-icon" style="background:var(--youtube)">&#9654;</div>
             <span class="link-name">My Channel</span>
             <div class="link-toggle"></div>
           </div>
           <!-- GitHub -->
-          <div class="link-row">
+          <div class="link-row" style="--link-glow:rgba(230,237,243,.15)">
             <div class="link-color-bar" style="background:var(--github);"></div>
             <div class="link-icon" style="background:#24292e;color:var(--github)">&lt;/&gt;</div>
             <span class="link-name">Code</span>
