@@ -371,6 +371,36 @@ export async function executeSilenceRemoval(
     ? Math.max(...overlays.map((o: any) => o.from + o.durationInFrames))
     : 0;
 
+  // ── CASCADE SAFETY NET ──────────────────────────────────────────
+  // The executor can cascade-delete overlays when removal boundaries
+  // land near overlay edges (splits create micro-fragments below
+  // minSegmentFrames, which get deleted, shifting more overlays into
+  // other removal ranges). Detect this by comparing actual vs expected.
+  const expectedRemovedFrames = plan.reduce((sum, a) => {
+    if (a.action === 'remove') return sum + msToFrames(a.endMs - a.startMs, fps);
+    if (a.action === 'shorten') return sum + msToFrames((a.endMs - a.startMs) - (a.shortenToMs || 0), fps);
+    return sum;
+  }, 0);
+  const expectedNewDuration = Math.max(0, originalDuration - expectedRemovedFrames);
+  const durationRatio = expectedNewDuration > 0 ? newDuration / expectedNewDuration : 1;
+
+  if (durationRatio < 0.5 && expectedNewDuration > fps * 10) {
+    console.error(`[SilenceRemoval] CASCADE DETECTED: expected ${expectedNewDuration} frames (${Math.round(expectedNewDuration / fps)}s) but got ${newDuration} frames (${Math.round(newDuration / fps)}s) — ${((1 - durationRatio) * 100).toFixed(0)}% more removed than planned. ABORTING — restoring original overlays.`);
+
+    // Restore original project state — don't save the broken overlays
+    warnings.push(`CASCADE ABORT: expected ${Math.round(expectedNewDuration / fps)}s, got ${Math.round(newDuration / fps)}s`);
+    return {
+      actionsExecuted: 0,
+      totalFramesRemoved: 0,
+      newDurationInFrames: originalDuration,
+      originalDurationInFrames: originalDuration,
+      overlaysCreated: 0,
+      overlaysDeleted: 0,
+      ghostSegments: [],
+      warnings,
+    };
+  }
+
   // Save updated project (including ghost segments for restoration)
   project.overlays = overlays;
   project.durationInFrames = newDuration;
