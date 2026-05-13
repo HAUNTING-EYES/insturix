@@ -1008,7 +1008,7 @@ export async function executeDirectorPlan(
       const { emitBrandEvent } = await import('@/lib/shared/brand-events');
       const { transitionProjectStatus } = await import('@/lib/shared/project-status');
 
-      await transitionProjectStatus(projectId, userId, 'reviewing', 'director_completed');
+      await transitionProjectStatus(projectId, userId, 'editing', 'director_completed');
 
       // Read actual quality score from project doc (persisted by quality_review step above)
       const { getDatabase: getBrandDb } = await import('@/lib/editron/db/mongodb');
