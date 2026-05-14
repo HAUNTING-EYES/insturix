@@ -1,11 +1,19 @@
 import MusicGenerator from "./MusicGenerator";
-import { MusitronTaskHistory } from "./MusitronTaskHistory";
+import { RecordingStudio } from "./RecordingStudio";
+import { JukeboxCollections } from "./JukeboxCollections";
 
-export function ClientWrapper() {
+interface ClientWrapperProps {
+  activeTab: "studio" | "jukebox";
+}
+
+export function ClientWrapper({ activeTab }: ClientWrapperProps) {
+  if (activeTab === "jukebox") {
+    return <JukeboxCollections />;
+  }
+
   return (
-    <div className="space-y-8">
+    <RecordingStudio>
       <MusicGenerator />
-      <MusitronTaskHistory />
-    </div>
+    </RecordingStudio>
   );
 }
