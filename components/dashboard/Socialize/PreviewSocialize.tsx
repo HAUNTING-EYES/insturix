@@ -41,18 +41,39 @@ export function SocializePreview({
   };
 
   return (
-    <section className="relative w-full max-w-[500px] h-[40rem] p-8 hidden md:block mx-auto">
-      <div className="absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 bg-[#131312] rounded-3xl p-4 border-[#1C1B19] border-2 flex flex-col items-center shadow-xl overflow-hidden">
-        <div className="w-[300px] h-[580px] bg-[#0B0B0A] rounded-2xl overflow-hidden relative flex flex-col justify-start items-center z-10">
-          <div className="w-full h-full overflow-y-auto p-4">
-            <ProfileContent
-              socializeData={socializeData}
-              uniqueUsername={profileTitle}
-              isPreview={true}
-            />
-          </div>
+    <div
+      style={{
+        background: "#131312",
+        borderRadius: 32,
+        padding: 10,
+        border: "2px solid #282724",
+        boxShadow: "0 20px 60px rgba(0,0,0,.5), 0 0 80px rgba(212,166,82,.04)",
+        width: 420,
+        overflow: "hidden",
+        position: "relative",
+      }}
+    >
+      {/* Notch */}
+      <div style={{ width: 100, height: 22, background: "#0B0B0A", borderRadius: "0 0 14px 14px", margin: "0 auto" }} />
+      {/* Screen */}
+      <div
+        style={{
+          borderRadius: 22,
+          overflow: "hidden",
+          background: "#0B0B0A",
+          maxHeight: 560,
+          overflowY: "auto",
+        }}
+        className="scrollbar-none"
+      >
+        <div style={{ padding: "0 12px 16px" }}>
+          <ProfileContent
+            socializeData={socializeData}
+            uniqueUsername={profileTitle}
+            isPreview={true}
+          />
         </div>
       </div>
-    </section>
+    </div>
   );
 }
