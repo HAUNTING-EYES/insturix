@@ -170,7 +170,7 @@ function Thumbnail({ title }: { title: string }) {
         justifyContent: "center",
       }}
     >
-      <span style={{ fontFamily: FONT_SANS, fontSize: 15, fontWeight: 800, color: C.faint }}>
+      <span style={{ fontFamily: FONT_SANS, fontSize: 14, fontWeight: 800, color: C.faint }}>
         {title.charAt(0).toUpperCase()}
       </span>
     </div>
@@ -216,7 +216,7 @@ function ProjectCard({ project }: { project: Project }) {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <StagePill stage={project.stage} />
-        <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.dim }}>{project.status}</span>
+        <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: C.dim }}>{project.status}</span>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 14 }}>
         {project.progress != null && (

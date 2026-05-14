@@ -151,7 +151,7 @@ export const TransitionBrowserPanel: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       {statusMsg && (
-        <div className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium text-center">
+        <div className="px-3 py-1.5 bg-emerald-600 text-white text-[11px] font-medium text-center">
           {statusMsg}
         </div>
       )}
@@ -163,7 +163,7 @@ export const TransitionBrowserPanel: React.FC = () => {
             placeholder="Search transitions..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-8 pl-8 pr-3 text-xs bg-zinc-900 border border-zinc-700 rounded-md text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className="w-full h-8 pl-8 pr-3 text-[11px] bg-zinc-900 border border-zinc-700 rounded-md text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
         </div>
         {videoOverlays.length < 2 && (

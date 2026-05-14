@@ -204,7 +204,7 @@ export function HeroTestInsturixPage() {
             <span
               className="m hero-test-label"
               style={{
-                fontSize: 12,
+                fontSize: 11,
                 color: phaseColor,
                 letterSpacing: "0.06em",
                 transition: `color 0.4s ${EASE}`,

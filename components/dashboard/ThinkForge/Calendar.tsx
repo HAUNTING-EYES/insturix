@@ -593,7 +593,7 @@ export default function Calendar({
                           closePicker();
                         }}
                         className={`
-                          aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all
+                          aspect-square flex items-center justify-center rounded-lg text-[11px] font-medium transition-all
                           ${!isCurrentMonth ? 'text-neutral-600' : 'text-neutral-300'}
                           ${isToday ? 'bg-[#D4A652]/30 text-[#D4A652] ring-1 ring-[#D4A652]/50' : ''}
                           ${isSelected ? 'bg-[#D4A652]/30 text-[#D4A652] ring-1 ring-[#D4A652]/60' : ''}
@@ -678,13 +678,13 @@ export default function Calendar({
                 navigateToMonth(today);
                 closePicker();
               }}
-              className="flex-1 px-3 py-1.5 rounded-lg bg-[#0F0F0E]/70 border border-[#1C1B19]/70 text-neutral-300 hover:bg-[#0F0F0E]/80 hover:text-[#ECE9E1] transition-all text-xs font-medium"
+              className="flex-1 px-3 py-1.5 rounded-lg bg-[#0F0F0E]/70 border border-[#1C1B19]/70 text-neutral-300 hover:bg-[#0F0F0E]/80 hover:text-[#ECE9E1] transition-all text-[11px] font-medium"
             >
               Today
             </button>
             <button
               onClick={closePicker}
-              className="flex-1 px-3 py-1.5 rounded-lg bg-[#0F0F0E]/70 border border-[#1C1B19]/70 text-neutral-300 hover:bg-[#0F0F0E]/80 hover:text-[#ECE9E1] transition-all text-xs font-medium"
+              className="flex-1 px-3 py-1.5 rounded-lg bg-[#0F0F0E]/70 border border-[#1C1B19]/70 text-neutral-300 hover:bg-[#0F0F0E]/80 hover:text-[#ECE9E1] transition-all text-[11px] font-medium"
             >
               Close
             </button>
@@ -747,7 +747,7 @@ export default function Calendar({
                   <div className="flex items-center gap-2">
                      <button
                         onClick={handleCreateNewCard}
-                        className="px-3 py-1.5 rounded-lg bg-[#1C1B19]/60 hover:bg-[#1C1B19]/90 text-neutral-300 text-xs font-medium flex items-center gap-2 border border-neutral-700/50"
+                        className="px-3 py-1.5 rounded-lg bg-[#1C1B19]/60 hover:bg-[#1C1B19]/90 text-neutral-300 text-[11px] font-medium flex items-center gap-2 border border-neutral-700/50"
                      >
                         <Plus size={14} />
                         New Content
@@ -790,7 +790,7 @@ export default function Calendar({
                         <div className="flex items-start justify-between mb-2 pointer-events-none">
                           <span
                             className={`
-                              text-base font-semibold
+                              text-[14px] font-semibold
                               ${isTodayDate 
                                 ? 'bg-[#D4A652] text-white w-7 h-7 rounded-full flex items-center justify-center text-[13px] shadow-md shadow-[#D4A652]/40' 
                                 : isCurrentMonth 
@@ -879,7 +879,7 @@ export default function Calendar({
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Keep FloatingIdeaPanel for legacy CalendarEvent support */}
-                <div className="text-xs text-neutral-400 p-4 bg-[#0F0F0E]/80 rounded-xl border border-[#1C1B19]/70">
+                <div className="text-[11px] text-neutral-400 p-4 bg-[#0F0F0E]/80 rounded-xl border border-[#1C1B19]/70">
                   Legacy event view - upgrade to ContentCard for full features
                 </div>
               </motion.div>

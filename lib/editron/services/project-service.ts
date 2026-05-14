@@ -39,9 +39,19 @@ export interface Project {
   updatedAt: Date;
   lastAutosaveAt?: Date;
   // Organization support
-  orgId?: string;              // null = personal project, set = org project
-  sharedWith?: string[];       // explicit user IDs for sharing
-  visibility: 'private' | 'org' | 'shared';  // access level
+  orgId?: string;
+  sharedWith?: string[];
+  visibility: 'private' | 'org' | 'shared';
+  // Dashboard fields (added for production floor dashboard)
+  brand?: string | null;
+  pipelineStage?: 'script' | 'edit' | 'analyze' | 'thumbnails' | 'publish' | 'complete';
+  qualityScore?: number | null;
+  projectStatus?: 'active' | 'needs-attention' | 'complete' | 'failed';
+  // Brand Intelligence + Project Tracking
+  status?: import('@/lib/shared/project-status').ProjectStatus;
+  statusHistory?: import('@/lib/shared/project-status').StatusTransition[];
+  brandId?: string;
+  lastError?: import('@/lib/shared/project-status').ProjectError;
 }
 
 export interface ProjectListItem {
@@ -51,6 +61,11 @@ export interface ProjectListItem {
   updatedAt: Date;
   durationInFrames: number;
   aspectRatio: AspectRatio;
+  // Dashboard fields
+  brand?: string | null;
+  pipelineStage?: 'script' | 'edit' | 'analyze' | 'thumbnails' | 'publish' | 'complete';
+  qualityScore?: number | null;
+  projectStatus?: 'active' | 'needs-attention' | 'complete' | 'failed';
 }
 
 export class ProjectService {
@@ -94,6 +109,8 @@ export class ProjectService {
       fps: 30,
       durationInFrames: 0,
       visibility: 'private',
+      pipelineStage: 'edit',
+      projectStatus: 'active',
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -219,6 +236,89 @@ export class ProjectService {
   }
 
   /**
+   * Update pipeline metadata on a project (stage, score, status, brand).
+   * Separate from saveProject which handles editor state (overlays, dimensions).
+   */
+  async updateProjectMetadata(
+    projectId: string,
+    metadata: Partial<Pick<Project, 'pipelineStage' | 'qualityScore' | 'projectStatus' | 'brand'>>
+  ): Promise<void> {
+    const db = await getDatabase();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId },
+      { $set: { ...metadata, updatedAt: new Date() } }
+    );
+    if (result.matchedCount === 0) {
+      throw new Error(`Project ${projectId} not found`);
+    }
+  }
+
+  /**
+   * Derive the project status from pipeline state.
+   *
+   * Rules:
+   *  - Any failed or partial video batch → "needs-attention"
+   *  - pipelineStage is "complete" → "complete"
+   *  - Otherwise → "active"
+   *
+   * Batches link to projects via storyboards (storyboardId → storyboards.projectId).
+   * Some batches also carry a direct `projectId` field.
+   */
+  async deriveProjectStatus(
+    projectId: string
+  ): Promise<Project['projectStatus']> {
+    const db = await getDatabase();
+
+    // 1. Find storyboards that belong to this project
+    const storyboards = await db.collection('storyboards')
+      .find(
+        { projectId },
+        { projection: { storyboardId: 1 } }
+      )
+      .toArray();
+
+    const storyboardIds = storyboards.map(s => s.storyboardId).filter(Boolean);
+
+    // 2. Check for any failed or partial video batches
+    //    Match on either: storyboardId in the set OR direct projectId on the batch.
+    const failedBatchCount = await db.collection('pipeline_video_batches').countDocuments({
+      $or: [
+        ...(storyboardIds.length > 0
+          ? [{ storyboardId: { $in: storyboardIds } }]
+          : []),
+        { projectId },
+      ],
+      status: { $in: ['failed', 'partial', 'partial_enqueue_failure'] },
+    });
+
+    if (failedBatchCount > 0) {
+      return 'needs-attention';
+    }
+
+    // 3. Check the project's pipeline stage
+    const project = await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId },
+      { projection: { pipelineStage: 1 } }
+    ) as unknown as Pick<Project, 'pipelineStage'> | null;
+
+    if (project?.pipelineStage === 'complete') {
+      return 'complete';
+    }
+
+    return 'active';
+  }
+
+  /**
+   * Derive and persist the project status in one call.
+   * Convenience wrapper — derives the status then writes it to the document.
+   */
+  async refreshProjectStatus(projectId: string): Promise<Project['projectStatus']> {
+    const status = await this.deriveProjectStatus(projectId);
+    await this.updateProjectMetadata(projectId, { projectStatus: status });
+    return status;
+  }
+
+  /**
    * Autosave project (background save)
    */
   async autosaveProject(userId: string, projectId: string, state: EditorState): Promise<void> {
@@ -338,6 +438,10 @@ export class ProjectService {
         updatedAt: 1,
         durationInFrames: 1,
         aspectRatio: 1,
+        brand: 1,
+        pipelineStage: 1,
+        qualityScore: 1,
+        projectStatus: 1,
       })
       .sort(sortOrder)
       .skip(skip)

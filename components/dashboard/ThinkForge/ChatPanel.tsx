@@ -346,8 +346,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     }
 
     // Observer pipeline: extract facts from chat messages in the background
-    // SECOND BRAIN DISABLED
-    if (false && originalPrompt.length >= 50) { // Increased from 10 to 50 to avoid extracting from short "hi/thanks" messages
+    if (originalPrompt.length >= 50) {
       fetch('/api/services/thinkforge/events/observe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -130,8 +130,8 @@ export default function GameOnTeamsManager() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold">{summary.totalTeams}</p>
-              <p className="text-xs text-zinc-500 mt-1">Total teams registered</p>
+              <p className="text-[32px] font-bold">{summary.totalTeams}</p>
+              <p className="text-[11px] text-zinc-500 mt-1">Total teams registered</p>
             </CardContent>
           </Card>
 
@@ -146,8 +146,8 @@ export default function GameOnTeamsManager() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold">{summary.byGame.valorant}</p>
-              <p className="text-xs text-zinc-500 mt-1">VALORANT teams</p>
+              <p className="text-[32px] font-bold">{summary.byGame.valorant}</p>
+              <p className="text-[11px] text-zinc-500 mt-1">VALORANT teams</p>
             </CardContent>
           </Card>
 
@@ -162,8 +162,8 @@ export default function GameOnTeamsManager() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold">{summary.byGame.bgmi}</p>
-              <p className="text-xs text-zinc-500 mt-1">BGMI teams</p>
+              <p className="text-[32px] font-bold">{summary.byGame.bgmi}</p>
+              <p className="text-[11px] text-zinc-500 mt-1">BGMI teams</p>
             </CardContent>
           </Card>
         </div>
@@ -203,7 +203,7 @@ export default function GameOnTeamsManager() {
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <h3 className="font-bold text-lg">{team.teamName}</h3>
-                            <Badge variant="outline" className="uppercase text-xs">
+                            <Badge variant="outline" className="uppercase text-[11px]">
                               {team.game}
                             </Badge>
                             {getPaymentStatusBadge(team.paymentStatus)}
@@ -254,7 +254,7 @@ export default function GameOnTeamsManager() {
                           {/* Leader */}
                           <div>
                             <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                              <Badge variant="secondary" className="text-xs">Leader</Badge>
+                              <Badge variant="secondary" className="text-[11px]">Leader</Badge>
                             </h4>
                             <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-3">
                               <div className="flex items-center justify-between">
@@ -297,7 +297,7 @@ export default function GameOnTeamsManager() {
                           )}
 
                           {/* Team Info */}
-                          <div className="text-xs text-zinc-500 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                          <div className="text-[11px] text-zinc-500 pt-2 border-t border-zinc-200 dark:border-zinc-800">
                             Created: {new Date(team.createdAt).toLocaleString()}
                           </div>
                         </div>

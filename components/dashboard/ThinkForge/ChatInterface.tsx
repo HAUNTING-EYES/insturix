@@ -271,19 +271,19 @@ export default function ChatInterface({
             <CardContent className="pt-0">
               <div className="grid grid-cols-1 gap-4 text-sm">
                 <div className="min-w-0">
-                  <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Style</span>
+                  <span className="text-[11px] font-medium text-[#5F5E5A] uppercase tracking-wide">Style</span>
                   <p className="text-[#B5B2A8] mt-1 break-words overflow-hidden text-ellipsis">{selectedIdea.style || 'Loading...'}</p>
                 </div>
                 <div className="min-w-0">
-                  <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Format</span>
+                  <span className="text-[11px] font-medium text-[#5F5E5A] uppercase tracking-wide">Format</span>
                   <p className="text-[#B5B2A8] mt-1 break-words overflow-hidden text-ellipsis">{selectedIdea.format || 'Loading...'}</p>
                 </div>
                 <div className="min-w-0">
-                  <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Platform</span>
+                  <span className="text-[11px] font-medium text-[#5F5E5A] uppercase tracking-wide">Platform</span>
                   <p className="text-[#B5B2A8] mt-1 break-words overflow-hidden text-ellipsis">{selectedIdea.platform || 'Loading...'}</p>
                 </div>
                 <div className="min-w-0">
-                  <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Approach</span>
+                  <span className="text-[11px] font-medium text-[#5F5E5A] uppercase tracking-wide">Approach</span>
                   <p className="text-[#B5B2A8] mt-1 break-words overflow-hidden text-ellipsis">{getToneDescription(selectedIdea.tone)}</p>
                 </div>
               </div>

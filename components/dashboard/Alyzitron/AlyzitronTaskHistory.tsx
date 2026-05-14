@@ -239,9 +239,9 @@ export function AlyzitronTaskHistory({
             className="order-2 w-full border-[#282724] bg-transparent text-[#B5B2A8] hover:bg-[#131312] hover:text-[#ECE9E1] sm:order-1 sm:w-auto"
           >
             <ChevronLeft className="mr-1 h-3 w-3 sm:mr-2 sm:h-4 sm:w-4" />
-            <span className="text-xs sm:text-sm">Previous</span>
+            <span className="text-[11px] sm:text-sm">Previous</span>
           </Button>
-          <span className="order-1 text-center font-mono text-xs text-[#7A776E] sm:order-2 sm:text-sm">
+          <span className="order-1 text-center font-mono text-[11px] text-[#7A776E] sm:order-2 sm:text-sm">
             Page {currentPage} of {totalPages}
             <span className="hidden sm:inline"> ({totalItems} total)</span>
           </span>
@@ -252,7 +252,7 @@ export function AlyzitronTaskHistory({
             disabled={currentPage >= totalPages || isLoading}
             className="order-3 w-full border-[#282724] bg-transparent text-[#B5B2A8] hover:bg-[#131312] hover:text-[#ECE9E1] sm:w-auto"
           >
-            <span className="text-xs sm:text-sm">Next</span>
+            <span className="text-[11px] sm:text-sm">Next</span>
             <ChevronRight className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4" />
           </Button>
         </div>

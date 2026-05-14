@@ -42,10 +42,10 @@ export const MediaPaddingControls: React.FC<MediaPaddingControlsProps> = ({
       {/* Padding Control */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <label className="text-xs text-gray-600 dark:text-gray-400">
+          <label className="text-[11px] text-gray-600 dark:text-gray-400">
             Padding
           </label>
-          <span className="text-xs text-gray-600 dark:text-gray-400 min-w-[40px] text-right">
+          <span className="text-[11px] text-gray-600 dark:text-gray-400 min-w-[40px] text-right">
             {paddingValue}
           </span>
         </div>
@@ -64,7 +64,7 @@ export const MediaPaddingControls: React.FC<MediaPaddingControlsProps> = ({
 
       {/* Padding Background Color */}
       <div className="space-y-2">
-        <label className="text-xs text-gray-600 dark:text-gray-400">
+        <label className="text-[11px] text-gray-600 dark:text-gray-400">
           Padding Background
         </label>
         <div className="flex items-center gap-2">
@@ -87,14 +87,14 @@ export const MediaPaddingControls: React.FC<MediaPaddingControlsProps> = ({
               handleStyleChange({ paddingBackgroundColor: e.target.value })
             }
             placeholder="transparent"
-            className="flex-1 bg-background dark:bg-background border border-border dark:border-border rounded-md text-xs p-2 hover:border-primary/30 dark:hover:border-primary/30 transition-colors text-foreground dark:text-foreground"
+            className="flex-1 bg-background dark:bg-background border border-border dark:border-border rounded-md text-[11px] p-2 hover:border-primary/30 dark:hover:border-primary/30 transition-colors text-foreground dark:text-foreground"
           />
           {paddingBackgroundColor !== "transparent" && (
             <button
               onClick={() =>
                 handleStyleChange({ paddingBackgroundColor: "transparent" })
               }
-              className="text-xs text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
+              className="text-[11px] text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
             >
               Clear
             </button>

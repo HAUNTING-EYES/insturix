@@ -884,7 +884,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                         playsInline
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-[#5F5E5A] text-xs">
+                      <div className="w-full h-full flex items-center justify-center text-[#5F5E5A] text-[11px]">
                         <Upload className="h-4 w-4" />
                       </div>
                     )}
@@ -975,7 +975,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
                               {/* Percentage text with futuristic styling */}
                               <div className="absolute inset-0 flex items-center justify-center">
-                                <span className="text-xs font-bold text-white tracking-wider drop-shadow-lg">
+                                <span className="text-[11px] font-bold text-white tracking-wider drop-shadow-lg">
                                   {Math.round(uploadProgress?.progress ?? 0)}%
                                 </span>
                               </div>
@@ -1045,7 +1045,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <h4
-                      className="text-base text-[#ECE9E1] font-bold break-all line-clamp-2"
+                      className="text-[14px] text-[#ECE9E1] font-bold break-all line-clamp-2"
                       title={source.type === "link" ? source.preview?.title || source.url : source.type === "file" ? source.file.name : ""}
                     >
                       {source.type === "link"
@@ -1064,7 +1064,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -4 }}
                           transition={{ duration: 0.2 }}
-                          className="text-xs mt-1"
+                          className="text-[11px] mt-1"
                         >
                           {uploadProgress.status === "uploading" && (
                             <span className="text-[#D4A652] font-medium">
@@ -1128,7 +1128,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                 </div>
 
                 {/* Privacy Notice */}
-                <div className="mt-6 text-xs text-[#5F5E5A] space-y-1">
+                <div className="mt-6 text-[11px] text-[#5F5E5A] space-y-1">
                   <p>
                     • We upload your video to generate analysis and suggestions
                   </p>
@@ -1154,7 +1154,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                           <h4 className="text-sm font-bold text-[#ECE9E1] tracking-tight">
                             Analysis Initiated
                           </h4>
-                          <p className="text-xs text-[#7A776E]">
+                          <p className="text-[11px] text-[#7A776E]">
                             Task ID:{" "}
                             <span className="font-mono text-[#B5B2A8]">
                               {createdTaskId.slice(0, 8)}
@@ -1247,7 +1247,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
               )}
 
               <div className="flex items-center justify-between">
-                <div className="text-xs space-y-1">
+                <div className="text-[11px] space-y-1">
                   {!context.platform && (
                     <div className="text-red-400">
                       Please fill required field

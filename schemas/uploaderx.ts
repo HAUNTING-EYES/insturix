@@ -37,6 +37,7 @@ export interface IUploaderX extends Document {
     }>;
   };
   userId: string;
+  editronProjectId?: string | null;
   videoUuid: string;
   filename: string;
   gcsPath: string;
@@ -77,6 +78,7 @@ const UploaderXSchema = new Schema<IUploaderX>({
     }],
   },
   userId: { type: String, required: true },
+  editronProjectId: { type: String, default: null },
   videoUuid: { type: String, required: true },
   filename: { type: String, required: true },
   gcsPath: { type: String, required: true },

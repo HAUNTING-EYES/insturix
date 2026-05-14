@@ -117,7 +117,7 @@ export const GenerativeFillInline: React.FC<GenerativeFillInlineProps> = ({
   return (
     <div
       ref={containerRef}
-      className="absolute z-[200] bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl p-3 flex flex-col gap-2 min-w-[380px]"
+      className="absolute z-[200] bg-[#131312] border border-[#282724] rounded-lg shadow-2xl p-3 flex flex-col gap-2 min-w-[380px]"
       style={{
         left: `${pos.left}px`,
         top: `${pos.top}px`,
@@ -134,7 +134,7 @@ export const GenerativeFillInline: React.FC<GenerativeFillInlineProps> = ({
             onKeyDown={handleKeyDown}
             disabled={isGenerating}
             placeholder="Describe what to generate..."
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-md text-white text-sm placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full px-3 py-2 bg-[#1B1A18] border border-[#282724] rounded-md text-white text-sm placeholder-[#7A776E] focus:outline-none focus:ring-2 focus:ring-[#D4A652] disabled:opacity-50 disabled:cursor-not-allowed"
             autoFocus
           />
         </div>
@@ -143,16 +143,16 @@ export const GenerativeFillInline: React.FC<GenerativeFillInlineProps> = ({
         <DropdownMenu open={isModelMenuOpen} onOpenChange={setIsModelMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
-              className="flex items-center justify-center w-9 h-9 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center justify-center w-9 h-9 bg-[#1B1A18] border border-[#282724] rounded-md hover:bg-[#282724] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={isGenerating}
               title={`Model: ${selectedModelId || "Select model"}`}
             >
-              <Layers className="w-4 h-4 text-purple-400" />
+              <Layers className="w-4 h-4 text-[#D4A652]" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="bg-zinc-900 border border-zinc-700"
+            className="bg-[#131312] border border-[#282724]"
           >
             {availableModels.map((model) => (
               <DropdownMenuItem
@@ -163,20 +163,20 @@ export const GenerativeFillInline: React.FC<GenerativeFillInlineProps> = ({
                 }}
                 className={`flex items-center gap-2 cursor-pointer ${
                   model.id === selectedModelId
-                    ? 'bg-blue-900/30'
-                    : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    ? 'bg-[#D4A652]/10'
+                    : 'text-[#B5B2A8] hover:bg-[#1B1A18] hover:text-white'
                 }`}
               >
                 <Layers
                   className={`w-4 h-4 ${
                     model.id === selectedModelId
-                      ? "text-purple-400"
-                      : "text-zinc-500"
+                      ? "text-[#D4A652]"
+                      : "text-[#7A776E]"
                   }`}
                 />
                 <span className={`text-sm ${
                   model.id === selectedModelId
-                    ? "text-blue-400"
+                    ? "text-[#D4A652]"
                     : ""
                 }`}>{model.name}</span>
               </DropdownMenuItem>
@@ -188,7 +188,7 @@ export const GenerativeFillInline: React.FC<GenerativeFillInlineProps> = ({
         <button
           onClick={handleGenerate}
           disabled={!prompt.trim() || !selectedModelId || isGenerating}
-          className="flex items-center justify-center w-9 h-9 bg-blue-600 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center justify-center w-9 h-9 bg-[#D4A652] rounded-md hover:bg-[#D4A652]/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="Generate"
         >
           {isGenerating ? (
@@ -202,10 +202,10 @@ export const GenerativeFillInline: React.FC<GenerativeFillInlineProps> = ({
         <button
           onClick={onCancel}
           disabled={isGenerating}
-          className="flex items-center justify-center w-8 h-9 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center justify-center w-8 h-9 bg-[#1B1A18] border border-[#282724] rounded-md hover:bg-[#282724] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="Cancel"
         >
-          <X className="w-4 h-4 text-zinc-400" />
+          <X className="w-4 h-4 text-[#7A776E]" />
         </button>
       </div>
     </div>

@@ -392,7 +392,7 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
               mode === "rectangle"
                 ? "bg-blue-600 text-white"
-                : "text-zinc-300 hover:bg-zinc-700/80"
+                : "text-[#B5B2A8] hover:bg-[#282724]/80"
             }`}
             title="Rectangle Select"
           >
@@ -408,7 +408,7 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
               mode === "lasso"
                 ? "bg-blue-600 text-white"
-                : "text-zinc-300 hover:bg-zinc-700/80"
+                : "text-[#B5B2A8] hover:bg-[#282724]/80"
             }`}
             title="Lasso Select"
           >
@@ -461,14 +461,14 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
             </button>
             <button
               onClick={handleClear}
-              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-600 text-white text-sm rounded-md hover:bg-zinc-700 transition-colors"
+              className="flex items-center gap-1 px-3 py-1.5 bg-[#282724] text-white text-sm rounded-md hover:bg-[#1C1B19] transition-colors"
             >
               <Trash2 className="w-4 h-4" />
               Clear
             </button>
             <button
               onClick={onCancel}
-              className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition-colors"
+              className="flex items-center gap-1 px-3 py-1.5 bg-[#D46A5C] text-white text-sm rounded-md hover:bg-[#D46A5C]/80 transition-colors"
             >
               <X className="w-4 h-4" />
               Cancel
@@ -517,14 +517,14 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
           </button>
           <button
             onClick={handleClear}
-            className="flex items-center gap-1 px-3 py-1.5 bg-zinc-600 text-white text-sm rounded-md hover:bg-zinc-700 transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 bg-[#282724] text-white text-sm rounded-md hover:bg-[#1C1B19] transition-colors"
           >
             <Trash2 className="w-4 h-4" />
             Clear
           </button>
           <button
             onClick={onCancel}
-            className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 bg-[#D46A5C] text-white text-sm rounded-md hover:bg-[#D46A5C]/80 transition-colors"
           >
             <X className="w-4 h-4" />
             Cancel

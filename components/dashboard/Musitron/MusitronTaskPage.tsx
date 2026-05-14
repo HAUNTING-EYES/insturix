@@ -138,7 +138,7 @@ const CustomAudioPlayer: React.FC<{ src: string; imageUrl: string; title: string
         </div>
         {/* Progress Bar */}
         <div className="mb-4">
-          <div className="flex items-center justify-between text-xs text-zinc-400 mb-2">
+          <div className="flex items-center justify-between text-[11px] text-zinc-400 mb-2">
             <span>{formatTime(currentTime)}</span>
             <span>{formatTime(duration)}</span>
           </div>
@@ -218,8 +218,8 @@ export default function MusitronTaskPage() {
           <div className="flex items-center gap-4 mb-4">
             <Music2 className="h-10 w-10 text-zinc-400" />
             <div>
-              <h2 className="text-xl font-semibold text-zinc-100">{task.title}</h2>
-              <div className="flex items-center gap-2 text-xs text-zinc-500 mt-1">
+              <h2 className="text-[18px] font-semibold text-zinc-100">{task.title}</h2>
+              <div className="flex items-center gap-2 text-[11px] text-zinc-500 mt-1">
                 <Clock className="h-3 w-3" />
                 {new Date(task.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>

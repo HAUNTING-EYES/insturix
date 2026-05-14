@@ -15,6 +15,7 @@ import { WorkspaceMode } from "@/components/dashboard/ThinkForge/ModeSwitcher";
 import IdeationMode from "@/components/dashboard/ThinkForge/IdeationMode";
 import StoryboardingMode from "@/components/dashboard/ThinkForge/StoryboardingMode";
 import PlanningMode from "@/components/dashboard/ThinkForge/PlanningMode";
+import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadcrumb";
 
 const hats = ["white", "red", "black", "yellow", "green", "blue"] as const;
 const skeletonIdeas = (prompt: string): IdeaCardData[] => {
@@ -631,6 +632,7 @@ export default function ThinkForgeLanding() {
 
 	return (
 		<div className="thinkforge-app">
+			<PipelineBreadcrumb currentStep="script" />
 			<BackgroundDecor />
 
 			<LibraryPanel

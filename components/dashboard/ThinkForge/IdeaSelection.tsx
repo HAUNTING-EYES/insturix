@@ -42,7 +42,7 @@ export default function IdeaSelection({
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-semibold text-[#ECE9E1] flex items-center gap-2">
+            <h2 className="text-[18px] font-semibold text-[#ECE9E1] flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-[#D4A652]" />
               Generated Ideas
             </h2>
@@ -63,7 +63,7 @@ export default function IdeaSelection({
                     <p className="text-sm text-[#B5B2A8]">
                       Each idea uses a different thinking approach:
                     </p>
-                    <div className="space-y-1 text-xs">
+                    <div className="space-y-1 text-[11px]">
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-white border border-gray-300"></div>
                         <span><strong>White:</strong> Facts & data</span>
@@ -134,7 +134,7 @@ export default function IdeaSelection({
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
-                    <CardTitle className="text-base font-medium text-[#ECE9E1] group-hover:text-[#D4A652] transition-colors">
+                    <CardTitle className="text-[14px] font-medium text-[#ECE9E1] group-hover:text-[#D4A652] transition-colors">
                       {idea.idea}
                     </CardTitle>
                     <div 
@@ -146,24 +146,24 @@ export default function IdeaSelection({
                 <CardContent className="space-y-3">
                   <div className="space-y-2">
                     <div>
-                      <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Purpose</span>
+                      <span className="text-[11px] font-medium text-[#5F5E5A] uppercase tracking-wide">Purpose</span>
                       <p className="text-sm text-[#B5B2A8]">{idea.purpose}</p>
                     </div>
                     <div>
-                      <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Style</span>
+                      <span className="text-[11px] font-medium text-[#5F5E5A] uppercase tracking-wide">Style</span>
                       <p className="text-sm text-[#B5B2A8]">{idea.style}</p>
                     </div>
                     <div>
-                      <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Format</span>
+                      <span className="text-[11px] font-medium text-[#5F5E5A] uppercase tracking-wide">Format</span>
                       <p className="text-sm text-[#B5B2A8]">{idea.format}</p>
                     </div>
                     <div>
-                      <span className="text-xs font-medium text-[#5F5E5A] uppercase tracking-wide">Platform</span>
+                      <span className="text-[11px] font-medium text-[#5F5E5A] uppercase tracking-wide">Platform</span>
                       <p className="text-sm text-[#B5B2A8]">{idea.platform}</p>
                     </div>
                   </div>
                   <div className="pt-2 border-t border-[#1C1B19]">
-                    <p className="text-xs text-[#5F5E5A]">
+                    <p className="text-[11px] text-[#5F5E5A]">
                       {getToneDescription(idea.tone)}
                     </p>
                   </div>

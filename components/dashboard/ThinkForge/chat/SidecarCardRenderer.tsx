@@ -37,7 +37,7 @@ export function SidecarCardRenderer({ card, onAction, onDismiss }: SidecarCardRe
             <Icon className={cn("h-4 w-4", style.iconColor)} />
             <span className={cn("absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ring-1 ring-neutral-950", style.accentDot)} />
           </div>
-          <span className="text-xs font-semibold text-white truncate">{card.title}</span>
+          <span className="text-[11px] font-semibold text-white truncate">{card.title}</span>
         </div>
         {card.dismissible && onDismiss && (
           <button
@@ -51,7 +51,7 @@ export function SidecarCardRenderer({ card, onAction, onDismiss }: SidecarCardRe
 
       {/* Body */}
       {card.body && (
-        <p className="text-xs text-[#7A776E] leading-relaxed">{card.body}</p>
+        <p className="text-[11px] text-[#7A776E] leading-relaxed">{card.body}</p>
       )}
 
       {/* Data Preview (type-specific) */}

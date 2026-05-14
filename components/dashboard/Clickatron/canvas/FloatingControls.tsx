@@ -37,19 +37,19 @@ export function FloatingControls({
       transition={{ duration: 0.3, ease: "easeOut" }}
       className="
         absolute bottom-8 left-1/2 transform -translate-x-1/2
-        bg-zinc-900/90 backdrop-blur-xl border border-zinc-700/50
+        bg-[#131312] border border-[#282724]/50
         rounded-2xl p-3 shadow-2xl
         flex items-center gap-2
       "
     >
       {/* History Controls */}
-      <div className="flex items-center gap-1 pr-2 border-r border-zinc-700/50">
+      <div className="flex items-center gap-1 pr-2 border-r border-[#282724]/50">
         <Button
           variant="ghost"
           size="sm"
           onClick={onUndo}
           disabled={!canUndo || isDisabled}
-          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30 h-8 w-8 p-0"
+          className="text-[#7A776E] hover:text-[#ECE9E1] disabled:opacity-30 h-8 w-8 p-0"
         >
           <Undo2 className="h-4 w-4" />
         </Button>
@@ -58,24 +58,24 @@ export function FloatingControls({
           size="sm"
           onClick={onRedo}
           disabled={!canRedo || isDisabled}
-          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30 h-8 w-8 p-0"
+          className="text-[#7A776E] hover:text-[#ECE9E1] disabled:opacity-30 h-8 w-8 p-0"
         >
           <Redo2 className="h-4 w-4" />
         </Button>
       </div>
 
       {/* Zoom Controls */}
-      <div className="flex items-center gap-1 pr-2 border-r border-zinc-700/50">
+      <div className="flex items-center gap-1 pr-2 border-r border-[#282724]/50">
         <Button
           variant="ghost"
           size="sm"
           onClick={onZoomOut}
           disabled={zoomLevel <= 25 || isDisabled}
-          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30 h-8 w-8 p-0"
+          className="text-[#7A776E] hover:text-[#ECE9E1] disabled:opacity-30 h-8 w-8 p-0"
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
-        <div className="text-xs text-zinc-500 min-w-[40px] text-center px-1">
+        <div className="text-[11px] text-[#7A776E] min-w-[40px] text-center px-1">
           {zoomLevel}%
         </div>
         <Button
@@ -83,7 +83,7 @@ export function FloatingControls({
           size="sm"
           onClick={onZoomIn}
           disabled={zoomLevel >= 200 || isDisabled}
-          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30 h-8 w-8 p-0"
+          className="text-[#7A776E] hover:text-[#ECE9E1] disabled:opacity-30 h-8 w-8 p-0"
         >
           <ZoomIn className="h-4 w-4" />
         </Button>
@@ -96,7 +96,7 @@ export function FloatingControls({
           size="sm"
           onClick={onDownload}
           disabled={isDisabled}
-          className="text-zinc-400 hover:text-zinc-200 h-8 px-3"
+          className="text-[#7A776E] hover:text-[#ECE9E1] h-8 px-3"
         >
           <Download className="h-4 w-4 mr-1" />
           Download
@@ -105,7 +105,7 @@ export function FloatingControls({
           onClick={onSave}
           disabled={isDisabled}
           size="sm"
-          className="bg-purple-600 hover:bg-purple-700 text-white h-8 px-3"
+          className="bg-[#D4A652] hover:bg-[#C49A48] text-[#0B0B0A] h-8 px-3"
         >
           <Save className="h-4 w-4 mr-1" />
           Save

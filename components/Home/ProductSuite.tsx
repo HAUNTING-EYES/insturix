@@ -44,7 +44,7 @@ const products = [
         <div className="w-[30%] bg-[#121213] flex flex-col border-r border-zinc-800/80 shrink-0 relative z-10">
            {/* Header */}
            <div className="h-12 border-b border-zinc-800/80 flex items-center px-4 shrink-0">
-             <span className="text-[12px] font-bold text-zinc-100">AI Chat</span>
+             <span className="text-[11px] font-bold text-zinc-100">AI Chat</span>
            </div>
            
            <div className="p-3 border-b border-zinc-800/80 flex items-center justify-between shrink-0">
@@ -132,7 +132,7 @@ const products = [
                  transition={{ duration: 0.6, delay: 3, ease: "easeOut" }}
                  className="relative z-10"
                >
-                 <span className="text-4xl font-black text-white tracking-tighter drop-shadow-lg">MAKE AN IMPACT</span>
+                 <span className="text-[44px] font-black text-white tracking-tighter drop-shadow-lg">MAKE AN IMPACT</span>
                  {/* Bounding Box */}
                  <div className="absolute -inset-4 border border-blue-500 pointer-events-none">
                     <div className="absolute top-0 left-0 w-2 h-2 bg-white border border-blue-500 -translate-x-1/2 -translate-y-1/2" />
@@ -424,11 +424,11 @@ const products = [
         {/* Static Header */}
         <div className="flex items-end justify-between border-b border-zinc-800/60 p-6 pb-4 shrink-0 bg-zinc-950 z-20">
           <div>
-            <h3 className="text-xl font-bold text-zinc-100 leading-tight">Analysis Results</h3>
+            <h3 className="text-[18px] font-bold text-zinc-100 leading-tight">Analysis Results</h3>
             <p className="text-[11px] text-zinc-500 mt-1">Education/Business Case Study</p>
           </div>
           <div className="text-right flex flex-col items-end">
-             <div className="text-5xl font-black text-white leading-none tracking-tighter">
+             <div className="text-[44px] font-black text-white leading-none tracking-tighter">
                90
              </div>
              <p className="text-[9px] text-zinc-500 uppercase tracking-widest mt-1.5 font-bold">Global Score</p>
@@ -708,7 +708,7 @@ const products = [
 
                        <div className="flex gap-4 group">
                           <div className="w-12 pt-1 font-mono text-[9px] text-zinc-600 text-right uppercase mt-0.5 group-hover:text-red-500 transition-colors">Audio</div>
-                          <div className="flex-1 p-3 text-[12px] text-zinc-200 leading-relaxed font-serif relative">
+                          <div className="flex-1 p-3 text-[11px] text-zinc-200 leading-relaxed font-serif relative">
                              <div className="absolute -left-2 top-3 bottom-3 w-0.5 bg-red-500/50 rounded-full" />
                              (Intense, rhythmic beat building up)<br/><br/>
                              NARRATOR (V.O): You pick up your phone fifty times a day. You drink the coffee. You wear the jeans. But what if I told you that simple mug of coffee required the coordinated effort of 4,000 people across three continents?
@@ -950,7 +950,7 @@ const products = [
         <div className="w-[45%] flex flex-col gap-3 relative z-10 shrink-0">
           <div className="flex items-center gap-2 mb-1">
             <Network className="w-5 h-5 text-teal-400" />
-            <span className="text-xl font-bold text-white tracking-tight">UploaderX</span>
+            <span className="text-[18px] font-bold text-white tracking-tight">UploaderX</span>
           </div>
 
           <div className="flex-1 bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-3 flex flex-col relative overflow-hidden">
@@ -1109,7 +1109,7 @@ const products = [
           {/* Header */}
           <div className="flex items-center gap-2 mb-1">
             <Share2 className="w-5 h-5 text-blue-400" />
-            <span className="text-xl font-bold text-white tracking-tight">Socialize</span>
+            <span className="text-[18px] font-bold text-white tracking-tight">Socialize</span>
           </div>
 
           {/* Profile Cards */}
@@ -1130,7 +1130,7 @@ const products = [
                  <Sparkles className="w-5 h-5 text-white/90" />
               </div>
               <div className="flex flex-col">
-                <span className="text-[12px] font-bold text-white">alex_creates</span>
+                <span className="text-[11px] font-bold text-white">alex_creates</span>
                 <span className="text-[9px] text-zinc-500">Filmmaker & AI Creator</span>
               </div>
             </div>
@@ -1229,7 +1229,7 @@ const products = [
         {/* Right Column: Mobile Preview (approx 40%) */}
         <div className="w-[40%] flex flex-col shrink-0 bg-[#161618] rounded-2xl border border-zinc-800 overflow-hidden relative shadow-2xl">
            <div className="p-4 pb-2 shrink-0">
-             <h4 className="text-[12px] font-bold text-white">Link Preview</h4>
+             <h4 className="text-[11px] font-bold text-white">Link Preview</h4>
            </div>
 
            {/* Mobile Phone Frame */}
@@ -1309,7 +1309,7 @@ export default function ProductSuite() {
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500 mb-4">
                 The Suite
               </p>
-              <h2 className="text-3xl md:text-5xl font-bold tracking-tight text-white">
+              <h2 className="text-[32px] md:text-[44px] font-bold tracking-tight text-white">
                 Seven tools.{" "}
                 <span className="text-zinc-500">One ecosystem.</span>
               </h2>
@@ -1324,7 +1324,7 @@ export default function ProductSuite() {
                   }`}
                 />
               ))}
-              <span className="text-xs text-zinc-500 font-mono tabular-nums ml-2">
+              <span className="text-[11px] text-zinc-500 font-mono tabular-nums ml-2">
                 {String(activeItem + 1).padStart(2, "0")}/{String(products.length).padStart(2, "0")}
               </span>
             </div>
@@ -1354,10 +1354,10 @@ export default function ProductSuite() {
                         })()}
                       </div>
                       <div>
-                        <h3 className="text-3xl md:text-4xl font-bold text-white tracking-tight">
+                        <h3 className="text-[32px] md:text-[44px] font-bold text-white tracking-tight">
                           {products[activeItem].name}
                         </h3>
-                        <p className="text-xs font-semibold uppercase tracking-[0.15em] mt-1" style={{ color: products[activeItem].color }}>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.15em] mt-1" style={{ color: products[activeItem].color }}>
                           {products[activeItem].tagline}
                         </p>
                       </div>

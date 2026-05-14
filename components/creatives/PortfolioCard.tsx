@@ -49,7 +49,7 @@ export function PortfolioCard({ project, onOpen }: PortfolioCardProps) {
                      <img src={project.logo} alt={project.company} className="h-full object-contain" />
                 </div>
             )}
-            <h3 className="text-xl md:text-3xl font-bold text-white tracking-tight drop-shadow-md">
+            <h3 className="text-[18px] md:text-[32px] font-bold text-white tracking-tight drop-shadow-md">
             {project.company}
             </h3>
         </div>

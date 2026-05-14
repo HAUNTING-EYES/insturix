@@ -65,16 +65,23 @@ function SortableLink({
   return (
     <div
       ref={setNodeRef}
-      style={style}
-      className={`w-full bg-black/40 py-3 rounded-lg flex items-center justify-between gap-2 hover:bg-black/60 transition border ${selectedLinkIndex === index ? "border-[#0e6b9c]" : "border-[#0e6b9c]/30"} px-5 cursor-pointer`}
+      style={{
+        ...style,
+        backgroundColor: '#1B1A18',
+        borderRadius: '12px',
+        borderWidth: '1px',
+        borderStyle: 'solid',
+        borderColor: selectedLinkIndex === index ? '#D4A652' : 'transparent',
+      }}
+      className={`w-full py-3 flex items-center justify-between gap-2 transition px-5 cursor-pointer group hover:border-[#D4A652]`}
       onClick={() => onSelectLink(index)}
     >
       <div className="flex items-center gap-4 flex-1 min-w-0 overflow-hidden">
-        <button {...attributes} {...listeners} className="cursor-grab">
-          <GripVertical className="w-5 h-5 text-gray-400" />
+        <button {...attributes} {...listeners} className="cursor-grab text-[#7A776E] hover:text-[#D4A652] transition-colors">
+          <GripVertical className="w-5 h-5" />
         </button>
         {getPlatformIcon(link.platform)}
-        <span className="text-white truncate overflow-hidden text-ellipsis whitespace-nowrap block w-0 flex-grow">
+        <span className="truncate overflow-hidden text-ellipsis whitespace-nowrap block w-0 flex-grow" style={{ color: '#B5B2A8', fontFamily: 'JetBrains Mono', fontSize: '10px' }}>
           {link.url}
         </span>
       </div>
@@ -89,7 +96,7 @@ function SortableLink({
             href={link.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-gray-400 hover:text-white"
+            className="text-[#7A776E] hover:text-[#D4A652] transition-colors"
           >
             <ExternalLink className="w-4 h-4" />
           </Link>
@@ -97,7 +104,7 @@ function SortableLink({
         <Button
           variant="ghost"
           size="icon"
-          className="text-gray-400 hover:text-white"
+          className="text-[#7A776E] hover:text-[#D4A652] hover:bg-transparent transition-colors"
           onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
             e.stopPropagation();
             onEditLink(index);
@@ -108,7 +115,7 @@ function SortableLink({
         <Button
           variant="ghost"
           size="icon"
-          className="text-gray-400 hover:text-white"
+          className="text-[#7A776E] hover:text-[#D4A652] hover:bg-transparent transition-colors"
           onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
             e.stopPropagation();
             onRemoveLink(index);
@@ -147,10 +154,10 @@ export function SocializeLinksCard({
   }
 
   return (
-    <Card className="bg-black/30 border-[#0e6b9c]/20 backdrop-blur-sm">
+    <Card className="shadow-none border-none" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
       <CardHeader>
-        <CardTitle className="text-xl text-white">Your Links</CardTitle>
-        <CardDescription>
+        <CardTitle className="uppercase" style={{ fontFamily: 'JetBrains Mono', fontSize: '10px', letterSpacing: '0.08em', fontWeight: 500, color: '#EAE9E5' }}>Your Links</CardTitle>
+        <CardDescription style={{ color: '#B5B2A8' }}>
           {links?.length
             ? `You have ${links.length} link${links.length > 1 ? "s" : ""}`
             : "Add your first link to get started"}
@@ -181,13 +188,13 @@ export function SocializeLinksCard({
           </DndContext>
         ) : (
           <div className="text-center py-8">
-            <div className="w-12 h-12 bg-[#0e6b9c]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#1B1A18' }}>
               <span className="text-2xl">✨</span>
             </div>
-            <p className="mb-2 text-lg font-medium text-white">
+            <p className="mb-2 text-lg font-medium" style={{ color: '#EAE9E5' }}>
               Show the world who you are.
             </p>
-            <p className="text-gray-400">Add a link to get started.</p>
+            <p style={{ color: '#B5B2A8' }}>Add a link to get started.</p>
           </div>
         )}
       </CardContent>

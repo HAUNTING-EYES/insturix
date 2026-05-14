@@ -105,7 +105,7 @@ export function DashboardVariations() {
                 <button key={v.key} onClick={() => setVariant(v.key)} style={{
                   background: variant === v.key ? C.well : "transparent",
                   border: "none", borderRadius: 4, padding: "5px 14px",
-                  fontSize: 12, fontWeight: variant === v.key ? 500 : 400,
+                  fontSize: 11, fontWeight: variant === v.key ? 500 : 400,
                   color: variant === v.key ? C.text : C.muted,
                   cursor: "pointer", fontFamily: "inherit",
                 }}>{v.label}</button>
@@ -113,7 +113,7 @@ export function DashboardVariations() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <span className="mono" style={{ fontSize: 12, color: C.muted }}>840</span>
+            <span className="mono" style={{ fontSize: 11, color: C.muted }}>840</span>
             <div style={{
               width: 26, height: 26, borderRadius: "50%", background: `${C.accent}18`,
               display: "flex", alignItems: "center", justifyContent: "center",
@@ -196,7 +196,7 @@ function SplitView() {
               <p style={{ fontSize: 13, color: C.muted, marginBottom: 16 }}>Client deadline tomorrow</p>
               <button style={{
                 background: C.accent, color: C.bg, border: "none",
-                padding: "9px 20px", borderRadius: 7, fontSize: 12, fontWeight: 800,
+                padding: "9px 20px", borderRadius: 7, fontSize: 11, fontWeight: 800,
                 cursor: "pointer", fontFamily: "inherit",
               }}>Continue editing</button>
             </div>
@@ -279,7 +279,7 @@ function SplitView() {
                       fontSize: 13, fontWeight: 500,
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                     }}>{p.title}</div>
-                    <div style={{ fontSize: 12, color: C.dim, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: C.dim, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                       <span style={{ color: stage.color }}>{stage.label}</span>
                       <span style={{ color: C.faint }}>·</span>
                       <span>{p.client || "Personal"}</span>
@@ -332,7 +332,7 @@ function SplitView() {
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                 }}>
                   <div>
-                    <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 2 }}>{s.title}</div>
+                    <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 2 }}>{s.title}</div>
                     <span className="mono" style={{ fontSize: 11, color: C.dim }}>{s.stat}</span>
                   </div>
                   <span className="mono" style={{ fontSize: 14, fontWeight: 500, color: sc }}>{s.score}</span>
@@ -391,13 +391,13 @@ function CinematicView() {
               ].map((s, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                   <span className="mono" style={{ fontSize: 14, fontWeight: 500 }}>{s.n}</span>
-                  <span style={{ fontSize: 12, color: C.muted }}>{s.label}</span>
+                  <span style={{ fontSize: 11, color: C.muted }}>{s.label}</span>
                 </div>
               ))}
             </div>
             <button style={{
               background: C.accent, color: C.bg, border: "none",
-              padding: "8px 20px", borderRadius: 7, fontSize: 12, fontWeight: 800,
+              padding: "8px 20px", borderRadius: 7, fontSize: 11, fontWeight: 800,
               cursor: "pointer", fontFamily: "inherit",
               display: "flex", alignItems: "center", gap: 6,
             }}>
@@ -443,7 +443,7 @@ function CinematicView() {
               <div style={{ fontSize: 13, color: C.muted, display: "flex", gap: 12, marginBottom: 20 }}>
                 <span>{sel.client || "Personal"}</span>
                 <span style={{ color: C.faint }}>·</span>
-                <span className="mono" style={{ fontSize: 12 }}>{sel.format} · {sel.dur}</span>
+                <span className="mono" style={{ fontSize: 11 }}>{sel.format} · {sel.dur}</span>
                 <span style={{ color: C.faint }}>·</span>
                 <span>{sel.modified}</span>
               </div>
@@ -505,7 +505,7 @@ function CinematicView() {
                 </div>
                 <div style={{ padding: "8px 10px" }}>
                   <div style={{
-                    fontSize: 12, fontWeight: 500, marginBottom: 4,
+                    fontSize: 11, fontWeight: 500, marginBottom: 4,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>{p.title}</div>
                   <div style={{

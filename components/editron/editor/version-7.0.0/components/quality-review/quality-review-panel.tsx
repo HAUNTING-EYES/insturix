@@ -86,7 +86,7 @@ export function QualityReviewPanel() {
                 {report.overallScore}
               </div>
               <div className="flex-1">
-                <div className="text-xs font-medium text-zinc-300">
+                <div className="text-[11px] font-medium text-zinc-300">
                   {report.overallScore >= 80 ? "Good quality" : report.overallScore >= 50 ? "Needs attention" : "Critical issues"}
                 </div>
                 <div className="text-[10px] text-zinc-500">
@@ -211,7 +211,7 @@ export function QualityScoreBadge({
   return (
     <button
       onClick={onClick}
-      className={`px-2 py-0.5 rounded text-xs font-bold ${color} hover:opacity-80 transition-opacity`}
+      className={`px-2 py-0.5 rounded text-[11px] font-bold ${color} hover:opacity-80 transition-opacity`}
       title={`Quality score: ${score}/100. Click to review.`}
     >
       QC {score}

@@ -1059,6 +1059,7 @@ export function runQualityReview(
   constraintViolations?: Array<{ constraintId: string; constraintName: string; severity: 'blocker' | 'warning' | 'info'; description: string; autoCorrected: boolean; deduction: number }>,
   /** Optional: computed genre parameters (Mode 2 — replaces content-type pacing lookup) */
   genreParameters?: { pacing_tolerance: number; transition_density: number },
+  brandConfig?: { colors: string[]; typography?: string },
 ): QualityReport {
   const totalDuration = projectDuration || Math.max(...overlays.map(o => o.from + o.durationInFrames), 0);
 
@@ -1230,6 +1231,14 @@ export function runQualityReview(
     }
   }
 
+  // Brand-aware checks (only when brandConfig is provided)
+  if (brandConfig && brandConfig.colors.length > 0) {
+    allIssues.push(...checkBrandColorCompliance(overlays, brandConfig.colors));
+  }
+  if (brandConfig?.typography) {
+    allIssues.push(...checkBrandTypography(overlays, brandConfig.typography));
+  }
+
   // Calculate score: start at 100, deduct per issue
   let score = 100;
   for (const issue of allIssues) {
@@ -1253,4 +1262,88 @@ export function runQualityReview(
     suggestions,
     analyzedAt: new Date(),
   };
+}
+
+// ─── Brand-Aware Quality Checks ─────────────────────────────────
+
+function normalizeColor(color: string): string {
+  return color.trim().toLowerCase().replace(/\s+/g, '');
+}
+
+function checkBrandColorCompliance(
+  overlays: AnalyzableOverlay[],
+  brandColors: string[],
+): QualityIssue[] {
+  if (brandColors.length === 0) return [];
+
+  const normalizedBrand = new Set(brandColors.map(normalizeColor));
+  const issues: QualityIssue[] = [];
+  let offBrandCount = 0;
+
+  const textOverlays = overlays.filter(
+    (o) => (o.type === 'caption' || o.type === 'text') && o.styles?.color,
+  );
+
+  for (const overlay of textOverlays) {
+    const overlayColor = normalizeColor(String(overlay.styles.color));
+    // White and black are universal — skip brand check for them
+    if (overlayColor === '#ffffff' || overlayColor === '#000000' || overlayColor === 'white' || overlayColor === 'black') {
+      continue;
+    }
+    if (!normalizedBrand.has(overlayColor)) {
+      offBrandCount++;
+    }
+  }
+
+  if (offBrandCount > 0 && textOverlays.length > 0) {
+    const ratio = offBrandCount / textOverlays.length;
+    if (ratio > 0.5) {
+      issues.push({
+        type: 'brand_color_mismatch' as any,
+        severity: 'warning',
+        description: `${offBrandCount}/${textOverlays.length} text overlays use colors not in the brand palette. Brand colors: ${brandColors.join(', ')}.`,
+        autoFixable: true,
+        suggestedFix: 'Update caption/text colors to match brand palette',
+      });
+    }
+  }
+
+  return issues;
+}
+
+function checkBrandTypography(
+  overlays: AnalyzableOverlay[],
+  brandTypography: string,
+): QualityIssue[] {
+  if (!brandTypography) return [];
+
+  const issues: QualityIssue[] = [];
+  const brandFont = brandTypography.toLowerCase().trim();
+  let offBrandFontCount = 0;
+
+  const textOverlays = overlays.filter(
+    (o) => (o.type === 'caption' || o.type === 'text') && o.styles?.fontFamily,
+  );
+
+  for (const overlay of textOverlays) {
+    const overlayFont = String(overlay.styles.fontFamily).toLowerCase().trim();
+    if (!overlayFont.includes(brandFont) && !brandFont.includes(overlayFont)) {
+      offBrandFontCount++;
+    }
+  }
+
+  if (offBrandFontCount > 0 && textOverlays.length > 0) {
+    const ratio = offBrandFontCount / textOverlays.length;
+    if (ratio > 0.5) {
+      issues.push({
+        type: 'brand_typography_mismatch' as any,
+        severity: 'info',
+        description: `${offBrandFontCount}/${textOverlays.length} text overlays use fonts different from brand typography "${brandTypography}".`,
+        autoFixable: true,
+        suggestedFix: `Update font family to "${brandTypography}"`,
+      });
+    }
+  }
+
+  return issues;
 }

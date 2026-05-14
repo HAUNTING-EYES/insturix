@@ -83,6 +83,47 @@ export async function processPendingEmbeddings(limit: number = 50): Promise<numb
   return stored;
 }
 
+const RELEVANCE_THRESHOLD = 0.35;
+
+export interface VectorQueryResult {
+  id: string;
+  score: number;
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Query Upstash Vector for semantically relevant facts.
+ * Returns vector IDs + scores above the relevance threshold.
+ */
+export async function queryRelevantFacts(
+  userId: string,
+  queryText: string,
+  topK: number = 5,
+  scope?: 'project' | 'global',
+): Promise<VectorQueryResult[]> {
+  if (!queryText.trim()) return [];
+
+  const index = getVectorIndex();
+  const filter = scope
+    ? `userId = '${userId}' AND scope = '${scope}'`
+    : `userId = '${userId}'`;
+
+  const results = await index.query({
+    data: queryText,
+    topK,
+    filter,
+    includeMetadata: true,
+  });
+
+  return results
+    .filter((r) => r.score >= RELEVANCE_THRESHOLD)
+    .map((r) => ({
+      id: r.id.toString(),
+      score: r.score,
+      metadata: (r.metadata as Record<string, unknown>) || {},
+    }));
+}
+
 const DEDUP_THRESHOLD = 0.95;
 
 /**

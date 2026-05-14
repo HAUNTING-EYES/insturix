@@ -96,7 +96,7 @@ export default function ProductsPage() {
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 1, ease: "easeOut" }}
-                className="text-6xl md:text-8xl lg:text-9xl font-bold tracking-tighter text-neutral-900 dark:text-white"
+                className="text-[110px] md:text-8xl lg:text-9xl font-bold tracking-tighter text-neutral-900 dark:text-white"
               >
                 The Suite.
               </motion.h1>
@@ -104,7 +104,7 @@ export default function ProductsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 1, delay: 0.3 }}
-                className="text-lg md:text-xl text-neutral-500 dark:text-neutral-400 max-w-lg mx-auto"
+                className="text-lg md:text-[18px] text-neutral-500 dark:text-neutral-400 max-w-lg mx-auto"
               >
                 Six AI-powered tools. One creative ecosystem.
               </motion.p>
@@ -268,12 +268,12 @@ const ProductSection = ({
             </div>
 
             {/* Title */}
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-bold tracking-tight text-neutral-900 dark:text-white leading-none">
+            <h2 className="text-[32px] md:text-[44px] lg:text-[110px] font-bold tracking-tight text-neutral-900 dark:text-white leading-none">
               {product.name}
             </h2>
 
             {/* Description */}
-            <p className="text-base md:text-lg text-neutral-600 dark:text-neutral-300 leading-relaxed max-w-lg">
+            <p className="text-[14px] md:text-lg text-neutral-600 dark:text-neutral-300 leading-relaxed max-w-lg">
               {product.longDescription || product.description}
             </p>
 
@@ -299,7 +299,7 @@ const ProductSection = ({
             <div className="flex items-center gap-4 pt-2 md:pt-4 pointer-events-auto z-50">
               <Link
                 href={product.dashboard_href}
-                className="group inline-flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 rounded-full font-semibold text-sm md:text-base text-white transition-all hover:scale-102 active:scale-95 shadow-lg cursor-pointer"
+                className="group inline-flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 rounded-full font-semibold text-sm md:text-[14px] text-white transition-all hover:scale-102 active:scale-95 shadow-lg cursor-pointer"
                 style={{
                   backgroundColor: product.accentColor,
                   boxShadow: `0 8px 24px -4px ${product.accentColor}40`,

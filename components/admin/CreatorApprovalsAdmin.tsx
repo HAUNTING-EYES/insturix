@@ -370,7 +370,7 @@ export default function CreatorApprovalsAdmin() {
     }
 
     const statusPill = (appStatus: CreatorApplication['status']) => {
-      const base = "inline-flex items-center rounded-full border px-2 py-1 text-xs font-medium capitalize";
+      const base = "inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-medium capitalize";
       if (appStatus === 'approved') return `${base} border-emerald-400 text-emerald-600 dark:text-emerald-300`;
       if (appStatus === 'rejected') return `${base} border-red-400 text-red-600 dark:text-red-300`;
       return `${base} border-yellow-400 text-yellow-600 dark:text-yellow-300`;
@@ -390,9 +390,9 @@ export default function CreatorApprovalsAdmin() {
               <div className="p-4 space-y-4">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
                   <div className="flex-1 space-y-1">
-                    <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{displayName}</p>
+                    <p className="text-[14px] font-semibold text-zinc-900 dark:text-zinc-100">{displayName}</p>
                     <p className="text-sm text-zinc-500 dark:text-zinc-400">{app.email}</p>
-                    <p className="text-xs uppercase tracking-wide text-zinc-400">
+                    <p className="text-[11px] uppercase tracking-wide text-zinc-400">
                       {app.profession}
                     </p>
                   </div>
@@ -463,14 +463,14 @@ export default function CreatorApprovalsAdmin() {
                       )}
                       <span className="font-medium capitalize">{statusLabel}</span>
                       {(reviewedLabel || app.reviewedBy) && (
-                        <span className="text-xs text-zinc-700 dark:text-zinc-300">
+                        <span className="text-[11px] text-zinc-700 dark:text-zinc-300">
                           {reviewedLabel && `on ${reviewedLabel}`}
                           {app.reviewedBy && ` by ${app.reviewedBy}`}
                         </span>
                       )}
                     </div>
                     {app.status === 'rejected' && app.rejectionReason && (
-                      <p className="mt-2 text-xs">Reason: {app.rejectionReason}</p>
+                      <p className="mt-2 text-[11px]">Reason: {app.rejectionReason}</p>
                     )}
                   </div>
                 )}
@@ -479,36 +479,36 @@ export default function CreatorApprovalsAdmin() {
                   <div className="space-y-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
                     <div className="grid gap-4 text-sm text-zinc-600 dark:text-zinc-400 md:grid-cols-2">
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Phone</p>
+                        <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Phone</p>
                         <p>{app.phone}</p>
                       </div>
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Location</p>
+                        <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Location</p>
                         <p>{app.city}, {app.state}</p>
                       </div>
                       {app.organization && (
                         <div>
-                          <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Organization</p>
+                          <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Organization</p>
                           <p>{app.organization}</p>
                         </div>
                       )}
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Age Group</p>
+                        <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Age Group</p>
                         <p>{app.ageGroup}</p>
                       </div>
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Clerk User ID</p>
-                        <p className="font-mono text-xs break-all text-zinc-700 dark:text-zinc-300">{app.clerkUserId}</p>
+                        <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Clerk User ID</p>
+                        <p className="font-mono text-[11px] break-all text-zinc-700 dark:text-zinc-300">{app.clerkUserId}</p>
                       </div>
                       {app.reviewedBy && (
                         <div>
-                          <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Reviewed By</p>
+                          <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Reviewed By</p>
                           <p>{app.reviewedBy}</p>
                         </div>
                       )}
                       {reviewedLabel && (
                         <div>
-                          <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Reviewed At</p>
+                          <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Reviewed At</p>
                           <p>{reviewedLabel}</p>
                         </div>
                       )}
@@ -556,7 +556,7 @@ export default function CreatorApprovalsAdmin() {
                       </div>
                     </div>
 
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
                       Submitted: {submittedLabel ?? '—'}
                       {reviewedLabel && ` • Reviewed: ${reviewedLabel}`}
                       {app.reviewedBy && ` • By ${app.reviewedBy}`}
@@ -593,7 +593,7 @@ export default function CreatorApprovalsAdmin() {
         <AdminBackButton />
       </div>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100">
+        <h1 className="text-[32px] font-bold text-zinc-900 dark:text-zinc-100">
           Creator Pass Applications
         </h1>
         <p className="text-zinc-600 dark:text-zinc-400 mt-2">
@@ -610,7 +610,7 @@ export default function CreatorApprovalsAdmin() {
           <CardContent className="p-4">
             <p className="text-sm text-zinc-600 dark:text-zinc-400">Pending</p>
             <p className="text-2xl font-bold mt-1">{pendingCount}</p>
-            <p className="text-xs text-zinc-400 mt-2">Click to {expandedStatus === 'pending' ? 'collapse' : 'expand'}</p>
+            <p className="text-[11px] text-zinc-400 mt-2">Click to {expandedStatus === 'pending' ? 'collapse' : 'expand'}</p>
           </CardContent>
         </Card>
         <Card 
@@ -620,7 +620,7 @@ export default function CreatorApprovalsAdmin() {
           <CardContent className="p-4">
             <p className="text-sm text-zinc-600 dark:text-zinc-400">Approved</p>
             <p className="text-2xl font-bold mt-1">{approvedCount}</p>
-            <p className="text-xs text-zinc-400 mt-2">Click to {expandedStatus === 'approved' ? 'collapse' : 'expand'}</p>
+            <p className="text-[11px] text-zinc-400 mt-2">Click to {expandedStatus === 'approved' ? 'collapse' : 'expand'}</p>
           </CardContent>
         </Card>
         <Card 
@@ -630,7 +630,7 @@ export default function CreatorApprovalsAdmin() {
           <CardContent className="p-4">
             <p className="text-sm text-zinc-600 dark:text-zinc-400">Rejected</p>
             <p className="text-2xl font-bold mt-1">{rejectedCount}</p>
-            <p className="text-xs text-zinc-400 mt-2">Click to {expandedStatus === 'rejected' ? 'collapse' : 'expand'}</p>
+            <p className="text-[11px] text-zinc-400 mt-2">Click to {expandedStatus === 'rejected' ? 'collapse' : 'expand'}</p>
           </CardContent>
         </Card>
       </div>

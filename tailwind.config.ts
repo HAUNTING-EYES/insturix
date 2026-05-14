@@ -46,8 +46,19 @@ const config: Config = {
           pink: 'var(--category-pink)',
           cyan: 'var(--category-cyan)',
         },
+        // Social (Legacy compat)
+        social: {
+          pink: '#D4A652',
+          canvas: '#0B0B0A',
+          raised: '#0F0F0E',
+          well: '#1B1A18',
+          line: '#1C1B19',
+          muted: '#7A776E'
+        }
       },
       fontFamily: {
+        jakarta: ['var(--font-plus-jakarta-sans)'],
+        jetbrains: ['var(--font-jetbrains-mono)'],
         sans: ['var(--font-sans)'],
         mono: ['var(--font-mono)'],
       },

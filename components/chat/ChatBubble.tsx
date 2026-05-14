@@ -73,11 +73,11 @@ export default function ChatBubble({ role, content, timestamp, index = 0 }: Chat
         <div className="flex flex-col flex-1">
           {/* Message card */}
           <div className={`rounded-r-md rounded-t-md p-2 ${bubbleBg}`}>
-            <p className="text-xs sm:text-sm md:text-base leading-relaxed whitespace-pre-wrap break-words max-w-full overflow-hidden text-ellipsis">{content}</p>
+            <p className="text-[11px] sm:text-sm md:text-[14px] leading-relaxed whitespace-pre-wrap break-words max-w-full overflow-hidden text-ellipsis">{content}</p>
           </div>
 
           {/* Timestamp */}
-          <span className={`mt-0.5 text-xs text-zinc-400 select-none ${isUser ? 'text-right' : 'text-left'}`}>
+          <span className={`mt-0.5 text-[11px] text-zinc-400 select-none ${isUser ? 'text-right' : 'text-left'}`}>
             {formatTimestamp(timestamp)}
           </span>
         </div>

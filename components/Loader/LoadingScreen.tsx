@@ -11,35 +11,19 @@ export const LoadingScreen = () => {
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <motion.div
-        className="loading-square"
-        animate={{
-          rotate: [0, 90, 180, 270, 360],
-          scale: [1, 1.2, 1],
-        }}
-        transition={{
-          rotate: {
-            duration: 1.5,
-            ease: "linear",
-            repeat: Infinity,
-          },
-          scale: {
-            duration: 0.75,
-            ease: "easeInOut",
-            repeat: Infinity,
-          },
-        }}
+      <motion.img
+        src="/brand/insturix_white.png"
+        alt="Insturix"
+        width={80}
+        height={80}
+        style={{ borderRadius: 8 }}
+        animate={{ opacity: [0.4, 1, 0.4], scale: [0.95, 1, 0.95] }}
+        transition={{ duration: 2, ease: "easeInOut", repeat: Infinity }}
       />
       <motion.h1
         className="loading-text"
-        animate={{
-          opacity: [1, 0.3, 1],
-        }}
-        transition={{
-          duration: 1.5,
-          ease: "easeInOut",
-          repeat: Infinity,
-        }}
+        animate={{ opacity: [1, 0.3, 1] }}
+        transition={{ duration: 1.5, ease: "easeInOut", repeat: Infinity }}
       >
         INSTURIX
       </motion.h1>

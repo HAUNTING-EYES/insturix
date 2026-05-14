@@ -30,10 +30,10 @@ export const ProductFlowDiagram = ({ scrollProgress }: ProductFlowDiagramProps) 
     <div className="relative w-full max-w-7xl mx-auto px-4 pt-0 md:pt-0">
       {/* Title */}
       <div className="text-center mb-8 md:mb-16">
-        <h2 className="text-xl md:text-5xl font-bold text-neutral-900 dark:text-white mb-1 md:mb-4 tracking-tight">
+        <h2 className="text-[18px] md:text-[44px] font-bold text-neutral-900 dark:text-white mb-1 md:mb-4 tracking-tight">
           Your Creative Journey
         </h2>
-        <p className="text-neutral-500 dark:text-neutral-400 text-xs md:text-lg">
+        <p className="text-neutral-500 dark:text-neutral-400 text-[11px] md:text-lg">
           From spark to share — we&apos;ve got every step covered
         </p>
       </div>
@@ -100,7 +100,7 @@ export const ProductFlowDiagram = ({ scrollProgress }: ProductFlowDiagramProps) 
               >
                 {/* Label above icon for top row */}
                 {isTop && (
-                  <span className="mb-4 text-xl text-neutral-400 font-[family-name:var(--font-caveat)] -rotate-3">
+                  <span className="mb-4 text-[18px] text-neutral-400 font-[family-name:var(--font-caveat)] -rotate-3">
                     {FLOW_STEPS[i]?.label}
                   </span>
                 )}
@@ -120,7 +120,7 @@ export const ProductFlowDiagram = ({ scrollProgress }: ProductFlowDiagramProps) 
                 </div>
 
                 {/* Name */}
-                <span className="mt-3 text-base font-bold text-neutral-900 dark:text-white">
+                <span className="mt-3 text-[14px] font-bold text-neutral-900 dark:text-white">
                   {product.name}
                 </span>
 

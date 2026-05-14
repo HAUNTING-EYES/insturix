@@ -96,7 +96,7 @@ function TeamMemberCard({ member, index }: { member: TeamMember; index: number }
             <div className="absolute -bottom-1 -right-1 w-3 h-3 border-b border-r border-zinc-800" />
           </div>
           
-          <h3 className="text-xl font-bold mb-1 text-white font-space-grotesk tracking-tight">{member.name}</h3>
+          <h3 className="text-[18px] font-bold mb-1 text-white font-space-grotesk tracking-tight">{member.name}</h3>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500 mb-4 font-inter">
             {member.role}
           </p>
@@ -161,7 +161,7 @@ export default function TeamContent() {
             
             <motion.h1 
               variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.5, ease } } }}
-              className="text-4xl sm:text-6xl font-bold mb-6 text-white font-space-grotesk tracking-tighter"
+              className="text-[44px] sm:text-[110px] font-bold mb-6 text-white font-space-grotesk tracking-tighter"
             >
               The minds <span className="text-zinc-500">behind the engine.</span>
             </motion.h1>

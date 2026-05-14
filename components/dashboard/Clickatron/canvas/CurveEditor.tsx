@@ -221,18 +221,18 @@ export function CurveEditor({ curves, onChange, disabled = false }: CurveEditorP
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="flex bg-zinc-800/50 rounded-lg p-1 gap-1">
+        <div className="flex bg-[#1B1A18]/50 rounded-lg p-1 gap-1">
           {(['master', 'red', 'green', 'blue'] as Channel[]).map((channel) => (
             <button
               key={channel}
               onClick={() => setActiveChannel(channel)}
               className={cn(
                 "w-6 h-6 rounded flex items-center justify-center transition-all",
-                activeChannel === channel ? "bg-zinc-700 shadow-sm" : "hover:bg-zinc-700/50"
+                activeChannel === channel ? "bg-[#282724] shadow-sm" : "hover:bg-[#282724]/50"
               )}
             >
               <div 
-                className="w-3 h-3 rounded-full border border-zinc-500"
+                className="w-3 h-3 rounded-full border border-[#7A776E]"
                 style={{ backgroundColor: channel === 'master' ? '#e4e4e7' : CHANNEL_COLORS[channel] }}
               />
             </button>
@@ -243,18 +243,18 @@ export function CurveEditor({ curves, onChange, disabled = false }: CurveEditorP
           size="sm"
           onClick={resetChannel}
           disabled={disabled}
-          className="h-6 px-2 text-xs text-zinc-500 hover:text-zinc-300"
+          className="h-6 px-2 text-[11px] text-[#7A776E] hover:text-[#B5B2A8]"
         >
           <RotateCcw className="w-3 h-3 mr-1" />
           Reset
         </Button>
       </div>
 
-      <div className="relative aspect-square w-full bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden select-none">
+      <div className="relative aspect-square w-full bg-[#131312] rounded-lg border border-[#1C1B19] overflow-hidden select-none">
         {/* Grid */}
         <div className="absolute inset-0 grid grid-cols-4 grid-rows-4 pointer-events-none">
           {Array.from({ length: 16 }).map((_, i) => (
-            <div key={i} className="border-r border-b border-zinc-800/50 last:border-r-0 [&:nth-child(4n)]:border-r-0 [&:nth-child(n+13)]:border-b-0" />
+            <div key={i} className="border-r border-b border-[#1C1B19]/50 last:border-r-0 [&:nth-child(4n)]:border-r-0 [&:nth-child(n+13)]:border-b-0" />
           ))}
         </div>
         

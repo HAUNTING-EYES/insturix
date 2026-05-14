@@ -50,7 +50,7 @@ export function OrgProjectsList({ orgId, projects, isLoading, className }: OrgPr
     return (
       <div className={cn("text-center py-12", className)}>
         <p className="text-white/40 text-sm">No projects yet</p>
-        <p className="text-white/25 text-xs mt-1">Create your first organization project</p>
+        <p className="text-white/25 text-[11px] mt-1">Create your first organization project</p>
       </div>
     );
   }
@@ -77,7 +77,7 @@ export function OrgProjectsList({ orgId, projects, isLoading, className }: OrgPr
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
-                <span className="text-white/20 text-xs">{project.aspectRatio}</span>
+                <span className="text-white/20 text-[11px]">{project.aspectRatio}</span>
               </div>
             )}
           </div>

@@ -217,7 +217,7 @@ export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) 
           value={inputUrl}
           onChange={(e) => setInputUrl(e.target.value)}
           placeholder="Paste a URL or drag a file"
-          className="min-w-0 flex-1 bg-transparent py-2.5 text-base text-[#ECE9E1] outline-none placeholder:text-[#5F5E5A]"
+          className="min-w-0 flex-1 bg-transparent py-2.5 text-[14px] text-[#ECE9E1] outline-none placeholder:text-[#5F5E5A]"
           onClick={(e) => e.stopPropagation()}
           disabled={isPreviewLoading}
         />
@@ -237,7 +237,7 @@ export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) 
           e.stopPropagation();
           fileInputRef.current?.click();
         }}
-        className="mx-auto mt-4 flex items-center gap-2 font-mono text-xs tracking-[0.04em] text-[#454340] transition-colors hover:text-[#B5B2A8]"
+        className="mx-auto mt-4 flex items-center gap-2 font-mono text-[11px] tracking-[0.04em] text-[#454340] transition-colors hover:text-[#B5B2A8]"
         disabled={isPreviewLoading}
       >
         <Upload className="h-3 w-3" />
@@ -263,7 +263,7 @@ export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) 
         <h1 className="m-0 text-balance text-[42px] font-extrabold leading-[1.05] tracking-[-0.035em] text-[#ECE9E1] sm:text-[50px]">
           Let&apos;s analyze what you made.
         </h1>
-        <p className="mb-10 mt-3 text-base text-[#7A776E]">
+        <p className="mb-10 mt-3 text-[14px] text-[#7A776E]">
           Drop a link, or paste a file.
         </p>
         <AnimatePresence initial={false} mode="wait">

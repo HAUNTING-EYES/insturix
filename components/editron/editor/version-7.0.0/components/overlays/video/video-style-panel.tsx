@@ -44,7 +44,7 @@ export const VideoStylePanel: React.FC<VideoStylePanelProps> = ({
         </h3>
 
         <div className="space-y-2">
-          <label className="text-xs text-gray-600 dark:text-gray-400">
+          <label className="text-[11px] text-gray-600 dark:text-gray-400">
             Fit
           </label>
           <select
@@ -52,7 +52,7 @@ export const VideoStylePanel: React.FC<VideoStylePanelProps> = ({
             onChange={(e) =>
               handleStyleChange({ objectFit: e.target.value as any })
             }
-            className="w-full bg-background dark:bg-background border border-border dark:border-border rounded-md text-xs p-2 hover:border-primary/30 dark:hover:border-primary/30 transition-colors text-foreground dark:text-foreground"
+            className="w-full bg-background dark:bg-background border border-border dark:border-border rounded-md text-[11px] p-2 hover:border-primary/30 dark:hover:border-primary/30 transition-colors text-foreground dark:text-foreground"
           >
             <option value="cover">Cover</option>
             <option value="contain">Contain</option>
@@ -69,10 +69,10 @@ export const VideoStylePanel: React.FC<VideoStylePanelProps> = ({
         {/* Border Radius */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-xs text-gray-600 dark:text-gray-400">
+            <label className="text-[11px] text-gray-600 dark:text-gray-400">
               Border Radius
             </label>
-            <span className="text-xs text-gray-600 dark:text-gray-400 min-w-[40px] text-right">
+            <span className="text-[11px] text-gray-600 dark:text-gray-400 min-w-[40px] text-right">
               {localOverlay?.styles?.borderRadius ?? "0px"}
             </span>
           </div>
@@ -83,15 +83,15 @@ export const VideoStylePanel: React.FC<VideoStylePanelProps> = ({
               handleStyleChange({ borderRadius: `${e.target.value}px` })
             }
             min="0"
-            className="w-full bg-background dark:bg-background border border-border dark:border-border rounded-md text-xs p-2 hover:border-primary/30 dark:hover:border-primary/30 transition-colors text-foreground dark:text-foreground"
+            className="w-full bg-background dark:bg-background border border-border dark:border-border rounded-md text-[11px] p-2 hover:border-primary/30 dark:hover:border-primary/30 transition-colors text-foreground dark:text-foreground"
           />
         </div>
 
         {/* Brightness */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-xs text-muted-foreground">Brightness</label>
-            <span className="text-xs text-muted-foreground min-w-[40px] text-right">
+            <label className="text-[11px] text-muted-foreground">Brightness</label>
+            <span className="text-[11px] text-muted-foreground min-w-[40px] text-right">
               {parseInt(
                 localOverlay?.styles?.filter?.match(
                   /brightness\((\d+)%\)/

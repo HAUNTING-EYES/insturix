@@ -161,7 +161,7 @@ export function DashboardClassic() {
               border: "none",
               borderRadius: 7,
               padding: sidebarHover ? "9px 16px" : "9px 0",
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: 800,
               cursor: "pointer",
               fontFamily: "inherit",

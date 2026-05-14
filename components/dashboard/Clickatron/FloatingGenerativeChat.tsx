@@ -173,7 +173,7 @@ export function FloatingGenerativeChat({
             },
           }}
         >
-          <div className="bg-zinc-900/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
+          <div className="bg-[#131312] border border-[#1C1B19] rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
             {/* Header - Only show when expanded */}
             <motion.div
               variants={headerVariants}
@@ -181,16 +181,16 @@ export function FloatingGenerativeChat({
               animate={isExpanded ? "expanded" : "collapsed"}
               className="overflow-hidden"
             >
-              <div className="flex items-center justify-between p-4 border-b border-zinc-800/50">
+              <div className="flex items-center justify-between p-4 border-b border-[#1C1B19]/50">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
+                  <div className="w-8 h-8 bg-[#D4A652] rounded-full flex items-center justify-center">
                     <Wand2 className="h-4 w-4 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-medium text-zinc-100">
+                    <h3 className="text-sm font-medium text-[#ECE9E1]">
                       AI Editor
                     </h3>
-                    <p className="text-xs text-zinc-400">
+                    <p className="text-[11px] text-[#7A776E]">
                       Describe your changes
                     </p>
                   </div>
@@ -199,7 +199,7 @@ export function FloatingGenerativeChat({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 w-8 p-0 text-zinc-400 hover:text-zinc-200"
+                  className="h-8 w-8 p-0 text-[#7A776E] hover:text-[#ECE9E1]"
                   onClick={() => setIsExpanded(false)}
                 >
                   <X className="h-4 w-4" />
@@ -224,8 +224,8 @@ export function FloatingGenerativeChat({
                     marginBottom: isExpanded ? "1rem" : "0",
                   }}
                 >
-                  <div className="flex items-center gap-3 p-3 bg-zinc-800/30 rounded-lg">
-                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-800/50 flex-shrink-0">
+                  <div className="flex items-center gap-3 p-3 bg-[#1B1A18]/30 rounded-lg">
+                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#1B1A18]/50 flex-shrink-0">
                       <img
                         src={referenceImage.data}
                         alt="Reference"
@@ -233,10 +233,10 @@ export function FloatingGenerativeChat({
                       />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-zinc-300 truncate">
+                      <p className="text-[11px] text-[#B5B2A8] truncate">
                         Reference: {referenceImage.name}
                       </p>
-                      <p className="text-xs text-zinc-500">
+                      <p className="text-[11px] text-[#7A776E]">
                         Influencing generation
                       </p>
                     </div>
@@ -245,7 +245,7 @@ export function FloatingGenerativeChat({
               )}
 
               {/* Prompt Input */}
-              <div className="relative flex items-center gap-2 bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-2 shadow-lg">
+              <div className="relative flex items-center gap-2 bg-[#1B1A18] border border-[#1C1B19] rounded-xl p-2 shadow-lg">
                 <input
                   ref={textareaRef as any}
                   value={prompt}
@@ -253,14 +253,14 @@ export function FloatingGenerativeChat({
                   onKeyDown={handleKeyDown}
                   onFocus={handleInputFocus}
                   placeholder="AI Edit"
-                  className="flex-1 bg-transparent border-0 px-2 py-2 text-zinc-100 placeholder:text-zinc-400 text-sm focus:outline-none"
+                  className="flex-1 bg-transparent border-0 px-2 py-2 text-[#ECE9E1] placeholder:text-[#7A776E] text-sm focus:outline-none"
                   disabled={isGenerating}
                 />
 
                 <Button
                   onClick={handleSubmit}
                   disabled={!prompt.trim() || isGenerating}
-                  className="bg-purple-600/80 hover:bg-purple-600 backdrop-blur-sm text-white h-8 w-8 p-0 rounded-lg shadow-md"
+                  className="bg-[#D4A652] hover:bg-[#D4A652]/90 text-[#0B0B0A] h-8 w-8 p-0 rounded-lg shadow-md"
                   size="sm"
                 >
                   {isGenerating ? (
@@ -283,7 +283,7 @@ export function FloatingGenerativeChat({
               {/* Advanced Settings (Expanded) - Only Reference Strength */}
               {referenceImage && (
                 <div
-                  className="transition-all duration-300 ease-out overflow-hidden border-t border-zinc-800/50"
+                  className="transition-all duration-300 ease-out overflow-hidden border-t border-[#1C1B19]/50"
                   style={{
                     height: isExpanded ? "auto" : "0",
                     paddingTop: isExpanded ? "1rem" : "0",
@@ -300,10 +300,10 @@ export function FloatingGenerativeChat({
                     {/* Reference Strength */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <label className="text-xs text-zinc-300">
+                        <label className="text-[11px] text-[#B5B2A8]">
                           Reference Influence
                         </label>
-                        <span className="text-xs text-zinc-500">
+                        <span className="text-[11px] text-[#7A776E]">
                           {settings.referenceStrength}%
                         </span>
                       </div>
@@ -320,7 +320,7 @@ export function FloatingGenerativeChat({
                         step={5}
                         className="w-full"
                       />
-                      <div className="flex justify-between text-xs text-zinc-500 mt-1">
+                      <div className="flex justify-between text-[11px] text-[#7A776E] mt-1">
                         <span>Subtle</span>
                         <span>Strong</span>
                       </div>
@@ -330,7 +330,7 @@ export function FloatingGenerativeChat({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="w-full border-zinc-700 text-zinc-300 hover:bg-zinc-800/50"
+                      className="w-full border-[#282724] text-[#B5B2A8] hover:bg-[#1B1A18]/50"
                       onClick={() => setSettings({ referenceStrength: 50 })}
                     >
                       <RotateCcw className="h-4 w-4 mr-2" />

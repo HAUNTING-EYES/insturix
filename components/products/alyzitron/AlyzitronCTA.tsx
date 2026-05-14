@@ -68,7 +68,7 @@ export default function AlyzitronCTA() {
               <div className="inline-flex p-3 rounded-lg bg-gray-100 dark:bg-neutral-800 mb-4 border border-neutral-200 dark:border-neutral-700 transition-colors group-hover:border-blue-500/50">
                 <stat.icon className="w-6 h-6 text-blue-500" />
               </div>
-              <div className="text-3xl font-bold text-neutral-900 dark:text-white mb-2">
+              <div className="text-[32px] font-bold text-neutral-900 dark:text-white mb-2">
                 {stat.value}
               </div>
               <div className="text-sm text-neutral-600 dark:text-neutral-400">
@@ -106,7 +106,7 @@ export default function AlyzitronCTA() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.8, delay: 0.3 }}
-            className="text-5xl md:text-7xl font-bold tracking-tight mb-8"
+            className="text-[44px] md:text-7xl font-bold tracking-tight mb-8"
           >
             <span className="bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-700 dark:from-white dark:via-neutral-200 dark:to-neutral-400 bg-clip-text text-transparent">
               Start Analyzing
@@ -123,7 +123,7 @@ export default function AlyzitronCTA() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.8, delay: 0.4 }}
-            className="text-xl text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-12 leading-relaxed"
+            className="text-[18px] text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-12 leading-relaxed"
           >
             Join thousands of creators who are already using Alyzitron to optimize their content,
             reduce risks, and accelerate their YouTube growth. Start your free trial today.
@@ -140,7 +140,7 @@ export default function AlyzitronCTA() {
             <Link href="/dashboard">
               <Button
                 size="lg"
-                className="bg-blue-600 text-white hover:bg-blue-700 border-transparent px-12 py-4 text-xl font-bold transition-colors duration-200 min-w-[200px]"
+                className="bg-blue-600 text-white hover:bg-blue-700 border-transparent px-12 py-4 text-[18px] font-bold transition-colors duration-200 min-w-[200px]"
               >
                 Start Free Trial
                 <ArrowRight className="ml-3 w-6 h-6" />
@@ -151,7 +151,7 @@ export default function AlyzitronCTA() {
               <Button
                 variant="outline"
                 size="lg"
-                className="border-2 border-neutral-300 dark:border-neutral-700 bg-transparent text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/50 px-12 py-4 text-xl font-bold transition-colors duration-200 min-w-[200px]"
+                className="border-2 border-neutral-300 dark:border-neutral-700 bg-transparent text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800/50 px-12 py-4 text-[18px] font-bold transition-colors duration-200 min-w-[200px]"
               >
                 Book a Demo
               </Button>

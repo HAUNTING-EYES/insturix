@@ -54,7 +54,7 @@ function AnimatedCounter({ value, suffix, duration = 2000 }: { value: number; su
   }, [isInView, value, duration]);
 
   return (
-    <div ref={ref} className="text-5xl sm:text-6xl md:text-7xl font-bold">
+    <div ref={ref} className="text-[44px] sm:text-[110px] md:text-7xl font-bold">
       {count.toLocaleString()}{suffix}
     </div>
   );
@@ -74,7 +74,7 @@ export default function StatsSection() {
           transition={{ duration: 0.6 }}
           className="mb-16 text-center"
         >
-          <h2 className="text-3xl sm:text-5xl font-bold tracking-tight mb-6">
+          <h2 className="text-[32px] sm:text-[44px] font-bold tracking-tight mb-6">
             AI is changing how content is created
           </h2>
         </motion.div>

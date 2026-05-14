@@ -60,7 +60,7 @@ export default function HeroStatement() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3, delay: 0.1 }}
-            className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight text-zinc-50 leading-[1.1] mb-6"
+            className="text-[44px] sm:text-[44px] md:text-7xl font-bold tracking-tight text-zinc-50 leading-[1.1] mb-6"
           >
             {"Your entire content operation. ".split(" ").map((word, i) => (
               <motion.span
@@ -92,7 +92,7 @@ export default function HeroStatement() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.5, ease }}
-            className="text-lg md:text-xl text-zinc-400 max-w-2xl mx-auto mb-10 leading-relaxed"
+            className="text-lg md:text-[18px] text-zinc-400 max-w-2xl mx-auto mb-10 leading-relaxed"
           >
             Edit videos, generate thumbnails, analyze performance, write scripts, compose music, and distribute everywhere — all powered by AI that learns your brand.
           </motion.p>
@@ -217,7 +217,7 @@ export default function HeroStatement() {
                     >
                       <Play className="w-5 h-5 text-zinc-400 fill-zinc-400 ml-0.5" />
                     </motion.div>
-                    <span className="text-xs text-zinc-600 font-medium">Preview</span>
+                    <span className="text-[11px] text-zinc-600 font-medium">Preview</span>
                   </div>
                   <div className="absolute top-3 left-3 flex gap-2">
                     <div className="h-6 px-2 bg-zinc-800/80 rounded text-[10px] text-zinc-400 flex items-center">1920×1080</div>
@@ -266,7 +266,7 @@ export default function HeroStatement() {
                 variants={slideInLeft}
                 className="hidden lg:flex flex-col w-60 border-l border-zinc-800 bg-zinc-950/50 p-4 gap-4"
               >
-                <div className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">AI Actions</div>
+                <div className="text-[11px] text-zinc-500 font-semibold uppercase tracking-wider">AI Actions</div>
                 {["Remove filler words", "Auto-cut silences", "Add captions", "Match brand pacing"].map((action, i) => (
                   <motion.div
                     key={action}
@@ -274,17 +274,17 @@ export default function HeroStatement() {
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.4, delay: 1.2 + i * 0.1, ease }}
                     whileHover={{ x: 4, backgroundColor: "rgba(63,63,70,0.3)" }}
-                    className="h-10 rounded-md bg-zinc-800/30 border border-zinc-800 flex items-center px-3 text-xs text-zinc-400 cursor-pointer transition-colors"
+                    className="h-10 rounded-md bg-zinc-800/30 border border-zinc-800 flex items-center px-3 text-[11px] text-zinc-400 cursor-pointer transition-colors"
                   >
                     {action}
                   </motion.div>
                 ))}
                 <div className="mt-auto">
-                  <div className="text-xs text-zinc-500 font-semibold uppercase tracking-wider mb-2">Brand Vault</div>
+                  <div className="text-[11px] text-zinc-500 font-semibold uppercase tracking-wider mb-2">Brand Vault</div>
                   <motion.div
                     animate={{ borderColor: ["rgba(63,63,70,0.5)", "rgba(52,211,153,0.3)", "rgba(63,63,70,0.5)"] }}
                     transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                    className="h-20 rounded-md bg-zinc-800/20 border border-dashed flex items-center justify-center text-xs text-zinc-600"
+                    className="h-20 rounded-md bg-zinc-800/20 border border-dashed flex items-center justify-center text-[11px] text-zinc-600"
                   >
                     Connected
                   </motion.div>

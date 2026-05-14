@@ -78,7 +78,7 @@ export default function ManagePlanDialog({ open, onOpenChange, plans, currentPla
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-white capitalize text-base">
+                    <span className="font-semibold text-white capitalize text-[14px]">
                       {plan.name}
                     </span>
                     {planStatusBadge(plan.status)}
@@ -88,7 +88,7 @@ export default function ManagePlanDialog({ open, onOpenChange, plans, currentPla
                     {plan.price} {plan.currency !== "USD" && plan.currency !== "INR" ? plan.currency : null}
                   </span>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-zinc-400 mt-1">
+                <div className="flex items-center gap-4 text-[11px] text-zinc-400 mt-1">
                   <span className="flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
                     {format(new Date(plan.startDate), "dd MMM yyyy")}
@@ -125,7 +125,7 @@ export default function ManagePlanDialog({ open, onOpenChange, plans, currentPla
                         </Button>
                       )}
                     </motion.div>
-                    <p className="text-xs text-zinc-500 mt-2 text-right">
+                    <p className="text-[11px] text-zinc-500 mt-2 text-right">
                       Note: Plan upgrades may take up to 2 minutes to reflect.
                     </p>
                   </>

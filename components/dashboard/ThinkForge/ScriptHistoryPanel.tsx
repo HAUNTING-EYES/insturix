@@ -100,7 +100,7 @@ export const ScriptHistoryPanel: React.FC<ScriptHistoryPanelProps> = ({
                 <FileText className="h-8 w-8 text-[#454340]" />
               </div>
               <h3 className="text-sm font-medium text-[#B5B2A8] mb-1">No scripts yet</h3>
-              <p className="text-xs text-[#5F5E5A] max-w-60 leading-relaxed">
+              <p className="text-[11px] text-[#5F5E5A] max-w-60 leading-relaxed">
                 Create a new script to start a fresh tab in this session.
               </p>
             </div>

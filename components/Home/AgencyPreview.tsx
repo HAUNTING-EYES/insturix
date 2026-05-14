@@ -47,7 +47,7 @@ export default function AgencyPreview() {
               </motion.div>
               <motion.h2
                 variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease } } }}
-                className="text-3xl md:text-5xl font-black tracking-tight text-zinc-950 mb-6 leading-[1.1]"
+                className="text-[32px] md:text-[44px] font-black tracking-tight text-zinc-950 mb-6 leading-[1.1]"
               >
                 Insturix{" "}
                 <span className="text-zinc-400">Creatives Agency</span>
@@ -62,7 +62,7 @@ export default function AgencyPreview() {
               <motion.div
                 variants={{ hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease } } }}
               >
-                <Link href="/insturix-creatives-agency">
+                <Link href="/showcase">
                   <motion.button
                     whileHover={{ scale: 1.04, boxShadow: "0 10px 40px rgba(0,0,0,0.2)" }}
                     whileTap={{ scale: 0.97 }}

@@ -174,9 +174,9 @@ function BrandDNAEditor() {
       <div className="rounded-xl bg-gradient-to-br from-[#D4A652]/[0.08] to-transparent border border-[#D4A652]/[0.12] px-4 py-3">
         <div className="flex items-center gap-2 mb-1.5">
           <Sparkles size={14} className="text-[#D4A652]" />
-          <span className="text-xs font-semibold text-[#D4A652]">How it works</span>
+          <span className="text-[11px] font-semibold text-[#D4A652]">How it works</span>
         </div>
-        <p className="text-[12px] text-[#7A776E] leading-relaxed">
+        <p className="text-[11px] text-[#7A776E] leading-relaxed">
           Fill in your brand identity below. The AI will use this to match your voice, avoid things you hate, and generate content that sounds like <em>you</em>.
         </p>
       </div>

@@ -204,7 +204,7 @@ export function AICommandConsole({
 
                 popup = document.createElement("div");
                 popup.className =
-                  "suggestions-popup absolute z-50 bg-zinc-800 border border-zinc-700 rounded-xl shadow-lg max-h-60 overflow-y-auto w-64";
+                  "suggestions-popup absolute z-50 bg-[#1B1A18] border border-[#282724] rounded-xl shadow-lg max-h-60 overflow-y-auto w-64";
                 const triggerRect = clientRect
                   ? clientRect()
                   : { left: 0, top: 0, width: 0, height: 0 };
@@ -225,13 +225,13 @@ export function AICommandConsole({
                     if (items.length === 0) {
                       const noItems = document.createElement("div");
                       noItems.className =
-                        "p-3 text-zinc-400 text-sm cursor-default";
+                        "p-3 text-[#7A776E] text-sm cursor-default";
                       noItems.textContent = "no reference images";
                       popup.appendChild(noItems);
                     } else {
                       items.forEach((item: any, index: number) => {
                         const div = document.createElement("div");
-                        div.className = `flex items-center gap-3 p-3 cursor-pointer transition-colors hover:bg-zinc-700 ${selectedIndex === index ? "bg-zinc-700" : ""}`;
+                        div.className = `flex items-center gap-3 p-3 cursor-pointer transition-colors hover:bg-[#282724] ${selectedIndex === index ? "bg-[#282724]" : ""}`;
 
                         if (item.previewUrl) {
                           const img = document.createElement("img");
@@ -255,7 +255,7 @@ export function AICommandConsole({
                         }
 
                         const labelSpan = document.createElement("span");
-                        labelSpan.className = "text-zinc-200 font-medium";
+                        labelSpan.className = "text-[#ECE9E1] font-medium";
                         labelSpan.textContent =
                           item.id === "@img1"
                             ? "@img1 - Original Image"
@@ -541,7 +541,7 @@ export function AICommandConsole({
     editorProps: {
       attributes: {
         class:
-          "min-h-[32px] max-h-[80px] w-full p-2.5 text-zinc-100 outline-none overflow-y-auto break-all overflow-x-hidden",
+          "min-h-[32px] max-h-[80px] w-full p-2.5 text-[#ECE9E1] outline-none overflow-y-auto break-all overflow-x-hidden",
       },
     },
     content: "",
@@ -702,8 +702,8 @@ export function AICommandConsole({
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
       className={`
-        bg-gradient-to-t from-zinc-900/95 to-zinc-900/80 backdrop-blur-xl 
-        border-t border-zinc-800/60
+        bg-gradient-to-t from-[#131312]/95 to-[#131312]/80
+        border-t border-[#1C1B19]/60
         ${className}
       `}
     >
@@ -719,7 +719,7 @@ export function AICommandConsole({
         </div>
 
         {/* Main Input Container */}
-        <div className="relative bg-zinc-800/40 rounded-xl border border-zinc-700/50 p-2">
+        <div className="relative bg-[#1B1A18]/40 rounded-xl border border-[#282724]/50 p-2">
           {/* Reference Images */}
           <AnimatePresence>
             {referenceImagePreviews.length > 0 && (
@@ -727,7 +727,7 @@ export function AICommandConsole({
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="mb-2 pb-2 border-b border-zinc-700/30"
+                className="mb-2 pb-2 border-b border-[#282724]/30"
               >
                 <div className="flex flex-wrap gap-1.5">
                   {referenceImagePreviews.map((previewUrl, index) => (
@@ -738,7 +738,7 @@ export function AICommandConsole({
                       exit={{ opacity: 0, scale: 0.8 }}
                       className="relative group"
                     >
-                      <div className="w-8 h-8 rounded-lg overflow-hidden bg-zinc-700/50 border border-zinc-600/50">
+                      <div className="w-8 h-8 rounded-lg overflow-hidden bg-[#282724]/50 border border-[#282724]/50">
                         <img
                           src={previewUrl}
                           alt={`Reference ${index + 1}`}
@@ -747,9 +747,9 @@ export function AICommandConsole({
                       </div>
                       <button
                         onClick={() => removeReferenceImage(index)}
-                        className="absolute -top-1 -right-1 w-3 h-3 bg-zinc-900 border border-zinc-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-red-600 hover:border-red-500"
+                        className="absolute -top-1 -right-1 w-3 h-3 bg-[#131312] border border-[#282724] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-[#D46A5C] hover:border-[#D46A5C]"
                       >
-                        <X className="h-1.5 w-1.5 text-zinc-300" />
+                        <X className="h-1.5 w-1.5 text-[#B5B2A8]" />
                       </button>
                     </motion.div>
                   ))}
@@ -768,7 +768,7 @@ export function AICommandConsole({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-8 w-8 p-0 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border border-zinc-700/50"
+                    className="h-8 w-8 p-0 rounded-lg text-[#7A776E] hover:text-[#ECE9E1] hover:bg-[#282724]/50 border border-[#282724]/50"
                     title="Edit mode"
                   >
                     <MoreVertical className="h-4 w-4" />
@@ -776,18 +776,18 @@ export function AICommandConsole({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="start"
-                  className="bg-zinc-900 border-zinc-700"
+                  className="bg-[#131312] border-[#282724]"
                 >
                   <DropdownMenuItem
                     onClick={() => onInputModeChange?.("editCanvas")}
-                    className="flex items-center gap-2 text-zinc-200 focus:bg-zinc-800 focus:text-zinc-100"
+                    className="flex items-center gap-2 text-[#ECE9E1] focus:bg-[#1B1A18] focus:text-[#ECE9E1]"
                   >
                     <SquarePen className="h-4 w-4" />
                     Edit Canvas
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => onInputModeChange?.("sketchToEdit")}
-                    className="flex items-center gap-2 text-zinc-200 focus:bg-zinc-800 focus:text-zinc-100"
+                    className="flex items-center gap-2 text-[#ECE9E1] focus:bg-[#1B1A18] focus:text-[#ECE9E1]"
                   >
                     <Pencil className="h-4 w-4" />
                     Sketch to Edit
@@ -812,7 +812,7 @@ export function AICommandConsole({
                     size="sm"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isGenerating}
-                    className="h-8 w-8 p-0 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border border-zinc-700/50 hover:border-zinc-600/50 transition-all duration-200"
+                    className="h-8 w-8 p-0 rounded-lg text-[#7A776E] hover:text-[#ECE9E1] hover:bg-[#282724]/50 border border-[#282724]/50 hover:border-[#282724]/50 transition-all duration-200"
                     title="Reference Image"
                   >
                     {referenceImagePreviews.length > 0 ? (
@@ -825,7 +825,7 @@ export function AICommandConsole({
                   {/* Prompt Input */}
                   <div className="flex-1 min-w-0">
                     <div
-                      className="min-h-[32px] max-h-[80px] bg-zinc-900/40 text-zinc-100 placeholder-zinc-50 rounded-lg focus:ring-1 focus:ring-purple-400/50 focus:bg-zinc-900/60 transition-all duration-200 text-sm border-zinc-700/50 overflow-y-auto break-all overflow-x-hidden p-2.5"
+                      className="min-h-[32px] max-h-[80px] bg-[#131312]/40 text-[#ECE9E1] placeholder-[#ECE9E1] rounded-lg focus:ring-1 focus:ring-[#D4A652]/50 focus:bg-[#131312]/60 transition-all duration-200 text-sm border-[#282724]/50 overflow-y-auto break-all overflow-x-hidden p-2.5"
                       onPaste={handlePaste}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
@@ -850,7 +850,7 @@ export function AICommandConsole({
                   <Button
                     type="submit"
                     disabled={!getPlainPrompt().trim() || isGenerating}
-                    className="h-8 w-8 p-0 rounded-lg bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 disabled:from-zinc-700 disabled:to-zinc-700 transition-all duration-200"
+                    className="h-8 w-8 p-0 rounded-lg bg-gradient-to-r from-[#D4A652] to-[#C49A48] hover:from-[#C49A48] hover:to-[#B08E3E] disabled:from-[#282724] disabled:to-[#282724] transition-all duration-200"
                   >
                     {isGenerating ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -881,7 +881,7 @@ export function AICommandConsole({
                     size="sm"
                     onClick={() => editImageInputRef.current?.click()}
                     disabled={isGenerating || isUploadingImage}
-                    className="h-8 px-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border border-zinc-700/50 transition-all duration-200 text-xs gap-1"
+                    className="h-8 px-2 rounded-lg text-[#7A776E] hover:text-[#ECE9E1] hover:bg-[#282724]/50 border border-[#282724]/50 transition-all duration-200 text-[11px] gap-1"
                     title="Edit My Image"
                   >
                     {isUploadingImage ? (
@@ -898,7 +898,7 @@ export function AICommandConsole({
                     variant="ghost"
                     size="sm"
                     onClick={() => onAddOverlayImage?.()}
-                    className="h-8 px-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border border-zinc-700/50 transition-all duration-200 text-xs gap-1"
+                    className="h-8 px-2 rounded-lg text-[#7A776E] hover:text-[#ECE9E1] hover:bg-[#282724]/50 border border-[#282724]/50 transition-all duration-200 text-[11px] gap-1"
                     title="Add Image Overlay"
                   >
                     <Plus className="h-3.5 w-3.5" />
@@ -915,7 +915,7 @@ export function AICommandConsole({
                       className={`h-8 w-8 p-0 rounded-lg transition-all ${
                         sketchTool === "pencil"
                           ? "bg-blue-600/80 text-white"
-                          : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+                          : "text-[#7A776E] hover:text-[#ECE9E1] hover:bg-[#282724]/50"
                       }`}
                       title="Pencil"
                     >
@@ -934,7 +934,7 @@ export function AICommandConsole({
                             className={`w-6 h-6 rounded-full border-2 transition-all ${
                               pencilColor === c
                                 ? "border-white scale-110"
-                                : "border-zinc-600 hover:border-zinc-500"
+                                : "border-[#282724] hover:border-[#282724]"
                             }`}
                             style={{
                               backgroundColor:
@@ -961,7 +961,7 @@ export function AICommandConsole({
                       className={`h-8 w-8 p-0 rounded-lg transition-all ${
                         sketchTool === "eraser"
                           ? "bg-blue-600/80 text-white"
-                          : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+                          : "text-[#7A776E] hover:text-[#ECE9E1] hover:bg-[#282724]/50"
                       }`}
                       title="Eraser"
                     >
@@ -977,10 +977,10 @@ export function AICommandConsole({
                             variant="ghost"
                             size="sm"
                             onClick={() => onEraserSizeChange?.(s)}
-                            className={`h-7 px-2 text-xs rounded ${
+                            className={`h-7 px-2 text-[11px] rounded ${
                               eraserSize === s
                                 ? "bg-blue-600/80 text-white"
-                                : "text-zinc-400 hover:bg-zinc-700/50"
+                                : "text-[#7A776E] hover:bg-[#282724]/50"
                             }`}
                           >
                             {s === "small" ? "S" : s === "medium" ? "M" : "L"}
@@ -996,7 +996,7 @@ export function AICommandConsole({
                       className={`h-8 w-8 p-0 rounded-lg transition-all ${
                         sketchTool === "text"
                           ? "bg-blue-600/80 text-white"
-                          : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+                          : "text-[#7A776E] hover:text-[#ECE9E1] hover:bg-[#282724]/50"
                       }`}
                       title="Text"
                     >
@@ -1015,7 +1015,7 @@ export function AICommandConsole({
                             className={`w-6 h-6 rounded-full border-2 transition-all ${
                               pencilColor === c
                                 ? "border-white scale-110"
-                                : "border-zinc-600 hover:border-zinc-500"
+                                : "border-[#282724] hover:border-[#282724]"
                             }`}
                             style={{
                               backgroundColor:
@@ -1041,7 +1041,7 @@ export function AICommandConsole({
                     type="button"
                     onClick={() => onSketchToEditSubmit?.(selectedModelId || undefined)}
                     disabled={isGenerating}
-                    className="h-8 w-8 p-0 rounded-lg bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 disabled:from-zinc-700 disabled:to-zinc-700 transition-all duration-200"
+                    className="h-8 w-8 p-0 rounded-lg bg-gradient-to-r from-[#D4A652] to-[#C49A48] hover:from-[#C49A48] hover:to-[#B08E3E] disabled:from-[#282724] disabled:to-[#282724] transition-all duration-200"
                     title="Generate Edit"
                   >
                     {isGenerating ? (

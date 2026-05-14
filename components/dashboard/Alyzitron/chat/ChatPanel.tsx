@@ -305,7 +305,7 @@ export default function ChatPanel({
           data-[state=open]:translate-x-0
           data-[state=closed]:translate-x-full
         "
-        style={{ fontFamily: "'DM Sans', 'Geist', sans-serif" }}
+        style={{ fontFamily: "'Plus Jakarta Sans', -apple-system, system-ui, sans-serif" }}
       >
         {/* Header */}
         <div className="flex-none flex flex-col border-b border-[#1C1B19]">
@@ -336,7 +336,7 @@ export default function ChatPanel({
                   </Tooltip.Trigger>
                   <Tooltip.Portal>
                     <Tooltip.Content
-                      className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-xs px-3 py-1.5 rounded-lg shadow-xl max-w-[200px] text-center"
+                      className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-[11px] px-3 py-1.5 rounded-lg shadow-xl max-w-[200px] text-center"
                       sideOffset={6}
                     >
                       Older messages were summarized to preserve context
@@ -358,7 +358,7 @@ export default function ChatPanel({
                   </Tooltip.Trigger>
                   <Tooltip.Portal>
                     <Tooltip.Content
-                      className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-xs px-3 py-1.5 rounded-lg shadow-xl"
+                      className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-[11px] px-3 py-1.5 rounded-lg shadow-xl"
                       sideOffset={6}
                     >
                       Clear chat history
@@ -400,7 +400,7 @@ export default function ChatPanel({
                   <p className="text-sm font-medium text-[#B5B2A8] mb-1">
                     Ask about this video
                   </p>
-                  <p className="text-xs text-[#454340] max-w-[240px] leading-relaxed">
+                  <p className="text-[11px] text-[#454340] max-w-[240px] leading-relaxed">
                     I have access to the full transcript and AI analysis.
                     Ask about content, speakers, timestamps, or key moments.
                   </p>
@@ -477,7 +477,7 @@ export default function ChatPanel({
                 </Tooltip.Trigger>
                 <Tooltip.Portal>
                   <Tooltip.Content
-                    className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-xs px-3 py-1.5 rounded-lg shadow-xl"
+                    className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-[11px] px-3 py-1.5 rounded-lg shadow-xl"
                     sideOffset={6}
                   >
                     Stop generating

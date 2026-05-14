@@ -78,7 +78,7 @@ export function ChatInput({
                 <Sparkles className="h-3 w-3" />
                 Editing selection
               </div>
-              <div className="mt-1 rounded-lg border border-[#282724] bg-[#D4A652]/5 px-3 py-2 text-xs text-[#D4A652]/90 italic line-clamp-3">
+              <div className="mt-1 rounded-lg border border-[#282724] bg-[#D4A652]/5 px-3 py-2 text-[11px] text-[#D4A652]/90 italic line-clamp-3">
                 &ldquo;{editingSelection.text}&rdquo;
               </div>
             </div>

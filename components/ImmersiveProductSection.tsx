@@ -62,7 +62,7 @@ export const ImmersiveProductSection = ({ product, index, style }: ImmersiveProd
             </div>
 
             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <div className="bg-white/90 dark:bg-black/90 text-xs font-bold px-4 py-2 rounded-full shadow-lg backdrop-blur-sm">
+                <div className="bg-white/90 dark:bg-black/90 text-[11px] font-bold px-4 py-2 rounded-full shadow-lg backdrop-blur-sm">
                     VIEW DETAILS
                 </div>
             </div>
@@ -78,7 +78,7 @@ export const ImmersiveProductSection = ({ product, index, style }: ImmersiveProd
                     <span className="text-sm font-bold tracking-wider text-neutral-500 uppercase">{product.tags[0]}</span>
                 </div>
 
-                <h2 className="text-3xl md:text-4xl font-bold text-neutral-900 dark:text-white leading-tight">
+                <h2 className="text-[32px] md:text-[44px] font-bold text-neutral-900 dark:text-white leading-tight">
                     {product.name}
                 </h2>
 
@@ -149,7 +149,7 @@ export const ImmersiveProductSection = ({ product, index, style }: ImmersiveProd
                         <div className="p-3 rounded-xl bg-neutral-100 dark:bg-neutral-900">
                           <product.Icon className="w-8 h-8" style={{ color: product.accentColor }} />
                         </div>
-                        <h3 className="text-3xl font-bold">{product.name}</h3>
+                        <h3 className="text-[32px] font-bold">{product.name}</h3>
                      </div>
                      <p className="text-lg leading-relaxed text-neutral-600 dark:text-neutral-300">
                        {product.longDescription}
@@ -174,7 +174,7 @@ export const ImmersiveProductSection = ({ product, index, style }: ImmersiveProd
                    {/* Tags */}
                    <div className="flex flex-wrap gap-2 pt-4">
                      {product.tags.map(tag => (
-                       <span key={tag} className="px-3 py-1 text-xs font-medium rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                       <span key={tag} className="px-3 py-1 text-[11px] font-medium rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
                          #{tag}
                        </span>
                      ))}

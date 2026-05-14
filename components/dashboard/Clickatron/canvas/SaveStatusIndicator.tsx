@@ -67,7 +67,7 @@ export function SaveStatusIndicator({
     return {
       icon: <Wifi className="h-3 w-3 opacity-50" />,
       text: "Ready to save",
-      className: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
+      className: "bg-[#7A776E]/10 text-[#7A776E] border-[#7A776E]/20",
     };
   };
 
@@ -83,8 +83,8 @@ export function SaveStatusIndicator({
           exit={{ opacity: 0, y: 5 }}
           transition={{ duration: 0.2 }}
           className={`
-            inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium
-            border backdrop-blur-sm ${status.className}
+            inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-medium
+            border ${status.className}
           `}
         >
           {status.icon}

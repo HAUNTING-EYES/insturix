@@ -139,18 +139,18 @@ export default function ContentCardModal({
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') setIsEditingTitle(false);
                       }}
-                      className="w-full bg-transparent text-xl font-semibold text-white focus:outline-none focus:ring-2 focus:ring-[#D4A652]/40 px-2 py-1 rounded"
+                      className="w-full bg-transparent text-[18px] font-semibold text-white focus:outline-none focus:ring-2 focus:ring-[#D4A652]/40 px-2 py-1 rounded"
                       autoFocus
                     />
                   ) : (
                     <h2
                       onClick={() => setIsEditingTitle(true)}
-                      className="text-xl font-semibold text-white cursor-text hover:text-[#D4A652] transition-colors line-clamp-2"
+                      className="text-[18px] font-semibold text-white cursor-text hover:text-[#D4A652] transition-colors line-clamp-2"
                     >
                       {localCard.title}
                     </h2>
                   )}
-                  <div className="flex items-center gap-3 mt-2 text-xs text-neutral-400">
+                  <div className="flex items-center gap-3 mt-2 text-[11px] text-neutral-400">
                     <div className="flex items-center gap-1.5">
                       <Calendar size={12} />
                       <span>{format(new Date(localCard.date), 'MMM d, yyyy')}</span>
@@ -217,7 +217,7 @@ export default function ContentCardModal({
                           <button
                             key={status}
                             onClick={() => handleStatusChange(status)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
                               localCard.status === status
                                 ? 'bg-[#D4A652]/20 border-[#D4A652]/40 text-[#D4A652]'
                                 : 'bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-400 hover:bg-[#1C1B19]/80'
@@ -237,7 +237,7 @@ export default function ContentCardModal({
                         <span className="text-sm font-medium text-neutral-300">Planned Dates</span>
                         <button
                           onClick={handleAddDate}
-                          className="px-3 py-1.5 text-xs font-medium bg-[#1C1B19]/60 border border-neutral-700/70 text-neutral-300 rounded-lg hover:bg-[#1C1B19]/80 transition-colors"
+                          className="px-3 py-1.5 text-[11px] font-medium bg-[#1C1B19]/60 border border-neutral-700/70 text-neutral-300 rounded-lg hover:bg-[#1C1B19]/80 transition-colors"
                         >
                           + Add Date
                         </button>
@@ -248,7 +248,7 @@ export default function ContentCardModal({
                             key={index}
                             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#1C1B19]/40 border border-neutral-700/50"
                           >
-                            <span className="text-xs text-neutral-300">
+                            <span className="text-[11px] text-neutral-300">
                               {format(new Date(dateStr), 'MMM d, yyyy')}
                             </span>
                             {localCard.plannedDates.length > 1 && (

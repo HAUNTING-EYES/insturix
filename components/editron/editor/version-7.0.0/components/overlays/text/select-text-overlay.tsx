@@ -82,7 +82,7 @@ export const SelectTextOverlay: React.FC<SelectTextOverlayProps> = () => {
             {/* Preview Container */}
             <div className="aspect-[16/6] w-full flex items-center justify-center p-2 pb-12">
               <div
-                className="text-base transform-gpu transition-transform duration-200 group-hover:scale-102 dark:text-white text-gray-900/90"
+                className="text-[14px] transform-gpu transition-transform duration-200 group-hover:scale-102 dark:text-white text-gray-900/90"
                 style={{
                   ...option.styles,
                   fontSize: "1.25rem",

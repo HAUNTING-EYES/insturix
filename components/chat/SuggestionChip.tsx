@@ -19,7 +19,7 @@ export default function SuggestionChip({ suggestion, onClick }: Props) {
       onClick={() => onClick(suggestion)}
       size="sm"
       aria-label={suggestion.description}
-      className={`rounded-full px-4 py-1 text-xs font-medium text-white whitespace-nowrap ${colorClass}`}
+      className={`rounded-full px-4 py-1 text-[11px] font-medium text-white whitespace-nowrap ${colorClass}`}
     >
       {suggestion.title}
     </Button>

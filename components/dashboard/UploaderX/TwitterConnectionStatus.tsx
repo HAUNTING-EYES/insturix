@@ -97,11 +97,11 @@ export function TwitterConnectionStatus() {
                 {status?.connected && !status?.isExpired && (
                     <>
                         {status.userName ? (
-                            <p className="text-xs text-zinc-400 truncate">
+                            <p className="text-[11px] text-zinc-400 truncate">
                                 Logged in as: <span className="text-zinc-300 font-medium">@{status.userName}</span>
                             </p>
                         ) : (
-                            <p className="text-xs text-zinc-400 truncate">
+                            <p className="text-[11px] text-zinc-400 truncate">
                                 Connected successfully
                             </p>
                         )}
@@ -114,7 +114,7 @@ export function TwitterConnectionStatus() {
                         variant="outline"
                         onClick={handleDisconnect}
                         disabled={disconnecting}
-                        className="w-full h-8 text-xs border-zinc-700 hover:bg-zinc-800"
+                        className="w-full h-8 text-[11px] border-zinc-700 hover:bg-zinc-800"
                     >
                         {disconnecting ? (
                             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
@@ -127,14 +127,14 @@ export function TwitterConnectionStatus() {
                     <Button
                         size="sm"
                         onClick={handleConnect}
-                        className="w-full h-8 text-xs bg-sky-600 hover:bg-sky-500"
+                        className="w-full h-8 text-[11px] bg-sky-600 hover:bg-sky-500"
                     >
                         <ExternalLink className="h-3 w-3 mr-1" />
                         Connect Twitter
                     </Button>
                 )}
 
-                <p className="text-xs text-zinc-500">
+                <p className="text-[11px] text-zinc-500">
                     Connect a Twitter account to post videos directly.
                 </p>
             </CardContent>

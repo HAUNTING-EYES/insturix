@@ -127,11 +127,11 @@ export function DashboardStudio() {
             <span style={{ fontWeight: 800, fontSize: 14, letterSpacing: "-0.02em" }}>Insturix</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <span className="mono" style={{ fontSize: 12, color: C.muted }}>840 credits</span>
+            <span className="mono" style={{ fontSize: 11, color: C.muted }}>840 credits</span>
             <div style={{ width: 1, height: 16, background: C.border }} />
             <button style={{
               background: C.accent, color: C.bg, border: "none",
-              padding: "7px 18px", borderRadius: 7, fontSize: 12, fontWeight: 800,
+              padding: "7px 18px", borderRadius: 7, fontSize: 11, fontWeight: 800,
               cursor: "pointer", fontFamily: "inherit",
               display: "flex", alignItems: "center", gap: 6,
             }}>
@@ -255,7 +255,7 @@ export function DashboardStudio() {
                             letterSpacing: "-0.03em",
                           }}>{m.value}</span>
                         </div>
-                        <span style={{ fontSize: 12, color: C.dim }}>{m.label} · {m.note}</span>
+                        <span style={{ fontSize: 11, color: C.dim }}>{m.label} · {m.note}</span>
                       </div>
                     ))}
                   </div>
@@ -322,7 +322,7 @@ export function DashboardStudio() {
                   <button key={s.key} style={{
                     background: "transparent", border: `1px solid ${C.border}`,
                     borderRadius: 4, padding: "4px 12px",
-                    fontSize: 12, fontWeight: 500, color: C.muted,
+                    fontSize: 11, fontWeight: 500, color: C.muted,
                     cursor: "pointer", fontFamily: "inherit",
                     display: "flex", alignItems: "center", gap: 6,
                     transition: "all 0.2s ease",
@@ -436,7 +436,7 @@ export function DashboardStudio() {
                       </div>
 
                       {p.client && (
-                        <div style={{ fontSize: 12, color: C.dim, marginTop: 6 }}>{p.client}</div>
+                        <div style={{ fontSize: 11, color: C.dim, marginTop: 6 }}>{p.client}</div>
                       )}
                     </div>
                   </div>
@@ -495,7 +495,7 @@ export function DashboardStudio() {
                         { label: "Reach", value: item.platforms },
                       ].map((m, j) => (
                         <div key={j}>
-                          <div className="mono" style={{ fontSize: 12, color: C.soft }}>{m.value}</div>
+                          <div className="mono" style={{ fontSize: 11, color: C.soft }}>{m.value}</div>
                           <div style={{ fontSize: 11, color: C.dim }}>{m.label}</div>
                         </div>
                       ))}

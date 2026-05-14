@@ -91,17 +91,17 @@ export function VariationsGallery({
     <TooltipProvider>
       <motion.div
         initial={false}
-        className={`bg-zinc-900 border-r border-zinc-800/80 flex flex-col h-full w-full ${className} ${mobile ? 'w-[90vw] fixed inset-y-0 left-0 z-50 md:relative md:w-80 pt-16' : ''}`}
+        className={`bg-[#131312] border-r border-[#1C1B19]/80 flex flex-col h-full w-full ${className} ${mobile ? 'w-[90vw] fixed inset-y-0 left-0 z-50 md:relative md:w-80 pt-16' : ''}`}
         style={mobile ? {} : {}}
         ref={outsideRef}
       >
       {/* Header */}
       <div
-        className={`p-4 border-b border-zinc-800/80 flex items-center justify-between min-h-[72px]`}
+        className={`p-4 border-b border-[#1C1B19]/80 flex items-center justify-between min-h-[72px]`}
       >
-        <div className="text-sm font-medium text-zinc-200">
+        <div className="text-sm font-medium text-[#ECE9E1]">
           <h3>Variations</h3>
-          <p className="text-xs text-zinc-500">
+          <p className="text-[11px] text-[#7A776E]">
             {variations.length} generated
           </p>
         </div>
@@ -112,7 +112,7 @@ export function VariationsGallery({
               variant="ghost"
               size="sm"
               onClick={onClose}
-              className="text-zinc-400 hover:text-zinc-200 p-1 h-6 w-6"
+              className="text-[#7A776E] hover:text-[#ECE9E1] p-1 h-6 w-6"
             >
               <X className="h-3 w-3" />
             </Button>
@@ -121,14 +121,14 @@ export function VariationsGallery({
       </div>
 
       {/* New Variation Button */}
-      <div className="p-2 border-b border-zinc-800/50">
+      <div className="p-2 border-b border-[#1C1B19]/50">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               onClick={onNewVariation}
               variant="outline"
               size="sm"
-              className="w-full bg-zinc-800/50 border-zinc-700 hover:bg-zinc-700/50 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 transition-all duration-200"
+              className="w-full bg-[#1B1A18]/50 border-[#282724] hover:bg-[#282724]/50 hover:border-[#282724] text-[#B5B2A8] hover:text-[#ECE9E1] transition-all duration-200"
             >
               <Plus className="h-4 w-4 mr-2" />
               New Variation
@@ -193,8 +193,8 @@ export function VariationsGallery({
                   }
                   ${
                     activeVariationId === variation.id
-                      ? "border-zinc-400"
-                      : "border-zinc-700 hover:border-zinc-600"
+                      ? "border-[#7A776E]"
+                      : "border-[#282724] hover:border-[#282724]"
                   }
                 `}
                   style={{
@@ -206,13 +206,13 @@ export function VariationsGallery({
                 >
                   {/* Thumbnail image */}
                   {variation.status === 'blank' || !variation.imageRef || variation.imageRef.trim() === '' ? (
-                    <div className="w-full h-full bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center">
-                      <Plus className="h-3 w-3 text-zinc-500" />
+                    <div className="w-full h-full bg-[#1B1A18]/30 border-2 border-dashed border-[#282724]/50 flex items-center justify-center">
+                      <Plus className="h-3 w-3 text-[#7A776E]" />
                     </div>
                   ) : variation.status === 'generating' ? (
-                    <div className="w-full h-full bg-gradient-to-br from-zinc-800/60 to-zinc-800/40 flex items-center justify-center rounded-lg border border-zinc-600/50 relative overflow-hidden">
+                    <div className="w-full h-full bg-gradient-to-br from-[#1B1A18]/60 to-[#1B1A18]/40 flex items-center justify-center rounded-lg border border-[#282724]/50 relative overflow-hidden">
                       {/* Ambient background */}
-                      <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5 opacity-60" />
+                      <div className="absolute inset-0 bg-gradient-to-br from-[#D4A652]/5 to-[#D4A652]/5 opacity-60" />
                       
                       {/* Loading indicator */}
                       <div className="relative z-10">
@@ -225,7 +225,7 @@ export function VariationsGallery({
                               stroke="currentColor"
                               strokeWidth="2"
                               fill="none"
-                              className="text-zinc-600/30"
+                              className="text-[#282724]/30"
                             />
                             <circle
                               cx="12"
@@ -235,7 +235,7 @@ export function VariationsGallery({
                               strokeWidth="2"
                               fill="none"
                               strokeLinecap="round"
-                              className="text-purple-400"
+                              className="text-[#D4A652]"
                               strokeDasharray="63"
                               strokeDashoffset="16"
                             />
@@ -250,7 +250,7 @@ export function VariationsGallery({
                       variationId={variation.id}
                       className="w-full h-full object-cover"
                       interactive={false}
-                      fallback={<div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30" />}
+                      fallback={<div className="w-full h-full bg-gradient-to-br from-[#D4A652]/30 to-[#D4A652]/20" />}
                       fineTuning={variation.fineTuning}
                     />
                   )}
@@ -285,7 +285,7 @@ export function VariationsGallery({
                               size="sm"
                               variant="secondary"
                               onClick={(e) => handleDuplicateClick(variation.id, e)}
-                              className="bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white p-1 h-auto w-auto border border-zinc-600/50"
+                              className="bg-[#1B1A18]/90 hover:bg-[#282724] text-[#B5B2A8] hover:text-white p-1 h-auto w-auto border border-[#282724]/50"
                             >
                               <Copy className="h-3 w-3" />
                             </Button>
@@ -326,7 +326,7 @@ export function VariationsGallery({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.15 }}
-              className="text-xs text-zinc-500 mt-1"
+              className="text-[11px] text-[#7A776E] mt-1"
             >
               +{variations.length - 3}
             </motion.div>
@@ -336,15 +336,15 @@ export function VariationsGallery({
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-zinc-800">
+        <AlertDialogContent className="bg-[#131312] border-[#1C1B19]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-zinc-100">Delete Variation</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
+            <AlertDialogTitle className="text-[#ECE9E1]">Delete Variation</AlertDialogTitle>
+            <AlertDialogDescription className="text-[#7A776E]">
               Are you sure you want to delete this variation? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100">
+            <AlertDialogCancel className="bg-[#1B1A18] border-[#282724] text-[#B5B2A8] hover:bg-[#282724] hover:text-[#ECE9E1]">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
@@ -358,7 +358,7 @@ export function VariationsGallery({
       </AlertDialog>
       
       {/* Credits Display at the bottom */}
-      <div className="p-4 border-t border-zinc-800/80 w-full h-auto">
+      <div className="p-4 border-t border-[#1C1B19]/80 w-full h-auto">
         <CreditsBadge />
       </div>
     </motion.div>

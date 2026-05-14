@@ -6,15 +6,15 @@ import Link from "next/link"
 export function ProfileError() {
   return (
     <div className="w-full max-w-md flex flex-col items-center z-10">
-      <Card className="w-full bg-[#1a1a1f] border-[#2a2a35] text-center">
+      <Card className="w-full shadow-none border-transparent text-center" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
         <CardContent className="p-8">
-          <div className="w-20 h-20 bg-[#23232a] rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <Search className="w-8 h-8 text-[#0e6b9c]" />
+          <div className="w-20 h-20 rounded-[12px] flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#1B1A18' }}>
+            <Search className="w-8 h-8" style={{ color: '#D4A652' }} />
           </div>
-          <h2 className="text-2xl font-bold mb-2 text-white">Profile Not Found</h2>
-          <p className="text-gray-400 mb-6">This Socialize profile doesn&apos;t exist or has been removed.</p>
+          <h2 className="text-2xl font-medium mb-2" style={{ color: '#EAE9E5' }}>Profile Not Found</h2>
+          <p className="mb-6" style={{ color: '#B5B2A8' }}>This Socialize profile doesn&apos;t exist or has been removed.</p>
           <Link href="/">
-            <Button className="bg-[#0e6b9c] hover:bg-[#0d5d87] text-white">Go Back Home</Button>
+            <Button className="rounded-[7px] border-none hover:opacity-90 transition-opacity" style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}>Go Back Home</Button>
           </Link>
         </CardContent>
       </Card>

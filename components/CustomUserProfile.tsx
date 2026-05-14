@@ -150,7 +150,7 @@ export default function CustomUserProfile() {
     <div className="flex flex-col lg:flex-row w-full h-full bg-zinc-900 text-white rounded-lg overflow-hidden shadow-lg">
       {/* Mobile Header */}
       <div className="lg:hidden flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-950">
-        <h2 className="text-xl font-bold">Account</h2>
+        <h2 className="text-[18px] font-bold">Account</h2>
         <button
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           className="p-2 rounded-md hover:bg-zinc-800 transition-colors"
@@ -168,7 +168,7 @@ export default function CustomUserProfile() {
         <div className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-50">
           <div className="absolute top-0 left-0 w-64 h-full bg-zinc-950 border-r border-zinc-800">
             <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-              <h2 className="text-xl font-bold">Account</h2>
+              <h2 className="text-[18px] font-bold">Account</h2>
               <button
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="p-2 rounded-md hover:bg-zinc-800 transition-colors"
@@ -258,7 +258,7 @@ export default function CustomUserProfile() {
       <div className="flex-1 bg-zinc-900 p-4 lg:p-10 overflow-y-auto">
         {tab === "profile" && (
           <>
-            <h3 className="text-xl font-bold mb-8">Profile details</h3>
+            <h3 className="text-[18px] font-bold mb-8">Profile details</h3>
             {/* Profile image */}
             <div className="flex flex-col sm:flex-row items-center gap-8 mb-8">
               <div className="flex flex-col items-center gap-2">
@@ -266,7 +266,7 @@ export default function CustomUserProfile() {
                   <AvatarImage src={profileImage} alt="Profile" />
                   <AvatarFallback>{user.username?.[0] || "U"}</AvatarFallback>
                 </Avatar>
-                <label className="text-xs text-zinc-400 cursor-pointer">
+                <label className="text-[11px] text-zinc-400 cursor-pointer">
                   Update profile
                   <Input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
                 </label>
@@ -297,7 +297,7 @@ export default function CustomUserProfile() {
                   <span key={e.id} className="text-zinc-300">
                     {e.emailAddress}
                     {e.id === user.primaryEmailAddressId && (
-                      <span className="ml-2 px-2 py-0.5 text-xs rounded bg-zinc-700 text-zinc-200">Primary</span>
+                      <span className="ml-2 px-2 py-0.5 text-[11px] rounded bg-zinc-700 text-zinc-200">Primary</span>
                     )}
                   </span>
                 ))}
@@ -321,7 +321,7 @@ export default function CustomUserProfile() {
                 <Button size="sm" variant="outline" className="bg-zinc-800 border-zinc-700 text-white opacity-60 cursor-not-allowed" disabled>
                   + Connect account
                 </Button>
-                <span className="text-zinc-400 text-xs">(Coming soon)</span>
+                <span className="text-zinc-400 text-[11px]">(Coming soon)</span>
               </div>
             </div>
             {/* Success/Error messages */}
@@ -331,7 +331,7 @@ export default function CustomUserProfile() {
         )}
         {tab === "security" && (
           <>
-            <h3 className="text-xl font-bold mb-8">Security</h3>
+            <h3 className="text-[18px] font-bold mb-8">Security</h3>
             {/* Update Password */}
             <form onSubmit={handleUpdatePassword} className="mb-8 max-w-md">
               <div className="font-semibold mb-2">Update password</div>
@@ -375,7 +375,7 @@ export default function CustomUserProfile() {
             {/* Delete Account */}
             <form onSubmit={handleDeleteAccount} className="max-w-md">
               <div className="font-semibold mb-2 text-red-400">Delete account</div>
-              <div className="text-zinc-400 text-xs mb-2">This action is irreversible. Type <span className="font-bold text-red-400">DELETE</span> to confirm.</div>
+              <div className="text-zinc-400 text-[11px] mb-2">This action is irreversible. Type <span className="font-bold text-red-400">DELETE</span> to confirm.</div>
               <Input
                 value={deleteConfirm}
                 onChange={e => setDeleteConfirm(e.target.value)}

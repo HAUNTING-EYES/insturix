@@ -73,15 +73,15 @@ export function CustomColorGrading({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg bg-zinc-900 border-zinc-700 p-6">
+      <DialogContent className="max-w-lg bg-[#131312] border-[#282724] p-6">
         <DialogHeader className="pb-4">
-          <DialogTitle className="text-zinc-100 flex items-center justify-between">
+          <DialogTitle className="text-[#ECE9E1] flex items-center justify-between">
             Custom Color Grading
             <Button
               variant="ghost"
               size="sm"
               onClick={resetControls}
-              className="text-zinc-400 hover:text-zinc-200"
+              className="text-[#7A776E] hover:text-[#ECE9E1]"
             >
               <RotateCcw className="h-4 w-4" />
             </Button>
@@ -92,8 +92,8 @@ export function CustomColorGrading({
           {controlsConfig.map(({ key, label, min, max }) => (
             <div key={key} className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-zinc-300">{label}</label>
-                <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded min-w-[32px] text-center">
+                <label className="text-[11px] font-medium text-[#B5B2A8]">{label}</label>
+                <span className="text-[11px] text-[#7A776E] bg-[#1B1A18] px-2 py-0.5 rounded min-w-[32px] text-center">
                   {controls[key] > 0 ? '+' : ''}{controls[key]}
                 </span>
               </div>
@@ -109,17 +109,17 @@ export function CustomColorGrading({
           ))}
         </div>
 
-        <div className="flex gap-3 pt-4 border-t border-zinc-800 mt-2">
+        <div className="flex gap-3 pt-4 border-t border-[#1C1B19] mt-2">
           <Button
             variant="outline"
             onClick={onClose}
-            className="flex-1 border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            className="flex-1 border-[#282724] text-[#B5B2A8] hover:bg-[#1B1A18]"
           >
             Cancel
           </Button>
           <Button
             onClick={handleApply}
-            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+            className="flex-1 bg-[#D4A652] hover:bg-[#C49A48] text-[#0B0B0A]"
           >
             Apply
           </Button>

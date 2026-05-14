@@ -75,5 +75,7 @@ scripts/debug-proj-storyboard.mjs
 graphify-out/
 
 
-thinkforge-ui.htmlyarn.lock
+thinkforge-ui.html
+DESIGN_BIBLE.md
+yarn.lock
 package-lock.json

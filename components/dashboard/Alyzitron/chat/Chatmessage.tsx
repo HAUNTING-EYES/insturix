@@ -87,7 +87,7 @@ export default function ChatMessage({ message, isLast }: ChatMessageProps) {
               </Tooltip.Trigger> */}
               <Tooltip.Portal>
                 <Tooltip.Content
-                  className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-xs px-2 py-1 rounded-lg shadow-xl"
+                  className="bg-[#0F0F0E] border border-[#282724] text-[#B5B2A8] text-[11px] px-2 py-1 rounded-lg shadow-xl"
                   sideOffset={4}
                 >
                   {copied ? "Copied!" : "Copy"}
@@ -138,7 +138,7 @@ function FormattedContent({ content, isUser }: { content: string; isUser: boolea
           if (match) {
             return (
               <div key={i} className="flex gap-2">
-                <span className="text-[#D4A652]/60 font-mono text-xs mt-0.5 flex-shrink-0 w-4">
+                <span className="text-[#D4A652]/60 font-mono text-[11px] mt-0.5 flex-shrink-0 w-4">
                   {match[1]}.
                 </span>
                 <span className="break-words">{renderInline(match[2])}</span>
@@ -173,7 +173,7 @@ function renderInline(text: string): React.ReactNode[] {
       return (
         <code
           key={i}
-          className="px-1 py-0.5 rounded bg-[#131312] border border-[#282724] font-mono text-[12px] text-[#D4A652]"
+          className="px-1 py-0.5 rounded bg-[#131312] border border-[#282724] font-mono text-[11px] text-[#D4A652]"
         >
           {part.slice(1, -1)}
         </code>

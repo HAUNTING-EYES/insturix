@@ -35,9 +35,13 @@ export async function POST(req: Request) {
     const gcsPath = destination;
     const publicUrl = buildUploaderXPublicUrl(gcsPath);
 
+    // Optional: link to an Editron project + update its pipeline stage
+    const editronProjectId = data.get("editronProjectId") as string | null;
+
     await connectToDatabase();
     const video = await UploaderX.create({
       userId: session.userId,
+      editronProjectId: editronProjectId || null,
       videoUuid: randomUUID(),
       filename: file.name,
       gcsPath,
@@ -47,6 +51,20 @@ export async function POST(req: Request) {
       status: "uploaded",
       uploadedAt: new Date(),
     });
+
+    // If linked to a project, update its pipeline stage to "publish"
+    if (editronProjectId) {
+      try {
+        const { projectService } = await import("@/lib/editron/services/project-service");
+        await projectService.updateProjectMetadata(editronProjectId, {
+          pipelineStage: "publish",
+        });
+        // Refresh derived project status after stage change
+        await projectService.refreshProjectStatus(editronProjectId);
+      } catch (e) {
+        console.warn("[uploaderx] Failed to update project stage:", e);
+      }
+    }
 
     return NextResponse.json({
       success: true,

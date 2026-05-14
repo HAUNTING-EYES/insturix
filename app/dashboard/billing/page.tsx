@@ -143,7 +143,7 @@ export default function BillingPage() {
         </div>
         <Link 
           href="/upgrade"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition text-xs font-bold uppercase tracking-wider"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition text-[11px] font-bold uppercase tracking-wider"
         >
           {currentPlan ? 'Upgrade Plan' : 'Get Started'}
           <ArrowUpRight className="w-3 h-3" />
@@ -160,7 +160,7 @@ export default function BillingPage() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Current Plan</p>
-              <p className="text-3xl font-black text-white mt-1">
+              <p className="text-[32px] font-black text-white mt-1">
                 {currentPlan?.name && currentPlan.name.toLowerCase() !== 'free' ? currentPlan.name : 'Insturix Free'}
               </p>
               {(currentPlan?.status === 'active' || !currentPlan) && (
@@ -178,20 +178,20 @@ export default function BillingPage() {
           {currentPlan ? (
             <div className="mt-6 grid grid-cols-2 gap-4">
               <div className="p-4 rounded-lg bg-muted/50">
-                <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium flex items-center gap-1">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium flex items-center gap-1">
                   <Calendar className="w-3 h-3" /> Started
                 </p>
                 <p className="text-sm font-medium mt-1">{formatPlanDate(currentPlan.startDate)}</p>
               </div>
               <div className="p-4 rounded-lg bg-muted/50">
-                <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium flex items-center gap-1">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium flex items-center gap-1">
                   <Clock className="w-3 h-3" /> {currentPlan.endDate ? 'Renews' : 'Status'}
                 </p>
                 <p className="text-sm font-medium mt-1">
                   {currentPlan.endDate ? formatPlanDate(currentPlan.endDate) : 'Never Expires'}
                 </p>
                 {planExpiryText && (
-                  <p className="text-xs text-muted-foreground">{planExpiryText}</p>
+                  <p className="text-[11px] text-muted-foreground">{planExpiryText}</p>
                 )}
               </div>
             </div>
@@ -237,7 +237,7 @@ export default function BillingPage() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Available Balance</p>
-              <p className="text-5xl font-black text-white tabular-nums mt-1">
+              <p className="text-[44px] font-black text-white tabular-nums mt-1">
                 {balance.totalCredits.toLocaleString()}
               </p>
             </div>
@@ -249,16 +249,16 @@ export default function BillingPage() {
           {/* Credit Breakdown */}
           <div className="mt-6 grid grid-cols-2 gap-4">
             <div className="p-4 rounded-lg bg-muted/50">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Subscription</p>
-              <p className="text-xl font-semibold tabular-nums mt-1">{balance.subscriptionCredits}</p>
+              <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">Subscription</p>
+              <p className="text-[18px] font-semibold tabular-nums mt-1">{balance.subscriptionCredits}</p>
               {expiryText && (
-                <p className="text-xs text-muted-foreground mt-1">{expiryText}</p>
+                <p className="text-[11px] text-muted-foreground mt-1">{expiryText}</p>
               )}
             </div>
             <div className="p-4 rounded-lg bg-muted/50">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Top-up</p>
-              <p className="text-xl font-semibold tabular-nums mt-1">{balance.topupCredits}</p>
-              <p className="text-xs text-muted-foreground mt-1">Never expires</p>
+              <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">Top-up</p>
+              <p className="text-[18px] font-semibold tabular-nums mt-1">{balance.topupCredits}</p>
+              <p className="text-[11px] text-muted-foreground mt-1">Never expires</p>
             </div>
           </div>
 
@@ -291,7 +291,7 @@ export default function BillingPage() {
               <Clock className="w-5 h-5 opacity-50" />
             </div>
             <p className="text-sm font-medium">No transactions yet</p>
-            <p className="text-xs mt-1">Activity from your purchases and usage will appear here</p>
+            <p className="text-[11px] mt-1">Activity from your purchases and usage will appear here</p>
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -316,7 +316,7 @@ export default function BillingPage() {
                         <span className="text-muted-foreground font-normal"> · {txn.service}</span>
                       )}
                     </p>
-                    <p className="text-xs text-muted-foreground">{formatDate(txn.timestamp)}</p>
+                    <p className="text-[11px] text-muted-foreground">{formatDate(txn.timestamp)}</p>
                   </div>
                   <div className="text-right">
                     <p className={cn(
@@ -325,7 +325,7 @@ export default function BillingPage() {
                     )}>
                       {isPositive ? '+' : ''}{txn.amount}
                     </p>
-                    <p className="text-xs text-muted-foreground tabular-nums">
+                    <p className="text-[11px] text-muted-foreground tabular-nums">
                       Balance: {txn.balanceAfter}
                     </p>
                   </div>

@@ -70,30 +70,32 @@ export function SocializeShareBar({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className={cn(
-        "bg-gradient-to-r from-blue-950/80 to-blue-900/80 p-5 rounded-xl backdrop-blur-lg border border-blue-500/30 shadow-lg",
+        "p-5 rounded-[12px] border-none shadow-none",
         "transition-all duration-300 ease-in-out",
         expanded ? "mb-4" : "mb-8",
         className
       )}
+      style={{ backgroundColor: '#0F0F0E' }}
     >
       <div className="flex flex-col space-y-4">
         {/* Main bar with link and copy button */}
         <div className="flex items-center justify-between gap-4 flex-wrap md:flex-nowrap">
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="bg-orange-500 p-1.5 rounded-full">
-              <Share2 className="w-4 h-4 text-white" />
+            <div className="p-1.5 rounded-full" style={{ backgroundColor: '#D4A652' }}>
+              <Share2 className="w-4 h-4" style={{ color: '#0B0B0A' }} />
             </div>
-            <span className="text-white font-medium">Your link is live:</span>
+            <span className="font-medium" style={{ color: '#EAE9E5' }}>Your link is live:</span>
             <div className="relative flex-1 min-w-0 group">
               <Link
                 href={shareUrl}
-                className="text-blue-300 hover:text-blue-200 font-medium truncate block"
+                className="hover:text-[#D4A652] font-medium truncate block transition-colors"
                 target="_blank"
                 rel="noopener noreferrer"
+                style={{ color: '#B5B2A8' }}
               >
                 insturix.com/socialize/{uniqueUsername}
               </Link>
-              <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-400/30 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left"></div>
+              <div className="absolute bottom-0 left-0 w-full h-0.5 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left" style={{ backgroundColor: '#D4A652' }}></div>
             </div>
           </div>
 
@@ -105,7 +107,8 @@ export function SocializeShareBar({
                     variant="outline"
                     size="sm"
                     onClick={handleCopy}
-                    className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500 hover:border-blue-400 transition-all duration-200"
+                    className="border-none transition-all duration-200 rounded-[7px] hover:opacity-90"
+                    style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}
                     aria-label={
                       copied ? "Copied to clipboard" : "Copy to clipboard"
                     }
@@ -147,7 +150,8 @@ export function SocializeShareBar({
               variant="ghost"
               size="sm"
               onClick={() => setExpanded(!expanded)}
-              className="text-white hover:bg-blue-800/50 hover:text-blue-200"
+              className="hover:bg-transparent transition-colors rounded-[7px]"
+              style={{ color: '#EAE9E5' }}
               aria-label={expanded ? "Show less options" : "Show more options"}
             >
               {expanded ? (
@@ -174,17 +178,17 @@ export function SocializeShareBar({
                 onValueChange={setActiveTab}
                 className="w-full"
               >
-                <TabsList className="bg-blue-800/50 mb-4">
+                <TabsList className="mb-4 rounded-[7px]" style={{ backgroundColor: '#1B1A18' }}>
                   <TabsTrigger
                     value="link"
-                    className="data-[state=active]:bg-blue-700"
+                    className="data-[state=active]:bg-[#D4A652] data-[state=active]:text-[#0B0B0A] rounded-[4px]"
                   >
                     Link
                   </TabsTrigger>
                   {showQRCode && (
                     <TabsTrigger
                       value="qrcode"
-                      className="data-[state=active]:bg-blue-700"
+                      className="data-[state=active]:bg-[#D4A652] data-[state=active]:text-[#0B0B0A] rounded-[4px]"
                     >
                       QR Code
                     </TabsTrigger>
@@ -196,13 +200,15 @@ export function SocializeShareBar({
                     <Input
                       value={shareUrl}
                       readOnly
-                      className="bg-blue-950/50 border-blue-700/50 text-white"
+                      className="border-transparent focus:border-[#D4A652] focus:ring-0 rounded-[7px]"
+                      style={{ backgroundColor: '#1B1A18', color: '#EAE9E5' }}
                     />
                     <Button
                       variant="outline"
                       size="icon"
                       onClick={handleCopy}
-                      className="bg-blue-800 hover:bg-blue-700 text-white border-blue-700"
+                      className="border-none hover:opacity-90 transition-opacity rounded-[7px]"
+                      style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}
                     >
                       {copied ? (
                         <Check className="h-4 w-4" />
@@ -213,7 +219,8 @@ export function SocializeShareBar({
                     <Button
                       variant="outline"
                       size="icon"
-                      className="bg-blue-800 hover:bg-blue-700 text-white border-blue-700"
+                      className="border-none hover:opacity-90 transition-opacity rounded-[7px]"
+                      style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}
                       asChild
                     >
                       <Link
@@ -229,7 +236,7 @@ export function SocializeShareBar({
                 {showQRCode && (
                   <TabsContent value="qrcode" className="mt-0">
                     <div className="flex flex-col items-center">
-                      <div className="bg-white p-3 rounded-lg mb-3">
+                      <div className="p-3 rounded-[12px] mb-3" style={{ backgroundColor: '#1B1A18' }}>
                         <Image
                           width={200}
                           height={200}
@@ -241,7 +248,8 @@ export function SocializeShareBar({
                       <Button
                         variant="outline"
                         size="sm"
-                        className="bg-blue-800 hover:bg-blue-700 text-white border-blue-700"
+                        className="border-none hover:opacity-90 transition-opacity rounded-[7px]"
+                        style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}
                         onClick={() => {
                           // In a real implementation, this would download the QR code
                           alert(

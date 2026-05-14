@@ -72,13 +72,13 @@ export function YouTubeConnectionStatus() {
                 </div>
 
                 {isConnected && googleAccount && (
-                    <p className="text-xs text-zinc-400 truncate">
+                    <p className="text-[11px] text-zinc-400 truncate">
                         Linked as: <span className="text-zinc-300">{googleAccount.username || googleAccount.emailAddress}</span>
                     </p>
                 )}
 
                 {isConnected && hasScope === false && (
-                    <div className="p-2 bg-yellow-900/20 border border-yellow-500/30 rounded text-xs text-yellow-200">
+                    <div className="p-2 bg-yellow-900/20 border border-yellow-500/30 rounded text-[11px] text-yellow-200">
                         You are connected, but missing permission to upload videos.
                     </div>
                 )}
@@ -88,7 +88,7 @@ export function YouTubeConnectionStatus() {
                         <Button
                             size="sm"
                             onClick={handleConnect}
-                            className="w-full h-8 text-xs bg-yellow-600 hover:bg-yellow-500"
+                            className="w-full h-8 text-[11px] bg-yellow-600 hover:bg-yellow-500"
                         >
                             <Settings className="h-3 w-3 mr-1" />
                             Fix Permissions
@@ -98,7 +98,7 @@ export function YouTubeConnectionStatus() {
                             size="sm"
                             variant="outline"
                             onClick={() => openUserProfile()}
-                            className="w-full h-8 text-xs border-zinc-700 hover:bg-zinc-800"
+                            className="w-full h-8 text-[11px] border-zinc-700 hover:bg-zinc-800"
                         >
                             <Settings className="h-3 w-3 mr-1" />
                             Manage Connection
@@ -108,14 +108,14 @@ export function YouTubeConnectionStatus() {
                     <Button
                         size="sm"
                         onClick={handleConnect}
-                        className="w-full h-8 text-xs bg-red-600 hover:bg-red-500"
+                        className="w-full h-8 text-[11px] bg-red-600 hover:bg-red-500"
                     >
                         <ExternalLink className="h-3 w-3 mr-1" />
                         Connect YouTube
                     </Button>
                 )}
 
-                <p className="text-xs text-zinc-500">
+                <p className="text-[11px] text-zinc-500">
                     To enable uploads, ensure your Google account has YouTube permissions in your Clerk profile.
                 </p>
             </CardContent>
