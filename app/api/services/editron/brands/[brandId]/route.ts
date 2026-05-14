@@ -8,6 +8,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getDatabase } from '@/lib/editron/db/mongodb';
+import { emitBrandEvent } from '@/lib/shared/brand-events';
+import { invalidateCache } from '@/lib/shared/brand-registry';
 
 export const runtime = 'nodejs';
 
@@ -81,6 +83,17 @@ export async function PATCH(
       console.warn(`[Brands] brand_updated Graphiti dispatch failed for ${brandId}: ${msg}`);
     }
 
+    const changedFieldNames = Object.keys(updateFields).filter(k => k !== 'updatedAt');
+    emitBrandEvent({
+      userId,
+      brandId,
+      service: 'editron',
+      type: 'brand_updated',
+      payload: { action: 'updated', fields: changedFieldNames },
+    }).catch((e) => console.warn('[Brands] brand_updated event failed:', e));
+
+    invalidateCache(userId);
+
     const updated = await db.collection(BRANDS_COLLECTION).findOne({ brandId, userId });
     return NextResponse.json({ success: true, brand: updated });
   } catch (error: unknown) {
@@ -103,6 +116,16 @@ export async function DELETE(
     if (result.deletedCount === 0) {
       return NextResponse.json({ success: false, error: 'Brand not found' }, { status: 404 });
     }
+
+    emitBrandEvent({
+      userId,
+      brandId,
+      service: 'editron',
+      type: 'brand_updated',
+      payload: { action: 'deleted' },
+    }).catch((e) => console.warn('[Brands] brand_deleted event failed:', e));
+
+    invalidateCache(userId);
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

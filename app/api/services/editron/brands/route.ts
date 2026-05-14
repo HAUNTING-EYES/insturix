@@ -13,6 +13,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
+import { emitBrandEvent } from '@/lib/shared/brand-events';
+import { invalidateCache } from '@/lib/shared/brand-registry';
 
 export const runtime = 'nodejs';
 
@@ -105,6 +107,16 @@ export async function POST(request: NextRequest) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[Brands] brand_created Graphiti dispatch failed: ${msg}`);
     }
+
+    emitBrandEvent({
+      userId,
+      brandId,
+      service: 'editron',
+      type: 'brand_updated',
+      payload: { action: 'created', name: name.trim(), industry: industry || '' },
+    }).catch((e) => console.warn('[Brands] brand_created event failed:', e));
+
+    invalidateCache(userId);
 
     return NextResponse.json({ success: true, brand });
   } catch (error: unknown) {

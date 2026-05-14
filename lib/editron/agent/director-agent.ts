@@ -1008,7 +1008,7 @@ export async function executeDirectorPlan(
       const { emitBrandEvent } = await import('@/lib/shared/brand-events');
       const { transitionProjectStatus } = await import('@/lib/shared/project-status');
 
-      await transitionProjectStatus(projectId, userId, 'reviewing', 'director_completed');
+      await transitionProjectStatus(projectId, userId, 'editing', 'director_completed');
 
       // Read actual quality score from project doc (persisted by quality_review step above)
       const { getDatabase: getBrandDb } = await import('@/lib/editron/db/mongodb');
@@ -1032,6 +1032,42 @@ export async function executeDirectorPlan(
       }).catch((e) => console.warn('[Director] Brand event failed:', e));
     } catch (brandErr: any) {
       console.warn(`[Director] Brand intelligence wiring failed: ${brandErr.message}`);
+    }
+
+    // ─── Project Graph Record: send outcome to Graphiti for learning ───
+    try {
+      const { dispatchProjectGraphRecord, buildProjectGraphRecord } = await import(
+        '@/lib/editron/services/project-graph-writer'
+      );
+      const { getDatabase: getGraphDb } = await import('@/lib/editron/db/mongodb');
+      const graphDb = await getGraphDb();
+      const graphProjectDoc = await graphDb.collection('projects').findOne({ projectId });
+
+      if (graphProjectDoc?.genreParameters) {
+        const durationSec = Math.round((project.durationInFrames || 0) / (project.fps || 30));
+        const graphRecord = buildProjectGraphRecord({
+          projectId,
+          userId,
+          brandId: graphProjectDoc.brandId,
+          profileId: effectiveProfile.profileId,
+          videoDurationSec: durationSec,
+          speechCoverage: 0, // AI-generated video — no speech coverage metric at Director time
+          genreParameters: graphProjectDoc.genreParameters,
+          momentWeights: [], // Not tracked during Director execution
+          decisions: [], // Director actions are step-based, not decision-format
+          qualityScore: graphProjectDoc.qualityReview?.overallScore ?? 0,
+          constraintViolations: [], // Available in quality review but not threaded here
+          captionMode: 'auto',
+          segmentsRemoved: 0, // Mode 1 doesn't remove segments
+          userRendered: false,
+          userPublished: false,
+        });
+        await dispatchProjectGraphRecord(graphRecord);
+        console.log(`[Director] Project graph record dispatched for ${projectId}`);
+      }
+    } catch (graphWriterErr: unknown) {
+      const msg = graphWriterErr instanceof Error ? graphWriterErr.message : String(graphWriterErr);
+      console.warn(`[Director] Project graph record dispatch failed: ${msg}`);
     }
 
     // ─── Graph sync: update Project + Scene nodes after Director ───
