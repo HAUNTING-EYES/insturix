@@ -23,6 +23,7 @@
     --green: #5EC97E;
     --cyan: #5CB8CC;
     --purple: #9088D4;
+    --red: #D45050;
     --ease: cubic-bezier(.16,1,.3,1);
   }
 
@@ -32,186 +33,18 @@
     font-family: 'Plus Jakarta Sans', sans-serif;
     min-height: 100vh;
     overflow-x: hidden;
-    display: flex;
   }
 
-  /* Sidebar */
-  .sidebar {
-    width: 320px;
-    min-height: 100vh;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    padding: 32px 24px;
-    display: flex;
-    flex-direction: column;
-    z-index: 10;
-    flex-shrink: 0;
-  }
-
-  .sidebar-header {
-    margin-bottom: 32px;
-  }
-
-  .org-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    color: var(--text-dim);
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    margin-bottom: 8px;
-  }
-
-  .org-name {
-    font-size: 24px;
-    font-weight: 800;
-    background: linear-gradient(135deg, var(--text-primary), var(--gold));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 16px;
-  }
-
-  .org-stats {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .org-stat {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 14px;
-    background: var(--raised);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-  }
-
-  .org-stat-label {
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-
-  .org-stat-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  /* Member list in sidebar */
-  .member-list-header {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    color: var(--text-dim);
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    margin-top: 32px;
-    margin-bottom: 14px;
-  }
-
-  .member-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    cursor: pointer;
-    transition: all 0.3s var(--ease);
-    margin-bottom: 4px;
-  }
-
-  .member-item:hover, .member-item.active {
-    background: var(--raised);
-  }
-
-  .member-item.active {
-    border: 1px solid var(--border-light);
-  }
-
-  .member-avatar-sm {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 13px;
-    flex-shrink: 0;
-  }
-
-  .member-avatar-sm.owner-av {
-    background: rgba(212,166,82,0.15);
-    color: var(--gold);
-    border: 1.5px solid rgba(212,166,82,0.3);
-  }
-
-  .member-avatar-sm.admin-av {
-    background: rgba(144,136,212,0.15);
-    color: var(--purple);
-    border: 1.5px solid rgba(144,136,212,0.3);
-  }
-
-  .member-avatar-sm.member-av {
-    background: rgba(92,184,204,0.15);
-    color: var(--cyan);
-    border: 1.5px solid rgba(92,184,204,0.3);
-  }
-
-  .member-info-sm {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .member-name-sm {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .member-role-sm {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  /* Settings button */
-  .settings-btn {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
-    background: var(--raised);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    color: var(--text-secondary);
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.2s var(--ease);
-    margin-top: auto;
-    width: 100%;
-    text-align: left;
-  }
-
-  .settings-btn:hover {
-    background: var(--well);
-    border-color: var(--border-light);
-  }
-
-  .settings-icon {
-    font-size: 16px;
-  }
-
-  /* Canvas area */
-  .canvas {
-    flex: 1;
+  /* ===== CONSTELLATION HERO SECTION ===== */
+  .constellation-hero {
     position: relative;
+    width: 100%;
+    height: 420px;
     overflow: hidden;
+    border-bottom: 1px solid var(--border);
   }
 
-  /* Star field */
+  /* Star field background */
   .star-field {
     position: absolute;
     inset: 0;
@@ -232,167 +65,13 @@
     50% { opacity: 0.6; }
   }
 
-  /* Member stars */
+  /* Constellation container */
   .constellation {
     position: absolute;
     inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
 
-  .star-member {
-    position: absolute;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    transition: all 0.5s var(--ease);
-    z-index: 5;
-    opacity: 0;
-    animation: starAppear 0.8s var(--ease) forwards;
-  }
-
-  .star-member:hover { transform: scale(1.08); }
-
-  .star-body {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .star-glow {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(20px);
-    z-index: -1;
-    animation: starPulse 4s ease-in-out infinite;
-  }
-
-  .star-avatar {
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 800;
-    position: relative;
-    z-index: 2;
-  }
-
-  .star-ring {
-    position: absolute;
-    border-radius: 50%;
-    border: 1.5px solid;
-    animation: ringPulse 3s ease-in-out infinite;
-    z-index: 1;
-  }
-
-  /* Owner star */
-  .star-member.owner .star-avatar {
-    width: 80px;
-    height: 80px;
-    font-size: 24px;
-    background: linear-gradient(135deg, rgba(212,166,82,0.25), rgba(212,166,82,0.08));
-    color: var(--gold);
-    border: 2px solid rgba(212,166,82,0.5);
-  }
-
-  .star-member.owner .star-glow {
-    width: 140px;
-    height: 140px;
-    background: rgba(212,166,82,0.12);
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
-
-  .star-member.owner .star-ring {
-    width: 100px;
-    height: 100px;
-    border-color: rgba(212,166,82,0.2);
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
-
-  /* Admin star */
-  .star-member.admin .star-avatar {
-    width: 64px;
-    height: 64px;
-    font-size: 20px;
-    background: linear-gradient(135deg, rgba(144,136,212,0.25), rgba(144,136,212,0.08));
-    color: var(--purple);
-    border: 2px solid rgba(144,136,212,0.4);
-  }
-
-  .star-member.admin .star-glow {
-    width: 110px;
-    height: 110px;
-    background: rgba(144,136,212,0.08);
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
-
-  .star-member.admin .star-ring {
-    width: 82px;
-    height: 82px;
-    border-color: rgba(144,136,212,0.15);
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
-
-  /* Member star */
-  .star-member.member .star-avatar {
-    width: 52px;
-    height: 52px;
-    font-size: 16px;
-    background: linear-gradient(135deg, rgba(92,184,204,0.25), rgba(92,184,204,0.08));
-    color: var(--cyan);
-    border: 2px solid rgba(92,184,204,0.35);
-  }
-
-  .star-member.member .star-glow {
-    width: 90px;
-    height: 90px;
-    background: rgba(92,184,204,0.06);
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
-
-  .star-member.member .star-ring {
-    width: 68px;
-    height: 68px;
-    border-color: rgba(92,184,204,0.12);
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
-
-  .star-label {
-    text-align: center;
-  }
-
-  .star-name {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin-bottom: 2px;
-  }
-
-  .star-role-text {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    color: var(--text-muted);
-    letter-spacing: 1px;
-    text-transform: uppercase;
-  }
-
-  /* Connection lines */
+  /* Connection SVG lines */
   .connections {
     position: absolute;
     inset: 0;
@@ -422,24 +101,214 @@
   .conn-line:nth-child(6) { animation-delay: 1.5s; }
 
   @keyframes drawLine {
-    to {
-      stroke-dashoffset: 0;
-      opacity: 0.4;
-    }
+    to { stroke-dashoffset: 0; opacity: 0.4; }
   }
 
-  /* Add member button */
+  /* Member stars */
+  .star-member {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.5s var(--ease);
+    z-index: 5;
+    opacity: 0;
+    animation: starAppear 0.8s var(--ease) forwards;
+  }
+
+  .star-member:hover { transform: scale(1.08) !important; }
+
+  .star-body {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .star-glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(20px);
+    z-index: -1;
+    animation: starPulse 4s ease-in-out infinite;
+  }
+
+  .star-avatar {
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    position: relative;
+    z-index: 2;
+    overflow: hidden;
+  }
+
+  .star-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .star-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1.5px solid;
+    animation: ringPulse 3s ease-in-out infinite;
+    z-index: 1;
+  }
+
+  /* Owner star — largest */
+  .star-member.owner .star-avatar {
+    width: 72px;
+    height: 72px;
+    font-size: 22px;
+    background: linear-gradient(135deg, rgba(212,166,82,0.25), rgba(212,166,82,0.08));
+    color: var(--gold);
+    border: 2px solid rgba(212,166,82,0.5);
+  }
+
+  .star-member.owner .star-glow {
+    width: 130px;
+    height: 130px;
+    background: rgba(212,166,82,0.12);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .star-member.owner .star-ring {
+    width: 92px;
+    height: 92px;
+    border-color: rgba(212,166,82,0.2);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  /* Admin star */
+  .star-member.admin .star-avatar {
+    width: 58px;
+    height: 58px;
+    font-size: 18px;
+    background: linear-gradient(135deg, rgba(144,136,212,0.25), rgba(144,136,212,0.08));
+    color: var(--purple);
+    border: 2px solid rgba(144,136,212,0.4);
+  }
+
+  .star-member.admin .star-glow {
+    width: 100px;
+    height: 100px;
+    background: rgba(144,136,212,0.08);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .star-member.admin .star-ring {
+    width: 76px;
+    height: 76px;
+    border-color: rgba(144,136,212,0.15);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  /* Member star — smallest */
+  .star-member.member .star-avatar {
+    width: 48px;
+    height: 48px;
+    font-size: 15px;
+    background: linear-gradient(135deg, rgba(92,184,204,0.25), rgba(92,184,204,0.08));
+    color: var(--cyan);
+    border: 2px solid rgba(92,184,204,0.35);
+  }
+
+  .star-member.member .star-glow {
+    width: 82px;
+    height: 82px;
+    background: rgba(92,184,204,0.06);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .star-member.member .star-ring {
+    width: 64px;
+    height: 64px;
+    border-color: rgba(92,184,204,0.12);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .star-label {
+    text-align: center;
+  }
+
+  .star-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 1px;
+  }
+
+  .star-role-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  @keyframes starAppear {
+    from { opacity: 0; transform: scale(0.3) translate(-50%, -50%); }
+    to { opacity: 1; transform: scale(1) translate(-50%, -50%); }
+  }
+
+  @keyframes starPulse {
+    0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+    50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.1); }
+  }
+
+  @keyframes ringPulse {
+    0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
+    50% { opacity: 0.7; transform: translate(-50%, -50%) scale(1.06); }
+  }
+
+  /* Org name overlay on constellation */
+  .constellation-title {
+    position: absolute;
+    top: 28px;
+    left: 40px;
+    z-index: 10;
+  }
+
+  .constellation-title .org-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .constellation-title .org-name {
+    font-size: 28px;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--text-primary), var(--gold));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Add member button on constellation */
   .add-star-btn {
     position: absolute;
-    bottom: 40px;
-    right: 40px;
-    width: 56px;
-    height: 56px;
+    bottom: 28px;
+    right: 28px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     background: rgba(212,166,82,0.1);
     border: 1.5px dashed rgba(212,166,82,0.3);
     color: var(--gold);
-    font-size: 24px;
+    font-size: 22px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -460,28 +329,7 @@
     50% { border-color: rgba(212,166,82,0.5); }
   }
 
-  @keyframes starAppear {
-    from {
-      opacity: 0;
-      transform: scale(0.3);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
-
-  @keyframes starPulse {
-    0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
-    50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.1); }
-  }
-
-  @keyframes ringPulse {
-    0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
-    50% { opacity: 0.7; transform: translate(-50%, -50%) scale(1.06); }
-  }
-
-  /* Detail popup */
+  /* Star detail popup */
   .star-detail {
     position: absolute;
     background: var(--raised);
@@ -503,11 +351,7 @@
     transform: translateY(0);
   }
 
-  .detail-name {
-    font-size: 16px;
-    font-weight: 700;
-    margin-bottom: 4px;
-  }
+  .detail-name { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
 
   .detail-email {
     font-family: 'JetBrains Mono', monospace;
@@ -529,9 +373,7 @@
     font-size: 12px;
   }
 
-  .detail-row-label {
-    color: var(--text-muted);
-  }
+  .detail-row-label { color: var(--text-muted); }
 
   .detail-row-value {
     font-family: 'JetBrains Mono', monospace;
@@ -563,9 +405,7 @@
     color: var(--purple);
   }
 
-  .detail-btn.role-btn:hover {
-    background: rgba(144,136,212,0.15);
-  }
+  .detail-btn.role-btn:hover { background: rgba(144,136,212,0.15); }
 
   .detail-btn.remove-btn {
     background: rgba(220,80,80,0.08);
@@ -573,59 +413,576 @@
     color: #d45050;
   }
 
-  .detail-btn.remove-btn:hover {
-    background: rgba(220,80,80,0.12);
+  .detail-btn.remove-btn:hover { background: rgba(220,80,80,0.12); }
+
+
+  /* ===== DASHBOARD CONTENT BELOW CONSTELLATION ===== */
+  .dashboard {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 40px 60px;
   }
 
-  /* Settings panel */
-  .settings-panel {
-    position: fixed;
-    top: 0;
-    right: -400px;
-    width: 380px;
-    height: 100vh;
+  /* Status cards row */
+  .status-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .status-card {
     background: var(--surface);
-    border-left: 1px solid var(--border);
-    padding: 32px 24px;
-    z-index: 50;
-    transition: right 0.5s var(--ease);
-    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(12px);
+    animation: cardAppear 0.5s var(--ease) forwards;
   }
 
-  .settings-panel.open {
-    right: 0;
+  .status-card:nth-child(1) { animation-delay: 0.1s; }
+  .status-card:nth-child(2) { animation-delay: 0.15s; }
+  .status-card:nth-child(3) { animation-delay: 0.2s; }
+  .status-card:nth-child(4) { animation-delay: 0.25s; }
+
+  .status-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
   }
 
-  .settings-overlay {
+  .status-card:nth-child(1)::before { background: var(--gold); }
+  .status-card:nth-child(2)::before { background: var(--green); }
+  .status-card:nth-child(3)::before { background: var(--cyan); }
+  .status-card:nth-child(4)::before { background: var(--purple); }
+
+  .status-card-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .status-card-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .status-card-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  @keyframes cardAppear {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+
+  /* ===== TOOLBAR ===== */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .toolbar-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .toolbar-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    padding: 3px 10px;
+    border-radius: 6px;
+    color: var(--text-muted);
+  }
+
+  .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .search-input {
+    padding: 8px 14px 8px 36px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 13px;
+    outline: none;
+    width: 220px;
+    transition: all 0.2s var(--ease);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%235F5E5A' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7' stroke='%235F5E5A' stroke-width='2' fill='none'/%3E%3Cline x1='16.5' y1='16.5' x2='21' y2='21' stroke='%235F5E5A' stroke-width='2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 12px center;
+  }
+
+  .search-input:focus {
+    border-color: var(--border-light);
+    width: 280px;
+  }
+
+  .search-input::placeholder { color: var(--text-dim); }
+
+  .invite-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 18px;
+    background: rgba(212,166,82,0.1);
+    border: 1px solid rgba(212,166,82,0.25);
+    border-radius: 8px;
+    color: var(--gold);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .invite-btn:hover {
+    background: rgba(212,166,82,0.15);
+    border-color: rgba(212,166,82,0.4);
+    transform: translateY(-1px);
+  }
+
+  .settings-btn-sm {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .settings-btn-sm:hover {
+    background: var(--raised);
+    border-color: var(--border-light);
+  }
+
+
+  /* ===== MEMBER TABLE ===== */
+  .crew-table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .crew-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .crew-table thead th {
+    padding: 14px 20px;
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    background: var(--raised);
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s var(--ease);
+  }
+
+  .crew-table thead th:hover {
+    color: var(--text-muted);
+  }
+
+  .crew-table thead th.sorted {
+    color: var(--gold);
+  }
+
+  .sort-arrow {
+    font-size: 10px;
+    margin-left: 4px;
+    opacity: 0.5;
+  }
+
+  .crew-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: all 0.2s var(--ease);
+    opacity: 0;
+    animation: rowSlide 0.5s var(--ease) forwards;
+  }
+
+  .crew-table tbody tr:nth-child(1) { animation-delay: 0.2s; }
+  .crew-table tbody tr:nth-child(2) { animation-delay: 0.3s; }
+  .crew-table tbody tr:nth-child(3) { animation-delay: 0.4s; }
+  .crew-table tbody tr:nth-child(4) { animation-delay: 0.5s; }
+
+  .crew-table tbody tr:last-child { border-bottom: none; }
+
+  .crew-table tbody tr:hover { background: var(--raised); }
+
+  .crew-table tbody td {
+    padding: 14px 20px;
+    font-size: 14px;
+    vertical-align: middle;
+  }
+
+  @keyframes rowSlide {
+    from { opacity: 0; transform: translateX(-16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* Member cell in table */
+  .member-cell {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .member-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .member-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .member-avatar.av-owner {
+    background: linear-gradient(135deg, rgba(212,166,82,0.2), rgba(212,166,82,0.05));
+    color: var(--gold);
+    border: 1.5px solid rgba(212,166,82,0.3);
+  }
+
+  .member-avatar.av-admin {
+    background: linear-gradient(135deg, rgba(144,136,212,0.2), rgba(144,136,212,0.05));
+    color: var(--purple);
+    border: 1.5px solid rgba(144,136,212,0.3);
+  }
+
+  .member-avatar.av-member {
+    background: linear-gradient(135deg, rgba(92,184,204,0.2), rgba(92,184,204,0.05));
+    color: var(--cyan);
+    border: 1.5px solid rgba(92,184,204,0.3);
+  }
+
+  .member-text .name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+
+  .member-text .email {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* Role badge */
+  .role-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    position: relative;
+    overflow: hidden;
+    cursor: default;
+  }
+
+  .role-badge::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.6s var(--ease);
+  }
+
+  tr:hover .role-badge::before {
+    transform: translateX(100%);
+  }
+
+  .role-badge.badge-owner {
+    background: rgba(212,166,82,0.1);
+    color: var(--gold);
+    border: 1px solid rgba(212,166,82,0.2);
+  }
+
+  .role-badge.badge-admin {
+    background: rgba(144,136,212,0.1);
+    color: var(--purple);
+    border: 1px solid rgba(144,136,212,0.2);
+  }
+
+  .role-badge.badge-member {
+    background: rgba(92,184,204,0.1);
+    color: var(--cyan);
+    border: 1px solid rgba(92,184,204,0.2);
+  }
+
+  .badge-icon { font-size: 12px; }
+
+  /* Date text */
+  .date-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* Row actions — visible on hover */
+  .row-actions {
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.2s var(--ease);
+  }
+
+  tr:hover .row-actions { opacity: 1; }
+
+  .row-action-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s var(--ease);
+  }
+
+  .row-action-btn:hover {
+    background: var(--raised);
+    color: var(--text-primary);
+    border-color: var(--border-light);
+  }
+
+  .row-action-btn.danger:hover {
+    background: rgba(212,80,80,0.08);
+    color: var(--red);
+    border-color: rgba(212,80,80,0.2);
+  }
+
+
+  /* ===== INVITE MODAL ===== */
+  .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.4);
-    z-index: 40;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.3s var(--ease);
   }
 
-  .settings-overlay.open {
+  .modal-overlay.active {
     opacity: 1;
     pointer-events: all;
   }
 
-  .settings-title {
-    font-size: 18px;
-    font-weight: 700;
-    margin-bottom: 8px;
+  .modal {
+    background: var(--raised);
+    border: 1px solid var(--border-light);
+    border-radius: 16px;
+    padding: 32px;
+    width: 440px;
+    transform: scale(0.95) translateY(10px);
+    transition: transform 0.4s var(--ease);
   }
 
-  .settings-sub {
+  .modal-overlay.active .modal {
+    transform: scale(1) translateY(0);
+  }
+
+  .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+
+  .modal p { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
+
+  .form-group { margin-bottom: 16px; }
+
+  .form-label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .modal-input {
+    width: 100%;
+    padding: 11px 14px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s var(--ease);
+  }
+
+  .modal-input:focus { border-color: var(--gold); }
+  .modal-input::placeholder { color: var(--text-dim); }
+
+  .modal-select {
+    width: 100%;
+    padding: 11px 14px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+  }
+
+  .btn-cancel {
+    padding: 10px 20px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
     font-size: 13px;
-    color: var(--text-muted);
-    margin-bottom: 28px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
   }
 
-  .setting-group {
-    margin-bottom: 24px;
+  .btn-cancel:hover { background: var(--raised); }
+
+  .btn-send {
+    padding: 10px 20px;
+    background: var(--gold);
+    border: none;
+    border-radius: 8px;
+    color: var(--bg);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
   }
+
+  .btn-send:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+
+  /* ===== SETTINGS PANEL ===== */
+  .settings-panel-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s var(--ease);
+  }
+
+  .settings-panel-overlay.open {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  .settings-panel {
+    position: fixed;
+    top: 0;
+    right: -420px;
+    width: 400px;
+    height: 100vh;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 32px 28px;
+    z-index: 110;
+    transition: right 0.5s var(--ease);
+    overflow-y: auto;
+  }
+
+  .settings-panel.open { right: 0; }
+
+  .settings-close {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .settings-close:hover { color: var(--text-primary); }
+
+  .settings-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+
+  .settings-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 28px; }
+
+  .setting-group { margin-bottom: 24px; }
 
   .setting-group-label {
     font-family: 'JetBrains Mono', monospace;
@@ -644,13 +1001,19 @@
     border-bottom: 1px solid var(--border);
   }
 
-  .setting-row:last-child {
-    border-bottom: none;
+  .setting-row:last-child { border-bottom: none; }
+
+  .setting-label { font-size: 13px; color: var(--text-secondary); }
+
+  .setting-hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
   }
 
-  .setting-label {
-    font-size: 13px;
-    color: var(--text-secondary);
+  .setting-label-wrap {
+    display: flex;
+    flex-direction: column;
   }
 
   .switch {
@@ -658,13 +1021,10 @@
     width: 44px;
     height: 24px;
     cursor: pointer;
+    flex-shrink: 0;
   }
 
-  .switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
+  .switch input { opacity: 0; width: 0; height: 0; }
 
   .switch-track {
     position: absolute;
@@ -698,273 +1058,104 @@
     box-shadow: 0 0 8px rgba(94,201,126,0.3);
   }
 
-  .settings-close {
-    position: absolute;
-    top: 24px;
-    right: 24px;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  /* Default role selector in settings */
+  .role-select {
+    padding: 6px 12px;
     background: var(--well);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text-muted);
-    font-size: 16px;
-    cursor: pointer;
-    transition: all 0.2s var(--ease);
-  }
-
-  .settings-close:hover {
-    color: var(--text-primary);
-    border-color: var(--border-light);
-  }
-
-  /* Invite modal */
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.6);
-    backdrop-filter: blur(8px);
-    z-index: 200;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s var(--ease);
-  }
-
-  .modal-overlay.active {
-    opacity: 1;
-    pointer-events: all;
-  }
-
-  .modal {
-    background: var(--raised);
-    border: 1px solid var(--border-light);
-    border-radius: 16px;
-    padding: 32px;
-    width: 420px;
-    transform: scale(0.95) translateY(10px);
-    transition: transform 0.4s var(--ease);
-  }
-
-  .modal-overlay.active .modal {
-    transform: scale(1) translateY(0);
-  }
-
-  .modal h3 {
-    font-size: 18px;
-    font-weight: 700;
-    margin-bottom: 8px;
-  }
-
-  .modal p {
-    font-size: 13px;
-    color: var(--text-muted);
-    margin-bottom: 24px;
-  }
-
-  .modal-input {
-    width: 100%;
-    padding: 12px 16px;
-    background: var(--well);
-    border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 6px;
     color: var(--text-primary);
     font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 14px;
-    outline: none;
-    transition: border-color 0.2s var(--ease);
-    margin-bottom: 12px;
-  }
-
-  .modal-input:focus {
-    border-color: var(--gold);
-  }
-
-  .modal-input::placeholder {
-    color: var(--text-dim);
-  }
-
-  .modal-select {
-    width: 100%;
-    padding: 12px 16px;
-    background: var(--well);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    color: var(--text-primary);
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 14px;
+    font-size: 12px;
     outline: none;
     appearance: none;
     cursor: pointer;
-    margin-bottom: 24px;
+    min-width: 100px;
+    text-align: center;
   }
 
-  .modal-actions {
+  /* Role change dropdown (inline in table) */
+  .role-dropdown {
+    position: absolute;
+    background: var(--raised);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    padding: 6px;
+    z-index: 50;
+    min-width: 140px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: all 0.2s var(--ease);
+  }
+
+  .role-dropdown.visible {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateY(0);
+  }
+
+  .role-dropdown-item {
     display: flex;
-    gap: 12px;
-    justify-content: flex-end;
-  }
-
-  .btn-cancel {
-    padding: 10px 20px;
-    background: var(--well);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s var(--ease);
-  }
-
-  .btn-send {
-    padding: 10px 20px;
-    background: var(--gold);
+    transition: all 0.15s var(--ease);
     border: none;
-    border-radius: 8px;
-    color: var(--bg);
-    font-size: 13px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s var(--ease);
+    background: none;
+    width: 100%;
+    text-align: left;
   }
 
-  .btn-send:hover {
-    filter: brightness(1.1);
+  .role-dropdown-item:hover {
+    background: var(--well);
+    color: var(--text-primary);
+  }
+
+  .role-dropdown-item.active {
+    color: var(--gold);
+    background: rgba(212,166,82,0.06);
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .status-bar { grid-template-columns: repeat(2, 1fr); }
+    .constellation-hero { height: 340px; }
+    .dashboard { padding: 24px 20px 48px; }
+  }
+
+  @media (max-width: 600px) {
+    .status-bar { grid-template-columns: 1fr; }
+    .toolbar { flex-direction: column; gap: 12px; align-items: stretch; }
+    .toolbar-right { flex-wrap: wrap; }
+    .constellation-hero { height: 280px; }
   }
 </style>
 </head>
 <body>
 
-<!-- Sidebar -->
-<aside class="sidebar">
-  <div class="sidebar-header">
-    <div class="org-label">Organization</div>
-    <div class="org-name">Insturix</div>
-    <div class="org-stats">
-      <div class="org-stat">
-        <span class="org-stat-label">Members</span>
-        <span class="org-stat-value">4</span>
-      </div>
-      <div class="org-stat">
-        <span class="org-stat-label">Active Projects</span>
-        <span class="org-stat-value">12</span>
-      </div>
-      <div class="org-stat">
-        <span class="org-stat-label">Created</span>
-        <span class="org-stat-value">Jan 2026</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="member-list-header">Constellation</div>
-
-  <div class="member-item active" data-member="nimit" onclick="focusStar('nimit')">
-    <div class="member-avatar-sm owner-av">NJ</div>
-    <div class="member-info-sm">
-      <div class="member-name-sm">Nimit Jain</div>
-      <div class="member-role-sm">Owner</div>
-    </div>
-  </div>
-  <div class="member-item" data-member="arjun" onclick="focusStar('arjun')">
-    <div class="member-avatar-sm admin-av">AR</div>
-    <div class="member-info-sm">
-      <div class="member-name-sm">Arjun Rao</div>
-      <div class="member-role-sm">Admin</div>
-    </div>
-  </div>
-  <div class="member-item" data-member="priya" onclick="focusStar('priya')">
-    <div class="member-avatar-sm admin-av">PS</div>
-    <div class="member-info-sm">
-      <div class="member-name-sm">Priya Sharma</div>
-      <div class="member-role-sm">Admin</div>
-    </div>
-  </div>
-  <div class="member-item" data-member="kiran" onclick="focusStar('kiran')">
-    <div class="member-avatar-sm member-av">KP</div>
-    <div class="member-info-sm">
-      <div class="member-name-sm">Kiran Patel</div>
-      <div class="member-role-sm">Member</div>
-    </div>
-  </div>
-
-  <button class="settings-btn" onclick="toggleSettings()">
-    <span class="settings-icon">&#9881;</span>
-    Organization Settings
-  </button>
-</aside>
-
-<!-- Canvas -->
-<main class="canvas" id="canvas">
-  <!-- Star field background -->
+<!-- ==================== CONSTELLATION HERO ==================== -->
+<section class="constellation-hero" id="constellationHero">
   <div class="star-field" id="starField"></div>
 
-  <!-- Connection lines -->
+  <div class="constellation-title">
+    <div class="org-label">Organization</div>
+    <div class="org-name">Insturix</div>
+  </div>
+
   <div class="connections">
     <svg id="connSvg"></svg>
   </div>
 
-  <!-- Member stars -->
-  <div class="constellation" id="constellation">
-    <div class="star-member owner" id="star-nimit" data-member="nimit"
-         style="animation-delay: 0.2s" onclick="showDetail('nimit', event)">
-      <div class="star-body">
-        <div class="star-glow"></div>
-        <div class="star-ring"></div>
-        <div class="star-avatar">NJ</div>
-      </div>
-      <div class="star-label">
-        <div class="star-name">Nimit Jain</div>
-        <div class="star-role-text">Owner</div>
-      </div>
-    </div>
+  <div class="constellation" id="constellation"></div>
 
-    <div class="star-member admin" id="star-arjun" data-member="arjun"
-         style="animation-delay: 0.4s" onclick="showDetail('arjun', event)">
-      <div class="star-body">
-        <div class="star-glow"></div>
-        <div class="star-ring"></div>
-        <div class="star-avatar">AR</div>
-      </div>
-      <div class="star-label">
-        <div class="star-name">Arjun Rao</div>
-        <div class="star-role-text">Admin</div>
-      </div>
-    </div>
-
-    <div class="star-member admin" id="star-priya" data-member="priya"
-         style="animation-delay: 0.6s" onclick="showDetail('priya', event)">
-      <div class="star-body">
-        <div class="star-glow"></div>
-        <div class="star-ring"></div>
-        <div class="star-avatar">PS</div>
-      </div>
-      <div class="star-label">
-        <div class="star-name">Priya Sharma</div>
-        <div class="star-role-text">Admin</div>
-      </div>
-    </div>
-
-    <div class="star-member member" id="star-kiran" data-member="kiran"
-         style="animation-delay: 0.8s" onclick="showDetail('kiran', event)">
-      <div class="star-body">
-        <div class="star-glow"></div>
-        <div class="star-ring"></div>
-        <div class="star-avatar">KP</div>
-      </div>
-      <div class="star-label">
-        <div class="star-name">Kiran Patel</div>
-        <div class="star-role-text">Member</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Detail popup -->
+  <!-- Star detail popup -->
   <div class="star-detail" id="starDetail">
     <div class="detail-name" id="detailName"></div>
     <div class="detail-email" id="detailEmail"></div>
@@ -977,46 +1168,128 @@
         <span class="detail-row-label">Joined</span>
         <span class="detail-row-value" id="detailJoined"></span>
       </div>
-      <div class="detail-row">
-        <span class="detail-row-label">Projects</span>
-        <span class="detail-row-value" id="detailProjects"></span>
-      </div>
     </div>
     <div class="detail-actions" id="detailActions"></div>
   </div>
 
-  <!-- Add star button -->
-  <button class="add-star-btn" onclick="openInviteModal()" title="Add new member">+</button>
-</main>
+  <button class="add-star-btn" onclick="openInviteModal()" title="Invite member">+</button>
+</section>
 
-<!-- Settings Panel -->
-<div class="settings-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
+
+<!-- ==================== DASHBOARD CONTENT ==================== -->
+<div class="dashboard">
+
+  <!-- Status Cards -->
+  <div class="status-bar">
+    <div class="status-card">
+      <div class="status-card-label">Active Projects</div>
+      <div class="status-card-value" id="projCount">0</div>
+      <div class="status-card-sub">3 completed this month</div>
+    </div>
+    <div class="status-card">
+      <div class="status-card-label">Active Members</div>
+      <div class="status-card-value" id="memberCount">0</div>
+      <div class="status-card-sub">of 4 total members</div>
+    </div>
+    <div class="status-card">
+      <div class="status-card-label">Videos Rendered</div>
+      <div class="status-card-value" id="renderCount">0</div>
+      <div class="status-card-sub">+18 this week</div>
+    </div>
+    <div class="status-card">
+      <div class="status-card-label">Storage Used</div>
+      <div class="status-card-value" id="storageCount">0</div>
+      <div class="status-card-sub">of 100 GB limit</div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <span class="toolbar-title">Members</span>
+      <span class="toolbar-count" id="toolbarCount">4 members</span>
+    </div>
+    <div class="toolbar-right">
+      <input class="search-input" type="text" placeholder="Search members..." id="searchInput" oninput="filterMembers(this.value)">
+      <button class="invite-btn" onclick="openInviteModal()">
+        <span style="font-size:16px;">+</span>
+        Invite Member
+      </button>
+      <button class="settings-btn-sm" onclick="toggleSettings()">
+        &#9881; Settings
+      </button>
+    </div>
+  </div>
+
+  <!-- Member Table -->
+  <div class="crew-table-wrap">
+    <table class="crew-table">
+      <thead>
+        <tr>
+          <th onclick="sortTable('name')" id="th-name">Member <span class="sort-arrow">&#8597;</span></th>
+          <th onclick="sortTable('role')" id="th-role">Role <span class="sort-arrow">&#8597;</span></th>
+          <th onclick="sortTable('joined')" id="th-joined" class="sorted">Joined <span class="sort-arrow">&#8593;</span></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="memberTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- ==================== INVITE MODAL ==================== -->
+<div class="modal-overlay" id="inviteModal">
+  <div class="modal">
+    <h3>Invite Member</h3>
+    <p>Send an invitation to join your organization.</p>
+    <div class="form-group">
+      <label class="form-label">Email Address</label>
+      <input class="modal-input" type="email" placeholder="colleague@example.com" id="inviteEmail">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Role</label>
+      <select class="modal-select" id="inviteRole">
+        <option value="member">Member</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeInviteModal()">Cancel</button>
+      <button class="btn-send" onclick="sendInvite()">Send Invitation</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ==================== SETTINGS PANEL ==================== -->
+<div class="settings-panel-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
 <div class="settings-panel" id="settingsPanel">
   <button class="settings-close" onclick="toggleSettings()">&times;</button>
   <div class="settings-title">Organization Settings</div>
-  <div class="settings-sub">Configure Insturix workspace</div>
+  <div class="settings-sub">Configure your workspace</div>
 
   <div class="setting-group">
     <div class="setting-group-label">Permissions</div>
     <div class="setting-row">
-      <span class="setting-label">Members can invite</span>
-      <label class="switch"><input type="checkbox"><span class="switch-track"></span></label>
+      <div class="setting-label-wrap">
+        <span class="setting-label">Allow member projects</span>
+        <span class="setting-hint">Members can create projects in this org</span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" checked id="settingAllowMemberProjects" onchange="onSettingChange()">
+        <span class="switch-track"></span>
+      </label>
     </div>
     <div class="setting-row">
-      <span class="setting-label">Members create projects</span>
-      <label class="switch"><input type="checkbox" checked><span class="switch-track"></span></label>
-    </div>
-  </div>
-
-  <div class="setting-group">
-    <div class="setting-group-label">Security</div>
-    <div class="setting-row">
-      <span class="setting-label">Require 2FA</span>
-      <label class="switch"><input type="checkbox" checked><span class="switch-track"></span></label>
-    </div>
-    <div class="setting-row">
-      <span class="setting-label">Session timeout (30m)</span>
-      <label class="switch"><input type="checkbox"><span class="switch-track"></span></label>
+      <div class="setting-label-wrap">
+        <span class="setting-label">Default role for new members</span>
+        <span class="setting-hint">Applied when invitations are accepted</span>
+      </div>
+      <select class="role-select" id="settingDefaultRole" onchange="onSettingChange()">
+        <option value="member" selected>Member</option>
+        <option value="admin">Admin</option>
+      </select>
     </div>
   </div>
 
@@ -1027,162 +1300,451 @@
       <label class="switch"><input type="checkbox" checked><span class="switch-track"></span></label>
     </div>
     <div class="setting-row">
-      <span class="setting-label">Member activity digest</span>
+      <span class="setting-label">Weekly activity digest</span>
       <label class="switch"><input type="checkbox"><span class="switch-track"></span></label>
     </div>
   </div>
 </div>
 
-<!-- Invite Modal -->
-<div class="modal-overlay" id="inviteModal">
-  <div class="modal">
-    <h3>New Star</h3>
-    <p>Invite someone to join the Insturix constellation.</p>
-    <input class="modal-input" type="email" placeholder="email@example.com" id="inviteEmail">
-    <select class="modal-select" id="inviteRole">
-      <option value="member">Member</option>
-      <option value="admin">Admin</option>
-    </select>
-    <div class="modal-actions">
-      <button class="btn-cancel" onclick="closeInviteModal()">Cancel</button>
-      <button class="btn-send" onclick="sendInvite()">Send Invitation</button>
-    </div>
-  </div>
+
+<!-- ==================== ROLE CHANGE DROPDOWN ==================== -->
+<div class="role-dropdown" id="roleDropdown">
+  <button class="role-dropdown-item" data-role="admin" onclick="applyRoleChange('admin')">
+    <span style="color:var(--purple);">&#9670;</span> Admin
+  </button>
+  <button class="role-dropdown-item" data-role="member" onclick="applyRoleChange('member')">
+    <span style="color:var(--cyan);">&#9679;</span> Member
+  </button>
 </div>
 
+
 <script>
-  const members = {
-    nimit:  { name: 'Nimit Jain',   email: 'nimit@insturix.com',  role: 'Owner',  joined: 'Jan 2026', projects: 12 },
-    arjun:  { name: 'Arjun Rao',    email: 'arjun@insturix.com',  role: 'Admin',  joined: 'Feb 2026', projects: 8 },
-    priya:  { name: 'Priya Sharma',  email: 'priya@insturix.com',  role: 'Admin',  joined: 'Feb 2026', projects: 6 },
-    kiran:  { name: 'Kiran Patel',   email: 'kiran@insturix.com',  role: 'Member', joined: 'Mar 2026', projects: 3 },
+  // ===================================================================
+  // DATA — matches backend schemas: Organization + OrgMember
+  // Fields: clerkUserId, email, username?, imageUrl?, role, joinedAt
+  // Roles: 'owner' | 'admin' | 'member'
+  // ===================================================================
+  const members = [
+    {
+      clerkUserId: 'user_nimit',
+      email: 'nimit@insturix.com',
+      username: 'Nimit Jain',
+      imageUrl: null,
+      role: 'owner',
+      joinedAt: '2026-01-15',
+    },
+    {
+      clerkUserId: 'user_arjun',
+      email: 'arjun@insturix.com',
+      username: 'Arjun Rao',
+      imageUrl: null,
+      role: 'admin',
+      joinedAt: '2026-02-03',
+    },
+    {
+      clerkUserId: 'user_priya',
+      email: 'priya@insturix.com',
+      username: 'Priya Sharma',
+      imageUrl: null,
+      role: 'admin',
+      joinedAt: '2026-02-10',
+    },
+    {
+      clerkUserId: 'user_kiran',
+      email: 'kiran@insturix.com',
+      username: 'Kiran Patel',
+      imageUrl: null,
+      role: 'member',
+      joinedAt: '2026-03-22',
+    },
+  ];
+
+  // Current user role — determines what actions are visible
+  const currentUserRole = 'owner';
+
+  // Org settings (from Organization.settings)
+  const orgSettings = {
+    allowMemberProjects: true,
+    defaultRole: 'member',
   };
 
-  // Generate star field
-  const starField = document.getElementById('starField');
-  for (let i = 0; i < 120; i++) {
-    const star = document.createElement('div');
-    star.className = 'bg-star';
-    star.style.left = Math.random() * 100 + '%';
-    star.style.top = Math.random() * 100 + '%';
-    star.style.setProperty('--dur', (3 + Math.random() * 5) + 's');
-    star.style.setProperty('--delay', Math.random() * 5 + 's');
-    star.style.width = (1 + Math.random() * 1.5) + 'px';
-    star.style.height = star.style.width;
-    starField.appendChild(star);
+  // Sort state
+  let sortField = 'joined';
+  let sortAsc = true;
+
+  // ===================================================================
+  // HELPERS
+  // ===================================================================
+  function getInitials(m) {
+    if (m.username) {
+      const parts = m.username.split(' ');
+      return parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : m.username[0];
+    }
+    return m.email[0].toUpperCase();
   }
 
-  // Position stars
-  function positionStars() {
-    const canvas = document.getElementById('canvas');
-    const w = canvas.offsetWidth;
-    const h = canvas.offsetHeight;
+  function displayName(m) {
+    return m.username || m.email.split('@')[0];
+  }
+
+  function formatDate(iso) {
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function roleColor(role) {
+    if (role === 'owner') return 'gold';
+    if (role === 'admin') return 'purple';
+    return 'cyan';
+  }
+
+  function roleIcon(role) {
+    if (role === 'owner') return '&#9733;';
+    if (role === 'admin') return '&#9670;';
+    return '&#9679;';
+  }
+
+  function canManage() {
+    return currentUserRole === 'owner' || currentUserRole === 'admin';
+  }
+
+
+  // ===================================================================
+  // 1. STAR FIELD BACKGROUND
+  // ===================================================================
+  function generateStarField() {
+    const field = document.getElementById('starField');
+    for (let i = 0; i < 100; i++) {
+      const star = document.createElement('div');
+      star.className = 'bg-star';
+      star.style.left = Math.random() * 100 + '%';
+      star.style.top = Math.random() * 100 + '%';
+      star.style.setProperty('--dur', (3 + Math.random() * 5) + 's');
+      star.style.setProperty('--delay', Math.random() * 5 + 's');
+      const size = (1 + Math.random() * 1.5) + 'px';
+      star.style.width = size;
+      star.style.height = size;
+      field.appendChild(star);
+    }
+  }
+
+
+  // ===================================================================
+  // 2. CONSTELLATION — position stars + draw connections
+  // ===================================================================
+  function renderConstellation() {
+    const container = document.getElementById('constellation');
+    const hero = document.getElementById('constellationHero');
+    const w = hero.offsetWidth;
+    const h = hero.offsetHeight;
     const cx = w / 2;
     const cy = h / 2;
 
-    const positions = {
-      nimit: { x: cx, y: cy - 60 },
-      arjun: { x: cx - 200, y: cy + 80 },
-      priya: { x: cx + 200, y: cy + 60 },
-      kiran: { x: cx + 40, y: cy + 180 },
-    };
+    container.innerHTML = '';
 
-    Object.entries(positions).forEach(([id, pos]) => {
-      const el = document.getElementById('star-' + id);
-      if (el) {
-        el.style.left = pos.x + 'px';
-        el.style.top = pos.y + 'px';
-        el.style.transform = 'translate(-50%, -50%)';
-      }
+    // Layout stars in a circle around center, owner at top
+    const roleOrder = { owner: 0, admin: 1, member: 2 };
+    const sorted = [...members].sort((a, b) => roleOrder[a.role] - roleOrder[b.role]);
+    const n = sorted.length;
+    const radius = Math.min(w * 0.28, h * 0.3, 200);
+    const positions = {};
+
+    sorted.forEach((m, i) => {
+      // Distribute evenly starting from top
+      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
+      const x = cx + radius * Math.cos(angle);
+      const y = cy + radius * Math.sin(angle) + 20;
+
+      positions[m.clerkUserId] = { x, y };
+
+      const el = document.createElement('div');
+      el.className = `star-member ${m.role}`;
+      el.id = `star-${m.clerkUserId}`;
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      el.style.transform = 'translate(-50%, -50%)';
+      el.style.animationDelay = (0.2 + i * 0.2) + 's';
+      el.setAttribute('data-userid', m.clerkUserId);
+      el.onclick = function(e) { showStarDetail(m.clerkUserId, e); };
+
+      const avatarContent = m.imageUrl
+        ? `<img src="${m.imageUrl}" alt="">`
+        : getInitials(m);
+
+      el.innerHTML = `
+        <div class="star-body">
+          <div class="star-glow"></div>
+          <div class="star-ring"></div>
+          <div class="star-avatar">${avatarContent}</div>
+        </div>
+        <div class="star-label">
+          <div class="star-name">${displayName(m)}</div>
+          <div class="star-role-text">${m.role}</div>
+        </div>
+      `;
+
+      container.appendChild(el);
     });
 
-    // Draw connection lines
-    drawConnections(positions);
+    drawConnections(positions, sorted);
   }
 
-  function drawConnections(positions) {
+  function drawConnections(positions, sorted) {
     const svg = document.getElementById('connSvg');
     svg.innerHTML = '';
-    const pairs = [
-      ['nimit','arjun'], ['nimit','priya'], ['nimit','kiran'],
-      ['arjun','priya'], ['arjun','kiran'], ['priya','kiran']
-    ];
+    const ids = sorted.map(m => m.clerkUserId);
+    let idx = 0;
 
-    pairs.forEach((pair, i) => {
-      const a = positions[pair[0]];
-      const b = positions[pair[1]];
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', a.x);
-      line.setAttribute('y1', a.y);
-      line.setAttribute('x2', b.x);
-      line.setAttribute('y2', b.y);
-      line.classList.add('conn-line');
-      line.style.animationDelay = (0.5 + i * 0.2) + 's';
-      svg.appendChild(line);
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = positions[ids[i]];
+        const b = positions[ids[j]];
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', a.x);
+        line.setAttribute('y1', a.y);
+        line.setAttribute('x2', b.x);
+        line.setAttribute('y2', b.y);
+        line.classList.add('conn-line');
+        line.style.animationDelay = (0.5 + idx * 0.15) + 's';
+        svg.appendChild(line);
+        idx++;
+      }
+    }
+  }
+
+
+  // ===================================================================
+  // 3. STAR DETAIL POPUP (on constellation click)
+  // ===================================================================
+  let activeStarDetail = null;
+
+  function showStarDetail(userId, event) {
+    event.stopPropagation();
+    const detail = document.getElementById('starDetail');
+    const m = members.find(x => x.clerkUserId === userId);
+    if (!m) return;
+
+    document.getElementById('detailName').textContent = displayName(m);
+    document.getElementById('detailEmail').textContent = m.email;
+    document.getElementById('detailRole').textContent = m.role.charAt(0).toUpperCase() + m.role.slice(1);
+    document.getElementById('detailJoined').textContent = formatDate(m.joinedAt);
+
+    const actionsEl = document.getElementById('detailActions');
+    if (m.role === 'owner') {
+      actionsEl.innerHTML = '<span style="font-size:11px;color:var(--text-dim)">Organization owner</span>';
+    } else if (canManage()) {
+      actionsEl.innerHTML = `
+        <button class="detail-btn role-btn" onclick="openRoleChangeForStar('${userId}')">Change Role</button>
+        <button class="detail-btn remove-btn" onclick="confirmRemoveMember('${userId}')">Remove</button>
+      `;
+    } else {
+      actionsEl.innerHTML = '';
+    }
+
+    const starEl = document.getElementById('star-' + userId);
+    const hero = document.getElementById('constellationHero');
+    const rect = starEl.getBoundingClientRect();
+    const hRect = hero.getBoundingClientRect();
+
+    detail.style.left = (rect.right - hRect.left + 12) + 'px';
+    detail.style.top = (rect.top - hRect.top) + 'px';
+    detail.classList.add('visible');
+    activeStarDetail = userId;
+  }
+
+  function hideStarDetail() {
+    document.getElementById('starDetail').classList.remove('visible');
+    activeStarDetail = null;
+  }
+
+
+  // ===================================================================
+  // 4. MEMBER TABLE — render, search, sort
+  // ===================================================================
+  function renderMemberTable() {
+    const tbody = document.getElementById('memberTableBody');
+    const sorted = getSortedMembers();
+    tbody.innerHTML = '';
+
+    sorted.forEach((m, i) => {
+      const tr = document.createElement('tr');
+      tr.setAttribute('data-userid', m.clerkUserId);
+      tr.setAttribute('data-name', displayName(m).toLowerCase());
+      tr.setAttribute('data-email', m.email.toLowerCase());
+      tr.style.animationDelay = (0.2 + i * 0.1) + 's';
+
+      const avatarContent = m.imageUrl
+        ? `<img src="${m.imageUrl}" alt="">`
+        : getInitials(m);
+
+      let actionsHtml = '';
+      if (m.role === 'owner') {
+        // Owner row — no actions
+        actionsHtml = '';
+      } else if (canManage()) {
+        actionsHtml = `
+          <div class="row-actions">
+            <button class="row-action-btn" title="Change role" onclick="openRoleDropdown('${m.clerkUserId}', this)">&#8645;</button>
+            <button class="row-action-btn danger" title="Remove member" onclick="confirmRemoveMember('${m.clerkUserId}')">&#10005;</button>
+          </div>
+        `;
+      }
+
+      tr.innerHTML = `
+        <td>
+          <div class="member-cell">
+            <div class="member-avatar av-${m.role}">${avatarContent}</div>
+            <div class="member-text">
+              <div class="name">${displayName(m)}</div>
+              <div class="email">${m.email}</div>
+            </div>
+          </div>
+        </td>
+        <td>
+          <span class="role-badge badge-${m.role}">
+            <span class="badge-icon">${roleIcon(m.role)}</span>
+            ${m.role.charAt(0).toUpperCase() + m.role.slice(1)}
+          </span>
+        </td>
+        <td><span class="date-text">${formatDate(m.joinedAt)}</span></td>
+        <td>${actionsHtml}</td>
+      `;
+
+      tbody.appendChild(tr);
     });
   }
 
-  // Detail popup
-  let activeDetail = null;
+  function getSortedMembers() {
+    const roleOrder = { owner: 0, admin: 1, member: 2 };
+    return [...members].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'name') {
+        cmp = displayName(a).localeCompare(displayName(b));
+      } else if (sortField === 'role') {
+        cmp = roleOrder[a.role] - roleOrder[b.role];
+      } else {
+        cmp = new Date(a.joinedAt) - new Date(b.joinedAt);
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+  }
 
-  function showDetail(id, event) {
-    event.stopPropagation();
-    const detail = document.getElementById('starDetail');
-    const m = members[id];
-    if (!m) return;
-
-    document.getElementById('detailName').textContent = m.name;
-    document.getElementById('detailEmail').textContent = m.email;
-    document.getElementById('detailRole').textContent = m.role;
-    document.getElementById('detailJoined').textContent = m.joined;
-    document.getElementById('detailProjects').textContent = m.projects;
-
-    const actionsEl = document.getElementById('detailActions');
-    if (id === 'nimit') {
-      actionsEl.innerHTML = '<span style="font-size:11px;color:var(--text-dim)">Organization owner</span>';
+  function sortTable(field) {
+    if (sortField === field) {
+      sortAsc = !sortAsc;
     } else {
-      actionsEl.innerHTML = `
-        <button class="detail-btn role-btn" onclick="alert('Role changed')">Change Role</button>
-        <button class="detail-btn remove-btn" onclick="alert('Member removed')">Remove</button>
-      `;
+      sortField = field;
+      sortAsc = true;
     }
 
-    const starEl = document.getElementById('star-' + id);
-    const rect = starEl.getBoundingClientRect();
-    const canvas = document.getElementById('canvas');
-    const cRect = canvas.getBoundingClientRect();
+    // Update header UI
+    document.querySelectorAll('.crew-table thead th').forEach(th => {
+      th.classList.remove('sorted');
+      const arrow = th.querySelector('.sort-arrow');
+      if (arrow) arrow.innerHTML = '&#8597;';
+    });
 
-    detail.style.left = (rect.right - cRect.left + 16) + 'px';
-    detail.style.top = (rect.top - cRect.top) + 'px';
-    detail.classList.add('visible');
-    activeDetail = id;
-  }
-
-  function hideDetail() {
-    document.getElementById('starDetail').classList.remove('visible');
-    activeDetail = null;
-  }
-
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.star-member') && !e.target.closest('.star-detail')) {
-      hideDetail();
+    const th = document.getElementById('th-' + field);
+    if (th) {
+      th.classList.add('sorted');
+      const arrow = th.querySelector('.sort-arrow');
+      if (arrow) arrow.innerHTML = sortAsc ? '&#8593;' : '&#8595;';
     }
-  });
 
-  // Focus star from sidebar
-  function focusStar(id) {
-    document.querySelectorAll('.member-item').forEach(el => el.classList.remove('active'));
-    document.querySelector(`.member-item[data-member="${id}"]`).classList.add('active');
-    showDetail(id, { stopPropagation: () => {} });
+    renderMemberTable();
   }
 
-  // Settings
-  function toggleSettings() {
-    document.getElementById('settingsPanel').classList.toggle('open');
-    document.getElementById('settingsOverlay').classList.toggle('open');
+  function filterMembers(query) {
+    const q = query.toLowerCase();
+    const rows = document.querySelectorAll('#memberTableBody tr');
+    let visible = 0;
+    rows.forEach(row => {
+      const name = row.getAttribute('data-name');
+      const email = row.getAttribute('data-email');
+      const show = name.includes(q) || email.includes(q);
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    document.getElementById('toolbarCount').textContent = visible + ' member' + (visible !== 1 ? 's' : '');
   }
 
-  // Invite modal
+
+  // ===================================================================
+  // 5. ROLE CHANGE (inline dropdown in table)
+  // ===================================================================
+  let roleChangeTarget = null;
+
+  function openRoleDropdown(userId, btnEl) {
+    const dropdown = document.getElementById('roleDropdown');
+    const m = members.find(x => x.clerkUserId === userId);
+    if (!m) return;
+    roleChangeTarget = userId;
+
+    // Highlight current role
+    dropdown.querySelectorAll('.role-dropdown-item').forEach(item => {
+      item.classList.toggle('active', item.getAttribute('data-role') === m.role);
+    });
+
+    // Position near button
+    const rect = btnEl.getBoundingClientRect();
+    dropdown.style.position = 'fixed';
+    dropdown.style.left = (rect.left - 100) + 'px';
+    dropdown.style.top = (rect.bottom + 6) + 'px';
+    dropdown.classList.add('visible');
+  }
+
+  function closeRoleDropdown() {
+    document.getElementById('roleDropdown').classList.remove('visible');
+    roleChangeTarget = null;
+  }
+
+  function applyRoleChange(newRole) {
+    if (!roleChangeTarget) return;
+    const m = members.find(x => x.clerkUserId === roleChangeTarget);
+    if (m && m.role !== 'owner') {
+      m.role = newRole;
+      renderMemberTable();
+      renderConstellation();
+    }
+    closeRoleDropdown();
+  }
+
+  function openRoleChangeForStar(userId) {
+    const newRole = prompt('Enter new role (admin or member):');
+    if (newRole === 'admin' || newRole === 'member') {
+      const m = members.find(x => x.clerkUserId === userId);
+      if (m && m.role !== 'owner') {
+        m.role = newRole;
+        renderMemberTable();
+        renderConstellation();
+        hideStarDetail();
+      }
+    }
+  }
+
+
+  // ===================================================================
+  // 6. REMOVE MEMBER
+  // ===================================================================
+  function confirmRemoveMember(userId) {
+    const m = members.find(x => x.clerkUserId === userId);
+    if (!m || m.role === 'owner') return;
+    if (confirm('Remove ' + displayName(m) + ' from the organization?')) {
+      const idx = members.indexOf(m);
+      if (idx > -1) {
+        members.splice(idx, 1);
+        renderMemberTable();
+        renderConstellation();
+        hideStarDetail();
+        document.getElementById('toolbarCount').textContent = members.length + ' member' + (members.length !== 1 ? 's' : '');
+      }
+    }
+  }
+
+
+  // ===================================================================
+  // 7. INVITE MODAL
+  // ===================================================================
   function openInviteModal() {
     document.getElementById('inviteModal').classList.add('active');
     setTimeout(() => document.getElementById('inviteEmail').focus(), 300);
@@ -1193,28 +1755,117 @@
   }
 
   function sendInvite() {
-    const email = document.getElementById('inviteEmail').value;
-    if (email) {
-      alert('Invitation sent to ' + email);
-      closeInviteModal();
-      document.getElementById('inviteEmail').value = '';
-    }
+    const email = document.getElementById('inviteEmail').value.trim();
+    const role = document.getElementById('inviteRole').value;
+    if (!email) return;
+
+    // Simulate adding member
+    const name = email.split('@')[0];
+    const initials = name.charAt(0).toUpperCase();
+    members.push({
+      clerkUserId: 'user_' + name + '_' + Date.now(),
+      email: email,
+      username: null,
+      imageUrl: null,
+      role: role,
+      joinedAt: new Date().toISOString().split('T')[0],
+    });
+
+    renderMemberTable();
+    renderConstellation();
+    document.getElementById('toolbarCount').textContent = members.length + ' member' + (members.length !== 1 ? 's' : '');
+
+    closeInviteModal();
+    document.getElementById('inviteEmail').value = '';
+    document.getElementById('inviteRole').value = 'member';
   }
 
   document.getElementById('inviteModal').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeInviteModal();
   });
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      closeInviteModal();
-      hideDetail();
+
+  // ===================================================================
+  // 8. SETTINGS PANEL
+  // ===================================================================
+  function toggleSettings() {
+    document.getElementById('settingsPanel').classList.toggle('open');
+    document.getElementById('settingsOverlay').classList.toggle('open');
+  }
+
+  function onSettingChange() {
+    orgSettings.allowMemberProjects = document.getElementById('settingAllowMemberProjects').checked;
+    orgSettings.defaultRole = document.getElementById('settingDefaultRole').value;
+  }
+
+
+  // ===================================================================
+  // 9. ANIMATED COUNTERS
+  // ===================================================================
+  function animateCount(id, target, suffix) {
+    const el = document.getElementById(id);
+    const duration = 1200;
+    const start = performance.now();
+    suffix = suffix || '';
+
+    function update(now) {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      el.textContent = Math.round(target * eased) + suffix;
+      if (progress < 1) requestAnimationFrame(update);
+    }
+    requestAnimationFrame(update);
+  }
+
+
+  // ===================================================================
+  // 10. GLOBAL LISTENERS
+  // ===================================================================
+  document.addEventListener('click', (e) => {
+    // Close star detail
+    if (!e.target.closest('.star-member') && !e.target.closest('.star-detail')) {
+      hideStarDetail();
+    }
+    // Close role dropdown
+    if (!e.target.closest('.role-dropdown') && !e.target.closest('.row-action-btn')) {
+      closeRoleDropdown();
     }
   });
 
-  // Init
-  window.addEventListener('load', positionStars);
-  window.addEventListener('resize', positionStars);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeInviteModal();
+      hideStarDetail();
+      closeRoleDropdown();
+      if (document.getElementById('settingsPanel').classList.contains('open')) toggleSettings();
+    }
+  });
+
+
+  // ===================================================================
+  // INIT
+  // ===================================================================
+  function init() {
+    generateStarField();
+    renderConstellation();
+    renderMemberTable();
+
+    // Sync settings UI
+    document.getElementById('settingAllowMemberProjects').checked = orgSettings.allowMemberProjects;
+    document.getElementById('settingDefaultRole').value = orgSettings.defaultRole;
+
+    // Animate stat counters
+    setTimeout(() => {
+      animateCount('projCount', 12, '');
+      animateCount('memberCount', members.length, '');
+      animateCount('renderCount', 47, '');
+      animateCount('storageCount', 34, ' GB');
+    }, 400);
+  }
+
+  window.addEventListener('load', init);
+  window.addEventListener('resize', renderConstellation);
 </script>
 </body>
 </html>

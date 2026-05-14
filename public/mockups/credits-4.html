@@ -16,10 +16,11 @@
     --text-primary: #ECE9E1; --text-secondary: #B5B2A8; --text-muted: #7A776E; --text-dim: #5F5E5A;
     --gold: #D4A652; --green: #5EC97E; --red: #D46A5C; --cyan: #5CB8CC;
     --ease: cubic-bezier(.16,1,.3,1);
-    --receipt-bg: #F5F0E8;
-    --receipt-text: #1a1a1a;
-    --receipt-muted: #6b6560;
-    --receipt-line: #d4cfc5;
+    --receipt-bg: #131312;
+    --receipt-text: #ECE9E1;
+    --receipt-muted: #7A776E;
+    --receipt-line: #282724;
+    --receipt-border: #1C1B19;
   }
 
   body {
@@ -80,6 +81,13 @@
   .receipt-wrapper {
     position: relative;
     margin-bottom: 32px;
+    /* Print animation: clip from top, reveal downward */
+    clip-path: inset(0 0 100% 0);
+    animation: receipt-print 2.5s var(--ease) 0.3s forwards;
+  }
+  @keyframes receipt-print {
+    0%   { clip-path: inset(0 0 100% 0); }
+    100% { clip-path: inset(0 0 0% 0); }
   }
 
   /* Torn top edge */
@@ -96,7 +104,7 @@
     left: 0;
     right: 0;
     height: 10px;
-    background: url("data:image/svg+xml,%3Csvg width='20' height='10' viewBox='0 0 20 10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 10 L5 0 L10 10 L15 0 L20 10' fill='%23F5F0E8'/%3E%3C/svg%3E") repeat-x;
+    background: url("data:image/svg+xml,%3Csvg width='20' height='10' viewBox='0 0 20 10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 10 L5 0 L10 10 L15 0 L20 10' fill='%23131312'/%3E%3C/svg%3E") repeat-x;
     background-size: 20px 10px;
   }
 
@@ -108,9 +116,11 @@
     padding: 0 32px;
     position: relative;
     overflow: hidden;
+    border-left: 1px solid var(--receipt-border);
+    border-right: 1px solid var(--receipt-border);
   }
 
-  /* Thermal paper texture */
+  /* Thermal paper texture — subtle scanlines for dark theme */
   .receipt::before {
     content: '';
     position: absolute;
@@ -120,19 +130,19 @@
         0deg,
         transparent,
         transparent 1px,
-        rgba(0,0,0,0.015) 1px,
-        rgba(0,0,0,0.015) 2px
+        rgba(255,255,255,0.012) 1px,
+        rgba(255,255,255,0.012) 2px
       );
     pointer-events: none;
   }
 
-  /* Subtle side shadow for depth */
+  /* Subtle side highlight for depth */
   .receipt::after {
     content: '';
     position: absolute;
     top: 0; bottom: 0;
     left: 0; width: 8px;
-    background: linear-gradient(90deg, rgba(0,0,0,0.06), transparent);
+    background: linear-gradient(90deg, rgba(255,255,255,0.02), transparent);
     pointer-events: none;
   }
 
@@ -147,13 +157,13 @@
     font-weight: 700;
     letter-spacing: 3px;
     text-transform: uppercase;
-    color: var(--receipt-text);
+    color: var(--gold);
     margin-bottom: 4px;
   }
   .receipt-plan-tag {
     display: inline-block;
-    background: var(--receipt-text);
-    color: var(--receipt-bg);
+    background: var(--gold);
+    color: var(--bg);
     padding: 3px 14px;
     border-radius: 3px;
     font-size: 11px;
@@ -179,7 +189,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 2px;
-    color: var(--receipt-muted);
+    color: var(--gold);
     margin-bottom: 12px;
   }
 
@@ -196,8 +206,17 @@
   .receipt-line.visible {
     animation: type-in 0.3s var(--ease) forwards;
   }
+  /* Most recent transaction: slide in from right with gold flash */
+  .receipt-line.latest-visible {
+    animation: slide-in-latest 0.6s var(--ease) forwards;
+  }
   @keyframes type-in {
     to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slide-in-latest {
+    0%   { opacity: 0; transform: translateX(40px); background: rgba(212,166,82,0.15); }
+    50%  { opacity: 1; transform: translateX(0); background: rgba(212,166,82,0.12); }
+    100% { opacity: 1; transform: translateX(0); background: transparent; }
   }
   .receipt-line-left {
     display: flex;
@@ -215,8 +234,8 @@
     font-weight: 700;
     white-space: nowrap;
   }
-  .receipt-line-amount.debit { color: #a04030; }
-  .receipt-line-amount.credit { color: #2d7a40; }
+  .receipt-line-amount.debit { color: var(--red); }
+  .receipt-line-amount.credit { color: var(--green); }
 
   /* Dotted filler */
   .receipt-dots {
@@ -242,13 +261,31 @@
   .receipt-total-row.main {
     font-size: 18px;
     font-weight: 700;
-    color: var(--receipt-text);
+    color: var(--gold);
     padding: 10px 0 4px;
   }
   .receipt-total-row .label { }
   .receipt-total-row .value { font-weight: 700; }
   .receipt-total-row.main .value {
     font-size: 22px;
+  }
+
+  /* Breathing glow on the grand total */
+  .receipt-total-row.main .value {
+    animation: balance-glow 3s ease-in-out infinite;
+  }
+  @keyframes balance-glow {
+    0%, 100% { text-shadow: 0 0 0 transparent; }
+    50%      { text-shadow: 0 0 20px rgba(212,166,82,0.15); }
+  }
+
+  /* Expiry countdown pulse */
+  .expiry-pulse {
+    animation: expiry-color-pulse 2s ease-in-out infinite;
+  }
+  @keyframes expiry-color-pulse {
+    0%, 100% { color: var(--gold); }
+    50%      { color: var(--receipt-muted); }
   }
 
   /* Receipt footer */
@@ -264,11 +301,37 @@
     margin-bottom: 10px;
     height: 36px;
     align-items: flex-end;
+    position: relative;
+    overflow: hidden;
   }
   .barcode-bar {
     background: var(--receipt-text);
     border-radius: 1px;
   }
+  /* Barcode shimmer overlay */
+  .receipt-barcode::after {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    left: -50%;
+    width: 30%;
+    background: linear-gradient(
+      105deg,
+      transparent 0%,
+      transparent 35%,
+      rgba(212,166,82,0.25) 50%,
+      transparent 65%,
+      transparent 100%
+    );
+    animation: barcode-shimmer 4s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes barcode-shimmer {
+    0%   { left: -50%; }
+    40%  { left: 120%; }
+    100% { left: 120%; }
+  }
+
   .receipt-footer-text {
     font-size: 10px;
     color: var(--receipt-muted);
@@ -292,14 +355,14 @@
     left: 0;
     right: 0;
     height: 10px;
-    background: url("data:image/svg+xml,%3Csvg width='20' height='10' viewBox='0 0 20 10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0 L5 10 L10 0 L15 10 L20 0' fill='%23F5F0E8'/%3E%3C/svg%3E") repeat-x;
+    background: url("data:image/svg+xml,%3Csvg width='20' height='10' viewBox='0 0 20 10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0 L5 10 L10 0 L15 10 L20 0' fill='%23131312'/%3E%3C/svg%3E") repeat-x;
     background-size: 20px 10px;
   }
 
-  /* Shadow under receipt */
+  /* Shadow under receipt — gold glow */
   .receipt-shadow {
     height: 40px;
-    background: radial-gradient(ellipse at center, rgba(0,0,0,0.25) 0%, transparent 70%);
+    box-shadow: 0 0 60px rgba(212,166,82,.06), 0 20px 40px rgba(0,0,0,.4);
     margin: 10px 20px 0;
   }
 
@@ -325,12 +388,18 @@
     color: var(--gold);
     cursor: pointer;
     transition: all 0.3s var(--ease);
+    animation: btn-border-glow 3s ease-in-out infinite;
+  }
+  @keyframes btn-border-glow {
+    0%, 100% { border-color: var(--border-2); box-shadow: 0 0 0 transparent; }
+    50%      { border-color: rgba(212,166,82,0.4); box-shadow: 0 0 20px rgba(212,166,82,0.08); }
   }
   .btn-insert:hover {
     border-color: var(--gold);
     background: rgba(212,166,82,0.05);
     transform: translateY(-2px);
     box-shadow: 0 8px 32px rgba(212,166,82,0.15);
+    animation: none;
   }
   .btn-insert .card-slot {
     width: 28px; height: 18px;
@@ -404,7 +473,7 @@
       <div class="receipt-section">
         <div class="receipt-section-title">Recent Activity</div>
 
-        <div class="receipt-line" data-delay="400">
+        <div class="receipt-line" data-delay="400" data-latest="true">
           <div class="receipt-line-left">
             <span class="receipt-line-service">Musitron</span>
             <span class="receipt-line-desc">Music generation &middot; 2m ago</span>
@@ -457,7 +526,7 @@
           <span class="value" id="subTotal">0</span>
         </div>
         <div class="receipt-total-row">
-          <span class="label">  expires in 18 days</span>
+          <span class="label expiry-pulse">  expires in 18 days</span>
           <span class="value" style="color: var(--receipt-muted); font-weight: 400; font-size: 10px;">monthly</span>
         </div>
         <div class="receipt-total-row" style="margin-top: 4px;">
@@ -518,12 +587,13 @@
     barcodeEl.appendChild(bar);
   });
 
-  // Typewriter line reveal
+  // Typewriter line reveal — most recent gets slide-in-latest
   const lines = document.querySelectorAll('.receipt-line');
   lines.forEach(line => {
     const delay = parseInt(line.dataset.delay) || 0;
+    const isLatest = line.dataset.latest === 'true';
     setTimeout(() => {
-      line.classList.add('visible');
+      line.classList.add(isLatest ? 'latest-visible' : 'visible');
     }, delay);
   });
 
