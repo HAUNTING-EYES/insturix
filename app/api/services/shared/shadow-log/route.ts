@@ -52,6 +52,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     if (Array.isArray(body.events)) {
+      if (body.events.length > 100) {
+        return NextResponse.json(
+          { error: 'Batch size exceeds 100 events' },
+          { status: 400 },
+        );
+      }
       const rawCount = body.events.length;
       const events: ShadowEvent[] = body.events
         .filter((e: unknown) => isValidEvent(e))

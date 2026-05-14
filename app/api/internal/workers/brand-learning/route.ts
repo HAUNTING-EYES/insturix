@@ -40,6 +40,11 @@ async function handler(request: NextRequest) {
       );
     }
 
+    // Idempotency: skip if already consumed (QStash has at-least-once delivery)
+    if (event.consumedBy?.includes(CONSUMER_ID)) {
+      return NextResponse.json({ success: true, eventId, action: 'already_consumed' });
+    }
+
     console.log(`[BrandLearning] Processing ${event.type} (${eventId}) for user ${event.userId}`);
 
     let result: { action: string; detail?: string };
@@ -58,7 +63,7 @@ async function handler(request: NextRequest) {
         break;
 
       case 'brand_updated':
-        result = handleBrandUpdated(event);
+        result = await handleBrandUpdated(event);
         break;
 
       case 'video_published':
@@ -70,7 +75,10 @@ async function handler(request: NextRequest) {
         break;
     }
 
-    await markEventConsumed(eventId, CONSUMER_ID);
+    // Only mark consumed if handler succeeded — failed events should be retried by QStash
+    if (!result.action.includes('_failed')) {
+      await markEventConsumed(eventId, CONSUMER_ID);
+    }
 
     const durationMs = Date.now() - startMs;
     console.log(
@@ -232,18 +240,22 @@ async function handleQualityReviewed(
 }
 
 /**
- * Brand updated — Phase 2 will invalidate registry cache here.
+ * Brand updated — invalidate registry cache for this user.
+ * NOTE: invalidateCache is per-process in serverless. API server cache
+ * has a 5-min TTL that self-heals. This clears the worker's local cache.
  */
-function handleBrandUpdated(
+async function handleBrandUpdated(
   event: BrandEvent,
-): { action: string; detail?: string } {
-  console.log(
-    `[BrandLearning] brand_updated for user ${event.userId}` +
-      (event.brandId ? ` brand ${event.brandId}` : ''),
-  );
+): Promise<{ action: string; detail?: string }> {
+  try {
+    const { invalidateCache } = await import('@/lib/shared/brand-registry');
+    invalidateCache(event.userId);
+  } catch {
+    // brand-registry may not be loadable in all contexts
+  }
   return {
-    action: 'acknowledged',
-    detail: 'Phase 2: will invalidate brand registry cache',
+    action: 'cache_invalidated',
+    detail: `userId=${event.userId}`,
   };
 }
 
@@ -285,6 +297,6 @@ async function handleVideoPublished(
 
 // ==================== Export ====================
 
-export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
+export const POST = (process.env.QSTASH_CURRENT_SIGNING_KEY || process.env.NODE_ENV === 'production')
   ? verifySignatureAppRouter(handler)
   : handler;

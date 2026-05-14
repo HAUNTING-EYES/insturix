@@ -83,7 +83,7 @@ export async function transitionProjectStatus(
     trigger,
   };
 
-  const update: Record<string, unknown> = {
+  const updateDoc: Record<string, unknown> = {
     $set: {
       status: newStatus,
       updatedAt: new Date(),
@@ -94,7 +94,7 @@ export async function transitionProjectStatus(
   };
 
   if (newStatus === 'failed' && error) {
-    (update.$set as Record<string, unknown>).lastError = {
+    (updateDoc.$set as Record<string, unknown>).lastError = {
       message: error.message,
       service: error.service,
       timestamp: new Date(),
@@ -102,10 +102,24 @@ export async function transitionProjectStatus(
   }
 
   if (newStatus !== 'failed' && currentStatus === 'failed') {
-    (update.$set as Record<string, unknown>).lastError = null;
+    (updateDoc.$set as Record<string, unknown>).lastError = null;
   }
 
-  await col.updateOne({ projectId, userId }, update);
+  // CAS: only update if status hasn't changed since we read it
+  // For 'draft', also match projects with no status field (pre-tracking projects)
+  const statusFilter = currentStatus === 'draft'
+    ? { $or: [{ status: 'draft' }, { status: { $exists: false } }, { status: null }] }
+    : { status: currentStatus };
+
+  const result = await col.findOneAndUpdate(
+    { projectId, userId, ...statusFilter },
+    updateDoc,
+    { returnDocument: 'after' },
+  );
+
+  if (!result) {
+    return { success: false, previousStatus: currentStatus, error: 'Status changed concurrently' };
+  }
 
   emitBrandEvent({
     userId,

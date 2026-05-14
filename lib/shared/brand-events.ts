@@ -167,5 +167,6 @@ export async function ensureBrandEventsIndexes(): Promise<void> {
     col.createIndex({ eventId: 1 }, { unique: true }),
     col.createIndex({ type: 1, createdAt: -1 }),
     col.createIndex({ consumedBy: 1 }),
+    col.createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 }),
   ]);
 }
