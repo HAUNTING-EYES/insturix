@@ -101,46 +101,29 @@ export function PipelineProgressPanel({ pipeline }: PipelineProgressPanelProps) 
         step={animStep}
       />
 
-      {/* Step progress indicator list */}
+      {/* Step progress */}
       <div className="space-y-2">
         <StepIndicator
-          label="Parse scenes"
+          label="Reading your script"
           active={step === "exporting"}
           done={step !== "exporting"}
         />
         {generateStoryboard && (
           <>
             <StepIndicator
-              label="Extract key subjects"
+              label="Identifying visuals"
               active={step === "extracting-subjects"}
-              done={
-                ![
-                  "exporting",
-                  "extracting-subjects",
-                ].includes(step)
-              }
+              done={!["exporting", "extracting-subjects"].includes(step)}
             />
             <StepIndicator
-              label="Generate reference images"
+              label="Creating references"
               active={step === "generating-references"}
-              done={
-                ![
-                  "exporting",
-                  "extracting-subjects",
-                  "generating-references",
-                ].includes(step)
-              }
+              done={!["exporting", "extracting-subjects", "generating-references"].includes(step)}
             />
             <StepIndicator
-              label="Generate storyboard images"
+              label="Building storyboard"
               active={step === "storyboard"}
-              done={[
-                "reviewing-storyboard",
-                "generating-videos",
-                "generating-voiceover",
-                "finalizing",
-                "done",
-              ].includes(step)}
+              done={["reviewing-storyboard", "generating-videos", "generating-voiceover", "finalizing", "done"].includes(step)}
             />
           </>
         )}
@@ -148,26 +131,26 @@ export function PipelineProgressPanel({ pipeline }: PipelineProgressPanelProps) 
           <StepIndicator
             label={
               step === "generating-videos" && videoProgress.total > 0
-                ? `Generating video clips (${videoProgress.done}/${videoProgress.total})`
-                : "Generate AI video clips"
+                ? `Bringing scenes to life (${videoProgress.done}/${videoProgress.total})`
+                : "Bringing scenes to life"
             }
             active={step === "generating-videos"}
             done={["generating-voiceover", "finalizing", "done"].includes(step)}
           />
         )}
         <StepIndicator
-          label="Generate AI voiceover"
+          label="Adding voiceover"
           active={step === "generating-voiceover"}
           done={["finalizing", "directing", "done"].includes(step)}
         />
         <StepIndicator
-          label="Create Editor project"
+          label="Assembling your video"
           active={step === "finalizing"}
           done={["directing", "done"].includes(step)}
         />
         {selectedProfileId && (
           <StepIndicator
-            label="Apply edit profile"
+            label="Polishing your edit"
             active={step === "directing"}
             done={step === "done"}
           />
