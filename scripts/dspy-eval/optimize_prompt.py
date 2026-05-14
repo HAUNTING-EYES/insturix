@@ -250,8 +250,8 @@ def run_optimization(num_candidates: int = 7, max_bootstrapped: int = 3,
     # Save optimized program
     OPTIMIZED_DIR.mkdir(exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    save_path = OPTIMIZED_DIR / f"scene_parser_{timestamp}"
-    optimized_program.save(str(save_path))
+    save_path = OPTIMIZED_DIR / f"scene_parser_{timestamp}.json"
+    optimized_program.save(str(save_path), save_program=False)
     print(f"  Saved to: {save_path}")
 
     # Evaluate optimized program on dev set
@@ -367,34 +367,8 @@ def main():
         sys.exit(1)
 
     # Configure DSPy with Gemini
-    # Use gemini-2.5-flash (production model) — optimize FOR the actual model behavior.
-    # Free tier: 5 RPM, 25 RPD. Throttled via litellm callbacks to stay under limits.
-    # Full optimization takes 1-2 days at free tier pace. Worth it for quality.
-    import litellm
-    import time as _time
-
-    # Throttle: 12s between calls = 5 RPM max. DSPy/litellm will retry on 429s.
-    _last_call_time = [0.0]
-    _call_count = [0]
-
-    def _throttle_callback(kwargs, completion_response, start_time, end_time):
-        _call_count[0] += 1
-        if _call_count[0] % 5 == 0:
-            print(f"  [throttle] {_call_count[0]} API calls made so far...")
-
-    original_success = litellm.success_callback
-    litellm.success_callback = [_throttle_callback] if not original_success else original_success + [_throttle_callback]
-
-    # Pre-call throttle via input callback
-    def _pre_call_throttle(kwargs, completion_response=None, start_time=None, end_time=None):
-        elapsed = _time.time() - _last_call_time[0]
-        if elapsed < 12.0:
-            wait = 12.0 - elapsed
-            _time.sleep(wait)
-        _last_call_time[0] = _time.time()
-
-    litellm.input_callback = [_pre_call_throttle]
-
+    # Using gemini-3.1-flash on paid tier — no rate limit concerns.
+    # Cost: ~$0.25-0.50 for full optimization run.
     lm = dspy.LM(
         model="gemini/gemini-2.5-flash",
         api_key=api_key,

@@ -230,24 +230,26 @@ export class UrlBriefAgent extends StructuredAgent<UrlBriefOutput> {
         });
     }
 
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
     buildPrompt({ context, userPrompt }: AgentInput): string {
-        return `Analyze the following web content and generate a structured brief for content creation.
+        return `<role>You are a content analyst generating structured briefs for content creation.</role>
 
+<task>Analyze the web content below and extract a structured brief for repurposing.</task>
+
+<rules>
+- Extract the core message and key themes.
+- Identify the target audience.
+- Suggest 3-4 unique, specific, actionable angles for repurposing (videos, threads, posts).
+- Detect source platform and content type accurately.
+- Summary: 2-3 concise sentences. Key topics: specific keywords, not generic categories.
+</rules>
+
+<input_data>
 Source URL: ${context.projectSummary}
-
-Page Title: ${userPrompt}
-
-Page Content:
+Page title: ${userPrompt}
+Page content:
 ${context.currentScript || '(No content extracted)'}
-
-Instructions:
-- Extract the core message and key themes from this content
-- Identify who the target audience is
-- Suggest 3-4 unique angles for repurposing this content into new formats (videos, threads, posts)
-- Each angle should be specific and actionable, not generic
-- Detect the source platform and content type accurately
-- Keep the summary concise (2-3 sentences)
-- Key topics should be specific keywords/themes, not generic categories`;
+</input_data>`;
     }
 
     /**

@@ -102,21 +102,30 @@ export async function runPostMortemAgent(input: PostMortemInput): Promise<PostMo
   const { object } = await generateObject({
     model,
     schema: compressionSchema,
-    prompt: `You are a "Post-Mortem" agent for a content creation tool called ThinkForge.
-A user just finished a project${projectTitle ? ` called "${projectTitle}"` : ''}. Analyze the session data and extract:
-1. A concise project summary (what was built, key creative decisions).
-2. Lessons learned: user preferences, rules, or patterns that should be remembered for ALL future projects.
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    prompt: `<role>You are a Post-Mortem agent for ThinkForge, a content creation tool.</role>
 
-Only extract genuinely useful, specific insights. Do not fabricate or over-generalize.
+<task>
+A user finished a project${projectTitle ? ` called "${projectTitle}"` : ''}. Extract:
+1. Concise project summary (what was built, key creative decisions).
+2. Lessons learned: user preferences, rules, or patterns to remember for ALL future projects.
+</task>
 
-## Interaction Events (rejections, corrections, deletions)
+<rules>
+- Only extract genuinely useful, specific insights.
+- Do not fabricate or over-generalize.
+</rules>
+
+<input_data>
+Interaction events (rejections, corrections, deletions):
 ${eventsToText(events)}
 
-## Project Knowledge Entries
+Project knowledge entries:
 ${entriesToText(projectEntries)}${brandEventsText ? `
 
-## Cross-Service Brand Events (overrides, style changes, quality scores)
-${brandEventsText}` : ''}`,
+Cross-service brand events (overrides, style changes, quality scores):
+${brandEventsText}` : ''}
+</input_data>`,
     temperature: 0.2,
   });
 
