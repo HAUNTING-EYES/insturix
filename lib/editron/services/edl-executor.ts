@@ -224,14 +224,14 @@ export async function executeEDL(
   const minConfidence = DEFAULT_CONFIG.analysis.minConfidenceForDecisions;
   const actionable = edl.decisions.filter(d => d.confidence > minConfidence);
 
-  // Sort by confidence DESCENDING so the best decisions survive budget limits.
-  // Previously: first-come-first-served (iteration order) meant a mediocre
-  // zoom at frame 10 consumed the budget, rejecting a better zoom at frame 200.
-  // Now: highest-confidence decisions always commit first. Budget becomes a
-  // quality FILTER (keeps top-K) not a position GATE (keeps first-K).
-  actionable.sort((a, b) => b.confidence - a.confidence);
+  // Keep decisions in frame-first order (as produced by signal executor / reactive engine).
+  // OLD: sorted by confidence descending — a high-confidence zoom at minute 8 consumed
+  // budget before a medium-confidence zoom at minute 1. The viewer watches linearly;
+  // budget consumption should be linear. Confidence is for tie-breaking within the
+  // same frame window, which the signal executor already handles (deduplicateDecisions).
+  actionable.sort((a, b) => a.frame - b.frame || b.confidence - a.confidence);
 
-  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement, sorted by confidence`);
+  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement, sorted by frame`);
 
   // Deterministic epoch for overlay IDs — stable within this Director run, unique across runs.
   // Derived from projectId hash so the same EDL on the same project always produces the same IDs.
@@ -255,38 +255,39 @@ export async function executeEDL(
     }
   }
 
-  // ── Single-source detection: suppress transitions for same-camera cuts ──
-  // When all video overlays share the same source assetId, every cut is a
-  // CONTINUITY cut (same camera, same angle, same person). Transitions between
-  // same-source segments are visually wrong (dissolving from frame N to frame
-  // N+32 of the same video = glitch, not a professional transition). SFX triggers
-  // paired with transitions are also wrong (no visual scene change to sync with).
-  // Zooms, emphasis, filter changes, pacing, and camera-shake still apply — they
-  // modify the visual within a segment, not between segments.
-  const videoOverlaysForSourceCheck = overlays.filter(o => o.type === 'video');
+  // ── Single-source detection: per-boundary visual similarity check ──
+  // OLD: blanket-killed ALL transition/sfx decisions when overlays share one assetId.
+  // This was wrong — a vlog with 3 locations IS single-source but SHOULD get
+  // transitions at location changes. Blanket approach was tried and reverted
+  // in commit a42a358d ("single-source doesn't mean single-scene").
+  //
+  // NEW: for single-source projects, each transition/sfx decision is checked
+  // individually during the execution loop. We compare 5-Track keyframe colors
+  // on either side of the boundary. Same colors = same scene = suppress.
+  // Different colors = visual change = allow. No data = allow (respect intelligence).
+  const videoOverlaysForSourceCheck = overlays.filter(o => o.type === 'video').sort((a: any, b: any) => a.from - b.from);
   const uniqueSourceAssets = new Set(
     videoOverlaysForSourceCheck.map(o => (o as any).assetId).filter(Boolean)
   );
   const isSingleSource = uniqueSourceAssets.size === 1 && videoOverlaysForSourceCheck.length > 1;
-
-  if (isSingleSource) {
-    const suppressTypes = new Set(['transition', 'sfx-trigger']);
-    const before = actionable.length;
-    const filtered = actionable.filter(d => !suppressTypes.has(d.type));
-    const suppressed = before - filtered.length;
-    if (suppressed > 0) {
-      console.log(`[EDL-Exec] Single-source project (${uniqueSourceAssets.values().next().value}) — suppressed ${suppressed} transition/sfx-trigger decisions (same-camera cuts don't need transitions)`);
-    }
-    // Replace actionable in-place (it's already a filtered copy from line 209)
-    actionable.length = 0;
-    actionable.push(...filtered);
-  }
+  const singleSourceAssetId = isSingleSource ? uniqueSourceAssets.values().next().value as string : null;
 
   let budgetRejected = 0;
   let decisionIndex = 0;
 
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
+
+    // ── Per-boundary visual check for single-source transitions ──
+    // OLD: blanket-killed all transition/sfx for single-source content.
+    // NEW: check actual visual similarity at each boundary. Same scene = suppress.
+    // Visual change = allow. No data = allow (respect intelligence decision).
+    if (isSingleSource && (decision.type === 'transition' || decision.type === 'sfx-trigger')) {
+      if (shouldSuppressAtBoundary(decision.frame, videoOverlaysForSourceCheck, analyses)) {
+        result.decisionsSkipped++;
+        continue;
+      }
+    }
 
     // Script-specified on-screen text BYPASSES budget. The user wrote this
     // text in their script — budget should never reject explicit user content.
@@ -313,23 +314,11 @@ export async function executeEDL(
         }
       }
 
-      // If budget suggests an alternative, try that instead
-      if (budgetResult.alternative) {
-        const altDecision = { ...decision, ...budgetResult.alternative };
-        const altBudgetResult = budget.evaluate(altDecision as any);
-        if (altBudgetResult.allowed) {
-          try {
-            const applied = await applyDecision(altDecision as EditDecision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex + 100000, sfxCache);
-            if (applied) {
-              budget.commit(altDecision as any);
-              result.decisionsExecuted++;
-              if (applied.created) result.overlaysCreated += applied.created;
-              if (applied.modified) result.overlaysModified += applied.modified;
-              console.log(`[EDL-Exec] BUDGET ALTERNATIVE: ${altDecision.type} at frame ${altDecision.frame} (replaced ${decision.type})`);
-            }
-          } catch {}
-        }
-      }
+      // Budget rejected = skip. No substitution.
+      // OLD: budget suggested alternatives (e.g., caption-emphasis when zoom was rejected).
+      // This broke the signal→mapping→technique chain — the intelligence chose zoom
+      // because a specific graph mapping fired on motion intensity. Caption emphasis
+      // has nothing to do with motion intensity. Budget should FILTER, not INVENT.
       continue;
     }
 
@@ -498,6 +487,88 @@ function applyCameraShake(
 // OLD: Created HTML overlays (System B) that the editor couldn't display as timeline tiles.
 // NEW: Creates proper TransitionOverlay tiles (System A) with clipAId/clipBId that the
 // editor renders both as timeline tiles AND as visual transitions in the video.
+/**
+ * Per-boundary visual similarity check for single-source projects.
+ * Compares 5-Track keyframe colors on either side of a transition boundary.
+ * Returns true if the transition should be SUPPRESSED (same visual scene).
+ *
+ * Uses Jaccard similarity on dominant color string sets — pure math, no KB thresholds.
+ * ⚠️ Similarity thresholds (0.7 suppress, 0.4 allow) are judgment calls, not verified
+ * industry standards. May need tuning after production testing.
+ */
+function shouldSuppressAtBoundary(
+  frame: number,
+  videoOverlays: any[],
+  analyses: Map<string, any> | undefined,
+  fps: number = 30,
+): boolean {
+  if (!analyses || analyses.size === 0) return false; // No data → allow (respect intelligence)
+
+  // Find the two adjacent video overlays at this boundary
+  const clipA = videoOverlays.filter(o => o.from + o.durationInFrames <= frame + 15).pop(); // ends near this frame
+  const clipB = videoOverlays.find(o => o.from >= frame - 15); // starts near this frame
+  if (!clipA || !clipB || clipA === clipB) return false; // Can't determine boundary → allow
+
+  const assetId = (clipA as any).assetId;
+  if (!assetId) return false;
+  const analysis = analyses.get(assetId);
+  if (!analysis?.keyframeAnalyses?.length) return false; // No keyframe data → allow
+
+  const allKf = analysis.keyframeAnalyses;
+
+  // Get source time ranges for each clip
+  const aStartSec = ((clipA as any).videoStartTime ?? 0) / fps;
+  const aEndSec = aStartSec + (clipA.durationInFrames / fps);
+  const bStartSec = ((clipB as any).videoStartTime ?? 0) / fps;
+  const bEndSec = bStartSec + (clipB.durationInFrames / fps);
+
+  // Filter keyframes to each clip's source range
+  let kfA = allKf.filter((kf: any) => {
+    const s = (kf.timestampMs ?? 0) / 1000;
+    return s >= aStartSec && s < aEndSec;
+  });
+  let kfB = allKf.filter((kf: any) => {
+    const s = (kf.timestampMs ?? 0) / 1000;
+    return s >= bStartSec && s < bEndSec;
+  });
+
+  // Nearest-neighbor fallback for short segments
+  if (kfA.length === 0) {
+    const mid = (aStartSec + aEndSec) / 2;
+    kfA = [allKf.reduce((best: any, kf: any) =>
+      Math.abs((kf.timestampMs ?? 0) / 1000 - mid) < Math.abs((best.timestampMs ?? 0) / 1000 - mid) ? kf : best
+    )];
+  }
+  if (kfB.length === 0) {
+    const mid = (bStartSec + bEndSec) / 2;
+    kfB = [allKf.reduce((best: any, kf: any) =>
+      Math.abs((kf.timestampMs ?? 0) / 1000 - mid) < Math.abs((best.timestampMs ?? 0) / 1000 - mid) ? kf : best
+    )];
+  }
+
+  // Extract + compare dominant colors (Jaccard similarity)
+  const colorsA = new Set(kfA.flatMap((kf: any) => (kf.dominantColors || []).map((c: string) => c.toLowerCase())));
+  const colorsB = new Set(kfB.flatMap((kf: any) => (kf.dominantColors || []).map((c: string) => c.toLowerCase())));
+
+  if (colorsA.size === 0 || colorsB.size === 0) return false; // No color data → allow
+
+  const intersection = [...colorsA].filter(c => colorsB.has(c));
+  const union = new Set([...colorsA, ...colorsB]);
+  const similarity = union.size > 0 ? intersection.length / union.size : 0.5;
+
+  // ⚠️ Thresholds are judgment calls, not KB values. May need tuning.
+  // >0.7 = most colors shared = visually same scene = suppress transition
+  // <0.4 = most colors different = visual scene change = allow transition
+  // 0.4-0.7 = uncertain = allow (benefit of the doubt, let intelligence decide)
+  if (similarity > 0.7) {
+    console.log(`[EDL-Exec] Single-source boundary at frame ${frame}: SUPPRESSED (color similarity ${similarity.toFixed(2)} > 0.7, same visual scene)`);
+    return true;
+  }
+
+  console.log(`[EDL-Exec] Single-source boundary at frame ${frame}: ALLOWED (color similarity ${similarity.toFixed(2)}, visual change detected)`);
+  return false;
+}
+
 function applyTransition(
   decision: EditDecision,
   overlays: Overlay[],

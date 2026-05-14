@@ -173,12 +173,12 @@ export interface MusicConfig {
 // ─── AI Models ─────────────────────────────────────────────────────
 
 // Models known to work with the Google generativelanguage.googleapis.com API.
-// Models verified to work with Google generativelanguage.googleapis.com API.
-// NOTE: 3.1 models use -preview suffix (e.g., gemini-3.1-pro-preview, NOT gemini-3.1-pro).
+// Updated 2026-05-15: standardized on gemini-3.1-flash (quick) + gemini-3.1-pro (heavy).
+// Legacy models kept in allowlist for env var overrides during transition.
 const VALID_GOOGLE_AI_MODELS = [
-  'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
+  'gemini-3.1-flash', 'gemini-3.1-pro',
   'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview',
-  'gemma-4-31b-it', 'gemma-4-26b-a4b-it',
+  'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
 ];
 
 /** Validate a model ID and fallback to default if invalid.
@@ -200,7 +200,7 @@ export interface AIModelConfig {
   referencePromptModel: string;
   /** Model for unified intelligence (env: LLM_INTELLIGENCE_MODEL) */
   unifiedIntelligenceModel: string;
-  /** Model for 5-Track analysis — LOCKED to gemini-2.5-flash (uses Files API) */
+  /** Model for 5-Track analysis (uses Files API for real footage) */
   analysisModel: string;
   /** Temperature for editing decisions */
   editingTemperature: number;
@@ -442,17 +442,14 @@ export const DEFAULT_CONFIG: EditronConfig = {
     //   better instruction-following. Still well within the 90s abort cap on typical scripts.
     //   subjectExtractionModel stays on 2.5-flash for the same reason (structured output reliability).
     //   montageDetectionModel stays on flash-lite because it's a narrower task (simpler prompt).
-    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
-    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
-    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
-    referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
-    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
-    // OLD: gemma-4-31b-it — does NOT support audio input modality. Seedance videos
-    // have native audio baked in, causing 400 "Audio input modality is not enabled"
-    // on EVERY analysis call. All 5-Track data was empty/fallback.
-    // NEW: gemini-3.1-flash-lite-preview — supports video+audio multimodal, cheapest 3.1 model.
-    // Verified against Google AI API docs: name is "gemini-3.1-flash-lite-preview" (NOT "gemini-3.1-flash").
-    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
+    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
+    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
+    referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
+    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro', 'gemini-3.1-flash'),
+    // Updated 2026-05-15: standardized to gemini-3.1-flash.
+    // History: gemma-4-31b-it (no audio) → gemini-3.1-flash-lite-preview → gemini-3.1-flash.
+    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
   },

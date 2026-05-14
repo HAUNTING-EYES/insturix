@@ -718,24 +718,59 @@ export async function executeDirectorPlan(
         // NEW: extract dominantColors + energyLevel from actual 5-Track keyframe analysis.
         const scenesForContinuity = videoOverlaysForContinuity.map((vo: any, idx: number) => {
           const sbScene = storyboardScenes.find((s: any) => s.sceneIndex === (vo.metadata?.sceneIndex ?? idx));
-          // Look up 5-Track analysis for this video's asset
-          // perAssetAnalysis is function-scope Map populated during 5-Track step
           const assetAnalysis = vo.assetId ? perAssetAnalysis.get(vo.assetId) : null;
-          const kfAnalyses = assetAnalysis?.keyframeAnalyses || [];
-          // Extract actual dominant colors from keyframes (flattened + deduplicated)
+          const allKfAnalyses = assetAnalysis?.keyframeAnalyses || [];
+
+          // Filter keyframes to THIS segment's source time range.
+          // For Mode 2: all overlays share one assetId but cover different time
+          // ranges of the source video. Without filtering, every segment gets the
+          // full video's colors → colorMatch = 1.0 for all pairs → continuity
+          // can't distinguish a kitchen scene from an outdoor scene in a vlog.
+          // For Mode 1: each overlay has a unique assetId, so all keyframes
+          // already belong to that overlay — the filter is a harmless no-op.
+          const fps = 30;
+          const voStartSec = ((vo as any).videoStartTime ?? 0) / fps;
+          const voEndSec = voStartSec + ((vo.durationInFrames || 150) / fps);
+          let kfForSegment = allKfAnalyses.filter((kf: any) => {
+            const kfSec = (kf.timestampMs ?? 0) / 1000;
+            return kfSec >= voStartSec && kfSec < voEndSec;
+          });
+          // Short segments may have zero keyframes in range — use nearest neighbor
+          if (kfForSegment.length === 0 && allKfAnalyses.length > 0) {
+            const midSec = (voStartSec + voEndSec) / 2;
+            kfForSegment = [allKfAnalyses.reduce((best: any, kf: any) => {
+              const bestDist = Math.abs(((best.timestampMs ?? 0) / 1000) - midSec);
+              const kfDist = Math.abs(((kf.timestampMs ?? 0) / 1000) - midSec);
+              return kfDist < bestDist ? kf : best;
+            })];
+          }
+
           const dominantColors = [...new Set(
-            kfAnalyses.flatMap((kf: any) => kf.dominantColors || []).filter(Boolean)
+            kfForSegment.flatMap((kf: any) => kf.dominantColors || []).filter(Boolean)
           )] as string[];
-          // Use real energy from analysis if available, fall back to storyboard mood
-          const analysisEnergy = kfAnalyses.length > 0
-            ? kfAnalyses.reduce((sum: number, kf: any) => sum + (kf.energyLevel ?? 0.5), 0) / kfAnalyses.length
+          const analysisEnergy = kfForSegment.length > 0
+            ? kfForSegment.reduce((sum: number, kf: any) => sum + (kf.energyLevel ?? 0.5), 0) / kfForSegment.length
             : null;
+
+          // Derive mood from per-segment energy when storyboard mood is generic.
+          // Mode 2 hardcodes mood='neutral' for all segments (director-agent Path C).
+          // With real energy data, we can differentiate calm vs energetic sections
+          // so continuity scoring produces meaningful per-boundary variation.
+          let effectiveMood = sbScene?.mood;
+          if ((!effectiveMood || effectiveMood === 'neutral') && analysisEnergy !== null) {
+            if (analysisEnergy > 0.75) effectiveMood = 'energetic';
+            else if (analysisEnergy > 0.6) effectiveMood = 'dramatic';
+            else if (analysisEnergy > 0.45) effectiveMood = 'neutral';
+            else if (analysisEnergy > 0.25) effectiveMood = 'mysterious';
+            else effectiveMood = 'calm';
+          }
+
           return {
             sceneIndex: vo.metadata?.sceneIndex ?? idx,
-            visualDescription: sbScene?.visualDescription || kfAnalyses.map((kf: any) => kf.description || '').join(' '),
-            mood: sbScene?.mood || 'neutral',
+            visualDescription: sbScene?.visualDescription || kfForSegment.map((kf: any) => kf.description || '').join(' '),
+            mood: effectiveMood || 'neutral',
             colorPalette: dominantColors,
-            durationSeconds: (vo.durationInFrames || 150) / 30,
+            durationSeconds: (vo.durationInFrames || 150) / fps,
           };
         });
         scenePairAnalysis = analyzeAllScenePairs(scenesForContinuity);
@@ -749,7 +784,7 @@ export async function executeDirectorPlan(
 
     // Path D: suppress fancy_captions (creates non-editable html-scene overlays).
     // Instead, keep standard add_captions which creates proper caption overlays.
-    const filteredActions = pathDConstraintViolations
+    let filteredActions = pathDConstraintViolations
       ? actions.map(a => {
           if (a.tool === 'add_fancy_captions') {
             // Replace with standard captions for Mode 2 (editable, proper timeline row)
@@ -758,6 +793,27 @@ export async function executeDirectorPlan(
           return a;
         })
       : actions;
+
+    // Path D: skip profile actions that the signal executor already handled.
+    // Signal executor placed transitions via 95 graph mappings + EDL execution.
+    // Running add_transition from the profile creates duplicates / overrides.
+    // Keep everything else: filter (only color grade path), captions, audio ducking,
+    // motion graphics (LottieFiles templates ≠ signal keyword graphics), beat sync,
+    // quality review.
+    if (pathDConstraintViolations) {
+      const pathDSkipTools = new Set(['add_transition']);
+      const beforeCount = filteredActions.length;
+      filteredActions = filteredActions.filter(a => {
+        if (pathDSkipTools.has(a.tool)) {
+          console.log(`[Director] Path D: Skipping profile action '${a.tool}' — signal executor already placed transitions via EDL`);
+          return false;
+        }
+        return true;
+      });
+      if (beforeCount !== filteredActions.length) {
+        console.log(`[Director] Path D: ${beforeCount - filteredActions.length} profile action(s) skipped (handled by signal-driven EDL)`);
+      }
+    }
 
     const totalSteps = filteredActions.length;
     onProgress?.(0, totalSteps, 'Starting Director Agent execution...');

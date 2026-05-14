@@ -48,10 +48,10 @@ import { extractEditDNA, applyEditDNA, loadProfile } from "../services/style-tra
 // NEW: getLLMModel(temperature) → shared singleton
 const _llmModelCache: Record<string, ChatGoogleGenerativeAI> = {};
 function getLLMModel(temperature: number): ChatGoogleGenerativeAI {
-  const key = `gemini-2.5-flash-t${temperature}`;
+  const key = `gemini-3.1-flash-t${temperature}`;
   if (!_llmModelCache[key]) {
     _llmModelCache[key] = new ChatGoogleGenerativeAI({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash',
       apiKey: process.env.GEMINI_API_KEY,
       temperature,
     });
@@ -3645,7 +3645,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
 
         const { GoogleGenerativeAI } = await import('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash' });
 
         const densityGuide = input.density === 'minimal' ? '1-2 total' : input.density === 'heavy' ? 'one per scene' : '2-3 total';
 

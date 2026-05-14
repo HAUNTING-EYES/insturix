@@ -63,10 +63,19 @@ interface BudgetState {
   zoomCount: number;
   zoomBudget: number;
   graphicCount: number;
+  shakeCount: number;
+  sfxCount: number;
+  captionEmphasisCount: number;
   lastZoomFrame: number;
   lastGraphicFrame: number;
   lastCutFrame: number;
+  lastShakeFrame: number;
+  lastSfxFrame: number;
   transitionCounts: Map<string, number>;
+  // Scaled budgets (computed from video duration)
+  shakeBudget: number;
+  sfxBudget: number;
+  captionEmphasisBudget: number;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -74,7 +83,15 @@ interface BudgetState {
 const MIN_ZOOM_GAP_FRAMES = 90;        // 3s at 30fps between zooms
 const MIN_GRAPHIC_GAP_FRAMES = 90;     // 3s between graphics
 const MIN_CUT_GAP_FRAMES = 15;         // 0.5s minimum between cuts
+const MIN_SHAKE_GAP_FRAMES = 60;       // 2s between shakes (KB CS-020)
+const MIN_SFX_GAP_FRAMES = 15;         // 0.5s between SFX triggers
 const MAX_TRANSITIONS_PER_TYPE = 4;    // max 4 of same transition type per video
+// Per-30s rate limits (used for scaled budgets)
+// ⚠️ UNVERIFIED — values from decision-budget.ts citing KB rule IDs.
+// KB audit (Phase 3) may revise these. Reasonable defaults for now.
+const SHAKE_PER_30S = 4;               // decision-budget.ts cites KB CS-020
+const SFX_PER_30S = 15;                // decision-budget.ts cites KB A-100
+const CAPTION_EMPHASIS_PER_30S = 10;   // decision-budget.ts cites KB C-012
 const BUDGET_OVERRIDE_WEIGHT = 0.9;    // weight > 0.9 can override ONE budget limit
 const MAX_DECISIONS_PER_WINDOW = 3;    // max 3 decisions per 15-frame window (prevent flooding)
 const SIGNAL_ACTIVATION_THRESHOLD = 0.25; // signals below this don't trigger mappings
@@ -132,14 +149,25 @@ export function executeSignalDrivenEdit(
   let mappingsFired = 0;
   let decisionsSuppressed = 0;
 
+  // Compute duration-scaled budgets for rate-limited decision types.
+  // KB rates are per 30 seconds. Scale linearly with video duration.
+  const durationScale = Math.max(1, timeline.totalFrames / (30 * (timeline.fps || 30)));
   const budget: BudgetState = {
     zoomCount: 0,
     zoomBudget: genreParams.zoom_budget,
     graphicCount: 0,
+    shakeCount: 0,
+    sfxCount: 0,
+    captionEmphasisCount: 0,
     lastZoomFrame: -999,
     lastGraphicFrame: -999,
     lastCutFrame: -999,
+    lastShakeFrame: -999,
+    lastSfxFrame: -999,
     transitionCounts: new Map(),
+    shakeBudget: Math.ceil(SHAKE_PER_30S * durationScale),         // KB CS-020
+    sfxBudget: Math.ceil(SFX_PER_30S * durationScale),             // KB A-100
+    captionEmphasisBudget: Math.ceil(CAPTION_EMPHASIS_PER_30S * durationScale), // KB C-012
   };
 
   // ── Structural guards ─────────────────────────────────────────────
@@ -263,7 +291,7 @@ export function executeSignalDrivenEdit(
       decisions.push(decision);
 
       // Add complement decisions (SFX pairings, caption emphasis)
-      const complements = buildComplements(mapping, decision, momentWeight, frame, graphIndex);
+      const complements = buildComplements(mapping, decision, momentWeight, frame, graphIndex, budget);
       decisions.push(...complements);
     }
   }
@@ -325,7 +353,7 @@ export function executeSignalDrivenEdit(
       updateBudget(decision, frame, budget);
       decisions.push(decision);
 
-      const complements = buildComplements(mapping, decision, momentWeight, frame, graphIndex);
+      const complements = buildComplements(mapping, decision, momentWeight, frame, graphIndex, budget);
       decisions.push(...complements);
     }
   }
@@ -485,7 +513,8 @@ function buildComplements(
   primaryDecision: EditDecision,
   momentWeight: number,
   frame: number,
-  graphIndex: GraphIndex
+  graphIndex: GraphIndex,
+  budget?: BudgetState
 ): EditDecision[] {
   const complements: EditDecision[] = [];
   if (!mapping.details.complements?.length) return complements;
@@ -496,9 +525,9 @@ function buildComplements(
   for (const complement of mapping.details.complements) {
     const lower = complement.toLowerCase();
 
-    // SFX complement
+    // SFX complement — rate-limited by budget (KB A-100: max 15/30s)
     if (lower.includes('sfx') || lower.includes('impact') || lower.includes('whoosh')) {
-      complements.push({
+      const sfxDecision: EditDecision = {
         type: 'sfx-trigger',
         frame,
         confidence: momentWeight * 0.8,
@@ -506,12 +535,16 @@ function buildComplements(
         technique: 'technique:sound.sfx_impact',
         params: { level_db: momentWeight > 0.7 ? -12 : -16, type: inferSfxType(lower) },
         reason: `Complement for ${primaryDecision.technique}`,
-      });
+      };
+      if (!budget || checkBudget(sfxDecision, budget, momentWeight)) {
+        complements.push(sfxDecision);
+        if (budget) updateBudget(sfxDecision, frame, budget);
+      }
     }
 
-    // Caption emphasis complement
+    // Caption emphasis complement — rate-limited by budget (KB C-012: max 10/30s)
     if (lower.includes('caption') && lower.includes('emphasis')) {
-      complements.push({
+      const capDecision: EditDecision = {
         type: 'caption-emphasis',
         frame,
         confidence: momentWeight * 0.7,
@@ -519,7 +552,11 @@ function buildComplements(
         technique: 'technique:caption.caption_emphasis',
         params: { scale: momentWeight > 0.7 ? 1.4 : 1.2, accent_color: 'true' },
         reason: `Complement for ${primaryDecision.technique}`,
-      });
+      };
+      if (!budget || checkBudget(capDecision, budget, momentWeight)) {
+        complements.push(capDecision);
+        if (budget) updateBudget(capDecision, frame, budget);
+      }
     }
 
     // Zoom complement (subtle)
@@ -565,6 +602,20 @@ function checkBudget(decision: EditDecision, budget: BudgetState, weight: number
       return true;
     }
 
+    case 'camera-shake':
+      if (budget.shakeCount >= budget.shakeBudget) return false;
+      if (decision.frame - budget.lastShakeFrame < MIN_SHAKE_GAP_FRAMES) return false;
+      return true;
+
+    case 'sfx-trigger':
+      if (budget.sfxCount >= budget.sfxBudget) return false;
+      if (decision.frame - budget.lastSfxFrame < MIN_SFX_GAP_FRAMES) return false;
+      return true;
+
+    case 'caption-emphasis':
+      if (budget.captionEmphasisCount >= budget.captionEmphasisBudget) return false;
+      return true;
+
     default:
       return true;
   }
@@ -587,6 +638,17 @@ function updateBudget(decision: EditDecision, frame: number, budget: BudgetState
     }
     case 'cut':
       budget.lastCutFrame = frame;
+      break;
+    case 'camera-shake':
+      budget.shakeCount++;
+      budget.lastShakeFrame = frame;
+      break;
+    case 'sfx-trigger':
+      budget.sfxCount++;
+      budget.lastSfxFrame = frame;
+      break;
+    case 'caption-emphasis':
+      budget.captionEmphasisCount++;
       break;
   }
 }

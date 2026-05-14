@@ -85,7 +85,26 @@ export async function POST(request: NextRequest) {
 
     // 3. Compute dimensions from aspect ratio
     const fps = 30;
-    const durationSec = asset.duration || 30;
+    let durationSec = asset.duration;
+    if (!durationSec || durationSec <= 0) {
+      console.warn(`[auto-edit/from-asset] Asset ${assetId} missing duration — attempting server-side MP4 extraction`);
+      try {
+        const { extractMP4Duration } = await import('@/lib/editron/services/mp4-duration-service');
+        const parsedDuration = await extractMP4Duration(serverVideoUrl);
+        if (parsedDuration && parsedDuration > 0) {
+          durationSec = parsedDuration;
+          console.log(`[auto-edit/from-asset] Recovered duration via MP4 parser: ${parsedDuration.toFixed(1)}s`);
+        }
+      } catch (durErr: any) {
+        console.error(`[auto-edit/from-asset] MP4 duration extraction failed: ${durErr.message}`);
+      }
+      if (!durationSec || durationSec <= 0) {
+        return NextResponse.json(
+          { success: false, error: `Asset ${assetId} has no duration and server-side extraction failed. Please re-upload the video.` },
+          { status: 400 }
+        );
+      }
+    }
     const durationInFrames = Math.round(durationSec * fps);
     const [w, h] = aspectRatio === '9:16' ? [1080, 1920]
       : aspectRatio === '1:1' ? [1080, 1080]

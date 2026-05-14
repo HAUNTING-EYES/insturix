@@ -1,13 +1,11 @@
 /**
- * Centralized Gemini/Gemma Model Factory
+ * Centralized Gemini Model Factory
  *
- * Replaces 22+ hardcoded `new GoogleGenerativeAI().getGenerativeModel({ model: 'gemini-2.5-flash' })`
- * calls across the codebase with a single configurable factory.
+ * Replaces hardcoded model references across the codebase with a single configurable factory.
  *
- * Model hierarchy:
- *   Gemma 4 (31B)       — Parsing + video/image analysis (FREE on AI Studio)
- *   Gemini 3.1 Flash    — Intelligence + scoring
- *   Gemini 2.5 Flash    — Chat + backup fallback
+ * Model hierarchy (updated 2026-05-15):
+ *   gemini-3.1-flash     — Analysis, chat, captions, classification (fast + cheap)
+ *   gemini-3.1-pro       — Intelligence, transcript editing, creative intent (best reasoning)
  *
  * The factory uses the native @google/generative-ai SDK (not @ai-sdk/google).
  * The Vercel AI SDK callers (llm-scene-parser, unified-intelligence, reference-image)
@@ -31,38 +29,34 @@ async function getGenAI() {
 // ─── Model Getters ───────────────────────────────────────────────
 
 /**
- * Get a model for video/image analysis — Gemma 4 by default.
+ * Get a model for video/image analysis (fast + cheap).
  * Used by: five-track-analysis, style-transfer, motion-graphics, transcription, asset analysis.
  * Override: LLM_ANALYSIS_MODEL env var.
  */
 export async function getAnalysisModel() {
   const genAI = await getGenAI();
-  const modelName = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview';
+  const modelName = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash';
   return genAI.getGenerativeModel({ model: modelName });
 }
 
 /**
- * Get a model for interactive chat — Gemini 2.5 Flash (speed-critical).
+ * Get a model for interactive chat (speed-critical).
  * Used by: AI Chat tools, agent-graph, editor LLM service.
  * NOT configurable — chat needs low latency + LangChain compatibility.
  */
 export async function getChatModel() {
   const genAI = await getGenAI();
-  return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  return genAI.getGenerativeModel({ model: 'gemini-3.1-flash' });
 }
 
 /**
- * Get a model for general tasks — Gemini 3.1 Pro (best reasoning).
- * Used by: editorial intent classification, consistency scoring, quality review.
- * Upgraded from gemini-2.5-flash to gemini-3.1-pro-preview (2026-05-10):
- *   Editorial intent classification needs highest accuracy for KEEP/CUT decisions.
- *   Pro model is slower (~2-3x) but significantly more capable on classification.
- *   Acceptable because this runs in background workers (800s timeout), not user-facing.
+ * Get a model for heavy tasks — best reasoning.
+ * Used by: editorial intent classification, transcript editing, creative intent.
  * Override: LLM_GENERAL_MODEL env var.
  */
 export async function getGeneralModel() {
   const genAI = await getGenAI();
-  const modelName = process.env.LLM_GENERAL_MODEL || 'gemini-3.1-pro-preview';
+  const modelName = process.env.LLM_GENERAL_MODEL || 'gemini-3.1-pro';
   return genAI.getGenerativeModel({ model: modelName });
 }
 
@@ -91,7 +85,7 @@ export async function getCreativeDocModel() {
  * Error patterns that indicate MODEL INCOMPATIBILITY — the model doesn't
  * support this operation (e.g., Gemma 4 can't use Files API).
  *
- * These trigger fallback to gemini-2.5-flash.
+ * These trigger fallback to gemini-3.1-flash.
  * Rate limits (429), auth errors (401), malformed requests (400) do NOT trigger fallback.
  */
 const MODEL_UNSUPPORTED_PATTERNS = [
@@ -136,8 +130,8 @@ export async function withAnalysisFallback<T>(
     return await fn(primaryModel);
   } catch (err: any) {
     if (isModelUnsupportedError(err)) {
-      const primaryName = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview';
-      const fallbackName = 'gemini-2.5-flash';
+      const primaryName = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash';
+      const fallbackName = 'gemini-3.1-flash';
       console.warn(`[ModelFactory] ${primaryName} unsupported for this operation, falling back to ${fallbackName}: ${err.message}`);
       const genAI = await getGenAI();
       const fallback = genAI.getGenerativeModel({ model: fallbackName });

@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
             userId,
             type: fileType,
             url: readUrl,
-            duration: duration ? parseFloat(duration) : undefined,
+            duration: verifiedDuration,
             filename,
           }),
         });
@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
               assetId,
               userId,
               type: fileType,
-              duration: duration ? parseFloat(duration) : undefined,
+              duration: verifiedDuration,
             },
           }),
         });

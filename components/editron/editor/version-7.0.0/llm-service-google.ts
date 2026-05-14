@@ -40,7 +40,7 @@ function getGoogleApiKey(): string {
   return key;
 }
 
-const MODEL_NAME = 'gemini-2.5-flash'; // Production model
+const MODEL_NAME = 'gemini-3.1-flash'; // Production model (updated 2026-05-15)
 const MAX_TURNS = 5; // Maximum function calling iterations
 
 // ============================================================================

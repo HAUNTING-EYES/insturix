@@ -49,6 +49,8 @@ async function handler(request: NextRequest) {
       userIntent, referenceAssetId, script, platform,
     } = payload;
 
+    let effectiveDurationSec = durationSec;
+
     if (!projectId || !userId || !videoUrl) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
@@ -169,6 +171,7 @@ async function handler(request: NextRequest) {
             return sum;
           }, 0);
         console.log(`[VideoAnalysisWorker] Fixed originalDurationMs=${actualDurationMs}, cleanDuration=${rawFootageAnalysis.estimatedCleanDurationMs}ms`);
+        effectiveDurationSec = actualDurationSec;
       }
 
       // Register asset in media_assets if missing (multipart upload may have failed to register)
@@ -232,7 +235,7 @@ async function handler(request: NextRequest) {
         const genreOutput = computeGenreParameters({
           rawFootage: rawFootageAnalysis,
           analyses: [],
-          videoDurationSec: durationSec,
+          videoDurationSec: effectiveDurationSec,
           userPlatform: platform,
           userIntent: userIntent,
         });
@@ -264,7 +267,7 @@ async function handler(request: NextRequest) {
             const context = {
               contentType: rawFootageAnalysis.contentTypeDetection?.contentType || 'unknown',
               speechCoverageBucket: buildSpeechCoverageBucket(speechCoverage),
-              durationBucket: buildDurationBucket(durationSec),
+              durationBucket: buildDurationBucket(effectiveDurationSec),
               platform: platform || 'youtube',
             };
 
