@@ -367,108 +367,66 @@ export function ReceiptTape({
         </div>
 
         {/* ── Action buttons ── */}
-        <div style={{ marginTop: 24 }}>
-          {/* Insert Card button */}
+        <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Add Credits — primary CTA */}
           <button
             onClick={onTopup}
-            className="receipt-btn-insert"
             style={{
               width: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 10,
-              padding: "18px 24px",
-              borderRadius: 12,
-              fontFamily: "'JetBrains Mono', monospace",
+              padding: "14px 24px",
+              borderRadius: 7,
+              border: "none",
+              background: "#D4A652",
+              color: "#0B0B0A",
+              fontFamily: "'Plus Jakarta Sans', sans-serif",
               fontSize: 14,
               fontWeight: 700,
-              letterSpacing: 1,
-              textTransform: "uppercase" as const,
-              border: "2px dashed #282724",
-              background: "#0F0F0E",
-              color: "#D4A652",
+              letterSpacing: "0.02em",
               cursor: "pointer",
               transition: "all 0.3s cubic-bezier(.16,1,.3,1)",
-              animation: "btnBorderGlow 3s ease-in-out infinite",
             }}
             onMouseEnter={(e) => {
-              const el = e.currentTarget;
-              el.style.borderColor = "#D4A652";
-              el.style.background = "rgba(212,166,82,0.05)";
-              el.style.transform = "translateY(-2px)";
-              el.style.boxShadow = "0 8px 32px rgba(212,166,82,0.15)";
-              el.style.animation = "none";
+              e.currentTarget.style.background = "#C49840";
+              e.currentTarget.style.transform = "translateY(-1px)";
+              e.currentTarget.style.boxShadow = "0 4px 20px rgba(212,166,82,0.25)";
             }}
             onMouseLeave={(e) => {
-              const el = e.currentTarget;
-              el.style.borderColor = "";
-              el.style.background = "#0F0F0E";
-              el.style.transform = "";
-              el.style.boxShadow = "";
-              el.style.animation = "btnBorderGlow 3s ease-in-out infinite";
+              e.currentTarget.style.background = "#D4A652";
+              e.currentTarget.style.transform = "";
+              e.currentTarget.style.boxShadow = "";
             }}
           >
-            {/* Card slot icon */}
-            <div
-              style={{
-                width: 28,
-                height: 18,
-                border: "2px solid #D4A652",
-                borderRadius: 4,
-                position: "relative",
-              }}
-            >
-              {/* Gold chip */}
-              <div
-                style={{
-                  position: "absolute",
-                  top: 3,
-                  left: 3,
-                  width: 8,
-                  height: 6,
-                  background: "#D4A652",
-                  borderRadius: 1,
-                  opacity: 0.5,
-                }}
-              />
-            </div>
-            Insert Card &mdash; Add Credits
+            Add Credits
           </button>
 
-          {/* Upgrade Plan button */}
+          {/* Upgrade Plan — secondary */}
           <button
             onClick={() => { window.location.href = "/upgrade"; }}
             style={{
               width: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 10,
-              padding: "16px 24px",
-              borderRadius: 12,
+              padding: "12px 24px",
+              borderRadius: 7,
+              border: "1px solid #1C1B19",
+              background: "transparent",
+              color: "#7A776E",
               fontFamily: "'Plus Jakarta Sans', sans-serif",
-              fontSize: 15,
-              fontWeight: 700,
-              border: "1px solid #282724",
-              background: "#131312",
-              color: "#ECE9E1",
+              fontSize: 13,
+              fontWeight: 600,
               cursor: "pointer",
               transition: "all 0.3s cubic-bezier(.16,1,.3,1)",
-              marginTop: 12,
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = "#D4A652";
               e.currentTarget.style.color = "#D4A652";
-              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.transform = "translateY(-1px)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "#282724";
-              e.currentTarget.style.color = "#ECE9E1";
+              e.currentTarget.style.borderColor = "#1C1B19";
+              e.currentTarget.style.color = "#7A776E";
               e.currentTarget.style.transform = "";
             }}
           >
-            &#8593;&ensp;Upgrade Plan
+            Upgrade Plan
           </button>
         </div>
       </div>
