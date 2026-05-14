@@ -270,7 +270,7 @@ async function generateVideoWithFal(
   // fal.ai video models need a clean image URL — GCS signed URLs with query
   // params cause failures. Re-upload to fal.ai CDN to get a clean URL.
   const startTime = Date.now();
-  const imageUrl = await getCleanImageUrl(request.imageUrl);
+  const imageUrl = await getCleanImageUrl(request.imageUrl.trim().replace(/\n/g, ''));
   // Also clean the next scene image URL if provided (for cross-scene chaining)
   const nextSceneImageUrl = request.nextSceneImageUrl
     ? await getCleanImageUrl(request.nextSceneImageUrl)
