@@ -7,11 +7,10 @@ export interface SyncDotsProps {
 }
 
 const DOTS = [
-  { id: "opening",      top: "8%" },
-  { id: "introduction", top: "28%" },
-  { id: "chapters",     top: "58%" },
-  { id: "breaking",     top: "78%" },
-  { id: "signature",    top: "92%" },
+  { id: "opening",      top: "10%" },
+  { id: "introduction", top: "30%" },
+  { id: "chapters",     top: "62%" },
+  { id: "breaking",     top: "82%" },
 ] as const;
 
 export default function SyncDots({ activeSection }: SyncDotsProps) {
