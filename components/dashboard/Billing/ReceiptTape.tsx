@@ -144,7 +144,7 @@ export function ReceiptTape({
       </div>
 
       {/* Receipt wrapper with print-reveal animation */}
-      <div className="animate-[receiptPrint_2.5s_ease_both] relative">
+      <div className="relative" style={{ animation: "receiptPrint 2.5s ease both" }}>
         {/* Top zigzag tear */}
         <ZigzagTear />
 

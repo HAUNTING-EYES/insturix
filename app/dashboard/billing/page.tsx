@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useCredits } from "@/hooks/useCredits";
 import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
@@ -24,9 +24,28 @@ export default function BillingPage() {
         <div className="bg-[#131312] rounded-sm px-6 py-10 animate-pulse h-[400px]" />
       </div>
     }>
-      <BillingContent />
+      <BillingErrorBoundary>
+        <BillingContent />
+      </BillingErrorBoundary>
     </Suspense>
   );
+}
+
+class BillingErrorBoundary extends React.Component<{children: React.ReactNode}, {error: Error | null}> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error) { console.error("Billing crash:", error); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="w-full max-w-[640px] mx-auto px-6 py-12 text-center">
+          <p style={{ color: "#D46A5C", fontFamily: "monospace", fontSize: 14, marginBottom: 8 }}>BILLING CRASH</p>
+          <p style={{ color: "#7A776E", fontFamily: "monospace", fontSize: 12 }}>{this.state.error.message}</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function BillingContent() {
