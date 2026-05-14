@@ -35,47 +35,56 @@
     overflow-x: hidden;
   }
 
-  /* ===== CONSTELLATION HERO SECTION ===== */
+  /* ===== CONSTELLATION HERO ===== */
   .constellation-hero {
     position: relative;
     width: 100%;
-    height: 420px;
+    height: 600px;
     overflow: hidden;
     border-bottom: 1px solid var(--border);
+    background: radial-gradient(ellipse 80% 60% at 50% 40%, rgba(212,166,82,0.03) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 50% at 30% 60%, rgba(144,136,212,0.02) 0%, transparent 50%),
+                radial-gradient(ellipse 50% 40% at 70% 50%, rgba(92,184,204,0.02) 0%, transparent 50%),
+                var(--bg);
   }
 
-  /* Star field background */
+  /* Star field background — 120 twinkling stars */
   .star-field {
     position: absolute;
     inset: 0;
+    z-index: 0;
   }
 
   .bg-star {
     position: absolute;
-    width: 2px;
-    height: 2px;
-    background: var(--text-dim);
     border-radius: 50%;
+    background: var(--text-dim);
     animation: twinkle var(--dur) ease-in-out infinite;
     animation-delay: var(--delay);
   }
 
+  .bg-star.bright {
+    background: var(--text-muted);
+    box-shadow: 0 0 3px rgba(236,233,225,0.15);
+  }
+
   @keyframes twinkle {
-    0%, 100% { opacity: 0.15; }
-    50% { opacity: 0.6; }
+    0%, 100% { opacity: 0.1; }
+    50% { opacity: 0.65; }
   }
 
   /* Constellation container */
   .constellation {
     position: absolute;
     inset: 0;
+    z-index: 5;
   }
 
   /* Connection SVG lines */
   .connections {
     position: absolute;
     inset: 0;
-    z-index: 1;
+    z-index: 2;
     pointer-events: none;
   }
 
@@ -88,37 +97,43 @@
     stroke: var(--border-light);
     stroke-width: 1;
     opacity: 0;
-    stroke-dasharray: 1000;
-    stroke-dashoffset: 1000;
-    animation: drawLine 2s var(--ease) forwards;
+    stroke-dasharray: var(--line-len);
+    stroke-dashoffset: var(--line-len);
+    animation: drawLine 1.8s var(--ease) forwards;
+    animation-delay: var(--draw-delay);
   }
-
-  .conn-line:nth-child(1) { animation-delay: 0.5s; }
-  .conn-line:nth-child(2) { animation-delay: 0.7s; }
-  .conn-line:nth-child(3) { animation-delay: 0.9s; }
-  .conn-line:nth-child(4) { animation-delay: 1.1s; }
-  .conn-line:nth-child(5) { animation-delay: 1.3s; }
-  .conn-line:nth-child(6) { animation-delay: 1.5s; }
 
   @keyframes drawLine {
     to { stroke-dashoffset: 0; opacity: 0.4; }
   }
 
-  /* Member stars */
+  /* ===== MEMBER STARS ===== */
   .star-member {
     position: absolute;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     cursor: pointer;
-    transition: all 0.5s var(--ease);
-    z-index: 5;
+    z-index: 10;
     opacity: 0;
-    animation: starAppear 0.8s var(--ease) forwards;
+    animation: starAppear 0.9s var(--ease) forwards;
+    animation-delay: var(--appear-delay, 0.3s);
+    transform: translate(-50%, -50%);
   }
 
-  .star-member:hover { transform: scale(1.08) !important; }
+  .star-member:hover {
+    z-index: 15;
+  }
+
+  .star-member:hover .star-avatar {
+    transform: scale(1.06);
+  }
+
+  .star-member:hover .star-glow {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.15);
+  }
 
   .star-body {
     position: relative;
@@ -130,9 +145,12 @@
   .star-glow {
     position: absolute;
     border-radius: 50%;
-    filter: blur(20px);
+    filter: blur(25px);
     z-index: -1;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
     animation: starPulse 4s ease-in-out infinite;
+    animation-delay: var(--pulse-delay, 0s);
   }
 
   .star-avatar {
@@ -144,6 +162,7 @@
     position: relative;
     z-index: 2;
     overflow: hidden;
+    transition: transform 0.4s var(--ease);
   }
 
   .star-avatar img {
@@ -156,128 +175,187 @@
     position: absolute;
     border-radius: 50%;
     border: 1.5px solid;
-    animation: ringPulse 3s ease-in-out infinite;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    animation: ringPulse 3.5s ease-in-out infinite;
+    animation-delay: var(--pulse-delay, 0s);
     z-index: 1;
   }
 
-  /* Owner star — largest */
+  /* Owner star — LARGE (100px) */
   .star-member.owner .star-avatar {
-    width: 72px;
-    height: 72px;
-    font-size: 22px;
-    background: linear-gradient(135deg, rgba(212,166,82,0.25), rgba(212,166,82,0.08));
+    width: 100px;
+    height: 100px;
+    font-size: 30px;
+    background: linear-gradient(135deg, rgba(212,166,82,0.3), rgba(212,166,82,0.08));
     color: var(--gold);
-    border: 2px solid rgba(212,166,82,0.5);
+    border: 2.5px solid rgba(212,166,82,0.55);
+    box-shadow: 0 0 30px rgba(212,166,82,0.15), inset 0 0 20px rgba(212,166,82,0.05);
   }
 
   .star-member.owner .star-glow {
-    width: 130px;
-    height: 130px;
-    background: rgba(212,166,82,0.12);
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
+    width: 180px;
+    height: 180px;
+    background: rgba(212,166,82,0.14);
   }
 
   .star-member.owner .star-ring {
-    width: 92px;
-    height: 92px;
+    width: 130px;
+    height: 130px;
     border-color: rgba(212,166,82,0.2);
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
   }
 
-  /* Admin star */
+  .star-member.owner .star-ring-outer {
+    position: absolute;
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    border: 1px solid rgba(212,166,82,0.08);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    animation: ringPulse 5s ease-in-out infinite;
+    z-index: 0;
+  }
+
+  /* Admin star — 70px */
   .star-member.admin .star-avatar {
-    width: 58px;
-    height: 58px;
-    font-size: 18px;
-    background: linear-gradient(135deg, rgba(144,136,212,0.25), rgba(144,136,212,0.08));
+    width: 70px;
+    height: 70px;
+    font-size: 22px;
+    background: linear-gradient(135deg, rgba(144,136,212,0.3), rgba(144,136,212,0.08));
     color: var(--purple);
-    border: 2px solid rgba(144,136,212,0.4);
+    border: 2px solid rgba(144,136,212,0.45);
+    box-shadow: 0 0 22px rgba(144,136,212,0.1), inset 0 0 14px rgba(144,136,212,0.04);
   }
 
   .star-member.admin .star-glow {
-    width: 100px;
-    height: 100px;
-    background: rgba(144,136,212,0.08);
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
+    width: 130px;
+    height: 130px;
+    background: rgba(144,136,212,0.1);
   }
 
   .star-member.admin .star-ring {
-    width: 76px;
-    height: 76px;
-    border-color: rgba(144,136,212,0.15);
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
+    width: 96px;
+    height: 96px;
+    border-color: rgba(144,136,212,0.16);
   }
 
-  /* Member star — smallest */
+  /* Member star — 60px */
   .star-member.member .star-avatar {
-    width: 48px;
-    height: 48px;
-    font-size: 15px;
-    background: linear-gradient(135deg, rgba(92,184,204,0.25), rgba(92,184,204,0.08));
+    width: 60px;
+    height: 60px;
+    font-size: 18px;
+    background: linear-gradient(135deg, rgba(92,184,204,0.3), rgba(92,184,204,0.08));
     color: var(--cyan);
-    border: 2px solid rgba(92,184,204,0.35);
+    border: 2px solid rgba(92,184,204,0.4);
+    box-shadow: 0 0 18px rgba(92,184,204,0.08), inset 0 0 12px rgba(92,184,204,0.03);
   }
 
   .star-member.member .star-glow {
-    width: 82px;
-    height: 82px;
-    background: rgba(92,184,204,0.06);
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
+    width: 110px;
+    height: 110px;
+    background: rgba(92,184,204,0.08);
   }
 
   .star-member.member .star-ring {
-    width: 64px;
-    height: 64px;
-    border-color: rgba(92,184,204,0.12);
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
+    width: 82px;
+    height: 82px;
+    border-color: rgba(92,184,204,0.13);
   }
 
+  /* Star name label (always visible) */
   .star-label {
     text-align: center;
+    pointer-events: none;
   }
 
   .star-name {
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     color: var(--text-primary);
     margin-bottom: 1px;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.6);
   }
 
   .star-role-text {
     font-family: 'JetBrains Mono', monospace;
     font-size: 9px;
     color: var(--text-muted);
-    letter-spacing: 1px;
+    letter-spacing: 1.2px;
     text-transform: uppercase;
   }
 
+  /* CSS-only hover tooltip (just name, subtle) */
+  .star-tooltip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(19,19,18,0.92);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 6px 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 20;
+    backdrop-filter: blur(8px);
+  }
+
+  .star-tooltip .tt-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .star-tooltip .tt-role {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 1px;
+  }
+
+  .star-tooltip .tt-role.tt-owner { color: var(--gold); }
+  .star-tooltip .tt-role.tt-admin { color: var(--purple); }
+  .star-tooltip .tt-role.tt-member { color: var(--cyan); }
+
+  .star-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--border-light);
+  }
+
+  .star-member:hover .star-tooltip {
+    opacity: 1;
+  }
+
   @keyframes starAppear {
-    from { opacity: 0; transform: scale(0.3) translate(-50%, -50%); }
-    to { opacity: 1; transform: scale(1) translate(-50%, -50%); }
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
 
   @keyframes starPulse {
     0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
-    50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.1); }
+    50% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.12); }
   }
 
   @keyframes ringPulse {
-    0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
-    50% { opacity: 0.7; transform: translate(-50%, -50%) scale(1.06); }
+    0%, 100% { opacity: 0.35; transform: translate(-50%, -50%) scale(1); }
+    50% { opacity: 0.65; transform: translate(-50%, -50%) scale(1.07); }
   }
 
-  /* Org name overlay on constellation */
+  /* Org name overlay */
   .constellation-title {
     position: absolute;
-    top: 28px;
-    left: 40px;
-    z-index: 10;
+    top: 32px;
+    left: 44px;
+    z-index: 20;
   }
 
   .constellation-title .org-label {
@@ -290,59 +368,61 @@
   }
 
   .constellation-title .org-name {
-    font-size: 28px;
+    font-size: 30px;
     font-weight: 800;
     background: linear-gradient(135deg, var(--text-primary), var(--gold));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
 
-  /* Add member button on constellation */
+  /* Add member button — pulsing */
   .add-star-btn {
     position: absolute;
-    bottom: 28px;
-    right: 28px;
-    width: 48px;
-    height: 48px;
+    bottom: 32px;
+    right: 32px;
+    width: 52px;
+    height: 52px;
     border-radius: 50%;
     background: rgba(212,166,82,0.1);
     border: 1.5px dashed rgba(212,166,82,0.3);
     color: var(--gold);
-    font-size: 22px;
+    font-size: 24px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: all 0.3s var(--ease);
-    z-index: 10;
+    z-index: 20;
     animation: pulseBorder 3s ease-in-out infinite;
   }
 
   .add-star-btn:hover {
-    background: rgba(212,166,82,0.15);
-    border-color: rgba(212,166,82,0.5);
-    transform: scale(1.08);
+    background: rgba(212,166,82,0.18);
+    border-color: rgba(212,166,82,0.55);
+    transform: scale(1.1);
+    box-shadow: 0 0 20px rgba(212,166,82,0.15);
   }
 
   @keyframes pulseBorder {
-    0%, 100% { border-color: rgba(212,166,82,0.2); }
-    50% { border-color: rgba(212,166,82,0.5); }
+    0%, 100% { border-color: rgba(212,166,82,0.2); box-shadow: 0 0 0 rgba(212,166,82,0); }
+    50% { border-color: rgba(212,166,82,0.5); box-shadow: 0 0 16px rgba(212,166,82,0.08); }
   }
 
-  /* Star detail popup */
+  /* ===== STAR DETAIL POPUP (click) — CENTERED BELOW STAR ===== */
   .star-detail {
     position: absolute;
     background: var(--raised);
     border: 1px solid var(--border-light);
     border-radius: 14px;
-    padding: 20px 24px;
-    z-index: 20;
-    min-width: 240px;
+    padding: 22px 26px;
+    z-index: 50;
+    min-width: 260px;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(8px);
-    transition: all 0.3s var(--ease);
-    box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+    transform: translateY(12px);
+    transition: opacity 0.25s var(--ease), transform 0.25s var(--ease);
+    box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(40,39,36,0.3);
+    backdrop-filter: blur(12px);
   }
 
   .star-detail.visible {
@@ -351,13 +431,61 @@
     transform: translateY(0);
   }
 
-  .detail-name { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .star-detail::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-bottom-color: var(--border-light);
+  }
+
+  .detail-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .detail-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+
+  .detail-avatar.da-owner {
+    background: linear-gradient(135deg, rgba(212,166,82,0.25), rgba(212,166,82,0.08));
+    color: var(--gold);
+    border: 1.5px solid rgba(212,166,82,0.4);
+  }
+
+  .detail-avatar.da-admin {
+    background: linear-gradient(135deg, rgba(144,136,212,0.25), rgba(144,136,212,0.08));
+    color: var(--purple);
+    border: 1.5px solid rgba(144,136,212,0.4);
+  }
+
+  .detail-avatar.da-member {
+    background: linear-gradient(135deg, rgba(92,184,204,0.25), rgba(92,184,204,0.08));
+    color: var(--cyan);
+    border: 1.5px solid rgba(92,184,204,0.4);
+  }
+
+  .detail-info {}
+
+  .detail-name { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
 
   .detail-email {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
     color: var(--text-muted);
-    margin-bottom: 12px;
   }
 
   .detail-meta {
@@ -404,49 +532,47 @@
     border: 1px solid rgba(144,136,212,0.2);
     color: var(--purple);
   }
-
-  .detail-btn.role-btn:hover { background: rgba(144,136,212,0.15); }
+  .detail-btn.role-btn:hover { background: rgba(144,136,212,0.18); }
 
   .detail-btn.remove-btn {
     background: rgba(220,80,80,0.08);
     border: 1px solid rgba(220,80,80,0.15);
     color: #d45050;
   }
+  .detail-btn.remove-btn:hover { background: rgba(220,80,80,0.14); }
 
-  .detail-btn.remove-btn:hover { background: rgba(220,80,80,0.12); }
 
-
-  /* ===== DASHBOARD CONTENT BELOW CONSTELLATION ===== */
+  /* ===== DASHBOARD CONTENT BELOW ===== */
   .dashboard {
     max-width: 1100px;
     margin: 0 auto;
-    padding: 32px 40px 60px;
+    padding: 40px 40px 60px;
   }
 
-  /* Status cards row */
+  /* Status cards */
   .status-bar {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 16px;
-    margin-bottom: 32px;
+    margin-bottom: 36px;
   }
 
   .status-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 18px 20px;
+    padding: 20px 22px;
     position: relative;
     overflow: hidden;
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(14px);
     animation: cardAppear 0.5s var(--ease) forwards;
   }
 
-  .status-card:nth-child(1) { animation-delay: 0.1s; }
-  .status-card:nth-child(2) { animation-delay: 0.15s; }
-  .status-card:nth-child(3) { animation-delay: 0.2s; }
-  .status-card:nth-child(4) { animation-delay: 0.25s; }
+  .status-card:nth-child(1) { animation-delay: 0.15s; }
+  .status-card:nth-child(2) { animation-delay: 0.22s; }
+  .status-card:nth-child(3) { animation-delay: 0.29s; }
+  .status-card:nth-child(4) { animation-delay: 0.36s; }
 
   .status-card::before {
     content: '';
@@ -471,7 +597,7 @@
 
   .status-card-value {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 26px;
+    font-size: 28px;
     font-weight: 700;
     color: var(--text-primary);
   }
@@ -619,13 +745,8 @@
     transition: color 0.2s var(--ease);
   }
 
-  .crew-table thead th:hover {
-    color: var(--text-muted);
-  }
-
-  .crew-table thead th.sorted {
-    color: var(--gold);
-  }
+  .crew-table thead th:hover { color: var(--text-muted); }
+  .crew-table thead th.sorted { color: var(--gold); }
 
   .sort-arrow {
     font-size: 10px;
@@ -640,13 +761,14 @@
     animation: rowSlide 0.5s var(--ease) forwards;
   }
 
-  .crew-table tbody tr:nth-child(1) { animation-delay: 0.2s; }
-  .crew-table tbody tr:nth-child(2) { animation-delay: 0.3s; }
-  .crew-table tbody tr:nth-child(3) { animation-delay: 0.4s; }
-  .crew-table tbody tr:nth-child(4) { animation-delay: 0.5s; }
+  .crew-table tbody tr:nth-child(1) { animation-delay: 0.25s; }
+  .crew-table tbody tr:nth-child(2) { animation-delay: 0.35s; }
+  .crew-table tbody tr:nth-child(3) { animation-delay: 0.45s; }
+  .crew-table tbody tr:nth-child(4) { animation-delay: 0.55s; }
+  .crew-table tbody tr:nth-child(5) { animation-delay: 0.65s; }
+  .crew-table tbody tr:nth-child(6) { animation-delay: 0.75s; }
 
   .crew-table tbody tr:last-child { border-bottom: none; }
-
   .crew-table tbody tr:hover { background: var(--raised); }
 
   .crew-table tbody td {
@@ -680,11 +802,7 @@
     overflow: hidden;
   }
 
-  .member-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
+  .member-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
   .member-avatar.av-owner {
     background: linear-gradient(135deg, rgba(212,166,82,0.2), rgba(212,166,82,0.05));
@@ -741,9 +859,7 @@
     transition: transform 0.6s var(--ease);
   }
 
-  tr:hover .role-badge::before {
-    transform: translateX(100%);
-  }
+  tr:hover .role-badge::before { transform: translateX(100%); }
 
   .role-badge.badge-owner {
     background: rgba(212,166,82,0.1);
@@ -765,14 +881,13 @@
 
   .badge-icon { font-size: 12px; }
 
-  /* Date text */
   .date-text {
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px;
     color: var(--text-muted);
   }
 
-  /* Row actions — visible on hover */
+  /* Row actions */
   .row-actions {
     display: flex;
     gap: 6px;
@@ -845,7 +960,6 @@
   }
 
   .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
-
   .modal p { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
 
   .form-group { margin-bottom: 16px; }
@@ -926,7 +1040,7 @@
   .btn-send:hover { filter: brightness(1.1); transform: translateY(-1px); }
 
 
-  /* ===== SETTINGS PANEL ===== */
+  /* ===== SETTINGS PANEL — slide from right ===== */
   .settings-panel-overlay {
     position: fixed;
     inset: 0;
@@ -979,7 +1093,6 @@
   .settings-close:hover { color: var(--text-primary); }
 
   .settings-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
-
   .settings-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 28px; }
 
   .setting-group { margin-bottom: 24px; }
@@ -1058,7 +1171,6 @@
     box-shadow: 0 0 8px rgba(94,201,126,0.3);
   }
 
-  /* Default role selector in settings */
   .role-select {
     padding: 6px 12px;
     background: var(--well);
@@ -1074,7 +1186,7 @@
     text-align: center;
   }
 
-  /* Role change dropdown (inline in table) */
+  /* Role change dropdown */
   .role-dropdown {
     position: absolute;
     background: var(--raised);
@@ -1123,18 +1235,19 @@
     background: rgba(212,166,82,0.06);
   }
 
+
   /* Responsive */
   @media (max-width: 900px) {
     .status-bar { grid-template-columns: repeat(2, 1fr); }
-    .constellation-hero { height: 340px; }
-    .dashboard { padding: 24px 20px 48px; }
+    .constellation-hero { height: 480px; }
+    .dashboard { padding: 28px 20px 48px; }
   }
 
   @media (max-width: 600px) {
     .status-bar { grid-template-columns: 1fr; }
     .toolbar { flex-direction: column; gap: 12px; align-items: stretch; }
     .toolbar-right { flex-wrap: wrap; }
-    .constellation-hero { height: 280px; }
+    .constellation-hero { height: 400px; }
   }
 </style>
 </head>
@@ -1155,10 +1268,15 @@
 
   <div class="constellation" id="constellation"></div>
 
-  <!-- Star detail popup -->
+  <!-- Star detail popup — positioned by JS centered below clicked star -->
   <div class="star-detail" id="starDetail">
-    <div class="detail-name" id="detailName"></div>
-    <div class="detail-email" id="detailEmail"></div>
+    <div class="detail-header">
+      <div class="detail-avatar" id="detailAvatar"></div>
+      <div class="detail-info">
+        <div class="detail-name" id="detailName"></div>
+        <div class="detail-email" id="detailEmail"></div>
+      </div>
+    </div>
     <div class="detail-meta">
       <div class="detail-row">
         <span class="detail-row-label">Role</span>
@@ -1320,9 +1438,7 @@
 
 <script>
   // ===================================================================
-  // DATA — matches backend schemas: Organization + OrgMember
-  // Fields: clerkUserId, email, username?, imageUrl?, role, joinedAt
-  // Roles: 'owner' | 'admin' | 'member'
+  // DATA
   // ===================================================================
   const members = [
     {
@@ -1359,16 +1475,13 @@
     },
   ];
 
-  // Current user role — determines what actions are visible
   const currentUserRole = 'owner';
 
-  // Org settings (from Organization.settings)
   const orgSettings = {
     allowMemberProjects: true,
     defaultRole: 'member',
   };
 
-  // Sort state
   let sortField = 'joined';
   let sortAsc = true;
 
@@ -1410,18 +1523,19 @@
 
 
   // ===================================================================
-  // 1. STAR FIELD BACKGROUND
+  // 1. STAR FIELD — 120 twinkling background stars
   // ===================================================================
   function generateStarField() {
     const field = document.getElementById('starField');
-    for (let i = 0; i < 100; i++) {
+    field.innerHTML = '';
+    for (let i = 0; i < 120; i++) {
       const star = document.createElement('div');
-      star.className = 'bg-star';
+      star.className = 'bg-star' + (Math.random() > 0.8 ? ' bright' : '');
       star.style.left = Math.random() * 100 + '%';
       star.style.top = Math.random() * 100 + '%';
-      star.style.setProperty('--dur', (3 + Math.random() * 5) + 's');
-      star.style.setProperty('--delay', Math.random() * 5 + 's');
-      const size = (1 + Math.random() * 1.5) + 'px';
+      star.style.setProperty('--dur', (2.5 + Math.random() * 5) + 's');
+      star.style.setProperty('--delay', Math.random() * 6 + 's');
+      const size = (1 + Math.random() * 2) + 'px';
       star.style.width = size;
       star.style.height = size;
       field.appendChild(star);
@@ -1430,7 +1544,7 @@
 
 
   // ===================================================================
-  // 2. CONSTELLATION — position stars + draw connections
+  // 2. CONSTELLATION — large stars, generous spacing, connection lines
   // ===================================================================
   function renderConstellation() {
     const container = document.getElementById('constellation');
@@ -1438,22 +1552,24 @@
     const w = hero.offsetWidth;
     const h = hero.offsetHeight;
     const cx = w / 2;
-    const cy = h / 2;
+    const cy = h / 2 + 10; // slightly below center to leave room for title
 
     container.innerHTML = '';
 
-    // Layout stars in a circle around center, owner at top
+    // Sort by role importance: owner first
     const roleOrder = { owner: 0, admin: 1, member: 2 };
     const sorted = [...members].sort((a, b) => roleOrder[a.role] - roleOrder[b.role]);
     const n = sorted.length;
-    const radius = Math.min(w * 0.28, h * 0.3, 200);
+
+    // Generous radius — use more of the available space
+    const radius = Math.min(w * 0.3, h * 0.32, 240);
     const positions = {};
 
     sorted.forEach((m, i) => {
-      // Distribute evenly starting from top
+      // Distribute evenly, owner at top
       const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
       const x = cx + radius * Math.cos(angle);
-      const y = cy + radius * Math.sin(angle) + 20;
+      const y = cy + radius * Math.sin(angle);
 
       positions[m.clerkUserId] = { x, y };
 
@@ -1462,18 +1578,31 @@
       el.id = `star-${m.clerkUserId}`;
       el.style.left = x + 'px';
       el.style.top = y + 'px';
-      el.style.transform = 'translate(-50%, -50%)';
-      el.style.animationDelay = (0.2 + i * 0.2) + 's';
+      el.style.setProperty('--appear-delay', (0.3 + i * 0.18) + 's');
+      el.style.setProperty('--pulse-delay', (i * 0.7) + 's');
       el.setAttribute('data-userid', m.clerkUserId);
-      el.onclick = function(e) { showStarDetail(m.clerkUserId, e); };
+
+      // CLICK opens detail popup — NOT hover
+      el.addEventListener('click', function(e) {
+        e.stopPropagation();
+        showStarDetail(m.clerkUserId);
+      });
 
       const avatarContent = m.imageUrl
         ? `<img src="${m.imageUrl}" alt="">`
         : getInitials(m);
 
+      // Owner gets an extra outer ring
+      const outerRing = m.role === 'owner' ? '<div class="star-ring-outer"></div>' : '';
+
       el.innerHTML = `
+        <div class="star-tooltip">
+          <div class="tt-name">${displayName(m)}</div>
+          <div class="tt-role tt-${m.role}">${m.role}</div>
+        </div>
         <div class="star-body">
           <div class="star-glow"></div>
+          ${outerRing}
           <div class="star-ring"></div>
           <div class="star-avatar">${avatarContent}</div>
         </div>
@@ -1499,13 +1628,16 @@
       for (let j = i + 1; j < ids.length; j++) {
         const a = positions[ids[i]];
         const b = positions[ids[j]];
+        const lineLen = Math.sqrt(Math.pow(b.x - a.x, 2) + Math.pow(b.y - a.y, 2));
+
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         line.setAttribute('x1', a.x);
         line.setAttribute('y1', a.y);
         line.setAttribute('x2', b.x);
         line.setAttribute('y2', b.y);
         line.classList.add('conn-line');
-        line.style.animationDelay = (0.5 + idx * 0.15) + 's';
+        line.style.setProperty('--line-len', lineLen);
+        line.style.setProperty('--draw-delay', (0.6 + idx * 0.18) + 's');
         svg.appendChild(line);
         idx++;
       }
@@ -1514,15 +1646,26 @@
 
 
   // ===================================================================
-  // 3. STAR DETAIL POPUP (on constellation click)
+  // 3. STAR DETAIL POPUP — CLICK opens, CENTERED BELOW the star
   // ===================================================================
   let activeStarDetail = null;
 
-  function showStarDetail(userId, event) {
-    event.stopPropagation();
+  function showStarDetail(userId) {
     const detail = document.getElementById('starDetail');
     const m = members.find(x => x.clerkUserId === userId);
     if (!m) return;
+
+    // If clicking the same star, toggle off
+    if (activeStarDetail === userId && detail.classList.contains('visible')) {
+      hideStarDetail();
+      return;
+    }
+
+    // Populate content
+    const avatarEl = document.getElementById('detailAvatar');
+    avatarEl.className = 'detail-avatar da-' + m.role;
+    avatarEl.textContent = m.imageUrl ? '' : getInitials(m);
+    if (m.imageUrl) avatarEl.innerHTML = `<img src="${m.imageUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
 
     document.getElementById('detailName').textContent = displayName(m);
     document.getElementById('detailEmail').textContent = m.email;
@@ -1541,25 +1684,59 @@
       actionsEl.innerHTML = '';
     }
 
+    // Position: CENTERED below the star
     const starEl = document.getElementById('star-' + userId);
     const hero = document.getElementById('constellationHero');
-    const rect = starEl.getBoundingClientRect();
-    const hRect = hero.getBoundingClientRect();
+    const starRect = starEl.getBoundingClientRect();
+    const heroRect = hero.getBoundingClientRect();
 
-    detail.style.left = (rect.right - hRect.left + 12) + 'px';
-    detail.style.top = (rect.top - hRect.top) + 'px';
+    // Get the avatar size to position below it
+    const starCenterX = starRect.left + starRect.width / 2 - heroRect.left;
+    const starBottom = starRect.bottom - heroRect.top + 10;
+
+    // Show first to measure width
+    detail.style.visibility = 'hidden';
+    detail.style.opacity = '0';
     detail.classList.add('visible');
+
+    const detailWidth = detail.offsetWidth;
+    const detailHeight = detail.offsetHeight;
+
+    // Center horizontally below the star
+    let left = starCenterX - detailWidth / 2;
+    let top = starBottom;
+
+    // Clamp to hero bounds
+    const margin = 12;
+    if (left < margin) left = margin;
+    if (left + detailWidth > hero.offsetWidth - margin) left = hero.offsetWidth - detailWidth - margin;
+
+    // If it would go below the hero, position ABOVE instead
+    if (top + detailHeight > hero.offsetHeight - margin) {
+      top = (starRect.top - heroRect.top) - detailHeight - 16;
+      // Flip the arrow
+      detail.style.setProperty('--arrow-flip', '1');
+    } else {
+      detail.style.removeProperty('--arrow-flip');
+    }
+
+    detail.style.left = left + 'px';
+    detail.style.top = top + 'px';
+    detail.style.visibility = '';
+    detail.style.opacity = '';
+
     activeStarDetail = userId;
   }
 
   function hideStarDetail() {
-    document.getElementById('starDetail').classList.remove('visible');
+    const detail = document.getElementById('starDetail');
+    detail.classList.remove('visible');
     activeStarDetail = null;
   }
 
 
   // ===================================================================
-  // 4. MEMBER TABLE — render, search, sort
+  // 4. MEMBER TABLE
   // ===================================================================
   function renderMemberTable() {
     const tbody = document.getElementById('memberTableBody');
@@ -1571,17 +1748,14 @@
       tr.setAttribute('data-userid', m.clerkUserId);
       tr.setAttribute('data-name', displayName(m).toLowerCase());
       tr.setAttribute('data-email', m.email.toLowerCase());
-      tr.style.animationDelay = (0.2 + i * 0.1) + 's';
+      tr.style.animationDelay = (0.25 + i * 0.1) + 's';
 
       const avatarContent = m.imageUrl
         ? `<img src="${m.imageUrl}" alt="">`
         : getInitials(m);
 
       let actionsHtml = '';
-      if (m.role === 'owner') {
-        // Owner row — no actions
-        actionsHtml = '';
-      } else if (canManage()) {
+      if (m.role !== 'owner' && canManage()) {
         actionsHtml = `
           <div class="row-actions">
             <button class="row-action-btn" title="Change role" onclick="openRoleDropdown('${m.clerkUserId}', this)">&#8645;</button>
@@ -1637,7 +1811,6 @@
       sortAsc = true;
     }
 
-    // Update header UI
     document.querySelectorAll('.crew-table thead th').forEach(th => {
       th.classList.remove('sorted');
       const arrow = th.querySelector('.sort-arrow');
@@ -1670,7 +1843,7 @@
 
 
   // ===================================================================
-  // 5. ROLE CHANGE (inline dropdown in table)
+  // 5. ROLE CHANGE
   // ===================================================================
   let roleChangeTarget = null;
 
@@ -1680,12 +1853,10 @@
     if (!m) return;
     roleChangeTarget = userId;
 
-    // Highlight current role
     dropdown.querySelectorAll('.role-dropdown-item').forEach(item => {
       item.classList.toggle('active', item.getAttribute('data-role') === m.role);
     });
 
-    // Position near button
     const rect = btnEl.getBoundingClientRect();
     dropdown.style.position = 'fixed';
     dropdown.style.left = (rect.left - 100) + 'px';
@@ -1759,9 +1930,7 @@
     const role = document.getElementById('inviteRole').value;
     if (!email) return;
 
-    // Simulate adding member
     const name = email.split('@')[0];
-    const initials = name.charAt(0).toUpperCase();
     members.push({
       clerkUserId: 'user_' + name + '_' + Date.now(),
       email: email,
@@ -1804,7 +1973,7 @@
   // ===================================================================
   function animateCount(id, target, suffix) {
     const el = document.getElementById(id);
-    const duration = 1200;
+    const duration = 1400;
     const start = performance.now();
     suffix = suffix || '';
 
@@ -1823,7 +1992,7 @@
   // 10. GLOBAL LISTENERS
   // ===================================================================
   document.addEventListener('click', (e) => {
-    // Close star detail
+    // Close star detail when clicking outside
     if (!e.target.closest('.star-member') && !e.target.closest('.star-detail')) {
       hideStarDetail();
     }
@@ -1855,17 +2024,25 @@
     document.getElementById('settingAllowMemberProjects').checked = orgSettings.allowMemberProjects;
     document.getElementById('settingDefaultRole').value = orgSettings.defaultRole;
 
-    // Animate stat counters
+    // Animate stat counters with slight delay for visual flow
     setTimeout(() => {
       animateCount('projCount', 12, '');
       animateCount('memberCount', members.length, '');
       animateCount('renderCount', 47, '');
       animateCount('storageCount', 34, ' GB');
-    }, 400);
+    }, 500);
   }
 
   window.addEventListener('load', init);
-  window.addEventListener('resize', renderConstellation);
+
+  // Debounced resize handler
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      renderConstellation();
+    }, 150);
+  });
 </script>
 </body>
 </html>
