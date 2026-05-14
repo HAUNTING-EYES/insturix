@@ -84,7 +84,12 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 .main{display:flex;padding:0 40px;gap:0;min-height:calc(100vh - 110px)}
 .col-timeline{flex:0 0 50%;padding:24px 28px 60px 0;position:relative}
 .col-preview{flex:0 0 50%;position:relative}
-.preview-sticky{position:sticky;top:80px;padding:24px 0 24px 36px;border-left:1px solid var(--border-subtle)}
+.preview-sticky{
+  position:sticky;top:80px;
+  padding:24px 0 24px 36px;border-left:1px solid var(--border-subtle);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:calc(100vh - 110px);
+}
 
 /* ── Timeline Spine ── */
 .timeline{position:relative;padding-left:52px}
@@ -295,9 +300,36 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   margin-bottom:16px;
 }
 
+/* Phone Wrapper (holds frame + sync dots) */
+.phone-wrapper{position:relative}
+
+/* Sync Dots */
+.sync-dots{
+  position:absolute;left:-24px;top:60px;
+  display:flex;flex-direction:column;gap:0;height:calc(100% - 80px);
+  justify-content:space-around;
+}
+.sync-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--border-emphasis);
+  transition:all .4s var(--ease);
+}
+.sync-dot.active{
+  background:var(--gold);
+  box-shadow:0 0 10px var(--gold-glow),0 0 20px var(--gold-glow);
+  transform:scale(1.4);
+}
+.sync-line{
+  position:absolute;left:-20px;width:20px;height:1px;
+  background:var(--gold);opacity:0;
+  transition:opacity .3s var(--ease);
+}
+.sync-dot.active + .sync-line,
+.sync-dot.active ~ .sync-line{opacity:0}
+
 /* Phone Frame */
 .phone-frame{
-  width:420px;background:var(--bg-raised);border-radius:32px;
+  width:380px;background:var(--bg-raised);border-radius:32px;
   border:2px solid var(--border-emphasis);
   box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.03),0 0 80px rgba(212,166,82,.04);
   overflow:hidden;position:relative;
@@ -306,6 +338,11 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   width:100px;height:22px;background:var(--bg-page);
   border-radius:0 0 14px 14px;margin:0 auto;
 }
+.phone-screen{
+  max-height:520px;overflow-y:auto;overflow-x:hidden;
+  scrollbar-width:none;
+}
+.phone-screen::-webkit-scrollbar{width:0;display:none}
 .phone-inner{padding:0 20px 20px}
 
 /* Preview content */
@@ -566,8 +603,19 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
     <div class="preview-sticky">
       <div class="preview-header">VISITOR'S JOURNEY</div>
 
+      <div class="phone-wrapper">
+        <!-- Sync dots -->
+        <div class="sync-dots">
+          <div class="sync-dot" data-sync="1"></div>
+          <div class="sync-dot" data-sync="2"></div>
+          <div class="sync-dot" data-sync="3"></div>
+          <div class="sync-dot" data-sync="4"></div>
+          <div class="sync-dot" data-sync="5"></div>
+        </div>
+
       <div class="phone-frame">
         <div class="phone-notch"></div>
+        <div class="phone-screen">
         <div class="phone-inner">
           <!-- Banner -->
           <div class="prev-banner"></div>
@@ -612,7 +660,9 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
           <!-- Footer -->
           <div class="prev-footer">Built with Insturix</div>
         </div>
-      </div>
+        </div><!-- /phone-screen -->
+      </div><!-- /phone-frame -->
+      </div><!-- /phone-wrapper -->
 
       <!-- Below phone -->
       <div class="preview-url">
@@ -631,9 +681,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 <script>
 // Toggle switches
 document.querySelectorAll('.link-toggle').forEach(toggle => {
-  toggle.addEventListener('click', () => {
-    toggle.classList.toggle('off');
-  });
+  toggle.addEventListener('click', () => toggle.classList.toggle('off'));
 });
 
 // Banner type pills
@@ -652,15 +700,53 @@ document.querySelectorAll('.accent-dot').forEach(dot => {
   });
 });
 
-// Moment hover sync with phone preview highlight
-document.querySelectorAll('.moment').forEach(m => {
+// Sync dots: hover a moment on the left → light up corresponding dot on the phone
+const syncDots = document.querySelectorAll('.sync-dot');
+const moments = document.querySelectorAll('.moment');
+const phoneScreen = document.querySelector('.phone-screen');
+
+// Map moments to phone preview sections for scroll targeting
+const phoneTargets = ['.prev-banner', '.prev-avatar', '.prev-bento', '.prev-notif', '.prev-footer'];
+
+moments.forEach((m, i) => {
   m.addEventListener('mouseenter', () => {
-    m.querySelector('.card').style.boxShadow = '0 8px 32px rgba(0,0,0,.3),0 0 20px rgba(212,166,82,.05)';
+    // Light up the sync dot
+    syncDots.forEach(d => d.classList.remove('active'));
+    if (syncDots[i]) syncDots[i].classList.add('active');
+
+    // Subtle highlight on the card
+    const card = m.querySelector('.card');
+    if (card) card.style.boxShadow = '0 8px 32px rgba(0,0,0,.3),0 0 24px rgba(212,166,82,.08)';
+
+    // Scroll phone to relevant section
+    if (phoneTargets[i] && phoneScreen) {
+      const target = phoneScreen.querySelector(phoneTargets[i]);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   });
+
   m.addEventListener('mouseleave', () => {
-    m.querySelector('.card').style.boxShadow = '';
+    syncDots.forEach(d => d.classList.remove('active'));
+    const card = m.querySelector('.card');
+    if (card) card.style.boxShadow = '';
   });
 });
+
+// Also light dots when scrolling the phone manually
+if (phoneScreen) {
+  const sections = phoneTargets.map(s => phoneScreen.querySelector(s)).filter(Boolean);
+  phoneScreen.addEventListener('scroll', () => {
+    const scrollTop = phoneScreen.scrollTop;
+    const screenH = phoneScreen.clientHeight;
+    let closest = 0;
+    let minDist = Infinity;
+    sections.forEach((sec, i) => {
+      const dist = Math.abs(sec.offsetTop - scrollTop - screenH / 3);
+      if (dist < minDist) { minDist = dist; closest = i; }
+    });
+    syncDots.forEach((d, i) => d.classList.toggle('active', i === closest));
+  });
+}
 </script>
 
 </body>
