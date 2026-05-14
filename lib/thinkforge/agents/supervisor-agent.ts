@@ -43,43 +43,33 @@ export class SupervisorAgent extends StructuredAgent<NullAgentDefinition> {
   buildPrompt(input: AgentInput): string {
     const { context, userPrompt } = input;
 
-    return `You are the Supervisor, a meta-agent that creates specialist agents on-demand.
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    return `<role>You are the Supervisor, a meta-agent that creates specialist agents on-demand.</role>
 
-A user has requested a specialist for their creative project. Your job is to define
-a temporary "Null Agent" — a one-shot expert that will analyze the project, produce
-a document, and then self-destruct.
+<task>Define a temporary "Null Agent" — a one-shot expert that analyzes the project, produces a document, and self-destructs. Generate a complete agent definition.</task>
 
-## Project Context
-${context.projectSummary || '(No project context)'}
+<rules>
+RULE 1 — AGENT DEFINITION FIELDS:
+- persona: concise expert title (e.g., "Quantum Physics Consultant", "VFX Cost Estimator")
+- systemPrompt: self-contained prompt for a generic LLM (domain expertise, output document, format, constraints)
+- documentStyle: output format (e.g., "Technical Report", "VFX Brief", "Legal Review")
+- documentType: one of screenplay, vfx_brief, budget, shot_list, character_bible, world_bible, interview_questions, score_direction, research_brief, custom
+- title: document title
+- scope: { readDatabank, readCurrentScript, readAllDocuments } — what context the agent needs
+- estimatedTokens: approximate token budget
 
-${context.currentScript ? `Current script excerpt:\n${context.currentScript.substring(0, 2000)}\n` : ''}
+RULE 2 — CONSTRAINTS:
+- systemPrompt must be self-contained and specific enough for a generic LLM to execute.
+- Agent produces a DOCUMENT, not a conversation. Not conversational.
+- Persona must be a real-world expert role, not a fictional character.
+- Return valid JSON.
+</rules>
 
-## User's Specialist Request
-${userPrompt}
-
-## Your Task
-Generate a complete agent definition:
-- **persona**: A concise title (e.g., "Quantum Physics Consultant", "Legal Auditor", "VFX Cost Estimator")
-- **systemPrompt**: The full system prompt for the specialist. This should include:
-  - Who the agent is and what domain expertise it has
-  - What document it should produce
-  - What format the output should be in
-  - What constraints apply (length, style, accuracy requirements)
-- **documentStyle**: The output format (e.g., "Technical Report", "VFX Brief", "Legal Review", "Cost Spreadsheet")
-- **documentType**: One of: screenplay, vfx_brief, budget, shot_list, character_bible, world_bible, interview_questions, score_direction, research_brief, custom
-- **title**: Title for the document that will be created
-- **scope**: What context the agent needs access to:
-  - readDatabank: whether it needs the user's DataBank/BrandDNA
-  - readCurrentScript: whether it needs the current active script
-  - readAllDocuments: whether it needs all documents in the session
-- **estimatedTokens**: Approximate token budget needed
-
-## Rules
-- The systemPrompt must be self-contained and specific enough for a generic LLM to execute.
-- Do NOT make the agent conversational. It should produce a document, not chat.
-- The persona should be a real-world expert role, not a fictional character.
-
-Return valid JSON.`;
+<input_data>
+Project: ${context.projectSummary || '(No project context)'}
+${context.currentScript ? `Script excerpt: ${context.currentScript.substring(0, 2000)}` : ''}
+Specialist request: ${userPrompt}
+</input_data>`;
   }
 
   async synthesizeAgent(

@@ -53,30 +53,28 @@ export class IngestorAgent extends StructuredAgent<IngestorResult> {
   buildPrompt(input: AgentInput): string {
     const { context, userPrompt } = input;
 
-    return `You are the Ingestor, a multi-modal research scout for a creative studio tool.
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    return `<role>You are the Ingestor, a multi-modal research scout for a creative studio tool.</role>
 
-Your job is to "shatter" raw input (text content, article summaries, product specs, etc.)
-into two categories of reusable building blocks:
+<task>
+"Shatter" the raw input into reusable building blocks:
+1. Atomic Facts: specific, verifiable, single-sentence data points (5-12)
+2. Viral Hooks: attention-grabbing openings derived from the content (3-6)
+3. Visual Assets: any referenced images, videos, or graphics
+</task>
 
-1. **Atomic Facts**: Specific, verifiable data points. Each should be a single sentence.
-2. **Viral Hooks**: Attention-grabbing openings derived from the content.
-
-Also extract potential visual assets (images, videos, graphics) that could be referenced.
-
-${context.projectSummary ? `Project context: ${context.projectSummary}\n` : ''}
-${context.systemBrief ? `Brand/DataBank context:\n${context.systemBrief}\n` : ''}
-
-## Content to Deconstruct
-${userPrompt}
-
-## Rules
+<rules>
 - Atomic Facts must be specific and quotable. No vague generalities.
-- Viral Hooks should be punchy, platform-aware, and varied in style (question, statistic, bold claim, etc.).
-- Return 5-12 atomic facts and 3-6 viral hooks.
-- If the content mentions visual elements, list them as visual assets.
-- Keep tags concise (1-3 words each).
+- Viral Hooks must be punchy, platform-aware, and varied in style (question, statistic, bold claim, etc.).
+- Visual asset tags must be concise (1-3 words each).
+- Return valid JSON matching the schema.
+</rules>
 
-Return valid JSON matching the schema.`;
+<input_data>
+${context.projectSummary ? `Project context: ${context.projectSummary}` : ''}
+${context.systemBrief ? `Brand/DataBank context: ${context.systemBrief}` : ''}
+Content to deconstruct: ${userPrompt}
+</input_data>`;
   }
 
   async deconstruct(
