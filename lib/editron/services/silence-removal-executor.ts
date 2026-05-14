@@ -382,10 +382,10 @@ export async function executeSilenceRemoval(
     return sum;
   }, 0);
   const expectedNewDuration = Math.max(0, originalDuration - expectedRemovedFrames);
-  const durationRatio = expectedNewDuration > 0 ? newDuration / expectedNewDuration : 1;
+  const durationRatio = expectedNewDuration > 0 ? newDuration / expectedNewDuration : 0;
 
-  if (durationRatio < 0.5 && expectedNewDuration > fps * 10) {
-    console.error(`[SilenceRemoval] CASCADE DETECTED: expected ${expectedNewDuration} frames (${Math.round(expectedNewDuration / fps)}s) but got ${newDuration} frames (${Math.round(newDuration / fps)}s) — ${((1 - durationRatio) * 100).toFixed(0)}% more removed than planned. ABORTING — restoring original overlays.`);
+  if (durationRatio < 0.5 || (expectedNewDuration <= 0 && originalDuration > fps * 10)) {
+    console.error(`[SilenceRemoval] CASCADE DETECTED: original=${originalDuration} frames, planRemoves=${expectedRemovedFrames} frames, expected=${expectedNewDuration} frames (${Math.round(expectedNewDuration / fps)}s) but got ${newDuration} frames (${Math.round(newDuration / fps)}s). ABORTING — restoring original overlays.`);
 
     // Restore original project state — don't save the broken overlays
     warnings.push(`CASCADE ABORT: expected ${Math.round(expectedNewDuration / fps)}s, got ${Math.round(newDuration / fps)}s`);
