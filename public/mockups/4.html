@@ -8,13 +8,13 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg-page:#0B0B0A;--bg-raised:#0F0F0E;--bg-deeper:#131312;--bg-well:#1B1A18;
+  --bg-page:#0B0B0A;--bg-surface:#0F0F0E;--bg-raised:#131312;--bg-well:#1B1A18;
   --border-subtle:#1C1B19;--border-emphasis:#282724;
   --text-primary:#ECE9E1;--text-secondary:#B5B2A8;--text-muted:#7A776E;--text-dim:#5F5E5A;--text-faint:#454340;
   --gold:#D4A652;--gold-hover:#C49840;--gold-bg:rgba(212,166,82,.08);--gold-border:rgba(212,166,82,.16);
   --gold-glow:rgba(212,166,82,.15);--gold-glow-strong:rgba(212,166,82,.35);
   --green:#5EC97E;--red:#D46A5C;--purple:#9088D4;--cyan:#5CB8CC;--pink:#D088B4;
-  --linkedin:#0A66C2;--youtube:#FF0000;--github:#E6EDF3;--instagram:#E4405F;--twitter:#1DA1F2;--tiktok:#00F2EA;--spotify:#1DB954;
+  --linkedin:#0A66C2;--youtube:#FF0000;--github:#E6EDF3;
   --radius-card:12px;--radius-btn:7px;
   --ease:cubic-bezier(.16,1,.3,1);
   --font-body:'Plus Jakarta Sans',system-ui,sans-serif;
@@ -53,10 +53,10 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
 /* ── Story Arc ── */
 .story-arc{
-  padding:14px 40px 10px;border-bottom:1px solid var(--border-subtle);
+  padding:10px 40px 8px;border-bottom:1px solid var(--border-subtle);
   position:relative;overflow:hidden;
 }
-.arc-svg{width:100%;height:40px;display:block}
+.arc-svg{width:100%;height:32px;display:block}
 .arc-line{
   fill:none;stroke:var(--gold);stroke-width:1.5;
   stroke-dasharray:1200;stroke-dashoffset:1200;
@@ -72,29 +72,28 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 .arc-dot:nth-child(5){animation-delay:3s}
 .arc-labels{
   display:flex;justify-content:space-between;
-  padding:3px 30px 0;
-  font-family:var(--font-mono);font-size:11px;font-weight:400;
+  padding:2px 20px 0;
+  font-family:var(--font-mono);font-size:10px;font-weight:400;
   color:var(--text-dim);letter-spacing:.06em;
 }
-.arc-labels .arrow{color:var(--text-faint);margin:0 2px}
 
 @keyframes drawArc{to{stroke-dashoffset:0}}
 @keyframes fadeIn{to{opacity:1}}
 
 /* ── Main Layout ── */
-.main{display:flex;padding:0 40px;gap:0;min-height:calc(100vh - 120px)}
-.col-timeline{flex:0 0 52%;padding:20px 28px 60px 0;position:relative}
-.col-preview{flex:0 0 48%;position:relative}
-.preview-sticky{position:sticky;top:80px;padding:20px 0 20px 32px;border-left:1px solid var(--border-subtle)}
+.main{display:flex;padding:0 40px;gap:0;min-height:calc(100vh - 110px)}
+.col-timeline{flex:0 0 50%;padding:24px 28px 60px 0;position:relative}
+.col-preview{flex:0 0 50%;position:relative}
+.preview-sticky{position:sticky;top:80px;padding:24px 0 24px 36px;border-left:1px solid var(--border-subtle)}
 
 /* ── Timeline Spine ── */
 .timeline{position:relative;padding-left:52px}
 .timeline::before{
-  content:'';position:absolute;left:31px;top:0;bottom:20px;width:2px;
-  background:linear-gradient(180deg,var(--gold) 0%,rgba(212,166,82,.5) 70%,rgba(212,166,82,.2) 100%);
+  content:'';position:absolute;left:31px;top:0;bottom:20px;width:1.5px;
+  background:linear-gradient(180deg,var(--gold) 0%,rgba(212,166,82,.4) 70%,rgba(212,166,82,.15) 100%);
 }
 .timeline::after{
-  content:'';position:absolute;left:29px;top:0;width:6px;height:40px;
+  content:'';position:absolute;left:29.5px;top:0;width:5px;height:40px;
   background:linear-gradient(180deg,transparent,var(--gold),transparent);
   border-radius:3px;animation:pulseDown 4s ease-in-out infinite;filter:blur(1px);
 }
@@ -103,7 +102,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 }
 
 /* ── Moments ── */
-.moment{position:relative;margin-bottom:16px;opacity:0;animation:momentIn .6s var(--ease) forwards}
+.moment{position:relative;margin-bottom:28px;opacity:0;animation:momentIn .6s var(--ease) forwards}
 .moment:nth-child(1){animation-delay:.3s}
 .moment:nth-child(2){animation-delay:.42s}
 .moment:nth-child(3){animation-delay:.54s}
@@ -134,168 +133,148 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
 /* Label */
 .moment-label{
-  display:flex;align-items:center;gap:8px;margin-bottom:4px;
+  display:flex;align-items:center;gap:8px;margin-bottom:6px;
 }
 .moment-label-text{
-  font-family:var(--font-mono);font-size:12px;font-weight:500;
-  color:var(--gold);letter-spacing:.08em;text-transform:uppercase;
+  font-family:var(--font-body);font-size:.72rem;font-weight:500;
+  color:var(--gold);letter-spacing:.1em;text-transform:uppercase;
+}
+.moment-timing{
+  font-family:var(--font-mono);font-size:10px;color:var(--text-dim);
 }
 
 /* Card */
 .card{
-  background:linear-gradient(180deg, var(--bg-raised) 0%, rgba(15,15,14,.85) 100%);
-  border:1px solid var(--border-subtle);
-  border-radius:var(--radius-card);padding:14px;position:relative;
+  background:var(--bg-surface);
+  border-radius:var(--radius-card);padding:20px;position:relative;
   transition:all .35s var(--ease);
-  box-shadow:0 2px 8px rgba(0,0,0,.15);
 }
 .card:hover{
   transform:translateY(-2px);
   border-color:var(--gold-border);
   box-shadow:0 8px 32px rgba(0,0,0,.3),0 0 20px rgba(212,166,82,.05);
 }
-.card-status{
-  position:absolute;top:10px;right:10px;
-  display:flex;align-items:center;gap:5px;
-  font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;
+.card.has-border{
+  border:1px solid var(--border-subtle);
 }
-.status-dot{width:6px;height:6px;border-radius:50%}
-.status-dot.green{background:var(--green)}
-.status-dot.gold{background:var(--gold)}
-.status-dot.pulsing-live{background:var(--gold);animation:livePulse 1.5s ease-in-out infinite}
-@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
-
-/* Card border-left colors based on status */
-.card.status-complete{border-left:3px solid var(--green)}
-.card.status-partial{border-left:3px solid var(--gold)}
-.card.status-active{border-left:3px solid var(--gold)}
+.card.has-border:hover{
+  border-color:var(--gold-border);
+}
 
 /* ── Moment 1: Banner ── */
-.banner-row{display:flex;align-items:center;gap:10px}
 .banner-swatch{
-  width:160px;height:36px;border-radius:6px;flex-shrink:0;
+  width:100%;height:48px;border-radius:8px;
   background:linear-gradient(135deg,var(--gold),#1B1A18 70%);
+  margin-bottom:12px;
 }
-.controls-row{display:flex;gap:4px;flex-wrap:wrap}
+.controls-row{display:flex;gap:6px}
 .pill{
-  font-family:var(--font-mono);font-size:11px;font-weight:500;
-  padding:4px 10px;border-radius:16px;cursor:pointer;
+  font-family:var(--font-body);font-size:.75rem;font-weight:500;
+  padding:5px 12px;border-radius:16px;cursor:pointer;
   border:1px solid var(--border-emphasis);color:var(--text-muted);
   background:transparent;transition:all .25s var(--ease);
 }
 .pill.active{background:var(--gold-bg);border-color:var(--gold-border);color:var(--gold)}
 .pill:hover:not(.active){border-color:var(--text-dim);color:var(--text-secondary)}
-.hex-input{display:flex;align-items:center;gap:6px;margin-left:auto}
-.hex-dot{width:12px;height:12px;border-radius:50%;background:var(--gold);flex-shrink:0}
-.hex-field{
-  font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);
-  background:var(--bg-well);border:1px solid var(--border-subtle);
-  padding:4px 8px;border-radius:var(--radius-btn);width:80px;outline:none;
-}
 
 /* ── Moment 2: Identity ── */
-.identity-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.identity-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
 .avatar-small{
-  width:36px;height:36px;border-radius:50%;
+  width:38px;height:38px;border-radius:50%;
   background:var(--bg-well);border:2px solid var(--gold);
   display:flex;align-items:center;justify-content:center;
   font-weight:800;font-size:.9rem;color:var(--gold);flex-shrink:0;
 }
-.identity-fields{flex:1;display:flex;gap:8px;align-items:center}
+.identity-fields{flex:1;display:flex;gap:10px;align-items:center}
 .underline-input{
   font-family:var(--font-body);font-size:.85rem;color:var(--text-primary);
   background:transparent;border:none;border-bottom:1px solid var(--border-emphasis);
-  padding:3px 0;outline:none;flex:1;transition:border-color .25s var(--ease);
+  padding:4px 0;outline:none;flex:1;transition:border-color .25s var(--ease);
 }
 .underline-input:focus{border-color:var(--gold)}
 .underline-input.status-input{font-size:.78rem;color:var(--text-secondary)}
-.bio-row{display:flex;align-items:flex-start;gap:8px}
+.bio-row{display:flex;align-items:flex-start;gap:10px}
 .bio-area{
   font-family:var(--font-body);font-size:.85rem;color:var(--text-secondary);
   background:var(--bg-well);border:1px solid var(--border-subtle);
-  border-radius:var(--radius-btn);padding:8px 10px;
-  resize:none;outline:none;width:100%;height:44px;line-height:1.4;
+  border-radius:var(--radius-btn);padding:10px 12px;
+  resize:none;outline:none;width:100%;height:48px;line-height:1.4;
 }
 .bio-area:focus{border-color:var(--gold)}
 .char-count{
   font-family:var(--font-mono);font-size:11px;color:var(--text-dim);
-  white-space:nowrap;padding-top:6px;
+  white-space:nowrap;padding-top:8px;
 }
 
 /* ── Moment 3: Links ── */
 .link-row{
-  display:flex;align-items:center;gap:10px;padding:8px 10px;
-  border-radius:8px;background:var(--bg-well);margin-bottom:6px;
+  display:flex;align-items:center;gap:12px;padding:12px;
+  border-radius:8px;background:var(--bg-well);margin-bottom:8px;
   transition:all .25s var(--ease);position:relative;overflow:hidden;
+  border-left:4px solid var(--link-platform-color, var(--border-emphasis));
 }
 .link-row:last-of-type{margin-bottom:0}
-.link-row:hover{background:var(--bg-deeper);transform:translateX(2px)}
-.link-color-bar{width:4px;height:32px;border-radius:2px;flex-shrink:0}
+.link-row:hover{background:var(--bg-raised);transform:translateX(2px)}
 .link-icon{
-  width:28px;height:28px;border-radius:7px;
+  width:30px;height:30px;border-radius:8px;
   display:flex;align-items:center;justify-content:center;flex-shrink:0;
   font-size:12px;font-weight:800;color:#fff;
   box-shadow:0 0 12px var(--link-glow,transparent);
 }
-.link-name{flex:1;font-size:.85rem;color:var(--text-primary);font-weight:500}
+.link-name{flex:1;font-size:.88rem;color:var(--text-primary);font-weight:500}
 .link-toggle{
-  width:32px;height:18px;border-radius:9px;background:var(--green);
+  width:34px;height:19px;border-radius:10px;background:var(--green);
   position:relative;cursor:pointer;flex-shrink:0;transition:background .25s;
 }
 .link-toggle::after{
-  content:'';position:absolute;top:2px;right:2px;width:14px;height:14px;
+  content:'';position:absolute;top:2.5px;right:2.5px;width:14px;height:14px;
   border-radius:50%;background:#fff;transition:transform .25s var(--ease);
 }
 .link-toggle.off{background:var(--border-emphasis)}
-.link-toggle.off::after{transform:translateX(-14px)}
-.links-footer{
-  display:flex;align-items:center;justify-content:space-between;margin-top:8px;
-}
+.link-toggle.off::after{transform:translateX(-15px)}
 .add-link-btn{
-  font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
-  padding:4px 10px;border:1px dashed var(--border-emphasis);
+  font-family:var(--font-body);font-size:.75rem;color:var(--text-muted);font-weight:500;
+  padding:6px 12px;border:1px dashed var(--border-emphasis);
   border-radius:var(--radius-btn);background:transparent;cursor:pointer;
-  transition:all .25s var(--ease);
+  transition:all .25s var(--ease);margin-top:10px;
 }
 .add-link-btn:hover{border-color:var(--gold);color:var(--gold)}
-.link-progress{
-  font-family:var(--font-mono);font-size:11px;color:var(--gold);letter-spacing:.04em;
-}
 
 /* ── Moment 4: Notification ── */
 .notif-row{
-  display:flex;align-items:center;gap:8px;
-  padding:8px 10px;border-radius:8px;background:var(--bg-well);
+  display:flex;align-items:center;gap:10px;
+  padding:10px 12px;border-radius:8px;background:var(--bg-well);
 }
 .notif-dot{
   width:8px;height:8px;border-radius:50%;background:var(--gold);flex-shrink:0;
   animation:livePulse 1.5s ease-in-out infinite;
 }
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
 .notif-text{flex:1;font-size:.85rem;color:var(--text-primary)}
 .notif-time{
   font-family:var(--font-mono);font-size:11px;color:var(--text-dim);
-  padding:2px 6px;border-radius:4px;background:var(--bg-deeper);
+  padding:2px 8px;border-radius:4px;background:var(--bg-raised);
 }
 .notif-add{
-  font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
-  padding:3px 8px;border:1px solid var(--border-emphasis);
+  font-family:var(--font-body);font-size:.75rem;color:var(--text-muted);font-weight:500;
+  padding:5px 10px;border:1px solid var(--border-emphasis);
   border-radius:var(--radius-btn);background:transparent;cursor:pointer;
-  margin-top:6px;transition:all .25s var(--ease);
+  margin-top:8px;transition:all .25s var(--ease);
 }
 .notif-add:hover{border-color:var(--gold);color:var(--gold)}
 
 /* ── Moment 5: Style ── */
 .accent-label{
-  font-family:var(--font-mono);font-size:11px;color:var(--text-dim);
-  letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;
+  font-family:var(--font-body);font-size:.72rem;font-weight:500;
+  color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;
 }
-.accent-dots{display:flex;gap:8px}
+.accent-dots{display:flex;gap:12px}
 .accent-dot{
-  width:18px;height:18px;border-radius:50%;cursor:pointer;
+  width:24px;height:24px;border-radius:50%;cursor:pointer;
   transition:all .25s var(--ease);border:2px solid transparent;
 }
 .accent-dot:hover{transform:scale(1.15)}
-.accent-dot.active{border-color:var(--text-primary);box-shadow:0 0 8px rgba(212,166,82,.3)}
+.accent-dot.active{border-color:var(--text-primary);box-shadow:0 0 10px rgba(212,166,82,.3)}
 
 /* Timeline end */
 .timeline-end{
@@ -311,14 +290,14 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
 /* ── Preview Column ── */
 .preview-header{
-  font-family:var(--font-mono);font-size:11px;font-weight:500;
+  font-family:var(--font-body);font-size:.72rem;font-weight:500;
   color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;
-  margin-bottom:12px;
+  margin-bottom:16px;
 }
 
 /* Phone Frame */
 .phone-frame{
-  width:420px;background:var(--bg-deeper);border-radius:32px;
+  width:420px;background:var(--bg-raised);border-radius:32px;
   border:2px solid var(--border-emphasis);
   box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.03),0 0 80px rgba(212,166,82,.04);
   overflow:hidden;position:relative;
@@ -365,7 +344,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 .prev-notif-text{font-size:.75rem;color:var(--text-secondary);flex:1}
 
 /* Preview bento cards */
-.prev-bento{display:grid;gap:8px;margin-top:10px}
+.prev-bento{display:grid;gap:8px;margin-top:10px;grid-template-columns:1fr 1fr}
 .prev-bento-wide{
   grid-column:1/-1;padding:12px 14px;border-radius:10px;
   background:var(--bg-well);border:1px solid var(--border-subtle);
@@ -397,17 +376,6 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   text-align:center;margin-top:14px;
   font-family:var(--font-mono);font-size:11px;color:var(--text-faint);letter-spacing:.04em;
 }
-
-/* Sync dots */
-.sync-dots{
-  position:absolute;right:-16px;top:80px;
-  display:flex;flex-direction:column;gap:40px;
-}
-.sync-dot{
-  width:6px;height:6px;border-radius:50%;
-  background:var(--border-emphasis);transition:all .4s var(--ease);
-}
-.sync-dot.active{background:var(--gold);box-shadow:0 0 8px var(--gold-glow)}
 
 /* Below phone */
 .preview-url{
@@ -441,30 +409,26 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
 <!-- Story Arc -->
 <div class="story-arc">
-  <svg class="arc-svg" viewBox="0 0 1000 40" preserveAspectRatio="none">
+  <svg class="arc-svg" viewBox="0 0 1000 32" preserveAspectRatio="none">
     <defs>
       <linearGradient id="arcGrad" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="rgba(212,166,82,.12)"/>
         <stop offset="100%" stop-color="rgba(212,166,82,0)"/>
       </linearGradient>
     </defs>
-    <path class="arc-fill" d="M0,38 C150,38 200,30 350,18 C450,10 500,6 550,10 C650,18 750,28 850,14 C900,8 950,20 1000,22 L1000,40 L0,40Z"/>
-    <path class="arc-line" d="M0,38 C150,38 200,30 350,18 C450,10 500,6 550,10 C650,18 750,28 850,14 C900,8 950,20 1000,22"/>
-    <circle class="arc-dot" cx="0" cy="38"/>
-    <circle class="arc-dot" cx="250" cy="24"/>
-    <circle class="arc-dot" cx="500" cy="6"/>
-    <circle class="arc-dot" cx="750" cy="22"/>
-    <circle class="arc-dot" cx="1000" cy="22"/>
+    <path class="arc-fill" d="M0,30 C150,30 200,24 350,14 C450,8 500,5 550,8 C650,14 750,22 850,11 C900,6 950,16 1000,18 L1000,32 L0,32Z"/>
+    <path class="arc-line" d="M0,30 C150,30 200,24 350,14 C450,8 500,5 550,8 C650,14 750,22 850,11 C900,6 950,16 1000,18"/>
+    <circle class="arc-dot" cx="0" cy="30"/>
+    <circle class="arc-dot" cx="250" cy="19"/>
+    <circle class="arc-dot" cx="500" cy="5"/>
+    <circle class="arc-dot" cx="750" cy="18"/>
+    <circle class="arc-dot" cx="1000" cy="18"/>
   </svg>
   <div class="arc-labels">
     <span>ARRIVAL</span>
-    <span class="arrow">-</span>
     <span>DISCOVERY</span>
-    <span class="arrow">-</span>
     <span>CONNECTION</span>
-    <span class="arrow">-</span>
     <span>NEWS</span>
-    <span class="arrow">-</span>
     <span>SIGNATURE</span>
   </div>
 </div>
@@ -481,24 +445,15 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
         <div class="node"><div class="node-dot filled-green"></div></div>
         <div class="connector"></div>
         <div class="moment-label">
-          <span class="moment-label-text">OPENING SCENE &middot; ~1s</span>
+          <span class="moment-label-text">OPENING SCENE</span>
+          <span class="moment-timing">~1s</span>
         </div>
-        <div class="card status-complete">
-          <div class="card-status">
-            <span class="status-dot green"></span>
-            <span style="color:var(--green);font-size:11px">Complete</span>
-          </div>
-          <div class="banner-row">
-            <div class="banner-swatch"></div>
-            <div class="controls-row">
-              <button class="pill active">Gradient</button>
-              <button class="pill">Color</button>
-              <button class="pill">Image</button>
-            </div>
-            <div class="hex-input">
-              <div class="hex-dot"></div>
-              <input class="hex-field" value="#D4A652" readonly>
-            </div>
+        <div class="card">
+          <div class="banner-swatch"></div>
+          <div class="controls-row">
+            <button class="pill active">Gradient</button>
+            <button class="pill">Color</button>
+            <button class="pill">Image</button>
           </div>
         </div>
       </div>
@@ -508,13 +463,10 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
         <div class="node"><div class="node-dot filled-green"></div></div>
         <div class="connector"></div>
         <div class="moment-label">
-          <span class="moment-label-text">THE INTRODUCTION &middot; ~3s</span>
+          <span class="moment-label-text">THE INTRODUCTION</span>
+          <span class="moment-timing">~3s</span>
         </div>
-        <div class="card status-complete">
-          <div class="card-status">
-            <span class="status-dot green"></span>
-            <span style="color:var(--green);font-size:11px">Complete</span>
-          </div>
+        <div class="card">
           <div class="identity-row">
             <div class="avatar-small">N</div>
             <div class="identity-fields">
@@ -534,40 +486,30 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
         <div class="node"><div class="node-dot filled-gold peak"></div></div>
         <div class="connector"></div>
         <div class="moment-label">
-          <span class="moment-label-text">THE CHAPTERS &middot; ~8s</span>
+          <span class="moment-label-text">THE CHAPTERS</span>
+          <span class="moment-timing">~8s</span>
         </div>
-        <div class="card status-partial">
-          <div class="card-status">
-            <span class="status-dot gold"></span>
-            <span style="color:var(--gold);font-size:11px">3/5</span>
-          </div>
-
+        <div class="card has-border">
           <!-- LinkedIn -->
-          <div class="link-row" style="--link-glow:rgba(10,102,194,.3)">
-            <div class="link-color-bar" style="background:var(--linkedin)"></div>
+          <div class="link-row" style="--link-platform-color:var(--linkedin);--link-glow:rgba(10,102,194,.3)">
             <div class="link-icon" style="background:var(--linkedin)">in</div>
             <span class="link-name">My LinkedIn</span>
             <div class="link-toggle"></div>
           </div>
           <!-- YouTube -->
-          <div class="link-row" style="--link-glow:rgba(255,0,0,.25)">
-            <div class="link-color-bar" style="background:var(--youtube)"></div>
+          <div class="link-row" style="--link-platform-color:var(--youtube);--link-glow:rgba(255,0,0,.25)">
             <div class="link-icon" style="background:var(--youtube)">&#9654;</div>
             <span class="link-name">My Channel</span>
             <div class="link-toggle"></div>
           </div>
           <!-- GitHub -->
-          <div class="link-row" style="--link-glow:rgba(230,237,243,.15)">
-            <div class="link-color-bar" style="background:var(--github);"></div>
+          <div class="link-row" style="--link-platform-color:#24292e;--link-glow:rgba(230,237,243,.15)">
             <div class="link-icon" style="background:#24292e;color:var(--github)">&lt;/&gt;</div>
             <span class="link-name">Code</span>
             <div class="link-toggle"></div>
           </div>
 
-          <div class="links-footer">
-            <button class="add-link-btn">+ Add Link</button>
-            <span class="link-progress">3 / 5</span>
-          </div>
+          <button class="add-link-btn">+ Add Link</button>
         </div>
       </div>
 
@@ -576,13 +518,10 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
         <div class="node"><div class="node-dot pulsing"></div></div>
         <div class="connector"></div>
         <div class="moment-label">
-          <span class="moment-label-text">BREAKING NEWS &middot; ~2s</span>
+          <span class="moment-label-text">BREAKING NEWS</span>
+          <span class="moment-timing">~2s</span>
         </div>
-        <div class="card status-active">
-          <div class="card-status">
-            <span class="status-dot pulsing-live"></span>
-            <span style="color:var(--gold);font-size:11px;font-weight:500">LIVE</span>
-          </div>
+        <div class="card has-border">
           <div class="notif-row">
             <div class="notif-dot"></div>
             <span class="notif-text">New project dropping soon!</span>
@@ -597,13 +536,10 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
         <div class="node"><div class="node-dot filled-green"></div></div>
         <div class="connector"></div>
         <div class="moment-label">
-          <span class="moment-label-text">THE SIGNATURE &middot; ~1s</span>
+          <span class="moment-label-text">THE SIGNATURE</span>
+          <span class="moment-timing">~1s</span>
         </div>
-        <div class="card status-complete">
-          <div class="card-status">
-            <span class="status-dot green"></span>
-            <span style="color:var(--green);font-size:11px">Set</span>
-          </div>
+        <div class="card">
           <div class="accent-label">ACCENT COLOR</div>
           <div class="accent-dots">
             <div class="accent-dot active" style="background:var(--gold)"></div>
@@ -628,18 +564,9 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   <!-- Right: Preview -->
   <div class="col-preview">
     <div class="preview-sticky">
-      <div class="preview-header">VISITOR'S JOURNEY &middot; ~15s</div>
+      <div class="preview-header">VISITOR'S JOURNEY</div>
 
       <div class="phone-frame">
-        <!-- Sync dots -->
-        <div class="sync-dots">
-          <div class="sync-dot" data-sync="1"></div>
-          <div class="sync-dot" data-sync="2"></div>
-          <div class="sync-dot" data-sync="3"></div>
-          <div class="sync-dot" data-sync="4"></div>
-          <div class="sync-dot" data-sync="5"></div>
-        </div>
-
         <div class="phone-notch"></div>
         <div class="phone-inner">
           <!-- Banner -->
@@ -661,9 +588,9 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
             <span class="prev-notif-text">New project dropping soon!</span>
           </div>
           <!-- Bento links -->
-          <div class="prev-bento" style="grid-template-columns:1fr 1fr">
+          <div class="prev-bento">
             <!-- LinkedIn wide -->
-            <div class="prev-bento-wide" style="grid-column:1/-1">
+            <div class="prev-bento-wide">
               <div style="position:absolute;top:0;left:0;right:0;height:2px;background:var(--linkedin)"></div>
               <div class="prev-bento-icon" style="background:var(--linkedin)">in</div>
               <span class="prev-bento-label">My LinkedIn</span>
@@ -702,16 +629,36 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 </div>
 
 <script>
-// Sync dot highlight on moment hover
+// Toggle switches
+document.querySelectorAll('.link-toggle').forEach(toggle => {
+  toggle.addEventListener('click', () => {
+    toggle.classList.toggle('off');
+  });
+});
+
+// Banner type pills
+document.querySelectorAll('.controls-row .pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.controls-row .pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+  });
+});
+
+// Accent color selection
+document.querySelectorAll('.accent-dot').forEach(dot => {
+  dot.addEventListener('click', () => {
+    document.querySelectorAll('.accent-dot').forEach(d => d.classList.remove('active'));
+    dot.classList.add('active');
+  });
+});
+
+// Moment hover sync with phone preview highlight
 document.querySelectorAll('.moment').forEach(m => {
-  const idx = m.dataset.moment;
   m.addEventListener('mouseenter', () => {
-    document.querySelectorAll('.sync-dot').forEach(d => d.classList.remove('active'));
-    const dot = document.querySelector(`.sync-dot[data-sync="${idx}"]`);
-    if (dot) dot.classList.add('active');
+    m.querySelector('.card').style.boxShadow = '0 8px 32px rgba(0,0,0,.3),0 0 20px rgba(212,166,82,.05)';
   });
   m.addEventListener('mouseleave', () => {
-    document.querySelectorAll('.sync-dot').forEach(d => d.classList.remove('active'));
+    m.querySelector('.card').style.boxShadow = '';
   });
 });
 </script>
