@@ -298,13 +298,14 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 }
 .end-dot{
   width:8px;height:8px;border-radius:50%;background:var(--gold);
-  flex-shrink:0;opacity:.5;
+  flex-shrink:0;opacity:.5;position:relative;z-index:3;
+  outline:4px solid var(--bg-page);
   animation:endCatch 4s ease-in-out infinite;
 }
 @keyframes endCatch{
-  0%,88%{opacity:.3;box-shadow:0 0 0 transparent}
+  0%,88%{opacity:.3;box-shadow:none}
   94%{opacity:1;box-shadow:0 0 14px var(--gold-glow-strong)}
-  100%{opacity:.3;box-shadow:0 0 0 transparent}
+  100%{opacity:.3;box-shadow:none}
 }
 .end-text{
   font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:.04em;
