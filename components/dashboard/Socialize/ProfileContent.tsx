@@ -88,7 +88,7 @@ export function ProfileContent({
         (n) => n && typeof n === "object" && !isNotificationExpired(n)
       )
     : [];
-  const showNotif = validNotifications.length > 0 && !notifDismissed && !isPreview;
+  const showNotif = validNotifications.length > 0 && !notifDismissed;
 
   useEffect(() => {
     if (validNotifications.length <= 1) return;
