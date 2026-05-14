@@ -60,22 +60,28 @@ function getGeminiProvider() {
 
 // ─── Pairwise Comparison ─────────────────────────────────────────
 
-const CONSISTENCY_PROMPT = `You are a visual consistency QA analyst for an AI video production pipeline.
-Compare two SEQUENTIAL storyboard frames that appear back-to-back in a final video.
+// ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+const CONSISTENCY_PROMPT = `<role>You are a visual consistency QA analyst for an AI video production pipeline.</role>
 
-## SCORING (3-tier — more reliable than numeric scales)
+<task>Compare two SEQUENTIAL storyboard frames that appear back-to-back in a final video.</task>
+
+<rules>
+SCORING (3-tier):
 - "pass" — consistent enough for production
 - "warn" — viewer might notice a discontinuity
 - "fail" — breaks continuity, scene should be regenerated
 
-Dimensions:
+DIMENSIONS:
 1. subject_identity: Shared subjects look like the same entity? (Skip/pass if no shared subjects)
 2. lighting_match: Same direction, temperature, intensity?
 3. color_palette: Same color world, saturation, contrast?
 4. style_coherence: Same art style, rendering quality, detail level?
+</rules>
 
-Return ONLY valid JSON. No markdown, no code fences.
-{"subject_identity":"pass","lighting_match":"pass","color_palette":"warn","style_coherence":"pass","worst_issue":"slight color shift from warm to cool","regenerate_recommendation":"none"}`;
+<output_format>
+JSON only. No markdown, no code fences.
+{"subject_identity":"pass","lighting_match":"pass","color_palette":"warn","style_coherence":"pass","worst_issue":"description","regenerate_recommendation":"none"}
+</output_format>`;
 
 /**
  * Compare two adjacent scene images using Gemini Vision.
@@ -372,24 +378,30 @@ export interface VideoQualityResult {
   };
 }
 
-const VIDEO_QUALITY_PROMPT = `You are a video QA analyst detecting AI generation artifacts.
-Review this AI-generated video clip. Gemini can analyze the full video, not just frames.
+// ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+const VIDEO_QUALITY_PROMPT = `<role>You are a video QA analyst detecting AI generation artifacts.</role>
 
-## SCORING (3-tier — reliable and actionable)
-For each dimension, score: "pass" (production ready), "warn" (viewer might notice), "fail" (must regenerate).
+<task>Review this AI-generated video clip. Gemini can analyze the full video, not just frames.</task>
 
-1. temporal_coherence: Do objects maintain their form throughout? (morphing, melting, warping)
-2. identity_preservation: Is the main subject the SAME entity in all frames? (face drift, clothing change, body proportion shift)
-3. physics_plausibility: Does motion obey physics? (floating objects, impossible bending, clipping through surfaces)
-4. artifact_presence: Any glitches? (duplicate limbs, transparency holes, texture swimming, random text appearing)
-5. lighting_stability: Consistent lighting? (brightness jumps, shadow direction flips, color temperature shifts)
+<rules>
+SCORING (3-tier): "pass" (production ready), "warn" (viewer might notice), "fail" (must regenerate).
 
-## VERDICT
+DIMENSIONS:
+1. temporal_coherence: Do objects maintain form? (morphing, melting, warping)
+2. identity_preservation: Same subject in all frames? (face drift, clothing change, proportion shift)
+3. physics_plausibility: Motion obeys physics? (floating, impossible bending, clipping)
+4. artifact_presence: Any glitches? (duplicate limbs, transparency holes, texture swimming, random text)
+5. lighting_stability: Consistent lighting? (brightness jumps, shadow flips, color temp shifts)
+
+VERDICT:
 "accept" — no fails, usable for production
 "regenerate" — any "fail" dimension, or 3+ "warn" dimensions
+</rules>
 
-Return ONLY valid JSON. No markdown, no code fences.
-{"temporal_coherence":"pass","identity_preservation":"pass","physics_plausibility":"warn","artifact_presence":"pass","lighting_stability":"pass","overall_verdict":"accept","worst_artifact":"slight physics issue at midpoint","artifact_location":"50% through clip"}`;
+<output_format>
+JSON only. No markdown, no code fences.
+{"temporal_coherence":"pass","identity_preservation":"pass","physics_plausibility":"warn","artifact_presence":"pass","lighting_stability":"pass","overall_verdict":"accept","worst_artifact":"description","artifact_location":"location in clip"}
+</output_format>`;
 
 /**
  * Check AI-generated video quality by analyzing first and last frames.

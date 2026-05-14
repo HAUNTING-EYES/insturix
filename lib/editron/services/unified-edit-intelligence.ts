@@ -650,6 +650,7 @@ export async function generateCreativeIntentPlan(
     schema: CreativeIntentPlanSchema,
     prompt: contextSummary,
     temperature: DEFAULT_CONFIG.aiModels.editingTemperature,
+    seed: 1, // Rule 35: deterministic edit decisions for same project. Temperature 0.3 alone is not enough.
   }));
 
   // Defensive: Vercel AI SDK's generateObject can return undefined for nested
@@ -708,15 +709,22 @@ function buildCreativeIntentPrompt(
   const totalSec = Math.round(context.totalDurationMs / 1000);
 
   // Start with the same proven creative principles, but reframed for intent output
-  let prompt = `You are the Creative Director for a ${totalSec}-second video. You make WHAT and WHY decisions for each scene. You NEVER specify frame numbers — code handles precision.
+  // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+  // Restructured from markdown ## headers to XML tags for better LLM
+  // instruction-following. Data (scenes) appended LAST.
+  let prompt = `<role>
+You are the Creative Director for a ${totalSec}-second video. You make WHAT and WHY decisions for each scene. You NEVER specify frame numbers — code handles precision.
+</role>
 
-## YOUR JOB
+<task>
 For each scene, describe:
 1. What is THE decisive moment (in words, not frames)
 2. What edit decisions serve that moment (zoom, transition, pacing, audio, graphics)
 3. WHY — which editing principle justifies each choice
+</task>
 
-## MURCH'S RULE OF SIX (your decision hierarchy)
+<rules>
+RULE 1 — MURCH'S RULE OF SIX (your decision hierarchy):
 1. EMOTION (51%) — Does this make the viewer FEEL something?
 2. STORY (23%) — Does this advance the narrative?
 3. RHYTHM (10%) — Does this maintain or break the pacing pattern intentionally?
@@ -725,24 +733,24 @@ For each scene, describe:
 6. 3D CONTINUITY (4%) — Does spatial continuity make sense?
 A technically perfect decision that kills emotion is a BAD decision.
 
-## DECISIVE MOMENT PRINCIPLE
-Each scene has ONE peak. ALL decisions serve it:
-- Before peak: build (slower, tighter, rising energy)
-- AT peak: maximum emphasis
-- After peak: release (wider, dissolve, softer)
+RULE 2 — DECISIVE MOMENT PRINCIPLE:
+Each scene has ONE peak. ALL decisions serve it.
+Before peak: build (slower, tighter, rising energy). AT peak: maximum emphasis. After peak: release (wider, dissolve, softer).
 
-## CONTRAST CREATES IMPACT
+RULE 3 — CONTRAST CREATES IMPACT:
 Fast only feels fast after slow. A punch-zoom hits only after a static shot.
 After high-intensity, the next scene MUST be low-intensity.
 
-## HARD BUDGETS (${totalSec}s video)
+RULE 4 — HARD BUDGETS (${totalSec}s video):
 - Punch-zooms: MAX ${Math.round(3 * totalSec / 30)}
 - Camera shakes: MAX ${Math.round(2 * totalSec / 30)}
 - Graphics: MAX ${Math.round(7 * totalSec / 30)}, minimum 3s apart
 - "Loud" decisions (punch, shake, flash): MAX 2-3 total. Everything else "quiet."
 - Flashy transitions: NEVER two consecutive
 
-## PROJECT: ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
+RULE 5 — PROJECT CONTEXT:
+${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
+</rules>
 `;
 
   // Global context (same as before)
@@ -845,12 +853,13 @@ After high-intensity, the next scene MUST be low-intensity.
     prompt += '\n';
   }
 
-  prompt += `## OUTPUT
-For EACH scene, provide creative intent using the structured schema. Remember:
+  prompt += `<output_format>
+For EACH scene, provide creative intent using the structured schema.
 - decisiveMoment: describe in WORDS, not frame numbers
 - reasoning: cite Murch's hierarchy or editing principles
 - graphicIntents: include ALL onScreenText entries as separate graphics
 - The code will resolve your creative descriptions to exact frames using video analysis data
+</output_format>
 `;
 
   return prompt;

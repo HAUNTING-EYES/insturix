@@ -1,0 +1,137 @@
+## Scene 1: The Problem (0-5 seconds)
+
+**Visuals:** A frustrated office worker staring at a cluttered desktop screen filled with dozens of open browser tabs, spreadsheets, and notifications. Harsh fluorescent lighting. Papers scattered on the desk. Coffee cup half-empty.
+
+**Audio:**
+VO: "You're drowning in tabs. Drowning in notifications. Drowning in noise."
+
+**Camera:** Slow dolly in on the worker's stressed face, shallow depth of field
+
+**Music Direction:** Tense, minimal electronic pulse — low synth drone with irregular glitchy ticks
+
+**SFX:** Keyboard clacking, notification pings overlapping, mouse clicks
+
+**Transition:** Hard cut
+
+---
+
+## Scene 2: The Breaking Point (5-9 seconds)
+
+**Visuals:** The same worker slams their laptop shut in frustration. The screen goes dark. A moment of silence and darkness.
+
+**Audio:**
+VO: "There has to be a better way."
+
+**Camera:** Quick snap zoom to the laptop closing, then hold on darkness
+
+**Music Direction:** Music cuts to silence on the slam, then a single sustained note
+
+**SFX:** Laptop slam, sudden silence
+
+**Transition:** Dip to black
+
+---
+
+## Scene 3: FocusFlow Introduction (9-15 seconds)
+
+**Visuals:** Clean, minimal workspace. A single monitor displaying the FocusFlow app interface — organized, calm, beautiful. Soft natural light from a window. A small plant on the desk. The worker now looks relaxed and in control.
+
+**Audio:**
+VO: "Introducing FocusFlow. One workspace. Zero chaos."
+
+**Camera:** Crane shot descending from above to reveal the clean desk
+
+**Music Direction:** Bright, optimistic synth melody enters — clean and modern, like a breath of fresh air
+
+**SFX:** Soft UI chime as the app appears on screen
+
+**On-Screen Text:** "FocusFlow"
+
+**Transition:** Dissolve
+
+---
+
+## Scene 4: Feature Demo — Smart Tabs (15-19 seconds)
+
+**Visuals:** Screen recording style — the FocusFlow interface showing tabs automatically organizing themselves into color-coded groups. Tabs slide smoothly into categories: Work, Research, Personal.
+
+**Audio:**
+VO: "Smart Tabs learn how you work and organize everything automatically."
+
+**Camera:** Smooth screen capture, slight zoom on the tab grouping animation
+
+**Music Direction:** Music continues building, light percussion added
+
+**On-Screen Text:** "Smart Tabs"
+(Appears briefly: "AI-Powered Organization")
+
+**Transition:** Wipe right
+
+---
+
+## Scene 5: Feature Demo — Focus Mode (19-23 seconds)
+
+**Visuals:** The FocusFlow interface transitioning into Focus Mode — unnecessary elements fade away, leaving only the active document. A subtle blue glow around the edges of the screen. A progress timer appears in the corner.
+
+**Audio:**
+VO: "Focus Mode eliminates distractions with one click."
+
+**Camera:** Static screen capture with subtle push-in
+
+**Music Direction:** Music simplifies to match the focus theme — fewer instruments, clearer melody
+
+**On-Screen Text:** "Focus Mode"
+(Appears briefly: "One Click. Zero Distractions.")
+
+**Transition:** Soft cut
+
+---
+
+## Scene 6: The Result (23-27 seconds)
+
+**Visuals:** Split comparison — left side shows the cluttered desktop from Scene 1, right side shows the clean FocusFlow workspace. The cluttered side fades while the clean side brightens.
+
+**Audio:**
+VO: "From chaos to clarity. From overwhelmed to in control."
+
+**Camera:** Static comparison shot, hold steady
+
+**Music Direction:** Full arrangement — synth, percussion, bass — triumphant and resolving
+
+**SFX:** Satisfying UI completion sound
+
+**Transition:** Flash
+
+---
+
+## Scene 7: Social Proof (27-29 seconds)
+
+**Visuals:** Clean white background with a large pull quote and a 5-star rating. Professional, minimal typography.
+
+**Audio:**
+VO: "Trusted by 50,000 professionals."
+
+**Camera:** Static
+
+**Music Direction:** Music sustains, begins gentle fade
+
+**On-Screen Text:** "50,000+ Professionals"
+(Appears briefly: "4.9 Stars")
+
+---
+
+## Scene 8: CTA + Logo (29-32 seconds)
+
+**Visuals:** FocusFlow logo on a gradient blue-to-purple background. Download buttons for App Store and Chrome Web Store below. Tagline centered.
+
+**Audio:**
+VO: "Try FocusFlow free. Your focus starts now."
+
+**Camera:** Static centered
+
+**Music Direction:** Final chord resolves, clean ending
+
+**On-Screen Text:** "Try Free for 14 Days"
+**On-Screen Text:** "focusflow.app"
+
+**SFX:** Subtle whoosh on logo reveal

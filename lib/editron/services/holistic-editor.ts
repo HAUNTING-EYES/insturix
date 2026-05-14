@@ -42,35 +42,43 @@ export async function makeHolisticEditDecisions(
       `[${s.index}] (${Math.round(s.startMs / 1000)}s) "${s.text}"`
     ).join('\n');
 
-    const prompt = `You are a professional video editor making a rough cut of raw footage.
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    const prompt = `<role>
+You are a professional video editor making a rough cut of raw footage.
+</role>
 
-Below is the COMPLETE transcript, segmented by pauses. The speaker recorded this in one session with retakes, stutters, meta-commentary, and false starts mixed in with the actual content.
+<task>
+For each segment below, decide KEEP or CUT. The goal is a clean, watchable video where only the final, polished delivery of each idea remains. The speaker recorded this in one session with retakes, stutters, meta-commentary, and false starts mixed in.
+</task>
 
-Your job: for each segment, decide KEEP or CUT. The goal is a clean, watchable video where only the final, polished delivery of each idea remains.
-
-CUT these:
-- Stutters and false starts: "I th- I think" → cut, the completed version is elsewhere
-- Retakes: when the speaker says the same thing multiple times, keep ONLY the best/most complete version, cut the rest
+<rules>
+RULE 1 — CUT these:
+- Stutters and false starts: "I th- I think" — the completed version is elsewhere
+- Retakes: same thing said multiple times — keep ONLY the best/most complete, cut the rest
 - Meta-commentary: "that was me editing a video", "I'll put this at the beginning", "is my mic on"
-- Incomplete trailing thoughts: sentences that trail off without finishing ("but then they...")
-- Filler segments: "okay", "um", standalone words that aren't content
+- Incomplete trailing thoughts that never finish ("but then they...")
+- Filler segments: standalone "okay", "um" that aren't content
 - Warm-up/preamble: speaker warming up before actual content delivery
 
-KEEP these:
+RULE 2 — KEEP these:
 - The thesis/main argument (the point of the video)
 - Supporting arguments and examples
 - Punchlines and emotional moments
 - The conclusion
 - Natural speech — don't over-cut. Keep the speaker's voice and personality.
 
-CRITICAL: When the speaker attempts the same line multiple times, keep ONLY ONE — the most complete, cleanest version. Not two, not three. One.
+RULE 3 — RETAKE DEDUP (CRITICAL):
+When the speaker attempts the same line multiple times, keep ONLY ONE — the most complete, cleanest version. Not two, not three. One.
+</rules>
 
-There are ${segments.length} segments:
+<output_format>
+JSON object: {"keep": [segment indices to KEEP], "cut": [segment indices to CUT]}
+Every segment index must appear in exactly one array. Do not skip any. ${segments.length} segments total.
+</output_format>
 
+<segments>
 ${segmentList}
-
-Respond with a JSON object: {"keep": [array of segment indices to KEEP], "cut": [array of segment indices to CUT]}
-Every segment index must appear in exactly one array. Do not skip any.`;
+</segments>`;
 
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
