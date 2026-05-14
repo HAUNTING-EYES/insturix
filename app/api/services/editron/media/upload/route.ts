@@ -94,6 +94,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Server-side video duration verification ──
+    // Browser's HTMLVideoElement.duration is unreliable for improperly indexed MP4s.
+    // Parse the moov/mvhd atom from R2 to get the real duration.
+    let verifiedDuration = duration ? parseFloat(duration) : undefined;
+    if (fileType === 'video' && assetId) {
+      try {
+        const { getR2PresignedReadUrl } = await import('@/lib/editron/services/r2-service');
+        const presignedUrl = await getR2PresignedReadUrl(assetId);
+        const { extractMP4Duration } = await import('@/lib/editron/services/mp4-duration-service');
+        const serverDuration = await extractMP4Duration(presignedUrl);
+        if (serverDuration && serverDuration > 0) {
+          if (verifiedDuration && Math.abs(serverDuration - verifiedDuration) > 5) {
+            console.warn(`[Upload] Duration mismatch: browser=${verifiedDuration?.toFixed(1)}s, server=${serverDuration.toFixed(1)}s — using server value`);
+          }
+          verifiedDuration = serverDuration;
+          console.log(`[Upload] Server-verified duration: ${serverDuration.toFixed(1)}s for ${assetId}`);
+        }
+      } catch (err: any) {
+        console.warn(`[Upload] Server-side duration verification failed (non-fatal): ${err.message}`);
+      }
+    }
+
     // Save metadata to MongoDB
     const parsedDimensions =
       dimensions &&
@@ -117,7 +139,7 @@ export async function POST(request: NextRequest) {
       urlExpiresAt: new Date(readUrlExpiresAt),
       size: size || 0,
       thumbnail: thumbnail || undefined,
-      duration: duration ? parseFloat(duration) : undefined,
+      duration: verifiedDuration,
       dimensions: parsedDimensions,
       uploadedAt: new Date(),
       ...(isProxy && { isProxy: true }),
