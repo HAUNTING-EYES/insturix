@@ -49,7 +49,7 @@ const ANIM_DURATION = 1400; // ms
 function useAnimatedCount(target: number, duration: number): number {
   const [value, setValue] = useState(0);
   const startRef = useRef<number | null>(null);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number>(undefined);
 
   useEffect(() => {
     startRef.current = null;

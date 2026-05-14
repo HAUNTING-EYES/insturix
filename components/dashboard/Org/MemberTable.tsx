@@ -17,7 +17,6 @@ import {
   useImperativeHandle,
 } from 'react';
 import type { OrgMember } from '@/hooks/useOrganization';
-import { formatDistanceToNow } from 'date-fns';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -121,7 +120,7 @@ export const MemberTable = forwardRef<MemberTableHandle, MemberTableProps>(
     const [sortDir, setSortDir] = useState<SortDir>('asc');
     const [roleDropdownFor, setRoleDropdownFor] = useState<string | null>(null);
     const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
-    const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
     const [debouncedSearch, setDebouncedSearch] = useState('');
 
     // Debounced search (300ms)
