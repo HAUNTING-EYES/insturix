@@ -40,19 +40,6 @@ import { getExpiresAtFromDuration, isNotificationExpired } from "@/lib/utils/not
 
 
 
-// interface ISocialize {
-//   clerkUserId: string;
-//   username: string;
-//   profileImage: string;
-//   bio: string;
-//   links: SocializeLink[];
-//   banner?: BannerConfig;
-//   uniqueUsername?: string;
-//   notifications?: { message: string; duration: number }[];
-//   createdAt: Date;
-//   updatedAt: Date;
-// }
-// Add the necessary fields to the notification object type within ISocialize
 interface ISocialize {
   clerkUserId: string;
   username: string;
@@ -71,6 +58,8 @@ interface ISocialize {
   }[];
   createdAt: Date;
   updatedAt: Date;
+  status?: string;
+  accentColor?: string;
 }
 
 interface LinkPreview {
@@ -135,6 +124,8 @@ export default function SocializeDashboard({
       gradientColors: []
     }
   );
+  const [status, setStatus] = useState(initialData?.status || "");
+  const [accentColor, setAccentColor] = useState(initialData?.accentColor || "gold");
 
   // Queries and mutations remain unchanged...
 
@@ -422,31 +413,6 @@ export default function SocializeDashboard({
     );
   };
 
-  // const handleAddUpdate = async () => {
-  //   if (
-  //     duration === "" ||
-  //     Number(duration) < 1 ||
-  //     Number(duration) > 24 ||
-  //     !message.trim()
-  //   )
-  //     return;
-  //   updateUserDataMutation.mutate(
-  //     {
-  //       notifications: [{ message, duration: Number(duration) }],
-  //     },
-  //     {
-  //       onSuccess: () => {
-  //         setShowUpdatePopup(false);
-  //         toast({
-  //           title: "Success",
-  //           description: "Notification updated",
-  //           variant: "default",
-  //           duration: 4000,
-  //         });
-  //       },
-  //     }
-  //   );
-  // };
   const handleAddUpdate = async () => {
     if (
       duration === "" ||
@@ -552,10 +518,6 @@ export default function SocializeDashboard({
       }
     });
   };
-  // console.log("Notifications:", userData?.updates);
-  //      const activeNotification =
-  //   userData?.notifications?.find((n) => !isNotificationExpired(n)) ?? null;
-  // // Force re-check every minute to auto-hide expired notifications
   // Auto-filter out expired notifications
   const activeNotification =
     (userData?.notifications ?? []).filter((n) => !isNotificationExpired(n))[0] ??
@@ -613,25 +575,6 @@ export default function SocializeDashboard({
               }}
             />
             <SocializeAddLinkButton onClick={() => setShowAddModal(true)} />
-            {/* {userData?.notifications?.[0]?.message ? (
-              <SocializeNotificationCard
-                message={userData.notifications[0].message}
-                duration={userData.notifications[0].duration}
-                onEdit={() => setShowUpdatePopup(true)}
-              />
-            ) : (
-              <div className="mb-6">
-                <Button
-                  variant="outline"
-                  className="border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-[#EAE9E5]"
-                  onClick={() => setShowUpdatePopup(true)}
-                >
-                  <Bell className="w-4 h-4 mr-2" />
-                  Add a New Update
-                </Button>
-              </div>
-            )} */}
-
             {userData?.notifications && userData.notifications.length > 0 ? (
               <div className="mb-6 space-y-3">
                 {userData.notifications.filter((n) => !isNotificationExpired(n)).map((notification, index) => (

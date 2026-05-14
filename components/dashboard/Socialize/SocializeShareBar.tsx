@@ -29,8 +29,6 @@ interface SocializeShareBarProps {
   onShare?: (platform: string) => void;
   className?: string;
   showQRCode?: boolean;
-  showAnalytics?: boolean;
-  shareCount?: number;
 }
 
 export function SocializeShareBar({
