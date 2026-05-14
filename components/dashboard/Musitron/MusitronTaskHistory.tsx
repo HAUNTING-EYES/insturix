@@ -1,12 +1,7 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from 'framer-motion';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { History, Music2, ChevronRight as ChevronRightIcon, Calendar, Clock, Loader2, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { MusitronTask } from "@/app/api/services/musitron/types/shared";
 import { useQuery } from "@tanstack/react-query";
 
@@ -14,147 +9,144 @@ interface MusitronTaskWithCreator extends MusitronTask {
   createdByName?: string;
 }
 
-function MusitronTaskCard({ task }: { task: MusitronTaskWithCreator }) {
+function formatDate(dateStr: string | Date): string {
+  const dt = new Date(dateStr);
+  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function statusColor(status: MusitronTask["status"]): string {
+  switch (status) {
+    case "completed": return "#4ade80";
+    case "processing":
+    case "listed": return "#D4A652";
+    case "failed": return "#f87171";
+    default: return "#5F5E5A";
+  }
+}
+
+function TrackRow({ task, index }: { task: MusitronTaskWithCreator; index: number }) {
   const router = useRouter();
-  const displayTitle = task.title || `Music Task #${task._id?.toString().slice(-6)}`;
   const isClickable = task.status === "completed" || task.status === "failed";
-  const handleClick = () => {
-    if (isClickable) {
-      router.push(`/dashboard/musitron/task/${task._id}`);
-    }
-  };
+  const displayTitle = task.title || `Music Task #${task._id?.toString().slice(-6)}`;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-      <Card
-        className={cn(
-          "relative bg-black/40 border-zinc-800 backdrop-blur-xl transition-all duration-300",
-          isClickable ? "cursor-pointer hover:bg-black/50" : ""
-        )}
-        onClick={isClickable ? handleClick : undefined}
+    <div
+      onClick={isClickable ? () => router.push(`/dashboard/musitron/task/${task._id}`) : undefined}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "40px 1fr 100px 80px 60px",
+        alignItems: "center",
+        gap: 12,
+        padding: "12px 18px",
+        borderBottom: "1px solid #1C1B19",
+        cursor: isClickable ? "pointer" : "default",
+        transition: "background .15s",
+      }}
+      className="musitron-th-row"
+    >
+      {/* Number */}
+      <div
+        style={{
+          fontSize: 13,
+          color: "#5F5E5A",
+          fontFamily: "'JetBrains Mono', monospace",
+          textAlign: "center",
+        }}
       >
-        <CardContent className="flex items-center p-4">
-          <div className="h-12 w-12 rounded-lg bg-black/40 flex items-center justify-center mr-4 overflow-hidden">
-            <Music2 className="h-6 w-6 text-zinc-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-sm font-medium text-zinc-100 truncate" title={displayTitle}>
-                {displayTitle}
-              </h3>
-            </div>
-            <div className="flex items-center gap-3 text-[11px] text-zinc-500">
-              <div className="flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                {new Date(task.createdAt).toLocaleDateString()}
-              </div>
-              {task.status === 'completed' && (
-                <div className="flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  {new Date(task.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              )}
-              {task.createdByName && (
-                <div className="flex items-center gap-1.5 pl-2 border-l border-zinc-800">
-                  <span className="text-[10px] text-zinc-600 font-medium tracking-tight">BY</span>
-                  <span className="text-[10px] text-zinc-400 font-bold tracking-tight uppercase">
-                    {task.createdByName}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="ml-4 flex items-center gap-4">
-            <div className="text-right min-h-[40px] flex flex-col items-end justify-center">
-              <AnimatePresence mode="wait" initial={false}>
-                {task.status === 'processing' && (
-                  <motion.div
-                    key="processing"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="flex items-center gap-3 text-[14px] text-yellow-300 font-semibold px-3 py-2 rounded-lg bg-yellow-900/20 shadow animate-pulse"
-                  >
-                    <Loader2 className="h-5 w-5 mr-2 animate-spin text-yellow-400" />
-                    <span>Processing</span>
-                  </motion.div>
-                )}
-                {task.status === 'listed' && (
-                  <motion.div
-                    key="listed"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="text-[11px] text-zinc-400"
-                  >
-                    Listed
-                  </motion.div>
-                )}
-                {task.status === 'failed' && (
-                  <motion.div
-                    key="failed"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="flex items-center gap-2"
-                  >
-                    <div className="flex flex-col items-end">
-                      <span className="text-[11px] text-red-400 flex items-center gap-1">
-                        <AlertCircle className="h-3 w-3" />
-                        Failed
-                      </span>
-                      {task.error?.message && (
-                        <span className="text-[10px] text-red-500/70 max-w-[150px] truncate" title={task.error.message}>
-                          {task.error.message}
-                        </span>
-                      )}
-                    </div>
-                    <ChevronRightIcon className="h-4 w-4 text-zinc-400 opacity-60" />
-                  </motion.div>
-                )}
-                {task.status === 'completed' && (
-                  <motion.div
-                    key="completed"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="flex items-center gap-2"
-                  >
-                    <ChevronRightIcon className="h-4 w-4 text-zinc-400 opacity-60" />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </motion.div>
+        {String(index + 1).padStart(2, "0")}
+      </div>
+
+      {/* Title + Style */}
+      <div>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: "#ECE9E1",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+          title={displayTitle}
+        >
+          {displayTitle}
+        </div>
+        <div
+          style={{
+            fontSize: 10,
+            color: "#5F5E5A",
+            fontFamily: "'JetBrains Mono', monospace",
+            marginTop: 1,
+          }}
+        >
+          {task.style || ""}
+        </div>
+      </div>
+
+      {/* Date */}
+      <div
+        style={{
+          fontSize: 11,
+          color: "#5F5E5A",
+          fontFamily: "'JetBrains Mono', monospace",
+        }}
+      >
+        {formatDate(task.createdAt)}
+      </div>
+
+      {/* Duration placeholder */}
+      <div
+        style={{
+          fontSize: 11,
+          color: "#7A776E",
+          fontFamily: "'JetBrains Mono', monospace",
+          textAlign: "right",
+        }}
+      >
+        --:--
+      </div>
+
+      {/* Status */}
+      <div style={{ textAlign: "center" }}>
+        <span
+          style={{
+            display: "inline-block",
+            width: 8,
+            height: 8,
+            borderRadius: "50%",
+            background: statusColor(task.status),
+            animation:
+              task.status === "processing" || task.status === "listed"
+                ? "thPulse 1.5s ease infinite"
+                : "none",
+          }}
+        />
+      </div>
+    </div>
   );
 }
 
 export function MusitronTaskHistory() {
-  // Use SERVER pagination metadata to avoid capped totals
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 6;
-  const IN_PROGRESS_STATUSES: MusitronTask["status"][] = ["listed", "processing"];
 
   const { data: pageData, isLoading } = useQuery({
     queryKey: ["musitron-tasks", currentPage, ITEMS_PER_PAGE],
     queryFn: async () => {
-      const response = await fetch(`/api/services/musitron/history?page=${currentPage}&limit=${ITEMS_PER_PAGE}`);
+      const response = await fetch(
+        `/api/services/musitron/history?page=${currentPage}&limit=${ITEMS_PER_PAGE}`
+      );
       if (!response.ok) throw new Error("Failed to fetch Musitron tasks");
       const result = await response.json();
       const list = Array.isArray(result?.data) ? result.data : [];
-      const mapped: MusitronTaskWithCreator[] = (list as any[]).map((task: any) => ({
-        ...task,
-        createdAt: new Date(task.createdAt),
-        updatedAt: new Date(task.updatedAt),
-        ...(task.completedAt ? { completedAt: new Date(task.completedAt) } : {}),
-      }));
+      const mapped: MusitronTaskWithCreator[] = (list as any[]).map(
+        (task: any) => ({
+          ...task,
+          createdAt: new Date(task.createdAt),
+          updatedAt: new Date(task.updatedAt),
+          ...(task.completedAt ? { completedAt: new Date(task.completedAt) } : {}),
+        })
+      );
       return {
         items: mapped,
         pagination: {
@@ -167,104 +159,203 @@ export function MusitronTaskHistory() {
         },
       };
     },
-    // Poll every 5 seconds when there are in-progress tasks
     refetchInterval: (query) => {
       const hasInProgress = query.state.data?.items?.some(
         (t: MusitronTask) => t.status === "processing" || t.status === "listed"
       );
       return hasInProgress ? 5000 : false;
     },
-    staleTime: 1000 * 5, // Consider data stale after 5 seconds
+    staleTime: 1000 * 5,
     gcTime: 1000 * 60 * 10,
-    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    refetchOnWindowFocus: true,
   });
 
   const tasksData: MusitronTask[] = Array.isArray(pageData?.items) ? pageData!.items : [];
-  const pagination = pageData?.pagination || { totalItems: tasksData.length, totalPages: 1, currentPage, itemsPerPage: ITEMS_PER_PAGE };
+  const pagination = pageData?.pagination || {
+    totalItems: tasksData.length,
+    totalPages: 1,
+    currentPage,
+    itemsPerPage: ITEMS_PER_PAGE,
+  };
 
-  // In-progress tasks (from current page items)
-  const inProgressTasks = tasksData.filter((t) => IN_PROGRESS_STATUSES.includes(t.status as any));
-
-  // Completed/failed tasks (from current page items)
-  const completedTasks = tasksData.filter((t) => t.status === "completed" || t.status === "failed");
-
-  // Use server-provided totals for UI
   const totalPages = Math.max(1, Number(pagination.totalPages) || 1);
   const totalItems = Number(pagination.totalItems) || tasksData.length;
 
-  const handlePreviousPage = () => setCurrentPage((prev) => Math.max(prev - 1, 1));
-  const handleNextPage = () => setCurrentPage((prev) => Math.min(prev + 1, totalPages));
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-4">
-        <History className="h-5 w-5 text-yellow-400" />
-        <h2 className="text-lg sm:text-[18px] font-medium text-zinc-100">Task History</h2>
-        <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-[11px] text-zinc-400">
-          {totalItems} total
+    <div>
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 16,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: "1.2px",
+            textTransform: "uppercase",
+            color: "#7A776E",
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          Task History
+        </span>
+        <span
+          style={{
+            padding: "2px 8px",
+            background: "rgba(212,166,82,0.08)",
+            borderRadius: 10,
+            fontSize: 10,
+            color: "#D4A652",
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          {totalItems}
         </span>
       </div>
 
-      {/* In Progress Section */}
-      {inProgressTasks.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-md font-semibold text-yellow-300 mb-2">In Progress</h3>
-          <div className="space-y-3 sm:space-y-4">
-            {inProgressTasks.map((task: MusitronTask) => (
-              <MusitronTaskCard key={task._id} task={task} />
-            ))}
+      {/* Track list table */}
+      {tasksData.length > 0 ? (
+        <div
+          style={{
+            background: "#0F0F0E",
+            border: "1px solid #1C1B19",
+            borderRadius: 12,
+            overflow: "hidden",
+          }}
+        >
+          {/* Table header */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "40px 1fr 100px 80px 60px",
+              alignItems: "center",
+              gap: 12,
+              padding: "10px 18px",
+              borderBottom: "1px solid #1C1B19",
+              fontSize: 10,
+              color: "#5F5E5A",
+              fontFamily: "'JetBrains Mono', monospace",
+              textTransform: "uppercase",
+              letterSpacing: "0.8px",
+            }}
+          >
+            <div>#</div>
+            <div>Title</div>
+            <div>Date</div>
+            <div style={{ textAlign: "right" }}>Duration</div>
+            <div style={{ textAlign: "center" }}>Status</div>
+          </div>
+
+          {/* Rows */}
+          {tasksData.map((task, i) => (
+            <TrackRow key={task._id} task={task} index={i + (currentPage - 1) * ITEMS_PER_PAGE} />
+          ))}
+        </div>
+      ) : (
+        /* Empty State */
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "60px 32px",
+            textAlign: "center",
+            border: "2px dashed #282724",
+            borderRadius: 12,
+            background: "#0F0F0E",
+          }}
+        >
+          <svg
+            width="40"
+            height="40"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#5F5E5A"
+            strokeWidth="1.5"
+            style={{ marginBottom: 12 }}
+          >
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
+          </svg>
+          <div style={{ fontSize: 14, color: "#B5B2A8", marginBottom: 4 }}>
+            No music generated yet
+          </div>
+          <div style={{ fontSize: 12, color: "#5F5E5A" }}>
+            Create your first music using the form to see it appear here.
           </div>
         </div>
       )}
 
-      {/* Completed Section */}
-      <div className="space-y-3 sm:space-y-4 min-h-[400px] relative">
-        {completedTasks.length === 0 && inProgressTasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 bg-black/20 py-24 px-6">
-            <Music2 className="h-12 w-12 text-zinc-500 mb-4" />
-            <p className="text-zinc-400 text-center mb-2">No music generated yet</p>
-            <p className="text-zinc-500 text-sm text-center">
-              Create your first music using the form above to see it appear here.
-            </p>
-          </div>
-        ) : (
-          <>
-            <h3 className="text-md font-semibold text-yellow-300 mb-2">Completed</h3>
-            {completedTasks.map((task: MusitronTask) => (
-              <MusitronTaskCard key={task._id} task={task} />
-            ))}
-          </>
-        )}
-      </div>
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mt-6">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePreviousPage}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 16,
+            marginTop: 16,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
             disabled={currentPage === 1 || isLoading}
-            className="w-full sm:w-auto order-2 sm:order-1"
+            style={{
+              ...paginationBtnStyle,
+              opacity: currentPage === 1 ? 0.4 : 1,
+              cursor: currentPage === 1 ? "not-allowed" : "pointer",
+            }}
           >
-            <ChevronLeft className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="text-[11px] sm:text-sm">Previous</span>
-          </Button>
-          <span className="text-[11px] sm:text-sm text-zinc-400 order-1 sm:order-2 text-center">
-            Page {currentPage} of {totalPages}
-            <span className="hidden sm:inline"> ({totalItems} total)</span>
+            &#8592; Prev
+          </button>
+          <span
+            style={{
+              fontSize: 11,
+              color: "#7A776E",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            {currentPage} / {totalPages}
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNextPage}
+          <button
+            type="button"
+            onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
             disabled={currentPage >= totalPages || isLoading}
-            className="w-full sm:w-auto order-3"
+            style={{
+              ...paginationBtnStyle,
+              opacity: currentPage >= totalPages ? 0.4 : 1,
+              cursor: currentPage >= totalPages ? "not-allowed" : "pointer",
+            }}
           >
-            <span className="text-[11px] sm:text-sm">Next</span>
-            <ChevronRight className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4" />
-          </Button>
+            Next &#8594;
+          </button>
         </div>
       )}
+
+      <style>{`
+        .musitron-th-row:hover { background: #131312 !important; }
+        @keyframes thPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      `}</style>
     </div>
   );
 }
+
+const paginationBtnStyle: React.CSSProperties = {
+  padding: "6px 14px",
+  fontSize: 11,
+  fontWeight: 600,
+  background: "#131312",
+  border: "1px solid #1C1B19",
+  borderRadius: 6,
+  color: "#B5B2A8",
+  fontFamily: "'JetBrains Mono', monospace",
+  transition: "all .2s",
+};
