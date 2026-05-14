@@ -222,7 +222,7 @@ export function LandingPageA() {
           const newPct = el.scrollTop / mx;
           setPct(newPct);
           // Bridge to SiteNavbar: set data attribute so pill-on-scroll triggers
-          document.documentElement.dataset.scrolled = el.scrollTop > 200 ? "true" : "";
+          document.documentElement.dataset.scrolled = newPct > 0.02 ? "true" : "";
         }
         rafRef.current = 0;
       });
