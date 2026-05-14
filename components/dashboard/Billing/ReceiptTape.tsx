@@ -18,94 +18,61 @@ interface ReceiptTapeProps {
   accountId?: string;
 }
 
-/* ── Zigzag SVG for top/bottom tear ── */
-function ZigzagTear({ flip = false }: { flip?: boolean }) {
-  return (
-    <svg
-      className="w-full block"
-      style={{
-        height: 12,
-        filter: "drop-shadow(0 0 6px rgba(212,166,82,0.15))",
-        transform: flip ? "scaleY(-1)" : undefined,
-      }}
-      viewBox="0 0 640 12"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      {/* Fill matching receipt bg */}
-      <path
-        d={generateZigzagPath(640, 12, 16)}
-        fill="#131312"
-      />
-      {/* Gold outline stroke */}
-      <path
-        d={generateZigzagPath(640, 12, 16)}
-        fill="none"
-        stroke="rgba(212,166,82,0.35)"
-        strokeWidth="1"
-      />
-    </svg>
-  );
-}
-
-/** Generate a zigzag path with triangles of given size */
-function generateZigzagPath(width: number, height: number, toothWidth: number): string {
-  const teeth = Math.ceil(width / toothWidth);
-  let d = `M0,${height}`;
-  for (let i = 0; i < teeth; i++) {
-    const x1 = i * toothWidth + toothWidth / 2;
-    const x2 = (i + 1) * toothWidth;
-    d += ` L${Math.min(x1, width)},0`;
-    d += ` L${Math.min(x2, width)},${height}`;
-  }
-  d += ` L${width},${height} Z`;
-  return d;
-}
-
-/* ── Barcode SVG ── */
+/* ── Barcode: varying-height bars with shimmer ── */
 function Barcode() {
-  // Deterministic pseudo-random barcode bars
-  const bars: { x: number; w: number }[] = [];
-  let x = 0;
-  const seed = [2, 1, 3, 1, 2, 1, 1, 3, 2, 1, 1, 2, 3, 1, 2, 1, 3, 1, 1, 2, 1, 3, 2, 1, 1, 2, 1, 3, 1, 2, 3, 1, 2, 1, 1, 3, 2, 1];
-  for (let i = 0; i < seed.length; i++) {
-    const w = seed[i];
-    if (i % 2 === 0) {
-      bars.push({ x, w });
-    }
-    x += w;
-  }
-  const totalWidth = x;
+  const pattern = [3,1,2,1,3,2,1,3,1,2,3,1,1,2,3,1,2,1,3,2,1,1,3,2,1,3,1,2,1,3,2,1,1,2,3,1,2,3,1,2];
+  // Pre-compute heights deterministically (18 + pseudo-random * 18)
+  const heights = pattern.map((_, i) => 18 + ((i * 7 + 13) % 18));
 
   return (
-    <div className="relative mx-auto w-[200px] h-[40px] my-4 overflow-hidden">
-      <svg
-        viewBox={`0 0 ${totalWidth} 40`}
-        className="w-full h-full"
-        preserveAspectRatio="none"
-        aria-hidden="true"
+    <>
+      <style>{`
+        @keyframes barcodeShimmer {
+          0%   { left: -50%; }
+          40%  { left: 120%; }
+          100% { left: 120%; }
+        }
+      `}</style>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          gap: 2,
+          marginBottom: 10,
+          height: 36,
+          alignItems: "flex-end",
+          position: "relative",
+          overflow: "hidden",
+        }}
       >
-        {bars.map((bar, i) => (
-          <rect
+        {pattern.map((w, i) => (
+          <div
             key={i}
-            x={bar.x}
-            y={0}
-            width={bar.w}
-            height={40}
-            fill="#ECE9E1"
-            opacity={0.6}
+            style={{
+              width: w,
+              height: heights[i],
+              background: "#ECE9E1",
+              borderRadius: 1,
+            }}
           />
         ))}
-      </svg>
-      {/* Shimmer overlay */}
-      <div className="absolute inset-0 animate-[barcodeShimmer_4s_ease-in-out_infinite] pointer-events-none" />
-    </div>
+        {/* Shimmer overlay */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: "-50%",
+            width: "30%",
+            background:
+              "linear-gradient(105deg, transparent 0%, transparent 35%, rgba(212,166,82,0.25) 50%, transparent 65%, transparent 100%)",
+            animation: "barcodeShimmer 4s ease-in-out infinite",
+            pointerEvents: "none",
+          }}
+        />
+      </div>
+    </>
   );
-}
-
-/* ── Dashed Separator ── */
-function DashedSep() {
-  return <div className="border-t border-dashed border-[#282724] my-3" />;
 }
 
 /* ── Main Receipt Component ── */
@@ -117,147 +84,394 @@ export function ReceiptTape({
   accountId,
 }: ReceiptTapeProps) {
   const planName = plan?.name && plan.name.toLowerCase() !== "free"
-    ? plan.name
-    : "Free";
+    ? plan.name.toUpperCase()
+    : "FREE";
   const planPrice = plan?.price ?? 0;
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
+    year: "numeric",
     month: "short",
     day: "numeric",
-    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
+  const acctDisplay = accountId
+    ? `#${accountId.slice(0, 8).toUpperCase()}`
+    : "#INS-0000";
+
+  /* Zigzag SVG data URI (matching mockup: 12px triangles, gold stroke) */
+  const zigzagTop =
+    "url(\"data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0 L6 12 L12 0' fill='%23131312' stroke='%23D4A652' stroke-width='0.5' stroke-opacity='0.35'/%3E%3C/svg%3E\")";
+  const zigzagBottom =
+    "url(\"data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 12 L6 0 L12 12' fill='%23131312' stroke='%23D4A652' stroke-width='0.5' stroke-opacity='0.35'/%3E%3C/svg%3E\")";
 
   return (
-    <div className="w-full max-w-[640px] mx-auto px-6 py-12">
-      {/* Plan badge */}
-      <div className="flex justify-center mb-6">
-        <span
-          className="inline-block px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-[0.15em]"
+    <>
+      <style>{`
+        @keyframes receiptPrint {
+          0%   { clip-path: inset(0 0 100% 0); }
+          100% { clip-path: inset(0 0 0% 0); }
+        }
+        @keyframes pulseDot {
+          0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(212,166,82,0.4); }
+          50%      { opacity: 0.7; box-shadow: 0 0 0 6px rgba(212,166,82,0); }
+        }
+        @keyframes btnBorderGlow {
+          0%, 100% { border-color: #282724; box-shadow: 0 0 0 transparent; }
+          50%      { border-color: rgba(212,166,82,0.4); box-shadow: 0 0 20px rgba(212,166,82,0.08); }
+        }
+      `}</style>
+
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "48px 24px" }}>
+        {/* ── Header: "Credit Receipt" + plan badge ── */}
+        <div
           style={{
-            background: "linear-gradient(135deg, #D4A652, #C49840)",
-            color: "#0B0B0A",
-            fontFamily: "'JetBrains Mono', monospace",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 40,
           }}
         >
-          {planName} Plan
-        </span>
-      </div>
-
-      {/* Receipt wrapper with print-reveal animation */}
-      <div className="relative" style={{ animation: "receiptPrint 2.5s ease both" }}>
-        {/* Top zigzag tear */}
-        <ZigzagTear />
-
-        {/* Receipt body */}
-        <div
-          className="bg-[#131312] relative overflow-hidden"
-          style={{ fontFamily: "'JetBrains Mono', monospace" }}
-        >
-          {/* Scanline overlay for thermal paper texture */}
-          <div
-            className="absolute inset-0 pointer-events-none opacity-[0.03]"
+          <h1
             style={{
-              backgroundImage:
-                "repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(236,233,225,0.15) 1px, rgba(236,233,225,0.15) 2px)",
+              fontSize: 28,
+              fontWeight: 800,
+              letterSpacing: -0.5,
+              color: "#ECE9E1",
+              fontFamily: "'Plus Jakarta Sans', sans-serif",
+              margin: 0,
             }}
-            aria-hidden="true"
-          />
-
-          <div className="relative px-6 py-6">
-            {/* Receipt header */}
-            <div className="text-center space-y-2 mb-1">
-              <h2
-                className="text-[22px] font-bold tracking-[0.2em] uppercase"
-                style={{ color: "#D4A652" }}
-              >
-                INSTURIX
-              </h2>
-              <div className="inline-block px-3 py-0.5 rounded bg-[rgba(212,166,82,0.08)] border border-[rgba(212,166,82,0.16)]">
-                <span className="text-[10px] text-[#D4A652] uppercase tracking-[0.12em] font-medium">
-                  {planName}
-                </span>
-              </div>
-              <div className="text-[10px] text-[#7A776E] space-y-0.5">
-                {planPrice > 0 && (
-                  <p>${planPrice}/mo &middot; {plan?.credits ?? "---"} credits/mo</p>
-                )}
-                {accountId && <p>ACCT: {accountId.slice(0, 8).toUpperCase()}</p>}
-                <p>{dateStr}</p>
-              </div>
-            </div>
-
-            <DashedSep />
-
-            {/* RECENT ACTIVITY section */}
-            <div className="mb-1">
-              <p className="text-[10px] text-[#7A776E] uppercase tracking-[0.15em] font-medium mb-2">
-                RECENT ACTIVITY
-              </p>
-
-              {transactions.length === 0 ? (
-                <p className="text-[11px] text-[#5F5E5A] text-center py-4">
-                  No transactions yet
-                </p>
-              ) : (
-                <div className="space-y-0">
-                  {transactions.map((txn, i) => (
-                    <ReceiptLineItem
-                      key={txn.id}
-                      transaction={txn}
-                      isLatest={i === 0}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <DashedSep />
-
-            {/* Balance totals */}
-            <ReceiptTotal balance={balance} />
-
-            {/* Barcode */}
-            <Barcode />
-
-            {/* Footer */}
-            <p className="text-center text-[10px] text-[#5F5E5A] tracking-[0.08em]">
-              Powered by Razorpay
-            </p>
+          >
+            Credit <span style={{ color: "#D4A652" }}>Receipt</span>
+          </h1>
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: "linear-gradient(135deg, rgba(212,166,82,0.15), rgba(212,166,82,0.05))",
+              border: "1px solid rgba(212,166,82,0.3)",
+              borderRadius: 100,
+              padding: "8px 20px",
+              fontWeight: 700,
+              fontSize: 13,
+              color: "#D4A652",
+              letterSpacing: 1.5,
+              textTransform: "uppercase" as const,
+              fontFamily: "'Plus Jakarta Sans', sans-serif",
+            }}
+          >
+            <div
+              style={{
+                width: 8,
+                height: 8,
+                background: "#D4A652",
+                borderRadius: "50%",
+                animation: "pulseDot 2s ease infinite",
+              }}
+            />
+            {planName}
           </div>
         </div>
 
-        {/* Bottom zigzag tear */}
-        <ZigzagTear flip />
-      </div>
+        {/* ── Receipt wrapper with print animation ── */}
+        <div
+          style={{
+            position: "relative",
+            marginBottom: 32,
+            clipPath: "inset(0 0 100% 0)",
+            animation: "receiptPrint 2.5s cubic-bezier(.16,1,.3,1) 0.3s forwards",
+          }}
+        >
+          {/* Top tear edge */}
+          <div style={{ height: 12, position: "relative" }}>
+            <div
+              style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 12,
+                background: `${zigzagTop} repeat-x`,
+                backgroundSize: "12px 12px",
+                filter: "drop-shadow(0 1px 6px rgba(212,166,82,.12))",
+              }}
+            />
+          </div>
 
-      {/* Action buttons */}
-      <div className="flex flex-col items-center gap-3 mt-8">
-        <button
-          onClick={onTopup}
-          className="px-8 py-3 rounded-lg text-[12px] font-bold uppercase tracking-[0.12em] transition-all duration-300"
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            background: "#D4A652",
-            color: "#0B0B0A",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.9"; e.currentTarget.style.transform = "translateY(-1px)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "none"; }}
-        >
-          Add Credits
-        </button>
-        <a
-          href="/upgrade"
-          className="text-[11px] uppercase tracking-[0.1em] transition-colors duration-200"
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            color: "#7A776E",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "#D4A652"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "#7A776E"; }}
-        >
-          ↑ Upgrade Plan
-        </a>
+          {/* ── Receipt body ── */}
+          <div
+            style={{
+              background: "#131312",
+              color: "#ECE9E1",
+              fontFamily: "'JetBrains Mono', monospace",
+              padding: "0 32px",
+              position: "relative",
+              overflow: "hidden",
+              borderLeft: "1px solid #1C1B19",
+              borderRight: "1px solid #1C1B19",
+            }}
+          >
+            {/* Scanline texture overlay */}
+            <div
+              style={{
+                position: "absolute",
+                top: 0, left: 0, right: 0, bottom: 0,
+                background:
+                  "repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(255,255,255,0.012) 1px, rgba(255,255,255,0.012) 2px)",
+                pointerEvents: "none",
+              }}
+              aria-hidden="true"
+            />
+            {/* Side highlight for depth */}
+            <div
+              style={{
+                position: "absolute",
+                top: 0, bottom: 0,
+                left: 0, width: 8,
+                background: "linear-gradient(90deg, rgba(255,255,255,0.02), transparent)",
+                pointerEvents: "none",
+              }}
+              aria-hidden="true"
+            />
+
+            {/* ── Receipt header (inside receipt body) ── */}
+            <div
+              style={{
+                textAlign: "center",
+                padding: "24px 0 20px",
+                borderBottom: "2px dashed #282724",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                  letterSpacing: 3,
+                  textTransform: "uppercase" as const,
+                  color: "#D4A652",
+                  marginBottom: 4,
+                }}
+              >
+                INSTURIX
+              </div>
+              <div
+                style={{
+                  display: "inline-block",
+                  background: "#D4A652",
+                  color: "#0B0B0A",
+                  padding: "3px 14px",
+                  borderRadius: 3,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: 2,
+                  marginBottom: 8,
+                }}
+              >
+                {planName} PLAN
+              </div>
+              <div style={{ fontSize: 10, color: "#7A776E", lineHeight: 1.6 }}>
+                Creative Production Platform<br />
+                {planPrice > 0 ? (
+                  <>
+                    ${planPrice}.00/mo &middot; {plan?.credits ?? "---"} credits/month<br />
+                  </>
+                ) : (
+                  <>
+                    Free tier<br />
+                  </>
+                )}
+                Account {acctDisplay} &middot; {dateStr}
+              </div>
+            </div>
+
+            {/* ── Recent Activity section ── */}
+            <div style={{ padding: "16px 0", borderBottom: "1px dashed #282724" }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: "uppercase" as const,
+                  letterSpacing: 2,
+                  color: "#D4A652",
+                  marginBottom: 12,
+                }}
+              >
+                Recent Activity
+              </div>
+
+              {transactions.length === 0 ? (
+                <p style={{ fontSize: 11, color: "#5F5E5A", textAlign: "center", padding: "16px 0" }}>
+                  No transactions yet
+                </p>
+              ) : (
+                transactions.map((txn, i) => (
+                  <ReceiptLineItem
+                    key={txn.id}
+                    transaction={txn}
+                    isLatest={i === 0}
+                    animDelay={i === 0 ? 400 : 400 + (i * 200)}
+                  />
+                ))
+              )}
+            </div>
+
+            {/* ── Totals section ── */}
+            <ReceiptTotal balance={balance} />
+
+            {/* ── Footer inside receipt ── */}
+            <div
+              style={{
+                textAlign: "center",
+                padding: "16px 0 28px",
+                borderTop: "1px dashed #282724",
+              }}
+            >
+              <Barcode />
+              <div style={{ fontSize: 10, color: "#7A776E", lineHeight: 1.5 }}>
+                <strong style={{ color: "#ECE9E1" }}>
+                  Thank you for creating with Insturix
+                </strong>
+                <br />
+                Powered by Razorpay &middot; Secure Payments
+                <br />
+                insturix.com/billing
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom tear edge */}
+          <div style={{ height: 12, position: "relative" }}>
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 12,
+                background: `${zigzagBottom} repeat-x`,
+                backgroundSize: "12px 12px",
+                filter: "drop-shadow(0 -1px 6px rgba(212,166,82,.12))",
+              }}
+            />
+          </div>
+
+          {/* Receipt shadow with gold glow */}
+          <div
+            style={{
+              height: 40,
+              boxShadow: "0 0 60px rgba(212,166,82,.06), 0 20px 40px rgba(0,0,0,.4)",
+              margin: "10px 20px 0",
+            }}
+          />
+        </div>
+
+        {/* ── Action buttons ── */}
+        <div style={{ marginTop: 24 }}>
+          {/* Insert Card button */}
+          <button
+            onClick={onTopup}
+            className="receipt-btn-insert"
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              padding: "18px 24px",
+              borderRadius: 12,
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 14,
+              fontWeight: 700,
+              letterSpacing: 1,
+              textTransform: "uppercase" as const,
+              border: "2px dashed #282724",
+              background: "#0F0F0E",
+              color: "#D4A652",
+              cursor: "pointer",
+              transition: "all 0.3s cubic-bezier(.16,1,.3,1)",
+              animation: "btnBorderGlow 3s ease-in-out infinite",
+            }}
+            onMouseEnter={(e) => {
+              const el = e.currentTarget;
+              el.style.borderColor = "#D4A652";
+              el.style.background = "rgba(212,166,82,0.05)";
+              el.style.transform = "translateY(-2px)";
+              el.style.boxShadow = "0 8px 32px rgba(212,166,82,0.15)";
+              el.style.animation = "none";
+            }}
+            onMouseLeave={(e) => {
+              const el = e.currentTarget;
+              el.style.borderColor = "";
+              el.style.background = "#0F0F0E";
+              el.style.transform = "";
+              el.style.boxShadow = "";
+              el.style.animation = "btnBorderGlow 3s ease-in-out infinite";
+            }}
+          >
+            {/* Card slot icon */}
+            <div
+              style={{
+                width: 28,
+                height: 18,
+                border: "2px solid #D4A652",
+                borderRadius: 4,
+                position: "relative",
+              }}
+            >
+              {/* Gold chip */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: 3,
+                  left: 3,
+                  width: 8,
+                  height: 6,
+                  background: "#D4A652",
+                  borderRadius: 1,
+                  opacity: 0.5,
+                }}
+              />
+            </div>
+            Insert Card &mdash; Add Credits
+          </button>
+
+          {/* Upgrade Plan button */}
+          <button
+            onClick={() => { window.location.href = "/upgrade"; }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              padding: "16px 24px",
+              borderRadius: 12,
+              fontFamily: "'Plus Jakarta Sans', sans-serif",
+              fontSize: 15,
+              fontWeight: 700,
+              border: "1px solid #282724",
+              background: "#131312",
+              color: "#ECE9E1",
+              cursor: "pointer",
+              transition: "all 0.3s cubic-bezier(.16,1,.3,1)",
+              marginTop: 12,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#D4A652";
+              e.currentTarget.style.color = "#D4A652";
+              e.currentTarget.style.transform = "translateY(-2px)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "#282724";
+              e.currentTarget.style.color = "#ECE9E1";
+              e.currentTarget.style.transform = "";
+            }}
+          >
+            &#8593;&ensp;Upgrade Plan
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

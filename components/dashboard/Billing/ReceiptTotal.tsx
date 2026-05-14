@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/utils";
 import { CreditsBalance } from "@/hooks/useCredits";
 
 interface ReceiptTotalProps {
@@ -9,133 +8,166 @@ interface ReceiptTotalProps {
 }
 
 /** Animate a number from 0 to target using requestAnimationFrame */
-function useCountUp(target: number, duration = 1200): number {
+function useCountUp(target: number, duration = 1200, delay = 0): number {
   const [value, setValue] = useState(0);
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const start = performance.now();
-
-    function tick(now: number) {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / duration, 1);
-      // Ease-out cubic
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setValue(Math.round(eased * target));
-
-      if (progress < 1) {
-        rafRef.current = requestAnimationFrame(tick);
+    const timeout = setTimeout(() => {
+      const start = performance.now();
+      function tick(now: number) {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setValue(Math.round(eased * target));
+        if (progress < 1) {
+          rafRef.current = requestAnimationFrame(tick);
+        }
       }
-    }
+      rafRef.current = requestAnimationFrame(tick);
+    }, delay);
 
-    rafRef.current = requestAnimationFrame(tick);
     return () => {
+      clearTimeout(timeout);
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [target, duration]);
+  }, [target, duration, delay]);
 
   return value;
 }
 
-function formatExpiry(dateStr: string | null): { text: string; isUrgent: boolean } {
-  if (!dateStr) return { text: "N/A", isUrgent: false };
+function formatExpiry(dateStr: string | null): { text: string; daysLeft: number } {
+  if (!dateStr) return { text: "no expiry", daysLeft: -1 };
   const date = new Date(dateStr);
   const now = new Date();
   const daysLeft = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-  if (daysLeft <= 0) return { text: "EXPIRED", isUrgent: true };
-  if (daysLeft === 1) return { text: "1 DAY LEFT", isUrgent: true };
-  if (daysLeft <= 7) return { text: `${daysLeft} DAYS LEFT`, isUrgent: true };
-  return { text: `${daysLeft} DAYS LEFT`, isUrgent: false };
-}
-
-/** Render each digit as an individual span for the roll-up animation */
-function AnimatedDigits({ value }: { value: number }) {
-  const digits = String(value).split("");
-
-  return (
-    <span className="inline-flex" aria-label={String(value)}>
-      {digits.map((digit, i) => (
-        <span
-          key={`${i}-${digit}`}
-          className="inline-block animate-[counterRoll_0.4s_cubic-bezier(.16,1,.3,1)_both]"
-          style={{
-            animationDelay: `${i * 60}ms`,
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
-          {digit}
-        </span>
-      ))}
-    </span>
-  );
+  if (daysLeft <= 0) return { text: "expired", daysLeft: 0 };
+  return { text: `expires in ${daysLeft} days`, daysLeft };
 }
 
 export function ReceiptTotal({ balance }: ReceiptTotalProps) {
-  const total = balance.totalCredits;
-  const animatedTotal = useCountUp(total, 1400);
+  const animSub = useCountUp(balance.subscriptionCredits, 1200, 1400);
+  const animTop = useCountUp(balance.topupCredits, 1200, 1500);
+  const animTotal = useCountUp(balance.totalCredits, 1500, 1600);
   const expiry = formatExpiry(balance.subscriptionCreditsExpiry);
 
   return (
-    <div
-      className="space-y-0"
-      style={{ fontFamily: "'JetBrains Mono', monospace" }}
-    >
-      {/* Double dashed divider */}
-      <div className="border-t border-dashed border-[#282724] mt-2" />
-      <div className="border-t border-dashed border-[#282724] mt-[2px] mb-3" />
+    <>
+      <style>{`
+        @keyframes balanceGlow {
+          0%, 100% { text-shadow: 0 0 0 transparent; }
+          50%      { text-shadow: 0 0 20px rgba(212,166,82,0.15); }
+        }
+        @keyframes expiryColorPulse {
+          0%, 100% { color: #D4A652; }
+          50%      { color: #7A776E; }
+        }
+      `}</style>
+      <div
+        style={{
+          padding: "16px 0",
+          borderTop: "2px dashed #282724",
+          fontFamily: "'JetBrains Mono', monospace",
+        }}
+      >
+        {/* SUBSCRIPTION CREDITS row */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "4px 0",
+            fontSize: 12,
+            color: "#7A776E",
+          }}
+        >
+          <span>SUBSCRIPTION CREDITS</span>
+          <span style={{ fontWeight: 700 }}>{animSub}</span>
+        </div>
 
-      {/* SUBSCRIPTION line */}
-      <div className="flex justify-between items-baseline py-1">
-        <span className="text-[11px] text-[#7A776E] uppercase tracking-wider">
-          SUBSCRIPTION
-        </span>
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13px] text-[#ECE9E1] tabular-nums">
-            {balance.subscriptionCredits}
-          </span>
+        {/* Expiry sub-row (indented) */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "4px 0",
+            fontSize: 12,
+            color: "#7A776E",
+          }}
+        >
           <span
-            className={cn(
-              "text-[10px] uppercase tracking-wider",
-              expiry.isUrgent
-                ? "animate-[expiryPulse_2s_ease-in-out_infinite]"
-                : "text-[#7A776E]"
-            )}
+            style={{
+              paddingLeft: 8,
+              animation: expiry.daysLeft >= 0 && expiry.daysLeft <= 30
+                ? "expiryColorPulse 2s ease-in-out infinite"
+                : undefined,
+              color: expiry.daysLeft >= 0 && expiry.daysLeft <= 30 ? undefined : "#7A776E",
+            }}
           >
             {expiry.text}
           </span>
-        </div>
-      </div>
-
-      {/* TOP-UP line */}
-      <div className="flex justify-between items-baseline py-1">
-        <span className="text-[11px] text-[#7A776E] uppercase tracking-wider">
-          TOP-UP
-        </span>
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13px] text-[#ECE9E1] tabular-nums">
-            {balance.topupCredits}
-          </span>
-          <span className="text-[10px] text-[#5EC97E] uppercase tracking-wider">
-            PERMANENT
+          <span style={{ color: "#7A776E", fontWeight: 400, fontSize: 10 }}>
+            monthly
           </span>
         </div>
-      </div>
 
-      {/* Thick divider */}
-      <div className="border-t-2 border-[#282724] my-2" />
-
-      {/* TOTAL line */}
-      <div className="flex justify-between items-center py-2">
-        <span className="text-[13px] text-[#ECE9E1] font-bold uppercase tracking-wider">
-          TOTAL
-        </span>
-        <span
-          className="text-[28px] font-bold text-[#ECE9E1] tabular-nums animate-[balanceGlow_3s_ease-in-out_infinite]"
+        {/* TOP-UP CREDITS row */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "4px 0",
+            fontSize: 12,
+            color: "#7A776E",
+            marginTop: 4,
+          }}
         >
-          <AnimatedDigits value={animatedTotal} />
-        </span>
+          <span>TOP-UP CREDITS</span>
+          <span style={{ fontWeight: 700 }}>{animTop}</span>
+        </div>
+
+        {/* No expiry sub-row (indented) */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "4px 0",
+            fontSize: 12,
+            color: "#7A776E",
+          }}
+        >
+          <span style={{ paddingLeft: 8 }}>no expiry</span>
+          <span style={{ color: "#7A776E", fontWeight: 400, fontSize: 10 }}>
+            permanent
+          </span>
+        </div>
+
+        {/* Thin solid divider */}
+        <div style={{ borderTop: "1px solid #282724", marginTop: 8 }} />
+
+        {/* CREDIT BALANCE main row */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "10px 0 4px",
+            fontSize: 18,
+            fontWeight: 700,
+            color: "#D4A652",
+          }}
+        >
+          <span>CREDIT BALANCE</span>
+          <span
+            style={{
+              fontSize: 22,
+              animation: "balanceGlow 3s ease-in-out infinite",
+            }}
+          >
+            {animTotal}
+          </span>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
