@@ -8,14 +8,19 @@ interface SocializeHeaderProps {
   user: { username?: string; imageUrl?: string } | null;
   bio: string;
   onEditBio: () => void;
+  status?: string;
+  accentColor?: string;
 }
 
-export function SocializeHeader({ user, bio, onEditBio }: SocializeHeaderProps) {
+export function SocializeHeader({ user, bio, onEditBio, status, accentColor }: SocializeHeaderProps) {
+  const accentHex: Record<string, string> = { gold: "#D4A652", cyan: "#5CB8CC", rose: "#D088B4", green: "#5EC97E", purple: "#9088D4", coral: "#D46A5C" };
+  const resolvedAccent = accentHex[accentColor || "gold"] || accentHex.gold;
+
   return (
     <Card className="border-none shadow-none" style={{ backgroundColor: '#0F0F0E', borderRadius: '12px' }}>
       <CardHeader>
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full overflow-hidden border flex items-center justify-center" style={{ backgroundColor: '#1B1A18', borderColor: '#D4A652' }}>
+          <div className="w-16 h-16 rounded-full overflow-hidden border flex items-center justify-center" style={{ backgroundColor: '#1B1A18', borderColor: resolvedAccent }}>
             {user?.imageUrl ? (
               <Image
                 src={user.imageUrl}
@@ -35,6 +40,12 @@ export function SocializeHeader({ user, bio, onEditBio }: SocializeHeaderProps) 
             <CardDescription style={{ color: '#B5B2A8' }}>
               {bio || "No bio yet. Click edit to add one."}
             </CardDescription>
+            {status && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 20, background: "rgba(212,166,82,.08)", border: "1px solid rgba(212,166,82,.16)", fontSize: "0.7rem", color: "#D4A652", fontFamily: "var(--font-jetbrains-mono)", letterSpacing: "0.03em", marginTop: 8 }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#D4A652" }} />
+                {status}
+              </div>
+            )}
           </div>
           <Button
             variant="outline"

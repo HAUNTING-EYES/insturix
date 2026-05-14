@@ -556,8 +556,6 @@ export default function SocializeDashboard({
               <div style={{ background: "#0F0F0E", border: "1px solid #1C1B19", borderRadius: 12, padding: 14 }}>
                 <SocializeLinksCard
                   links={links}
-                  selectedLinkIndex={null}
-                  onSelectLink={() => {}}
                   onRemoveLink={handleRemoveLink}
                   onEditLink={handleEditLink}
                   onReorder={handleReorderLinks}

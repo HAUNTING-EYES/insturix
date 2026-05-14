@@ -27,25 +27,26 @@ import type { SocializeLink } from "@/schemas/Socialize";
 
 interface SocializeLinksCardProps {
   links: SocializeLink[];
-  selectedLinkIndex: number | null;
-  onSelectLink: (index: number) => void;
   onRemoveLink: (index: number) => void;
   onEditLink: (index: number) => void;
   onReorder: (links: SocializeLink[]) => void;
 }
 
+const PLATFORM_COLORS: Record<string, string> = {
+  youtube: "#FF0000", instagram: "#E4405F", twitter: "#1DA1F2", x: "#1DA1F2",
+  linkedin: "#0A66C2", github: "#E6EDF3", tiktok: "#00F2EA", spotify: "#1DB954",
+  facebook: "#1877F2", discord: "#5865F2", reddit: "#FF4500", snapchat: "#FFFC00",
+  website: "#D4A652",
+};
+
 function SortableLink({
   link,
   index,
-  selectedLinkIndex,
-  onSelectLink,
   onRemoveLink,
   onEditLink,
 }: {
   link: SocializeLink;
   index: number;
-  selectedLinkIndex: number | null;
-  onSelectLink: (index: number) => void;
   onRemoveLink: (index: number) => void;
   onEditLink: (index: number) => void;
 }) {
@@ -69,12 +70,9 @@ function SortableLink({
         ...style,
         backgroundColor: '#1B1A18',
         borderRadius: '12px',
-        borderWidth: '1px',
-        borderStyle: 'solid',
-        borderColor: selectedLinkIndex === index ? '#D4A652' : 'transparent',
+        borderLeft: `4px solid ${PLATFORM_COLORS[link.platform.toLowerCase()] || "#D4A652"}`,
       }}
-      className={`w-full py-3 flex items-center justify-between gap-2 transition px-5 cursor-pointer group hover:border-[#D4A652]`}
-      onClick={() => onSelectLink(index)}
+      className={`w-full py-3 flex items-center justify-between gap-2 transition px-5 cursor-pointer group`}
     >
       <div className="flex items-center gap-4 flex-1 min-w-0 overflow-hidden">
         <button {...attributes} {...listeners} className="cursor-grab text-[#7A776E] hover:text-[#D4A652] transition-colors">
@@ -130,8 +128,6 @@ function SortableLink({
 
 export function SocializeLinksCard({
   links,
-  selectedLinkIndex,
-  onSelectLink,
   onRemoveLink,
   onEditLink,
   onReorder,
@@ -177,8 +173,6 @@ export function SocializeLinksCard({
                     key={link.url}
                     link={link}
                     index={index}
-                    selectedLinkIndex={selectedLinkIndex}
-                    onSelectLink={onSelectLink}
                     onRemoveLink={onRemoveLink}
                     onEditLink={onEditLink}
                   />
