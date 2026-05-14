@@ -125,6 +125,20 @@ export async function DELETE(
       payload: { action: 'deleted' },
     }).catch((e) => console.warn('[Brands] brand_deleted event failed:', e));
 
+    try {
+      const { addGraphitiEpisode } = await import('@/lib/editron/services/graph-service');
+      await addGraphitiEpisode({
+        type: 'brand_updated',
+        name: `brand_deleted_${brandId}_${Date.now()}`,
+        body: `Brand "${brandId}" was deleted by the user. All brand-scoped knowledge should be considered archived.`,
+        sourceDescription: 'brand_deletion',
+        groupId: brandId,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[Brands] brand_deleted Graphiti dispatch failed for ${brandId}: ${msg}`);
+    }
+
     invalidateCache(userId);
 
     return NextResponse.json({ success: true });

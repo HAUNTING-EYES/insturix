@@ -1030,8 +1030,9 @@ export async function executeDirectorPlan(
           ...(typeof actualQualityScore === 'number' && { qualityScore: actualQualityScore }),
         },
       }).catch((e) => console.warn('[Director] Brand event failed:', e));
-    } catch (brandErr: any) {
-      console.warn(`[Director] Brand intelligence wiring failed: ${brandErr.message}`);
+    } catch (brandErr: unknown) {
+      const msg = brandErr instanceof Error ? brandErr.message : String(brandErr);
+      console.warn(`[Director] Brand intelligence wiring failed: ${msg}`);
     }
 
     // ─── Project Graph Record: send outcome to Graphiti for learning ───

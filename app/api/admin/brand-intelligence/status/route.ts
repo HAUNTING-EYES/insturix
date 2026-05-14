@@ -64,7 +64,7 @@ export async function GET() {
             total: { $sum: 1 },
             consumed: {
               $sum: {
-                $cond: [{ $gt: [{ $size: '$consumedBy' }, 0] }, 1, 0],
+                $cond: [{ $gt: [{ $size: { $ifNull: ['$consumedBy', []] } }, 0] }, 1, 0],
               },
             },
           },
