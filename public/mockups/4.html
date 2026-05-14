@@ -293,18 +293,18 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
 /* Timeline end */
 .timeline-end{
-  display:flex;align-items:center;gap:8px;
-  margin-left:-21px;margin-top:4px;
+  display:flex;align-items:center;gap:10px;
+  margin-left:-25px;margin-top:8px;
 }
-.end-diamond{
-  width:10px;height:10px;background:var(--gold);
-  transform:rotate(45deg);opacity:.6;flex-shrink:0;
-  animation:diamondCatch 4s ease-in-out infinite;
+.end-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--gold);
+  flex-shrink:0;opacity:.5;
+  animation:endCatch 4s ease-in-out infinite;
 }
-@keyframes diamondCatch{
-  0%,90%{opacity:.4;box-shadow:none}
-  95%{opacity:1;box-shadow:0 0 12px var(--gold-glow-strong)}
-  100%{opacity:.4;box-shadow:none}
+@keyframes endCatch{
+  0%,88%{opacity:.3;box-shadow:0 0 0 transparent}
+  94%{opacity:1;box-shadow:0 0 14px var(--gold-glow-strong)}
+  100%{opacity:.3;box-shadow:0 0 0 transparent}
 }
 .end-text{
   font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:.04em;
@@ -608,7 +608,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
       <!-- Timeline End -->
       <div class="timeline-end">
-        <div class="end-diamond"></div>
+        <div class="end-dot"></div>
         <span class="end-text">5 moments &middot; ~15s</span>
       </div>
 
