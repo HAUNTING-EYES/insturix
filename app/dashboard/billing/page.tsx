@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useCredits } from "@/hooks/useCredits";
 import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
@@ -18,6 +18,18 @@ interface CurrentPlan {
 }
 
 export default function BillingPage() {
+  return (
+    <Suspense fallback={
+      <div className="w-full max-w-[640px] mx-auto px-6 py-12">
+        <div className="bg-[#131312] rounded-sm px-6 py-10 animate-pulse h-[400px]" />
+      </div>
+    }>
+      <BillingContent />
+    </Suspense>
+  );
+}
+
+function BillingContent() {
   const { balance, transactions, isLoading, error, invalidateCredits } = useCredits();
   const [showTopupModal, setShowTopupModal] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<CurrentPlan | null>(null);
