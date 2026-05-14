@@ -58,7 +58,7 @@ export function StoryArc({ username, activeSection, onWaypointClick }: StoryArcP
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "12px 40px",
+          padding: "12px 16px",
         }}
       >
         {/* Back link */}
@@ -106,7 +106,7 @@ export function StoryArc({ username, activeSection, onWaypointClick }: StoryArcP
             letterSpacing: "-0.02em",
           }}
         >
-          {username ? `${username}’s story` : "your story"}
+          {username ? `${username}’s profile` : "your profile"}
         </div>
 
         {/* Publish button */}
@@ -140,10 +140,9 @@ export function StoryArc({ username, activeSection, onWaypointClick }: StoryArcP
       {/* ── Story arc SVG + labels ── */}
       <div
         style={{
-          padding: "10px 40px 8px",
+          padding: "10px 16px 8px",
           borderBottom: "1px solid #1C1B19",
           position: "relative",
-          overflow: "hidden",
         }}
       >
         <svg
@@ -226,7 +225,7 @@ export function StoryArc({ username, activeSection, onWaypointClick }: StoryArcP
           style={{
             display: "flex",
             justifyContent: "space-between",
-            padding: "2px 20px 0",
+            padding: "2px 0 0",
           }}
         >
           {WAYPOINTS.map((wp) => {
