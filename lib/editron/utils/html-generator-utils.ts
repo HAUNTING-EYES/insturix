@@ -457,47 +457,25 @@ LAYOUT STYLE: "Kinetic" (Balanced Storytelling Mode)
 6. **NEVER use vw or vh units** — always use px for font-size.`,
   };
   
-  return `You are an expert Kinetic Typography Designer.
-Generate HTML/CSS for fancy video captions. Focus ONLY on LAYOUT and STYLING - timing will be handled separately.
+  return `<role>You are an expert kinetic typography designer for video captions.</role>
 
-═══════════════════════════════════════════════════════════════════
-CANVAS: ${canvasWidth} × ${canvasHeight}px
-BACKGROUND: ${backgroundColor} (MUST be transparent unless specified otherwise)
-═══════════════════════════════════════════════════════════════════
+<task>Generate HTML/CSS for fancy video captions. Focus ONLY on layout and styling — timing will be handled separately. Canvas: ${canvasWidth} x ${canvasHeight}px. Background: ${backgroundColor} (MUST be transparent unless specified otherwise).</task>
 
-WORDS TO DISPLAY (with timing data - use as data attributes):
-${normalizedWords.map((w, i) => {
-  return `${i + 1}. "${w.word}" | data-start="${w.startMs}" data-end="${w.endMs}" | ${w.importance?.toUpperCase()}`;
-}).join('\n')}
+<rules>
+WORD STYLING BY IMPORTANCE:
+- HERO words: larger, accent color (${accentColor}), bold
+- MEDIUM words: medium size
+- FILLER words: smaller, subtle
+- CTA words: stronger accent treatment, clearer visual priority, consistent treatment across all CTA words
 
-WORD TIMING TABLE:
-${wordTable}
+SPAN STRUCTURE (REQUIRED):
+- Each word wrapped in: \`<span class="word" data-start="X" data-end="Y">WordHere</span>\`
+- X and Y are startMs and endMs values from the word list below
+- Every word span MUST have data-start and data-end in milliseconds
 
-SEMANTIC WORD ROLES:
-${semanticRows}
+NO ANIMATION CSS — just set all words to \`opacity: 1\` by default. Animations will be injected programmatically.
 
-BEAT / ENERGY CUES (use for emphasis on HERO/CTA words):
-${beatCueText}
-
-${styleInstructions[style]}
-${intensityInstructions[intensity]}
-${typographyLockInstructions}
-
-YOUR JOB - Generate HTML with:
-1. **Each word wrapped in a span** with these REQUIRED attributes:
-   \`<span class="word" data-start="X" data-end="Y">WordHere</span>\`
-   Where X and Y are the startMs and endMs values from above.
-
-2. **Apply styling classes based on importance**:
-   - HERO words: larger, accent color, bold
-   - MEDIUM words: medium size
-   - FILLER words: smaller, subtle
-   - CTA words: stronger accent treatment and clearer visual priority, consistent treatment across all CTA words.
-
-3. **NO animation CSS needed** - just set all words to \`opacity: 1\` by default.
-   Animations will be injected programmatically.
-
-LAYOUT RULES:
+LAYOUT:
 - Container: \`width: 100%; height: 100%; display: flex; justify-content: center; align-items: center;\`
 - Use CSS Grid or Flexbox for word arrangement
 - Use % for positioning, px for font-size — NEVER use vw or vh units (they resolve to browser viewport, not the canvas)
@@ -513,11 +491,28 @@ STYLING:
 - Text Shadow: \`2px 2px 0 rgba(0,0,0,0.8)\` for readability
 - Background: transparent (no background property)
 
-CRITICAL DATA ATTRIBUTES:
-Every word span MUST have: data-start="milliseconds" data-end="milliseconds"
-Example: \`<span class="word hero" data-start="240" data-end="650">Hello</span>\`
+${styleInstructions[style]}
+${intensityInstructions[intensity]}
+${typographyLockInstructions}
+</rules>
 
-OUTPUT: Return ONLY raw HTML starting with \`<\`. NO markdown. NO explanation.`;
+<output_format>Return ONLY raw HTML starting with \`<\`. NO markdown. NO explanation.</output_format>
+
+<input_data>
+WORDS TO DISPLAY (with timing data — use as data attributes):
+${normalizedWords.map((w, i) => {
+  return `${i + 1}. "${w.word}" | data-start="${w.startMs}" data-end="${w.endMs}" | ${w.importance?.toUpperCase()}`;
+}).join('\n')}
+
+WORD TIMING TABLE:
+${wordTable}
+
+SEMANTIC WORD ROLES:
+${semanticRows}
+
+BEAT / ENERGY CUES (use for emphasis on HERO/CTA words):
+${beatCueText}
+</input_data>`;
 }
 
 /**

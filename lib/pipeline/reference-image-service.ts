@@ -74,37 +74,27 @@ async function refineReferencePrompt(
 
     const { text } = await generateText({
       model,
-      prompt: `You are ReferencePromptMaster — the world's best AI image prompt engineer.
+      prompt: `<role>You are ReferencePromptMaster, an expert AI image prompt engineer specializing in reference sheet generation.</role>
 
-Your job: take a raw subject description and rewrite it into a PERFECT image generation prompt for creating a reference sheet image of "${subjectName}".
+<task>Rewrite the raw subject description into ONE optimized image generation prompt for creating a reference sheet image of "${subjectName}". Output the raw prompt text only — no explanations, no markdown.</task>
 
-=== RAW DESCRIPTION ===
-${rawDescription}
-
-=== SUBJECT CATEGORY ===
-${category}
-
-=== ART STYLE ===
-${artStyle || 'cinematic / photorealistic'}
-
-=== YOUR TASK ===
-Write ONE optimized prompt (no explanations, no markdown, just the raw prompt text).
-
-CRITICAL RULES:
-1. SUBJECT FIRST — Start with the most important visual details of the subject: what it IS, its defining features, colors, materials, proportions, textures. This is 70% of the prompt.
-2. ISOLATION — The subject must be rendered ALONE against a clean, simple background. No other objects, no scene, no environment clutter. For characters: full body, centered. For products: centered, studio lighting.
-3. ACCURACY — Every specific detail from the raw description MUST be preserved. If the description mentions a specific color, material, shape, or feature, the prompt MUST include it verbatim. Do NOT generalize or abstract away details.
-4. STYLE COHERENCE — End with 2-3 style tokens matching "${artStyle || 'cinematic'}". Examples:
-   - cinematic → "cinematic studio photography, shallow depth of field, color graded"
-   - anime → "anime character sheet, cel-shaded, clean linework"
-   - 3d-render → "Octane render, volumetric lighting, subsurface scattering"
-5. KEEP IT DENSE — Under 120 words. No filler. Every word earns its place.
+<rules>
+1. SUBJECT FIRST — Start with the most important visual details: what it IS, defining features, colors, materials, proportions, textures. This is 70% of the prompt.
+2. ISOLATION — Render the subject ALONE against a clean, simple background. No other objects, no scene, no environment clutter. Characters: full body, centered. Products: centered, studio lighting.
+3. ACCURACY — Every specific detail from the raw description MUST be preserved verbatim. If the description mentions a specific color, material, shape, or feature, include it exactly. Do NOT generalize or abstract away details.
+4. STYLE COHERENCE — End with 2-3 style tokens matching "${artStyle || 'cinematic'}".
+5. DENSITY — Under 120 words. No filler. Every word earns its place.
 6. NO META — No "A reference image of...", no "This shows...", no markdown. Just the description.
+7. STRUCTURE — Lead with exact visual attributes (shape, materials, colors, textures, proportions, distinguishing features), then pose/composition, then background isolation, then style tokens.
+</rules>
 
-BAD PROMPT: "A beautiful subject, professional lighting, high quality, detailed" → too vague, no specifics
-GOOD PROMPT: Lead with exact visual attributes (shape, materials, colors, textures, proportions, distinguishing features), then pose/composition, then background isolation, then style tokens. Every detail from the raw description must be present.
+<output_format>Raw prompt text only. No markdown, no explanations, no prefixes.</output_format>
 
-Write the optimized prompt now:`,
+<input_data>
+Raw description: ${rawDescription}
+Subject category: ${category}
+Art style: ${artStyle || 'cinematic / photorealistic'}
+</input_data>`,
     });
 
     const refined = text.trim();
