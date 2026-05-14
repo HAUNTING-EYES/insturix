@@ -66,14 +66,6 @@ export default function OrgDashboardPage() {
         </div>
       </div>
 
-      {/* Info */}
-      <div className="mb-8 p-4 rounded-lg border border-white/[0.06] bg-white/[0.02]">
-        <p className="text-sm text-white/60">
-          Switch to this organization using the org switcher in the sidebar. 
-          All work done while in org context (Editron, Alyzitron, etc.) will be shared with team members.
-        </p>
-      </div>
-
       {/* Members */}
       <div>
         <h2 className="text-lg font-medium text-white mb-4">Team Members</h2>
