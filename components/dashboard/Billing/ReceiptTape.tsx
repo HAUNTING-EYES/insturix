@@ -230,20 +230,33 @@ export function ReceiptTape({
         <ZigzagTear flip />
       </div>
 
-      {/* INSERT CARD button */}
-      <div className="flex justify-center mt-8">
+      {/* Action buttons */}
+      <div className="flex flex-col items-center gap-3 mt-8">
         <button
           onClick={onTopup}
-          className="px-8 py-3.5 rounded-lg text-[13px] font-bold uppercase tracking-[0.15em] transition-all duration-300 animate-[btnGlow_3s_ease-in-out_infinite]"
+          className="px-8 py-3 rounded-lg text-[12px] font-bold uppercase tracking-[0.12em] transition-all duration-300"
           style={{
             fontFamily: "'JetBrains Mono', monospace",
-            background: "transparent",
-            color: "#D4A652",
-            border: "1.5px solid rgba(212,166,82,0.4)",
+            background: "#D4A652",
+            color: "#0B0B0A",
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.9"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "none"; }}
         >
-          INSERT CARD
+          Add Credits
         </button>
+        <a
+          href="/upgrade"
+          className="text-[11px] uppercase tracking-[0.1em] transition-colors duration-200"
+          style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            color: "#7A776E",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "#D4A652"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "#7A776E"; }}
+        >
+          ↑ Upgrade Plan
+        </a>
       </div>
     </div>
   );
