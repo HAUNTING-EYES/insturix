@@ -44,7 +44,7 @@ export function ReceiptLineItem({ transaction, isLatest }: ReceiptLineItemProps)
   return (
     <div
       className={cn(
-        "grid grid-cols-[1fr_auto] items-baseline gap-1 py-[6px]",
+        "relative grid grid-cols-[1fr_auto] items-baseline gap-1 py-[6px]",
         isLatest && "animate-[latestSlideIn_0.6s_cubic-bezier(.16,1,.3,1)_both]"
       )}
     >
