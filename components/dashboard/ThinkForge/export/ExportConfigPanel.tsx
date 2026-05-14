@@ -63,7 +63,7 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
     >
       {/* Project Title */}
       <div>
-        <label className="text-sm text-[#7A776E] mb-1 block">Project Title</label>
+        <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Project Title</label>
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -74,7 +74,7 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
 
       {/* Aspect Ratio */}
       <div>
-        <label className="text-sm text-[#7A776E] mb-1 block">Aspect Ratio</label>
+        <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Aspect Ratio</label>
         <Select value={aspectRatio} onValueChange={setAspectRatio}>
           <SelectTrigger className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1]">
             <SelectValue />
@@ -116,7 +116,7 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
           animate={{ opacity: 1, height: "auto" }}
           className="pl-8"
         >
-          <label className="text-sm text-[#7A776E] mb-1 block">Art Style</label>
+          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Art Style</label>
           <Select value={artStyle} onValueChange={setArtStyle}>
             <SelectTrigger className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1]">
               <SelectValue />
@@ -188,7 +188,7 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
           animate={{ opacity: 1, height: "auto" }}
           className="pl-8"
         >
-          <label className="text-sm text-[#7A776E] mb-1 block">Image Model</label>
+          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Image Model</label>
           <Select value={imageModel} onValueChange={setImageModel}>
             <SelectTrigger className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1]">
               <SelectValue />
@@ -219,19 +219,19 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
           <div
             className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
               generateVideos
-                ? "bg-[#9088D4]/10 border-[#9088D4]/30"
+                ? "bg-[#D4A652]/10 border-[#D4A652]/30"
                 : "bg-[#1B1A18] border-[#282724] hover:border-[#282724]"
             }`}
             onClick={() => setGenerateVideos(!generateVideos)}
           >
-            <Film className={`h-5 w-5 ${generateVideos ? "text-[#9088D4]" : "text-[#7A776E]"}`} />
+            <Film className={`h-5 w-5 ${generateVideos ? "text-[#D4A652]" : "text-[#7A776E]"}`} />
             <div className="flex-1">
               <p className="text-sm font-medium text-[#ECE9E1]">Generate AI Videos</p>
               <p className="text-[11px] text-[#5F5E5A]">
                 Animate storyboard images into video clips (3 credits/scene)
               </p>
             </div>
-            {generateVideos && <Check className="h-4 w-4 text-[#9088D4]" />}
+            {generateVideos && <Check className="h-4 w-4 text-[#D4A652]" />}
           </div>
         </motion.div>
       )}
@@ -243,7 +243,7 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
           animate={{ opacity: 1, height: "auto" }}
           className="pl-8"
         >
-          <label className="text-sm text-[#7A776E] mb-1 block">Video Model</label>
+          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Video Model</label>
           <Select value={videoModel} onValueChange={setVideoModel}>
             <SelectTrigger className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1]">
               <SelectValue />
@@ -270,7 +270,7 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
               type="checkbox"
               checked={enableChaining}
               onChange={(e) => setEnableChaining(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-[#282724] bg-[#1B1A18] text-[#5EC97E] focus:ring-[#5EC97E] focus:ring-offset-0"
+              className="w-3.5 h-3.5 rounded border-[#282724] bg-[#1B1A18] text-[#D4A652] focus:ring-[#D4A652] focus:ring-offset-0"
             />
             <span className="text-[11px] text-[#7A776E]">Scene chaining</span>
             <span className="text-[10px] text-[#454340]">
@@ -286,7 +286,7 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: "auto" }}
         >
-          <label className="text-sm text-[#7A776E] mb-1 block">Narrator Voice</label>
+          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Narrator Voice</label>
           <div className="flex gap-2">
             <Select value={selectedVoice} onValueChange={setSelectedVoice}>
               <SelectTrigger className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1] flex-1">
@@ -329,8 +329,7 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
       <div className="flex items-center justify-between px-1">
         <span className="text-[11px] text-[#5F5E5A]">Estimated cost</span>
         <span
-          className="text-[11px] font-medium text-[#D4A652]"
-          style={{ fontFamily: "'JetBrains Mono', monospace" }}
+          className="font-mono text-[11px] font-medium text-[#D4A652]"
         >
           ~{estimateCredits()} credits
         </span>
@@ -340,13 +339,13 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
 
       {/* Footer actions */}
       <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1C1B19]">
-        <Button variant="ghost" onClick={pipeline.handleClose} className="text-[#7A776E]">
+        <Button variant="ghost" onClick={pipeline.handleClose} className="bg-transparent border border-[#282724] text-[#7A776E] hover:border-[#D4A652] hover:text-[#D4A652] rounded-[7px]">
           Cancel
         </Button>
         <Button
           onClick={handleExport}
           disabled={blocksCount === 0}
-          className="bg-[#D4A652] hover:bg-[#D4A652]/90 text-[#0B0B0A] font-medium"
+          className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded-[7px] border-none"
         >
           <Sparkles className="h-4 w-4 mr-2" />
           {generateStoryboard && generateVideos

@@ -38,7 +38,7 @@ export function StoryboardReviewPanel({ pipeline }: StoryboardReviewPanelProps) 
       {/* Header */}
       <div className="flex items-center gap-2 mb-1">
         <ImageIcon className="h-4 w-4 text-[#5EC97E]" />
-        <p className="text-sm font-medium text-[#ECE9E1]">
+        <p className="text-sm font-medium text-[#ECE9E1] font-sans">
           Review Storyboard ({generatedCount}/{storyboardScenes.length}{" "}
           generated)
         </p>
@@ -77,13 +77,13 @@ export function StoryboardReviewPanel({ pipeline }: StoryboardReviewPanelProps) 
             setGenerateVideos(false);
             handlePhase3();
           }}
-          className="text-[#7A776E]"
+          className="bg-transparent border border-[#282724] text-[#7A776E] hover:border-[#D4A652] hover:text-[#D4A652] rounded-[7px]"
         >
           Skip Videos & Finalize
         </Button>
         <Button
           onClick={() => handlePhase3()}
-          className="bg-[#D4A652] hover:bg-[#D4A652]/90 text-[#0B0B0A] font-medium"
+          className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded-[7px] border-none"
         >
           <ArrowRight className="h-4 w-4 mr-2" />
           {generateVideos

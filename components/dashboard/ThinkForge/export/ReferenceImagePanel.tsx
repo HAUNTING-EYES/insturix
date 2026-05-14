@@ -62,8 +62,8 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
     >
       {/* Header */}
       <div className="flex items-center gap-2 mb-1">
-        <Users className="h-4 w-4 text-[#9088D4]" />
-        <p className="text-sm font-medium text-[#ECE9E1]">
+        <Users className="h-4 w-4 text-[#D4A652]" />
+        <p className="text-sm font-medium text-[#ECE9E1] font-sans">
           Review Reference Images ({approvedSubjectIds.size}/{subjects.length}{" "}
           approved)
         </p>
@@ -88,8 +88,7 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
       {suggestedSubjects.length > 0 && (
         <div className="space-y-1.5">
           <p
-            className="text-[10px] font-medium text-[#7A776E] uppercase tracking-wide"
-            style={{ fontFamily: "'JetBrains Mono', monospace" }}
+            className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A]"
           >
             More from your script ({suggestedSubjects.length})
           </p>
@@ -113,13 +112,13 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
                   key={suggested.id}
                   onClick={() => handleGenerateSuggested(suggested)}
                   disabled={generatingSuggestedIds.has(suggested.id)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#282724] bg-[#1B1A18]/50 hover:border-[#9088D4]/50 hover:bg-[#9088D4]/10 transition-all text-left group disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#1C1B19] bg-[#131312] hover:border-[#D4A652]/50 hover:bg-[#D4A652]/10 transition-all text-left group disabled:opacity-50"
                   title={suggested.visualDescription}
                 >
                   {generatingSuggestedIds.has(suggested.id) ? (
-                    <Loader2 className="h-3 w-3 text-[#9088D4] animate-spin flex-shrink-0" />
+                    <Loader2 className="h-3 w-3 text-[#D4A652] animate-spin flex-shrink-0" />
                   ) : (
-                    <Plus className="h-3 w-3 text-[#5F5E5A] group-hover:text-[#9088D4] flex-shrink-0" />
+                    <Plus className="h-3 w-3 text-[#5F5E5A] group-hover:text-[#D4A652] flex-shrink-0" />
                   )}
                   <span className="text-[11px] text-[#B5B2A8] group-hover:text-[#ECE9E1]">
                     {suggested.name}
@@ -156,7 +155,7 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
                   setNewSubjectName(scriptSearchQuery.trim());
                 }
               }}
-              className="h-7 px-2 text-[10px] border-[#282724] text-[#7A776E] hover:text-[#9088D4] hover:border-[#9088D4]/50"
+              className="h-7 px-2 text-[10px] border-[#282724] text-[#7A776E] hover:text-[#D4A652] hover:border-[#D4A652]/50 rounded-[7px]"
             >
               <Plus className="h-3 w-3 mr-1" />
               Custom
@@ -166,9 +165,9 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
 
         {/* Expanded manual add form */}
         {showAddSubject && (
-          <div className="rounded-lg border border-[#9088D4]/30 bg-[#9088D4]/5 p-2.5 space-y-2">
+          <div className="rounded-lg border border-[#D4A652]/30 bg-[#D4A652]/5 p-2.5 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] font-medium text-[#9088D4]">
+              <p className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#D4A652]">
                 Add Custom Subject
               </p>
               <button
@@ -186,7 +185,7 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-[9px] text-[#5F5E5A] block mb-0.5">
+                <label className="font-mono text-[9px] text-[#5F5E5A] block mb-0.5">
                   Name
                 </label>
                 <Input
@@ -198,7 +197,7 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
                 />
               </div>
               <div>
-                <label className="text-[9px] text-[#5F5E5A] block mb-0.5">
+                <label className="font-mono text-[9px] text-[#5F5E5A] block mb-0.5">
                   Category
                 </label>
                 <Select
@@ -219,14 +218,14 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
               </div>
             </div>
             <div>
-              <label className="text-[9px] text-[#5F5E5A] block mb-0.5">
+              <label className="font-mono text-[9px] text-[#5F5E5A] block mb-0.5">
                 Visual Description (AI will refine this into a generation prompt)
               </label>
               <textarea
                 value={newSubjectDescription}
                 onChange={(e) => setNewSubjectDescription(e.target.value)}
                 placeholder="Describe the subject — can be brief, AI will expand it using your script context"
-                className="w-full bg-[#1B1A18] border border-[#282724] text-[#ECE9E1] text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-[#9088D4]"
+                className="w-full bg-[#1B1A18] border border-[#282724] text-[#ECE9E1] text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-[#D4A652]"
                 rows={2}
               />
             </div>
@@ -237,7 +236,7 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
                 !newSubjectName.trim() ||
                 !newSubjectDescription.trim()
               }
-              className="w-full bg-[#9088D4] hover:bg-[#9088D4]/80 text-white text-[11px] h-7"
+              className="w-full bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold text-[11px] h-7 rounded-[7px] border-none"
             >
               {addingSubject ? (
                 <>
@@ -265,14 +264,14 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
             setApprovedSubjectIds(new Set());
             handlePhase2();
           }}
-          className="text-[#7A776E]"
+          className="bg-transparent border border-[#282724] text-[#7A776E] hover:border-[#D4A652] hover:text-[#D4A652] rounded-[7px]"
         >
           Skip References
         </Button>
         <Button
           onClick={() => handlePhase2()}
           disabled={regeneratingSubjectIds.size > 0}
-          className="bg-[#D4A652] hover:bg-[#D4A652]/90 text-[#0B0B0A] font-medium"
+          className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded-[7px] border-none"
         >
           <ArrowRight className="h-4 w-4 mr-2" />
           Continue with {approvedSubjectIds.size} Reference

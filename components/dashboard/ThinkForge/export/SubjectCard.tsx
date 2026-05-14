@@ -72,7 +72,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
         {/* Regenerating overlay */}
         {isRegenerating && (
           <div className="absolute inset-0 bg-black/60 flex items-center justify-center flex-col gap-1">
-            <Loader2 className="h-5 w-5 text-[#9088D4] animate-spin" />
+            <Loader2 className="h-5 w-5 text-[#D4A652] animate-spin" />
             <span className="text-[10px] text-[#7A776E]">Regenerating...</span>
           </div>
         )}
@@ -103,7 +103,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
         {/* Top-left: Upload + Regenerate + Delete */}
         <div className="absolute top-1.5 left-1.5 flex gap-1">
           <label
-            className={`p-1 rounded-full bg-emerald-700/80 text-emerald-300 hover:bg-emerald-600 hover:text-[#ECE9E1] transition-colors cursor-pointer ${isRegenerating ? "opacity-50 pointer-events-none" : ""}`}
+            className={`p-1 rounded-full bg-[#D4A652]/30 text-[#D4A652] hover:bg-[#D4A652]/50 hover:text-[#ECE9E1] transition-colors cursor-pointer ${isRegenerating ? "opacity-50 pointer-events-none" : ""}`}
             title="Upload your own image"
           >
             <Upload className="h-3 w-3" />
@@ -128,7 +128,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
           </button>
           <button
             onClick={() => handleDeleteSubject(subject.subjectId)}
-            className="p-1 rounded-full bg-[#282724]/80 text-[#D46A5C] hover:bg-[#D46A5C] hover:text-[#ECE9E1] transition-colors"
+            className="p-1 rounded-full bg-transparent border border-[#D46A5C]/30 text-[#D46A5C] hover:bg-[#D46A5C]/10 transition-colors"
             title="Remove this subject"
           >
             <Trash2 className="h-3 w-3" />
@@ -142,7 +142,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
             disabled={isRegenerating}
             className={`p-1 rounded-full transition-colors ${
               isEditing
-                ? "bg-[#5CB8CC] text-[#ECE9E1]"
+                ? "bg-[#D4A652] text-[#0B0B0A]"
                 : "bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]"
             }`}
             title="Edit description & regenerate"
@@ -154,7 +154,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
             disabled={isRegenerating}
             className={`p-1 rounded-full transition-colors ${
               showFeedback
-                ? "bg-[#9088D4] text-[#ECE9E1]"
+                ? "bg-[#D4A652] text-[#0B0B0A]"
                 : "bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]"
             }`}
             title="Quick feedback"
@@ -180,13 +180,13 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
       {/* Edit description UI */}
       {isEditing && (
         <div className="px-2 pb-2 space-y-1">
-          <p className="text-[10px] text-[#5CB8CC] font-medium">
-            Edit description & regenerate:
+          <p className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#D4A652]">
+            Edit description & regenerate
           </p>
           <textarea
             value={editingDescription}
             onChange={(e) => setEditingDescription(e.target.value)}
-            className="w-full bg-[#1B1A18] border border-[#282724] text-[#ECE9E1] text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-[#5CB8CC]"
+            className="w-full bg-[#1B1A18] border border-[#1C1B19] text-[#ECE9E1] text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-[#D4A652]"
             rows={3}
             autoFocus
           />
@@ -206,7 +206,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
               size="sm"
               onClick={() => handleSaveDescriptionAndRegenerate(subject.subjectId)}
               disabled={!editingDescription.trim() || isRegenerating}
-              className="bg-[#5CB8CC] hover:bg-[#5CB8CC]/80 text-white h-6 px-2 text-[10px]"
+              className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] h-6 px-2 text-[10px] rounded-[7px] border-none font-semibold"
             >
               {isRegenerating ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -240,7 +240,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
                 handleRegenerateSubject(subject.subjectId, feedbackText.trim())
               }
               disabled={!feedbackText.trim() || isRegenerating}
-              className="bg-[#9088D4] hover:bg-[#9088D4]/80 text-white h-7 px-2"
+              className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] h-7 px-2 rounded-[7px] border-none"
             >
               <Send className="h-3 w-3" />
             </Button>

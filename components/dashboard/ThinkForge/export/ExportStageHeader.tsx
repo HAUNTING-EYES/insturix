@@ -68,14 +68,13 @@ export function ExportStageHeader({ currentStage }: ExportStageHeaderProps) {
                   />
                 </div>
                 <span
-                  className={`text-[9px] uppercase tracking-wider whitespace-nowrap ${
+                  className={`font-mono text-[9px] uppercase tracking-[0.06em] whitespace-nowrap ${
                     status === "completed"
                       ? "text-[#5EC97E]"
                       : status === "current"
                         ? "text-[#D4A652] font-semibold"
                         : "text-[#454340]"
                   }`}
-                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
                 >
                   {milestone.label}
                 </span>

@@ -53,9 +53,8 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
                 ? "bg-[#5EC97E]/20 text-[#5EC97E]"
                 : "bg-[#D4A652]/20 text-[#D4A652]"
             }`}
-            style={{ fontFamily: "'JetBrains Mono', monospace" }}
           >
-            {(detectedProfile.confidence * 100).toFixed(0)}% match
+            <span className="font-mono">{(detectedProfile.confidence * 100).toFixed(0)}% match</span>
           </span>
         </div>
 
@@ -100,7 +99,7 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
                 ),
             ).map(([category, profiles]) => (
               <div key={category}>
-                <div className="px-2 py-1 text-[10px] font-semibold text-[#5F5E5A] uppercase tracking-wider bg-[#1B1A18]/50 sticky top-0">
+                <div className="px-2 py-1 font-mono text-[10px] font-semibold text-[#5F5E5A] uppercase tracking-[0.08em] bg-[#1B1A18]/50 sticky top-0">
                   {category}
                 </div>
                 {profiles.map(([id, p]) => (
@@ -140,7 +139,7 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
       {/* Brief Overrides */}
       <div className="grid grid-cols-2 gap-2 mt-3">
         <div>
-          <label className="text-[10px] text-[#5F5E5A] block mb-0.5">Platform</label>
+          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] block mb-0.5">Platform</label>
           <select
             value={briefPlatform}
             onChange={(e) => setBriefPlatform(e.target.value)}
@@ -156,7 +155,7 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
           </select>
         </div>
         <div>
-          <label className="text-[10px] text-[#5F5E5A] block mb-0.5">Tone</label>
+          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] block mb-0.5">Tone</label>
           <select
             value={briefTone}
             onChange={(e) => setBriefTone(e.target.value)}
@@ -171,7 +170,7 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
           </select>
         </div>
         <div>
-          <label className="text-[10px] text-[#5F5E5A] block mb-0.5">Captions</label>
+          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] block mb-0.5">Captions</label>
           <select
             value={briefCaptionStyle}
             onChange={(e) => setBriefCaptionStyle(e.target.value)}
@@ -193,7 +192,7 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
           </select>
         </div>
         <div>
-          <label className="text-[10px] text-[#5F5E5A] block mb-0.5">BGM Mood</label>
+          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] block mb-0.5">BGM Mood</label>
           <select
             value={briefBgmMood}
             onChange={(e) => setBriefBgmMood(e.target.value)}
@@ -211,7 +210,7 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
 
       <Button
         onClick={() => handlePostProfileSelection()}
-        className="w-full mt-3 bg-[#D4A652] hover:bg-[#D4A652]/90 text-[#0B0B0A] font-medium"
+        className="w-full mt-3 bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded-[7px] border-none"
       >
         Continue with {detectedProfile.name}{" "}
         <ArrowRight className="h-4 w-4 ml-2" />

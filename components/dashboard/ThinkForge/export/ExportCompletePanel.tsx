@@ -37,10 +37,10 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
       className="space-y-4 py-2"
     >
       {/* Success card */}
-      <div className="flex items-center gap-3 p-4 rounded-lg bg-[#5EC97E]/10 border border-[#5EC97E]/20">
-        <Check className="h-6 w-6 text-[#5EC97E]" />
+      <div className="flex items-center gap-3 p-4 rounded-xl bg-[#D4A652]/10 border border-[#D4A652]/20">
+        <Check className="h-6 w-6 text-[#D4A652]" />
         <div>
-          <p className="text-sm font-medium text-[#ECE9E1]">Project Created</p>
+          <p className="text-sm font-medium text-[#ECE9E1] font-sans">Project Created</p>
           <p className="text-[11px] text-[#7A776E]">
             {scenes.length} scenes · {aspectRatio}
             {storyboardId && " · Storyboard"}
@@ -75,7 +75,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
       {/* Storyboard preview */}
       {storyboardScenes.length > 0 && (
         <div>
-          <p className="text-[11px] text-[#5F5E5A] mb-2">Storyboard Preview</p>
+          <p className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-2">Storyboard Preview</p>
           <div className="grid grid-cols-3 gap-2">
             {storyboardScenes.slice(0, 6).map((s: any) => (
               <div
@@ -109,7 +109,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
               onClick={() =>
                 window.open(`/dashboard/storyboard/${storyboardId}`, "_blank")
               }
-              className="mt-2 w-full text-[11px] text-[#9088D4] hover:text-[#9088D4]/80 hover:bg-[#9088D4]/10 rounded py-1.5 transition-colors flex items-center justify-center gap-1.5"
+              className="mt-2 w-full text-[11px] text-[#D4A652] hover:text-[#D4A652]/80 hover:bg-[#D4A652]/10 rounded py-1.5 transition-colors flex items-center justify-center gap-1.5"
             >
               <ImageIcon className="h-3 w-3" />
               View Full Storyboard (sub-shots, regenerate, review)
@@ -120,7 +120,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
 
       {/* Footer actions */}
       <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1C1B19]">
-        <Button variant="ghost" onClick={handleClose} className="text-[#7A776E]">
+        <Button variant="ghost" onClick={handleClose} className="bg-transparent border border-[#282724] text-[#7A776E] hover:border-[#D4A652] hover:text-[#D4A652] rounded-[7px]">
           Close
         </Button>
         {storyboardId && (
@@ -129,7 +129,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
             onClick={() => {
               window.location.href = `/dashboard/storyboard/${storyboardId}`;
             }}
-            className="border-[#9088D4]/30 text-[#9088D4] hover:bg-[#9088D4]/10"
+            className="border-[#D4A652]/30 text-[#D4A652] hover:bg-[#D4A652]/10 rounded-[7px]"
           >
             <ImageIcon className="h-4 w-4 mr-2" />
             Edit Storyboard
@@ -139,7 +139,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
           onClick={() => {
             window.location.href = `/dashboard/editron/project/${projectId}`;
           }}
-          className="bg-[#D4A652] hover:bg-[#D4A652]/90 text-[#0B0B0A] font-medium"
+          className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded-[7px] border-none"
         >
           <Video className="h-4 w-4 mr-2" />
           Open in Editor

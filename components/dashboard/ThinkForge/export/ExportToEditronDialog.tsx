@@ -57,7 +57,7 @@ export function ExportToEditronDialog({
         className={`${maxWidth} bg-[#0F0F0E] border-[#282724] text-[#ECE9E1]`}
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[#ECE9E1]">
+          <DialogTitle className="flex items-center gap-2 text-[#ECE9E1] font-sans">
             <Video className="h-5 w-5 text-[#5EC97E]" />
             Export to Editor
           </DialogTitle>
