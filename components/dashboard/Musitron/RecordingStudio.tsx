@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import type { MusitronTask } from "@/app/api/services/musitron/types/shared";
 import { VUMeter } from "./VUMeter";
 import { useQuery } from "@tanstack/react-query";
