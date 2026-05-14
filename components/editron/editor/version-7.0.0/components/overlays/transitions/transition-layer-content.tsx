@@ -145,15 +145,78 @@ function renderTransition(
     case 'wipe-down':
       return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, `inset(${(1 - progress) * 100}% 0 0 0)`);
 
-    case 'slide-push': {
-      const offset = (1 - progress) * 100;
+    case 'soft-cut':
       return (
         <>
-          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateX(${-progress * 100}%)` }} volume={0} />}
-          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateX(${offset}%)` }} volume={0} />}
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, opacity: 1 - progress, filter: `blur(${progress * 3}px)` }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: progress, filter: `blur(${(1 - progress) * 3}px)` }} volume={0} />}
+        </>
+      );
+
+    case 'whip-pan': {
+      const blurAmount = Math.sin(progress * Math.PI) * 30;
+      const offsetA = -progress * 120;
+      const offsetB = (1 - progress) * 120;
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateX(${offsetA}%)`, filter: `blur(${blurAmount}px)`, opacity: 1 - progress }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateX(${offsetB}%)`, filter: `blur(${blurAmount}px)`, opacity: progress }} volume={0} />}
         </>
       );
     }
+
+    case 'slide-up': {
+      const offsetUp = (1 - progress) * 100;
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateY(${-progress * 100}%)` }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateY(${offsetUp}%)` }} volume={0} />}
+        </>
+      );
+    }
+
+    case 'slide-down': {
+      const offsetDown = -(1 - progress) * 100;
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateY(${progress * 100}%)` }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateY(${offsetDown}%)` }} volume={0} />}
+        </>
+      );
+    }
+
+    case 'glitch': {
+      const glitchOffset = Math.sin(progress * Math.PI * 6) * 5;
+      const showB = progress > 0.4;
+      const rgbShift = Math.sin(progress * Math.PI) * 8;
+      return (
+        <>
+          {!showB && srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateX(${glitchOffset}px)` }} volume={0} />}
+          {showB && srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateX(${-glitchOffset}px)` }} volume={0} />}
+          <div style={{ ...ABS, background: `rgba(255,0,0,${Math.abs(rgbShift) * 0.02})`, mixBlendMode: 'screen', transform: `translateX(${rgbShift}px)`, pointerEvents: 'none' }} />
+        </>
+      );
+    }
+
+    case 'film-burn': {
+      const burnOpacity = Math.sin(progress * Math.PI) * 0.6;
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, opacity: 1 - progress, filter: `brightness(${1 + progress * 0.5}) saturate(${1 + progress * 0.3})` }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: progress, filter: `brightness(${1 + (1 - progress) * 0.5}) saturate(${1 + (1 - progress) * 0.3})` }} volume={0} />}
+          <div style={{ ...ABS, background: `radial-gradient(circle at ${50 + progress * 20}% ${50 - progress * 10}%, rgba(255,140,0,${burnOpacity}), transparent 70%)`, mixBlendMode: 'screen', pointerEvents: 'none' }} />
+        </>
+      );
+    }
+
+    // Editorial cuts — no visual effect. The cut IS the transition.
+    // Return null so the tile is invisible. The original clips handle the boundary.
+    case 'hard-cut':
+    case 'smash-cut':
+    case 'match-cut':
+    case 'jump-cut':
+    case 'cut-on-action':
+      return null;
 
     case 'zoom-punch': {
       const scaleA = 1 + progress * 0.3;

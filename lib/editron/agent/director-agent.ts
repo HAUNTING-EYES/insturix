@@ -1408,7 +1408,8 @@ async function executeAction(
           );
           if (brandFacts.length > 0) {
             const validTypes = ['dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut', 'zoom-punch', 'whip-pan', 'glitch',
-              'match-cut', 'cutaway', 'smash-cut', 'iris', 'film-burn', 'light-leak'];
+              'flash', 'film-burn', 'iris-wipe', 'blur-transition', 'wipe-left', 'wipe-right', 'slide-up', 'slide-down',
+              'match-cut', 'smash-cut'];
             const preferred = validTypes.find(t => brandFacts.some(f => f.toLowerCase().includes(t)));
             if (preferred) {
               console.log(`[Director] Graphiti suggests transition: ${preferred} (from ${brandFacts.length} facts)`);
@@ -1425,9 +1426,12 @@ async function executeAction(
       }
 
       // Validate against the enum the tool accepts
+      // Canonical TransitionStyle types (from types.ts). Ghost types removed 2026-05-15:
+      // cutaway, iris (→iris-wipe), light-leak, slide-left (→wipe-left), slide-right (→wipe-right),
+      // morph, pixelate, color-flash — had zero rendering, zero SFX mapping, zero system definition.
       const validTypes = ['dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut', 'zoom-punch', 'whip-pan', 'glitch',
-        'match-cut', 'cutaway', 'smash-cut', 'iris', 'film-burn', 'light-leak', 'slide-left', 'slide-right',
-        'slide-up', 'slide-down', 'morph', 'pixelate', 'blur-transition', 'color-flash'];
+        'flash', 'film-burn', 'iris-wipe', 'blur-transition', 'wipe-left', 'wipe-right', 'wipe-up', 'wipe-down',
+        'slide-up', 'slide-down', 'match-cut', 'smash-cut'];
       if (!validTypes.includes(transType)) {
         console.warn(`[Director] add_transition: "${transType}" not in valid types, defaulting to soft-cut`);
         transType = 'soft-cut';

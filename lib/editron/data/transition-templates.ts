@@ -379,7 +379,7 @@ export function normalizeTransitionType(type: string): TransitionType {
     'hard-cut': 'hard-cut',
     'zoom-punch': 'zoom-punch',
     'whip-pan': 'whip-pan',
-    'wipe-left': 'whip-pan', // closest available
+    'wipe-left': 'wipe-left',
     'glitch': 'glitch',
     'soft-cut': 'soft-cut',
     'invisible-cut': 'match-cut', // Fix 23: alias — invisible cut IS match-cut (compositions match so viewer doesn't notice)
