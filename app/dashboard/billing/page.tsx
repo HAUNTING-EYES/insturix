@@ -83,7 +83,7 @@ function BillingContent() {
   // Derive plan credits from SUBSCRIPTION_PLANS config
   const planCredits = currentPlan
     ? SUBSCRIPTION_PLANS.find(
-        (p) => p.id === currentPlan.id || p.name.toLowerCase() === currentPlan.name.toLowerCase()
+        (p) => p.id === currentPlan.id || (p.name && currentPlan.name && p.name.toLowerCase() === currentPlan.name.toLowerCase())
       )?.credits
     : undefined;
 
