@@ -100,7 +100,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 /* ── Timeline Spine ── */
 .timeline{position:relative;padding-left:52px}
 .timeline::before{
-  content:'';position:absolute;left:31px;top:0;bottom:0;width:1.5px;
+  content:'';position:absolute;left:31px;top:0;bottom:28px;width:1.5px;
   background:linear-gradient(180deg,var(--gold) 0%,rgba(212,166,82,.4) 70%,rgba(212,166,82,.15) 100%);
 }
 .timeline::after{
@@ -298,8 +298,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 }
 .end-dot{
   width:8px;height:8px;border-radius:50%;background:var(--gold);
-  flex-shrink:0;opacity:.5;position:relative;z-index:3;
-  outline:4px solid var(--bg-page);
+  flex-shrink:0;opacity:.5;
   animation:endCatch 4s ease-in-out infinite;
 }
 @keyframes endCatch{
@@ -308,15 +307,14 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   100%{opacity:.3;box-shadow:none}
 }
 .end-text{
-  font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;
-  background:linear-gradient(to right, var(--text-dim), var(--text-faint));
-  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  font-family:var(--font-mono);font-size:12px;letter-spacing:.04em;
+  color:var(--text-muted);
   animation:textRadiate 4s ease-in-out infinite;
 }
 @keyframes textRadiate{
-  0%,88%{background:linear-gradient(to right, var(--text-dim), var(--text-faint));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  94%{background:linear-gradient(to right, var(--gold), var(--text-muted));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  100%{background:linear-gradient(to right, var(--text-dim), var(--text-faint));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  0%,85%{color:var(--text-muted)}
+  93%{color:var(--gold)}
+  100%{color:var(--text-muted)}
 }
 
 /* ── Preview Column ── */
