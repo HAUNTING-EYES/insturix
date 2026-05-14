@@ -467,12 +467,16 @@ export function ProfileContent({
               target="_blank"
               rel="noopener noreferrer"
               className={cn(
-                "group relative overflow-hidden flex items-center border border-transparent rounded-xl",
+                "group relative overflow-hidden flex items-center rounded-xl",
                 isPreview
                   ? "px-3 py-2.5 gap-3 col-span-1"
                   : "px-5 py-5 gap-4 col-span-1 sm:col-span-2"
               )}
-              style={{ backgroundColor: "#131312" }}
+              style={{
+                backgroundColor: "#131312",
+                borderLeft: `3px solid ${getPlatformColor(featuredLink.platform)}`,
+                border: `1px solid ${getPlatformColor(featuredLink.platform)}30`,
+              }}
               whileHover={
                 !isPreview
                   ? {
@@ -497,9 +501,12 @@ export function ProfileContent({
                   "flex items-center justify-center rounded-full flex-shrink-0",
                   isPreview ? "w-8 h-8" : "w-11 h-11"
                 )}
-                style={{ backgroundColor: "#1B1A18" }}
+                style={{
+                  backgroundColor: `${getPlatformColor(featuredLink.platform)}18`,
+                  border: `1px solid ${getPlatformColor(featuredLink.platform)}25`,
+                }}
               >
-                <div className="text-[#ECE9E1]">
+                <div style={{ color: getPlatformColor(featuredLink.platform) }}>
                   {getPlatformIcon(featuredLink.platform, isPreview)}
                 </div>
               </div>
@@ -570,9 +577,12 @@ export function ProfileContent({
                   "flex items-center justify-center rounded-full flex-shrink-0",
                   isPreview ? "w-7 h-7" : "w-9 h-9"
                 )}
-                style={{ backgroundColor: "#1B1A18" }}
+                style={{
+                  backgroundColor: `${getPlatformColor(link.platform)}14`,
+                  border: `1px solid ${getPlatformColor(link.platform)}20`,
+                }}
               >
-                <div className="text-[#ECE9E1]">
+                <div style={{ color: getPlatformColor(link.platform) }}>
                   {getPlatformIcon(link.platform, isPreview)}
                 </div>
               </div>
