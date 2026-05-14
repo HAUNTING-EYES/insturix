@@ -100,7 +100,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 /* ── Timeline Spine ── */
 .timeline{position:relative;padding-left:52px}
 .timeline::before{
-  content:'';position:absolute;left:31px;top:0;bottom:20px;width:1.5px;
+  content:'';position:absolute;left:31px;top:0;bottom:0;width:1.5px;
   background:linear-gradient(180deg,var(--gold) 0%,rgba(212,166,82,.4) 70%,rgba(212,166,82,.15) 100%);
 }
 .timeline::after{
@@ -109,7 +109,11 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   border-radius:3px;animation:pulseDown 4s ease-in-out infinite;filter:blur(1px);
 }
 @keyframes pulseDown{
-  0%{top:-40px;opacity:0}10%{opacity:1}90%{opacity:1}100%{top:calc(100% + 40px);opacity:0}
+  0%{top:-40px;opacity:0}
+  10%{opacity:1}
+  85%{opacity:1}
+  95%{opacity:.4}
+  100%{top:calc(100% - 10px);opacity:0}
 }
 
 /* ── Moments ── */
@@ -294,6 +298,12 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 .end-diamond{
   width:8px;height:8px;background:var(--gold);
   transform:rotate(45deg);opacity:.6;
+  animation:diamondCatch 4s ease-in-out infinite;
+}
+@keyframes diamondCatch{
+  0%,90%{opacity:.4;box-shadow:none}
+  95%{opacity:1;box-shadow:0 0 12px var(--gold-glow-strong)}
+  100%{opacity:.4;box-shadow:none}
 }
 .end-text{
   font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:.04em;
@@ -526,7 +536,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
       <!-- Moment 3: Your Links (peak) -->
       <div class="moment" data-moment="3">
-        <div class="node"><div class="node-dot filled-gold"></div></div>
+        <div class="node"><div class="node-dot filled-green"></div></div>
         <div class="connector"></div>
         <div class="moment-label">
           <span class="moment-label-text">THE CHAPTERS</span>
