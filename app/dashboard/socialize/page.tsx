@@ -1,5 +1,4 @@
 import SocializeDashboard from "@/components/dashboard/Socialize/SocializeDashboard";
-import { Share2 } from "lucide-react";
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import React, { Suspense } from "react";
@@ -27,20 +26,8 @@ export default async function SocializePage() {
   }
 
   return (
-    <div className="container mx-auto p-8">
+    <div className="mx-auto px-4 py-4">
       <PipelineBreadcrumb currentStep="share" />
-      {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-[44px] font-semibold tracking-tight flex items-center gap-3" style={{ color: '#ECE9E1' }}>
-          <Share2 className="h-8 w-8" style={{ color: '#D4A652' }} />
-          Socialize
-        </h1>
-        <p className="mt-3 text-lg font-light" style={{ color: '#7A776E' }}>
-          Connect your audience to all your content with one simple link
-        </p>
-      </div>
-
-      {/* Dashboard Content */}
       <Suspense fallback={<LoadingScreen />}>
         <SocializeDashboard initialData={initialData} />
       </Suspense>
