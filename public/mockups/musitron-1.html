@@ -403,16 +403,21 @@
     vuMeter.appendChild(bar);
   }
 
+  let vuFrame = null;
   function animateVU() {
     const bars = vuMeter.querySelectorAll('.vu-bar');
+    if (!isPlaying) {
+      bars.forEach(b => { b.style.height = '4px'; b.style.opacity = '0.15'; });
+      vuFrame = null;
+      return;
+    }
     bars.forEach((b, i) => {
-      const h = isPlaying ? Math.random() * 45 + 8 : 8;
+      const h = Math.random() * 45 + 8;
       b.style.height = h + 'px';
-      b.style.opacity = isPlaying ? 0.4 + Math.random() * 0.6 : 0.25;
+      b.style.opacity = (0.4 + Math.random() * 0.6).toString();
     });
-    requestAnimationFrame(animateVU);
+    vuFrame = requestAnimationFrame(animateVU);
   }
-  animateVU();
 
   function selectModel(modelKey) {
     currentModel = modelKey;
@@ -469,7 +474,8 @@
     document.getElementById('playBtn').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
     document.getElementById('vinyl').classList.toggle('spinning', isPlaying);
     document.getElementById('tonearm').classList.toggle('playing', isPlaying);
-    if (isPlaying) advanceProgress();
+    if (isPlaying) { advanceProgress(); animateVU(); }
+    else { animateVU(); }
   }
 
   function advanceProgress() {
