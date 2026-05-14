@@ -698,11 +698,12 @@ export default function SocializeDashboard({
             <SocializePreview
               logo={user && "imageUrl" in user ? (user.imageUrl ?? null) : null}
               profileTitle={uniqueUsername}
-              bio={userData?.bio || ""}
+              bio={bio || userData?.bio || ""}
               links={links || []}
               banner={banner}
               status={status}
               accentColor={accentColor}
+              notifications={(userData?.notifications || []).filter(n => !isNotificationExpired(n))}
             />
           </div>
           <div style={{ marginTop: 14, textAlign: "center" }}>
