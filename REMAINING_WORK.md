@@ -22,24 +22,27 @@ Last updated: May 14, 2026
 - ✅ Legal pages
 - ✅ Careers page
 - ✅ Pricing receipt polish
-- ✅ Socialize dashboard redesign (timeline/story layout, StoryArc, spine, sync dots)
-- ✅ Socialize public profile redesign (bento grid, platform colors, breathing avatar)
+- ✅ Socialize dashboard + public profile redesign
 - ✅ Socialize status + accentColor end-to-end
 - ✅ UploaderX dashboard redesign
 - ✅ Clickatron dashboard redesign
+- ✅ Musitron dashboard redesign (Recording Studio + Jukebox Collections)
+- ✅ Org dashboard redesign (Constellation Hero + Member Table)
+- ✅ Credits/Billing dashboard redesign (Receipt Tape)
+- ✅ Fix broken plan references (107 users fixed)
 
 ---
 
-## TODO: Dashboard Redesigns
+## ALL DASHBOARD REDESIGNS: COMPLETE
 
 | Product | Path | Status |
 |---|---|---|
 | Socialize | `/dashboard/socialize` | ✅ DONE |
 | Clickatron | `/dashboard/clickatron` | ✅ DONE |
 | UploaderX | `/dashboard/uploaderx` | ✅ DONE |
-| Musitron | `/dashboard/musitron` | 🔄 Mockups building |
-| Org | `/dashboard/org` | 🔄 Mockups building |
-| Credits | `/dashboard/billing` | 🔄 Mockups building |
+| Musitron | `/dashboard/musitron` | ✅ DONE |
+| Org | `/dashboard/org` | ✅ DONE |
+| Credits | `/dashboard/billing` | ✅ DONE |
 
 ---
 
