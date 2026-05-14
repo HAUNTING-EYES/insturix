@@ -505,7 +505,7 @@ export default function SocializeDashboard({
         onWaypointClick={scrollToSection}
       />
 
-      <div className="grid lg:grid-cols-2 gap-0 font-jakarta" style={{ minHeight: "calc(100vh - 120px)" }}>
+      <div className="grid xl:grid-cols-2 gap-0 font-jakarta" style={{ minHeight: "calc(100vh - 120px)" }}>
         {/* Left: Timeline Editor */}
         <div style={{ padding: "24px 28px 60px 0" }}>
           <TimelineSpine sections={timelineSections} activeSection={activeSection}>
@@ -682,8 +682,8 @@ export default function SocializeDashboard({
           </TimelineSpine>
         </div>
 
-        {/* Right: Phone Preview */}
-        <div style={{
+        {/* Right: Phone Preview (xl+ only) */}
+        <div className="hidden xl:flex" style={{
           position: "sticky", top: 80,
           height: "calc(100vh - 120px)",
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",

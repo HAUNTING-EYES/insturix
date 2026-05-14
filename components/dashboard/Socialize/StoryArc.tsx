@@ -45,7 +45,7 @@ export function StoryArc({ username, activeSection, onWaypointClick }: StoryArcP
       style={{
         position: "sticky",
         top: 0,
-        zIndex: 100,
+        zIndex: 30,
         background: "rgba(11,11,10,.85)",
         backdropFilter: "blur(24px) saturate(1.4)",
         WebkitBackdropFilter: "blur(24px) saturate(1.4)",
