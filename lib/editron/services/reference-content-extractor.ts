@@ -31,34 +31,35 @@ export interface ReferenceAnalysis {
 
 // ─── Combined Prompt ────────────────────────────────────────────
 
-const COMBINED_PROMPT = `You are a professional video editor analyzing a reference video.
-Extract TWO things in a SINGLE JSON response:
+const COMBINED_PROMPT = `<role>You are a professional video editor analyzing a reference video.</role>
 
-1. **Editing Style (EditDNA)** — the video's editing fingerprint:
-   - cutRhythm: { avgCutsPerMinute, pattern (steady|fast-slow-fast|building|random), avgClipDuration }
-   - transitions: { dominant (hard_cut|fade|wipe|zoom_punch|slide), frequency (0-100%) }
-   - colorGrade: { temperature (warm|cool|neutral), saturation (high|normal|desaturated), contrast (high|normal|low), dominantColors (hex[]) }
-   - textStyle: { fontWeight (light|normal|bold|extra-bold), position (center|lower_third|top|varied), animation (fade|slide|pop|typewriter|none), frequency (heavy|moderate|minimal) }
-   - musicStyle: { tempo (slow|medium|fast), genre (string), energyLevel (low|medium|high) }
-   - pacing: { overall (slow|medium|fast), hookSpeed (fast|medium), mainSpeed (slow|medium|fast) }
-   - graphicsDensity: heavy|moderate|minimal
+<task>Extract TWO things in a SINGLE JSON response: the video's Editing Style (EditDNA) and a scene-by-scene Content Map.</task>
 
-2. **Content Map** — scene-by-scene breakdown of WHAT happens:
-   For each distinct scene/segment:
-   - index (0-based)
-   - startApproxSec / endApproxSec
-   - description (one sentence: who/what, what's happening)
-   - keyVisuals (2-3 brief visual descriptors)
-   - narrationSummary (quote or paraphrase of speech, empty if silent)
-   - isCritical (true if this scene carries a core message that can't be skipped)
+<rules>
+RULE 1 — EditDNA (editing fingerprint) must include:
+  - cutRhythm: { avgCutsPerMinute, pattern (steady|fast-slow-fast|building|random), avgClipDuration }
+  - transitions: { dominant (hard_cut|fade|wipe|zoom_punch|slide), frequency (0-100%) }
+  - colorGrade: { temperature (warm|cool|neutral), saturation (high|normal|desaturated), contrast (high|normal|low), dominantColors (hex[]) }
+  - textStyle: { fontWeight (light|normal|bold|extra-bold), position (center|lower_third|top|varied), animation (fade|slide|pop|typewriter|none), frequency (heavy|moderate|minimal) }
+  - musicStyle: { tempo (slow|medium|fast), genre (string), energyLevel (low|medium|high) }
+  - pacing: { overall (slow|medium|fast), hookSpeed (fast|medium), mainSpeed (slow|medium|fast) }
+  - graphicsDensity: heavy|moderate|minimal
+RULE 2 — Content Map: for each distinct scene/segment provide:
+  - index (0-based)
+  - startApproxSec / endApproxSec
+  - description (one sentence: who/what, what's happening)
+  - keyVisuals (2-3 brief visual descriptors)
+  - narrationSummary (quote or paraphrase of speech, empty if silent)
+  - isCritical (true if this scene carries a core message that can't be skipped)
+RULE 3 — Return ONLY valid JSON. No markdown. No explanation.
+</rules>
 
-Return ONLY valid JSON:
+<output_format>
 {
   "editDNA": { cutRhythm, transitions, colorGrade, textStyle, musicStyle, pacing, graphicsDensity },
   "contentMap": [ { index, startApproxSec, endApproxSec, description, keyVisuals, narrationSummary, isCritical } ]
 }
-
-No markdown. No explanation. Just the JSON.`;
+</output_format>`;
 
 // ─── Main Entry ─────────────────────────────────────────────────
 

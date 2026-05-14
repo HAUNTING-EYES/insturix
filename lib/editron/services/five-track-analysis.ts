@@ -381,10 +381,17 @@ async function _detectShots(videoUrl: string, durationMs: number, fps: number): 
 
     const result = await model.generateContent([
       {
-        text: `Detect ALL shot/scene boundaries in this ${Math.round(durationMs / 1000)}s video at ${fps}fps.
-A "shot" = continuous camera take between two cuts.
-Return ONLY a JSON array of objects: [{"startFrame": 0, "endFrame": 150}, ...]
-Be precise — every visual cut, dissolve, or transition is a boundary.`,
+        text: `<role>You are a professional video editor detecting shot boundaries.</role>
+
+<task>Detect ALL shot/scene boundaries in this ${Math.round(durationMs / 1000)}s video at ${fps}fps.</task>
+
+<rules>
+RULE 1 — A "shot" = continuous camera take between two cuts.
+RULE 2 — Be precise — every visual cut, dissolve, or transition is a boundary.
+RULE 3 — Return ONLY a JSON array of objects, no markdown, no explanation.
+</rules>
+
+<output_format>[{"startFrame": 0, "endFrame": 150}, ...]</output_format>`,
       },
       { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
@@ -434,8 +441,19 @@ async function analyzeVideoComprehensive(
     const fps = 30;
     const totalFrames = Math.round((durationMs / 1000) * fps);
 
-    const prompt = `Analyze this video comprehensively. Return a JSON object with exactly these three sections:
+    const prompt = `<role>You are a professional video analyst performing comprehensive multi-track video analysis.</role>
 
+<task>Analyze this ${Math.round(durationMs / 1000)}s video at ${fps}fps across three tracks: motion, keyframes, and subjects. Analyze 1 keyframe per second (${Math.max(3, Math.ceil(durationMs / 1000))} keyframes at timestamps: ${Array.from({ length: Math.max(3, Math.ceil(durationMs / 1000)) }, (_, i) => `${i}s`).join(', ')}).</task>
+
+<rules>
+RULE 1 — For each keyframe provide: frame number (at ${fps}fps), timestamp in milliseconds, description of what's visible, subjects with bounding boxes and confidence, shot type, camera angle, dominant colors, brightness (0-1), mood score (-1 to 1), energy level (0-1), and whether it's a natural cut point with a brief reason WHY.
+RULE 2 — Identify all visible subjects with normalized bounding boxes (0-1 range).
+RULE 3 — Detect camera motion type and intensity per segment.
+RULE 4 — Mark motion intensity peaks (frames where motion changes significantly).
+RULE 5 — Return ONLY valid JSON, no markdown.
+</rules>
+
+<output_format>
 {
   "motion": {
     "segments": [
@@ -473,8 +491,7 @@ async function analyzeVideoComprehensive(
     }
   ]
 }
-
-Analyze 1 keyframe per second of video (for a ${Math.round(durationMs / 1000)}s video at ${fps}fps, that's ${Math.max(3, Math.ceil(durationMs / 1000))} keyframes at timestamps: ${Array.from({ length: Math.max(3, Math.ceil(durationMs / 1000)) }, (_, i) => `${i}s`).join(', ')}). For each keyframe provide frame number (at ${fps}fps), timestamp in milliseconds, description of what's visible, subjects with bounding boxes and confidence, shot type, camera angle, dominant colors, brightness (0-1), mood score (-1 to 1), energy level (0-1), and whether it's a natural cut point with a brief reason WHY it would be a good cut point. Also identify all visible subjects with normalized bounding boxes (0-1 range). Detect camera motion type and intensity per segment. Mark motion intensity peaks (frames where motion changes significantly). Return ONLY valid JSON, no markdown.`;
+</output_format>`;
 
     const result = await model.generateContent([
       { fileData: { fileUri, mimeType: 'video/mp4' } },
@@ -550,18 +567,22 @@ async function analyzeMotion(videoUrl: string, shots: Shot[], durationMs: number
 
     const result = await model.generateContent([
       {
-        text: `Analyze camera motion for each shot in this ${Math.round(durationMs / 1000)}s video.
-There are ${shots.length} shots. For each shot, classify:
-- motionIntensity: 0.0-1.0 (0=static, 1=rapid motion)
-- cameraMotion: static/pan-left/pan-right/tilt-up/tilt-down/zoom-in/zoom-out/tracking/handheld/dolly
+        text: `<role>You are a professional video analyst specializing in camera motion detection.</role>
 
-Also identify the top 5 frames with highest motion intensity (motion peaks).
+<task>Analyze camera motion for each of the ${shots.length} shots in this ${Math.round(durationMs / 1000)}s video.</task>
 
-Return ONLY JSON:
+<rules>
+RULE 1 — For each shot, classify motionIntensity (0.0-1.0, where 0=static, 1=rapid motion) and cameraMotion (static/pan-left/pan-right/tilt-up/tilt-down/zoom-in/zoom-out/tracking/handheld/dolly).
+RULE 2 — Identify the top 5 frames with highest motion intensity (motion peaks).
+RULE 3 — Return ONLY valid JSON, no markdown, no explanation.
+</rules>
+
+<output_format>
 {
   "segments": [{"startFrame": 0, "endFrame": 150, "motionIntensity": 0.3, "cameraMotion": "static"}, ...],
   "peaks": [47, 180, 320, ...]
-}`,
+}
+</output_format>`,
       },
       { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
@@ -764,25 +785,29 @@ export async function classifySpeech(
     const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
     const model = await getAnalysisModel();
 
-    const result = await model.generateContent(`Classify this video transcript into segments. Each segment is a continuous stretch of speech with the same content type.
+    const result = await model.generateContent(`<role>You are a professional transcript analyst specializing in content classification for video editing.</role>
 
+<task>Classify this video transcript into segments. Each segment is a continuous stretch of speech with the same content type.</task>
+
+<rules>
+RULE 1 — For each segment return: startMs, endMs (approximate from word positions), text (the segment text), contentType, entities, suggestedGraphicType, suggestedGraphicData, confidence (0-1), and keywordHighlights.
+RULE 2 — contentType must be one of: statistic, claim, question, step_instruction, story_moment, cta, transition_phrase, emphasis, comparison, social_proof, definition, neutral.
+RULE 3 — entities: [{type: "number"|"percentage"|"currency"|"name"|"product"|"concept"|"action"|"emotion", value: "...", unit?: "x"|"%"|"$", isGrowth?: true/false}].
+RULE 4 — suggestedGraphicType: what visual should appear (animated-growth-chart, counter-animation, step-label, definition-card, cta-button, bold-statement-card, question-card, side-by-side-comparison, kinetic-text-highlight, or "none").
+RULE 5 — suggestedGraphicData: {key: value} data for the graphic template.
+RULE 6 — keywordHighlights: [{word, importance: "normal"|"keyword"|"emphasis"|"stat"|"name"}] — the 3-5 most important words.
+RULE 7 — Return ONLY a JSON array, no markdown, no explanation.
+</rules>
+
+<output_format>[{startMs, endMs, text, contentType, entities, suggestedGraphicType, suggestedGraphicData, confidence, keywordHighlights}, ...]</output_format>
+
+<input_data>
 TRANSCRIPT:
 "${transcript}"
 
-For each segment return:
-- startMs, endMs (approximate from word positions)
-- text: the segment text
-- contentType: one of [statistic, claim, question, step_instruction, story_moment, cta, transition_phrase, emphasis, comparison, social_proof, definition, neutral]
-- entities: [{type: "number"|"percentage"|"currency"|"name"|"product"|"concept"|"action"|"emotion", value: "...", unit?: "x"|"%"|"$", isGrowth?: true/false}]
-- suggestedGraphicType: what visual should appear (animated-growth-chart, counter-animation, step-label, definition-card, cta-button, bold-statement-card, question-card, side-by-side-comparison, kinetic-text-highlight, or "none")
-- suggestedGraphicData: {key: value} data for the graphic template
-- confidence: 0-1
-- keywordHighlights: [{word, importance: "normal"|"keyword"|"emphasis"|"stat"|"name"}] — the 3-5 most important words
-
 Word timestamps for reference:
 ${words.slice(0, 50).map(w => `"${w.word}" ${w.startMs}ms`).join(', ')}${words.length > 50 ? '...' : ''}
-
-Return ONLY a JSON array: [...]`);
+</input_data>`);
 
     const text = result.response.text();
     const jsonMatch = text.match(/\[[\s\S]*\]/);

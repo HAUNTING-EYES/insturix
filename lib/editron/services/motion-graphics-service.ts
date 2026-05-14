@@ -257,8 +257,22 @@ export async function fillTemplateSlots(
     .map((s) => `  - {{${s.name}}} (${s.type}): ${s.description}. Default: "${s.default}"`)
     .join('\n');
 
-  const prompt = `You are a motion graphics slot-filler. Given a user request and a template with {{slot}} variables, return a JSON object mapping each slot name to the value that best matches the user's intent.
+  const prompt = `<role>You are a motion graphics slot-filler.</role>
 
+<task>Given a user request and a template with {{slot}} variables, return a JSON object mapping each slot name to the value that best matches the user's intent.</task>
+
+<rules>
+RULE 1 — Return ONLY valid JSON, no markdown, no explanation.
+RULE 2 — Every slot MUST be present in the output.
+RULE 3 — For slots the user didn't mention, keep the default value.
+RULE 4 — For color slots, return valid CSS color strings.
+RULE 5 — For number slots, return number values as strings.
+RULE 6 — Match the user's language/tone for text slots.
+</rules>
+
+<output_format>A JSON object mapping each slot name to its filled value.</output_format>
+
+<input_data>
 TEMPLATE: "${template.name}"
 CATEGORY: ${template.category}
 
@@ -266,16 +280,7 @@ SLOTS:
 ${slotDescriptions}
 
 USER REQUEST: "${query}"${context ? `\nADDITIONAL CONTEXT: "${context}"` : ''}
-
-RULES:
-- Return ONLY valid JSON, no markdown, no explanation.
-- Every slot MUST be present in the output.
-- For slots the user didn't mention, keep the default value.
-- For color slots, return valid CSS color strings.
-- For number slots, return number values as strings.
-- Match the user's language/tone for text slots.
-
-Output JSON:`;
+</input_data>`;
 
   try {
     // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.

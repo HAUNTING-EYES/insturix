@@ -174,25 +174,23 @@ async function resolveVideoUrl(
 /*  extractEditDNA                                                         */
 /* ====================================================================== */
 
-const EDIT_DNA_PROMPT = `You are a professional video editor analyzing a reference video's editing style.
+const EDIT_DNA_PROMPT = `<role>You are a professional video editor analyzing a reference video's editing style.</role>
 
-Analyze this video's editing style in detail. Extract these attributes:
+<task>Analyze this video's editing style in detail across 7 dimensions and return structured JSON.</task>
 
-1. **Cut rhythm**: How often are there cuts? What's the average cuts per minute? Is the pattern steady, building (gradually faster), fast-slow-fast, or random? What's the average clip duration in seconds?
+<rules>
+RULE 1 — Analyze these 7 dimensions:
+  1. Cut rhythm: How often are there cuts? Average cuts per minute? Pattern (steady, building, fast-slow-fast, random)? Average clip duration in seconds?
+  2. Transitions: Dominant type (hard cuts, fades, wipes, zoom punches, slides)? Percentage of cuts using visible transition effects vs hard cuts?
+  3. Color grade: Temperature (warm/cool/neutral)? Saturation (high/normal/desaturated)? Contrast (high/normal/low)? 2-4 dominant hex colors?
+  4. Text/graphics style: Font weight (light/normal/bold/extra-bold)? Position (center/lower_third/top/varied)? Animation (fade/slide/pop/typewriter/none)? Frequency (heavy/moderate/minimal)?
+  5. Music style: Tempo (slow/medium/fast)? Genre? Energy level (low/medium/high)?
+  6. Pacing: Overall (slow/medium/fast)? Hook speed (fast/medium)? Main content speed (slow/medium/fast)?
+  7. Graphics density: Motion graphics, stickers, emojis, icons, decorative elements (heavy/moderate/minimal)?
+RULE 2 — Return ONLY valid JSON, no markdown, no explanation.
+</rules>
 
-2. **Transitions**: What's the dominant transition type — hard cuts, fades, wipes, zoom punches, or slides? What percentage of cuts use a visible transition effect (vs. hard cuts)?
-
-3. **Color grade**: Is the temperature warm, cool, or neutral? Is saturation high, normal, or desaturated? Is contrast high, normal, or low? What are 2-4 dominant hex colors you see?
-
-4. **Text/graphics style**: Are there text overlays? What font weight (light/normal/bold/extra-bold)? Where are they positioned (center/lower_third/top/varied)? What animation style (fade/slide/pop/typewriter/none)? How frequently do they appear (heavy/moderate/minimal)?
-
-5. **Music style**: What's the tempo (slow/medium/fast)? What genre? What energy level (low/medium/high)?
-
-6. **Pacing**: What's the overall pacing (slow/medium/fast)? How fast is the hook / first 5 seconds (fast/medium)? How fast is the main content (slow/medium/fast)?
-
-7. **Graphics density**: How many motion graphics, stickers, emojis, icons, or decorative elements appear? (heavy/moderate/minimal)
-
-Return your analysis as a JSON object matching this exact schema (no markdown, just raw JSON):
+<output_format>
 {
   "cutRhythm": {
     "avgCutsPerMinute": <number>,
@@ -226,7 +224,8 @@ Return your analysis as a JSON object matching this exact schema (no markdown, j
     "mainSpeed": "slow" | "medium" | "fast"
   },
   "graphicsDensity": "heavy" | "moderate" | "minimal"
-}`;
+}
+</output_format>`;
 
 export async function extractEditDNA(params: {
   videoOverlayId?: string;
