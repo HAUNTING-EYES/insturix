@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Musitron — The Jukebox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0B0B0A; --surface: #0F0F0E; --raised: #131312; --well: #1B1A18;
+    --border: #1C1B19; --border-light: #282724;
+    --text: #ECE9E1; --text-sec: #B5B2A8; --text-muted: #7A776E; --text-dim: #5F5E5A;
+    --gold: #D4A652; --gold-glow: rgba(212, 166, 82, 0.25);
+    --ease: cubic-bezier(.16,1,.3,1);
+  }
+  body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Breadcrumb */
+  .breadcrumb { display: flex; align-items: center; gap: 10px; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .breadcrumb span { font-size: 13px; color: var(--text-muted); }
+  .breadcrumb span.active { color: var(--gold); }
+  .breadcrumb .sep { color: var(--text-dim); font-size: 11px; }
+  .breadcrumb .logo { font-weight: 700; font-size: 15px; color: var(--text); letter-spacing: -0.3px; }
+
+  /* Main Layout */
+  .jukebox-layout { max-width: 1200px; margin: 0 auto; padding: 40px 32px 120px; }
+  .section-label { font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 16px; font-family: 'JetBrains Mono', monospace; }
+
+  /* Credits — Coin Slot */
+  .coin-section { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; padding: 20px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  .coin-display { display: flex; align-items: center; gap: 14px; }
+  .coin-icon { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, var(--gold), #b8872e); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; color: #0B0B0A; box-shadow: 0 0 20px var(--gold-glow), inset 0 -2px 4px rgba(0,0,0,0.3); animation: coinShine 3s ease infinite; }
+  .coin-info .coin-val { font-size: 24px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+  .coin-info .coin-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; }
+  .coin-btn { padding: 10px 20px; border: 1px solid var(--gold); background: transparent; color: var(--gold); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .2s var(--ease); }
+  .coin-btn:hover { background: var(--gold); color: #0B0B0A); }
+
+  @keyframes coinShine { 0%, 100% { box-shadow: 0 0 20px var(--gold-glow); } 50% { box-shadow: 0 0 35px var(--gold-glow), 0 0 60px rgba(212,166,82,0.1); } }
+
+  /* Generation Form — Coin Slot Card */
+  .gen-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px; margin-bottom: 40px; position: relative; overflow: hidden; }
+  .gen-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--gold), transparent); }
+  .gen-grid { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 18px; align-items: end; }
+  .form-field { }
+  .form-field label { display: block; font-size: 10px; color: var(--text-dim); margin-bottom: 6px; letter-spacing: 0.8px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+  .form-field input, .form-field select, .form-field textarea {
+    width: 100%; background: var(--well); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; color: var(--text); font-size: 13px; font-family: 'Plus Jakarta Sans', sans-serif;
+    outline: none; transition: border-color .2s, box-shadow .2s;
+  }
+  .form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212,166,82,0.08); }
+  .form-field select option { background: var(--raised); }
+  .form-field textarea { resize: none; height: 40px; }
+
+  .btn-drop { padding: 10px 24px; border: none; border-radius: 8px; cursor: pointer; background: linear-gradient(135deg, var(--gold), #b8872e); color: #0B0B0A; font-weight: 700; font-size: 13px; transition: all .2s var(--ease); white-space: nowrap; height: 40px; }
+  .btn-drop:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(212,166,82,.25); }
+
+  .lyrics-row { margin-top: 14px; }
+  .lyrics-row textarea { height: 56px; resize: vertical; }
+
+  /* Vinyl Carousel */
+  .carousel-section { margin-bottom: 40px; }
+  .carousel { display: flex; gap: 24px; overflow-x: auto; padding: 12px 0 20px; scroll-snap-type: x mandatory; scrollbar-width: none; }
+  .carousel::-webkit-scrollbar { display: none; }
+
+  .vinyl-card { flex-shrink: 0; width: 200px; scroll-snap-align: center; cursor: pointer; transition: transform .4s var(--ease); }
+  .vinyl-card:hover { transform: translateY(-8px); }
+  .vinyl-card.active .vinyl-disc { box-shadow: 0 0 40px var(--gold-glow); }
+
+  .vinyl-disc { width: 200px; height: 200px; border-radius: 50%; position: relative; margin-bottom: 14px; transition: box-shadow .3s var(--ease); }
+  .vinyl-disc::before { content: ''; position: absolute; inset: 0; border-radius: 50%; background: repeating-radial-gradient(circle, transparent 0px, transparent 2px, rgba(255,255,255,0.02) 2px, rgba(255,255,255,0.02) 4px); z-index: 1; }
+  .vinyl-disc .center-hole { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; border-radius: 50%; background: var(--bg); transform: translate(-50%,-50%); z-index: 2; border: 2px solid rgba(255,255,255,0.05); }
+  .vinyl-disc .gradient-art { position: absolute; inset: 30px; border-radius: 50%; z-index: 1; }
+
+  .vinyl-card .card-title { font-size: 14px; font-weight: 600; text-align: center; }
+  .vinyl-card .card-meta { font-size: 11px; color: var(--text-dim); text-align: center; font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+  .vinyl-card .card-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 9px; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px; text-align: center; width: 100%; }
+  .badge-complete { background: rgba(74,222,128,0.1); color: #4ade80; }
+  .badge-gen { background: rgba(212,166,82,0.1); color: var(--gold); animation: pulse 1.5s ease infinite; }
+
+  /* Playlist */
+  .playlist-section { }
+  .playlist { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .pl-item { display: grid; grid-template-columns: 32px 1fr 80px 60px 40px; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); transition: background .15s; cursor: pointer; }
+  .pl-item:last-child { border-bottom: none; }
+  .pl-item:hover { background: var(--raised); }
+  .pl-item.active { background: var(--raised); }
+  .pl-num { font-size: 13px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; text-align: center; }
+  .pl-item.active .pl-num { color: var(--gold); }
+  .pl-title { font-size: 13px; font-weight: 500; }
+  .pl-genre { font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .pl-dur { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; text-align: right; }
+  .pl-status { text-align: center; font-size: 14px; }
+
+  /* Now Playing Bar */
+  .now-playing-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border); padding: 0; z-index: 100; backdrop-filter: blur(20px); }
+  .np-inner { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 280px 1fr 160px; align-items: center; padding: 12px 32px; gap: 24px; }
+  .np-track { display: flex; align-items: center; gap: 14px; }
+  .np-art { width: 48px; height: 48px; border-radius: 6px; flex-shrink: 0; }
+  .np-info .np-title { font-size: 14px; font-weight: 600; }
+  .np-info .np-meta { font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .np-center { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .np-controls { display: flex; gap: 16px; align-items: center; }
+  .np-btn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border-light); background: transparent; color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 13px; transition: all .2s var(--ease); }
+  .np-btn.play { width: 42px; height: 42px; background: var(--gold); color: #0B0B0A; border: none; font-size: 16px; }
+  .np-btn:hover { border-color: var(--gold); }
+  .np-btn.play:hover { box-shadow: 0 0 24px var(--gold-glow); }
+  .np-progress { width: 100%; max-width: 400px; display: flex; align-items: center; gap: 8px; }
+  .np-time { font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; min-width: 32px; }
+  .np-bar { flex: 1; height: 3px; background: var(--well); border-radius: 2px; position: relative; cursor: pointer; }
+  .np-fill { height: 100%; background: var(--gold); border-radius: 2px; width: 42%; transition: width .2s; }
+  .np-right { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+  .np-vol { display: flex; align-items: center; gap: 6px; }
+  .np-vol-icon { font-size: 14px; color: var(--text-muted); }
+  .np-vol-bar { width: 80px; height: 3px; background: var(--well); border-radius: 2px; position: relative; }
+  .np-vol-fill { height: 100%; width: 70%; background: var(--text-muted); border-radius: 2px; }
+
+  /* Waveform behind NP bar */
+  .waveform-bg { position: absolute; bottom: 100%; left: 0; right: 0; height: 32px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; pointer-events: none; overflow: hidden; opacity: 0.15; }
+  .wf-bar { width: 3px; background: var(--gold); border-radius: 1px; transition: height .1s; }
+
+  /* Neon glow utilities */
+  .neon-border { box-shadow: 0 0 20px var(--gold-glow), inset 0 0 20px rgba(212,166,82,0.03); }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes flipIn { from { transform: rotateY(90deg) scale(0.8); opacity: 0; } to { transform: rotateY(0) scale(1); opacity: 1; } }
+  .vinyl-card { animation: flipIn .6s var(--ease) both; }
+  .vinyl-card:nth-child(2) { animation-delay: .1s; }
+  .vinyl-card:nth-child(3) { animation-delay: .2s; }
+  .vinyl-card:nth-child(4) { animation-delay: .3s; }
+</style>
+</head>
+<body>
+
+<nav class="breadcrumb">
+  <span class="logo">Musitron</span>
+  <span class="sep">&#8250;</span>
+  <span>Dashboard</span>
+  <span class="sep">&#8250;</span>
+  <span class="active">Jukebox</span>
+</nav>
+
+<div class="jukebox-layout">
+
+  <!-- Credits -->
+  <div class="coin-section neon-border">
+    <div class="coin-display">
+      <div class="coin-icon">M</div>
+      <div class="coin-info">
+        <div class="coin-val">24</div>
+        <div class="coin-label">Credits Remaining</div>
+      </div>
+    </div>
+    <button class="coin-btn">+ Buy Credits</button>
+  </div>
+
+  <!-- Generation Form -->
+  <div class="section-label">Drop a Coin</div>
+  <div class="gen-card neon-border">
+    <div class="gen-grid">
+      <div class="form-field">
+        <label>Track Title</label>
+        <input type="text" placeholder="Name it..." value="Solar Winds">
+      </div>
+      <div class="form-field">
+        <label>Style</label>
+        <select>
+          <option>Lo-fi Ambient</option>
+          <option selected>Synthwave</option>
+          <option>Cinematic Orchestral</option>
+          <option>Jazz Fusion</option>
+          <option>Acoustic Folk</option>
+          <option>Trap Beat</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Model</label>
+        <select>
+          <option selected>Lyria 2</option>
+          <option>MusicGen Large</option>
+          <option>Suno v4</option>
+          <option>Stable Audio</option>
+        </select>
+      </div>
+      <button class="btn-drop" onclick="dropCoin()">Drop Coin</button>
+    </div>
+    <div class="lyrics-row">
+      <div class="form-field" style="margin-top:14px;">
+        <label>Lyrics / Prompt</label>
+        <textarea placeholder="Describe the vibe or write lyrics...">Driving through neon highways, synth pads swelling, retro future energy</textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vinyl Carousel -->
+  <div class="carousel-section">
+    <div class="section-label">Your Collection</div>
+    <div class="carousel" id="carousel">
+      <div class="vinyl-card active" onclick="selectVinyl(this, 0)">
+        <div class="vinyl-disc" style="background: linear-gradient(135deg, #1a0a2e, #4a1942, #d4a652);">
+          <div class="gradient-art" style="background: radial-gradient(circle at 30% 40%, rgba(212,166,82,0.4), transparent 60%);"></div>
+          <div class="center-hole"></div>
+        </div>
+        <div class="card-title">Neon Reverie</div>
+        <div class="card-meta">Synthwave &middot; 3:42</div>
+        <div class="card-badge badge-complete">Complete</div>
+      </div>
+      <div class="vinyl-card" onclick="selectVinyl(this, 1)">
+        <div class="vinyl-disc" style="background: linear-gradient(135deg, #0a1628, #1a3a5c, #6bb5d4);">
+          <div class="gradient-art" style="background: radial-gradient(circle at 60% 30%, rgba(107,181,212,0.4), transparent 60%);"></div>
+          <div class="center-hole"></div>
+        </div>
+        <div class="card-title">Autumn Letters</div>
+        <div class="card-meta">Acoustic Folk &middot; 2:15</div>
+        <div class="card-badge badge-complete">Complete</div>
+      </div>
+      <div class="vinyl-card" onclick="selectVinyl(this, 2)">
+        <div class="vinyl-disc" style="background: linear-gradient(135deg, #0a160a, #1a3a1a, #4ade80);">
+          <div class="gradient-art" style="background: radial-gradient(circle at 50% 50%, rgba(74,222,128,0.3), transparent 60%);"></div>
+          <div class="center-hole"></div>
+        </div>
+        <div class="card-title">Orbital Drift</div>
+        <div class="card-meta">Lo-fi Ambient &middot; 4:08</div>
+        <div class="card-badge badge-complete">Complete</div>
+      </div>
+      <div class="vinyl-card" onclick="selectVinyl(this, 3)">
+        <div class="vinyl-disc" style="background: linear-gradient(135deg, #1a1a0a, #3a2a0a, var(--gold));">
+          <div class="gradient-art" style="background: radial-gradient(circle at 40% 60%, rgba(212,166,82,0.3), transparent 60%);"></div>
+          <div class="center-hole"></div>
+        </div>
+        <div class="card-title">Solar Winds</div>
+        <div class="card-meta">Generating...</div>
+        <div class="card-badge badge-gen">In Progress</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Playlist -->
+  <div class="playlist-section">
+    <div class="section-label">Playlist</div>
+    <div class="playlist">
+      <div class="pl-item active" onclick="selectTrack(this, 0)">
+        <div class="pl-num">01</div>
+        <div><div class="pl-title">Neon Reverie</div></div>
+        <div class="pl-genre">Synthwave</div>
+        <div class="pl-dur">3:42</div>
+        <div class="pl-status" style="color: var(--gold);">&#9654;</div>
+      </div>
+      <div class="pl-item" onclick="selectTrack(this, 1)">
+        <div class="pl-num">02</div>
+        <div><div class="pl-title">Autumn Letters</div></div>
+        <div class="pl-genre">Acoustic</div>
+        <div class="pl-dur">2:15</div>
+        <div class="pl-status" style="color: #4ade80;">&#10003;</div>
+      </div>
+      <div class="pl-item" onclick="selectTrack(this, 2)">
+        <div class="pl-num">03</div>
+        <div><div class="pl-title">Orbital Drift</div></div>
+        <div class="pl-genre">Lo-fi</div>
+        <div class="pl-dur">4:08</div>
+        <div class="pl-status" style="color: #4ade80;">&#10003;</div>
+      </div>
+      <div class="pl-item" onclick="selectTrack(this, 3)">
+        <div class="pl-num">04</div>
+        <div><div class="pl-title">Solar Winds</div></div>
+        <div class="pl-genre">Synthwave</div>
+        <div class="pl-dur">--:--</div>
+        <div class="pl-status" style="color: var(--gold);">&#9684;</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Now Playing Bar -->
+<div class="now-playing-bar">
+  <div class="waveform-bg" id="waveformBg"></div>
+  <div class="np-inner">
+    <div class="np-track">
+      <div class="np-art" style="background: linear-gradient(135deg, #1a0a2e, #4a1942, #d4a652);"></div>
+      <div class="np-info">
+        <div class="np-title" id="npTitle">Neon Reverie</div>
+        <div class="np-meta">Synthwave &middot; Lyria 2</div>
+      </div>
+    </div>
+    <div class="np-center">
+      <div class="np-controls">
+        <div class="np-btn">&#9664;&#9664;</div>
+        <div class="np-btn play" id="npPlay" onclick="togglePlay()">&#9654;</div>
+        <div class="np-btn">&#9654;&#9654;</div>
+      </div>
+      <div class="np-progress">
+        <span class="np-time" id="npTime">1:33</span>
+        <div class="np-bar"><div class="np-fill" id="npFill"></div></div>
+        <span class="np-time">3:42</span>
+      </div>
+    </div>
+    <div class="np-right">
+      <div class="np-vol">
+        <span class="np-vol-icon">&#128266;</span>
+        <div class="np-vol-bar"><div class="np-vol-fill"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let isPlaying = false;
+  let progress = 42;
+
+  // Waveform bars
+  const wfBg = document.getElementById('waveformBg');
+  for (let i = 0; i < 120; i++) {
+    const b = document.createElement('div');
+    b.className = 'wf-bar';
+    b.style.height = (Math.random() * 24 + 4) + 'px';
+    wfBg.appendChild(b);
+  }
+
+  function animateWaveform() {
+    if (!isPlaying) return requestAnimationFrame(animateWaveform);
+    wfBg.querySelectorAll('.wf-bar').forEach(b => {
+      b.style.height = (Math.random() * 28 + 4) + 'px';
+    });
+    setTimeout(() => requestAnimationFrame(animateWaveform), 120);
+  }
+
+  function togglePlay() {
+    isPlaying = !isPlaying;
+    document.getElementById('npPlay').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
+    if (isPlaying) { animateWaveform(); advanceProgress(); }
+  }
+
+  function advanceProgress() {
+    if (!isPlaying) return;
+    progress = Math.min(progress + 0.08, 100);
+    document.getElementById('npFill').style.width = progress + '%';
+    const secs = Math.floor(progress / 100 * 222);
+    const m = Math.floor(secs / 60);
+    const s = (secs % 60).toString().padStart(2, '0');
+    document.getElementById('npTime').textContent = m + ':' + s;
+    requestAnimationFrame(advanceProgress);
+  }
+
+  function selectVinyl(el, idx) {
+    document.querySelectorAll('.vinyl-card').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+  }
+
+  function selectTrack(el, idx) {
+    document.querySelectorAll('.pl-item').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    const title = el.querySelector('.pl-title').textContent;
+    document.getElementById('npTitle').textContent = title;
+  }
+
+  function dropCoin() {
+    const btn = document.querySelector('.btn-drop');
+    btn.textContent = 'Generating...';
+    btn.style.opacity = '0.7';
+    let pct = 0;
+    const iv = setInterval(() => {
+      pct += Math.random() * 4;
+      if (pct >= 100) { clearInterval(iv); btn.textContent = 'Drop Coin'; btn.style.opacity = '1'; }
+      else { btn.textContent = Math.floor(pct) + '%'; }
+    }, 200);
+  }
+
+  animateWaveform();
+  setTimeout(() => togglePlay(), 600);
+</script>
+</body>
+</html>

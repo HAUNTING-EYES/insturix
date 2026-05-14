@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Credits Dashboard — The Receipt Tape</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0B0B0A; --surface: #0F0F0E; --raised: #131312; --well: #1B1A18;
+    --border-1: #1C1B19; --border-2: #282724;
+    --text-primary: #ECE9E1; --text-secondary: #B5B2A8; --text-muted: #7A776E; --text-dim: #5F5E5A;
+    --gold: #D4A652; --green: #5EC97E; --red: #D46A5C; --cyan: #5CB8CC;
+    --ease: cubic-bezier(.16,1,.3,1);
+    --receipt-bg: #F5F0E8;
+    --receipt-text: #1a1a1a;
+    --receipt-muted: #6b6560;
+    --receipt-line: #d4cfc5;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  .container {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 48px 24px;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+  .header h1 span { color: var(--gold); }
+  .plan-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, rgba(212,166,82,0.15), rgba(212,166,82,0.05));
+    border: 1px solid rgba(212,166,82,0.3);
+    border-radius: 100px;
+    padding: 8px 20px;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--gold);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .plan-badge .dot {
+    width: 8px; height: 8px;
+    background: var(--gold);
+    border-radius: 50%;
+    animation: pulse-dot 2s ease infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(212,166,82,0.4); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(212,166,82,0); }
+  }
+
+  /* Receipt Wrapper */
+  .receipt-wrapper {
+    position: relative;
+    margin-bottom: 32px;
+  }
+
+  /* Torn top edge */
+  .receipt-tear-top {
+    height: 20px;
+    background: var(--receipt-bg);
+    position: relative;
+    border-radius: 4px 4px 0 0;
+  }
+  .receipt-tear-top::before {
+    content: '';
+    position: absolute;
+    top: -10px;
+    left: 0;
+    right: 0;
+    height: 10px;
+    background: url("data:image/svg+xml,%3Csvg width='20' height='10' viewBox='0 0 20 10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 10 L5 0 L10 10 L15 0 L20 10' fill='%23F5F0E8'/%3E%3C/svg%3E") repeat-x;
+    background-size: 20px 10px;
+  }
+
+  /* Receipt body */
+  .receipt {
+    background: var(--receipt-bg);
+    color: var(--receipt-text);
+    font-family: 'JetBrains Mono', monospace;
+    padding: 0 32px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Thermal paper texture */
+  .receipt::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background:
+      repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 1px,
+        rgba(0,0,0,0.015) 1px,
+        rgba(0,0,0,0.015) 2px
+      );
+    pointer-events: none;
+  }
+
+  /* Subtle side shadow for depth */
+  .receipt::after {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    left: 0; width: 8px;
+    background: linear-gradient(90deg, rgba(0,0,0,0.06), transparent);
+    pointer-events: none;
+  }
+
+  /* Receipt header */
+  .receipt-header {
+    text-align: center;
+    padding: 24px 0 20px;
+    border-bottom: 2px dashed var(--receipt-line);
+  }
+  .receipt-logo {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--receipt-text);
+    margin-bottom: 4px;
+  }
+  .receipt-plan-tag {
+    display: inline-block;
+    background: var(--receipt-text);
+    color: var(--receipt-bg);
+    padding: 3px 14px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+  }
+  .receipt-store-info {
+    font-size: 10px;
+    color: var(--receipt-muted);
+    line-height: 1.6;
+  }
+
+  /* Receipt section */
+  .receipt-section {
+    padding: 16px 0;
+    border-bottom: 1px dashed var(--receipt-line);
+  }
+  .receipt-section:last-child { border-bottom: none; }
+
+  .receipt-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--receipt-muted);
+    margin-bottom: 12px;
+  }
+
+  /* Line items */
+  .receipt-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 6px 0;
+    font-size: 13px;
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  .receipt-line.visible {
+    animation: type-in 0.3s var(--ease) forwards;
+  }
+  @keyframes type-in {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .receipt-line-left {
+    display: flex;
+    flex-direction: column;
+  }
+  .receipt-line-service {
+    font-weight: 600;
+  }
+  .receipt-line-desc {
+    font-size: 10px;
+    color: var(--receipt-muted);
+    margin-top: 1px;
+  }
+  .receipt-line-amount {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .receipt-line-amount.debit { color: #a04030; }
+  .receipt-line-amount.credit { color: #2d7a40; }
+
+  /* Dotted filler */
+  .receipt-dots {
+    flex: 1;
+    border-bottom: 1px dotted var(--receipt-line);
+    margin: 0 8px;
+    align-self: flex-end;
+    margin-bottom: 4px;
+  }
+
+  /* Totals */
+  .receipt-total-section {
+    padding: 16px 0;
+    border-top: 2px dashed var(--receipt-line);
+  }
+  .receipt-total-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 12px;
+    color: var(--receipt-muted);
+  }
+  .receipt-total-row.main {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--receipt-text);
+    padding: 10px 0 4px;
+  }
+  .receipt-total-row .label { }
+  .receipt-total-row .value { font-weight: 700; }
+  .receipt-total-row.main .value {
+    font-size: 22px;
+  }
+
+  /* Receipt footer */
+  .receipt-footer {
+    text-align: center;
+    padding: 16px 0 28px;
+    border-top: 1px dashed var(--receipt-line);
+  }
+  .receipt-barcode {
+    display: flex;
+    justify-content: center;
+    gap: 2px;
+    margin-bottom: 10px;
+    height: 36px;
+    align-items: flex-end;
+  }
+  .barcode-bar {
+    background: var(--receipt-text);
+    border-radius: 1px;
+  }
+  .receipt-footer-text {
+    font-size: 10px;
+    color: var(--receipt-muted);
+    line-height: 1.5;
+  }
+  .receipt-footer-text strong {
+    color: var(--receipt-text);
+  }
+
+  /* Torn bottom edge */
+  .receipt-tear-bottom {
+    height: 20px;
+    background: var(--receipt-bg);
+    position: relative;
+    border-radius: 0 0 4px 4px;
+  }
+  .receipt-tear-bottom::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: 0;
+    right: 0;
+    height: 10px;
+    background: url("data:image/svg+xml,%3Csvg width='20' height='10' viewBox='0 0 20 10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0 L5 10 L10 0 L15 10 L20 0' fill='%23F5F0E8'/%3E%3C/svg%3E") repeat-x;
+    background-size: 20px 10px;
+  }
+
+  /* Shadow under receipt */
+  .receipt-shadow {
+    height: 40px;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.25) 0%, transparent 70%);
+    margin: 10px 20px 0;
+  }
+
+  /* Action button — below receipt */
+  .receipt-action {
+    margin-top: 24px;
+  }
+  .btn-insert {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 18px 24px;
+    border-radius: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border: 2px dashed var(--border-2);
+    background: var(--surface);
+    color: var(--gold);
+    cursor: pointer;
+    transition: all 0.3s var(--ease);
+  }
+  .btn-insert:hover {
+    border-color: var(--gold);
+    background: rgba(212,166,82,0.05);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(212,166,82,0.15);
+  }
+  .btn-insert .card-slot {
+    width: 28px; height: 18px;
+    border: 2px solid var(--gold);
+    border-radius: 4px;
+    position: relative;
+  }
+  .btn-insert .card-slot::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 8px; height: 6px;
+    background: var(--gold);
+    border-radius: 1px;
+    opacity: 0.5;
+  }
+
+  .btn-upgrade {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 24px;
+    border-radius: 12px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    border: 1px solid var(--border-2);
+    background: var(--raised);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.3s var(--ease);
+    margin-top: 12px;
+  }
+  .btn-upgrade:hover {
+    border-color: var(--gold);
+    color: var(--gold);
+    transform: translateY(-2px);
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <h1>Credit <span>Receipt</span></h1>
+    <div class="plan-badge">
+      <div class="dot"></div>
+      PRO
+    </div>
+  </div>
+
+  <!-- Receipt -->
+  <div class="receipt-wrapper">
+    <div class="receipt-tear-top"></div>
+    <div class="receipt">
+      <!-- Receipt Header -->
+      <div class="receipt-header">
+        <div class="receipt-logo">INSTURIX</div>
+        <div class="receipt-plan-tag">PRO PLAN</div>
+        <div class="receipt-store-info">
+          Creative Production Platform<br>
+          $49.00/mo &middot; 400 credits/month<br>
+          Account #INS-7281 &middot; <span id="receiptDate"></span>
+        </div>
+      </div>
+
+      <!-- Recent Activity -->
+      <div class="receipt-section">
+        <div class="receipt-section-title">Recent Activity</div>
+
+        <div class="receipt-line" data-delay="400">
+          <div class="receipt-line-left">
+            <span class="receipt-line-service">Musitron</span>
+            <span class="receipt-line-desc">Music generation &middot; 2m ago</span>
+          </div>
+          <div class="receipt-dots"></div>
+          <span class="receipt-line-amount debit">-8</span>
+        </div>
+
+        <div class="receipt-line" data-delay="600">
+          <div class="receipt-line-left">
+            <span class="receipt-line-service">Editron</span>
+            <span class="receipt-line-desc">Video generation &middot; 1h ago</span>
+          </div>
+          <div class="receipt-dots"></div>
+          <span class="receipt-line-amount debit">-3</span>
+        </div>
+
+        <div class="receipt-line" data-delay="800">
+          <div class="receipt-line-left">
+            <span class="receipt-line-service">ThinkForge</span>
+            <span class="receipt-line-desc">Chat session &middot; 3h ago</span>
+          </div>
+          <div class="receipt-dots"></div>
+          <span class="receipt-line-amount debit">-1</span>
+        </div>
+
+        <div class="receipt-line" data-delay="1000">
+          <div class="receipt-line-left">
+            <span class="receipt-line-service">Subscription</span>
+            <span class="receipt-line-desc">Monthly grant &middot; Pro &middot; May 14</span>
+          </div>
+          <div class="receipt-dots"></div>
+          <span class="receipt-line-amount credit">+400</span>
+        </div>
+
+        <div class="receipt-line" data-delay="1200">
+          <div class="receipt-line-left">
+            <span class="receipt-line-service">Top-up</span>
+            <span class="receipt-line-desc">Credit purchase &middot; May 10</span>
+          </div>
+          <div class="receipt-dots"></div>
+          <span class="receipt-line-amount credit">+100</span>
+        </div>
+      </div>
+
+      <!-- Totals -->
+      <div class="receipt-total-section">
+        <div class="receipt-total-row">
+          <span class="label">SUBSCRIPTION CREDITS</span>
+          <span class="value" id="subTotal">0</span>
+        </div>
+        <div class="receipt-total-row">
+          <span class="label">  expires in 18 days</span>
+          <span class="value" style="color: var(--receipt-muted); font-weight: 400; font-size: 10px;">monthly</span>
+        </div>
+        <div class="receipt-total-row" style="margin-top: 4px;">
+          <span class="label">TOP-UP CREDITS</span>
+          <span class="value" id="topTotal">0</span>
+        </div>
+        <div class="receipt-total-row">
+          <span class="label">  no expiry</span>
+          <span class="value" style="color: var(--receipt-muted); font-weight: 400; font-size: 10px;">permanent</span>
+        </div>
+        <div style="border-top: 1px solid var(--receipt-line); margin-top: 8px;"></div>
+        <div class="receipt-total-row main">
+          <span class="label">CREDIT BALANCE</span>
+          <span class="value" id="grandTotal">0</span>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="receipt-footer">
+        <div class="receipt-barcode" id="barcode"></div>
+        <div class="receipt-footer-text">
+          <strong>Thank you for creating with Insturix</strong><br>
+          Powered by Razorpay &middot; Secure Payments<br>
+          insturix.com/billing
+        </div>
+      </div>
+    </div>
+    <div class="receipt-tear-bottom"></div>
+    <div class="receipt-shadow"></div>
+  </div>
+
+  <!-- Actions -->
+  <div class="receipt-action">
+    <button class="btn-insert" onclick="this.style.transform='scale(0.98)';setTimeout(()=>this.style.transform='',150)">
+      <div class="card-slot"></div>
+      Insert Card &mdash; Add Credits
+    </button>
+    <button class="btn-upgrade" onclick="this.style.transform='scale(0.98)';setTimeout(()=>this.style.transform='',150)">
+      &#8593;&ensp;Upgrade Plan
+    </button>
+  </div>
+</div>
+
+<script>
+  // Date
+  const now = new Date();
+  const opts = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  document.getElementById('receiptDate').textContent = now.toLocaleDateString('en-US', opts);
+
+  // Generate barcode
+  const barcodeEl = document.getElementById('barcode');
+  const pattern = [3,1,2,1,3,2,1,3,1,2,3,1,1,2,3,1,2,1,3,2,1,1,3,2,1,3,1,2,1,3,2,1,1,2,3,1,2,3,1,2];
+  pattern.forEach(w => {
+    const bar = document.createElement('div');
+    bar.className = 'barcode-bar';
+    bar.style.width = w + 'px';
+    bar.style.height = (18 + Math.random() * 18) + 'px';
+    barcodeEl.appendChild(bar);
+  });
+
+  // Typewriter line reveal
+  const lines = document.querySelectorAll('.receipt-line');
+  lines.forEach(line => {
+    const delay = parseInt(line.dataset.delay) || 0;
+    setTimeout(() => {
+      line.classList.add('visible');
+    }, delay);
+  });
+
+  // Counter animation
+  function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+  function animateCounter(el, target, dur, delay) {
+    setTimeout(() => {
+      let start = null;
+      function step(ts) {
+        if (!start) start = ts;
+        const p = Math.min((ts - start) / dur, 1);
+        el.textContent = Math.round(easeOut(p) * target);
+        if (p < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }, delay);
+  }
+
+  animateCounter(document.getElementById('subTotal'), 312, 1200, 1400);
+  animateCounter(document.getElementById('topTotal'), 45, 1200, 1500);
+  animateCounter(document.getElementById('grandTotal'), 357, 1500, 1600);
+</script>
+</body>
+</html>

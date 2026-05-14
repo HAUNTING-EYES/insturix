@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Musitron — The Recording Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0B0B0A; --surface: #0F0F0E; --raised: #131312; --well: #1B1A18;
+    --border: #1C1B19; --border-light: #282724;
+    --text: #ECE9E1; --text-sec: #B5B2A8; --text-muted: #7A776E; --text-dim: #5F5E5A;
+    --gold: #D4A652; --gold-glow: rgba(212, 166, 82, 0.15);
+    --ease: cubic-bezier(.16,1,.3,1);
+  }
+  body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Breadcrumb */
+  .breadcrumb { display: flex; align-items: center; gap: 10px; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .breadcrumb span { font-size: 13px; color: var(--text-muted); }
+  .breadcrumb span.active { color: var(--gold); }
+  .breadcrumb .sep { color: var(--text-dim); font-size: 11px; }
+  .breadcrumb .logo { font-weight: 700; font-size: 15px; color: var(--text); letter-spacing: -0.3px; }
+
+  /* Layout */
+  .studio { display: grid; grid-template-columns: 360px 1fr 280px; gap: 0; min-height: calc(100vh - 53px); }
+  .panel { padding: 28px 24px; border-right: 1px solid var(--border); }
+  .panel:last-child { border-right: none; }
+  .panel-title { font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 20px; }
+
+  /* Mixing Console — Generation Form */
+  .console { background: var(--surface); }
+  .channel-strips { display: flex; gap: 14px; justify-content: center; margin-bottom: 28px; }
+  .channel { background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 16px 12px; width: 90px; text-align: center; transition: border-color .3s var(--ease); cursor: pointer; }
+  .channel:hover, .channel.active { border-color: var(--gold); box-shadow: 0 0 20px var(--gold-glow); }
+  .channel .label { font-size: 10px; color: var(--text-dim); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 10px; font-family: 'JetBrains Mono', monospace; }
+  .channel .led { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); margin: 0 auto 10px; transition: background .3s; }
+  .channel.active .led { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+
+  /* Fader */
+  .fader-track { width: 4px; height: 100px; background: var(--well); border-radius: 2px; margin: 0 auto; position: relative; }
+  .fader-knob { width: 20px; height: 10px; background: linear-gradient(180deg, #555, #333); border: 1px solid var(--border-light); border-radius: 2px; position: absolute; left: 50%; transform: translateX(-50%); top: 30%; cursor: grab; transition: top .4s var(--ease); }
+  .fader-knob::after { content: ''; display: block; width: 12px; height: 1px; background: var(--text-dim); margin: 4px auto 0; }
+
+  /* Knob */
+  .knob-wrap { width: 52px; height: 52px; margin: 0 auto 8px; position: relative; }
+  .knob { width: 48px; height: 48px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #3a3a38, #1a1a19); border: 2px solid var(--border-light); position: relative; cursor: pointer; transition: transform .4s var(--ease); }
+  .knob::after { content: ''; position: absolute; top: 6px; left: 50%; width: 2px; height: 12px; background: var(--gold); border-radius: 1px; transform-origin: bottom center; transform: translateX(-50%) rotate(var(--rot, 0deg)); }
+  .knob-val { font-size: 10px; color: var(--gold); text-align: center; font-family: 'JetBrains Mono', monospace; }
+
+  /* Form Inputs */
+  .form-field { margin-bottom: 18px; }
+  .form-field label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+  .form-field input, .form-field textarea, .form-field select {
+    width: 100%; background: var(--well); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; color: var(--text); font-size: 13px; font-family: 'Plus Jakarta Sans', sans-serif;
+    outline: none; transition: border-color .2s;
+  }
+  .form-field input:focus, .form-field textarea:focus, .form-field select:focus { border-color: var(--gold); }
+  .form-field textarea { resize: vertical; min-height: 60px; }
+  .form-field select option { background: var(--raised); }
+
+  .btn-generate {
+    width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer;
+    background: linear-gradient(135deg, var(--gold), #b8872e); color: #0B0B0A; font-weight: 700;
+    font-size: 13px; letter-spacing: 0.5px; transition: transform .2s var(--ease), box-shadow .3s;
+  }
+  .btn-generate:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(212,166,82,.25); }
+
+  /* VU Meter */
+  .vu-meter { display: flex; gap: 3px; align-items: flex-end; height: 80px; justify-content: center; margin: 20px 0; }
+  .vu-bar { width: 6px; border-radius: 2px; background: var(--gold); opacity: 0.3; transition: height .15s; }
+  .vu-bar.hot { background: #e8832a; }
+
+  /* Center — Player / Turntable */
+  .main-stage { background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; position: relative; }
+  .turntable { width: 320px; height: 320px; position: relative; margin-bottom: 32px; }
+  .vinyl { width: 300px; height: 300px; border-radius: 50%; position: absolute; top: 10px; left: 10px;
+    background: repeating-radial-gradient(circle, #111 0px, #111 2px, #161615 2px, #161615 4px);
+    border: 3px solid #222; box-shadow: 0 0 60px rgba(0,0,0,.6); }
+  .vinyl.spinning { animation: spin 3s linear infinite; }
+  .vinyl-label { position: absolute; top: 50%; left: 50%; width: 90px; height: 90px; border-radius: 50%;
+    transform: translate(-50%, -50%); background: radial-gradient(circle, var(--gold), #8a6520);
+    display: flex; align-items: center; justify-content: center; }
+  .vinyl-label span { font-size: 9px; font-weight: 700; color: #0B0B0A; text-transform: uppercase; letter-spacing: 1px; }
+  .tonearm { position: absolute; top: -10px; right: 20px; width: 4px; height: 140px; background: linear-gradient(180deg, #777, #444);
+    border-radius: 2px; transform-origin: top center; transform: rotate(-15deg); transition: transform .6s var(--ease); }
+  .tonearm.playing { transform: rotate(8deg); }
+  .tonearm::after { content: ''; position: absolute; bottom: -6px; left: -3px; width: 10px; height: 10px; border-radius: 50%; background: #555; border: 1px solid #777; }
+
+  .now-playing { text-align: center; }
+  .now-playing .track-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .now-playing .track-meta { font-size: 12px; color: var(--text-sec); font-family: 'JetBrains Mono', monospace; }
+  .player-controls { display: flex; gap: 16px; align-items: center; margin-top: 20px; }
+  .ctrl-btn { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border-light); background: var(--raised);
+    color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; transition: all .2s var(--ease); }
+  .ctrl-btn.play { width: 56px; height: 56px; background: var(--gold); color: #0B0B0A; border: none; font-size: 20px; }
+  .ctrl-btn:hover { border-color: var(--gold); }
+  .ctrl-btn.play:hover { box-shadow: 0 0 30px var(--gold-glow); }
+
+  /* Progress */
+  .progress-bar { width: 280px; height: 3px; background: var(--well); border-radius: 2px; margin-top: 16px; position: relative; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--gold); border-radius: 2px; width: 35%; transition: width .3s; }
+  .time-labels { display: flex; justify-content: space-between; width: 280px; margin-top: 6px; font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+
+  /* Right — Tape Shelf */
+  .tape-shelf { background: var(--surface); overflow-y: auto; }
+  .tape-reel { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background .2s; position: relative; }
+  .tape-reel:hover { background: var(--raised); }
+  .tape-reel.active { background: var(--raised); border-left: 2px solid var(--gold); }
+  .reel-icon { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--border-light);
+    background: radial-gradient(circle, var(--well) 30%, var(--raised) 70%); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; position: relative; }
+  .reel-icon::before, .reel-icon::after { content: ''; position: absolute; border-radius: 50%; border: 1px solid var(--border-light); }
+  .reel-icon::before { width: 10px; height: 10px; background: var(--raised); }
+  .reel-icon::after { width: 24px; height: 24px; }
+  .reel-info .reel-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .reel-info .reel-meta { font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .reel-status { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-dot.complete { background: #4ade80; }
+  .status-dot.generating { background: var(--gold); animation: pulse 1.5s ease infinite; }
+  .status-dot.queued { background: var(--text-dim); }
+
+  /* Studio Time */
+  .studio-time { padding: 16px; background: var(--raised); border-radius: 8px; margin-top: 16px; text-align: center; border: 1px solid var(--border); }
+  .studio-time .time-val { font-size: 28px; font-weight: 700; color: var(--gold); font-family: 'JetBrains Mono', monospace; }
+  .studio-time .time-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+
+  /* Recording indicator */
+  .rec-indicator { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: rgba(220, 60, 60, 0.08); border: 1px solid rgba(220, 60, 60, 0.2); border-radius: 8px; margin-bottom: 20px; }
+  .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: #dc3c3c; animation: pulse 1s ease infinite; }
+  .rec-text { font-size: 11px; color: #dc6c6c; font-family: 'JetBrains Mono', monospace; letter-spacing: 1px; text-transform: uppercase; }
+
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes vuBounce { 0%, 100% { height: 10px; } 50% { height: var(--h); } }
+</style>
+</head>
+<body>
+
+<nav class="breadcrumb">
+  <span class="logo">Musitron</span>
+  <span class="sep">&#8250;</span>
+  <span>Dashboard</span>
+  <span class="sep">&#8250;</span>
+  <span class="active">Studio</span>
+</nav>
+
+<div class="studio">
+  <!-- Left: Mixing Console -->
+  <div class="panel console">
+    <div class="panel-title">Mixing Console</div>
+
+    <div class="form-field">
+      <label>Track Title</label>
+      <input type="text" placeholder="Name your track..." value="Midnight Cascade">
+    </div>
+
+    <div class="channel-strips">
+      <div class="channel active" onclick="selectModel(this, 'Lyria 2')">
+        <div class="label">CH 1</div>
+        <div class="led"></div>
+        <div class="knob-wrap"><div class="knob" style="--rot: -40deg"></div></div>
+        <div class="knob-val">Lyria 2</div>
+      </div>
+      <div class="channel" onclick="selectModel(this, 'MusicGen')">
+        <div class="label">CH 2</div>
+        <div class="led"></div>
+        <div class="knob-wrap"><div class="knob" style="--rot: 15deg"></div></div>
+        <div class="knob-val">MusicGen</div>
+      </div>
+      <div class="channel" onclick="selectModel(this, 'Suno v4')">
+        <div class="label">CH 3</div>
+        <div class="led"></div>
+        <div class="knob-wrap"><div class="knob" style="--rot: 60deg"></div></div>
+        <div class="knob-val">Suno v4</div>
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label>Style / Genre</label>
+      <select>
+        <option>Lo-fi Ambient</option>
+        <option selected>Cinematic Orchestral</option>
+        <option>Synthwave</option>
+        <option>Jazz Fusion</option>
+        <option>Acoustic Folk</option>
+      </select>
+    </div>
+
+    <div class="form-field">
+      <label>Duration</label>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="fader-track" style="height:60px;">
+          <div class="fader-knob" style="top:40%;" id="durationKnob"></div>
+        </div>
+        <span class="mono" style="font-size:14px;color:var(--gold);" id="durationVal">2:30</span>
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label>Lyrics (optional)</label>
+      <textarea placeholder="Write lyrics or leave blank for instrumental...">Under silver skies we wander
+Through the echoes of the night</textarea>
+    </div>
+
+    <button class="btn-generate" onclick="startGeneration()">&#9679; Record Track</button>
+
+    <div class="vu-meter" id="vuMeter"></div>
+  </div>
+
+  <!-- Center: Turntable Player -->
+  <div class="main-stage">
+    <div id="recIndicator" class="rec-indicator" style="display:none;">
+      <div class="rec-dot"></div>
+      <div class="rec-text">Recording... 47%</div>
+    </div>
+
+    <div class="turntable">
+      <div class="vinyl" id="vinyl">
+        <div class="vinyl-label"><span>Musitron</span></div>
+      </div>
+      <div class="tonearm" id="tonearm"></div>
+    </div>
+
+    <div class="now-playing">
+      <div class="track-title" id="npTitle">Neon Reverie</div>
+      <div class="track-meta">Synthwave &middot; 3:42 &middot; Lyria 2</div>
+    </div>
+
+    <div class="player-controls">
+      <div class="ctrl-btn" onclick="prevTrack()">&#9664;&#9664;</div>
+      <div class="ctrl-btn play" id="playBtn" onclick="togglePlay()">&#9654;</div>
+      <div class="ctrl-btn" onclick="nextTrack()">&#9654;&#9654;</div>
+    </div>
+
+    <div class="progress-bar"><div class="progress-fill" id="progFill"></div></div>
+    <div class="time-labels"><span id="timeNow">1:18</span><span>3:42</span></div>
+  </div>
+
+  <!-- Right: Tape Shelf -->
+  <div class="panel tape-shelf">
+    <div class="panel-title">Tape Shelf</div>
+
+    <div class="tape-reel active" onclick="selectReel(this, 'Neon Reverie')">
+      <div class="reel-icon"></div>
+      <div class="reel-info">
+        <div class="reel-title">Neon Reverie</div>
+        <div class="reel-meta">3:42 &middot; Synthwave</div>
+      </div>
+      <div class="reel-status"><div class="status-dot complete"></div></div>
+    </div>
+
+    <div class="tape-reel" onclick="selectReel(this, 'Autumn Letters')">
+      <div class="reel-icon"></div>
+      <div class="reel-info">
+        <div class="reel-title">Autumn Letters</div>
+        <div class="reel-meta">2:15 &middot; Acoustic Folk</div>
+      </div>
+      <div class="reel-status"><div class="status-dot complete"></div></div>
+    </div>
+
+    <div class="tape-reel" onclick="selectReel(this, 'Orbital Drift')">
+      <div class="reel-icon"></div>
+      <div class="reel-info">
+        <div class="reel-title">Orbital Drift</div>
+        <div class="reel-meta">4:08 &middot; Lo-fi Ambient</div>
+      </div>
+      <div class="reel-status"><div class="status-dot complete"></div></div>
+    </div>
+
+    <div class="tape-reel">
+      <div class="reel-icon"></div>
+      <div class="reel-info">
+        <div class="reel-title">Midnight Cascade</div>
+        <div class="reel-meta">Generating...</div>
+      </div>
+      <div class="reel-status"><div class="status-dot generating"></div></div>
+    </div>
+
+    <div class="studio-time">
+      <div class="time-val">48:30</div>
+      <div class="time-label">Studio Time Remaining</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let isPlaying = false;
+  let progress = 35;
+
+  // VU Meter bars
+  const vuMeter = document.getElementById('vuMeter');
+  for (let i = 0; i < 16; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'vu-bar' + (i > 12 ? ' hot' : '');
+    bar.style.height = '10px';
+    vuMeter.appendChild(bar);
+  }
+
+  function animateVU() {
+    const bars = vuMeter.querySelectorAll('.vu-bar');
+    bars.forEach((b, i) => {
+      const h = isPlaying ? Math.random() * 60 + 10 : 10;
+      b.style.height = h + 'px';
+      b.style.opacity = isPlaying ? 0.5 + Math.random() * 0.5 : 0.3;
+    });
+    requestAnimationFrame(animateVU);
+  }
+  animateVU();
+
+  function togglePlay() {
+    isPlaying = !isPlaying;
+    const btn = document.getElementById('playBtn');
+    const vinyl = document.getElementById('vinyl');
+    const arm = document.getElementById('tonearm');
+    btn.innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
+    vinyl.classList.toggle('spinning', isPlaying);
+    arm.classList.toggle('playing', isPlaying);
+    if (isPlaying) advanceProgress();
+  }
+
+  function advanceProgress() {
+    if (!isPlaying) return;
+    progress = Math.min(progress + 0.15, 100);
+    document.getElementById('progFill').style.width = progress + '%';
+    const secs = Math.floor(progress / 100 * 222);
+    const m = Math.floor(secs / 60);
+    const s = (secs % 60).toString().padStart(2, '0');
+    document.getElementById('timeNow').textContent = m + ':' + s;
+    requestAnimationFrame(advanceProgress);
+  }
+
+  function selectModel(el, name) {
+    document.querySelectorAll('.channel').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+  }
+
+  function selectReel(el, name) {
+    document.querySelectorAll('.tape-reel').forEach(r => r.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('npTitle').textContent = name;
+  }
+
+  function startGeneration() {
+    const ind = document.getElementById('recIndicator');
+    ind.style.display = 'flex';
+    let pct = 0;
+    const iv = setInterval(() => {
+      pct += Math.random() * 3;
+      if (pct >= 100) { pct = 100; clearInterval(iv); ind.querySelector('.rec-text').textContent = 'Complete'; }
+      else { ind.querySelector('.rec-text').textContent = 'Recording... ' + Math.floor(pct) + '%'; }
+    }, 200);
+  }
+
+  function prevTrack() {}
+  function nextTrack() {}
+
+  // Auto-play on load for demo
+  setTimeout(() => togglePlay(), 800);
+</script>
+</body>
+</html>

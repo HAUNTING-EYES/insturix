@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The War Room - Org Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0B0B0A;
+    --surface: #0F0F0E;
+    --raised: #131312;
+    --well: #1B1A18;
+    --border: #1C1B19;
+    --border-light: #282724;
+    --text-primary: #ECE9E1;
+    --text-secondary: #B5B2A8;
+    --text-muted: #7A776E;
+    --text-dim: #5F5E5A;
+    --gold: #D4A652;
+    --green: #5EC97E;
+    --cyan: #5CB8CC;
+    --purple: #9088D4;
+    --ease: cubic-bezier(.16,1,.3,1);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scan line overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(11,11,10,0.03) 2px,
+      rgba(11,11,10,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  .war-room {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 32px 40px;
+  }
+
+  /* Top bar */
+  .top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .top-bar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    opacity: 0.4;
+  }
+
+  .org-identity {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .org-name {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--text-primary), var(--gold));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .commander-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: rgba(212,166,82,0.08);
+    border: 1px solid rgba(212,166,82,0.2);
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gold);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+
+  .commander-badge .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--gold);
+    border-radius: 50%;
+    animation: blink 2s ease-in-out infinite;
+  }
+
+  .top-stats {
+    display: flex;
+    gap: 24px;
+  }
+
+  .stat {
+    text-align: center;
+  }
+
+  .stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .stat-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  /* Main grid */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 24px;
+  }
+
+  /* Stations grid */
+  .stations-section h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .stations-section h2::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: blink 3s ease-in-out infinite;
+  }
+
+  .stations-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  .station {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.5s var(--ease);
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(20px);
+    animation: stationAppear 0.6s var(--ease) forwards;
+  }
+
+  .station:nth-child(1) { animation-delay: 0.1s; }
+  .station:nth-child(2) { animation-delay: 0.2s; }
+  .station:nth-child(3) { animation-delay: 0.3s; }
+  .station:nth-child(4) { animation-delay: 0.4s; }
+
+  .station:hover {
+    border-color: var(--border-light);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+
+  .station:hover .station-glow {
+    opacity: 1;
+  }
+
+  .station-glow {
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    opacity: 0;
+    transition: opacity 0.5s var(--ease);
+    pointer-events: none;
+  }
+
+  .station.owner .station-glow {
+    background: radial-gradient(circle at center, rgba(212,166,82,0.06) 0%, transparent 70%);
+  }
+
+  .station.admin .station-glow {
+    background: radial-gradient(circle at center, rgba(176,176,192,0.05) 0%, transparent 70%);
+  }
+
+  .station.member .station-glow {
+    background: radial-gradient(circle at center, rgba(92,184,204,0.05) 0%, transparent 70%);
+  }
+
+  .station-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  .avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 18px;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .station.owner .avatar {
+    background: linear-gradient(135deg, rgba(212,166,82,0.2), rgba(212,166,82,0.05));
+    color: var(--gold);
+    border: 1px solid rgba(212,166,82,0.3);
+  }
+
+  .station.admin .avatar {
+    background: linear-gradient(135deg, rgba(144,136,212,0.2), rgba(144,136,212,0.05));
+    color: var(--purple);
+    border: 1px solid rgba(144,136,212,0.3);
+  }
+
+  .station.member .avatar {
+    background: linear-gradient(135deg, rgba(92,184,204,0.2), rgba(92,184,204,0.05));
+    color: var(--cyan);
+    border: 1px solid rgba(92,184,204,0.3);
+  }
+
+  .station-info { flex: 1; }
+
+  .station-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  .station-email {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .role-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .role-badge.owner {
+    background: rgba(212,166,82,0.1);
+    color: var(--gold);
+    border: 1px solid rgba(212,166,82,0.2);
+  }
+
+  .role-badge.admin {
+    background: rgba(144,136,212,0.1);
+    color: var(--purple);
+    border: 1px solid rgba(144,136,212,0.2);
+  }
+
+  .role-badge.member-role {
+    background: rgba(92,184,204,0.1);
+    color: var(--cyan);
+    border: 1px solid rgba(92,184,204,0.2);
+  }
+
+  .role-icon {
+    font-size: 12px;
+  }
+
+  .station-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+
+  .status-dot.online {
+    background: var(--green);
+    box-shadow: 0 0 8px rgba(94,201,126,0.4);
+    animation: blink 2.5s ease-in-out infinite;
+  }
+
+  .status-dot.away {
+    background: var(--gold);
+    opacity: 0.6;
+  }
+
+  .status-dot.offline {
+    background: var(--text-dim);
+  }
+
+  .station-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.3s var(--ease);
+  }
+
+  .station:hover .station-actions {
+    opacity: 1;
+  }
+
+  .action-btn {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .action-btn:hover {
+    background: var(--raised);
+    color: var(--text-primary);
+    border-color: var(--border-light);
+  }
+
+  /* Comms log */
+  .comms-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .comms-section h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .comms-section h2::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    background: var(--cyan);
+    border-radius: 50%;
+    animation: blink 2s ease-in-out 0.5s infinite;
+  }
+
+  .comms-log {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 4px;
+    flex: 1;
+    max-height: 360px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .comms-log::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background: linear-gradient(transparent, var(--surface));
+    pointer-events: none;
+  }
+
+  .comms-inner {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    max-height: 340px;
+  }
+
+  .comms-inner::-webkit-scrollbar { width: 4px; }
+  .comms-inner::-webkit-scrollbar-track { background: transparent; }
+  .comms-inner::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 2px; }
+
+  .log-entry {
+    display: flex;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    transition: background 0.2s var(--ease);
+    opacity: 0;
+    animation: logAppear 0.4s var(--ease) forwards;
+  }
+
+  .log-entry:hover {
+    background: var(--well);
+  }
+
+  .log-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    padding-top: 2px;
+    min-width: 48px;
+  }
+
+  .log-content {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  .log-content .actor {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .log-content .action-text {
+    color: var(--text-muted);
+  }
+
+  .log-content .target {
+    color: var(--cyan);
+    font-weight: 500;
+  }
+
+  /* Control Panel */
+  .control-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+
+  .control-panel h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .control-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .control-row:last-child {
+    border-bottom: none;
+  }
+
+  .control-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .switch {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    cursor: pointer;
+  }
+
+  .switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .switch-track {
+    position: absolute;
+    inset: 0;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: all 0.3s var(--ease);
+  }
+
+  .switch-track::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: all 0.3s var(--ease);
+  }
+
+  .switch input:checked + .switch-track {
+    background: rgba(94,201,126,0.15);
+    border-color: rgba(94,201,126,0.3);
+  }
+
+  .switch input:checked + .switch-track::after {
+    transform: translateX(20px);
+    background: var(--green);
+    box-shadow: 0 0 8px rgba(94,201,126,0.3);
+  }
+
+  /* Invite button */
+  .invite-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 14px;
+    background: rgba(212,166,82,0.08);
+    border: 1px dashed rgba(212,166,82,0.25);
+    border-radius: 12px;
+    color: var(--gold);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s var(--ease);
+    margin-top: 16px;
+  }
+
+  .invite-btn:hover {
+    background: rgba(212,166,82,0.12);
+    border-color: rgba(212,166,82,0.4);
+    transform: translateY(-1px);
+  }
+
+  .invite-btn .plus {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  /* Animations */
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  @keyframes stationAppear {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes logAppear {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  /* Invite modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s var(--ease);
+  }
+
+  .modal-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  .modal {
+    background: var(--raised);
+    border: 1px solid var(--border-light);
+    border-radius: 16px;
+    padding: 32px;
+    width: 420px;
+    transform: scale(0.95) translateY(10px);
+    transition: transform 0.4s var(--ease);
+  }
+
+  .modal-overlay.active .modal {
+    transform: scale(1) translateY(0);
+  }
+
+  .modal h3 {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .modal p {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+  }
+
+  .modal-input {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s var(--ease);
+    margin-bottom: 12px;
+  }
+
+  .modal-input:focus {
+    border-color: var(--gold);
+  }
+
+  .modal-input::placeholder {
+    color: var(--text-dim);
+  }
+
+  .modal-select {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+    margin-bottom: 24px;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+  }
+
+  .btn-cancel {
+    padding: 10px 20px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .btn-cancel:hover {
+    background: var(--raised);
+  }
+
+  .btn-send {
+    padding: 10px 20px;
+    background: var(--gold);
+    border: none;
+    border-radius: 8px;
+    color: var(--bg);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .btn-send:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+  }
+</style>
+</head>
+<body>
+<div class="war-room">
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <div class="org-identity">
+      <div class="org-name">INSTURIX</div>
+      <div class="commander-badge">
+        <span class="dot"></span>
+        COMMANDER: nimit_jain
+      </div>
+    </div>
+    <div class="top-stats">
+      <div class="stat">
+        <div class="stat-value">4</div>
+        <div class="stat-label">Operators</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">12</div>
+        <div class="stat-label">Projects</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">98%</div>
+        <div class="stat-label">Uptime</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Grid -->
+  <div class="main-grid">
+    <!-- Stations -->
+    <div class="stations-section">
+      <h2>Operator Stations</h2>
+      <div class="stations-grid">
+        <!-- Nimit - Owner -->
+        <div class="station owner">
+          <div class="station-glow"></div>
+          <div class="station-header">
+            <div class="avatar">NJ</div>
+            <div class="station-info">
+              <div class="station-name">Nimit Jain</div>
+              <div class="station-email">nimit@insturix.com</div>
+            </div>
+          </div>
+          <div class="role-badge owner">
+            <span class="role-icon">&#9733;</span>
+            Owner
+          </div>
+          <div class="station-meta">
+            <div class="status-indicator">
+              <span class="status-dot online"></span>
+              Online now
+            </div>
+            <div class="station-actions">
+              <button class="action-btn" title="Settings">&#9881;</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Arjun - Admin -->
+        <div class="station admin">
+          <div class="station-glow"></div>
+          <div class="station-header">
+            <div class="avatar">AR</div>
+            <div class="station-info">
+              <div class="station-name">Arjun Rao</div>
+              <div class="station-email">arjun@insturix.com</div>
+            </div>
+          </div>
+          <div class="role-badge admin">
+            <span class="role-icon">&#9670;</span>
+            Admin
+          </div>
+          <div class="station-meta">
+            <div class="status-indicator">
+              <span class="status-dot online"></span>
+              Online now
+            </div>
+            <div class="station-actions">
+              <button class="action-btn" title="Change Role" onclick="showRoleMenu(this)">&#8645;</button>
+              <button class="action-btn" title="Remove" onclick="confirmRemove('Arjun Rao')">&#10005;</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Priya - Admin -->
+        <div class="station admin">
+          <div class="station-glow"></div>
+          <div class="station-header">
+            <div class="avatar">PS</div>
+            <div class="station-info">
+              <div class="station-name">Priya Sharma</div>
+              <div class="station-email">priya@insturix.com</div>
+            </div>
+          </div>
+          <div class="role-badge admin">
+            <span class="role-icon">&#9670;</span>
+            Admin
+          </div>
+          <div class="station-meta">
+            <div class="status-indicator">
+              <span class="status-dot away"></span>
+              Away 2h
+            </div>
+            <div class="station-actions">
+              <button class="action-btn" title="Change Role" onclick="showRoleMenu(this)">&#8645;</button>
+              <button class="action-btn" title="Remove" onclick="confirmRemove('Priya Sharma')">&#10005;</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Kiran - Member -->
+        <div class="station member">
+          <div class="station-glow"></div>
+          <div class="station-header">
+            <div class="avatar">KP</div>
+            <div class="station-info">
+              <div class="station-name">Kiran Patel</div>
+              <div class="station-email">kiran@insturix.com</div>
+            </div>
+          </div>
+          <div class="role-badge member-role">
+            <span class="role-icon">&#9679;</span>
+            Member
+          </div>
+          <div class="station-meta">
+            <div class="status-indicator">
+              <span class="status-dot offline"></span>
+              Offline 1d
+            </div>
+            <div class="station-actions">
+              <button class="action-btn" title="Change Role" onclick="showRoleMenu(this)">&#8645;</button>
+              <button class="action-btn" title="Remove" onclick="confirmRemove('Kiran Patel')">&#10005;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button class="invite-btn" onclick="openInviteModal()">
+        <span class="plus">+</span> Deploy New Operator
+      </button>
+    </div>
+
+    <!-- Right Column -->
+    <div class="comms-section">
+      <h2>Comms Log</h2>
+      <div class="comms-log">
+        <div class="comms-inner" id="commsLog">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Control Panel -->
+      <div class="control-panel">
+        <h3>&#9881; Bridge Controls</h3>
+        <div class="control-row">
+          <span class="control-label">Allow member invites</span>
+          <label class="switch">
+            <input type="checkbox">
+            <span class="switch-track"></span>
+          </label>
+        </div>
+        <div class="control-row">
+          <span class="control-label">Project creation (all)</span>
+          <label class="switch">
+            <input type="checkbox" checked>
+            <span class="switch-track"></span>
+          </label>
+        </div>
+        <div class="control-row">
+          <span class="control-label">Usage alerts</span>
+          <label class="switch">
+            <input type="checkbox" checked>
+            <span class="switch-track"></span>
+          </label>
+        </div>
+        <div class="control-row">
+          <span class="control-label">Two-factor required</span>
+          <label class="switch">
+            <input type="checkbox" checked>
+            <span class="switch-track"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Invite Modal -->
+<div class="modal-overlay" id="inviteModal">
+  <div class="modal">
+    <h3>Deploy New Operator</h3>
+    <p>Send an invitation to join the Insturix command center.</p>
+    <input class="modal-input" type="email" placeholder="operator@email.com" id="inviteEmail">
+    <select class="modal-select" id="inviteRole">
+      <option value="member">Member (Crew)</option>
+      <option value="admin">Admin (Lieutenant)</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeInviteModal()">Abort</button>
+      <button class="btn-send" onclick="sendInvite()">Deploy</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Comms log data
+  const logs = [
+    { time: '2m ago', actor: 'Nimit', action: 'created project', target: 'Brand Launch Q3' },
+    { time: '15m ago', actor: 'Arjun', action: 'exported video for', target: 'Product Demo v2' },
+    { time: '1h ago', actor: 'Priya', action: 'updated storyboard in', target: 'Onboarding Flow' },
+    { time: '2h ago', actor: 'Nimit', action: 'changed role for', target: 'Kiran to Member' },
+    { time: '3h ago', actor: 'Arjun', action: 'joined the team as', target: 'Admin' },
+    { time: '5h ago', actor: 'Kiran', action: 'uploaded assets to', target: 'Social Media Pack' },
+    { time: '1d ago', actor: 'Priya', action: 'completed review on', target: 'Annual Report' },
+    { time: '1d ago', actor: 'Nimit', action: 'enabled 2FA for', target: 'organization' },
+    { time: '2d ago', actor: 'Nimit', action: 'created organization', target: 'Insturix' },
+  ];
+
+  const commsEl = document.getElementById('commsLog');
+
+  logs.forEach((log, i) => {
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.style.animationDelay = `${i * 0.08}s`;
+    entry.innerHTML = `
+      <span class="log-time">${log.time}</span>
+      <span class="log-content">
+        <span class="actor">${log.actor}</span>
+        <span class="action-text"> ${log.action} </span>
+        <span class="target">${log.target}</span>
+      </span>
+    `;
+    commsEl.appendChild(entry);
+  });
+
+  // Modal
+  function openInviteModal() {
+    document.getElementById('inviteModal').classList.add('active');
+    setTimeout(() => document.getElementById('inviteEmail').focus(), 300);
+  }
+
+  function closeInviteModal() {
+    document.getElementById('inviteModal').classList.remove('active');
+  }
+
+  function sendInvite() {
+    const email = document.getElementById('inviteEmail').value;
+    const role = document.getElementById('inviteRole').value;
+    if (email) {
+      // Add to comms log
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `
+        <span class="log-time">now</span>
+        <span class="log-content">
+          <span class="actor">Nimit</span>
+          <span class="action-text"> invited </span>
+          <span class="target">${email} as ${role}</span>
+        </span>
+      `;
+      commsEl.prepend(entry);
+      closeInviteModal();
+      document.getElementById('inviteEmail').value = '';
+    }
+  }
+
+  function confirmRemove(name) {
+    if (confirm(`Remove ${name} from the organization?`)) {
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `
+        <span class="log-time">now</span>
+        <span class="log-content">
+          <span class="actor">Nimit</span>
+          <span class="action-text"> removed </span>
+          <span class="target">${name}</span>
+        </span>
+      `;
+      commsEl.prepend(entry);
+    }
+  }
+
+  function showRoleMenu(btn) {
+    const name = btn.closest('.station').querySelector('.station-name').textContent;
+    const currentRole = btn.closest('.station').classList.contains('admin') ? 'admin' : 'member';
+    const newRole = currentRole === 'admin' ? 'member' : 'admin';
+    if (confirm(`Change ${name}'s role to ${newRole}?`)) {
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `
+        <span class="log-time">now</span>
+        <span class="log-content">
+          <span class="actor">Nimit</span>
+          <span class="action-text"> changed role of </span>
+          <span class="target">${name} to ${newRole}</span>
+        </span>
+      `;
+      commsEl.prepend(entry);
+    }
+  }
+
+  // Close modal on overlay click
+  document.getElementById('inviteModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeInviteModal();
+  });
+
+  // Close modal on Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeInviteModal();
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Musitron — The Frequency</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0B0B0A; --surface: #0F0F0E; --raised: #131312; --well: #1B1A18;
+    --border: #1C1B19; --border-light: #282724;
+    --text: #ECE9E1; --text-sec: #B5B2A8; --text-muted: #7A776E; --text-dim: #5F5E5A;
+    --gold: #D4A652; --gold-glow: rgba(212, 166, 82, 0.18);
+    --ease: cubic-bezier(.16,1,.3,1);
+  }
+  body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; position: relative; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Background waveform SVG */
+  .bg-wave { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+  .bg-wave svg { width: 100%; height: 100%; opacity: 0.04; }
+
+  /* Breadcrumb */
+  .breadcrumb { display: flex; align-items: center; gap: 10px; padding: 16px 32px; border-bottom: 1px solid var(--border); background: rgba(15,15,14,0.85); backdrop-filter: blur(12px); position: relative; z-index: 10; }
+  .breadcrumb span { font-size: 13px; color: var(--text-muted); }
+  .breadcrumb span.active { color: var(--gold); }
+  .breadcrumb .sep { color: var(--text-dim); font-size: 11px; }
+  .breadcrumb .logo { font-weight: 700; font-size: 15px; color: var(--text); letter-spacing: -0.3px; }
+  .credit-pill { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 6px 14px; background: var(--raised); border: 1px solid var(--border); border-radius: 20px; }
+  .credit-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+  .credit-pill span { font-size: 12px; color: var(--text-sec); font-family: 'JetBrains Mono', monospace; }
+
+  /* Layout */
+  .freq-layout { position: relative; z-index: 5; max-width: 1080px; margin: 0 auto; padding: 48px 32px; }
+
+  /* Generation Form — floating card */
+  .gen-float { background: rgba(15,15,14,0.7); backdrop-filter: blur(24px); border: 1px solid var(--border); border-radius: 16px; padding: 32px; margin-bottom: 48px; position: relative; overflow: hidden; animation: fadeUp .6s var(--ease) both; }
+  .gen-float::before { content: ''; position: absolute; inset: -1px; border-radius: 16px; padding: 1px; background: linear-gradient(135deg, rgba(212,166,82,0.15), transparent 50%); -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+  .gen-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
+  .gen-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .gen-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .form-field label { display: block; font-size: 10px; color: var(--text-dim); margin-bottom: 6px; letter-spacing: 0.8px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+  .form-field input, .form-field select, .form-field textarea {
+    width: 100%; background: rgba(27,26,24,0.6); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; color: var(--text); font-size: 13px; font-family: 'Plus Jakarta Sans', sans-serif;
+    outline: none; transition: border-color .2s, box-shadow .3s;
+  }
+  .form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212,166,82,0.06); }
+  .form-field select option { background: var(--raised); }
+  .form-field textarea { resize: vertical; min-height: 52px; }
+  .btn-gen { width: 100%; padding: 12px; border: none; border-radius: 10px; cursor: pointer; background: linear-gradient(135deg, var(--gold), #b8872e); color: #0B0B0A; font-weight: 700; font-size: 13px; transition: all .2s var(--ease); letter-spacing: 0.3px; }
+  .btn-gen:hover { transform: translateY(-1px); box-shadow: 0 8px 30px rgba(212,166,82,.2); }
+
+  /* Player — large centered waveform */
+  .player-section { margin-bottom: 48px; animation: fadeUp .6s var(--ease) .15s both; }
+  .section-label { font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 16px; font-family: 'JetBrains Mono', monospace; }
+
+  .player-card { background: rgba(15,15,14,0.5); backdrop-filter: blur(16px); border: 1px solid var(--border); border-radius: 16px; padding: 32px; text-align: center; }
+  .player-track-info { margin-bottom: 24px; }
+  .player-track-info .p-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .player-track-info .p-meta { font-size: 12px; color: var(--text-sec); font-family: 'JetBrains Mono', monospace; }
+
+  /* Waveform display */
+  .waveform-display { width: 100%; height: 100px; position: relative; margin-bottom: 20px; cursor: pointer; }
+  .waveform-canvas { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; gap: 1.5px; }
+  .wf-bar { width: 3px; border-radius: 1.5px; transition: height .12s ease-out; }
+  .wf-bar.past { background: var(--gold); }
+  .wf-bar.future { background: var(--border-light); }
+  .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--gold); box-shadow: 0 0 8px var(--gold-glow); transition: left .15s; border-radius: 1px; }
+  .playhead::after { content: ''; position: absolute; top: -4px; left: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+
+  .player-controls { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 16px; }
+  .p-btn { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border-light); background: transparent; color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px; transition: all .2s var(--ease); }
+  .p-btn.play { width: 52px; height: 52px; background: var(--gold); color: #0B0B0A; border: none; font-size: 18px; }
+  .p-btn:hover { border-color: var(--gold); }
+  .p-btn.play:hover { box-shadow: 0 0 30px var(--gold-glow); }
+
+  .time-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+
+  /* Timeline — horizontal waveform thumbs */
+  .timeline-section { animation: fadeUp .6s var(--ease) .3s both; }
+  .timeline { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
+  .timeline::-webkit-scrollbar { display: none; }
+
+  .tl-card { flex-shrink: 0; width: 220px; background: rgba(15,15,14,0.5); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 16px; cursor: pointer; transition: all .3s var(--ease); position: relative; overflow: hidden; }
+  .tl-card:hover { border-color: var(--border-light); transform: translateY(-4px); }
+  .tl-card.active { border-color: var(--gold); box-shadow: 0 0 24px var(--gold-glow); }
+  .tl-card.active::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--gold); }
+
+  .tl-wave { height: 40px; display: flex; align-items: center; gap: 1px; margin-bottom: 10px; overflow: hidden; }
+  .tl-wave .tl-bar { width: 2px; border-radius: 1px; background: var(--border-light); transition: background .3s; }
+  .tl-card.active .tl-wave .tl-bar { background: rgba(212,166,82,0.35); }
+  .tl-card:hover .tl-wave .tl-bar { background: rgba(212,166,82,0.2); }
+
+  .tl-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .tl-meta { font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .tl-status { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 4px; font-size: 9px; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.5px; }
+  .st-done { background: rgba(74,222,128,0.08); color: #4ade80; }
+  .st-gen { background: rgba(212,166,82,0.08); color: var(--gold); animation: pulse 1.5s ease infinite; }
+
+  /* Energy pulse on cards */
+  .energy-pulse { animation: energyPulse 4s ease infinite; }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes energyPulse { 0%, 100% { box-shadow: 0 0 0 rgba(212,166,82,0); } 50% { box-shadow: 0 0 12px rgba(212,166,82,0.06); } }
+  @keyframes waveformDraw { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+</style>
+</head>
+<body>
+
+<!-- Background waveform -->
+<div class="bg-wave">
+  <svg viewBox="0 0 1440 900" preserveAspectRatio="none" id="bgSvg">
+    <path d="" fill="none" stroke="rgba(212,166,82,1)" stroke-width="1.5" id="bgPath1"/>
+    <path d="" fill="none" stroke="rgba(212,166,82,0.5)" stroke-width="1" id="bgPath2"/>
+  </svg>
+</div>
+
+<nav class="breadcrumb">
+  <span class="logo">Musitron</span>
+  <span class="sep">&#8250;</span>
+  <span>Dashboard</span>
+  <span class="sep">&#8250;</span>
+  <span class="active">Frequency</span>
+  <div class="credit-pill">
+    <div class="dot"></div>
+    <span>48 credits</span>
+  </div>
+</nav>
+
+<div class="freq-layout">
+
+  <!-- Generation Form -->
+  <div class="gen-float">
+    <div class="gen-title">Generate a Track</div>
+    <div class="gen-row">
+      <div class="form-field">
+        <label>Title</label>
+        <input type="text" placeholder="Track name..." value="Midnight Cascade">
+      </div>
+      <div class="form-field">
+        <label>Style</label>
+        <select>
+          <option>Lo-fi Ambient</option>
+          <option selected>Cinematic Orchestral</option>
+          <option>Synthwave</option>
+          <option>Jazz Fusion</option>
+          <option>Acoustic Folk</option>
+        </select>
+      </div>
+    </div>
+    <div class="gen-row-3">
+      <div class="form-field">
+        <label>Model</label>
+        <select>
+          <option selected>Lyria 2</option>
+          <option>MusicGen Large</option>
+          <option>Suno v4</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Duration</label>
+        <select>
+          <option>0:30</option>
+          <option>1:00</option>
+          <option selected>2:30</option>
+          <option>4:00</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Quality</label>
+        <select>
+          <option>Standard</option>
+          <option selected>High</option>
+          <option>Ultra</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-field" style="margin-bottom: 18px;">
+      <label>Lyrics / Prompt</label>
+      <textarea placeholder="Describe the vibe...">Sweeping strings over a heartbeat pulse, building to a triumphant brass crescendo</textarea>
+    </div>
+    <button class="btn-gen" onclick="generate()">Generate</button>
+  </div>
+
+  <!-- Player -->
+  <div class="player-section">
+    <div class="section-label">Now Playing</div>
+    <div class="player-card energy-pulse">
+      <div class="player-track-info">
+        <div class="p-title" id="pTitle">Neon Reverie</div>
+        <div class="p-meta">Synthwave &middot; 3:42 &middot; Lyria 2 &middot; High</div>
+      </div>
+
+      <div class="waveform-display" id="waveformDisplay">
+        <div class="waveform-canvas" id="waveformCanvas"></div>
+        <div class="playhead" id="playhead" style="left: 35%;"></div>
+      </div>
+
+      <div class="player-controls">
+        <div class="p-btn">&#9664;&#9664;</div>
+        <div class="p-btn play" id="playBtn" onclick="togglePlay()">&#9654;</div>
+        <div class="p-btn">&#9654;&#9654;</div>
+      </div>
+
+      <div class="time-row">
+        <span id="timeNow">1:18</span>
+        <span>3:42</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Timeline -->
+  <div class="timeline-section">
+    <div class="section-label">History</div>
+    <div class="timeline">
+      <div class="tl-card active" onclick="selectTimeline(this, 'Neon Reverie')">
+        <div class="tl-wave" id="tlWave0"></div>
+        <div class="tl-title">Neon Reverie</div>
+        <div class="tl-meta">Synthwave &middot; 3:42</div>
+        <div class="tl-status st-done">Complete</div>
+      </div>
+      <div class="tl-card" onclick="selectTimeline(this, 'Autumn Letters')">
+        <div class="tl-wave" id="tlWave1"></div>
+        <div class="tl-title">Autumn Letters</div>
+        <div class="tl-meta">Acoustic Folk &middot; 2:15</div>
+        <div class="tl-status st-done">Complete</div>
+      </div>
+      <div class="tl-card" onclick="selectTimeline(this, 'Orbital Drift')">
+        <div class="tl-wave" id="tlWave2"></div>
+        <div class="tl-title">Orbital Drift</div>
+        <div class="tl-meta">Lo-fi Ambient &middot; 4:08</div>
+        <div class="tl-status st-done">Complete</div>
+      </div>
+      <div class="tl-card" onclick="selectTimeline(this, 'Midnight Cascade')">
+        <div class="tl-wave" id="tlWave3"></div>
+        <div class="tl-title">Midnight Cascade</div>
+        <div class="tl-meta">Generating...</div>
+        <div class="tl-status st-gen">In Progress</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let isPlaying = false;
+  let progress = 35;
+  const BAR_COUNT = 140;
+  const TL_BAR_COUNT = 60;
+
+  // Generate waveform bars for the player
+  const canvas = document.getElementById('waveformCanvas');
+  const barHeights = [];
+  for (let i = 0; i < BAR_COUNT; i++) {
+    const h = Math.sin(i * 0.08) * 20 + Math.random() * 30 + 15;
+    barHeights.push(h);
+    const bar = document.createElement('div');
+    bar.className = 'wf-bar ' + (i / BAR_COUNT * 100 < progress ? 'past' : 'future');
+    bar.style.height = h + 'px';
+    bar.style.animation = 'waveformDraw .4s var(--ease) ' + (i * 5) + 'ms both';
+    canvas.appendChild(bar);
+  }
+
+  // Generate timeline card waveforms
+  for (let t = 0; t < 4; t++) {
+    const container = document.getElementById('tlWave' + t);
+    for (let i = 0; i < TL_BAR_COUNT; i++) {
+      const bar = document.createElement('div');
+      bar.className = 'tl-bar';
+      bar.style.height = (Math.random() * 28 + 6) + 'px';
+      container.appendChild(bar);
+    }
+  }
+
+  // Background SVG paths
+  function updateBgWave() {
+    const t = Date.now() / 4000;
+    let d1 = 'M0 450';
+    let d2 = 'M0 460';
+    for (let x = 0; x <= 1440; x += 10) {
+      const y1 = 450 + Math.sin(x * 0.003 + t) * 40 + Math.sin(x * 0.007 + t * 1.3) * 20;
+      const y2 = 460 + Math.sin(x * 0.004 + t * 0.8) * 30 + Math.cos(x * 0.006 + t * 1.5) * 15;
+      d1 += ' L' + x + ' ' + y1;
+      d2 += ' L' + x + ' ' + y2;
+    }
+    document.getElementById('bgPath1').setAttribute('d', d1);
+    document.getElementById('bgPath2').setAttribute('d', d2);
+    requestAnimationFrame(updateBgWave);
+  }
+  updateBgWave();
+
+  function togglePlay() {
+    isPlaying = !isPlaying;
+    document.getElementById('playBtn').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
+    if (isPlaying) advanceProgress();
+  }
+
+  function advanceProgress() {
+    if (!isPlaying) return;
+    progress = Math.min(progress + 0.06, 100);
+    document.getElementById('playhead').style.left = progress + '%';
+
+    // Update bar colors
+    const bars = canvas.querySelectorAll('.wf-bar');
+    bars.forEach((b, i) => {
+      const pct = i / BAR_COUNT * 100;
+      b.className = 'wf-bar ' + (pct < progress ? 'past' : 'future');
+      if (isPlaying && Math.abs(pct - progress) < 3) {
+        b.style.height = (barHeights[i] + Math.random() * 10) + 'px';
+      }
+    });
+
+    const secs = Math.floor(progress / 100 * 222);
+    const m = Math.floor(secs / 60);
+    const s = (secs % 60).toString().padStart(2, '0');
+    document.getElementById('timeNow').textContent = m + ':' + s;
+
+    requestAnimationFrame(advanceProgress);
+  }
+
+  function selectTimeline(el, name) {
+    document.querySelectorAll('.tl-card').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('pTitle').textContent = name;
+  }
+
+  function generate() {
+    const btn = document.querySelector('.btn-gen');
+    btn.textContent = 'Generating...';
+    btn.style.opacity = '0.7';
+    let pct = 0;
+    const iv = setInterval(() => {
+      pct += Math.random() * 3;
+      if (pct >= 100) { clearInterval(iv); btn.textContent = 'Generate'; btn.style.opacity = '1'; }
+      else { btn.textContent = 'Generating... ' + Math.floor(pct) + '%'; }
+    }, 180);
+  }
+
+  setTimeout(() => togglePlay(), 700);
+</script>
+</body>
+</html>
