@@ -130,7 +130,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 }
 .node-dot.filled-green{background:var(--green);box-shadow:0 0 10px rgba(94,201,126,.25)}
 .node-dot.filled-gold{background:var(--gold);box-shadow:0 0 10px var(--gold-glow)}
-.node-dot.peak{width:14px;height:14px;box-shadow:0 0 16px var(--gold-glow-strong)}
+/* peak class removed — all dots same size for clean visual rhythm */
 .node-dot.pulsing{background:var(--gold);animation:ringPulse 2s ease-in-out infinite}
 .node-dot.pulsing::after{
   content:'';position:absolute;inset:-6px;border-radius:50%;
@@ -526,7 +526,7 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
 
       <!-- Moment 3: Your Links (peak) -->
       <div class="moment" data-moment="3">
-        <div class="node"><div class="node-dot filled-gold peak"></div></div>
+        <div class="node"><div class="node-dot filled-gold"></div></div>
         <div class="connector"></div>
         <div class="moment-label">
           <span class="moment-label-text">THE CHAPTERS</span>
