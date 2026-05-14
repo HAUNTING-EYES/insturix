@@ -308,7 +308,15 @@ body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-
   100%{opacity:.3;box-shadow:none}
 }
 .end-text{
-  font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:.04em;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;
+  background:linear-gradient(to right, var(--text-dim), var(--text-faint));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  animation:textRadiate 4s ease-in-out infinite;
+}
+@keyframes textRadiate{
+  0%,88%{background:linear-gradient(to right, var(--text-dim), var(--text-faint));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  94%{background:linear-gradient(to right, var(--gold), var(--text-muted));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  100%{background:linear-gradient(to right, var(--text-dim), var(--text-faint));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 }
 
 /* ── Preview Column ── */
