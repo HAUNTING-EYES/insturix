@@ -1,0 +1,1748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Export to Editor — All Stages</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Design Tokens ── */
+    :root {
+      --bg:       #0B0B0A;
+      --surface:  #0F0F0E;
+      --raised:   #131312;
+      --well:     #1B1A18;
+      --border:   #1C1B19;
+      --borderL:  #282724;
+      --text:     #ECE9E1;
+      --soft:     #B5B2A8;
+      --muted:    #7A776E;
+      --dim:      #5F5E5A;
+      --faint:    #454340;
+      --gold:     #D4A652;
+      --goldDark: #C49840;
+      --green:    #5EC97E;
+      --red:      #D46A5C;
+      --cyan:     #5CB8CC;
+      --sans:     'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --mono:     'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+      --radius:   12px;
+      --btnR:     7px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+      padding: 40px 20px 80px;
+    }
+
+    /* ── Page header ── */
+    .page-title {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    .page-subtitle {
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 48px;
+    }
+
+    /* ── Stage wrapper ── */
+    .stage-section {
+      max-width: 600px;
+      margin: 0 auto 56px;
+    }
+    .stage-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 12px;
+      padding-left: 2px;
+    }
+    .stage-label span {
+      color: var(--faint);
+      font-weight: 400;
+      margin-left: 6px;
+    }
+
+    /* ── Dialog card ── */
+    .dialog {
+      background: var(--surface);
+      border: 1px solid var(--borderL);
+      border-radius: var(--radius);
+      padding: 24px;
+      position: relative;
+    }
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .dialog-header svg { color: var(--green); flex-shrink: 0; }
+    .dialog-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .dialog-desc {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* ── Stage header (pipeline dots) ── */
+    .pipeline-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0 16px;
+    }
+    .milestone {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .milestone-dot-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 12px;
+      height: 12px;
+    }
+    .milestone-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      position: relative;
+      z-index: 2;
+    }
+    .milestone-dot.completed { background: var(--green); }
+    .milestone-dot.current   { background: var(--gold); }
+    .milestone-dot.future    { background: var(--faint); }
+    .milestone-pulse {
+      position: absolute;
+      inset: -2px;
+      border-radius: 50%;
+      background: rgba(212, 166, 82, 0.2);
+      animation: pulse-ring 2s ease-in-out infinite;
+    }
+    @keyframes pulse-ring {
+      0%, 100% { transform: scale(1); opacity: 0.4; }
+      50%      { transform: scale(1.8); opacity: 0; }
+    }
+    .milestone-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+    .milestone-label.completed { color: var(--green); }
+    .milestone-label.current   { color: var(--gold); font-weight: 600; }
+    .milestone-label.future    { color: var(--faint); }
+    .pipeline-line {
+      flex: 1;
+      height: 1px;
+      margin: 0 4px;
+      margin-bottom: 20px;
+      position: relative;
+      background: var(--faint);
+    }
+    .pipeline-line-fill {
+      position: absolute;
+      inset: 0;
+    }
+    .pipeline-line-fill.completed { background: var(--green); }
+    .pipeline-line-fill.current   {
+      background: linear-gradient(to right, var(--gold), var(--faint));
+    }
+
+    /* ── Form elements ── */
+    .form-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--dim);
+      display: block;
+      margin-bottom: 4px;
+    }
+    .form-input, .form-select {
+      width: 100%;
+      height: 36px;
+      padding: 0 12px;
+      background: var(--well);
+      border: 1px solid var(--borderL);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 13px;
+      outline: none;
+      appearance: none;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--gold);
+    }
+    .form-select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%237A776E' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+    .form-group { margin-bottom: 14px; }
+    .form-group.indented { padding-left: 32px; }
+
+    /* ── Toggle cards ── */
+    .toggle-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid;
+      cursor: pointer;
+      margin-bottom: 10px;
+    }
+    .toggle-card.on-green  { background: rgba(94,201,126,0.1); border-color: rgba(94,201,126,0.3); }
+    .toggle-card.on-gold   { background: rgba(212,166,82,0.1); border-color: rgba(212,166,82,0.3); }
+    .toggle-card.off       { background: var(--well); border-color: var(--borderL); }
+    .toggle-card-icon {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .toggle-card-body { flex: 1; }
+    .toggle-card-title { font-size: 14px; font-weight: 500; color: var(--text); }
+    .toggle-card-sub   { font-size: 11px; color: var(--dim); margin-top: 1px; }
+    .toggle-card-check { flex-shrink: 0; }
+
+    /* ── Voice row ── */
+    .voice-row { display: flex; gap: 8px; align-items: center; }
+    .voice-select { flex: 1; }
+    .voice-preview-btn {
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--borderL);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--soft);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .voice-preview-btn:hover { background: var(--borderL); }
+
+    /* ── Credit estimate ── */
+    .credit-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 4px;
+      margin-bottom: 16px;
+    }
+    .credit-row .label { font-size: 11px; color: var(--dim); }
+    .credit-row .value { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--gold); }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: var(--btnR);
+      font-family: var(--sans);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s;
+    }
+    .btn-gold {
+      background: var(--gold);
+      color: var(--bg);
+    }
+    .btn-gold:hover { background: var(--goldDark); }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--borderL);
+      color: var(--muted);
+    }
+    .btn-ghost:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-outline-gold {
+      background: transparent;
+      border: 1px solid rgba(212,166,82,0.3);
+      color: var(--gold);
+    }
+    .btn-outline-gold:hover { background: rgba(212,166,82,0.1); }
+    .btn-full { width: 100%; }
+    .btn-sm { font-size: 11px; padding: 5px 10px; }
+
+    /* ── Footer ── */
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      margin-top: 16px;
+    }
+
+    /* ── Confidence badge ── */
+    .badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: var(--mono);
+    }
+    .badge-green { background: rgba(94,201,126,0.2); color: var(--green); }
+    .badge-gold  { background: rgba(212,166,82,0.2); color: var(--gold); }
+
+    /* ── Profile card ── */
+    .profile-detected {
+      padding: 16px;
+      border-radius: 8px;
+      background: rgba(27,26,24,0.5);
+      border: 1px solid var(--borderL);
+      margin-bottom: 12px;
+    }
+    .profile-detected-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 8px;
+    }
+    .profile-name   { font-size: 14px; font-weight: 500; color: var(--text); }
+    .profile-desc   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .profile-reason { font-size: 10px; color: var(--dim); margin-top: 4px; }
+
+    /* ── Profile list ── */
+    .profile-list {
+      max-height: 160px;
+      overflow-y: auto;
+      border: 1px solid var(--borderL);
+      border-radius: 6px;
+      background: var(--surface);
+      margin-top: 8px;
+    }
+    .profile-list::-webkit-scrollbar { width: 4px; }
+    .profile-list::-webkit-scrollbar-thumb { background: var(--borderL); border-radius: 2px; }
+    .profile-cat-header {
+      padding: 4px 8px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--dim);
+      background: rgba(27,26,24,0.5);
+      position: sticky;
+      top: 0;
+    }
+    .profile-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 6px 12px;
+      font-size: 11px;
+      color: var(--soft);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+    }
+    .profile-item:hover { background: var(--well); }
+    .profile-item.selected { background: rgba(212,166,82,0.1); color: var(--gold); }
+    .profile-item-name { font-weight: 500; }
+    .profile-item-desc { color: var(--dim); margin-left: 6px; }
+
+    /* ── Brief overrides grid ── */
+    .brief-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .brief-select {
+      width: 100%;
+      height: 28px;
+      padding: 0 8px;
+      font-size: 11px;
+      background: var(--surface);
+      border: 1px solid var(--borderL);
+      border-radius: 4px;
+      color: var(--soft);
+      outline: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%237A776E' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+      padding-right: 20px;
+    }
+    .brief-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--dim);
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    /* ── Subject cards ── */
+    .subject-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .subject-card {
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid;
+      position: relative;
+    }
+    .subject-card.approved  { border-color: rgba(94,201,126,0.4); background: rgba(94,201,126,0.05); }
+    .subject-card.pending   { border-color: rgba(212,166,82,0.3); background: rgba(212,166,82,0.05); }
+    .subject-image {
+      aspect-ratio: 1 / 1;
+      background: var(--well);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .subject-image-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .subject-image-placeholder svg { color: var(--faint); }
+    /* Gradient placeholder for realistic look */
+    .subject-image .gradient-placeholder {
+      position: absolute;
+      inset: 0;
+    }
+    .subject-approve-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+    }
+    .subject-approve-btn.approved { background: var(--green); color: var(--text); }
+    .subject-approve-btn.pending  { background: rgba(212,166,82,0.8); color: white; }
+    .subject-actions-tl {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      display: flex;
+      gap: 4px;
+    }
+    .subject-action-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+      font-size: 10px;
+    }
+    .subject-action-btn.upload { background: rgba(212,166,82,0.3); color: var(--gold); }
+    .subject-action-btn.regen  { background: rgba(40,39,36,0.8); color: var(--muted); }
+    .subject-action-btn.delete { background: transparent; border: 1px solid rgba(212,106,92,0.3); color: var(--red); }
+    .subject-actions-br {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      display: flex;
+      gap: 4px;
+    }
+    .subject-info {
+      padding: 8px;
+    }
+    .subject-name { font-size: 11px; font-weight: 500; color: var(--text); }
+    .subject-meta { font-size: 10px; color: var(--dim); margin-top: 1px; }
+
+    /* ── Suggested chips ── */
+    .suggested-section { margin-top: 12px; }
+    .suggested-header {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-bottom: 6px;
+    }
+    .suggested-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .suggested-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--raised);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .suggested-chip:hover {
+      border-color: rgba(212,166,82,0.5);
+      background: rgba(212,166,82,0.1);
+    }
+    .suggested-chip .plus { font-size: 10px; color: var(--dim); }
+    .suggested-chip:hover .plus { color: var(--gold); }
+    .suggested-chip .name { font-size: 11px; color: var(--soft); }
+    .suggested-chip:hover .name { color: var(--text); }
+    .suggested-chip .cat  { font-size: 9px; color: var(--faint); }
+    .suggested-chip:hover .cat { color: var(--dim); }
+
+    /* ── Search input ── */
+    .search-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .search-input {
+      flex: 1;
+      height: 28px;
+      padding: 0 10px;
+      font-size: 11px;
+      background: var(--well);
+      border: 1px solid var(--borderL);
+      border-radius: 6px;
+      color: var(--text);
+      outline: none;
+      font-family: var(--sans);
+    }
+    .search-input::placeholder { color: var(--dim); }
+    .search-input:focus { border-color: var(--gold); }
+
+    /* ── Scene cards ── */
+    .scene-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+    .scene-card {
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid rgba(94,201,126,0.3);
+      background: rgba(94,201,126,0.05);
+      position: relative;
+    }
+    .scene-image {
+      aspect-ratio: 16 / 9;
+      background: var(--well);
+      position: relative;
+      overflow: hidden;
+    }
+    .scene-image .gradient-placeholder {
+      position: absolute;
+      inset: 0;
+    }
+    .scene-badge {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      background: rgba(0,0,0,0.6);
+      font-size: 9px;
+      color: var(--soft);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: var(--mono);
+    }
+    /* Hover overlay */
+    .scene-hover-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .scene-card:hover .scene-hover-overlay { opacity: 1; }
+    .scene-hover-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .scene-hover-btn.upload { background: rgba(212,166,82,0.3); color: var(--gold); }
+    .scene-hover-btn.regen  { background: rgba(40,39,36,0.8); color: var(--text); }
+    .scene-hover-btn.feedback { background: rgba(40,39,36,0.8); color: var(--text); }
+    .scene-info { padding: 6px; }
+    .scene-title { font-size: 10px; font-weight: 500; color: var(--text); }
+    .scene-status { font-size: 9px; color: var(--dim); }
+
+    /* ── Pipeline progress ── */
+    .anim-viewport {
+      width: 100%;
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      position: relative;
+    }
+    .anim-frosted {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      backdrop-filter: blur(3px);
+    }
+    .anim-frosted::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(11,11,10,0.4);
+    }
+    .anim-frosted-inner {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    .anim-ring {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 2px solid rgba(34,197,94,0.3);
+      position: relative;
+      animation: ring-pulse 2s ease-in-out infinite;
+    }
+    @keyframes ring-pulse {
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50%      { transform: scale(1.5); opacity: 0; }
+    }
+    .anim-spinner {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      border-top-color: #22c55e;
+      animation: spin 3s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .anim-text {
+      font-size: 11px;
+      color: var(--soft);
+      font-weight: 500;
+      letter-spacing: 0.03em;
+    }
+    .anim-dots {
+      display: flex;
+      gap: 4px;
+    }
+    .anim-dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #22c55e;
+      animation: dot-fade 1.5s ease-in-out infinite;
+    }
+    .anim-dot:nth-child(2) { animation-delay: 0.15s; }
+    .anim-dot:nth-child(3) { animation-delay: 0.30s; }
+    .anim-dot:nth-child(4) { animation-delay: 0.45s; }
+    .anim-dot:nth-child(5) { animation-delay: 0.60s; }
+    @keyframes dot-fade {
+      0%, 100% { opacity: 0.2; }
+      50%      { opacity: 1; }
+    }
+    .anim-content {
+      padding: 12px;
+    }
+    .anim-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(28,27,25,0.5);
+      margin-bottom: 8px;
+    }
+    .anim-toolbar-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .anim-preview {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--surface);
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+    .anim-preview-gradient {
+      position: absolute;
+      inset: 0;
+      animation: gradient-cycle 8s ease-in-out infinite;
+    }
+    @keyframes gradient-cycle {
+      0%, 100% { background: linear-gradient(135deg, #0f0c29, #302b63); }
+      25%      { background: linear-gradient(135deg, #1a1a2e, #16213e); }
+      50%      { background: linear-gradient(135deg, #302b63, #24243e); }
+      75%      { background: linear-gradient(135deg, #7209b7, #f72585); }
+    }
+    .anim-tracks {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .anim-track {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .anim-track-label {
+      width: 40px;
+      flex-shrink: 0;
+      text-align: right;
+      padding-right: 4px;
+      font-size: 8px;
+      color: var(--faint);
+    }
+    .anim-track-tiles {
+      flex: 1;
+      display: flex;
+      gap: 2px;
+    }
+    .anim-tile {
+      flex: 1;
+      border-radius: 2px;
+      border: 1px solid;
+      position: relative;
+      overflow: hidden;
+    }
+    .anim-tile.bg { height: 20px; }
+    .anim-tile.title { height: 16px; }
+    .anim-tile.text  { height: 16px; }
+    .anim-tile.audio { height: 12px; }
+    .anim-tile .shimmer {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+      animation: shimmer 3s infinite;
+    }
+    @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+    /* Playhead */
+    .anim-playhead {
+      position: absolute;
+      top: 56px;
+      bottom: 8px;
+      width: 1px;
+      background: linear-gradient(to bottom, transparent, #22c55e, transparent);
+      z-index: 5;
+      animation: playhead-sweep 5s linear infinite;
+    }
+    @keyframes playhead-sweep { 0% { left: 12%; } 100% { left: 88%; } }
+
+    /* ── Step list (pipeline progress) ── */
+    .step-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .step-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+    }
+    .step-icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .step-icon.done svg    { color: var(--green); }
+    .step-icon.active svg  { color: var(--gold); }
+    .step-icon.pending     {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 1px solid var(--borderL);
+    }
+    .step-text.done   { color: var(--dim); text-decoration: line-through; }
+    .step-text.active { color: var(--text); font-weight: 500; }
+    .step-text.pending { color: var(--dim); }
+    .step-desc {
+      font-size: 11px;
+      color: var(--dim);
+      text-align: center;
+      margin-top: 12px;
+    }
+
+    /* ── Spinner SVG ── */
+    .spinner-svg {
+      animation: spin 1s linear infinite;
+    }
+
+    /* ── Success card ── */
+    .success-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      border-radius: 12px;
+      background: rgba(212,166,82,0.1);
+      border: 1px solid rgba(212,166,82,0.2);
+    }
+    .success-icon {
+      width: 24px;
+      height: 24px;
+      color: var(--gold);
+      flex-shrink: 0;
+    }
+    .success-title { font-size: 14px; font-weight: 500; color: var(--text); }
+    .success-sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Audio generating indicator ── */
+    .audio-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(92,184,204,0.1);
+      border: 1px solid rgba(92,184,204,0.2);
+      margin-top: 12px;
+    }
+    .audio-indicator-title { font-size: 11px; font-weight: 500; color: var(--cyan); }
+    .audio-indicator-sub   { font-size: 10px; color: rgba(92,184,204,0.7); margin-top: 1px; }
+    .audio-spinner svg {
+      color: var(--cyan);
+      animation: spin 1.5s linear infinite;
+    }
+
+    /* ── Storyboard preview grid (done stage) ── */
+    .preview-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .preview-thumb {
+      aspect-ratio: 16 / 9;
+      background: var(--well);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+    .preview-thumb .gradient-placeholder {
+      position: absolute;
+      inset: 0;
+    }
+    .preview-thumb-label {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(0,0,0,0.6);
+      font-size: 10px;
+      color: var(--soft);
+      padding: 2px 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Section header in panels ── */
+    .panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .panel-header svg { flex-shrink: 0; }
+    .panel-header-title { font-size: 14px; font-weight: 500; color: var(--text); }
+    .panel-sub { font-size: 11px; color: var(--dim); margin-bottom: 12px; }
+
+    /* ── Checkbox ── */
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .checkbox-row input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--gold);
+      cursor: pointer;
+    }
+    .checkbox-row .cb-label { font-size: 11px; color: var(--muted); }
+    .checkbox-row .cb-note  { font-size: 10px; color: var(--faint); }
+    .auto-hint {
+      font-size: 11px;
+      color: var(--dim);
+      margin-top: 4px;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--borderL); border-radius: 2px; }
+
+    /* ── Utility ── */
+    .mt-4  { margin-top: 16px; }
+    .mt-3  { margin-top: 12px; }
+    .mt-2  { margin-top: 8px; }
+    .mt-1  { margin-top: 4px; }
+    .mb-2  { margin-bottom: 8px; }
+    .gap-2 { gap: 8px; }
+    .flex  { display: flex; }
+    .items-center { align-items: center; }
+    .justify-between { justify-content: space-between; }
+    .flex-1 { flex: 1; }
+    .text-center { text-align: center; }
+    .space-y-3 > * + * { margin-top: 12px; }
+    .space-y-2 > * + * { margin-top: 8px; }
+
+    /* ── SVG inline icons ── */
+    .icon { display: inline-block; vertical-align: middle; }
+  </style>
+</head>
+<body>
+
+  <h1 class="page-title">Export to Editor — All Stages</h1>
+  <p class="page-subtitle">Complete visual reference of every dialog state in the export pipeline</p>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       STAGE 1: PIPELINE PROGRESS BAR (Header)
+       ═══════════════════════════════════════════════════════════════ -->
+  <section class="stage-section">
+    <div class="stage-label">01 <span>Stage Header (Storyboard Active)</span></div>
+    <div class="dialog">
+      <div class="dialog-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+      </div>
+      <div class="dialog-desc">Review your storyboard before generating videos</div>
+
+      <div class="pipeline-bar">
+        <!-- CONFIG (completed) -->
+        <div class="milestone">
+          <div class="milestone-dot-wrap">
+            <div class="milestone-dot completed"></div>
+          </div>
+          <span class="milestone-label completed">Config</span>
+        </div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+
+        <!-- PROFILE (completed) -->
+        <div class="milestone">
+          <div class="milestone-dot-wrap">
+            <div class="milestone-dot completed"></div>
+          </div>
+          <span class="milestone-label completed">Profile</span>
+        </div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+
+        <!-- REFERENCES (completed) -->
+        <div class="milestone">
+          <div class="milestone-dot-wrap">
+            <div class="milestone-dot completed"></div>
+          </div>
+          <span class="milestone-label completed">References</span>
+        </div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+
+        <!-- STORYBOARD (current) -->
+        <div class="milestone">
+          <div class="milestone-dot-wrap">
+            <div class="milestone-pulse"></div>
+            <div class="milestone-dot current"></div>
+          </div>
+          <span class="milestone-label current">Storyboard</span>
+        </div>
+        <div class="pipeline-line"><div class="pipeline-line-fill current"></div></div>
+
+        <!-- GENERATE (future) -->
+        <div class="milestone">
+          <div class="milestone-dot-wrap">
+            <div class="milestone-dot future"></div>
+          </div>
+          <span class="milestone-label future">Generate</span>
+        </div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+
+        <!-- DONE (future) -->
+        <div class="milestone">
+          <div class="milestone-dot-wrap">
+            <div class="milestone-dot future"></div>
+          </div>
+          <span class="milestone-label future">Done</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       STAGE 2: CONFIGURE
+       ═══════════════════════════════════════════════════════════════ -->
+  <section class="stage-section">
+    <div class="stage-label">02 <span>Configure Stage</span></div>
+    <div class="dialog">
+      <div class="dialog-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+      </div>
+      <div class="dialog-desc">Configure your AI video project</div>
+
+      <!-- Pipeline bar (Config active) -->
+      <div class="pipeline-bar">
+        <div class="milestone">
+          <div class="milestone-dot-wrap"><div class="milestone-pulse"></div><div class="milestone-dot current"></div></div>
+          <span class="milestone-label current">Config</span>
+        </div>
+        <div class="pipeline-line"><div class="pipeline-line-fill current"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Profile</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">References</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Storyboard</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Generate</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Done</span></div>
+      </div>
+
+      <!-- Form fields -->
+      <div class="form-group">
+        <label class="form-label">Project Title</label>
+        <input class="form-input" type="text" value="iPhone 17 Pro — Launch Ad" readonly />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Aspect Ratio</label>
+        <select class="form-select"><option selected>16:9 (YouTube)</option></select>
+      </div>
+
+      <!-- Storyboard toggle ON -->
+      <div class="toggle-card on-green">
+        <svg class="toggle-card-icon" viewBox="0 0 24 24" fill="none" stroke="#5EC97E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+        <div class="toggle-card-body">
+          <div class="toggle-card-title">Generate Storyboard</div>
+          <div class="toggle-card-sub">AI images for each scene (2 credits/scene)</div>
+        </div>
+        <svg class="toggle-card-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5EC97E" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+
+      <!-- Art Style -->
+      <div class="form-group indented">
+        <label class="form-label">Art Style</label>
+        <select class="form-select"><option selected>Cinematic / Film</option></select>
+      </div>
+
+      <!-- Image Model -->
+      <div class="form-group indented">
+        <label class="form-label">Image Model</label>
+        <select class="form-select"><option selected>UNI-1 by Luma (Best Quality)</option></select>
+      </div>
+
+      <!-- Video Generation toggle ON -->
+      <div class="toggle-card on-gold">
+        <svg class="toggle-card-icon" viewBox="0 0 24 24" fill="none" stroke="#D4A652" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
+        <div class="toggle-card-body">
+          <div class="toggle-card-title">Generate AI Videos</div>
+          <div class="toggle-card-sub">Animate storyboard images into video clips (3 credits/scene)</div>
+        </div>
+        <svg class="toggle-card-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D4A652" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+
+      <!-- Video Model -->
+      <div class="form-group indented">
+        <label class="form-label">Video Model</label>
+        <select class="form-select"><option selected>Kling 2.1 Pro</option></select>
+      </div>
+
+      <!-- Scene chaining checkbox -->
+      <div class="checkbox-row" style="padding-left: 32px;">
+        <input type="checkbox" checked />
+        <span class="cb-label">Scene chaining</span>
+        <span class="cb-note">-- smooth transitions between scenes (Kling/Luma only)</span>
+      </div>
+
+      <!-- Voice -->
+      <div class="form-group mt-3">
+        <label class="form-label">Narrator Voice</label>
+        <div class="voice-row">
+          <select class="form-select voice-select"><option selected>&#9792; Kokoro Heart -- warm, natural</option></select>
+          <button class="voice-preview-btn" title="Preview voice">&#9654;</button>
+        </div>
+      </div>
+
+      <!-- Credits -->
+      <div class="credit-row">
+        <span class="label">Estimated cost</span>
+        <span class="value">~24 credits</span>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <button class="btn btn-ghost">Cancel</button>
+        <button class="btn btn-gold">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+          Export to Editor
+        </button>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       STAGE 3: PROFILE SELECTION
+       ═══════════════════════════════════════════════════════════════ -->
+  <section class="stage-section">
+    <div class="stage-label">03 <span>Profile Selection</span></div>
+    <div class="dialog">
+      <div class="dialog-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+      </div>
+      <div class="dialog-desc">Select an editing profile for your project</div>
+
+      <!-- Pipeline bar (Profile active) -->
+      <div class="pipeline-bar">
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Config</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-pulse"></div><div class="milestone-dot current"></div></div><span class="milestone-label current">Profile</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill current"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">References</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Storyboard</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Generate</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Done</span></div>
+      </div>
+
+      <!-- Detected profile -->
+      <div class="profile-detected">
+        <div class="profile-detected-top">
+          <div>
+            <div class="profile-name">Cinematic</div>
+            <div class="profile-desc">Film-grade pacing, wide shots, slow motion accents, orchestral music</div>
+          </div>
+          <span class="badge badge-green">87% match</span>
+        </div>
+        <div class="profile-reason">&#8594; Strong visual descriptions with camera direction cues</div>
+        <div class="profile-reason">&#8594; Narrative voiceover structure with emotional arc</div>
+        <div class="profile-reason">&#8594; Product showcase with cinematic transitions</div>
+        <div class="profile-reason">&#8594; Music-forward tempo with dramatic beats</div>
+
+        <!-- Search -->
+        <input class="search-input mt-3" type="text" placeholder="Search profiles..." style="width: 100%;" />
+
+        <!-- Profile list -->
+        <div class="profile-list mt-2">
+          <div class="profile-cat-header">Commercial</div>
+          <button class="profile-item"><span class="profile-item-name">Professional</span><span class="profile-item-desc">-- Clean corporate style, moderate pace</span></button>
+          <button class="profile-item"><span class="profile-item-name">Energetic</span><span class="profile-item-desc">-- Fast cuts, upbeat, social-first</span></button>
+          <button class="profile-item selected"><span class="profile-item-name">Cinematic</span><span class="profile-item-desc">-- Film-grade pacing, wide shots, slow motion</span></button>
+          <div class="profile-cat-header">Editorial</div>
+          <button class="profile-item"><span class="profile-item-name">Minimal</span><span class="profile-item-desc">-- Restrained editing, clean cuts only</span></button>
+          <button class="profile-item"><span class="profile-item-name">Emotional</span><span class="profile-item-desc">-- Mood-first, music-driven, intimate</span></button>
+        </div>
+      </div>
+
+      <!-- Brief Overrides -->
+      <div class="brief-grid">
+        <div>
+          <label class="brief-label">Platform</label>
+          <select class="brief-select"><option selected>YouTube</option></select>
+        </div>
+        <div>
+          <label class="brief-label">Tone</label>
+          <select class="brief-select"><option selected>Cinematic</option></select>
+        </div>
+        <div>
+          <label class="brief-label">Captions</label>
+          <select class="brief-select"><option selected>Auto (from profile)</option></select>
+        </div>
+        <div>
+          <label class="brief-label">BGM Mood</label>
+          <select class="brief-select"><option selected>Dramatic</option></select>
+        </div>
+      </div>
+
+      <!-- Continue button -->
+      <button class="btn btn-gold btn-full mt-3">
+        Continue with Cinematic
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </button>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       STAGE 4: REFERENCE REVIEW
+       ═══════════════════════════════════════════════════════════════ -->
+  <section class="stage-section">
+    <div class="stage-label">04 <span>Reference Image Review</span></div>
+    <div class="dialog">
+      <div class="dialog-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+      </div>
+      <div class="dialog-desc">Review and approve reference images for visual consistency</div>
+
+      <!-- Pipeline bar (References active) -->
+      <div class="pipeline-bar">
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Config</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Profile</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-pulse"></div><div class="milestone-dot current"></div></div><span class="milestone-label current">References</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill current"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Storyboard</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Generate</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Done</span></div>
+      </div>
+
+      <!-- Header -->
+      <div class="panel-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D4A652" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span class="panel-header-title">Review Reference Images (2/2 approved)</span>
+      </div>
+      <p class="panel-sub">These reference images guide AI for visual consistency. Approve, reject, regenerate, or add more from script suggestions below.</p>
+
+      <!-- Subject grid -->
+      <div class="subject-grid">
+        <!-- Subject 1: iPhone 17 Pro (approved) -->
+        <div class="subject-card approved">
+          <div class="subject-image">
+            <div class="gradient-placeholder" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f0c29 100%);"></div>
+            <!-- Stylized product silhouette -->
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+              <div style="width:40%;height:70%;border-radius:16px;border:2px solid rgba(255,255,255,0.08);background:linear-gradient(180deg,rgba(255,255,255,0.04) 0%,rgba(255,255,255,0.01) 100%);backdrop-filter:blur(2px);box-shadow:0 0 40px rgba(92,184,204,0.1);">
+                <div style="width:30%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin:12% auto 0;"></div>
+                <div style="width:24px;height:24px;border-radius:50%;border:1.5px solid rgba(255,255,255,0.08);margin:auto;margin-top:30%;"></div>
+              </div>
+            </div>
+            <!-- Approve button -->
+            <button class="subject-approve-btn approved" title="Approved">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <!-- Action buttons -->
+            <div class="subject-actions-tl">
+              <button class="subject-action-btn upload" title="Upload">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+              </button>
+              <button class="subject-action-btn regen" title="Regenerate">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+              </button>
+              <button class="subject-action-btn delete" title="Delete">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="subject-info">
+            <div class="subject-name">iPhone 17 Pro</div>
+            <div class="subject-meta">product &middot; Scenes 1, 2, 3</div>
+          </div>
+        </div>
+
+        <!-- Subject 2: Creative Professional (approved) -->
+        <div class="subject-card approved">
+          <div class="subject-image">
+            <div class="gradient-placeholder" style="background: linear-gradient(135deg, #302b63 0%, #24243e 50%, #0f0c29 100%);"></div>
+            <!-- Stylized person silhouette -->
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+                <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,rgba(212,166,82,0.15),rgba(212,166,82,0.05));border:1.5px solid rgba(212,166,82,0.15);"></div>
+                <div style="width:44px;height:36px;border-radius:8px 8px 0 0;background:linear-gradient(180deg,rgba(212,166,82,0.1),rgba(212,166,82,0.03));border:1.5px solid rgba(212,166,82,0.1);border-bottom:none;margin-top:-2px;"></div>
+              </div>
+            </div>
+            <button class="subject-approve-btn approved" title="Approved">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <div class="subject-actions-tl">
+              <button class="subject-action-btn upload" title="Upload">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+              </button>
+              <button class="subject-action-btn regen" title="Regenerate">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+              </button>
+              <button class="subject-action-btn delete" title="Delete">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="subject-info">
+            <div class="subject-name">Creative Professional</div>
+            <div class="subject-meta">character &middot; Scenes 1, 2</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Suggested from script -->
+      <div class="suggested-section">
+        <div class="suggested-header">More from your script (3)</div>
+        <div class="suggested-chips">
+          <div class="suggested-chip">
+            <span class="plus">+</span>
+            <span class="name">City Skyline</span>
+            <span class="cat">location</span>
+          </div>
+          <div class="suggested-chip">
+            <span class="plus">+</span>
+            <span class="name">Coffee Shop</span>
+            <span class="cat">location</span>
+          </div>
+          <div class="suggested-chip">
+            <span class="plus">+</span>
+            <span class="name">Golden Hour Light</span>
+            <span class="cat">object</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search row -->
+      <div class="search-row">
+        <input class="search-input" type="text" placeholder='Search suggestions or type a new subject...' />
+        <button class="btn btn-ghost btn-sm">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+          Custom
+        </button>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <button class="btn btn-ghost">Skip References</button>
+        <button class="btn btn-gold">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          Continue with 2 References
+        </button>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       STAGE 5: STORYBOARD REVIEW
+       ═══════════════════════════════════════════════════════════════ -->
+  <section class="stage-section">
+    <div class="stage-label">05 <span>Storyboard Review</span></div>
+    <div class="dialog">
+      <div class="dialog-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+      </div>
+      <div class="dialog-desc">Review your storyboard before generating videos</div>
+
+      <!-- Pipeline bar (Storyboard active) -->
+      <div class="pipeline-bar">
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Config</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Profile</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">References</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-pulse"></div><div class="milestone-dot current"></div></div><span class="milestone-label current">Storyboard</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill current"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Generate</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Done</span></div>
+      </div>
+
+      <!-- Header -->
+      <div class="panel-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5EC97E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+        <span class="panel-header-title">Review Storyboard (3/3 generated)</span>
+      </div>
+      <p class="panel-sub">These images will be used as starting frames for AI video generation. Review them before proceeding.</p>
+
+      <!-- Scene grid -->
+      <div class="scene-grid">
+        <!-- Scene 1 -->
+        <div class="scene-card">
+          <div class="scene-image">
+            <div class="gradient-placeholder" style="background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);"></div>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+              <div style="width:20px;height:20px;border-radius:50%;background:radial-gradient(circle,rgba(212,166,82,0.4),transparent);box-shadow:0 0 20px rgba(212,166,82,0.2);"></div>
+            </div>
+            <span class="scene-badge">1</span>
+            <div class="scene-hover-overlay">
+              <button class="scene-hover-btn upload" title="Upload">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+              </button>
+              <button class="scene-hover-btn regen" title="Regenerate">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+              </button>
+              <button class="scene-hover-btn feedback" title="Feedback">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="scene-info">
+            <div class="scene-title">The Spark</div>
+            <div class="scene-status">Ready</div>
+          </div>
+        </div>
+
+        <!-- Scene 2 -->
+        <div class="scene-card">
+          <div class="scene-image">
+            <div class="gradient-placeholder" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);"></div>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+              <div style="width:36px;height:24px;border-radius:4px;background:linear-gradient(135deg,rgba(92,184,204,0.15),rgba(94,201,126,0.1));border:1px solid rgba(92,184,204,0.1);"></div>
+            </div>
+            <span class="scene-badge">2</span>
+            <div class="scene-hover-overlay">
+              <button class="scene-hover-btn upload"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg></button>
+              <button class="scene-hover-btn regen"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+              <button class="scene-hover-btn feedback"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></button>
+            </div>
+          </div>
+          <div class="scene-info">
+            <div class="scene-title">Unfolding Stories</div>
+            <div class="scene-status">Ready</div>
+          </div>
+        </div>
+
+        <!-- Scene 3 -->
+        <div class="scene-card">
+          <div class="scene-image">
+            <div class="gradient-placeholder" style="background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 50%, #f72585 100%);"></div>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+              <div style="width:14px;height:14px;background:rgba(255,255,255,0.1);transform:rotate(45deg);box-shadow:0 0 16px rgba(247,37,133,0.2);"></div>
+            </div>
+            <span class="scene-badge">3</span>
+            <div class="scene-hover-overlay">
+              <button class="scene-hover-btn upload"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg></button>
+              <button class="scene-hover-btn regen"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+              <button class="scene-hover-btn feedback"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></button>
+            </div>
+          </div>
+          <div class="scene-info">
+            <div class="scene-title">Life Amplified</div>
+            <div class="scene-status">Ready</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <button class="btn btn-ghost">Skip Videos & Finalize</button>
+        <button class="btn btn-gold">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          Generate 3 Videos
+        </button>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       STAGE 6: PIPELINE PROGRESS
+       ═══════════════════════════════════════════════════════════════ -->
+  <section class="stage-section">
+    <div class="stage-label">06 <span>Pipeline Progress (Processing)</span></div>
+    <div class="dialog">
+      <div class="dialog-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+      </div>
+      <div class="dialog-desc">Generating your AI video...</div>
+
+      <!-- Pipeline bar (Generate active) -->
+      <div class="pipeline-bar">
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Config</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Profile</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">References</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Storyboard</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-pulse"></div><div class="milestone-dot current"></div></div><span class="milestone-label current">Generate</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill current"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot future"></div></div><span class="milestone-label future">Done</span></div>
+      </div>
+
+      <!-- Editor Import Animation -->
+      <div class="anim-viewport">
+        <!-- Playhead -->
+        <div class="anim-playhead"></div>
+
+        <!-- Frosted overlay -->
+        <div class="anim-frosted">
+          <div class="anim-frosted-inner">
+            <div style="position:relative;">
+              <div class="anim-ring"></div>
+              <div class="anim-spinner"></div>
+            </div>
+            <p class="anim-text">Editor is arranging your timeline...</p>
+            <div class="anim-dots">
+              <div class="anim-dot"></div>
+              <div class="anim-dot"></div>
+              <div class="anim-dot"></div>
+              <div class="anim-dot"></div>
+              <div class="anim-dot"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Background content -->
+        <div class="anim-content">
+          <!-- Toolbar -->
+          <div class="anim-toolbar">
+            <div class="anim-toolbar-dot" style="background:rgba(212,106,92,0.4);"></div>
+            <div class="anim-toolbar-dot" style="background:rgba(212,166,82,0.4);"></div>
+            <div class="anim-toolbar-dot" style="background:rgba(94,201,126,0.4);"></div>
+            <div style="flex:1;"></div>
+            <div style="height:8px;width:80px;border-radius:4px;background:var(--border);opacity:0.5;"></div>
+          </div>
+
+          <!-- Preview viewport -->
+          <div class="anim-preview">
+            <div class="anim-preview-gradient"></div>
+          </div>
+
+          <!-- Timeline tracks -->
+          <div class="anim-tracks">
+            <div class="anim-track">
+              <div class="anim-track-label">BG</div>
+              <div class="anim-track-tiles">
+                <div class="anim-tile bg" style="background:linear-gradient(to right,rgba(139,92,246,0.3),rgba(99,102,241,0.3));border-color:rgba(139,92,246,0.15);"><div class="shimmer"></div></div>
+                <div class="anim-tile bg" style="background:linear-gradient(to right,rgba(59,130,246,0.3),rgba(34,211,238,0.3));border-color:rgba(59,130,246,0.15);"><div class="shimmer"></div></div>
+                <div class="anim-tile bg" style="background:linear-gradient(to right,rgba(212,166,82,0.3),rgba(236,72,153,0.3));border-color:rgba(212,166,82,0.15);"><div class="shimmer"></div></div>
+                <div class="anim-tile bg" style="background:linear-gradient(to right,rgba(16,185,129,0.3),rgba(20,184,166,0.3));border-color:rgba(16,185,129,0.15);"><div class="shimmer"></div></div>
+                <div class="anim-tile bg" style="background:linear-gradient(to right,rgba(212,166,82,0.3),rgba(249,115,22,0.3));border-color:rgba(212,166,82,0.15);"><div class="shimmer"></div></div>
+                <div class="anim-tile bg" style="background:linear-gradient(to right,rgba(168,85,247,0.3),rgba(217,70,239,0.3));border-color:rgba(168,85,247,0.15);"><div class="shimmer"></div></div>
+              </div>
+            </div>
+            <div class="anim-track">
+              <div class="anim-track-label">Title</div>
+              <div class="anim-track-tiles">
+                <div class="anim-tile title" style="background:rgba(59,130,246,0.2);border-color:rgba(59,130,246,0.15);"></div>
+                <div class="anim-tile title" style="background:rgba(59,130,246,0.2);border-color:rgba(59,130,246,0.15);"></div>
+                <div class="anim-tile title" style="background:rgba(59,130,246,0.2);border-color:rgba(59,130,246,0.15);"></div>
+                <div class="anim-tile title" style="background:rgba(59,130,246,0.2);border-color:rgba(59,130,246,0.15);"></div>
+                <div class="anim-tile title" style="background:rgba(59,130,246,0.2);border-color:rgba(59,130,246,0.15);"></div>
+                <div class="anim-tile title" style="background:rgba(59,130,246,0.2);border-color:rgba(59,130,246,0.15);"></div>
+              </div>
+            </div>
+            <div class="anim-track">
+              <div class="anim-track-label">Text</div>
+              <div class="anim-track-tiles">
+                <div class="anim-tile text" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.1);"></div>
+                <div class="anim-tile text" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.1);"></div>
+                <div class="anim-tile text" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.1);"></div>
+                <div class="anim-tile text" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.1);"></div>
+                <div class="anim-tile text" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.1);"></div>
+                <div class="anim-tile text" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.1);"></div>
+              </div>
+            </div>
+            <div class="anim-track">
+              <div class="anim-track-label">Audio</div>
+              <div class="anim-track-tiles">
+                <div class="anim-tile audio" style="background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.1);"></div>
+                <div class="anim-tile audio" style="background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.1);"></div>
+                <div class="anim-tile audio" style="background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.1);"></div>
+                <div class="anim-tile audio" style="background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.1);"></div>
+                <div class="anim-tile audio" style="background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.1);"></div>
+                <div class="anim-tile audio" style="background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.1);"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step list -->
+      <div class="step-list">
+        <!-- Done steps -->
+        <div class="step-item">
+          <div class="step-icon done">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <span class="step-text done">Reading your script</span>
+        </div>
+        <div class="step-item">
+          <div class="step-icon done">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <span class="step-text done">Identifying visuals</span>
+        </div>
+        <div class="step-item">
+          <div class="step-icon done">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <span class="step-text done">Creating references</span>
+        </div>
+        <div class="step-item">
+          <div class="step-icon done">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <span class="step-text done">Building storyboard</span>
+        </div>
+        <!-- Active step -->
+        <div class="step-item">
+          <div class="step-icon active">
+            <svg class="spinner-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          </div>
+          <span class="step-text active">Bringing scenes to life (2/8)</span>
+        </div>
+        <!-- Pending steps -->
+        <div class="step-item">
+          <div class="step-icon pending"></div>
+          <span class="step-text pending">Adding voiceover</span>
+        </div>
+        <div class="step-item">
+          <div class="step-icon pending"></div>
+          <span class="step-text pending">Assembling your video</span>
+        </div>
+      </div>
+
+      <!-- Description -->
+      <p class="step-desc">Animating storyboard images into video clips -- this takes a few minutes...</p>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       STAGE 7: EXPORT COMPLETE
+       ═══════════════════════════════════════════════════════════════ -->
+  <section class="stage-section">
+    <div class="stage-label">07 <span>Export Complete</span></div>
+    <div class="dialog">
+      <div class="dialog-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+      </div>
+      <div class="dialog-desc">Your project is ready</div>
+
+      <!-- Pipeline bar (Done) -->
+      <div class="pipeline-bar">
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Config</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Profile</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">References</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Storyboard</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-dot completed"></div></div><span class="milestone-label completed">Generate</span></div>
+        <div class="pipeline-line"><div class="pipeline-line-fill completed"></div></div>
+        <div class="milestone"><div class="milestone-dot-wrap"><div class="milestone-pulse"></div><div class="milestone-dot current"></div></div><span class="milestone-label current">Done</span></div>
+      </div>
+
+      <!-- Success card -->
+      <div class="success-card">
+        <svg class="success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <div>
+          <div class="success-title">Your video project is ready</div>
+          <div class="success-sub">3 scenes &middot; 16:9 &middot; Storyboard &middot; AI Videos</div>
+        </div>
+      </div>
+
+      <!-- Audio generating indicator -->
+      <div class="audio-indicator">
+        <div class="audio-spinner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        </div>
+        <div>
+          <div class="audio-indicator-title">Music & Sound Effects generating</div>
+          <div class="audio-indicator-sub">Audio will appear in your Editor project automatically. Refresh the editor after a few minutes.</div>
+        </div>
+      </div>
+
+      <!-- Storyboard preview -->
+      <div class="mt-4">
+        <div class="form-label mb-2">Storyboard Preview</div>
+        <div class="preview-grid">
+          <div class="preview-thumb">
+            <div class="gradient-placeholder" style="background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);"></div>
+            <div class="preview-thumb-label">The Spark</div>
+          </div>
+          <div class="preview-thumb">
+            <div class="gradient-placeholder" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);"></div>
+            <div class="preview-thumb-label">Unfolding Stories</div>
+          </div>
+          <div class="preview-thumb">
+            <div class="gradient-placeholder" style="background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 50%, #f72585 100%);"></div>
+            <div class="preview-thumb-label">Life Amplified</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <button class="btn btn-ghost">Close</button>
+        <button class="btn btn-outline-gold">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+          Edit Storyboard
+        </button>
+        <button class="btn btn-gold">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+          Open in Editor
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Watermark -->
+  <p style="text-align:center;font-size:11px;color:var(--faint);margin-top:40px;font-family:var(--mono);">
+    Export to Editor &mdash; Design Review Artifact &mdash; 7 Stages
+  </p>
+
+</body>
+</html>

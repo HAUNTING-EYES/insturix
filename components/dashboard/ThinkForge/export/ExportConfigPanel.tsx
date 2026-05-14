@@ -53,40 +53,66 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
     estimateCredits,
   } = pipeline;
 
+  /* Film frame container style */
+  const filmFrame = (frameNum: string): React.CSSProperties => ({
+    border: "1px solid rgba(212,166,82,0.25)",
+    borderRadius: 3,
+    padding: 12,
+    marginBottom: 10,
+    position: "relative",
+    background: "rgba(212,166,82,0.015)",
+  });
+
+  /* Frame number label style */
+  const frameLabel: React.CSSProperties = {
+    position: "absolute",
+    top: 3,
+    right: 6,
+    fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
+    fontSize: 7,
+    color: "#454340",
+    letterSpacing: "0.06em",
+  };
+
   return (
     <motion.div
       key="configure"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className="space-y-4 py-2"
+      className="space-y-3 py-2"
     >
-      {/* Project Title */}
-      <div>
-        <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Project Title</label>
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Auto-detected from script..."
-          className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1]"
-        />
+      {/* ── Frame 001: Title + Aspect Ratio ── */}
+      <div style={filmFrame("001")}>
+        <span style={frameLabel}>FRM 001</span>
+        <div className="mb-2.5">
+          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Project Title</label>
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Auto-detected from script..."
+            className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1] h-[34px] text-[13px]"
+          />
+        </div>
+        <div>
+          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Aspect Ratio</label>
+          <Select value={aspectRatio} onValueChange={setAspectRatio}>
+            <SelectTrigger className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1] h-[34px] text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-[#1B1A18] border-[#282724]">
+              <SelectItem value="16:9">16:9 (YouTube)</SelectItem>
+              <SelectItem value="9:16">9:16 (Shorts/Reels)</SelectItem>
+              <SelectItem value="1:1">1:1 (Square)</SelectItem>
+              <SelectItem value="4:5">4:5 (Instagram)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      {/* Aspect Ratio */}
-      <div>
-        <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Aspect Ratio</label>
-        <Select value={aspectRatio} onValueChange={setAspectRatio}>
-          <SelectTrigger className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-[#1B1A18] border-[#282724]">
-            <SelectItem value="16:9">16:9 (YouTube)</SelectItem>
-            <SelectItem value="9:16">9:16 (Shorts/Reels)</SelectItem>
-            <SelectItem value="1:1">1:1 (Square)</SelectItem>
-            <SelectItem value="4:5">4:5 (Instagram)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      {/* ── Frame 002: Storyboard + Video generation ── */}
+      <div style={filmFrame("002")}>
+        <span style={frameLabel}>FRM 002</span>
 
       {/* Storyboard Toggle */}
       <div
@@ -280,72 +306,91 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
         </motion.div>
       )}
 
-      {/* Voice Selector with Preview */}
-      {availableVoices.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-        >
-          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Narrator Voice</label>
-          <div className="flex gap-2">
-            <Select value={selectedVoice} onValueChange={setSelectedVoice}>
-              <SelectTrigger className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1] flex-1">
-                <SelectValue placeholder="Select voice" />
-              </SelectTrigger>
-              <SelectContent className="bg-[#1B1A18] border-[#282724] max-h-60">
-                {availableVoices.map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    <span className="flex items-center gap-2">
-                      <span className={v.gender === "female" ? "text-pink-300" : "text-[#5CB8CC]"}>
-                        {v.gender === "female" ? "♀" : "♂"}
-                      </span>
-                      <span>{v.name}</span>
-                      <span className="text-[#5F5E5A] text-[11px]">-- {v.style}</span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => handlePreviewVoice(selectedVoice)}
-              disabled={!selectedVoice || step !== "configure"}
-              className="border-[#282724] text-[#B5B2A8] hover:bg-[#282724] px-3"
-              title="Preview voice"
-            >
-              {previewingVoice === selectedVoice ? (
-                <span className="h-4 w-4 rounded-full bg-[#D4A652] animate-pulse" />
-              ) : (
-                <span className="text-sm">{"▶"}</span>
-              )}
-            </Button>
-          </div>
-        </motion.div>
-      )}
+      </div>{/* End Frame 002 */}
 
-      {/* Credit cost estimate */}
-      <div className="flex items-center justify-between px-1">
-        <span className="text-[11px] text-[#5F5E5A]">Estimated cost</span>
-        <span
-          className="font-mono text-[11px] font-medium text-[#D4A652]"
-        >
-          ~{estimateCredits()} credits
-        </span>
-      </div>
+      {/* ── Frame 003: Voice + Credits ── */}
+      <div style={filmFrame("003")}>
+        <span style={frameLabel}>FRM 003</span>
+
+        {/* Voice Selector with Preview */}
+        {availableVoices.length > 0 && (
+          <div className="mb-2.5">
+            <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">Narrator Voice</label>
+            <div className="flex gap-1.5">
+              <Select value={selectedVoice} onValueChange={setSelectedVoice}>
+                <SelectTrigger className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1] flex-1 h-[34px] text-[13px]">
+                  <SelectValue placeholder="Select voice" />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1B1A18] border-[#282724] max-h-60">
+                  {availableVoices.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>
+                      <span className="flex items-center gap-2">
+                        <span className={v.gender === "female" ? "text-pink-300" : "text-[#5CB8CC]"}>
+                          {v.gender === "female" ? "♀" : "♂"}
+                        </span>
+                        <span>{v.name}</span>
+                        <span className="text-[#5F5E5A] text-[11px]">-- {v.style}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <button
+                type="button"
+                onClick={() => handlePreviewVoice(selectedVoice)}
+                disabled={!selectedVoice || step !== "configure"}
+                title="Preview voice"
+                style={{
+                  width: 34,
+                  height: 34,
+                  border: "1px solid #282724",
+                  borderRadius: 4,
+                  background: "transparent",
+                  color: "#B5B2A8",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  flexShrink: 0,
+                }}
+              >
+                {previewingVoice === selectedVoice ? (
+                  <span className="h-4 w-4 rounded-full bg-[#D4A652] animate-pulse" />
+                ) : (
+                  "▶"
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Credit cost estimate */}
+        <div className="flex items-center justify-between" style={{ padding: "0 2px" }}>
+          <span className="text-[10px]" style={{ color: "#5F5E5A" }}>Estimated cost</span>
+          <span
+            className="font-mono text-[10px] font-medium"
+            style={{ color: "#D4A652" }}
+          >
+            ~{estimateCredits()} credits
+          </span>
+        </div>
+      </div>{/* End Frame 003 */}
 
       {error && <p className="text-sm text-[#D4A652]">{error}</p>}
 
       {/* Footer actions */}
-      <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1C1B19]">
-        <Button variant="ghost" onClick={pipeline.handleClose} className="bg-transparent border border-[#282724] text-[#7A776E] hover:border-[#D4A652] hover:text-[#D4A652] rounded-[7px]">
+      <div
+        className="flex items-center justify-end gap-2"
+        style={{ paddingTop: 12, borderTop: "1px solid #1C1B19", marginTop: 12 }}
+      >
+        <Button variant="ghost" onClick={pipeline.handleClose} className="bg-transparent border border-[#282724] text-[#7A776E] hover:border-[#D4A652] hover:text-[#D4A652] rounded-[4px]">
           Cancel
         </Button>
         <Button
           onClick={handleExport}
           disabled={blocksCount === 0}
-          className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded-[7px] border-none"
+          className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded-[4px] border-none"
         >
           <Sparkles className="h-4 w-4 mr-2" />
           {generateStoryboard && generateVideos

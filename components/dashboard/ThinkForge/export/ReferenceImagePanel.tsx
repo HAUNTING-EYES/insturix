@@ -257,26 +257,30 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
       {error && <p className="text-sm text-[#D4A652]">{error}</p>}
 
       {/* Footer actions */}
-      <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1C1B19]">
-        <Button
-          variant="ghost"
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, paddingTop: 12, borderTop: "1px solid #1C1B19", marginTop: 12 }}>
+        <button
           onClick={() => {
             setApprovedSubjectIds(new Set());
             handlePhase2();
           }}
-          className="bg-transparent border border-[#282724] text-[#7A776E] hover:border-[#D4A652] hover:text-[#D4A652] rounded-[7px]"
+          style={{ padding: "7px 14px", borderRadius: 4, background: "transparent", border: "1px solid #282724", color: "#7A776E", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
         >
           Skip References
-        </Button>
-        <Button
+        </button>
+        <button
           onClick={() => handlePhase2()}
           disabled={regeneratingSubjectIds.size > 0}
-          className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded-[7px] border-none"
+          style={{
+            padding: "7px 14px", borderRadius: 4,
+            background: "#D4A652", border: "none",
+            color: "#0B0B0A", fontSize: 13, fontWeight: 600, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+            opacity: regeneratingSubjectIds.size > 0 ? 0.5 : 1,
+          }}
         >
-          <ArrowRight className="h-4 w-4 mr-2" />
-          Continue with {approvedSubjectIds.size} Reference
-          {approvedSubjectIds.size !== 1 ? "s" : ""}
-        </Button>
+          Continue with {approvedSubjectIds.size} Reference{approvedSubjectIds.size !== 1 ? "s" : ""}
+          <ArrowRight className="h-4 w-4" />
+        </button>
       </div>
     </motion.div>
   );

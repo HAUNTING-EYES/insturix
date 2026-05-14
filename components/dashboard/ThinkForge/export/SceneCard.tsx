@@ -35,14 +35,26 @@ export function SceneCard({ scene, pipeline }: SceneCardProps) {
   const isRegenerating = regeneratingSceneIdxs.has(scene.sceneIndex);
   const showFeedback = sceneFeedbackIdx === scene.sceneIndex;
 
+  /* Mini sprocket row for scene film frames */
+  const sceneSprockets = (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "0 5px", height: 5, alignItems: "center", background: "#131312" }}>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} style={{ width: 4, height: 2, borderRadius: 1, background: "#454340" }} />
+      ))}
+    </div>
+  );
+
   return (
     <div
-      className={`relative rounded-lg border overflow-hidden ${
-        scene.imageUrl
-          ? "border-[#5EC97E]/30 bg-[#5EC97E]/5"
-          : "border-[#D4A652]/30 bg-[#D4A652]/5"
-      }`}
+      style={{
+        border: "1px solid rgba(212,166,82,0.25)",
+        borderRadius: 3,
+        overflow: "hidden",
+      }}
     >
+      {/* Top sprockets */}
+      {sceneSprockets}
+
       <div className="aspect-video bg-[#1B1A18] relative group">
         {scene.imageUrl ? (
           <>
@@ -114,16 +126,31 @@ export function SceneCard({ scene, pipeline }: SceneCardProps) {
         )}
 
         {/* Scene number badge */}
-        <span className="absolute top-1 left-1 bg-black/60 text-[9px] text-[#B5B2A8] px-1.5 py-0.5 rounded font-mono">
+        <span
+          style={{
+            position: "absolute",
+            top: 3,
+            left: 3,
+            background: "rgba(0,0,0,0.6)",
+            fontSize: 9,
+            color: "#B5B2A8",
+            padding: "1px 4px",
+            borderRadius: 2,
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
           {scene.sceneIndex + 1}
         </span>
       </div>
 
-      <div className="p-1.5">
-        <p className="text-[10px] font-medium text-[#ECE9E1] truncate">
+      {/* Bottom sprockets */}
+      {sceneSprockets}
+
+      <div style={{ padding: "4px 6px", background: "#131312" }}>
+        <p style={{ fontSize: 10, fontWeight: 500, color: "#ECE9E1" }} className="truncate">
           {scene.title || `Scene ${scene.sceneIndex + 1}`}
         </p>
-        <p className="text-[9px] text-[#5F5E5A]">
+        <p style={{ fontSize: 9, color: "#5F5E5A" }}>
           {scene.imageUrl ? "Ready" : "Failed"}
         </p>
       </div>

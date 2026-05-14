@@ -20,6 +20,18 @@ import { StoryboardReviewPanel } from "./StoryboardReviewPanel";
 import { PipelineProgressPanel } from "./PipelineProgressPanel";
 import { ExportCompletePanel } from "./ExportCompletePanel";
 
+/* ── Film Strip sprocket pattern (left/right edges of dialog) ── */
+const sprocketStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 0,
+  bottom: 0,
+  width: 18,
+  zIndex: 20,
+  pointerEvents: "none",
+  background:
+    "repeating-linear-gradient(to bottom, transparent 0px, transparent 8px, #1B1A18 8px, #1B1A18 14px, transparent 14px, transparent 22px)",
+};
+
 interface ExportToEditronDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -54,50 +66,92 @@ export function ExportToEditronDialog({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className={`${maxWidth} bg-[#0F0F0E] border-[#282724] text-[#ECE9E1]`}
+        className={`${maxWidth} text-[#ECE9E1] p-0 overflow-hidden`}
+        style={{
+          background: "#131312",
+          borderColor: "#282724",
+          borderRadius: 4,
+          position: "relative",
+        }}
       >
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[#ECE9E1] font-sans">
-            <Video className="h-5 w-5 text-[#5EC97E]" />
-            Export to Editor
-          </DialogTitle>
-          <DialogDescription className="text-[#7A776E]">
+        {/* Left sprocket strip */}
+        <div
+          style={{
+            ...sprocketStyle,
+            left: 0,
+            borderRight: "1px solid #1C1B19",
+          }}
+        />
+        {/* Right sprocket strip */}
+        <div
+          style={{
+            ...sprocketStyle,
+            right: 0,
+            borderLeft: "1px solid #1C1B19",
+          }}
+        />
+
+        {/* Film inner content (inset from sprockets) */}
+        <div style={{ margin: "0 18px", position: "relative", zIndex: 10 }}>
+          <DialogHeader
+            className="flex flex-row items-center gap-2.5 border-b px-4 py-3.5"
+            style={{ borderColor: "#1C1B19" }}
+          >
+            <Video className="h-[18px] w-[18px] text-[#B5B2A8] shrink-0" />
+            <DialogTitle
+              className="text-[15px] font-semibold text-[#ECE9E1] font-sans"
+              style={{ lineHeight: 1.3 }}
+            >
+              Export to Editor
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              {stepDescription()}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Visible subtitle below header */}
+          <p
+            className="text-[12px] px-4 pb-1"
+            style={{ color: "#7A776E" }}
+          >
             {stepDescription()}
-          </DialogDescription>
-        </DialogHeader>
+          </p>
 
-        {/* Stage progress header */}
-        <ExportStageHeader currentStage={step} />
+          {/* Film Strip Pipeline Bar */}
+          <ExportStageHeader currentStage={step} />
 
-        {/* Panel switcher */}
-        <AnimatePresence mode="wait">
-          {step === "configure" && (
-            <ExportConfigPanel
-              pipeline={pipeline}
-              blocksCount={blocks.length}
-            />
-          )}
+          {/* Body */}
+          <div className="px-4 pb-4 pt-1">
+            <AnimatePresence mode="wait">
+              {step === "configure" && (
+                <ExportConfigPanel
+                  pipeline={pipeline}
+                  blocksCount={blocks.length}
+                />
+              )}
 
-          {step === "profile-selection" && (
-            <ProfileSelectionPanel pipeline={pipeline} />
-          )}
+              {step === "profile-selection" && (
+                <ProfileSelectionPanel pipeline={pipeline} />
+              )}
 
-          {step === "reviewing-references" && (
-            <ReferenceImagePanel pipeline={pipeline} />
-          )}
+              {step === "reviewing-references" && (
+                <ReferenceImagePanel pipeline={pipeline} />
+              )}
 
-          {step === "reviewing-storyboard" && (
-            <StoryboardReviewPanel pipeline={pipeline} />
-          )}
+              {step === "reviewing-storyboard" && (
+                <StoryboardReviewPanel pipeline={pipeline} />
+              )}
 
-          {isProcessingStage(step) && (
-            <PipelineProgressPanel pipeline={pipeline} />
-          )}
+              {isProcessingStage(step) && (
+                <PipelineProgressPanel pipeline={pipeline} />
+              )}
 
-          {step === "done" && (
-            <ExportCompletePanel pipeline={pipeline} />
-          )}
-        </AnimatePresence>
+              {step === "done" && (
+                <ExportCompletePanel pipeline={pipeline} />
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

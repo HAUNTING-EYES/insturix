@@ -3,12 +3,8 @@
 import React from "react";
 import { motion } from "framer-motion";
 import {
-  Check,
-  Loader2,
   ImageIcon,
-  Video,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import type { UseExportPipelineReturn } from "./hooks/useExportPipeline";
 
 interface ExportCompletePanelProps {
@@ -17,6 +13,7 @@ interface ExportCompletePanelProps {
 
 export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
   const {
+    title,
     scenes,
     aspectRatio,
     storyboardId,
@@ -34,116 +31,173 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
-      className="space-y-4 py-2"
+      className="space-y-3 py-2"
     >
-      {/* Success card */}
-      <div className="flex items-center gap-3 p-4 rounded-xl bg-[#D4A652]/10 border border-[#D4A652]/20">
-        <Check className="h-6 w-6 text-[#D4A652]" />
-        <div>
-          <p className="text-sm font-medium text-[#ECE9E1] font-sans">Project Created</p>
-          <p className="text-[11px] text-[#7A776E]">
-            {scenes.length} scenes · {aspectRatio}
-            {storyboardId && " · Storyboard"}
-            {videosGenerated && " · AI Videos"}
-          </p>
+      {/* Keyframe for audio spinner */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes export-audioSpin {
+          to { transform: rotate(360deg); }
+        }
+        .export-audio-spin {
+          animation: export-audioSpin 1.5s linear infinite;
+        }
+      `}} />
+
+      {/* ── Clapperboard success card ── */}
+      <div style={{ border: "1.5px solid rgba(212,166,82,0.25)", borderRadius: 3, overflow: "hidden" }}>
+        {/* Clapper top — diagonal stripe pattern */}
+        <div style={{
+          background: "repeating-linear-gradient(-45deg, #131312 0px, #131312 8px, #1B1A18 8px, #1B1A18 16px)",
+          padding: "10px 14px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderBottom: "2px solid #D4A652",
+        }}>
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 600, color: "#D4A652", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            PRODUCTION WRAP
+          </span>
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 600, color: "#D4A652", letterSpacing: "0.06em", textTransform: "uppercase", opacity: 0.5 }}>
+            EDITRON
+          </span>
+        </div>
+
+        {/* Clapper body */}
+        <div style={{ padding: 14, background: "#131312" }}>
+          {/* Row: Scene */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid #1C1B19" }}>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#5F5E5A", textTransform: "uppercase", letterSpacing: "0.06em" }}>Scene</span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: "#5EC97E" }}>COMPLETE</span>
+          </div>
+          {/* Row: Take */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid #1C1B19" }}>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#5F5E5A", textTransform: "uppercase", letterSpacing: "0.06em" }}>Take</span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: "#ECE9E1" }}>1</span>
+          </div>
+          {/* Row: Project */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid #1C1B19" }}>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#5F5E5A", textTransform: "uppercase", letterSpacing: "0.06em" }}>Project</span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: "#D4A652" }}>{title || "Untitled"}</span>
+          </div>
+          {/* Row: Format */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#5F5E5A", textTransform: "uppercase", letterSpacing: "0.06em" }}>Format</span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: "#ECE9E1" }}>
+              {scenes.length} scenes · {aspectRatio}
+              {videosGenerated ? " · AI Videos" : storyboardId ? " · Storyboard" : ""}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Audio generating in background indicator */}
       {audioGenerating && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-[#5CB8CC]/10 border border-[#5CB8CC]/20">
-          <Loader2 className="h-4 w-4 text-[#5CB8CC] animate-spin" />
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: 10, borderRadius: 4,
+          background: "rgba(92,184,204,0.06)", border: "1px solid rgba(92,184,204,0.12)",
+        }}>
+          <svg className="export-audio-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5CB8CC" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
           <div>
-            <p className="text-[11px] font-medium text-[#5CB8CC]">
-              Music & Sound Effects generating
-            </p>
-            <p className="text-[10px] text-[#5CB8CC]/70">
-              Audio will appear in your Editor project automatically. Refresh the
-              editor after a few minutes.
-            </p>
+            <p style={{ fontSize: 10, fontWeight: 500, color: "#5CB8CC" }}>Music & Sound Effects generating</p>
+            <p style={{ fontSize: 9, color: "rgba(92,184,204,0.55)", marginTop: 1 }}>Audio will appear in your Editor automatically</p>
           </div>
         </div>
       )}
 
       {/* Warnings */}
       {error && (
-        <div className="p-3 rounded-lg bg-[#D4A652]/10 border border-[#D4A652]/20">
-          <p className="text-[11px] text-[#D4A652]">{error}</p>
+        <div style={{ padding: 10, borderRadius: 4, background: "rgba(212,166,82,0.06)", border: "1px solid rgba(212,166,82,0.12)" }}>
+          <p style={{ fontSize: 11, color: "#D4A652" }}>{error}</p>
         </div>
       )}
 
-      {/* Storyboard preview */}
+      {/* Storyboard preview with film-frame borders */}
       {storyboardScenes.length > 0 && (
-        <div>
-          <p className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-2">Storyboard Preview</p>
-          <div className="grid grid-cols-3 gap-2">
+        <div style={{ marginTop: 12 }}>
+          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#5F5E5A", marginBottom: 6 }}>
+            Storyboard Preview
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
             {storyboardScenes.slice(0, 6).map((s: any) => (
               <div
                 key={s.sceneIndex}
-                className="aspect-video bg-[#1B1A18] rounded overflow-hidden relative"
+                style={{
+                  aspectRatio: "16/9",
+                  background: "#1B1A18",
+                  borderRadius: 3,
+                  overflow: "hidden",
+                  position: "relative",
+                  border: "1px solid rgba(212,166,82,0.25)",
+                }}
               >
                 {s.imageUrl ? (
                   <img
                     src={s.imageUrl}
                     alt={s.title}
-                    className="w-full h-full object-cover"
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-[#454340]">
+                  <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#454340" }}>
                     <ImageIcon className="h-4 w-4" />
                   </div>
                 )}
-                <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-[10px] text-[#B5B2A8] px-1 py-0.5 truncate">
+                <span style={{
+                  position: "absolute", bottom: 0, left: 0, right: 0,
+                  background: "rgba(0,0,0,0.55)", fontSize: 9, color: "#B5B2A8",
+                  padding: "2px 4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                }}>
                   {s.title}
                 </span>
               </div>
             ))}
           </div>
           {storyboardScenes.length > 6 && (
-            <p className="text-[10px] text-[#5F5E5A] mt-1">
+            <p style={{ fontSize: 10, color: "#5F5E5A", marginTop: 4 }}>
               +{storyboardScenes.length - 6} more scenes
             </p>
-          )}
-          {storyboardId && (
-            <button
-              onClick={() =>
-                window.open(`/dashboard/storyboard/${storyboardId}`, "_blank")
-              }
-              className="mt-2 w-full text-[11px] text-[#D4A652] hover:text-[#D4A652]/80 hover:bg-[#D4A652]/10 rounded py-1.5 transition-colors flex items-center justify-center gap-1.5"
-            >
-              <ImageIcon className="h-3 w-3" />
-              View Full Storyboard (sub-shots, regenerate, review)
-            </button>
           )}
         </div>
       )}
 
       {/* Footer actions */}
-      <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1C1B19]">
-        <Button variant="ghost" onClick={handleClose} className="bg-transparent border border-[#282724] text-[#7A776E] hover:border-[#D4A652] hover:text-[#D4A652] rounded-[7px]">
-          Close
-        </Button>
-        {storyboardId && (
-          <Button
-            variant="outline"
-            onClick={() => {
-              window.location.href = `/dashboard/storyboard/${storyboardId}`;
-            }}
-            className="border-[#D4A652]/30 text-[#D4A652] hover:bg-[#D4A652]/10 rounded-[7px]"
-          >
-            <ImageIcon className="h-4 w-4 mr-2" />
-            Edit Storyboard
-          </Button>
-        )}
-        <Button
-          onClick={() => {
-            window.location.href = `/dashboard/editron/project/${projectId}`;
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, paddingTop: 12, borderTop: "1px solid #1C1B19", marginTop: 12 }}>
+        <button
+          onClick={handleClose}
+          style={{
+            padding: "7px 14px", borderRadius: 4,
+            background: "transparent", border: "1px solid #282724",
+            color: "#7A776E", fontSize: 13, fontWeight: 600, cursor: "pointer",
           }}
-          className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded-[7px] border-none"
         >
-          <Video className="h-4 w-4 mr-2" />
+          Close
+        </button>
+        {storyboardId && (
+          <button
+            onClick={() => { window.location.href = `/dashboard/storyboard/${storyboardId}`; }}
+            style={{
+              padding: "7px 14px", borderRadius: 4,
+              background: "transparent", border: "1px solid rgba(212,166,82,0.3)",
+              color: "#D4A652", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+            }}
+          >
+            <ImageIcon className="h-4 w-4" />
+            Edit Storyboard
+          </button>
+        )}
+        <button
+          onClick={() => { window.location.href = `/dashboard/editron/project/${projectId}`; }}
+          style={{
+            padding: "7px 14px", borderRadius: 4,
+            background: "#D4A652", border: "none",
+            color: "#0B0B0A", fontSize: 13, fontWeight: 600, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="23 7 16 12 23 17 23 7" /><rect width="15" height="14" x="1" y="5" rx="2" ry="2" /></svg>
           Open in Editor
-        </Button>
+        </button>
       </div>
     </motion.div>
   );

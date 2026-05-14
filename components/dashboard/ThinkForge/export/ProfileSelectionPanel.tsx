@@ -3,7 +3,6 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { EDIT_PROFILES } from "@/lib/editron/data/edit-profiles";
 import type { UseExportPipelineReturn } from "./hooks/useExportPipeline";
 
@@ -38,46 +37,86 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className="space-y-4 py-2"
+      className="space-y-3 py-2"
     >
-      {/* Detected profile card */}
-      <div className="p-4 rounded-lg bg-[#1B1A18]/50 border border-[#282724]">
-        <div className="flex items-center justify-between mb-3">
+      {/* Film-frame profile card */}
+      <div
+        style={{
+          border: "1px solid rgba(212,166,82,0.25)",
+          borderRadius: 3,
+          overflow: "hidden",
+        }}
+      >
+        {/* Profile header */}
+        <div
+          style={{
+            padding: "10px 12px",
+            background: "rgba(212,166,82,0.03)",
+            borderBottom: "1px solid rgba(212,166,82,0.1)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+          }}
+        >
           <div>
-            <p className="text-sm font-medium text-[#ECE9E1]">{detectedProfile.name}</p>
-            <p className="text-[11px] text-[#7A776E] mt-0.5">{detectedProfile.description}</p>
+            <p style={{ fontSize: 14, fontWeight: 500, color: "#ECE9E1" }}>{detectedProfile.name}</p>
+            <p style={{ fontSize: 11, color: "#7A776E", marginTop: 2 }}>{detectedProfile.description}</p>
           </div>
           <span
-            className={`text-[11px] px-2 py-0.5 rounded ${
-              detectedProfile.confidence >= 0.6
-                ? "bg-[#5EC97E]/20 text-[#5EC97E]"
-                : "bg-[#D4A652]/20 text-[#D4A652]"
-            }`}
+            style={{
+              fontSize: 10,
+              padding: "2px 7px",
+              borderRadius: 3,
+              fontFamily: "'JetBrains Mono', monospace",
+              background: detectedProfile.confidence >= 0.6 ? "rgba(94,201,126,0.2)" : "rgba(212,166,82,0.2)",
+              color: detectedProfile.confidence >= 0.6 ? "#5EC97E" : "#D4A652",
+            }}
           >
-            <span className="font-mono">{(detectedProfile.confidence * 100).toFixed(0)}% match</span>
+            {(detectedProfile.confidence * 100).toFixed(0)}% match
           </span>
         </div>
 
-        {/* Reasoning */}
-        {detectedProfile.reasoning.length > 0 && (
-          <div className="mt-2 space-y-1">
-            {detectedProfile.reasoning.slice(0, 4).map((reason, i) => (
-              <p key={i} className="text-[10px] text-[#5F5E5A]">
-                → {reason}
-              </p>
-            ))}
-          </div>
-        )}
+        {/* Profile body */}
+        <div style={{ padding: "8px 12px" }}>
+          {/* Reasoning */}
+          {detectedProfile.reasoning.length > 0 && (
+            <div className="space-y-1 mb-2">
+              {detectedProfile.reasoning.slice(0, 4).map((reason, i) => (
+                <p key={i} style={{ fontSize: 10, color: "#5F5E5A" }}>
+                  {"→"} {reason}
+                </p>
+              ))}
+            </div>
+          )}
 
-        {/* Profile override -- searchable grouped list */}
-        <div className="mt-3 space-y-2">
+          {/* Profile override -- searchable grouped list */}
           <input
             type="text"
             placeholder="Search profiles..."
-            className="w-full h-8 px-3 text-[11px] bg-[#0F0F0E] border border-[#282724] rounded-md text-[#ECE9E1] placeholder-[#5F5E5A] focus:outline-none focus:ring-1 focus:ring-[#D4A652]"
+            style={{
+              width: "100%",
+              height: 26,
+              padding: "0 8px",
+              fontSize: 11,
+              background: "#0F0F0E",
+              border: "1px solid #282724",
+              borderRadius: 3,
+              color: "#ECE9E1",
+              outline: "none",
+              marginTop: 6,
+            }}
             onChange={(e) => setProfileSearchQuery(e.target.value.toLowerCase())}
           />
-          <div className="max-h-48 overflow-y-auto border border-[#282724] rounded-md bg-[#0F0F0E]">
+          <div
+            style={{
+              maxHeight: 110,
+              overflowY: "auto",
+              border: "1px solid #282724",
+              borderRadius: 3,
+              background: "#0F0F0E",
+              marginTop: 6,
+            }}
+          >
             {Object.entries(
               Object.entries(EDIT_PROFILES)
                 .filter(([, p]) => {
@@ -99,7 +138,20 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
                 ),
             ).map(([category, profiles]) => (
               <div key={category}>
-                <div className="px-2 py-1 font-mono text-[10px] font-semibold text-[#5F5E5A] uppercase tracking-[0.08em] bg-[#1B1A18]/50 sticky top-0">
+                <div
+                  style={{
+                    padding: "3px 8px",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 9,
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    color: "#5F5E5A",
+                    background: "rgba(27,26,24,0.5)",
+                    position: "sticky",
+                    top: 0,
+                  }}
+                >
                   {category}
                 </div>
                 {profiles.map(([id, p]) => (
@@ -118,14 +170,20 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
                         });
                       }
                     }}
-                    className={`w-full text-left px-3 py-1.5 text-[11px] hover:bg-[#1B1A18] transition-colors ${
-                      selectedProfileId === id
-                        ? "bg-[#D4A652]/10 text-[#D4A652]"
-                        : "text-[#B5B2A8]"
-                    }`}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "5px 10px",
+                      fontSize: 11,
+                      color: selectedProfileId === id ? "#D4A652" : "#B5B2A8",
+                      background: selectedProfileId === id ? "rgba(212,166,82,0.08)" : "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
                   >
-                    <span className="font-medium">{p.name}</span>
-                    <span className="text-[#5F5E5A] ml-1.5">
+                    {p.name}
+                    <span style={{ color: "#5F5E5A", marginLeft: 6 }}>
                       -- {p.description?.substring(0, 50)}
                     </span>
                   </button>
@@ -136,14 +194,14 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
         </div>
       </div>
 
-      {/* Brief Overrides */}
-      <div className="grid grid-cols-2 gap-2 mt-3">
+      {/* Brief Overrides grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
         <div>
-          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] block mb-0.5">Platform</label>
+          <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "#5F5E5A", display: "block", marginBottom: 2 }}>Platform</label>
           <select
             value={briefPlatform}
             onChange={(e) => setBriefPlatform(e.target.value)}
-            className="w-full h-7 px-2 text-[11px] bg-[#0F0F0E] border border-[#282724] rounded text-[#B5B2A8]"
+            style={{ width: "100%", height: 26, padding: "0 8px", fontSize: 11, background: "#0F0F0E", border: "1px solid #282724", borderRadius: 3, color: "#B5B2A8", outline: "none" }}
           >
             <option value="">Auto (from profile)</option>
             <option value="youtube">YouTube</option>
@@ -155,11 +213,11 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
           </select>
         </div>
         <div>
-          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] block mb-0.5">Tone</label>
+          <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "#5F5E5A", display: "block", marginBottom: 2 }}>Tone</label>
           <select
             value={briefTone}
             onChange={(e) => setBriefTone(e.target.value)}
-            className="w-full h-7 px-2 text-[11px] bg-[#0F0F0E] border border-[#282724] rounded text-[#B5B2A8]"
+            style={{ width: "100%", height: 26, padding: "0 8px", fontSize: 11, background: "#0F0F0E", border: "1px solid #282724", borderRadius: 3, color: "#B5B2A8", outline: "none" }}
           >
             <option value="">Auto (from profile)</option>
             <option value="professional">Professional</option>
@@ -170,11 +228,11 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
           </select>
         </div>
         <div>
-          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] block mb-0.5">Captions</label>
+          <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "#5F5E5A", display: "block", marginBottom: 2 }}>Captions</label>
           <select
             value={briefCaptionStyle}
             onChange={(e) => setBriefCaptionStyle(e.target.value)}
-            className="w-full h-7 px-2 text-[11px] bg-[#0F0F0E] border border-[#282724] rounded text-[#B5B2A8]"
+            style={{ width: "100%", height: 26, padding: "0 8px", fontSize: 11, background: "#0F0F0E", border: "1px solid #282724", borderRadius: 3, color: "#B5B2A8", outline: "none" }}
           >
             <option value="">Auto (from profile)</option>
             <option value="none">None</option>
@@ -192,11 +250,11 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
           </select>
         </div>
         <div>
-          <label className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] block mb-0.5">BGM Mood</label>
+          <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "#5F5E5A", display: "block", marginBottom: 2 }}>BGM Mood</label>
           <select
             value={briefBgmMood}
             onChange={(e) => setBriefBgmMood(e.target.value)}
-            className="w-full h-7 px-2 text-[11px] bg-[#0F0F0E] border border-[#282724] rounded text-[#B5B2A8]"
+            style={{ width: "100%", height: 26, padding: "0 8px", fontSize: 11, background: "#0F0F0E", border: "1px solid #282724", borderRadius: 3, color: "#B5B2A8", outline: "none" }}
           >
             <option value="">Auto</option>
             <option value="upbeat">Upbeat</option>
@@ -208,13 +266,28 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
         </div>
       </div>
 
-      <Button
+      <button
         onClick={() => handlePostProfileSelection()}
-        className="w-full mt-3 bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded-[7px] border-none"
+        style={{
+          width: "100%",
+          marginTop: 10,
+          padding: "7px 14px",
+          borderRadius: 4,
+          background: "#D4A652",
+          color: "#0B0B0A",
+          fontWeight: 600,
+          fontSize: 13,
+          border: "none",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+        }}
       >
-        Continue with {detectedProfile.name}{" "}
-        <ArrowRight className="h-4 w-4 ml-2" />
-      </Button>
+        Continue with {detectedProfile.name}
+        <ArrowRight className="h-4 w-4" />
+      </button>
     </motion.div>
   );
 }

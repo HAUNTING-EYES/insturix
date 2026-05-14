@@ -47,14 +47,27 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
   const showFeedback = feedbackSubjectId === subject.subjectId;
   const isEditing = editingSubjectId === subject.subjectId;
 
+  /* Mini sprocket row for subject film frames */
+  const miniSprockets = (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "0 6px", height: 5, alignItems: "center", background: "#131312" }}>
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} style={{ width: 4, height: 2.5, borderRadius: 1, background: "#454340" }} />
+      ))}
+    </div>
+  );
+
   return (
     <div
-      className={`relative rounded-lg border overflow-hidden transition-all ${
-        isApproved
-          ? "border-[#5EC97E]/40 bg-[#5EC97E]/5"
-          : "border-[#D4A652]/30 bg-[#D4A652]/5"
-      }`}
+      style={{
+        border: "1px solid rgba(212,166,82,0.25)",
+        borderRadius: 3,
+        overflow: "hidden",
+        position: "relative",
+      }}
     >
+      {/* Top sprockets */}
+      {miniSprockets}
+
       {/* Image */}
       <div className="aspect-square bg-[#1B1A18] relative">
         {subject.imageUrl ? (
@@ -164,10 +177,13 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
         </div>
       </div>
 
+      {/* Bottom sprockets */}
+      {miniSprockets}
+
       {/* Info */}
-      <div className="p-2">
-        <p className="text-[11px] font-medium text-[#ECE9E1] truncate">{subject.name}</p>
-        <p className="text-[10px] text-[#5F5E5A]">
+      <div style={{ padding: "6px 8px", background: "#131312" }}>
+        <p style={{ fontSize: 11, fontWeight: 500, color: "#ECE9E1" }} className="truncate">{subject.name}</p>
+        <p style={{ fontSize: 9, color: "#5F5E5A", marginTop: 1 }}>
           {subject.category} · Scenes {subject.scenesAppearingIn?.join(", ")}
         </p>
         {subject.visualDescription && !isEditing && (
