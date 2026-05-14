@@ -1309,19 +1309,108 @@
   height: 100vh !important;
 }
 
-/* Editron editor fullscreen layout fixes */
-[data-editron-fullscreen] .abcdefg {
-  min-height: 100% !important;
-  height: 100% !important;
-  width: 100% !important;
+/* ── Receipt Tape (Billing Dashboard) ── */
+
+/* 1. Print reveal: clip-path wipe top->bottom */
+@keyframes receiptPrint {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0% 0);
+  }
 }
 
-[data-editron-fullscreen] main {
-  min-height: 100% !important;
-  height: 100% !important;
-  position: relative !important;
+/* 2. Counter roll-up: individual digit drop-in */
+@keyframes counterRoll {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
-[data-editron-fullscreen] [data-sidebar="sidebar"] {
-  height: 100vh !important;
+/* 3. Balance glow: gold text-shadow pulse on total */
+@keyframes balanceGlow {
+  0%, 100% {
+    text-shadow: 0 0 0 transparent;
+  }
+  50% {
+    text-shadow: 0 0 18px rgba(212, 166, 82, 0.35), 0 0 40px rgba(212, 166, 82, 0.12);
+  }
+}
+
+/* 4. Latest transaction slide-in from left */
+@keyframes latestSlideIn {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Gold flash on latest line item */
+@keyframes goldFlash {
+  0% {
+    background: rgba(212, 166, 82, 0.15);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* 5. Expiry pulse: gold <-> red when < 7 days */
+@keyframes expiryPulse {
+  0%, 100% {
+    color: #D4A652;
+  }
+  50% {
+    color: #D46A5C;
+  }
+}
+
+/* 6. Barcode shimmer: diagonal gold gradient sweep */
+@keyframes barcodeShimmer {
+  0% {
+    background: linear-gradient(
+      120deg,
+      transparent 0%,
+      transparent 40%,
+      rgba(212, 166, 82, 0.12) 50%,
+      transparent 60%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    background-position: 200% 0;
+  }
+  100% {
+    background: linear-gradient(
+      120deg,
+      transparent 0%,
+      transparent 40%,
+      rgba(212, 166, 82, 0.12) 50%,
+      transparent 60%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    background-position: -200% 0;
+  }
+}
+
+/* 7. Button glow: INSERT CARD border breathes gold */
+@keyframes btnGlow {
+  0%, 100% {
+    border-color: rgba(212, 166, 82, 0.25);
+    box-shadow: 0 0 0 transparent;
+  }
+  50% {
+    border-color: rgba(212, 166, 82, 0.7);
+    box-shadow: 0 0 20px rgba(212, 166, 82, 0.15), 0 0 40px rgba(212, 166, 82, 0.06);
+  }
 }
