@@ -540,7 +540,54 @@ export default function SocializeDashboard({
                 user={user ? { username: user.username ?? undefined, imageUrl: user.imageUrl ?? undefined } : null}
                 bio={bio}
                 onEditBio={() => setShowEditBioModal(true)}
+                status={status}
+                accentColor={accentColor}
               />
+              <div style={{ marginTop: 12 }}>
+                <label
+                  style={{
+                    fontFamily: "var(--font-jetbrains-mono)",
+                    fontSize: "0.68rem",
+                    color: "#5F5E5A",
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase" as const,
+                    display: "block",
+                    marginBottom: 6,
+                  }}
+                >
+                  Status
+                </label>
+                <input
+                  type="text"
+                  value={status}
+                  maxLength={50}
+                  placeholder="What are you working on?"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setStatus(val);
+                  }}
+                  onBlur={() => {
+                    updateUserDataMutation.mutate({ status });
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: 7,
+                    border: "1px solid #1C1B19",
+                    background: "#1B1A18",
+                    color: "#ECE9E1",
+                    fontSize: "0.82rem",
+                    fontFamily: "var(--font-plus-jakarta-sans), system-ui, sans-serif",
+                    outline: "none",
+                    transition: "border-color 0.25s cubic-bezier(.16,1,.3,1)",
+                  }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = "#D4A652"; }}
+                  onMouseLeave={(e) => { if (document.activeElement !== e.currentTarget) e.currentTarget.style.borderColor = "#1C1B19"; }}
+                />
+                <div style={{ textAlign: "right", fontFamily: "var(--font-jetbrains-mono)", fontSize: "0.6rem", color: "#5F5E5A", marginTop: 4 }}>
+                  {status.length}/50
+                </div>
+              </div>
             </div>
 
             {/* THE CHAPTERS */}
