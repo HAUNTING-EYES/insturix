@@ -72,12 +72,28 @@ function entriesToText(entries: DataBankEntry[]): string {
 export async function runPostMortemAgent(input: PostMortemInput): Promise<PostMortemResult> {
   const { userId, sessionId, projectTitle } = input;
 
+  // Fetch cross-service brand events (best-effort)
+  let brandEventsText = '';
+  try {
+    const { getEventsByUser } = await import('@/lib/shared/brand-events');
+    const since = new Date();
+    since.setDate(since.getDate() - 7);
+    const brandEvents = await getEventsByUser(userId, { limit: 50, since });
+    if (brandEvents.length > 0) {
+      brandEventsText = brandEvents
+        .map((e) => `[${e.service}/${e.type}] ${JSON.stringify(e.payload).slice(0, 200)}`)
+        .join('\n');
+    }
+  } catch {
+    // brand events unavailable — proceed with ThinkForge data only
+  }
+
   const [events, projectEntries] = await Promise.all([
     getRecentInteractionEvents(userId, { projectId: sessionId, limit: 200 }),
     getProjectScopedEntries(userId, sessionId, { limit: 100 }),
   ]);
 
-  if (events.length === 0 && projectEntries.length === 0) {
+  if (events.length === 0 && projectEntries.length === 0 && !brandEventsText) {
     return { summaryEntryId: null, lessonsExtracted: 0, eventsDeleted: 0, entriesDeleted: 0 };
   }
 
@@ -97,7 +113,10 @@ Only extract genuinely useful, specific insights. Do not fabricate or over-gener
 ${eventsToText(events)}
 
 ## Project Knowledge Entries
-${entriesToText(projectEntries)}`,
+${entriesToText(projectEntries)}${brandEventsText ? `
+
+## Cross-Service Brand Events (overrides, style changes, quality scores)
+${brandEventsText}` : ''}`,
     temperature: 0.2,
   });
 
