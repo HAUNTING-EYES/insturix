@@ -160,7 +160,7 @@ export async function executeDirectorPlan(
             audioDescription: seg.fillerCount > 0 ? `speech with ${seg.fillerCount} fillers` : 'clean speech',
             cameraDirection: 'static',
             editDirections: {
-              transition: { type: 'hard-cut' },
+              transition: undefined,
               pacing: rfa.contentTypeDetection?.contentType === 'vlog' ? 'fast' : 'medium',
               onScreenText: [],
             },

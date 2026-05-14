@@ -111,13 +111,29 @@ export function findClipAtFrame(
   overlays: Overlay[],
   tolerance: number = 15,
 ): { clip: Overlay; snappedFrame: number; drift: number } | null {
-  // Try exact containment first
+  // Try exact containment first (timeline position)
   const exact = overlays.find(o =>
     o.type === 'video' &&
     o.from <= decisionFrame &&
     o.from + o.durationInFrames > decisionFrame,
   );
   if (exact) return { clip: exact, snappedFrame: decisionFrame, drift: 0 };
+
+  // Mode 2 fallback: decision frames may be in pre-removal source timeline.
+  // After silence removal, overlay.from positions shifted but videoStartTime
+  // still references the original source. Match against source frame range.
+  const sourceMatch = overlays.find(o => {
+    if (o.type !== 'video') return false;
+    const srcStart = (o as any).videoStartTime || 0;
+    const srcEnd = srcStart + o.durationInFrames;
+    return decisionFrame >= srcStart && decisionFrame < srcEnd;
+  });
+  if (sourceMatch) {
+    const srcStart = (sourceMatch as any).videoStartTime || 0;
+    const localOffset = decisionFrame - srcStart;
+    const snapped = sourceMatch.from + localOffset;
+    return { clip: sourceMatch, snappedFrame: snapped, drift: 0 };
+  }
 
   // Try with tolerance — find nearest clip that contains decisionFrame ± tolerance
   let bestClip: Overlay | null = null;
@@ -664,7 +680,7 @@ function applyZoom(
   // visually compelling" but zoom needs a starting reference. Shift to first motion peak
   // or skip entirely if within first 1 second.
   if (decision.frame <= videoOverlay.from + 30) { // within first 1s of clip
-    const analysis = analyses?.get(videoOverlay.assetId);
+    const analysis = videoOverlay.assetId ? analyses?.get(videoOverlay.assetId) : undefined;
     const peaks = (analysis as any)?.motionPeaks || [];
     if (peaks.length > 0 && peaks[0] > 30) {
       console.log(`[EDL-Exec] Zoom at frame ${decision.frame} too early (hook zone) — shifted to first motion peak at frame ${videoOverlay.from + peaks[0]}`);
