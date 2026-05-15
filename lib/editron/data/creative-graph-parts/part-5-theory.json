@@ -363,11 +363,11 @@
       "name": "Synchresis",
       "summary": "When sound and visual event occur simultaneously, the brain automatically fuses them into a single percept — even if the sound doesn't actually come from the visual source.",
       "details": {
-        "principle": "When a sound and a visual event occur simultaneously, the brain automatically fuses them into a single percept — even if the sound doesn't actually come from the visual source. A random 'crack' at the moment someone sets down a cup = perceived as the cup's sound. The fusion is automatic and happens within ~40ms. Beyond 40ms offset, the brain separates them.",
+        "principle": "When a sound and a visual event occur simultaneously, the brain automatically fuses them into a single percept — even if the sound doesn't actually come from the visual source. A random 'crack' at the moment someone sets down a cup = perceived as the cup's sound. The temporal binding window is ~200ms wide in adults (asymmetric: visual-leading is more tolerated). Beyond this window, the brain separates them.",
         "author": "Michel Chion, 'Audio-Vision' (1994)",
         "application": "This is why SFX timing precision is non-negotiable — sfx_timing_drift < 3 frames constraint. SFX can be totally arbitrary as long as it lands on a visual event within the synchresis window.",
-        "examples": ["Random 'crack' at cup placement = perceived as cup sound", "SFX synced within 40ms = fuses with visual"],
-        "implications": ["~40ms synchresis window", "SFX timing < 3 frames is non-negotiable", "Sound source need not be diegetic — only synced"]
+        "examples": ["Random 'crack' at cup placement = perceived as cup sound", "SFX synced within temporal binding window (~200ms) = fuses with visual"],
+        "implications": ["~200ms temporal binding window (research shows asymmetric, not the ~40ms often cited)", "SFX timing < 3 frames is a conservative engineering target within this window", "Sound source need not be diegetic — only synced"]
       },
       "tags": ["DETERMINISTIC_HINT", "LLM_REQUIRED"],
       "sourceLines": [5240, 5240]

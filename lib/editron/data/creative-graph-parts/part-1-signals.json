@@ -81,7 +81,7 @@
         "detection": "Gap between word-level timestamps from Whisper. Future: Grok + Wav2Vec-BERT distinguish intentional pauses from dead air.",
         "output": "0-10000+ ms",
         "thresholds": "< 300ms = natural breath pause (ignore); 300-800ms = clause boundary or emphasis pause; 800-2000ms = topic boundary or dramatic pause; > 2000ms = potential dead air (check narrative_pressure before removing)",
-        "rationale": "Event segmentation theory — pauses > 800ms correlate with cognitive event boundaries (Zacks 2007)",
+        "rationale": "Event segmentation theory — pauses > 800ms treated as topic boundaries (engineering default, not from Zacks 2007 — Zacks researches event segmentation at seconds-to-minutes scale)",
         "implementsIn": ["Computed from transcription-service.ts word timestamps"],
         "qualityGate": "silence > silence_tolerance AND narrative_pressure < 0.5 → flag as dead air"
       },
@@ -200,7 +200,7 @@
         "detection": "Imperative verb + action noun in final 25% of transcript. Future: Same (text-based).",
         "output": "boolean per instance + CTA_type (visit | subscribe | buy | download | contact | learn_more)",
         "thresholds": "Final 25% of transcript",
-        "rationale": "CTA placement in final 20% correlates with 3x higher conversion (Wistia 2023 data)",
+        "rationale": "CTA placement in final quarter correlates with higher conversion (Wistia data shows 16% avg CTA conversion rate; specific multiplier varies by content type)",
         "implementsIn": ["Sentence classifier on transcript"],
         "qualityGate": "If entity_CTA detected but no visual treatment (no lower-third, no zoom) → missed CTA"
       },
@@ -438,7 +438,7 @@
         "detection": "Edge density + color histogram entropy, normalized. Future: V-JEPA 2 scene understanding provides semantic complexity (not just edge count).",
         "output": "0.0-1.0 (continuous)",
         "thresholds": "visual_complexity > 0.7 AND time_since_last_cut < 1.5s → information overload",
-        "rationale": "Cognitive load theory (Sweller 1988) — working memory can hold 4±1 items. Complex frames use more slots",
+        "rationale": "Cognitive load theory — working memory can hold 4±1 items (Cowan 2001, not Sweller 1988). Complex frames use more slots",
         "implementsIn": ["Computed from edge detection + histogram analysis"],
         "qualityGate": "If visual_complexity > 0.7 AND time_since_last_cut < 1.5s → information overload flag"
       },

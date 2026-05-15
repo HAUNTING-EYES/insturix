@@ -303,7 +303,7 @@
         "autoCorrection": "shift SFX to align within ±1 frame of visual event",
         "severity": "warning",
         "appliesTo": ["sfx", "av_sync", "synchresis"],
-        "rationale": "Chion's synchresis breaks at ~40ms offset. At 3+ frames, the sound and visual separate in the viewer's perception — they hear the impact THEN see it (or vice versa), breaking the unified percept",
+        "rationale": "Chion's synchresis: temporal binding window is ~200ms (research), but 3 frames (100ms at 30fps) is a conservative engineering target. At 3+ frames, sync feels loose — the tighter the better for impact SFX",
         "deduction": -5
       },
       "tags": [],

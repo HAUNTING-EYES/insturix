@@ -383,7 +383,7 @@
           "medium": "0.5-0.9: zoom + CTA graphic",
           "low": "0.3-0.5: zoom only; 0.3-: minimal treatment"
         },
-        "why": "CTA in final 20% has 3x conversion vs mid-content (Wistia 2023). Zoom creates intimate direct address. Music resolution primes action.",
+        "why": "CTA in final quarter correlates with higher conversion (Wistia: 16% avg CTA conversion rate). Zoom creates intimate direct address. Music resolution primes action.",
         "learningTarget": "CTA style, zoom intensity, hard vs soft CTA per brand",
         "detectionHint": "imperative verb in final 25% of transcript -> check entity_CTA -> if position > 0.7, trigger."
       },
@@ -472,7 +472,7 @@
           "medium": "0.5: zoom reset + subtle beat",
           "low": "0.3-: zoom reset only"
         },
-        "why": "Event segmentation theory (Zacks 2007) - brain expects perceptual reset at goal-shift boundaries. The zoom reset mirrors the cognitive reset.",
+        "why": "Event segmentation theory (Zacks) - brain expects perceptual reset at goal-shift boundaries. The zoom reset mirrors the cognitive reset.",
         "learningTarget": "chapter threshold - how large a shift warrants chapter treatment",
         "detectionHint": "embedding cosine similarity < 0.7 between consecutive sentences + silence > 400ms."
       },
@@ -1744,7 +1744,7 @@
       "summary": "Deterministic SFX pairing for every non-hard-cut transition because sound completes the visual event through Chion's synchresis.",
       "details": {
         "trigger": "EVERY transition that is not a hard_cut - hard cuts get ambient crossfade only, every other transition type REQUIRES a paired sound",
-        "primary": "select SFX matching transition type [DETERMINISTIC pairing]: dissolve: shimmer/tone (-20dB), fade_to_black: parallel audio fade, wipe: directional whoosh (-12 to -15dB), whip_pan: fast whoosh MANDATORY (-10 to -12dB), zoom_punch: impact hit MANDATORY (-8 to -12dB), flash: shutter click/burst (-10 to -14dB), iris: mechanical sound (-18dB), match_cut: sustained tone or silence, speed_ramp: time-stretch sound (-14dB). Timing: frame-accurate (synchresis breaks at ~40ms offset)",
+        "primary": "select SFX matching transition type [DETERMINISTIC pairing]: dissolve: shimmer/tone (-20dB), fade_to_black: parallel audio fade, wipe: directional whoosh (-12 to -15dB), whip_pan: fast whoosh MANDATORY (-10 to -12dB), zoom_punch: impact hit MANDATORY (-8 to -12dB), flash: shutter click/burst (-10 to -14dB), iris: mechanical sound (-18dB), match_cut: sustained tone or silence, speed_ramp: time-stretch sound (-14dB). Timing: frame-accurate (temporal binding window ~200ms, 3 frames is conservative target)",
         "complements": [],
         "antiPatterns": [
           "NEVER leave a transition without its paired sound (except hard cut and match cut)",
