@@ -397,6 +397,26 @@ async function handler(request: NextRequest) {
       }
     }
 
+    // ─── Step 3.7: Build unified SegmentAnalysis ───────────────────
+    // One source of truth merging all 5 analysis sources per segment.
+    // Stored alongside the original fields for backward compatibility.
+    let segmentAnalysis: any = null;
+    if (rawFootageAnalysis?.segments?.length > 0) {
+      try {
+        const { buildSegmentAnalysis } = await import('@/lib/editron/services/segment-analysis-builder');
+        segmentAnalysis = buildSegmentAnalysis(
+          rawFootageAnalysis, syntheticStoryboard,
+          vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
+        );
+        if (segmentAnalysis) {
+          console.log(`[VideoAnalysisWorker] SegmentAnalysis: ${segmentAnalysis.meta.segmentCount} segments, vjepa=${segmentAnalysis.meta.hasVjepa}, wav2vec=${segmentAnalysis.meta.hasWav2vec}, phase=${segmentAnalysis.meta.momentWeightPhase}`);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[VideoAnalysisWorker] SegmentAnalysis build failed (non-fatal): ${msg}`);
+      }
+    }
+
     // ─── Step 4: Store results on project ─────────────────────────
     await db.collection('projects').updateOne(
       { projectId },
@@ -411,6 +431,7 @@ async function handler(request: NextRequest) {
           ...(vjepaAnalysis && { vjepaAnalysis }),
           ...(wav2vecAnalysis && { wav2vecAnalysis }),
           ...(momentWeightMap && { momentWeightMap }),
+          ...(segmentAnalysis && { segmentAnalysis }),
           updatedAt: new Date(),
         },
       },
