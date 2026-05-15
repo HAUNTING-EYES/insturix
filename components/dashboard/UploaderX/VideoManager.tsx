@@ -1101,34 +1101,39 @@ export function VideoManager({
         </div>
       )}
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
-        <DialogContent className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl text-white max-w-md mx-auto text-center">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-semibold text-emerald-400">
-              Video Uploaded Successfully!
-            </DialogTitle>
-            <DialogDescription className="text-zinc-400 mt-2">
-              Your video is now live on {uploadPlatform}.
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="bg-[#131312] border-[#1C1B19] rounded-md max-w-md p-0 text-center">
+          <div className="px-6 pt-6 pb-4">
+            <DialogHeader>
+              <div className="mx-auto mb-3 w-10 h-10 rounded-full bg-[#5EC97E]/10 flex items-center justify-center">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5EC97E" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <DialogTitle className="text-[16px] font-semibold text-[#ECE9E1]">
+                Video Uploaded
+              </DialogTitle>
+              <DialogDescription className="text-[12px] text-[#7A776E] mt-1">
+                Your video is now live on {uploadPlatform}.
+              </DialogDescription>
+            </DialogHeader>
 
-          <div className="mt-4 p-3 bg-zinc-900/60 border border-zinc-800 rounded-lg">
-            <p className="text-sm text-zinc-400 mb-1">{uploadPlatform} Link:</p>
-            <a
-              href={uploadedVideoLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-emerald-400 font-medium hover:underline break-all"
-            >
-              {uploadedVideoLink}
-            </a>
+            <div className="mt-4 p-3 bg-[#1B1A18] border border-[#282724] rounded">
+              <p className="text-[10px] font-mono tracking-[0.08em] uppercase text-[#5F5E5A] mb-1">{uploadPlatform} Link</p>
+              <a
+                href={uploadedVideoLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#D4A652] text-[13px] font-medium hover:underline break-all"
+              >
+                {uploadedVideoLink}
+              </a>
+            </div>
           </div>
 
-          <DialogFooter className="mt-6 flex justify-center">
+          <DialogFooter className="px-6 pb-5 flex justify-center">
             <Button
-              className="bg-emerald-600 hover:bg-emerald-500 text-white px-6"
+              className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded px-6"
               onClick={() => setShowUploadDialog(false)}
             >
-              Close
+              Done
             </Button>
           </DialogFooter>
         </DialogContent>
