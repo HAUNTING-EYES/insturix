@@ -66,12 +66,17 @@ export function ExportToEditronDialog({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className={`${maxWidth} text-[#ECE9E1] p-0 overflow-hidden`}
+        className={`${maxWidth} text-[#ECE9E1] p-0 overflow-visible`}
         style={{
           background: "#131312",
           borderColor: "#282724",
           borderRadius: 4,
-          position: "relative",
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          maxHeight: "90vh",
+          overflowY: "auto",
         }}
         onPointerDownOutside={(e) => {
           // Prevent closing when clicking the scrollbar
@@ -115,7 +120,7 @@ export function ExportToEditronDialog({
         `}} />
 
         {/* Film inner content (inset from sprockets) */}
-        <div className="export-scroll" style={{ margin: "0 18px", position: "relative", zIndex: 10, maxHeight: "80vh", overflowY: "auto", overflowX: "hidden" }}>
+        <div style={{ margin: "0 18px", position: "relative", zIndex: 10 }}>
           <DialogHeader
             className="flex flex-row items-center gap-2.5 border-b px-4 py-3.5 sticky top-0 z-20"
             style={{ borderColor: "#1C1B19", background: "#131312" }}
