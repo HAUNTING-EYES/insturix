@@ -268,6 +268,11 @@ ${outlineSummary}
 
     const roleProfile = inferRoleFromContext(context.projectSummary || '', instruction, input.documentType);
 
+    // Brand context: use systemBrief from ThinkForge's 3-tier retrieval (BrandDNA, facts, patterns)
+    const brandBlock = context.systemBrief
+      ? `<brand_context>\n${context.systemBrief}\n</brand_context>`
+      : '';
+
     const core = this.buildCorePromptBlock({
       roleProfile,
       projectSummary: context.projectSummary || '',
@@ -275,6 +280,7 @@ ${outlineSummary}
       contract,
       outlineSummary,
       outlineTitle: outline?.title,
+      brandBlock,
     });
 
     return `${core}
@@ -311,6 +317,11 @@ Include blockIds in patches.
       (input as ScriptAuthorInput).documentType
     );
 
+    // Brand context: use systemBrief from ThinkForge's 3-tier retrieval
+    const brandBlock = context.systemBrief
+      ? `<brand_context>\n${context.systemBrief}\n</brand_context>`
+      : '';
+
     const core = this.buildCorePromptBlock({
       roleProfile,
       projectSummary: context.projectSummary || '',
@@ -318,6 +329,7 @@ Include blockIds in patches.
       contract,
       outlineSummary,
       outlineTitle: outline?.title,
+      brandBlock,
     });
 
     return `${core}

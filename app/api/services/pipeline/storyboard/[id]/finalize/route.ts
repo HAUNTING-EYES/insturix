@@ -36,7 +36,7 @@ export async function POST(
 
     const { id } = await params;
     const body = await req.json();
-    const { aspectRatio = '16:9', includeVoiceover = true, includeCaptions = true } = body;
+    const { aspectRatio = '16:9', includeVoiceover = true, includeCaptions = true, brandId } = body;
 
     const storyboard = await getStoryboard(id, userId);
     if (!storyboard) {
@@ -690,7 +690,7 @@ export async function POST(
 
     // Create Editron project then save overlays + settings
     const projectName = storyboard.title || 'Storyboard Video';
-    const project = await projectService.createProject(userId, projectName);
+    const project = await projectService.createProject(userId, projectName, { brandId });
 
     await projectService.saveProject(userId, project.projectId, {
       overlays,
