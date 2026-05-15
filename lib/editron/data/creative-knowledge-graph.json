@@ -13011,16 +13011,16 @@
       "name": "Instagram Reels Max Duration",
       "summary": "Maximum Reels duration.",
       "details": {
-        "value": "90s",
-        "units": "seconds",
+        "value": "3 min (in-app), 20 min (upload)",
+        "units": "minutes",
         "appliesTo": [
           "Instagram Reels"
         ],
-        "rationale": "Platform format limit",
-        "source": "Instagram spec",
+        "rationale": "Instagram expanded Reels to 20 min uploads in 2024-2025. In-app recording capped at 3 min.",
+        "source": "Instagram spec (updated 2025)",
         "platform": "instagram",
         "minMax": {
-          "max": "90s"
+          "max": "20 min (upload)"
         },
         "alternatives": ""
       },
@@ -13535,16 +13535,16 @@
       "name": "TikTok Max Duration",
       "summary": "Maximum TikTok video duration.",
       "details": {
-        "value": "10 min",
+        "value": "10 min (in-app), 60 min (upload)",
         "units": "minutes",
         "appliesTo": [
           "TikTok"
         ],
-        "rationale": "Platform format limit",
-        "source": "TikTok spec",
+        "rationale": "TikTok allows up to 60 min for uploads, 10 min for in-app recording. Gradually rolling out.",
+        "source": "TikTok spec (updated 2025)",
         "platform": "tiktok",
         "minMax": {
-          "max": "10 min"
+          "max": "60 min (upload)"
         },
         "alternatives": ""
       },
@@ -13596,16 +13596,16 @@
       "name": "TikTok Max File Size",
       "summary": "Upload size cap for TikTok.",
       "details": {
-        "value": "500 MB",
-        "units": "MB",
+        "value": "10 GB",
+        "units": "GB",
         "appliesTo": [
           "TikTok"
         ],
-        "rationale": "Platform upload limit",
-        "source": "TikTok spec",
+        "rationale": "TikTok increased upload limit. Web uploads support up to 10 GB.",
+        "source": "TikTok spec (updated 2025)",
         "platform": "tiktok",
         "minMax": {
-          "max": "500 MB"
+          "max": "10 GB"
         },
         "alternatives": ""
       },
@@ -13885,16 +13885,16 @@
       "name": "Twitter/X Max Duration",
       "summary": "Maximum Twitter/X video duration.",
       "details": {
-        "value": "2:20",
-        "units": "minutes:seconds",
+        "value": "2:20 (free), 4 hr (Premium web/iOS), 10 min (Premium Android)",
+        "units": "minutes",
         "appliesTo": [
           "Twitter/X"
         ],
-        "rationale": "Platform format limit (140 seconds)",
-        "source": "Twitter/X spec",
+        "rationale": "Free tier 140s. Premium subscribers up to 4hr on web/iOS (16GB, 1080p), 10 min on Android.",
+        "source": "Twitter/X spec (updated 2025)",
         "platform": "x",
         "minMax": {
-          "max": "2 min 20 sec"
+          "max": "4 hr (Premium)"
         },
         "alternatives": ""
       },
