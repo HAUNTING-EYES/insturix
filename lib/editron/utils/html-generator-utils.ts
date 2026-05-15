@@ -468,10 +468,12 @@ WORD STYLING BY IMPORTANCE:
 - FILLER words: smaller, subtle
 - CTA words: stronger accent treatment, clearer visual priority, consistent treatment across all CTA words
 
-SPAN STRUCTURE (REQUIRED):
-- Each word wrapped in: \`<span class="word" data-start="X" data-end="Y">WordHere</span>\`
-- X and Y are startMs and endMs values from the word list below
-- Every word span MUST have data-start and data-end in milliseconds
+SPAN STRUCTURE (CRITICAL — animation breaks without this):
+- Every single word MUST be wrapped in a span with timing attributes
+- Format: <span class="word" data-start="STARTMS" data-end="ENDMS">WordHere</span>
+- Replace STARTMS and ENDMS with the exact millisecond values from the word list below
+- If ANY word span is missing data-start or data-end, the entire output is INVALID and will be rejected
+- Do NOT omit these attributes on any word — they are mandatory for animation timing
 
 NO ANIMATION CSS — just set all words to \`opacity: 1\` by default. Animations will be injected programmatically.
 

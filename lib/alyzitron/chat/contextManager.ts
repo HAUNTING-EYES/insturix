@@ -68,13 +68,17 @@ export async function summarizeMessages(
   existingSummary: string | null,
   videoTitle?: string
 ): Promise<string> {
+  // 2026-05-15: increased maxOutputTokens 512→1024 and thinkingBudget 0→200.
+  // Root cause of 0.500 eval score: thinkingBudget:0 made Gemini return terse
+  // 1-line summaries instead of information-dense paragraphs. Budget:200 gives
+  // the model enough reasoning to identify key points before writing.
   const llm = new ChatGoogleGenerativeAI({
     model: "gemini-2.5-flash",
     apiKey: process.env.GEMINI_API_KEY!,
-    maxOutputTokens: 512,
+    maxOutputTokens: 1024,
     temperature: 0.2,
     thinkingConfig: {
-      thinkingBudget: 0,
+      thinkingBudget: 200,
     },
   });
 

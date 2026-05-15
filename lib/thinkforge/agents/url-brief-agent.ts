@@ -241,7 +241,8 @@ export class UrlBriefAgent extends StructuredAgent<UrlBriefOutput> {
 - Identify the target audience.
 - Suggest 3-4 unique, specific, actionable angles for repurposing (videos, threads, posts).
 - Detect source platform and content type accurately.
-- Summary: 2-3 concise sentences. Key topics: specific keywords, not generic categories.
+- Summary: 2-3 concise sentences.
+- Key topics: exactly 3-5 specific keywords/themes. NEVER more than 5. Not generic categories.
 </rules>
 
 <input_data>
