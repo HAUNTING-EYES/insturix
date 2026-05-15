@@ -113,50 +113,79 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
 
   return (
     <Dialog open={file !== null} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-[460px] p-0 bg-[#131312] border-[#282724] rounded-md">
+      <DialogContent className="max-w-[440px] p-0 bg-[#131312] border-[#282724] rounded-lg overflow-hidden">
         <DialogHeader className="sr-only">
           <DialogDescription>
             Configure how AI edits your video
           </DialogDescription>
         </DialogHeader>
 
+        {/* Top gold accent line */}
+        <div className="absolute top-0 left-[20%] right-[20%] h-px" style={{ background: 'linear-gradient(90deg, transparent, #D4A652, transparent)', opacity: 0.4 }} />
+
+        {/* Keyframe animations */}
+        <style dangerouslySetInnerHTML={{ __html: `
+          @keyframes ae-pulse { 0%,100% { opacity: 0.3; transform: scale(1); } 50% { opacity: 0.8; transform: scale(1.06); } }
+          @keyframes ae-shimmer { 0% { left: -50%; } 100% { left: 150%; } }
+          @keyframes ae-energy { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+          .ae-icon-ring { position: absolute; inset: -3px; border-radius: 11px; border: 1px solid rgba(212,166,82,0.1); animation: ae-pulse 3s ease-in-out infinite; }
+          .ae-cta { position: relative; overflow: hidden; }
+          .ae-cta::after { content: ''; position: absolute; top: 0; left: -50%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent); animation: ae-shimmer 3s ease-in-out infinite; }
+          .ae-energy-line { position: relative; overflow: hidden; }
+          .ae-energy-line::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent 0%, #D4A652 50%, transparent 100%); background-size: 200% 100%; animation: ae-energy 4s linear infinite; opacity: 0.3; }
+        `}} />
+
         <div className="px-5 pt-5 pb-4">
-          {/* File info strip */}
-          <div className="flex items-center gap-3 rounded border border-[#282724] bg-[#1B1A18] px-3.5 py-3">
-            <div className="w-9 h-9 rounded-md bg-[#D4A652]/8 border border-[#D4A652]/15 flex items-center justify-center shrink-0">
-              <FileVideo className="h-[18px] w-[18px] text-[#D4A652]" />
+          {/* File card */}
+          <div className="flex items-center gap-3.5 rounded-md border border-[#282724] bg-[#1B1A18] px-4 py-3.5 relative">
+            <div className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0 relative" style={{ background: 'linear-gradient(135deg, rgba(212,166,82,0.06), rgba(212,166,82,0.12))', border: '1px solid rgba(212,166,82,0.18)' }}>
+              <div className="ae-icon-ring" />
+              <FileVideo className="h-5 w-5 text-[#D4A652] relative z-[1]" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-medium text-[#ECE9E1]">
+              <p className="truncate text-[13px] font-semibold text-[#ECE9E1]">
                 {file?.name}
               </p>
-              <p className="font-mono text-[11px] text-[#5F5E5A]">{fileSizeMB} MB</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="font-mono text-[11px] text-[#5F5E5A]">{fileSizeMB} MB</span>
+                <span className="font-mono text-[9px] font-semibold tracking-[0.06em] uppercase text-[#D4A652] bg-[#D4A652]/8 border border-[#D4A652]/12 px-1.5 py-px rounded-sm">Video</span>
+              </div>
             </div>
           </div>
 
           {/* Large file proxy notice */}
           {file && file.size > 100 * 1024 * 1024 && (
-            <div className="mt-2.5 rounded border border-[#D4A652]/15 bg-[#D4A652]/4 px-3 py-2 text-[11px] leading-relaxed text-[#D4A652]">
-              Large file — editor will open with a preview-quality version while the full resolution uploads in the background. Final render uses the original.
+            <div className="ae-energy-line mt-2.5 rounded-[5px] border border-[#D4A652]/12 px-3.5 py-2.5 text-[11px] leading-relaxed text-[#7A776E]" style={{ background: 'rgba(212,166,82,0.03)' }}>
+              <span className="font-semibold text-[#D4A652]">Large file</span> — editor opens with a preview-quality version while the full resolution uploads in the background. Final render uses the original.
             </div>
           )}
 
-          {/* Quick edit CTA */}
+          {/* Quick Edit CTA — solid gold with shimmer */}
           <button
             type="button"
             onClick={handleQuickEdit}
-            className="flex w-full items-center justify-center gap-2 mt-3.5 px-4 py-3 rounded border border-[#D4A652]/30 text-[#D4A652] text-[14px] font-semibold transition-all hover:border-[#D4A652]/50"
-            style={{ background: 'linear-gradient(135deg, rgba(212,166,82,0.08), rgba(212,166,82,0.03))' }}
+            className="ae-cta flex w-full items-center justify-center gap-2.5 mt-4 px-4 py-3.5 rounded-md bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] text-[14px] font-bold transition-colors"
           >
-            <Sparkles className="h-4 w-4" />
-            Quick Edit — Let AI Decide Everything
+            <Sparkles className="h-[18px] w-[18px] relative z-[1]" />
+            <span className="relative z-[1]">Quick Edit — Let AI Decide Everything</span>
           </button>
 
-          {/* Advanced toggle */}
+          {/* "or" divider */}
+          <div className="flex items-center gap-3 my-2.5">
+            <div className="flex-1 h-px bg-[#1C1B19]" />
+            <span className="font-mono text-[9px] tracking-[0.1em] uppercase text-[#454340]">or</span>
+            <div className="flex-1 h-px bg-[#1C1B19]" />
+          </div>
+
+          {/* Customize toggle */}
           <button
             type="button"
             onClick={() => setShowAdvanced((prev) => !prev)}
-            className="flex w-full items-center justify-center gap-1.5 py-1.5 mt-2 text-[12px] text-[#7A776E] transition-colors hover:text-[#B5B2A8]"
+            className={`flex w-full items-center justify-center gap-1.5 py-2 rounded text-[12px] transition-all ${
+              showAdvanced
+                ? 'text-[#B5B2A8] border border-[#1C1B19] bg-[#1B1A18]/40'
+                : 'text-[#7A776E] border border-transparent hover:text-[#B5B2A8] hover:border-[#1C1B19] hover:bg-[#1B1A18]/40'
+            }`}
           >
             {showAdvanced ? (
               <>
@@ -171,9 +200,13 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
             )}
           </button>
 
-          {/* Advanced options — collapsible */}
+          {/* Advanced options panel */}
           {showAdvanced && (
-            <div className="mt-2 rounded border border-[#282724] bg-[#0F0F0E] p-3.5">
+            <div className="mt-2 rounded-md border border-[#282724] bg-[#0F0F0E] p-4 relative">
+              {/* Corner accents */}
+              <div className="absolute top-0 left-0 w-4 h-4 border-t border-l border-[#D4A652]/20 rounded-tl-md pointer-events-none" />
+              <div className="absolute bottom-0 right-0 w-4 h-4 border-b border-r border-[#D4A652]/20 rounded-br-md pointer-events-none" />
+
               {/* Platform + Aspect Ratio side by side */}
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
@@ -181,7 +214,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
                     Platform
                   </Label>
                   <Select value={platform} onValueChange={setPlatform}>
-                    <SelectTrigger id="ae-platform" className="h-[34px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[13px]">
+                    <SelectTrigger id="ae-platform" className="h-[34px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[13px] focus:border-[#D4A652]/35 focus:ring-1 focus:ring-[#D4A652]/6">
                       <SelectValue placeholder="Auto-detect" />
                     </SelectTrigger>
                     <SelectContent className="bg-[#1B1A18] border-[#282724]">
@@ -199,7 +232,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
                     Aspect Ratio
                   </Label>
                   <Select value={aspectRatio} onValueChange={setAspectRatio}>
-                    <SelectTrigger id="ae-aspect" className="h-[34px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[13px]">
+                    <SelectTrigger id="ae-aspect" className="h-[34px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[13px] focus:border-[#D4A652]/35 focus:ring-1 focus:ring-[#D4A652]/6">
                       <SelectValue placeholder="16:9" />
                     </SelectTrigger>
                     <SelectContent className="bg-[#1B1A18] border-[#282724]">
@@ -225,7 +258,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
                   value={userIntent}
                   onChange={(e) => setUserIntent(e.target.value)}
                   rows={2}
-                  className="resize-none text-[13px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] placeholder:text-[#454340]"
+                  className="resize-none text-[13px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] placeholder:text-[#454340] focus:border-[#D4A652]/35 focus:ring-1 focus:ring-[#D4A652]/6"
                   maxLength={500}
                 />
               </div>
@@ -234,20 +267,20 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
               <div className="mt-3">
                 <Label htmlFor="ae-script" className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">
                   Script / Narration
-                  <span className="ml-1 text-[#454340] normal-case tracking-normal">(optional — AI generates captions from this)</span>
+                  <span className="ml-1 text-[#454340] normal-case tracking-normal">(optional — AI generates captions)</span>
                 </Label>
                 <Textarea
                   id="ae-script"
-                  placeholder="Paste your script here if you have one. AI will use it as narration over your footage."
+                  placeholder="Paste your script here if you have one."
                   value={script}
                   onChange={(e) => setScript(e.target.value)}
                   rows={3}
-                  className="resize-none text-[13px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] placeholder:text-[#454340]"
+                  className="resize-none text-[13px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] placeholder:text-[#454340] focus:border-[#D4A652]/35 focus:ring-1 focus:ring-[#D4A652]/6"
                   maxLength={5000}
                 />
               </div>
 
-              {/* Confirm with options */}
+              {/* Footer */}
               <div className="flex items-center justify-end gap-2 mt-3.5 pt-3 border-t border-[#1C1B19]">
                 <Button
                   variant="ghost"
