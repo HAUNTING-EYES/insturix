@@ -347,51 +347,65 @@ export async function executeDirectorPlan(
             });
             console.log(`[Director] Path D: Genre params computed (confidence: ${genreOutput.confidence}, fps: ${pathDFps})`);
 
-            // Step D.2: Build moment weight map — enriched with V-JEPA + Wav2Vec if pre-computed
-            // Worker (video-analysis/route.ts) stores vjepaAnalysis + wav2vecAnalysis on project doc.
-            // Phase 2 formula: 50% gemini + 30% vjepa + 20% wav2vec + thompson_adjustment
-            // Falls back to flat Phase 0 weights when GPU analysis data is unavailable.
-            let weightMap = buildMomentWeightMap(null, projectDoc.rawFootageAnalysis);
-
-            // Enrich with V-JEPA visual significance (30% of Phase 2 weight)
-            if (projectDoc.vjepaAnalysis?.segments?.length > 0) {
-              const { toVjepaWeightFormat } = await import('@/lib/editron/services/vjepa-service');
-              const vjepaWeights = toVjepaWeightFormat(projectDoc.vjepaAnalysis);
-              weightMap = integrateVjepaScores(weightMap, vjepaWeights);
-              console.log(`[Director] Path D: V-JEPA weights integrated (${projectDoc.vjepaAnalysis.segments.length} segments)`);
-            }
-
-            // Enrich with Wav2Vec vocal emotion (20% of Phase 2 weight)
-            if (projectDoc.wav2vecAnalysis?.segments?.length > 0) {
-              const { toWav2VecWeightFormat } = await import('@/lib/editron/services/wav2vec-service');
-              const wav2vecWeights = toWav2VecWeightFormat(projectDoc.wav2vecAnalysis);
-              weightMap = integrateWav2vecScores(weightMap, wav2vecWeights);
-              console.log(`[Director] Path D: Wav2Vec weights integrated (${projectDoc.wav2vecAnalysis.segments.length} segments)`);
-            }
-
-            // Apply Thompson Sampling bandit adjustments (learned per-user corrections)
-            if (projectDoc.momentWeightMap?.computation_phase >= 1) {
-              // Pre-computed bandit adjustments from worker — use them directly
-              weightMap = { ...weightMap, ...projectDoc.momentWeightMap };
-              console.log(`[Director] Path D: Using pre-computed Phase ${projectDoc.momentWeightMap.computation_phase} weight map`);
-            }
-
-            console.log(`[Director] Path D: Moment weights Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
-
-            // Step D.3: Build signal timeline (dual timing: grid + event)
+            // Step D.2 + D.3: Moment weights + signal timeline
             const overlayInfos = overlays.map((o: any) => ({
               id: o.id, type: o.type, from: o.from,
               durationInFrames: o.durationInFrames, row: o.row, assetId: o.assetId,
             }));
-            // Pass V-JEPA + Wav2Vec data for signal enrichment (replaces NEEDS_INFRA placeholders).
-            // When present: visual.action_type, visual.motion_type, visual.face_emotion,
-            // visual.eye_contact, speech.emotional_valence + 5 more signals activate graph mappings.
-            // When absent: existing heuristic signals remain (graceful degradation).
-            const signalTimeline = buildSignalTimeline(
-              analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps,
-              projectDoc.vjepaAnalysis ?? null,
-              projectDoc.wav2vecAnalysis ?? null,
-            );
+
+            let weightMap: any;
+            let signalTimeline: any;
+            const sa = projectDoc.segmentAnalysis;
+
+            if (sa?.version === 1 && sa.segments?.length > 0) {
+              // ── Unified path: read from SegmentAnalysis (one source of truth) ──
+              console.log(`[Director] Path D: Using unified SegmentAnalysis (${sa.meta.segmentCount} segments, vjepa=${sa.meta.hasVjepa}, wav2vec=${sa.meta.hasWav2vec}, phase=${sa.meta.momentWeightPhase})`);
+
+              // D.2: Use pre-computed moment weights from worker
+              if (projectDoc.momentWeightMap?.computation_phase >= 1) {
+                weightMap = projectDoc.momentWeightMap;
+              } else {
+                weightMap = buildMomentWeightMap(null, projectDoc.rawFootageAnalysis);
+              }
+
+              // D.3: Build signal timeline from unified analysis
+              const { buildSignalTimelineFromAnalysis } = await import('@/lib/editron/services/signal-registry');
+              signalTimeline = buildSignalTimelineFromAnalysis(
+                sa, analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps,
+              );
+            } else {
+              // ── Legacy path: read from 5 separate fields (backward compat) ──
+              console.log(`[Director] Path D: Using legacy 5-field path (no segmentAnalysis)`);
+
+              weightMap = buildMomentWeightMap(null, projectDoc.rawFootageAnalysis);
+
+              if (projectDoc.vjepaAnalysis?.segments?.length > 0) {
+                const { toVjepaWeightFormat } = await import('@/lib/editron/services/vjepa-service');
+                const vjepaWeights = toVjepaWeightFormat(projectDoc.vjepaAnalysis);
+                weightMap = integrateVjepaScores(weightMap, vjepaWeights);
+                console.log(`[Director] Path D: V-JEPA weights integrated (${projectDoc.vjepaAnalysis.segments.length} segments)`);
+              }
+
+              if (projectDoc.wav2vecAnalysis?.segments?.length > 0) {
+                const { toWav2VecWeightFormat } = await import('@/lib/editron/services/wav2vec-service');
+                const wav2vecWeights = toWav2VecWeightFormat(projectDoc.wav2vecAnalysis);
+                weightMap = integrateWav2vecScores(weightMap, wav2vecWeights);
+                console.log(`[Director] Path D: Wav2Vec weights integrated (${projectDoc.wav2vecAnalysis.segments.length} segments)`);
+              }
+
+              if (projectDoc.momentWeightMap?.computation_phase >= 1) {
+                weightMap = { ...weightMap, ...projectDoc.momentWeightMap };
+                console.log(`[Director] Path D: Using pre-computed Phase ${projectDoc.momentWeightMap.computation_phase} weight map`);
+              }
+
+              signalTimeline = buildSignalTimeline(
+                analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps,
+                projectDoc.vjepaAnalysis ?? null,
+                projectDoc.wav2vecAnalysis ?? null,
+              );
+            }
+
+            console.log(`[Director] Path D: Moment weights Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
 
             // Step D.4: Execute signal-driven edit (evaluate 95 mappings)
             const signalEdl = executeSignalDrivenEdit(

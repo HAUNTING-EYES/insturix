@@ -844,3 +844,57 @@ function hasMusicPresent(analysis: AssetAnalysis): boolean {
   if (!analysis.musicStructure) return false;
   return (analysis.musicStructure.bpm ?? 0) > 0;
 }
+
+// ─── SegmentAnalysis Adapter ───────────────────────────────────────────────
+// Extracts V-JEPA/Wav2Vec data from the unified SegmentAnalysis type
+// and delegates to the existing buildSignalTimeline. Avoids duplicating
+// the 600+ lines of signal computation logic.
+
+import type { SegmentAnalysis } from '../types/segment-analysis';
+
+export function buildSignalTimelineFromAnalysis(
+  segmentAnalysis: SegmentAnalysis,
+  analyses: AssetAnalysis[],
+  rawFootage: RawFootageAnalysis | null,
+  overlays: OverlayInfo[],
+  fps: number = DEFAULT_FPS,
+): SignalTimeline {
+  const vjepaSegments: VjepaSegmentResult[] = [];
+  const wav2vecSegments: Wav2VecSegmentResult[] = [];
+
+  for (const seg of segmentAnalysis.segments) {
+    if (seg.visual) {
+      vjepaSegments.push({
+        startMs: seg.startMs,
+        endMs: seg.endMs,
+        visualSignificance: seg.visual.significance,
+        motionIntensity: seg.visual.motionIntensity,
+        actionType: seg.visual.actionType,
+        motionType: seg.visual.motionType,
+        faceEmotion: seg.visual.faceEmotion,
+        eyeContact: seg.visual.eyeContact,
+      });
+    }
+    if (seg.vocal) {
+      wav2vecSegments.push({
+        startMs: seg.startMs,
+        endMs: seg.endMs,
+        emotionIntensity: seg.vocal.emotionIntensity,
+        emotionalValence: seg.vocal.emotionalValence,
+        energy: seg.vocal.energy,
+        pitchVariability: seg.vocal.pitchVariability,
+        stressDetected: seg.vocal.stressDetected,
+        fillerConfidence: seg.vocal.fillerConfidence,
+      });
+    }
+  }
+
+  return buildSignalTimeline(
+    analyses,
+    rawFootage,
+    overlays,
+    fps,
+    vjepaSegments.length > 0 ? { segments: vjepaSegments, modelVersion: 'from-segment-analysis', processingTimeMs: 0 } : null,
+    wav2vecSegments.length > 0 ? { segments: wav2vecSegments, modelVersion: 'from-segment-analysis', processingTimeMs: 0 } : null,
+  );
+}
