@@ -75,20 +75,10 @@ export function ExportToEditronDialog({
           top: "50%",
           left: "50%",
           transform: "translate(-50%, -50%)",
-          maxHeight: "90vh",
-          overflowY: "auto",
         }}
         onPointerDownOutside={(e) => {
-          // Prevent closing when clicking the scrollbar
           const target = e.target as HTMLElement;
-          if (target.closest("[data-radix-scroll-area-viewport]") || target.tagName === "HTML") {
-            e.preventDefault();
-          }
-        }}
-        onInteractOutside={(e) => {
-          // Also prevent close on interact-outside for scrollbar
-          const target = e.target as HTMLElement;
-          if (target.closest("[data-radix-scroll-area-viewport]") || target.tagName === "HTML") {
+          if (target.tagName === "HTML") {
             e.preventDefault();
           }
         }}
@@ -110,24 +100,15 @@ export function ExportToEditronDialog({
           }}
         />
 
-        {/* Custom scrollbar styles */}
-        <style dangerouslySetInnerHTML={{ __html: `
-          .export-scroll::-webkit-scrollbar { width: 4px; }
-          .export-scroll::-webkit-scrollbar-track { background: transparent; }
-          .export-scroll::-webkit-scrollbar-thumb { background: #282724; border-radius: 4px; }
-          .export-scroll::-webkit-scrollbar-thumb:hover { background: #D4A652; }
-          .export-scroll { scrollbar-width: thin; scrollbar-color: #282724 transparent; }
-        `}} />
-
         {/* Film inner content (inset from sprockets) */}
         <div style={{ margin: "0 18px", position: "relative", zIndex: 10 }}>
           <DialogHeader
-            className="flex flex-row items-center gap-2.5 border-b px-4 py-2.5 sticky top-0 z-20"
-            style={{ borderColor: "#1C1B19", background: "#131312" }}
+            className="flex flex-row items-center gap-2.5 border-b px-4 py-2"
+            style={{ borderColor: "#1C1B19" }}
           >
-            <Video className="h-[18px] w-[18px] text-[#B5B2A8] shrink-0" />
+            <Video className="h-[16px] w-[16px] text-[#B5B2A8] shrink-0" />
             <DialogTitle
-              className="text-[15px] font-semibold text-[#ECE9E1] font-sans"
+              className="text-[14px] font-semibold text-[#ECE9E1] font-sans"
               style={{ lineHeight: 1.3 }}
             >
               Export to Editor
@@ -137,18 +118,8 @@ export function ExportToEditronDialog({
             </DialogDescription>
           </DialogHeader>
 
-          {/* Visible subtitle below header */}
-          <p
-            className="text-[11px] px-4 sticky top-[48px] z-20"
-            style={{ color: "#7A776E", background: "#131312", paddingBottom: 2 }}
-          >
-            {stepDescription()}
-          </p>
-
           {/* Film Strip Pipeline Bar */}
-          <div className="sticky top-[66px] z-20" style={{ background: "#131312" }}>
-            <ExportStageHeader currentStage={step} />
-          </div>
+          <ExportStageHeader currentStage={step} />
 
           {/* Body — scrollable content */}
           <div className="px-4 pb-3 pt-1">
