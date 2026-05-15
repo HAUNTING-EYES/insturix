@@ -113,10 +113,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
 
   return (
     <Dialog open={file !== null} onOpenChange={handleOpenChange}>
-      <DialogContent
-        className="p-0 border-[#282724] overflow-hidden [&>button]:hidden"
-        style={{ background: '#131312', width: 440, maxWidth: '92vw', borderRadius: 8 }}
-      >
+      <DialogContent className="max-w-[440px] p-0 bg-[#131312] border-[#282724] rounded-lg overflow-hidden">
         <DialogHeader className="sr-only">
           <DialogDescription>
             Configure how AI edits your video
@@ -170,7 +167,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
             className="ae-cta flex w-full items-center justify-center gap-2.5 mt-4 px-4 py-3.5 rounded-md bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] text-[14px] font-bold transition-colors"
           >
             <Sparkles className="h-[18px] w-[18px] relative z-[1]" />
-            <span className="relative z-[1]">Quick Edit — Let AI Decide</span>
+            <span className="relative z-[1]">Quick Edit — Let AI Decide Everything</span>
           </button>
 
           {/* "or" divider */}
