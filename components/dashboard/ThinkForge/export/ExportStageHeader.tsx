@@ -97,7 +97,7 @@ function MiniSprocketRow() {
 export function ExportStageHeader({ currentStage }: ExportStageHeaderProps) {
   return (
     <div
-      className="px-4 py-3"
+      className="px-4 py-2"
       style={{ borderBottom: "1px solid #1C1B19" }}
     >
       <p
@@ -108,7 +108,7 @@ export function ExportStageHeader({ currentStage }: ExportStageHeaderProps) {
           letterSpacing: "0.1em",
           textTransform: "uppercase" as const,
           color: "#5F5E5A",
-          marginBottom: 10,
+          marginBottom: 6,
         }}
       >
         Production Pipeline

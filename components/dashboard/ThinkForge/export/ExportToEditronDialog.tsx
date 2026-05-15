@@ -122,7 +122,7 @@ export function ExportToEditronDialog({
         {/* Film inner content (inset from sprockets) */}
         <div style={{ margin: "0 18px", position: "relative", zIndex: 10 }}>
           <DialogHeader
-            className="flex flex-row items-center gap-2.5 border-b px-4 py-3.5 sticky top-0 z-20"
+            className="flex flex-row items-center gap-2.5 border-b px-4 py-2.5 sticky top-0 z-20"
             style={{ borderColor: "#1C1B19", background: "#131312" }}
           >
             <Video className="h-[18px] w-[18px] text-[#B5B2A8] shrink-0" />
@@ -139,19 +139,19 @@ export function ExportToEditronDialog({
 
           {/* Visible subtitle below header */}
           <p
-            className="text-[12px] px-4 pb-1 sticky top-[52px] z-20"
-            style={{ color: "#7A776E", background: "#131312" }}
+            className="text-[11px] px-4 sticky top-[48px] z-20"
+            style={{ color: "#7A776E", background: "#131312", paddingBottom: 2 }}
           >
             {stepDescription()}
           </p>
 
           {/* Film Strip Pipeline Bar */}
-          <div className="sticky top-[72px] z-20" style={{ background: "#131312" }}>
+          <div className="sticky top-[66px] z-20" style={{ background: "#131312" }}>
             <ExportStageHeader currentStage={step} />
           </div>
 
           {/* Body — scrollable content */}
-          <div className="px-4 pb-4 pt-1">
+          <div className="px-4 pb-3 pt-1">
             <AnimatePresence mode="wait">
               {step === "configure" && (
                 <ExportConfigPanel
