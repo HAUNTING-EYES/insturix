@@ -66,21 +66,10 @@ export function ExportToEditronDialog({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className={`${maxWidth} text-[#ECE9E1] p-0 overflow-visible`}
+        className={`${maxWidth} text-[#ECE9E1] p-0 overflow-y-auto rounded-md`}
         style={{
           background: "#131312",
           borderColor: "#282724",
-          borderRadius: 4,
-          position: "fixed",
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-        }}
-        onPointerDownOutside={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.tagName === "HTML") {
-            e.preventDefault();
-          }
         }}
       >
         {/* Left sprocket strip */}
@@ -118,8 +107,8 @@ export function ExportToEditronDialog({
             </DialogDescription>
           </DialogHeader>
 
-          {/* Film Strip Pipeline Bar */}
-          <ExportStageHeader currentStage={step} />
+          {/* Film Strip Pipeline Bar — hidden on configure step to save space */}
+          {step !== "configure" && <ExportStageHeader currentStage={step} />}
 
           {/* Body — scrollable content */}
           <div className="px-4 pb-3 pt-1">
