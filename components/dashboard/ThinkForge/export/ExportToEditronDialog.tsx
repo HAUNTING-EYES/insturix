@@ -107,8 +107,8 @@ export function ExportToEditronDialog({
             </DialogDescription>
           </DialogHeader>
 
-          {/* Film Strip Pipeline Bar — hidden on configure step to save space */}
-          {step !== "configure" && <ExportStageHeader currentStage={step} />}
+          {/* Film Strip Pipeline Bar */}
+          <ExportStageHeader currentStage={step} />
 
           {/* Body — scrollable content */}
           <div className="px-4 pb-3 pt-1">
