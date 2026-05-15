@@ -177,6 +177,8 @@ export async function parseScriptWithLLM(
     aspectRatio?: string;
     artStyle?: string;
     targetDuration?: number; // total video duration in seconds
+    brandId?: string; // Brand ID for brand-aware scene parsing
+    userId?: string;  // User ID for brand lookup
   } = {},
 ): Promise<LLMParseResult> {
   const google = getGeminiProvider();
@@ -207,6 +209,25 @@ export async function parseScriptWithLLM(
     ? `Aspect ratio: ${options.aspectRatio}. Adjust composition and framing accordingly.`
     : '';
 
+  // ─── Brand Context (optional) ─────────────────────────────────
+  // If brandId + userId are provided, fetch brand data and inject into prompt.
+  // Brand context informs visual descriptions (colors, style), narration (voice),
+  // and on-screen text (typography). Graceful degradation: if lookup fails, no brand context.
+  let brandBlock = '';
+  if (options.brandId && options.userId) {
+    try {
+      const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
+      const { buildBrandContextBlock } = await import('@/lib/shared/brand-context-block');
+      const brand = await getUnifiedBrand(options.userId, options.brandId);
+      brandBlock = buildBrandContextBlock(brand);
+      if (brandBlock) {
+        console.log(`[SceneParser] Brand context injected: ${brand?.name} (${options.brandId})`);
+      }
+    } catch (err) {
+      console.warn('[SceneParser] Brand lookup failed (non-fatal):', err);
+    }
+  }
+
   const { geminiRetry } = await import('./gemini-retry');
   const { object } = await geminiRetry(() => generateObject({
     model,
@@ -229,6 +250,7 @@ Parse the script provided in the <script> section below into structured scene ob
 The script may be in ANY format (screenplay, voiceover, bullets, two-column A/V, timestamped, casual notes, storyboard, ThinkForge output, or any mix) and any language. If truncated, process only available content and add a final scene with title "SCRIPT_TRUNCATED".
 </task>
 
+${brandBlock}
 <rules>
 RULE 1 — FORMAT DETECTION (silent, do not output your detection):
 Identify the script format to determine extraction strategy.

@@ -703,6 +703,7 @@ function buildCreativeIntentPrompt(
     graphicDensity?: string;
     style?: string;
     assetBriefings?: Map<string, { promptText: string; slopFlags: Array<{ startFrame: number; endFrame: number; description: string }> }>;
+    brandBlock?: string; // XML brand context from buildBrandContextBlock()
   },
 ): string {
   const fps = context.fps;
@@ -723,6 +724,7 @@ For each scene, describe:
 3. WHY — which editing principle justifies each choice
 </task>
 
+${options.brandBlock || ''}
 <rules>
 RULE 1 — MURCH'S RULE OF SIX (your decision hierarchy):
 1. EMOTION (51%) — Does this make the viewer FEEL something?

@@ -172,8 +172,9 @@ export class ScriptAuthorAgent extends BaseAgent {
     contract?: NarrativeContract;
     outlineSummary: string;
     outlineTitle?: string;
+    brandBlock?: string; // XML brand context from buildBrandContextBlock()
   }): string {
-    const { roleProfile, projectSummary, userRequest, contract, outlineSummary, outlineTitle } = params;
+    const { roleProfile, projectSummary, userRequest, contract, outlineSummary, outlineTitle, brandBlock } = params;
 
     const contractBlock = contract
       ? `<contract>
@@ -200,6 +201,7 @@ User request: ${userRequest}
 
 ${contractBlock}
 
+${brandBlock || ''}
 <rules>
 RULE 1 — CONTENT QUALITY:
 - Every output must be usable by a professional without interpretation.
