@@ -15223,16 +15223,16 @@
       "name": "Audio Duck Amount",
       "summary": "Sidechain ducking attenuation amount.",
       "details": {
-        "value": "-6 to -12",
+        "value": "-3 to -12",
         "units": "dB relative",
         "appliesTo": [
           "sidechain ducking"
         ],
-        "rationale": "Drop music enough to clear dialogue without killing presence",
-        "source": "Editron audio standards",
+        "rationale": "Professional practice: -3dB for transparent ducking (Gearspace pros recommend 1-3dB max for subtlety), up to -12dB for aggressive cinema-style. Default -6dB for web video.",
+        "source": "Professional mixing practice (Gearspace, iZotope)",
         "platform": "all",
         "minMax": {
-          "min": "-6 dB",
+          "min": "-3 dB",
           "max": "-12 dB"
         },
         "alternatives": ""
@@ -15253,16 +15253,16 @@
       "name": "Audio Duck Attack Time",
       "summary": "Time for ducking to reach target attenuation.",
       "details": {
-        "value": "200-400",
+        "value": "50-400",
         "units": "ms",
         "appliesTo": [
           "sidechain ducking"
         ],
-        "rationale": "Smooth transition without audible 'pump'",
-        "source": "Editron audio standards",
+        "rationale": "50ms for responsive feel (iZotope recommendation), up to 400ms for subtle broadcast ducking. 200ms is a safe middle ground.",
+        "source": "Professional mixing practice (iZotope, Gearspace)",
         "platform": "all",
         "minMax": {
-          "min": "200 ms",
+          "min": "50 ms",
           "max": "400 ms"
         },
         "alternatives": ""
@@ -15495,16 +15495,16 @@
       "name": "Action Safe",
       "summary": "Region where subject action should occur to be visible on all platforms.",
       "details": {
-        "value": "center 90%",
-        "units": "% of frame",
+        "value": "center 93%",
+        "units": "% of frame (3.5% margins)",
         "appliesTo": [
           "all platforms"
         ],
-        "rationale": "Subject action within this region survives platform crops",
-        "source": "Broadcast standard",
+        "rationale": "Updated SMPTE ST 2046-1 (2009). Old CRT-era SMPTE RP 13 was 90%. Modern LCD/OLED displays need less margin.",
+        "source": "SMPTE ST 2046-1",
         "platform": "all",
         "minMax": {
-          "max": "90% of frame"
+          "max": "93% of frame"
         },
         "alternatives": ""
       },
@@ -15524,16 +15524,16 @@
       "name": "Title Safe",
       "summary": "Region where critical text/titles should remain to survive all platform crops.",
       "details": {
-        "value": "center 80%",
-        "units": "% of frame",
+        "value": "center 90%",
+        "units": "% of frame (5% margins)",
         "appliesTo": [
           "all platforms"
         ],
-        "rationale": "All important text within this region",
-        "source": "Broadcast standard",
+        "rationale": "Updated SMPTE ST 2046-1 (2009). Old CRT-era SMPTE RP 8 was 80%. Modern displays need less margin.",
+        "source": "SMPTE ST 2046-1",
         "platform": "all",
         "minMax": {
-          "max": "80% of frame"
+          "max": "90% of frame"
         },
         "alternatives": ""
       },
@@ -15997,14 +15997,14 @@
       "name": "Caption Minimum Font Size",
       "summary": "Minimum caption font size at 1080p.",
       "details": {
-        "value": "72",
+        "value": "48",
         "units": "px (at 1080p)",
         "appliesTo": [
           "captions",
           "subtitles"
         ],
-        "rationale": "Mobile-first readability — scales proportionally to other resolutions",
-        "source": "Caption standard / typography",
+        "rationale": "BBC 2022 minimum is 22px for HD broadcast. Facebook Reels recommends 48px for mobile. 48px balances readability and screen space. Previous 72px was overly conservative.",
+        "source": "BBC Subtitle Guidelines 2022, Facebook Reels spec, legibility.info mobile research",
         "platform": "all",
         "minMax": {
           "min": "72px at 1080p"
@@ -17297,15 +17297,15 @@
         "appliesTo": [
           "all overlays"
         ],
-        "rationale": "Exits are 20% faster than entrances — feels intentional and clean",
-        "source": "Editron animation standard",
+        "rationale": "Engineering heuristic inspired by Disney's ease-in principle (exits accelerate away). The 0.8 ratio is NOT from a published standard — it is a tunable Editron design choice. Disney's 12 principles describe the concept (ease-in on exit) but assign no specific ratio.",
+        "source": "Editron design choice (inspired by Disney ease-in principle)",
         "platform": "all",
         "minMax": {},
-        "alternatives": ""
+        "alternatives": "0.6-0.9 range would all feel natural"
       },
       "tags": [
-        "DETERMINISTIC",
-        "NOT_OVERRIDABLE"
+        "LEARNING_TARGET",
+        "OVERRIDABLE"
       ],
       "sourceLines": [
         5702,
@@ -23484,7 +23484,7 @@
       "from": "constant:safe_zone.title_safe",
       "to": "constant:safe_zone.action_safe",
       "type": "implies",
-      "label": "title safe (80%) is stricter subset of action safe (90%)",
+      "label": "title safe (90%) is stricter subset of action safe (93%) per SMPTE ST 2046-1",
       "sourceLines": [
         5587,
         5588
