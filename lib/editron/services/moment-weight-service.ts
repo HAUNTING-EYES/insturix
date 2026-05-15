@@ -91,7 +91,7 @@ export function buildMomentWeightMap(
 
   return {
     weights,
-    default_weight: 0.5,
+    default_weight: 0.55,
     computation_phase: thompsonAdjustments ? 1 : 0,
   };
 }
@@ -102,7 +102,7 @@ export function buildMomentWeightMap(
  */
 function buildFlatWeightMap(rawFootage: RawFootageAnalysis | null): MomentWeightMap {
   if (!rawFootage?.segments?.length) {
-    return { weights: [], default_weight: 0.5, computation_phase: 0 };
+    return { weights: [], default_weight: 0.55, computation_phase: 0 };
   }
 
   const totalDuration = rawFootage.originalDurationMs ?? rawFootage.estimatedCleanDurationMs ?? 30000;
@@ -112,11 +112,15 @@ function buildFlatWeightMap(rawFootage: RawFootageAnalysis | null): MomentWeight
     // Simple position-based weighting (no LLM needed):
     // Hook zone (0-5%): weight 0.8 (strong opening)
     // Closing zone (85-100%): weight 0.75 (strong close)
-    // Middle: weight 0.5 (neutral)
-    let weight = 0.5;
+    // Middle: weight 0.55 (above threshold so budget system is the gatekeeper)
+    // OLD: default was 0.5, exactly at the confidence gate. With strict > 0.5,
+    //   ~60% of decisions were silently killed. With inclusive >= 0.5, 0.55
+    //   provides margin so the budget system (not the gate) controls density.
+    // ⚠️ INVENTED — 0.55 is an engineering heuristic, needs validation.
+    let weight = 0.55;
     if (position < 0.05) weight = 0.8;
     else if (position > 0.85) weight = 0.75;
-    else if (position > 0.4 && position < 0.6) weight = 0.55; // slight mid-boost
+    else if (position > 0.4 && position < 0.6) weight = 0.6; // slight mid-boost
 
     return {
       segment_start_ms: seg.startMs,
@@ -134,7 +138,7 @@ function buildFlatWeightMap(rawFootage: RawFootageAnalysis | null): MomentWeight
     };
   });
 
-  return { weights, default_weight: 0.5, computation_phase: 0 };
+  return { weights, default_weight: 0.55, computation_phase: 0 };
 }
 
 // ─── Weight Lookup ──────────────────────────────────────────────────────────

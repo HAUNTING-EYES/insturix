@@ -220,9 +220,11 @@ export async function executeEDL(
     .reduce((max, o) => Math.max(max, (o.from + o.durationInFrames) / DEFAULT_CONFIG.timing.fps * 1000), 0);
   const budget = new DecisionBudget(totalDurationMs || 30000, 30);
 
-  // Only execute high-confidence decisions (>0.5)
+  // Execute decisions at or above confidence threshold (>=0.5)
+  // OLD: strict > 0.5 silently killed ~60% of decisions when flat moment weights = 0.5 exactly.
+  // FIX: inclusive >= lets budget system be the gatekeeper (as designed).
   const minConfidence = DEFAULT_CONFIG.analysis.minConfidenceForDecisions;
-  const actionable = edl.decisions.filter(d => d.confidence > minConfidence);
+  const actionable = edl.decisions.filter(d => d.confidence >= minConfidence);
 
   // Keep decisions in frame-first order (as produced by signal executor / reactive engine).
   // OLD: sorted by confidence descending — a high-confidence zoom at minute 8 consumed
@@ -278,11 +280,13 @@ export async function executeEDL(
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
 
-    // ── Per-boundary visual check for single-source transitions ──
-    // OLD: blanket-killed all transition/sfx for single-source content.
-    // NEW: check actual visual similarity at each boundary. Same scene = suppress.
-    // Visual change = allow. No data = allow (respect intelligence decision).
-    if (isSingleSource && (decision.type === 'transition' || decision.type === 'sfx-trigger')) {
+    // ── Single-source: suppress only TRANSITION type at same-scene boundaries ──
+    // OLD: killed ALL transitions + SFX for single-source when color similarity > 0.7.
+    //   On talking heads (one camera, one location), color is always similar = 0 effects.
+    // FIX: Only suppress transition decisions (dissolves between same-scene are wrong).
+    //   Zooms, SFX, graphics, shakes, captions pass through — they're about content
+    //   emphasis, not scene changes. Budget system caps total counts.
+    if (isSingleSource && decision.type === 'transition') {
       if (shouldSuppressAtBoundary(decision.frame, videoOverlaysForSourceCheck, analyses)) {
         result.decisionsSkipped++;
         continue;
