@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { sessionId, scriptId, blocks, plainText, cir, aspectRatio, artStyle } = body;
+    const { sessionId, scriptId, blocks, plainText, cir, aspectRatio, artStyle, brandId } = body;
 
     let scenes: SceneDescriptor[] | undefined;
     let title = 'Untitled Script';
@@ -112,6 +112,8 @@ export async function POST(request: NextRequest) {
         const llmResult = await parseScriptWithLLM(rawContent, {
           aspectRatio,
           artStyle,
+          brandId,
+          userId,
         });
 
         // Map LLM output to SceneDescriptor format (pass through all LLM-generated fields)

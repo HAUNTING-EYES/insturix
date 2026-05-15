@@ -496,6 +496,22 @@ export async function executeDirectorPlan(
               briefingsForPrompt.set(id, { promptText: briefing.promptText, slopFlags: briefing.slopFlags });
             }
 
+            // ─── Brand context for creative intent ─────────────────
+            let brandBlock = '';
+            if (project.brandId && userId) {
+              try {
+                const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
+                const { buildBrandContextBlock } = await import('@/lib/shared/brand-context-block');
+                const brand = await getUnifiedBrand(userId, project.brandId);
+                brandBlock = buildBrandContextBlock(brand);
+                if (brandBlock) {
+                  console.log(`[Director] Brand context: ${brand?.name} (${project.brandId})`);
+                }
+              } catch (err) {
+                console.warn('[Director] Brand lookup failed (non-fatal):', err);
+              }
+            }
+
             // Layer 1b: LLM generates creative intent (WHAT + WHY, no frame numbers)
             const intentPlan = await generateCreativeIntentPlan(context, {
               editProfileName: effectiveProfile.name,
@@ -504,6 +520,7 @@ export async function executeDirectorPlan(
                 : 6,
               graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
               assetBriefings: briefingsForPrompt,
+              brandBlock,
             });
 
             // Layer 2: Translate creative intent → frame-accurate EDL decisions.
