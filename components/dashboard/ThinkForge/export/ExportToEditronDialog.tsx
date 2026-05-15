@@ -73,6 +73,20 @@ export function ExportToEditronDialog({
           borderRadius: 4,
           position: "relative",
         }}
+        onPointerDownOutside={(e) => {
+          // Prevent closing when clicking the scrollbar
+          const target = e.target as HTMLElement;
+          if (target.closest("[data-radix-scroll-area-viewport]") || target.tagName === "HTML") {
+            e.preventDefault();
+          }
+        }}
+        onInteractOutside={(e) => {
+          // Also prevent close on interact-outside for scrollbar
+          const target = e.target as HTMLElement;
+          if (target.closest("[data-radix-scroll-area-viewport]") || target.tagName === "HTML") {
+            e.preventDefault();
+          }
+        }}
       >
         {/* Left sprocket strip */}
         <div
@@ -91,8 +105,17 @@ export function ExportToEditronDialog({
           }}
         />
 
+        {/* Custom scrollbar styles */}
+        <style dangerouslySetInnerHTML={{ __html: `
+          .export-scroll::-webkit-scrollbar { width: 4px; }
+          .export-scroll::-webkit-scrollbar-track { background: transparent; }
+          .export-scroll::-webkit-scrollbar-thumb { background: #282724; border-radius: 4px; }
+          .export-scroll::-webkit-scrollbar-thumb:hover { background: #D4A652; }
+          .export-scroll { scrollbar-width: thin; scrollbar-color: #282724 transparent; }
+        `}} />
+
         {/* Film inner content (inset from sprockets) */}
-        <div style={{ margin: "0 18px", position: "relative", zIndex: 10, maxHeight: "80vh", overflowY: "auto", overflowX: "hidden" }}>
+        <div className="export-scroll" style={{ margin: "0 18px", position: "relative", zIndex: 10, maxHeight: "80vh", overflowY: "auto", overflowX: "hidden" }}>
           <DialogHeader
             className="flex flex-row items-center gap-2.5 border-b px-4 py-3.5 sticky top-0 z-20"
             style={{ borderColor: "#1C1B19", background: "#131312" }}
