@@ -113,7 +113,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
 
   return (
     <Dialog open={file !== null} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-[440px] p-0 bg-[#131312] border-[#282724] rounded-lg overflow-hidden">
+      <DialogContent className="max-w-[500px] p-0 bg-[#131312] border-[#282724] rounded-lg overflow-hidden">
         <DialogHeader className="sr-only">
           <DialogDescription>
             Configure how AI edits your video
