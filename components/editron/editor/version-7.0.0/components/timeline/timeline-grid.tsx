@@ -363,7 +363,7 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
     >
       {/* Action status banner (transition drop, etc.) */}
       {actionStatus && (
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 z-[100] px-3 py-1.5 rounded-b-md bg-emerald-600 text-white text-xs font-medium shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 z-[100] px-3 py-1.5 rounded-b-md bg-emerald-600 text-white text-[11px] font-medium shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
           {actionStatus}
         </div>
       )}

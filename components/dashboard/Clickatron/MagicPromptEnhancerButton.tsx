@@ -53,7 +53,7 @@ export function MagicPromptEnhancerButton({
       size="sm"
       onClick={handleEnhance}
       disabled={disabled || isEnhancing}
-      className="h-10 w-10 p-0 rounded-xl text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition-colors"
+      className="h-10 w-10 p-0 rounded-xl text-[#7A776E] hover:text-[#ECE9E1] hover:bg-[#282724]/50 transition-colors"
     >
       {isEnhancing ? (
         <Loader2 className="h-4 w-4 animate-spin" />

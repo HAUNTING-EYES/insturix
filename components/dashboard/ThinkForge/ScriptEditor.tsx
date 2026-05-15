@@ -271,8 +271,7 @@ export default function ScriptEditor({
         prevCharCountRef.current = currentLen;
 
         // Observer pipeline: schedule background extraction on typing lull
-        // SECOND BRAIN DISABLED
-        if (false && sessionId && currentLen >= OBSERVER_MIN_CHARS) {
+        if (sessionId && currentLen >= OBSERVER_MIN_CHARS) {
           if (observerTimerRef.current) clearTimeout(observerTimerRef.current);
           observerTimerRef.current = setTimeout(() => {
             const fullText = editor.state.doc.textContent;
@@ -1491,7 +1490,7 @@ export default function ScriptEditor({
                   disabled={!sessionId}
                 >
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-                  <span className="text-xs">Save</span>
+                  <span className="text-[11px]">Save</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -1630,19 +1629,19 @@ export default function ScriptEditor({
           {/* Save Status Indicator */}
           <div className="flex items-center pl-2 border-l border-[#282724] ml-1">
             {isSaving ? (
-              <div className="flex items-center gap-1.5 text-xs text-[#7A776E]">
+              <div className="flex items-center gap-1.5 text-[11px] text-[#7A776E]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 <span>Saving</span>
               </div>
             ) : justSaved ? (
-              <div className="flex items-center gap-1.5 text-xs text-green-400">
+              <div className="flex items-center gap-1.5 text-[11px] text-green-400">
                 <Check className="h-3.5 w-3.5" />
                 <span>Saved</span>
               </div>
             ) : hasUnsavedChanges ? (
-              <div className="text-xs text-[#D4A652]">Unsaved</div>
+              <div className="text-[11px] text-[#D4A652]">Unsaved</div>
             ) : (
-              <div className="text-xs text-[#5F5E5A]">Saved</div>
+              <div className="text-[11px] text-[#5F5E5A]">Saved</div>
             )}
           </div>
         </div>
@@ -1716,7 +1715,7 @@ export default function ScriptEditor({
                         }
                       } catch { }
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-[#0F0F0E] text-[#ECE9E1] shadow-lg border border-[#282724]/50 hover:bg-[#1C1B19] hover:text-[#ECE9E1] hover:border-[#282724] transition-all group backdrop-blur-md"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium bg-[#0F0F0E] text-[#ECE9E1] shadow-lg border border-[#282724]/50 hover:bg-[#1C1B19] hover:text-[#ECE9E1] hover:border-[#282724] transition-all group backdrop-blur-md"
                     aria-label="Edit selection in Chat"
                   >
                     <Sparkles className="h-3.5 w-3.5 text-indigo-400 group-hover:text-indigo-300 transition-colors" />
@@ -1824,7 +1823,7 @@ export default function ScriptEditor({
           border: 1px solid rgba(255, 255, 255, 0.1) !important;
           border-radius: 0.25rem !important;
           padding: 0.125rem 0.25rem !important;
-          font-family: ui-monospace, monospace !important;
+          font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace !important;
           font-size: 0.875em !important;
           color: #ECE9E1 !important;
         }

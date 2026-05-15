@@ -38,14 +38,14 @@ export default function AboutContent() {
 
             <motion.h1 
               variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.5, ease } } }}
-              className="text-5xl sm:text-7xl font-bold mb-8 tracking-tighter text-white font-space-grotesk"
+              className="text-[44px] sm:text-7xl font-bold mb-8 tracking-tighter text-white font-space-grotesk"
             >
               The Studio <span className="text-zinc-500">Vision.</span>
             </motion.h1>
 
             <motion.p 
               variants={{ hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease } } }}
-              className="text-xl sm:text-2xl text-zinc-400 max-w-3xl mx-auto leading-relaxed"
+              className="text-[18px] sm:text-2xl text-zinc-400 max-w-3xl mx-auto leading-relaxed"
             >
               Building the operating system for the next generation of content production.
             </motion.p>
@@ -81,7 +81,7 @@ export default function AboutContent() {
                   digital presence and providing the technical orchestration required 
                   to scale their impact globally.
                 </p>
-                <Link href="/about/team">
+                <Link href="/about">
                   <motion.button 
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
@@ -101,7 +101,7 @@ export default function AboutContent() {
           <section>
             <motion.h2 
               variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease } } }}
-              className="text-3xl font-bold mb-12 text-center text-white font-space-grotesk tracking-tight"
+              className="text-[32px] font-bold mb-12 text-center text-white font-space-grotesk tracking-tight"
             >
               Studio Principles
             </motion.h2>
@@ -162,7 +162,7 @@ export default function AboutContent() {
 
           {/* CTA Section */}
           <section className="text-center py-16">
-            <Link href="/about/team">
+            <Link href="/about">
               <motion.button 
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.98 }}

@@ -276,7 +276,7 @@ export const SegmentExtractor: React.FC<SegmentExtractorProps> = ({
 
       {/* Drag hint */}
       <div
-        className="flex items-center gap-2 px-3 py-2 bg-zinc-800/60 rounded-md border border-dashed border-zinc-700 cursor-grab text-xs text-zinc-400"
+        className="flex items-center gap-2 px-3 py-2 bg-zinc-800/60 rounded-md border border-dashed border-zinc-700 cursor-grab text-[11px] text-zinc-400"
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData('application/editron-asset', JSON.stringify({
@@ -304,12 +304,12 @@ export const SegmentExtractor: React.FC<SegmentExtractorProps> = ({
           placeholder="Segment name (e.g., 'product close-up')"
           value={segmentName}
           onChange={(e) => setSegmentName(e.target.value)}
-          className="flex-1 px-2.5 py-1.5 text-xs bg-zinc-800 border border-zinc-700 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-zinc-600"
+          className="flex-1 px-2.5 py-1.5 text-[11px] bg-zinc-800 border border-zinc-700 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-zinc-600"
         />
         <Button
           variant="default"
           size="sm"
-          className="gap-1 text-xs"
+          className="gap-1 text-[11px]"
           onClick={handleSave}
           disabled={!segmentName.trim() || saving}
         >

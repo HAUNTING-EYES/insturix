@@ -26,7 +26,7 @@ export default function CheckoutSuccessPage() {
       <main className="relative z-10 max-w-3xl mx-auto px-4 py-16">
         <div className="rounded-3xl border border-white/10 bg-white/70 dark:bg-zinc-900/60 backdrop-blur-xl p-8 text-center">
           <div className="mx-auto mb-4 inline-flex items-center justify-center size-14 rounded-2xl bg-green-500/15 text-green-600 dark:text-green-400">✓</div>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100">You're registered for ICS’25</h1>
+          <h1 className="text-[32px] md:text-[44px] font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100">You're registered for ICS’25</h1>
           <p className="mt-3 text-zinc-600 dark:text-zinc-400">Your attendee pass has been recorded. We’ll send confirmation and event updates to your registered email.</p>
 
           <div className="mt-8 flex items-center justify-center">
@@ -35,7 +35,7 @@ export default function CheckoutSuccessPage() {
             </Link>
           </div>
 
-          <p className="mt-6 text-xs text-zinc-500">Note: This confirms your registration for ICS’25. If you have any issues, reach out to support.</p>
+          <p className="mt-6 text-[11px] text-zinc-500">Note: This confirms your registration for ICS’25. If you have any issues, reach out to support.</p>
         </div>
       </main>
 

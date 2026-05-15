@@ -125,7 +125,7 @@ export const Testimonials = ({
                 <h3 className="text-2xl font-semibold tracking-tight primtext">
                   {testimonials[activeIndex].name}
                 </h3>
-                <p className="text-base text-muted-foreground font-medium">
+                <p className="text-[14px] text-muted-foreground font-medium">
                   {testimonials[activeIndex].designation}
                 </p>
               </div>

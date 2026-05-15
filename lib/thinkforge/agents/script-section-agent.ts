@@ -119,111 +119,68 @@ export class ScriptSectionAgent extends StructuredAgent<z.infer<typeof sectionSc
     const generationMode = (input as any).generationMode || 'manual';
     const knowledgeRole = section.knowledge_role || 'Operator';
     const operationalGoal = section.operational_goal || 'Action';
-    return `You are a senior professional authoring a production-ready document. Your output must be immediately usable by the intended audience without interpretation. Write clear, actionable direction that enables immediate execution.
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    // Removed ❌/✅ few-shot examples per Rule 35 (cause pattern anchoring).
+    // Replaced with explicit rules about execution verbs vs planning verbs.
+    return `<role>You are a senior professional authoring a production-ready document section. Output must be immediately usable by the intended audience without interpretation.</role>
 
 ${DOCUMENT_AUTHORING_CONTRACT}
 
-## Creative Brief Context
-Project: ${context.projectSummary || '(No project context)'}
-Section: ${section.title}
+<task>
+Write the section "${section.title}" for project: ${context.projectSummary || ‘(No project context)’}
 Goal: ${section.goal}
-Tone: ${contract.tone || section.tone || 'confident and grounded'}
-Medium: ${contract.medium}
+Tone: ${contract.tone || section.tone || ‘confident and grounded’} | Medium: ${contract.medium}
 
-## Your Writing Style
-Write like a senior professional giving clear, confident guidance. Your output should:
+Before writing, silently plan: H2/H3 hierarchy, callout placement, list structure. Then write blocks following that plan.
+</task>
 
-1. **Be execution-focused**: Write what to DO, not what to "determine" or "define"
-   ❌ "Determine the question themes"
-   ✅ "Ask questions that unlock lived experience, such as: 'What moment changed everything?'"
+<rules>
+RULE 1 — EXECUTION LANGUAGE (not planning language):
+- Use execution verbs: Ask, Structure, Follow, Apply, Write, Create, Build.
+- NEVER use planning verbs: Determine, Define, Consider, Establish, Identify.
+- Write what to DO, not what to "figure out."
+- Convert every abstract step into concrete direction with specific examples.
 
-2. **Convert abstract steps into concrete direction**:
-   ❌ "Define the structure"
-   ✅ "Follow this structure: opening hook → core content → key insight → close"
+RULE 2 — NO SCHEMA ARTIFACTS:
+- NEVER mention "type: text", "styles: bold", "meta instructions" in output text.
+- NEVER use placeholders: "Input:", "Output:", "Constraint:".
+- Write natural, flowing professional direction only.
 
-3. **Remove all internal schema artifacts**:
-   ❌ Never mention "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
-   ✅ Write natural, flowing professional direction
+RULE 3 — STRUCTURE:
+- No H1 in your output (system injects the single H1).
+- H2 for major sections, H3 for subsections only.
+- Never repeat a header title. No empty headers.
+- 8-18 blocks maximum. Precision over volume.
+- Repetition is a failure — if repeating an idea, delete or merge. Each block must add new value.
+- Fewer blocks with clarity > more blocks with noise.
 
-4. **Sound confident and human**: Write as if you're a senior professional helping a real team execute, not like system planning notes.
+RULE 4 — FORMATTING:
+- Lists for sequences of 3+ items.
+- "Director’s Note" = callout block (kind: "why").
+- Dividers between major H2 sections.
+- Bold for emphasis only, never to expose schema structure.
 
-## Structural Planning (silent)
-Before writing content, silently plan the structure:
-- Decide the exact H2/H3 hierarchy
-- Decide where callouts belong
-- Decide which parts require lists
-Then write the blocks following that plan.
+RULE 5 — PRE-RETURN VALIDATION (silent):
+Before returning, validate against DOCUMENT_AUTHORING_CONTRACT: zero H1s, no duplicate headings, no empty headers, lists for 3+, callout blocks for notes, dividers between H2s. Fix violations before returning. Do not mention this step.
+</rules>
 
-## Section Details
-Title: ${section.title}
-Primary actions: ${section.primary_actions || 'spell out concrete steps'}
-Required inputs: ${section.required_inputs || 'list tangible inputs'}
-Expected outputs: ${section.expected_outputs || 'name the deliverables'}
-Risks/pitfalls: ${section.risks || 'highlight failure modes to avoid'}
+<output_format>
+JSON only, no markdown fences:
+{ "sectionId": "${section.id}", "blocks": [{ "id": "unique-id", "kind": "header"|"action"|"why"|"example"|"paragraph", "content": [{ "type": "text", "text": "clean direction", "styles": {} }], "meta": { "level": 2|3, "role": "optional", "goal": "optional" } }] }
+</output_format>
 
-## Prior sections (do NOT restate)
+<input_data>
+Section: ${section.title}
+Actions: ${section.primary_actions || ‘spell out concrete steps’}
+Inputs: ${section.required_inputs || ‘list tangible inputs’}
+Outputs: ${section.expected_outputs || ‘name the deliverables’}
+Risks: ${section.risks || ‘highlight failure modes to avoid’}
+
+Prior sections (do NOT restate):
 ${prior}
 
-## User Request
-${userPrompt}
-
-## Output Format (JSON only, no markdown fences)
-Return ONLY valid JSON matching this structure:
-{
-  "sectionId": "${section.id}",
-  "blocks": [
-    {
-      "id": "unique-id",
-      "kind": "header" | "action" | "why" | "example" | "paragraph",
-      "content": [
-        {
-          "type": "text",
-          "text": "Your clean, creative direction text here. No schema artifacts, no meta instructions, just clear creative guidance.",
-          "styles": { "bold": true } // Only use for emphasis, never expose schema structure
-        }
-      ],
-      "meta": {
-        "level": 2 | 3,  // For headers: 2=major section, 3=subsection (H1 is injected by system)
-        "role": "optional",
-        "goal": "optional"
-      }
-    }
-  ]
-}
-
-## Critical Content Rules
-- Write natural, flowing creative direction—no "type: text" or "styles: bold" visible in the text
-- No placeholders like "Input:", "Output:", "Constraint:", "Define X", "Determine Y"
-- Convert abstract steps into concrete execution guidance
-- Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
-- Write as a creative director, not a planning system
-- Do NOT include an H1 header in your output; the system will provide the single H1
-- Only use H2 and H3 headers for sub-sections
-- Never repeat a header title within a section
-- Keep each section between 8–18 blocks maximum
-- Prefer precision over volume
-- If tempted to repeat ideas, compress instead
-- Do not restate concepts covered earlier
-- Repetition is a failure. If you are about to repeat an idea, delete or merge instead. Each block must introduce new value.
-- If you are uncertain about structure, simplify. Fewer blocks with clarity is always better than more blocks with noise.
-
-## Pre-Return Validation (silent)
-Before finalizing your output, silently validate your draft against DOCUMENT_AUTHORING_CONTRACT:
-- Zero H1 headers exist in your output (H1 is injected by system)
-- No heading is duplicated
-- No empty headers
-- Lists are used for sequences of 3+ items
-- Every "Director’s Note" is formatted as a callout block (kind: "why")
-- Horizontal dividers exist between major H2 sections
-
-If any rule is violated, you must rewrite the output to fix it before returning.
-Do not mention this validation step in your final answer.
-
-## Output Quality
-- Make it immediately usable by the intended professional audience
-- Create a document people want to scroll, not escape from
-- Sound confident, grounded, human, and execution-focused
-- Enable professionals to begin work without additional interpretation
+User request: ${userPrompt}
+</input_data>
 `;
   }
 

@@ -99,14 +99,14 @@ export const MediaFilterPresetSelector: React.FC<
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <label className="text-xs text-muted-foreground">Filter Preset</label>
+          <label className="text-[11px] text-muted-foreground">Filter Preset</label>
         </div>
       </div>
 
       {/* Current filter display and toggle button */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex justify-between items-center w-full bg-background border border-input rounded-md text-xs p-2 hover:border-accent-foreground transition-colors text-foreground"
+        className="flex justify-between items-center w-full bg-background border border-input rounded-md text-[11px] p-2 hover:border-accent-foreground transition-colors text-foreground"
       >
         <span>{getCurrentPresetName()}</span>
         <ChevronDown

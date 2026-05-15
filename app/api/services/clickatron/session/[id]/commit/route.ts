@@ -9,6 +9,7 @@ import { z } from 'zod';
 const CommitVariationRequestSchema = z.object({
   variationId: z.string(),
   gcsPath: z.string(),
+  editronProjectId: z.string().optional(),
   metadata: z.object({
     fileSize: z.number(),
     contentType: z.string(),
@@ -88,6 +89,18 @@ export async function POST(
 
     // Save the updated task
     await task.save();
+
+    // If linked to an Editron project, update its pipeline stage to "thumbnails"
+    if (validatedData.editronProjectId) {
+      try {
+        const { projectService } = await import('@/lib/editron/services/project-service');
+        await projectService.updateProjectMetadata(validatedData.editronProjectId, {
+          pipelineStage: 'thumbnails',
+        });
+      } catch (e) {
+        console.warn('[clickatron/commit] Failed to update project pipeline stage:', e);
+      }
+    }
 
     return NextResponse.json({
       success: true,

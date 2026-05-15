@@ -156,7 +156,7 @@ export default function BlogAudioPlayer({
         </div>
 
         {/* Time */}
-        <span className="text-xs text-neutral-400 font-mono min-w-[70px] text-right">
+        <span className="text-[11px] text-neutral-400 font-mono min-w-[70px] text-right">
           {audioLoaded ? `${formatTime(currentTime)} / ${formatTime(duration)}` : '--:-- / --:--'}
         </span>
 
@@ -167,7 +167,7 @@ export default function BlogAudioPlayer({
               e.stopPropagation();
               setShowSpeedMenu(!showSpeedMenu);
             }}
-            className="text-xs text-neutral-400 hover:text-white transition-colors px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800 font-medium min-w-[42px]"
+            className="text-[11px] text-neutral-400 hover:text-white transition-colors px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800 font-medium min-w-[42px]"
           >
             {playbackSpeed}x
           </button>
@@ -180,7 +180,7 @@ export default function BlogAudioPlayer({
                 <button
                   key={speed}
                   onClick={() => changeSpeed(speed)}
-                  className={`block w-full px-3 py-1.5 text-xs text-left transition-colors ${
+                  className={`block w-full px-3 py-1.5 text-[11px] text-left transition-colors ${
                     playbackSpeed === speed
                       ? "bg-white text-black"
                       : "text-neutral-300 hover:bg-neutral-800"

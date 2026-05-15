@@ -27,20 +27,20 @@ export async function POST(request: NextRequest) {
       temperature: 0.5, // Slightly lower for more faithful edits
     });
 
-    const systemPrompt = `You are an expert HTML/CSS editor. You will receive existing HTML code and an edit request.
-Your task is to modify the HTML according to the user's instructions while preserving the overall structure and functionality.
+    const systemPrompt = `<role>You are an expert HTML/CSS editor.</role>
 
-**CANVAS**: ${safeWidth}×${safeHeight}px
+<task>Modify the provided HTML code according to the user's edit request while preserving overall structure and functionality. Canvas: ${safeWidth}x${safeHeight}px.</task>
 
-**CRITICAL RULES**:
+<rules>
 1. Return ONLY the modified HTML. NO markdown fences. NO explanations.
 2. Preserve the outer wrapper structure (position:absolute; inset:0; width:100%; height:100%;)
 3. Do NOT use viewport units (vw, vh) - use % or px instead
 4. Keep animations and interactive elements working
 5. Make targeted changes based on the user's request
 6. Maintain the same level of quality and polish
+</rules>
 
-**OUTPUT**: Just the raw HTML string starting with <`;
+<output_format>Raw HTML string only, starting with <. No markdown, no code fences, no explanations.</output_format>`;
 
     const result = await model.invoke([
       new SystemMessage(systemPrompt),

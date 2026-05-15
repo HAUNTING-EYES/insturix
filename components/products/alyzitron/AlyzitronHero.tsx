@@ -82,7 +82,7 @@ export default function AlyzitronHero() {
         {/* Main Heading */}
         <motion.h1
           variants={itemVariants}
-          className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight mb-6"
+          className="text-[44px] md:text-7xl lg:text-8xl font-bold tracking-tight mb-6"
         >
           <span className="bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-700 dark:from-white dark:via-neutral-200 dark:to-neutral-400 bg-clip-text text-transparent">
             Perfect Your Video,
@@ -96,7 +96,7 @@ export default function AlyzitronHero() {
         {/* Subtitle */}
         <motion.p
           variants={itemVariants}
-          className="text-lg md:text-xl text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
+          className="text-lg md:text-[18px] text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
         >
           Get AI-powered feedback to fix flaws, improve your script, and enhance content quality. Maximize your video&#39;s potential before it ever goes live.
         </motion.p>
@@ -155,7 +155,7 @@ export default function AlyzitronHero() {
             <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-transparent to-blue-400/10 flex items-center justify-center">
               <div className="text-center text-white">
                 <Play className="w-16 h-16 mx-auto mb-4 opacity-70" />
-                <p className="text-xl font-semibold">Demo Video</p>
+                <p className="text-[18px] font-semibold">Demo Video</p>
                 <p className="text-sm opacity-60 mt-2">See Alyzitron in action</p>
               </div>
             </div>
@@ -169,7 +169,7 @@ export default function AlyzitronHero() {
             </div>
             
             <div className="absolute bottom-4 right-4 bg-black/20 backdrop-blur-md rounded-lg p-3 text-white text-sm border border-white/10">
-              <div className="text-xs opacity-70">Risk Score</div>
+              <div className="text-[11px] opacity-70">Risk Score</div>
               <div className="text-lg font-bold text-cyan-400">2.3/10</div>
             </div>
           </div>

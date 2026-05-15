@@ -32,7 +32,7 @@ export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
       >
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100">
+            <h1 className="text-[44px] md:text-[44px] font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100">
               Admin Control Center
             </h1>
             <p className="text-zinc-600 dark:text-zinc-400 mt-3 text-lg">
@@ -44,7 +44,7 @@ export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
               <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
                 {userEmail}
               </p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                 Administrator
               </p>
             </div>
@@ -76,7 +76,7 @@ export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
                 <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   Dashboard Status
                 </p>
-                <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
                   Fully Operational
                 </p>
               </div>
@@ -97,7 +97,7 @@ export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
                 <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   Real-Time Data
                 </p>
-                <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
                   Live updates enabled
                 </p>
               </div>
@@ -118,7 +118,7 @@ export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
                 <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   Data Sync
                 </p>
-                <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
                   Synced now
                 </p>
               </div>

@@ -64,7 +64,7 @@ export default function SecurityCompliance() {
           transition={{ duration: 0.6 }}
           className="mb-16 text-center max-w-3xl mx-auto"
         >
-          <h2 className="text-3xl sm:text-5xl font-bold tracking-tight mb-6">
+          <h2 className="text-[32px] sm:text-[44px] font-bold tracking-tight mb-6">
             Trusted by companies worldwide
           </h2>
           <p className="text-lg text-neutral-400">

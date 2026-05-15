@@ -117,13 +117,22 @@ export async function analyzeVideo(
       ? `\nUser intent: "${userIntent}" — use this to inform content type, platform, and edit style.\n`
       : '';
 
-    const prompt = `You are a professional video editor watching raw footage for the first time.
+    const prompt = `<role>You are a professional video editor watching raw footage for the first time.</role>
 
-Your job: understand the VISUAL SETUP of this footage — what kind of space, who's in it,
-how it's shot, what the production quality is. You are NOT breaking it into scenes.
-Scene boundaries come from the transcript, not from you.${intentContext}
+<task>Understand the VISUAL SETUP of this ${Math.round(durationSec)}s footage — what kind of space, who's in it, how it's shot, what the production quality is. You are NOT breaking it into scenes. Scene boundaries come from the transcript, not from you.${intentContext}</task>
 
-Watch the full ${Math.round(durationSec)}s video and output ONLY valid JSON:
+<rules>
+RULE 1 — Watch the ENTIRE video before answering.
+RULE 2 — visualSetup describes what is STABLE across the footage — the room doesn't change, the lighting doesn't change, the number of people doesn't change. Report what persists.
+RULE 3 — availableShotTypes: list ALL distinct shot framings you observe (close-up, medium, wide, over-shoulder, etc.)
+RULE 4 — visualComplexity: 0.0 = static talking head with plain background, 1.0 = fast-moving multi-subject scene with complex background.
+RULE 5 — hasBRoll: true ONLY if there are non-primary shots (cutaways, product shots, B-roll inserts). NOT if the speaker just moves.
+RULE 6 — contentType and platform: infer from visual style, subjects, aspect ratio, length.
+RULE 7 — Do NOT list scenes or timestamps. Do NOT transcribe speech. Just describe the visual setup.
+RULE 8 — Return ONLY the JSON object. No markdown, no explanation.
+</rules>
+
+<output_format>
 {
   "contentType": "tutorial|vlog|ad|interview|product-demo|sports|corporate|testimonial|music-video|documentary",
   "platform": "youtube|instagram|tiktok|linkedin|general",
@@ -153,16 +162,7 @@ Watch the full ${Math.round(durationSec)}s video and output ONLY valid JSON:
   },
   "briefSummary": "2-3 sentence summary of what this video is about and who the speaker/subject is"
 }
-
-Rules:
-- Watch the ENTIRE video before answering.
-- visualSetup describes what is STABLE across the footage — the room doesn't change, the lighting doesn't change, the number of people doesn't change. Report what persists.
-- availableShotTypes: list ALL distinct shot framings you observe (close-up, medium, wide, over-shoulder, etc.)
-- visualComplexity: 0.0 = static talking head with plain background, 1.0 = fast-moving multi-subject scene with complex background
-- hasBRoll: true ONLY if there are non-primary shots (cutaways, product shots, B-roll inserts). NOT if the speaker just moves.
-- contentType and platform: infer from visual style, subjects, aspect ratio, length.
-- Do NOT list scenes or timestamps. Do NOT transcribe speech. Just describe the visual setup.
-- Return ONLY the JSON object. No markdown, no explanation.`;
+</output_format>`;
 
     console.log(`[VideoUnderstanding] Analyzing ${durationSec}s video...`);
 

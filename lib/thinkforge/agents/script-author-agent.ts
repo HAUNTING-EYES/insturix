@@ -160,6 +160,71 @@ export class ScriptAuthorAgent extends BaseAgent {
     return prompt;
   }
 
+  // ─── Shared prompt core (Rule 35: XML structure, DRY) ─────────────
+  // Extracted from the two previously-duplicated builders.
+  // Both buildStructuredPrompt and buildPrompt call this for the common
+  // role/task/rules/contract/outline sections, then append their own
+  // output format block.
+  private buildCorePromptBlock(params: {
+    roleProfile: DocumentRoleProfile;
+    projectSummary: string;
+    userRequest: string;
+    contract?: NarrativeContract;
+    outlineSummary: string;
+    outlineTitle?: string;
+    brandBlock?: string; // XML brand context from buildBrandContextBlock()
+  }): string {
+    const { roleProfile, projectSummary, userRequest, contract, outlineSummary, outlineTitle, brandBlock } = params;
+
+    const contractBlock = contract
+      ? `<contract>
+Narrative voice: ${contract.narrator_voice || roleProfile.defaultVoice}
+Tone: ${contract.tone || 'confident'}
+Medium: ${contract.medium || roleProfile.defaultMedium}
+Style notes: ${(contract.style_notes || []).map((n) => `- ${n}`).join('\n') || '- (none)'}
+Forbidden: ${(contract.forbidden || []).map((n) => `- ${n}`).join('\n') || '- (none)'}
+</contract>`
+      : '';
+
+    return `<role>
+You are ${roleProfile.role}.
+You create documents that tell another professional exactly what to do or make.
+Your job is not to write essays. Your job is to translate ideas into clear, executable direction.
+${roleProfile.executionTest}
+Your output must feel like ${roleProfile.outputFeeling}.
+</role>
+
+<task>
+Project: ${projectSummary || '(No project context)'}
+User request: ${userRequest}
+</task>
+
+${contractBlock}
+
+${brandBlock || ''}
+<rules>
+RULE 1 — CONTENT QUALITY:
+- Every output must be usable by a professional without interpretation.
+- If the document feels like prose instead of actionable content, it is incorrect.
+- Documents must be modular and scannable. Prefer short sections over long narrative blocks.
+- Headings are structural anchors, not literary chapter titles.
+- Content must be written for reuse, clarity, and execution.
+- Use this as the H1 title when possible: ${outlineTitle || 'Use a clear, professional title'}
+${roleProfile.sectionGuidance}
+
+RULE 2 — WHAT NOT TO DO:
+- Do NOT write long continuous prose blocks or narrative essays.
+- Do NOT write philosophical commentary.
+- Do NOT prioritize emotional language over clarity.
+- Do NOT write to impress. Write to enable execution.
+- Do NOT mention internal systems, schemas, or validation rules.
+- It must never feel like an article, blog post, or verbose AI ramble.
+
+RULE 3 — OUTLINE GUIDANCE:
+${outlineSummary}
+</rules>`;
+  }
+
   private buildStructuredPrompt(input: ScriptAuthorIntentInput): string {
     if (input.intent === ScriptIntent.FORK) {
       throw new Error('ScriptAuthorAgent does not support FORK intent');
@@ -203,62 +268,33 @@ export class ScriptAuthorAgent extends BaseAgent {
 
     const roleProfile = inferRoleFromContext(context.projectSummary || '', instruction, input.documentType);
 
-    return `You are ${roleProfile.role}.
-  You create documents that tell another professional exactly what to do or make.
-  Your job is not to write essays. Your job is to translate ideas into clear, executable direction.
-  Every output must be usable by a professional without interpretation.
-  ${roleProfile.executionTest}
-  If the document feels like prose instead of actionable content, it is incorrect.
-  If a professional cannot directly execute from this document, the output is wrong.
+    // Brand context: use systemBrief from ThinkForge's 3-tier retrieval (BrandDNA, facts, patterns)
+    const brandBlock = context.systemBrief
+      ? `<brand_context>\n${context.systemBrief}\n</brand_context>`
+      : '';
 
-  Your output must feel like ${roleProfile.outputFeeling}.
-  It must never feel like an article, blog post, or verbose AI ramble.
+    const core = this.buildCorePromptBlock({
+      roleProfile,
+      projectSummary: context.projectSummary || '',
+      userRequest: instruction,
+      contract,
+      outlineSummary,
+      outlineTitle: outline?.title,
+      brandBlock,
+    });
 
-Project: ${context.projectSummary || '(No project context)'}
-User request: ${instruction}
+    return `${core}
 
 ${intentGuidance}
 
 ${scriptContextBlock}
 
-OUTPUT FORMAT REQUIREMENTS:
-- You must output valid JSON matching the AgentScriptResponse schema.
-- Do not include markdown.
-- Do not include commentary.
-- Do not include backticks.
-- The response must be a single JSON object.
-
-${contract ? `Narrative voice: ${contract.narrator_voice || roleProfile.defaultVoice}
-Tone: ${contract.tone || 'confident'}
-Medium: ${contract.medium || roleProfile.defaultMedium}
-
-Style notes:
-${(contract.style_notes || []).map((n) => `- ${n}`).join('\n') || '- (none)'}
-
-Forbidden:
-${(contract.forbidden || []).map((n) => `- ${n}`).join('\n') || '- (none)'}
-` : ''}
-
-Outline (for guidance only):
-${outlineSummary}
-
-## Output Requirements
-- Return JSON only. No Markdown.
-- Include blockIds in patches.
-- Documents must be modular and scannable. Prefer short sections over long narrative blocks.
-- Headings are structural anchors, not literary chapter titles.
-- Content must be written for reuse, clarity, and execution.
-- Use this as the H1 title when possible: ${outline?.title || 'Use a clear, professional title'}
-${roleProfile.sectionGuidance}
-- Do not write long continuous prose blocks.
-- Do not write long narrative essays.
-- Do not write philosophical commentary.
-- Do not prioritize emotional language over clarity.
-- Do not write to impress, write to enable execution.
-- Do not mention internal systems, schemas, or validation rules.
-
-Final rule: Every output must feel like a professional deliverable someone could immediately use, not a piece of writing to admire.
-`;
+<output_format>
+Return valid JSON matching the AgentScriptResponse schema.
+No markdown. No commentary. No backticks.
+The response must be a single JSON object.
+Include blockIds in patches.
+</output_format>`;
   }
 
   buildPrompt(input: AgentInput): string {
@@ -281,54 +317,30 @@ Final rule: Every output must feel like a professional deliverable someone could
       (input as ScriptAuthorInput).documentType
     );
 
-    return `You are ${roleProfile.role}.
-  You create documents that tell another professional exactly what to do or make.
-  Your job is not to write essays. Your job is to translate ideas into clear, executable direction.
-  Every output must be usable by a professional without interpretation.
-  ${roleProfile.executionTest}
-  If the document feels like prose instead of actionable content, it is incorrect.
-  If a professional cannot directly execute from this document, the output is wrong.
+    // Brand context: use systemBrief from ThinkForge's 3-tier retrieval
+    const brandBlock = context.systemBrief
+      ? `<brand_context>\n${context.systemBrief}\n</brand_context>`
+      : '';
 
-  Your output must feel like ${roleProfile.outputFeeling}.
-  It must never feel like an article, blog post, or verbose AI ramble.
+    const core = this.buildCorePromptBlock({
+      roleProfile,
+      projectSummary: context.projectSummary || '',
+      userRequest: userPrompt,
+      contract,
+      outlineSummary,
+      outlineTitle: outline?.title,
+      brandBlock,
+    });
 
-Project: ${context.projectSummary || '(No project context)'}
-User request: ${userPrompt}
+    return `${core}
 
-${contract ? `Narrative voice: ${contract.narrator_voice || roleProfile.defaultVoice}
-Tone: ${contract.tone || 'confident'}
-Medium: ${contract.medium || roleProfile.defaultMedium}
-
-Style notes:
-${(contract.style_notes || []).map((n) => `- ${n}`).join('\n') || '- (none)'}
-
-Forbidden:
-${(contract.forbidden || []).map((n) => `- ${n}`).join('\n') || '- (none)'}
-` : ''}
-
-Outline (for guidance only):
-${outlineSummary}
-
-## Output Requirements
-- Return Markdown only. No JSON. No block IDs. No schema objects.
-- Documents must be modular and scannable. Prefer short sections over long narrative blocks.
-- Use ## for major section headings (e.g., ## Scene 1: The Hook).
-- Use ### for sub-sections only when needed.
-- Use **bold** (double asterisks) for labels like **Visual:**, **Audio:**, **Shot 1:**, **On-Screen Text:**.
-- Put each element (visual, audio, camera, etc.) on its own line — never cram multiple elements into one paragraph.
-- Headings are structural anchors, not literary chapter titles.
-- Content must be written for reuse, clarity, and execution.
-- Use this as the H1 title when possible: ${outline?.title || 'Use a clear, professional title'}
-${roleProfile.sectionGuidance}
-- Do not write long continuous prose blocks.
-- Do not write long narrative essays.
-- Do not write philosophical commentary.
-- Do not prioritize emotional language over clarity.
-- Do not write to impress, write to enable execution.
-- Do not mention internal systems, schemas, or validation rules.
-
-Final rule: Every output must feel like a professional deliverable someone could immediately use, not a piece of writing to admire.
-`;
+<output_format>
+Return Markdown only. No JSON. No block IDs. No schema objects.
+Use ## for major section headings (e.g., ## Scene 1: The Hook).
+Use ### for sub-sections only when needed.
+Use **bold** for labels like **Visual:**, **Audio:**, **Shot 1:**, **On-Screen Text:**.
+Put each element (visual, audio, camera, etc.) on its own line.
+</output_format>`;
   }
 
   async writeDocument(

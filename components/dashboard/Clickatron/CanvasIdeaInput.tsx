@@ -43,12 +43,12 @@ export function CanvasIdeaInput() {
   };
 
   return (
-    <Card className="relative bg-zinc-950/40 border-zinc-800/80 backdrop-blur-xl overflow-hidden group">
+    <Card className="relative bg-[#0B0B0A]/40 border-[#1C1B19]/80 overflow-hidden group">
       <CardContent className="relative p-12 flex flex-col items-center justify-center text-center overflow-hidden min-h-[300px]">
         {/* Animated background effects */}
-        <div className="absolute inset-0 bg-linear-to-br from-purple-500/10 via-transparent to-blue-500/10 opacity-30 group-hover:opacity-50 transition-opacity duration-500" />
-        <div className="absolute -top-24 -left-24 w-64 h-64 bg-purple-600/10 blur-[100px] rounded-full animate-pulse" />
-        <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-blue-600/10 blur-[100px] rounded-full animate-pulse" />
+        <div className="absolute inset-0 bg-linear-to-br from-[#D4A652]/10 via-transparent to-[#D4A652]/5 opacity-30 group-hover:opacity-50 transition-opacity duration-500" />
+        <div className="absolute -top-24 -left-24 w-64 h-64 bg-[#D4A652]/10 blur-[100px] rounded-full animate-pulse" />
+        <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-[#D4A652]/5 blur-[100px] rounded-full animate-pulse" />
 
         <motion.div
           className="relative z-10 space-y-8 max-w-lg"
@@ -57,15 +57,15 @@ export function CanvasIdeaInput() {
           transition={{ duration: 0.6, ease: "easeOut" }}
         >
           <div className="space-y-4">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-linear-to-br from-purple-500/20 to-blue-500/20 ring-1 ring-white/10 mb-2 transform group-hover:scale-110 group-hover:rotate-3 transition-transform duration-500">
-              <Sparkles className="h-10 w-10 text-purple-400" />
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-linear-to-br from-[#D4A652]/20 to-[#D4A652]/10 ring-1 ring-white/10 mb-2 transform group-hover:scale-110 group-hover:rotate-3 transition-transform duration-500">
+              <Sparkles className="h-10 w-10 text-[#D4A652]" />
             </div>
 
-            <h2 className="text-3xl font-bold text-zinc-100 tracking-tight">
+            <h2 className="text-[32px] font-bold text-[#ECE9E1] tracking-tight">
               Ready to create something amazing?
             </h2>
 
-            <p className="text-zinc-400 text-base">
+            <p className="text-[#7A776E] text-[14px]">
               Start a new project and use our AI-powered canvas to design
               stunning thumbnails in minutes.
             </p>
@@ -75,7 +75,7 @@ export function CanvasIdeaInput() {
             <Button
               onClick={handleSubmit}
               disabled={isLoading}
-              className="relative h-16 px-10 bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white text-lg font-bold rounded-2xl transition-all duration-300 shadow-[0_0_40px_-10px_rgba(147,51,234,0.5)] hover:shadow-[0_0_50px_-5px_rgba(147,51,234,0.6)] hover:scale-105 active:scale-95 disabled:opacity-70 group/btn overflow-hidden"
+              className="relative h-16 px-10 bg-[#D4A652] hover:bg-[#D4A652]/90 text-[#0B0B0A] text-lg font-bold rounded-2xl transition-all duration-300 shadow-[0_0_40px_-10px_rgba(212,166,82,0.4)] hover:shadow-[0_0_50px_-5px_rgba(212,166,82,0.5)] hover:scale-105 active:scale-95 disabled:opacity-70 group/btn overflow-hidden"
             >
               <div className="absolute inset-0 bg-linear-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover/btn:animate-[shimmer_1.5s_infinite] pointer-events-none" />
               {isLoading ? (
@@ -91,7 +91,7 @@ export function CanvasIdeaInput() {
               )}
             </Button>
 
-            <div className="flex items-center gap-2 text-zinc-500 text-sm">
+            <div className="flex items-center gap-2 text-[#7A776E] text-sm">
               <CreditCostBadge
                 service="clickatron"
                 action="variation"

@@ -1,0 +1,116 @@
+{
+  "script_id": "voiceover_only_format_b",
+  "script_text": "",
+  "expected_scenes": [
+    {
+      "title": "City Rhythm",
+      "narration": "In the heart of every great city, there's a rhythm. A pulse that beats beneath the concrete, beneath the glass towers, beneath the noise.",
+      "visualDescription": "Aerial view of a sprawling modern city at twilight, glass towers reflecting ambient light, urban energy visible in the streets below",
+      "durationSeconds": 6,
+      "mood": "mysterious",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Before Dawn",
+      "narration": "It starts before dawn, when the bakers light their ovens and the streets still belong to the cats. The air smells of flour and possibility.",
+      "visualDescription": "A baker in a warm-lit bakery pulling fresh bread from a glowing oven, pre-dawn darkness visible through the window, flour dust in the air",
+      "durationSeconds": 6,
+      "mood": "calm",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Morning Commute",
+      "narration": "Then the sun breaks through. Commuters pour from the subway like water finding its level. Coffee cups in hand. Earbuds in. Eyes forward. Each one carrying a universe of plans and worries and small joys.",
+      "visualDescription": "Commuters emerging from a subway station entrance into morning sunlight, coffee cups in hand, earbuds in, urban morning rush hour",
+      "durationSeconds": 8,
+      "mood": "energetic",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Noon in the Park",
+      "narration": "By noon the parks are alive. Children chase pigeons. Old men play chess under the elms. A street musician plays something that sounds like longing wrapped in a minor key.",
+      "visualDescription": "Sunlit city park at midday, children chasing pigeons on green grass, dappled light through elm trees, vibrant and alive",
+      "durationSeconds": 7,
+      "mood": "playful",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "The Makers",
+      "narration": "The afternoon belongs to the makers. In studios and workshops and cramped apartments, people bend metal, write code, mix paint, shape clay. Creating the things that make a city more than just buildings.",
+      "visualDescription": "An artist in a sunlit workshop shaping wet clay on a pottery wheel, hands covered in clay, focused expression, creative tools visible around the studio",
+      "durationSeconds": 8,
+      "mood": "inspirational",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Golden Hour",
+      "narration": "As the golden hour arrives, everything softens. The harsh edges blur. Strangers smile at each other. The city exhales.",
+      "visualDescription": "City street bathed in warm golden hour sunlight, long shadows stretching across the pavement, soft warm backlight on pedestrians",
+      "durationSeconds": 6,
+      "mood": "calm",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "City Lights",
+      "narration": "And when the lights come on — the neon, the streetlamps, the glow from a thousand apartment windows — the city transforms. It becomes a constellation grounded in asphalt, a galaxy you can walk through.",
+      "visualDescription": "City skyline at night with thousands of lit apartment windows, neon signs glowing, streetlamps creating pools of warm light on wet pavement",
+      "durationSeconds": 8,
+      "mood": "dramatic",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Your City",
+      "narration": "This is the city. Your city. Every day, a new story.",
+      "visualDescription": "Wide establishing shot of the city at dawn, first light breaking over the skyline, fresh day beginning",
+      "durationSeconds": 4,
+      "mood": "inspirational",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    }
+  ],
+  "expected_global": {
+    "overallMusicPrompt": "Contemplative ambient piano and strings, building from quiet to warm crescendo",
+    "suggestedProfileCategory": "cinematic-style"
+  },
+  "target_duration": 55,
+  "art_style": ""
+}

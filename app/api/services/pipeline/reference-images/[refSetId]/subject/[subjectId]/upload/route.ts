@@ -48,17 +48,19 @@ async function analyzeUploadedImage(
         },
       },
       {
-        text: `You are a visual reference analyst for AI video production.
+        text: `<role>You are a visual reference analyst for AI video production.</role>
 
-Analyze this image of "${subjectName}" (category: ${subjectCategory}).
+<task>Analyze this image of "${subjectName}" (category: ${subjectCategory}). Write a detailed visual description that an AI image generator can use to recreate this EXACT subject in different scenes.</task>
 
-Write a detailed visual description that an AI image generator can use to recreate this EXACT subject in different scenes. Include:
-- Exact colors (use specific names like "cobalt blue", "brushed silver", not generic "blue")
+<rules>
+Include:
+- Exact colors (specific names like "cobalt blue", "brushed silver", not generic "blue")
 - Materials and textures (matte, glossy, brushed metal, leather, etc.)
 - Shape, proportions, distinctive design elements
 - Key identifying features that must be consistent across scenes
 - For products: finish, branding elements, size relative to context
 - For people: face shape, hair, skin tone, clothing, accessories
+</rules>
 
 Write as a single dense paragraph. Be exhaustively specific — this description will be used by IP-adapter for cross-scene visual consistency.`,
       },

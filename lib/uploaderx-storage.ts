@@ -46,7 +46,8 @@ export function getUploaderXR2BucketName() {
 }
 
 export function buildUploaderXPublicUrl(key: string) {
-  const baseUrl = (process.env.UPLOADERX_R2_PUBLIC_BASE_URL || getRequiredEnv("R2_PUBLIC_BASE_URL")).replace(/\/+$/, "");
+  const baseUrl = (process.env.UPLOADERX_R2_PUBLIC_BASE_URL || process.env.R2_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+  if (!baseUrl) throw new Error("Missing required environment variable: UPLOADERX_R2_PUBLIC_BASE_URL (or R2_PUBLIC_BASE_URL)");
   return `${baseUrl}/${key}`;
 }
 

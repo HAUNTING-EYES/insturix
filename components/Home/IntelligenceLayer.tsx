@@ -41,7 +41,7 @@ export default function IntelligenceLayer() {
             </motion.p>
             <motion.h2
               variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease } } }}
-              className="text-3xl md:text-5xl font-bold tracking-tight text-white mb-6 leading-tight"
+              className="text-[32px] md:text-[44px] font-bold tracking-tight text-white mb-6 leading-tight"
             >
               Every tool shares one brain.
             </motion.h2>

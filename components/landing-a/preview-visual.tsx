@@ -322,7 +322,7 @@ function EditVisualFrames({ editSub }: { editSub: number }) {
                 <span
                   className="m"
                   style={{
-                    fontSize: 12,
+                    fontSize: 11,
                     color: C.soft,
                     letterSpacing: "0.04em",
                   }}
@@ -392,7 +392,7 @@ function EditVisualFrames({ editSub }: { editSub: number }) {
             <span style={{ fontSize: 24, color: C.accent, lineHeight: 1, opacity: 0.5 }}>&ldquo;</span>
             <span
               style={{
-                fontSize: 15,
+                fontSize: 14,
                 color: C.soft,
                 fontStyle: "italic",
                 lineHeight: 1.4,
@@ -443,7 +443,7 @@ function EditVisualFrames({ editSub }: { editSub: number }) {
           {/* Insturix wordmark */}
           <span
             style={{
-              fontSize: 40,
+              fontSize: 44,
               fontWeight: 800,
               color: "#fff",
               letterSpacing: "-0.035em",
@@ -771,7 +771,7 @@ export function PreviewVisualInsturix({
                 animation: `popIn .5s ${EASE} both`,
               }}
             >
-              <span style={{ fontSize: 20, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>Insturix</span>
+              <span style={{ fontSize: 18, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>Insturix</span>
             </div>
           )}
           {editSub >= 0.28 && (
@@ -1109,7 +1109,7 @@ export function PreviewVisualInsturix({
       {phase === "done" && (
         <>
           <div style={{ position: "absolute", top: 20, left: 24, zIndex: 6, background: "rgba(0,0,0,.7)", padding: "8px 20px", borderRadius: 8 }}>
-            <span style={{ fontSize: 20, fontWeight: 800, color: "#fff" }}>Insturix</span>
+            <span style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>Insturix</span>
           </div>
           <div style={{ position: "absolute", bottom: 48, left: 24, right: 24, zIndex: 6 }}>
             <div style={{ background: "rgba(0,0,0,.7)", padding: "10px 18px", borderRadius: 8, display: "inline-block" }}>

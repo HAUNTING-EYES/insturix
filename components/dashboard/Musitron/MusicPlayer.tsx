@@ -194,7 +194,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-4xl md:text-5xl font-bold text-white tracking-tight"
+            className="text-[44px] md:text-[44px] font-bold text-white tracking-tight"
           >
             {title}
           </motion.h1>

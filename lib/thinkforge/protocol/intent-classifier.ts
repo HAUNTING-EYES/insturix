@@ -2,14 +2,16 @@ import { generateText } from 'ai';
 import { createThinkForgeModel } from '../agents/model-factory';
 import { ScriptIntent } from './intent';
 
-const CLASSIFIER_PROMPT = `You are a strict classifier. Decide the intent of the user's request.
-Return ONLY one of: REWRITE, EDIT, CONTINUE, FORK.
-Rules:
-- REWRITE: user asks to start over, rewrite, or discard existing content.
-- CONTINUE: user asks to continue, add more, or proceed to the next part.
-- EDIT: user asks to modify existing content, fix, adjust tone, refine.
-- FORK: user asks for a new version or branch while preserving the original.
-No additional text.`;
+// ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+const CLASSIFIER_PROMPT = `<role>You are a strict intent classifier.</role>
+<task>Classify the user's request. Return ONLY one label: REWRITE, EDIT, CONTINUE, or FORK.</task>
+<rules>
+- REWRITE: start over, rewrite, discard existing content.
+- CONTINUE: continue, add more, proceed to next part.
+- EDIT: modify existing content, fix, adjust tone, refine.
+- FORK: new version or branch while preserving original.
+</rules>
+<output_format>One word only. No additional text.</output_format>`;
 
 function normalizeIntent(raw: string): ScriptIntent | null {
   const value = raw.trim().toUpperCase();

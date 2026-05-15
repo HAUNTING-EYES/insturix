@@ -287,7 +287,7 @@ export default function BronzePromotionsAdmin() {
         <AdminBackButton />
       </div>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100">
+        <h1 className="text-[32px] font-bold text-zinc-900 dark:text-zinc-100">
           Silver Pass Promotions
         </h1>
         <p className="text-zinc-600 dark:text-zinc-400 mt-2">
@@ -329,11 +329,11 @@ export default function BronzePromotionsAdmin() {
                     <div className="p-4 space-y-4">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:gap-6">
                         <div className="flex-1 space-y-1">
-                          <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{displayName}</p>
+                          <p className="text-[14px] font-semibold text-zinc-900 dark:text-zinc-100">{displayName}</p>
                           {submission.email && (
                             <p className="text-sm text-zinc-500 dark:text-zinc-400">{submission.email}</p>
                           )}
-                          <p className="text-xs uppercase tracking-wide text-zinc-400 mt-1">
+                          <p className="text-[11px] uppercase tracking-wide text-zinc-400 mt-1">
                             {getSourceLabel(submission.source)}
                           </p>
                         </div>
@@ -344,7 +344,7 @@ export default function BronzePromotionsAdmin() {
                         <div className="flex flex-col items-start gap-2 text-sm text-zinc-500 dark:text-zinc-400 min-w-[160px]">
                           <span>Submitted: {formatDate(submission.createdAt)}</span>
                           {submission.status !== 'submitted' && (
-                            <span className="inline-flex items-center rounded-full border border-zinc-200 dark:border-zinc-700 px-2 py-1 text-xs font-medium capitalize text-zinc-600 dark:text-zinc-300">
+                            <span className="inline-flex items-center rounded-full border border-zinc-200 dark:border-zinc-700 px-2 py-1 text-[11px] font-medium capitalize text-zinc-600 dark:text-zinc-300">
                               {submission.status === 'verified' ? 'approved' : submission.status}
                             </span>
                           )}
@@ -403,14 +403,14 @@ export default function BronzePromotionsAdmin() {
                             )}
                             <span className="font-medium capitalize">{submission.status === 'verified' ? 'Approved' : 'Rejected'}</span>
                             {(submission.reviewedAt || submission.reviewedBy) && (
-                              <span className="text-xs text-zinc-700 dark:text-zinc-300">
+                              <span className="text-[11px] text-zinc-700 dark:text-zinc-300">
                                 {submission.reviewedAt && `on ${formatDate(submission.reviewedAt)}`}
                                 {submission.reviewedBy && ` by ${submission.reviewedBy}`}
                               </span>
                             )}
                           </div>
                           {submission.status === 'rejected' && submission.rejectionReason && (
-                            <p className="mt-2 text-xs text-zinc-700 dark:text-zinc-300">
+                            <p className="mt-2 text-[11px] text-zinc-700 dark:text-zinc-300">
                               Reason: {submission.rejectionReason}
                             </p>
                           )}
@@ -421,26 +421,26 @@ export default function BronzePromotionsAdmin() {
                         <div className="space-y-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
                           <div className="grid gap-4 text-sm text-zinc-600 dark:text-zinc-400 md:grid-cols-2">
                             <div>
-                              <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Clerk User ID</p>
-                              <p className="font-mono text-xs break-all text-zinc-700 dark:text-zinc-300">
+                              <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Clerk User ID</p>
+                              <p className="font-mono text-[11px] break-all text-zinc-700 dark:text-zinc-300">
                                 {submission.clerkUserId}
                               </p>
                             </div>
                             {submission.phone && (
                               <div>
-                                <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Phone</p>
+                                <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Phone</p>
                                 <p>{submission.phone}</p>
                               </div>
                             )}
                             {submission.reviewedBy && (
                               <div>
-                                <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Reviewed By</p>
+                                <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Reviewed By</p>
                                 <p>{submission.reviewedBy}</p>
                               </div>
                             )}
                             {formatDateTime(submission.reviewedAt) && (
                               <div>
-                                <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Reviewed At</p>
+                                <p className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Reviewed At</p>
                                 <p>{formatDateTime(submission.reviewedAt)}</p>
                               </div>
                             )}
@@ -488,7 +488,7 @@ export default function BronzePromotionsAdmin() {
                             </div>
                           </div>
 
-                          <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                          <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
                             Submitted: {formatDateTime(submission.createdAt) ?? '—'}
                             {submission.reviewedAt && ` • Reviewed: ${formatDateTime(submission.reviewedAt)}`}
                             {submission.reviewedBy && ` • By ${submission.reviewedBy}`}

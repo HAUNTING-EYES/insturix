@@ -187,8 +187,8 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
   if (isLoading) {
     return (
       <motion.div {...fadeIn} className="text-center py-12">
-        <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin text-purple-400" />
-        <p className="text-zinc-400">Loading your thumbnail history...</p>
+        <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin text-[#D4A652]" />
+        <p className="text-[#7A776E]">Loading your thumbnail history...</p>
       </motion.div>
     );
   }
@@ -196,7 +196,7 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
   if (error) {
     return (
       <motion.div {...fadeIn} className="text-center py-12">
-        <div className="text-zinc-500 mb-4">
+        <div className="text-[#7A776E] mb-4">
           <Image className="h-12 w-12 mx-auto mb-4 opacity-50" />
           <p>Failed to load history. Please try again.</p>
         </div>
@@ -207,7 +207,7 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
   if (!history || history.length === 0) {
     return (
       <motion.div {...fadeIn} className="text-center py-12">
-        <div className="text-zinc-500 mb-4">
+        <div className="text-[#7A776E] mb-4">
           <Image className="h-12 w-12 mx-auto mb-4 opacity-50" />
           <p>Your thumbnail sessions will appear here</p>
         </div>
@@ -218,12 +218,12 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
   return (
     <motion.div {...fadeIn} className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <h2 className="text-xl font-semibold text-zinc-100 flex items-center gap-2">
-          <Clock className="h-5 w-5 text-zinc-400" />
+        <h2 className="text-[18px] font-semibold text-[#ECE9E1] flex items-center gap-2">
+          <Clock className="h-5 w-5 text-[#7A776E]" />
           Past Sessions
         </h2>
         {history && history.length > 0 && (
-          <span className="text-xs text-zinc-500">Showing {history.length} of {total} sessions</span>
+          <span className="text-[11px] text-[#7A776E]">Showing {history.length} of {total} sessions</span>
         )}
       </div>
 
@@ -235,8 +235,8 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
       >
         {history.map((item) => (
           <motion.div key={item.sessionId} variants={fadeIn}>
-            <Card className="group bg-zinc-900/40 border-zinc-800/60 hover:border-purple-600/50 hover:bg-zinc-900/60 transition-all duration-300 cursor-pointer h-full flex flex-col relative overflow-hidden" onClick={() => router.push(`/dashboard/clickatron/lab/${item.sessionId}`)}>
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            <Card className="group bg-[#131312]/40 border-[#1C1B19]/60 hover:border-[#D4A652]/50 hover:bg-[#131312]/60 transition-all duration-300 cursor-pointer h-full flex flex-col relative overflow-hidden" onClick={() => router.push(`/dashboard/clickatron/lab/${item.sessionId}`)}>
+              <div className="absolute inset-0 bg-gradient-to-br from-[#D4A652]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <CardContent className="p-4 flex flex-col flex-1 justify-between relative z-10">
                 <div className="space-y-2">
                   {editingSessionId === item.sessionId ? (
@@ -266,7 +266,7 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
                     </div>
                   ) : (
                     <div className="flex items-start justify-between">
-                      <h3 className="font-semibold text-zinc-100 text-sm line-clamp-2 group-hover:text-white transition-colors flex-1">
+                      <h3 className="font-semibold text-[#ECE9E1] text-sm line-clamp-2 group-hover:text-white transition-colors flex-1">
                         {item.title}
                       </h3>
                       <DropdownMenu>
@@ -274,15 +274,15 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-6 w-6 p-0 hover:bg-zinc-700"
+                            className="h-6 w-6 p-0 hover:bg-[#282724]"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <MoreHorizontal className="h-4 w-4 text-zinc-400" />
+                            <MoreHorizontal className="h-4 w-4 text-[#7A776E]" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="bg-zinc-800 border-zinc-700">
+                        <DropdownMenuContent align="end" className="bg-[#1B1A18] border-[#282724]">
                           <DropdownMenuItem
-                            className="text-zinc-200 hover:bg-zinc-700 cursor-pointer"
+                            className="text-[#ECE9E1] hover:bg-[#282724] cursor-pointer"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleRename(item.sessionId, item.title);
@@ -292,7 +292,7 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
                             Rename
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            className="text-red-400 hover:bg-red-900/30 cursor-pointer"
+                            className="text-[#D46A5C] hover:bg-[#D46A5C]/10 cursor-pointer"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleDeleteClick(item.sessionId);
@@ -305,23 +305,23 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
                       </DropdownMenu>
                     </div>
                   )}
-                  <div className="flex items-center justify-between text-xs text-zinc-400">
+                  <div className="flex items-center justify-between text-[11px] text-[#7A776E]">
                     <div className="flex items-center gap-1.5">
-                      <div className="p-0.5 bg-purple-900/20 rounded-full">
-                        <Image className="h-3 w-3 text-purple-400" />
+                      <div className="p-0.5 bg-[#D4A652]/10 rounded-full">
+                        <Image className="h-3 w-3 text-[#D4A652]" />
                       </div>
                       <span>{item.variationsCount} variations</span>
                     </div>
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <div className="p-0.5 bg-zinc-700/50 rounded-full">
-                        <Clock className="h-3 w-3 text-zinc-500" />
+                      <div className="p-0.5 bg-[#282724]/50 rounded-full">
+                        <Clock className="h-3 w-3 text-[#7A776E]" />
                       </div>
                       <span>{formatTimeAgo(item.updatedAt)}</span>
                     </div>
                     {item.createdByName && (
-                      <div className="flex items-center gap-1.5 ml-auto truncate pl-2 border-l border-zinc-800">
-                        <span className="text-[10px] text-zinc-500 font-medium">by</span>
-                        <span className="text-[10px] text-zinc-400 font-semibold truncate hover:text-purple-400 transition-colors">
+                      <div className="flex items-center gap-1.5 ml-auto truncate pl-2 border-l border-[#1C1B19]">
+                        <span className="text-[10px] text-[#7A776E] font-medium">by</span>
+                        <span className="text-[10px] text-[#7A776E] font-semibold truncate hover:text-[#D4A652] transition-colors">
                           {item.createdByName}
                         </span>
                       </div>
@@ -370,20 +370,20 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
       
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-zinc-800">
+        <AlertDialogContent className="bg-[#131312] border-[#1C1B19]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-zinc-100">Delete Session</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
+            <AlertDialogTitle className="text-[#ECE9E1]">Delete Session</AlertDialogTitle>
+            <AlertDialogDescription className="text-[#7A776E]">
               Are you sure you want to delete this session? This action is permanent and you will lose this project and all {history.find(item => item.sessionId === deletingSessionId)?.variationsCount || 0} variations.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100">
+            <AlertDialogCancel className="bg-[#1B1A18] border-[#282724] text-[#B5B2A8] hover:bg-[#282724] hover:text-[#ECE9E1]">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              className="bg-[#D46A5C] hover:bg-[#D46A5C]/90 text-white"
             >
               Delete
             </AlertDialogAction>

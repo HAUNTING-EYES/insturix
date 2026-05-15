@@ -31,7 +31,7 @@ export default function PricingPreview() {
           </motion.p>
           <motion.h2
             variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.5, ease } } }}
-            className="text-3xl md:text-5xl font-bold tracking-tight text-white mb-6"
+            className="text-[32px] md:text-[44px] font-bold tracking-tight text-white mb-6"
           >
             Scale at your own pace.
           </motion.h2>
@@ -77,7 +77,7 @@ export default function PricingPreview() {
               <div className="mb-6">
                 <h3 className="text-lg font-semibold text-white mb-2">{plan.name}</h3>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-bold text-white">${plan.price}</span>
+                  <span className="text-[44px] font-bold text-white">${plan.price}</span>
                   <span className="text-sm text-zinc-500">/mo</span>
                 </div>
                 <p className="text-sm text-zinc-500 mt-3">{plan.description}</p>

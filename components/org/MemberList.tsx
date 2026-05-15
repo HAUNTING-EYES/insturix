@@ -70,7 +70,7 @@ export function MemberList({ orgId, className, onMemberClick }: MemberListProps)
                 className="w-full h-full object-cover"
               />
             ) : (
-              <span className="text-xs text-white/50 font-medium">
+              <span className="text-[11px] text-white/50 font-medium">
                 {(member.username || member.email).charAt(0).toUpperCase()}
               </span>
             )}

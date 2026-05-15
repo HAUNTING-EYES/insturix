@@ -100,7 +100,7 @@ export default function ContactUsPage() {
             }}
             className="mb-16"
           >
-            <h1 className="text-4xl md:text-5xl font-bold mb-6 text-zinc-50 tracking-tighter font-heading">
+            <h1 className="text-[44px] md:text-[44px] font-bold mb-6 text-zinc-50 tracking-tighter font-heading">
               Get in Touch
             </h1>
             <p className="text-zinc-400 text-lg leading-relaxed max-w-2xl">
@@ -131,7 +131,7 @@ export default function ContactUsPage() {
                         }`}
                       />
                       {formik.touched.name && formik.errors.name && (
-                        <p className="text-xs text-red-400">{formik.errors.name}</p>
+                        <p className="text-[11px] text-red-400">{formik.errors.name}</p>
                       )}
                     </div>
                     <div className="space-y-2">
@@ -146,7 +146,7 @@ export default function ContactUsPage() {
                         }`}
                       />
                       {formik.touched.email && formik.errors.email && (
-                        <p className="text-xs text-red-400">{formik.errors.email}</p>
+                        <p className="text-[11px] text-red-400">{formik.errors.email}</p>
                       )}
                     </div>
                   </div>
@@ -162,7 +162,7 @@ export default function ContactUsPage() {
                       }`}
                     />
                     {formik.touched.subject && formik.errors.subject && (
-                      <p className="text-xs text-red-400">{formik.errors.subject}</p>
+                      <p className="text-[11px] text-red-400">{formik.errors.subject}</p>
                     )}
                   </div>
 
@@ -177,7 +177,7 @@ export default function ContactUsPage() {
                       }`}
                     />
                     {formik.touched.message && formik.errors.message && (
-                      <p className="text-xs text-red-400">{formik.errors.message}</p>
+                      <p className="text-[11px] text-red-400">{formik.errors.message}</p>
                     )}
                   </div>
 
@@ -202,7 +202,7 @@ export default function ContactUsPage() {
             >
               <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-2xl h-full space-y-12">
                 <div>
-                  <h3 className="text-xl font-bold text-zinc-50 mb-6 font-heading tracking-tight">Technical Contact</h3>
+                  <h3 className="text-[18px] font-bold text-zinc-50 mb-6 font-heading tracking-tight">Technical Contact</h3>
                   <div className="space-y-4">
                     <div className="flex items-center gap-4 text-zinc-400 group cursor-pointer hover:text-zinc-200 transition-colors">
                       <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center group-hover:bg-zinc-700">
@@ -226,7 +226,7 @@ export default function ContactUsPage() {
                 </div>
 
                 <div>
-                  <h3 className="text-xl font-bold text-zinc-50 mb-6 font-heading tracking-tight">Operational Hours</h3>
+                  <h3 className="text-[18px] font-bold text-zinc-50 mb-6 font-heading tracking-tight">Operational Hours</h3>
                   <div className="space-y-4 text-sm text-zinc-400">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center">

@@ -341,7 +341,7 @@ export function PlatformEditor({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-zinc-200">Platform-Specific Settings</h2>
+          <h2 className="text-[18px] font-semibold text-zinc-200">Platform-Specific Settings</h2>
           <p className="text-sm text-zinc-400">Customize your video for each platform</p>
         </div>
         <div className="flex items-center gap-2">

@@ -394,33 +394,23 @@ async function sendAudioToGemini(params: {
 
   const prompt =
     params.prompt ||
-    `You are a professional audio editor analyzing this audio clip for editing purposes.
+    `<role>You are a professional audio editor analyzing this audio clip for editing purposes.</role>
 
-CRITICAL CONTEXT:
-- Audio duration ≤ 120 seconds
-- Timestamps are in seconds from the start of this clip
-- Be aggressive: prefer false positives over missing issues
+<task>Detect silence gaps, filler words, and summarize the audio content.</task>
 
-ANALYZE THIS AUDIO AND PROVIDE:
+<rules>
+RULE 1 — Audio duration is ≤ 120 seconds. Timestamps are in seconds from the start of this clip.
+RULE 2 — Be aggressive: prefer false positives over missing issues.
+RULE 3 — Silence Gaps: detect gaps longer than 2 seconds. Return start and end times in seconds. Be precise with timestamps.
+RULE 4 — Filler Words: detect "um", "uh", "like", "you know", "so", "actually", "basically", "literally". Return exact word and timestamp in seconds. Include natural speech hesitations.
+RULE 5 — Summary: brief description of what's being said. Note the speaker's tone and pacing.
+RULE 6 — Do NOT return empty arrays unless absolutely nothing is found.
+RULE 7 — Observe only what you actually hear.
+RULE 8 — Return ONLY valid JSON (no markdown, no explanation).
+RULE 9 — If nothing found, return empty arrays but always provide a summary.
+</rules>
 
-1. **Silence Gaps** longer than 2 seconds
-   - Return start and end times in seconds
-   - Be precise with timestamps
-   
-2. **Filler Words** like "um", "uh", "like", "you know", "so", "actually", "basically", "literally"
-   - Return the exact word and its timestamp in seconds
-   - Include natural speech hesitations
-
-3. **Summary** of the audio content
-   - Brief description of what's being said
-   - Note the speaker's tone and pacing
-
-RULES:
-- Do NOT return empty arrays unless absolutely nothing is found
-- Observe only what you actually hear
-- Return ONLY valid JSON (no markdown, no explanation)
-
-FORMAT:
+<output_format>
 {
   "silences": [
     {"start": 5.2, "end": 8.1},
@@ -432,8 +422,7 @@ FORMAT:
   ],
   "summary": "Brief description of audio content and speaker delivery"
 }
-
-If nothing found, return empty arrays but always provide a summary.`;
+</output_format>`;
 
   try {
     const result = await model.generateContent([
@@ -520,29 +509,23 @@ export async function sendVideoToGemini(params: {
 
   const prompt =
     params.prompt ||
-    `You are a professional video editor analyzing a video sampled at EXACTLY 1 FPS.
+    `<role>You are a professional video editor analyzing a video sampled at EXACTLY 1 FPS.</role>
 
-CRITICAL CONTEXT:
-- Frame index = second index (frame 0 = 0s, frame 10 = 10s)
-- Video duration ≤ 120 seconds
-- Be aggressive: prefer false positives over missing events
+<task>Detect scene changes, dead visual ranges, gestures, and on-screen text in this video.</task>
 
-DETECT AND RETURN:
-1. Scene changes
-   - Cuts, shot changes, camera movement, lighting shifts
-2. Dead visual ranges
-   - Static, boring, repetitive segments
-3. Gestures
-   - Any visible human or object motion
-4. On-screen text
-   - Any readable or partially readable text
+<rules>
+RULE 1 — Frame index = second index (frame 0 = 0s, frame 10 = 10s). Video duration ≤ 120 seconds.
+RULE 2 — Be aggressive: prefer false positives over missing events.
+RULE 3 — Scene changes: detect cuts, shot changes, camera movement, lighting shifts.
+RULE 4 — Dead visual ranges: detect static, boring, repetitive segments.
+RULE 5 — Gestures: detect any visible human or object motion.
+RULE 6 — On-screen text: detect any readable or partially readable text.
+RULE 7 — Do NOT return empty arrays unless absolutely nothing changes.
+RULE 8 — Observe only what is visible.
+RULE 9 — Return ONLY valid JSON (no markdown, no explanation).
+</rules>
 
-RULES:
-- Do NOT return empty arrays unless absolutely nothing changes
-- Observe only what is visible
-- Return ONLY valid JSON (no markdown, no explanation)
-
-FORMAT:
+<output_format>
 {
   "sceneChanges": [2, 6, 14],
   "deadVisualRanges": [[8, 12]],
@@ -550,7 +533,8 @@ FORMAT:
   "onScreenText": ["Welcome - frame 0"],
   "summary": "Brief description of subject and activity",
   "theme": "tutorial|promo|story|demo|other"
-}`;
+}
+</output_format>`;
 
   try {
     const result = await model.generateContent([

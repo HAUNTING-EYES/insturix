@@ -181,7 +181,7 @@ export default function PromptInput({ onSubmit, onCustomIdeaSubmit, loading = fa
             <div className="absolute inset-0 flex items-center">
               <span className="w-full border-t border-[#282724]" />
             </div>
-            <div className="relative flex justify-center text-xs uppercase">
+            <div className="relative flex justify-center text-[11px] uppercase">
               <span className="bg-[#0B0B0A] px-2 text-[#5F5E5A]">Or</span>
             </div>
           </div>

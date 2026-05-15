@@ -39,30 +39,37 @@ export async function identifyEssentialSegments(
       `[${s.index}] (${Math.round(s.startMs / 1000)}s) "${s.text}"`
     ).join('\n');
 
-    const prompt = `You are a professional video editor identifying the ESSENTIAL segments of a raw footage transcript.
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    const prompt = `<role>
+You are a professional video editor identifying the ESSENTIAL segments of a raw footage transcript.
+</role>
 
-The speaker recorded this in one take with retakes, stutters, meta-commentary, and false starts mixed in. Your job: identify the 10-20 segments that form the ARGUMENT BACKBONE — the segments without which the video makes no sense.
+<task>
+From the ${segments.length} segments below, identify 10-20 that form the ARGUMENT BACKBONE — segments without which the video makes no sense. If unsure, INCLUDE the segment (err toward protection).
+</task>
 
-ESSENTIAL segments include:
-- The thesis/main claim (what the video is ABOUT)
-- Key supporting arguments (the points that build the case)
+<rules>
+RULE 1 — ESSENTIAL (protect these):
+- Thesis/main claim (what the video is ABOUT)
+- Key supporting arguments (points that build the case)
 - Punchlines and payoff moments (the "aha" or emotional peak)
-- The conclusion/call-to-action (how it ends)
+- Conclusion/call-to-action (how it ends)
 - Critical transitions ("But here's the thing..." that pivot the argument)
 
-NOT essential (even if they're good content):
+RULE 2 — NOT ESSENTIAL (even if good content):
 - Setup/context that could be shortened
 - Examples that repeat a point already made
 - Tangents (interesting but not load-bearing)
 - Meta-commentary about the recording process
+</rules>
 
-There are ${segments.length} segments. Here they are:
+<output_format>
+JSON array of essential segment indices only. Example: [4, 7, 12, 23, 34, 45, 56, 67, 78, 89, 95, 102]
+</output_format>
 
+<segments>
 ${segmentList}
-
-Respond with ONLY a JSON array of the essential segment indices (the [N] numbers). Pick 10-20 segments that form the spine of the argument. If you're unsure whether a segment is essential, INCLUDE it (err toward protection).
-
-Example response: [4, 7, 12, 23, 34, 45, 56, 67, 78, 89, 95, 102]`;
+</segments>`;
 
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],

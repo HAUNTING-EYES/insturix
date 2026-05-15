@@ -8,6 +8,7 @@ import {
   deleteUploaderXObject,
   uploadUploaderXObject,
 } from "@/lib/uploaderx-storage";
+import { addVideoToLink, removeVideoFromLinks } from "@/lib/shared/project-links";
 
 export async function POST(req: Request) {
   try {
@@ -35,9 +36,13 @@ export async function POST(req: Request) {
     const gcsPath = destination;
     const publicUrl = buildUploaderXPublicUrl(gcsPath);
 
+    // Optional: link to an Editron project + update its pipeline stage
+    const editronProjectId = data.get("editronProjectId") as string | null;
+
     await connectToDatabase();
     const video = await UploaderX.create({
       userId: session.userId,
+      editronProjectId: editronProjectId || null,
       videoUuid: randomUUID(),
       filename: file.name,
       gcsPath,
@@ -47,6 +52,30 @@ export async function POST(req: Request) {
       status: "uploaded",
       uploadedAt: new Date(),
     });
+
+    // If linked to a project, update its pipeline stage to "publish"
+    if (editronProjectId) {
+      try {
+        const { projectService } = await import("@/lib/editron/services/project-service");
+        await projectService.updateProjectMetadata(editronProjectId, {
+          pipelineStage: "publish",
+        });
+        // Refresh derived project status after stage change
+        await projectService.refreshProjectStatus(editronProjectId);
+      } catch (e) {
+        console.warn("[uploaderx] Failed to update project stage:", e);
+      }
+
+      // Wire video into project link chain (fail-open)
+      try {
+        const linked = await addVideoToLink(session.userId, editronProjectId, video.videoUuid);
+        if (linked) {
+          console.log(`[uploaderx/videos] Project link updated: project ${editronProjectId} → video ${video.videoUuid}`);
+        }
+      } catch (linkErr: any) {
+        console.error(`[uploaderx/videos] Project link update failed: ${linkErr.message}`);
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -108,6 +137,13 @@ export async function DELETE(request: Request) {
       await deleteUploaderXObject(deleted.gcsPath);
     } catch (err) {
       console.warn("R2 deletion failed:", err);
+    }
+
+    // Clean up project link references (fail-open)
+    try {
+      await removeVideoFromLinks(session.userId, videoUuid);
+    } catch (linkErr: any) {
+      console.error(`[uploaderx/videos] Link cleanup failed for video ${videoUuid}: ${linkErr.message}`);
     }
 
     return NextResponse.json({ success: true, message: "Video deleted" });

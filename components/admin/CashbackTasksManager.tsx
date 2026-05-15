@@ -264,11 +264,11 @@ export default function CashbackTasksManager() {
                   <td className="px-4 py-3">
                     <div>
                       <p className="font-medium text-sm text-zinc-900 dark:text-zinc-100">{task.userName}</p>
-                      <p className="text-xs text-zinc-500">{task.userEmail}</p>
+                      <p className="text-[11px] text-zinc-500">{task.userEmail}</p>
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <Badge variant="outline" className="uppercase text-xs">{task.game}</Badge>
+                    <Badge variant="outline" className="uppercase text-[11px]">{task.game}</Badge>
                   </td>
                   <td className="px-4 py-3">
                     <a 
@@ -318,7 +318,7 @@ export default function CashbackTasksManager() {
                           disabled={processing}
                           variant="outline"
                           size="sm"
-                          className="h-8 text-xs"
+                          className="h-8 text-[11px]"
                         >
                           Revert
                         </Button>
@@ -332,7 +332,7 @@ export default function CashbackTasksManager() {
                           disabled={processing}
                           variant="outline"
                           size="sm"
-                          className="h-8 text-xs"
+                          className="h-8 text-[11px]"
                         >
                           Revert
                         </Button>
@@ -401,7 +401,7 @@ export default function CashbackTasksManager() {
               <CardContent className="p-4">
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">Pending</p>
                 <p className="text-2xl font-bold mt-1">{pendingInsta}</p>
-                <p className="text-xs text-zinc-400 mt-2">Click to {expandedStatus === 'pending' && activeTab === 'instagram' ? 'collapse' : 'expand'}</p>
+                <p className="text-[11px] text-zinc-400 mt-2">Click to {expandedStatus === 'pending' && activeTab === 'instagram' ? 'collapse' : 'expand'}</p>
               </CardContent>
             </Card>
             <Card 
@@ -411,7 +411,7 @@ export default function CashbackTasksManager() {
               <CardContent className="p-4">
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">Approved</p>
                 <p className="text-2xl font-bold mt-1">{approvedInsta}</p>
-                <p className="text-xs text-zinc-400 mt-2">Click to {expandedStatus === 'approved' && activeTab === 'instagram' ? 'collapse' : 'expand'}</p>
+                <p className="text-[11px] text-zinc-400 mt-2">Click to {expandedStatus === 'approved' && activeTab === 'instagram' ? 'collapse' : 'expand'}</p>
               </CardContent>
             </Card>
             <Card 
@@ -421,7 +421,7 @@ export default function CashbackTasksManager() {
               <CardContent className="p-4">
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">Rejected</p>
                 <p className="text-2xl font-bold mt-1">{rejectedInsta}</p>
-                <p className="text-xs text-zinc-400 mt-2">Click to {expandedStatus === 'rejected' && activeTab === 'instagram' ? 'collapse' : 'expand'}</p>
+                <p className="text-[11px] text-zinc-400 mt-2">Click to {expandedStatus === 'rejected' && activeTab === 'instagram' ? 'collapse' : 'expand'}</p>
               </CardContent>
             </Card>
           </div>
@@ -458,7 +458,7 @@ export default function CashbackTasksManager() {
               <CardContent className="p-4">
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">Pending</p>
                 <p className="text-2xl font-bold mt-1">{pendingLinkedin}</p>
-                <p className="text-xs text-zinc-400 mt-2">Click to {expandedStatus === 'pending' && activeTab === 'linkedin' ? 'collapse' : 'expand'}</p>
+                <p className="text-[11px] text-zinc-400 mt-2">Click to {expandedStatus === 'pending' && activeTab === 'linkedin' ? 'collapse' : 'expand'}</p>
               </CardContent>
             </Card>
             <Card 
@@ -468,7 +468,7 @@ export default function CashbackTasksManager() {
               <CardContent className="p-4">
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">Approved</p>
                 <p className="text-2xl font-bold mt-1">{approvedLinkedin}</p>
-                <p className="text-xs text-zinc-400 mt-2">Click to {expandedStatus === 'approved' && activeTab === 'linkedin' ? 'collapse' : 'expand'}</p>
+                <p className="text-[11px] text-zinc-400 mt-2">Click to {expandedStatus === 'approved' && activeTab === 'linkedin' ? 'collapse' : 'expand'}</p>
               </CardContent>
             </Card>
             <Card 
@@ -478,7 +478,7 @@ export default function CashbackTasksManager() {
               <CardContent className="p-4">
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">Rejected</p>
                 <p className="text-2xl font-bold mt-1">{rejectedLinkedin}</p>
-                <p className="text-xs text-zinc-400 mt-2">Click to {expandedStatus === 'rejected' && activeTab === 'linkedin' ? 'collapse' : 'expand'}</p>
+                <p className="text-[11px] text-zinc-400 mt-2">Click to {expandedStatus === 'rejected' && activeTab === 'linkedin' ? 'collapse' : 'expand'}</p>
               </CardContent>
             </Card>
           </div>

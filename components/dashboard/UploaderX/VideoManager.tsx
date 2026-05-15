@@ -877,7 +877,7 @@ export function VideoManager({
                           <span className="text-sm text-zinc-400">Platforms:</span>
                           <div className="flex gap-1">
                             {video.platforms.map(platform => (
-                              <Badge key={platform} variant="outline" className="text-xs">
+                              <Badge key={platform} variant="outline" className="text-[11px]">
                                 {platform}
                               </Badge>
                             ))}

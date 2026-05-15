@@ -12,6 +12,7 @@ import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getAnalysis, selectBestSegment } from '@/lib/editron/services/five-track-analysis';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
+import { addProjectToLink } from '@/lib/shared/project-links';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -36,7 +37,7 @@ export async function POST(
 
     const { id } = await params;
     const body = await req.json();
-    const { aspectRatio = '16:9', includeVoiceover = true, includeCaptions = true } = body;
+    const { aspectRatio = '16:9', includeVoiceover = true, includeCaptions = true, brandId } = body;
 
     const storyboard = await getStoryboard(id, userId);
     if (!storyboard) {
@@ -690,7 +691,7 @@ export async function POST(
 
     // Create Editron project then save overlays + settings
     const projectName = storyboard.title || 'Storyboard Video';
-    const project = await projectService.createProject(userId, projectName);
+    const project = await projectService.createProject(userId, projectName, { brandId });
 
     await projectService.saveProject(userId, project.projectId, {
       overlays,
@@ -725,6 +726,18 @@ export async function POST(
         },
       },
     );
+
+    // ─── Update project link with new projectId (fail-open) ────────
+    try {
+      const linked = await addProjectToLink(userId, id, project.projectId);
+      if (linked) {
+        console.log(`[finalize] Project link updated: storyboard ${id} → project ${project.projectId}`);
+      } else {
+        console.warn(`[finalize] No project link found for storyboard ${id} — link may not have been created at generate time`);
+      }
+    } catch (linkErr: any) {
+      console.error(`[finalize] Project link update failed: ${linkErr.message}`);
+    }
 
     // ─── Graph sync: create Project + Scene nodes in Neo4j ────────
     try {
@@ -1118,6 +1131,29 @@ export async function POST(
     // Log pipeline warning summary
     if (pipelineWarnings.hasErrors() || pipelineWarnings.count().warnings > 0) {
       console.log(`[Finalize] ${pipelineWarnings.getSummary()}`);
+    }
+
+    // ─── Brand Intelligence: emit project_created + set status to generating ───
+    try {
+      const { emitBrandEvent } = await import('@/lib/shared/brand-events');
+      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+
+      await transitionProjectStatus(project.projectId, userId, 'generating', 'pipeline_finalize');
+
+      emitBrandEvent({
+        userId,
+        projectId: project.projectId,
+        service: 'pipeline',
+        type: 'project_created',
+        payload: {
+          overlayCount: overlays.length,
+          durationFrames: currentFrame,
+          sceneCount: storyboard.scenes?.length ?? 0,
+          warningCount: warnings.length,
+        },
+      }).catch((e) => console.warn('[Finalize] Brand event failed:', e));
+    } catch (brandErr: any) {
+      console.warn(`[Finalize] Brand intelligence wiring failed: ${brandErr.message}`);
     }
 
     return NextResponse.json({

@@ -89,71 +89,52 @@ export class ScriptRefinementAgent extends StructuredAgent<ScriptRefinedOutput> 
     });
   }
   
+  // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+  // Two branches (selection vs block edit) share a core via private method.
+  private buildCoreRefinementBlock(document: string, change: string, isBlockEdit: boolean): string {
+    return `<role>You are a professional revising a document. Write clear, actionable direction appropriate to the document type — not system planning notes.</role>
+
+${DOCUMENT_AUTHORING_CONTRACT}
+
+<task>Apply the requested change to the document below with minimal, precise edits.</task>
+
+<rules>
+RULE 1 — WRITING STYLE:
+- Write as a senior professional giving clear, confident guidance.
+- Execution-style language: concrete direction, specific examples, actionable steps.
+- Remove all schema artifacts: no "type: text", "styles: bold", "meta instructions", or placeholders.
+- Preserve voice and cadence. Do not simplify or shorten mechanically.
+
+RULE 2 — REVISION:
+- Focus on cohesion, rhythm, transitions, and tonal consistency.
+- Make the smallest changes that deliver professional polish.
+- Improve structure only when it clarifies flow.
+- Preserve formatting: bold, italic, code, links.${isBlockEdit ? `
+- Unchanged blocks: omit from patches.
+- New blocks: use blockId "NEW_BLOCK" with kind and clean professional direction.` : ''}
+</rules>
+
+<output_format>
+JSON only, no markdown:
+{ "patches": [{ "blockId": string, "content"?: RichTextNode[], "text"?: string, "kind"?: "header"|"action"|"why"|"example"|"paragraph", "meta"?: {"role"?:string,"goal"?:string,"level"?:1|2|3} }], "title"?: string }
+</output_format>
+
+<input_data>
+Document${isBlockEdit ? ' (blockId | kind)' : ''}:
+${document}
+
+Requested change:
+${change}
+</input_data>`;
+  }
+
   buildPrompt({ context, userPrompt }: AgentInput): string {
-    // Check if this is a selection-based edit (no blockIds in prompt)
     const isSelectionEdit = !userPrompt.includes('blockId') && !userPrompt.includes('blockIds');
-    
-    const basePrompt = 'You are a professional revising a document. Write clear, actionable direction appropriate to the document type—not system planning notes.\n\n';
-    
-    const selectionEditPrompt = `Document to polish:
-${context.currentScript || '(none)'}
-
-Requested change:
-${userPrompt}
-
-${DOCUMENT_AUTHORING_CONTRACT}
-
-## Your Writing Style
-- Write as a senior professional giving clear, confident guidance appropriate to the document type
-- Use execution-style language: concrete direction, specific examples, actionable steps
-- Remove all internal schema artifacts: no "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
-- Preserve voice and cadence; do not simplify language or shorten mechanically
-
-## Revision Rules (Full-Document Polish)
-- Focus on cohesion, rhythm, transitions, and tonal consistency across the document
-- Make the smallest set of changes that delivers a professional polish
-- Improve structure only when it clarifies flow (lists, headers, separators)
-- Preserve formatting: maintain inline emphasis (bold, italic), code, links when present
-
-## Output Format (JSON only, no markdown)
-{
-  "patches": [
-    { "blockId": string (use existing IDs from input or "NEW_BLOCK" for additions), "content"?: RichTextNode[], "text"?: string, "kind"?: "header"|"action"|"why"|"example"|"paragraph", "meta"?: {"role"?:string,"goal"?:string,"level"?:1|2|3} }
-  ],
-  "title"?: string
-}`;
-
-    const blockEditPrompt = `Document to polish (blockId | kind):
-${context.currentScript || '(none)'}
-
-Requested change:
-${userPrompt}
-
-${DOCUMENT_AUTHORING_CONTRACT}
-
-## Your Writing Style
-- Write as a senior professional giving clear, confident guidance appropriate to the document type
-- Use execution-style language: concrete direction, specific examples, actionable steps
-- Remove all internal schema artifacts: no "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
-- Preserve voice and cadence; do not simplify language or shorten mechanically
-
-## Revision Rules (Full-Document Polish)
-- Focus on cohesion, rhythm, transitions, and tonal consistency across the document
-- Make the smallest set of changes that delivers a professional polish
-- Improve structure only when it clarifies flow (lists, headers, separators)
-- Preserve formatting: maintain inline emphasis/code when present.
-- Examples: if unchanged, omit from patches.
-- If adding, emit blockId: "NEW_BLOCK" with kind and clean professional direction (no schema artifacts).
-
-## Output Format (JSON only, no markdown)
-{
-  "patches": [
-    { "blockId": string, "content"?: RichTextNode[], "text"?: string, "kind"?: "header"|"action"|"why"|"example"|"paragraph", "meta"?: {"role"?:string,"goal"?:string,"level"?:1|2|3} }
-  ],
-  "title"?: string
-}`;
-
-    return basePrompt + (isSelectionEdit ? selectionEditPrompt : blockEditPrompt);
+    return this.buildCoreRefinementBlock(
+      context.currentScript || '(none)',
+      userPrompt,
+      !isSelectionEdit,
+    );
   }
   
   /**

@@ -68,13 +68,17 @@ export async function summarizeMessages(
   existingSummary: string | null,
   videoTitle?: string
 ): Promise<string> {
+  // 2026-05-15: increased maxOutputTokens 512→1024 and thinkingBudget 0→200.
+  // Root cause of 0.500 eval score: thinkingBudget:0 made Gemini return terse
+  // 1-line summaries instead of information-dense paragraphs. Budget:200 gives
+  // the model enough reasoning to identify key points before writing.
   const llm = new ChatGoogleGenerativeAI({
     model: "gemini-2.5-flash",
     apiKey: process.env.GEMINI_API_KEY!,
-    maxOutputTokens: 512,
+    maxOutputTokens: 1024,
     temperature: 0.2,
     thinkingConfig: {
-      thinkingBudget: 0,
+      thinkingBudget: 200,
     },
   });
 
@@ -86,17 +90,20 @@ export async function summarizeMessages(
     ? `Previously summarized context:\n${existingSummary}\n\n`
     : "";
 
-  const prompt = `You are summarizing a conversation about a video${videoTitle ? ` titled "${videoTitle}"` : ""}.
-
+  const prompt = `<role>You are a conversation summarizer for video analysis discussions.</role>
+<task>Summarize the conversation about a video${videoTitle ? ` titled "${videoTitle}"` : ""}.</task>
+<rules>
+1. Preserve all key questions asked and answers given
+2. Note any specific timestamps, speakers, or data points referenced
+3. Capture the user's areas of interest or confusion
+4. Write in third-person ("The user asked about...", "The assistant explained...")
+5. No longer than 300 words
+</rules>
+<output_format>A single concise, information-dense summary paragraph or short set of paragraphs.</output_format>
+<input_data>
 ${existingContext}New conversation to incorporate into the summary:
 ${conversationText}
-
-Create a concise, information-dense summary that:
-1. Preserves all key questions asked and answers given
-2. Notes any specific timestamps, speakers, or data points referenced
-3. Captures the user's areas of interest or confusion
-4. Is written in third-person ("The user asked about...", "The assistant explained...")
-5. Is no longer than 300 words
+</input_data>
 
 Summary:`;
 

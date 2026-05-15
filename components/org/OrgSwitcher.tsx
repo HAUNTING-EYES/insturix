@@ -127,7 +127,7 @@ export function OrgSwitcher({ isExpanded, className }: OrgSwitcherProps) {
             >
               {/* Header */}
               <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between">
-                <span className="text-xs text-white/50">Switch context</span>
+                <span className="text-[11px] text-white/50">Switch context</span>
                 <button
                   onClick={() => setIsOpen(false)}
                   className="p-0.5 rounded hover:bg-white/5"
@@ -157,7 +157,7 @@ export function OrgSwitcher({ isExpanded, className }: OrgSwitcherProps) {
 
               {/* Organizations */}
               {isLoading ? (
-                <div className="px-3 py-2 text-xs text-white/30">Loading...</div>
+                <div className="px-3 py-2 text-[11px] text-white/30">Loading...</div>
               ) : (
                 organizations?.map((org) => (
                   <button
@@ -186,7 +186,7 @@ export function OrgSwitcher({ isExpanded, className }: OrgSwitcherProps) {
               <div className="border-t border-white/[0.06]">
                 <button
                   onClick={handleCreateOrg}
-                  className="w-full px-3 py-2.5 text-left text-xs text-white/50 hover:text-white/70 hover:bg-white/[0.04] transition-colors"
+                  className="w-full px-3 py-2.5 text-left text-[11px] text-white/50 hover:text-white/70 hover:bg-white/[0.04] transition-colors"
                 >
                   + Create organization
                 </button>

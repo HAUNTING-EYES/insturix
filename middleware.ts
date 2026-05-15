@@ -10,12 +10,16 @@ const isProtectedRoute = createRouteMatcher([
 // Resolve authorized parties from env or dynamic Vercel URLs
 const getAuthorizedParties = () => {
   const envParties = process.env.NEXT_PUBLIC_AUTHORIZED_PARTIES?.split(',') || [];
-  
-  // In Vercel preview environments, add the VERCEL_URL to the list
-  if (process.env.VERCEL_URL) {
-    envParties.push(`https://${process.env.VERCEL_URL}`);
+
+  // Vercel sets multiple URL env vars — add all so Clerk accepts JWTs from any
+  // VERCEL_URL = deployment-specific (e.g. front-abc123-xxx.vercel.app)
+  // VERCEL_BRANCH_URL = branch-stable (e.g. front-end-git-brand-intelligence-xxx.vercel.app)
+  // VERCEL_PROJECT_PRODUCTION_URL = production domain
+  for (const key of ['VERCEL_URL', 'VERCEL_BRANCH_URL', 'VERCEL_PROJECT_PRODUCTION_URL']) {
+    const val = process.env[key];
+    if (val) envParties.push(`https://${val}`);
   }
-  
+
   return envParties.length > 0 ? envParties : undefined;
 };
 

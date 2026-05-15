@@ -1,0 +1,119 @@
+{
+  "script_id": "casual_brief_format_f",
+  "script_text": "",
+  "expected_scenes": [
+    {
+      "title": "Zen Opening",
+      "narration": "Find your center.",
+      "visualDescription": "Sunrise over misty mountains with a peaceful lake in the foreground, golden morning light, serene and calming landscape",
+      "musicDescription": "Gentle ambient piano, soft and calming",
+      "sfxDescription": "",
+      "durationSeconds": 4,
+      "mood": "calm",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": [],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "Studio Space",
+      "narration": "A space designed for stillness.",
+      "visualDescription": "Beautiful bright yoga studio with bamboo floors, floor-to-ceiling windows overlooking a garden, airy and open, natural light flooding the room",
+      "musicDescription": "Gentle piano continues",
+      "sfxDescription": "Soft whoosh",
+      "durationSeconds": 5,
+      "mood": "calm",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": [],
+        "pacing": null,
+        "sfxCue": "whoosh"
+      },
+      "subShots": null
+    },
+    {
+      "title": "Classes",
+      "narration": "Whether you're beginning your journey or deepening your practice.",
+      "visualDescription": "A small group doing sun salutations together in a bright yoga studio, coordinated movement, warm natural light",
+      "musicDescription": "Piano with light strings entering",
+      "sfxDescription": "",
+      "durationSeconds": 7,
+      "mood": "inspirational",
+      "sceneType": "montage",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": [],
+        "pacing": null
+      },
+      "subShots": [
+        {
+          "description": "A small group doing sun salutations together",
+          "independentGeneration": true
+        },
+        {
+          "description": "Someone in a deep meditation pose, eyes closed, peaceful",
+          "independentGeneration": true
+        },
+        {
+          "description": "A one-on-one session with an instructor adjusting someone's form",
+          "independentGeneration": true
+        }
+      ]
+    },
+    {
+      "title": "Amenities",
+      "narration": "",
+      "visualDescription": "A cozy tea lounge with herbal teas displayed on wooden shelves, warm ambient lighting, steaming teacup on a table",
+      "musicDescription": "Music continues warm and gentle",
+      "sfxDescription": "",
+      "durationSeconds": 5,
+      "mood": "calm",
+      "sceneType": "montage",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": [],
+        "pacing": null
+      },
+      "subShots": [
+        {
+          "description": "Tea lounge with herbal teas",
+          "independentGeneration": true
+        },
+        {
+          "description": "Retail corner with yoga mats and blocks",
+          "independentGeneration": true
+        },
+        {
+          "description": "Small zen garden outside",
+          "independentGeneration": true
+        }
+      ]
+    },
+    {
+      "title": "Logo Reveal",
+      "narration": "Serenity Yoga Studio. Your practice begins here.",
+      "visualDescription": "Lotus flower logo for Serenity Yoga Studio on a warm neutral background, clean and elegant design",
+      "musicDescription": "Piano resolves to final gentle chord",
+      "sfxDescription": "Soft whoosh",
+      "durationSeconds": 5,
+      "mood": "calm",
+      "sceneType": "logo-reveal",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": ["Serenity Yoga Studio", "142 Willow Lane, Portland", "serenityyoga.co", "Grand Opening: March 15"],
+        "pacing": null
+      },
+      "subShots": null
+    }
+  ],
+  "expected_global": {
+    "overallMusicPrompt": "Gentle piano and ambient music, warm and inviting, calming throughout",
+    "suggestedProfileCategory": "industry-vertical"
+  },
+  "target_duration": 28,
+  "art_style": ""
+}

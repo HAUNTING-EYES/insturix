@@ -42,7 +42,7 @@ export default function BlogGrid({ posts }: BlogGridProps) {
 
                 {/* Read time badge */}
                 <div className="absolute top-4 right-4">
-                  <div className="bg-black/80 backdrop-blur-sm px-3 py-1 text-xs text-white font-light border border-white/10">
+                  <div className="bg-black/80 backdrop-blur-sm px-3 py-1 text-[11px] text-white font-light border border-white/10">
                     {post.readTime} min
                   </div>
                 </div>
@@ -55,7 +55,7 @@ export default function BlogGrid({ posts }: BlogGridProps) {
                   {post.tags.slice(0, 2).map((tag) => (
                     <span
                       key={tag}
-                      className="text-xs text-gray-400 font-light tracking-wider uppercase border-b border-gray-600 pb-1"
+                      className="text-[11px] text-gray-400 font-light tracking-wider uppercase border-b border-gray-600 pb-1"
                     >
                       {tag}
                     </span>
@@ -87,7 +87,7 @@ export default function BlogGrid({ posts }: BlogGridProps) {
                       <span className="text-sm font-light text-white">
                         {post.author.name}
                       </span>
-                      <div className="flex items-center text-xs text-gray-500 font-light">
+                      <div className="flex items-center text-[11px] text-gray-500 font-light">
                         <Calendar className="w-3 h-3 mr-1" />
                         {formatDate(post.publishedAt)}
                       </div>

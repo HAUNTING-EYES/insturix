@@ -72,12 +72,12 @@ export default function ContentCard({ card, onUpdate, onOpenScript, onDelete, co
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide border ${statusColors[card.status] || statusColors.draft}`}>
                 {card.status.replace('_', ' ')}
               </span>
-              <span className="text-xs text-neutral-500 flex items-center gap-1">
+              <span className="text-[11px] text-neutral-500 flex items-center gap-1">
                 <Calendar size={10} />
                 {format(new Date(card.date), 'MMM d')}
               </span>
             </div>
-            <h3 className="text-base font-semibold text-neutral-200 line-clamp-2 leading-tight group-hover:text-[#ECE9E1] transition-colors">
+            <h3 className="text-[14px] font-semibold text-neutral-200 line-clamp-2 leading-tight group-hover:text-[#ECE9E1] transition-colors">
               {card.title}
             </h3>
           </div>
@@ -110,12 +110,12 @@ export default function ContentCard({ card, onUpdate, onOpenScript, onDelete, co
         {/* Quick Details (Always Visible) */}
         <div className="flex items-center gap-2 flex-wrap">
            {card.idea?.platform && (
-             <div className="flex items-center gap-1 text-xs text-neutral-400 bg-[#1C1B19]/50 px-2 py-1 rounded-md">
+             <div className="flex items-center gap-1 text-[11px] text-neutral-400 bg-[#1C1B19]/50 px-2 py-1 rounded-md">
                <span className="capitalize">{card.idea.platform}</span>
              </div>
            )}
            {card.aiScore !== undefined && (
-            <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#D4A652]/20 border border-[#D4A652]/30 text-xs text-[#D4A652]">
+            <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#D4A652]/20 border border-[#D4A652]/30 text-[11px] text-[#D4A652]">
               <Sparkles size={10} />
               <span>{card.aiScore}</span>
             </div>
@@ -134,7 +134,7 @@ export default function ContentCard({ card, onUpdate, onOpenScript, onDelete, co
               {/* Idea Snippet */}
               {card.idea && (
                 <div className="text-sm text-neutral-400 bg-[#0B0B0A]/30 p-3 rounded-lg border border-[#1C1B19]/30">
-                  <div className="flex items-center gap-2 mb-1 text-xs font-medium text-neutral-500 uppercase">
+                  <div className="flex items-center gap-2 mb-1 text-[11px] font-medium text-neutral-500 uppercase">
                     <Lightbulb size={10} /> Idea
                   </div>
                   <p className="line-clamp-2">{card.idea.idea}</p>
@@ -153,7 +153,7 @@ export default function ContentCard({ card, onUpdate, onOpenScript, onDelete, co
               {card.sessionId && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-medium text-neutral-500 uppercase flex items-center gap-1">
+                    <span className="text-[11px] font-medium text-neutral-500 uppercase flex items-center gap-1">
                       <FileText size={10} /> Script
                     </span>
                     <button
@@ -164,7 +164,7 @@ export default function ContentCard({ card, onUpdate, onOpenScript, onDelete, co
                     </button>
                   </div>
                   <div 
-                    className="text-xs text-neutral-400 leading-relaxed bg-[#0B0B0A]/50 p-3 rounded-lg border border-[#1C1B19]/30 cursor-pointer hover:border-neutral-700/50 transition-colors"
+                    className="text-[11px] text-neutral-400 leading-relaxed bg-[#0B0B0A]/50 p-3 rounded-lg border border-[#1C1B19]/30 cursor-pointer hover:border-neutral-700/50 transition-colors"
                     onClick={handleOpenScript}
                   >
                     {truncatedScript || <span className="italic opacity-50">No script content yet...</span>}
@@ -174,13 +174,13 @@ export default function ContentCard({ card, onUpdate, onOpenScript, onDelete, co
 
               {/* Notes */}
               <div>
-                <span className="text-xs font-medium text-neutral-500 uppercase block mb-1.5">Notes</span>
+                <span className="text-[11px] font-medium text-neutral-500 uppercase block mb-1.5">Notes</span>
                 <textarea
                   value={card.details || ''}
                   onChange={(e) => handleDetailsChange(e.target.value)}
                   placeholder="Add details..."
                   rows={2}
-                  className="w-full px-3 py-2 bg-[#0B0B0A]/50 border border-[#1C1B19]/50 rounded-lg text-xs text-neutral-300 placeholder-neutral-600 focus:outline-none focus:ring-1 focus:ring-[#D4A652]/50 focus:border-[#D4A652]/50 transition-all resize-none"
+                  className="w-full px-3 py-2 bg-[#0B0B0A]/50 border border-[#1C1B19]/50 rounded-lg text-[11px] text-neutral-300 placeholder-neutral-600 focus:outline-none focus:ring-1 focus:ring-[#D4A652]/50 focus:border-[#D4A652]/50 transition-all resize-none"
                 />
               </div>
             </motion.div>

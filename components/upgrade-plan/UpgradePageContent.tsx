@@ -88,7 +88,7 @@ export function UpgradePageContent({
           variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.5, ease } } }}
           className="mb-6"
         >
-          <h1 className="text-5xl md:text-7xl font-bold text-white tracking-tighter leading-none mb-4 font-space-grotesk">
+          <h1 className="text-[44px] md:text-7xl font-bold text-white tracking-tighter leading-none mb-4 font-space-grotesk">
             Scale your <span className="text-zinc-500">production.</span>
           </h1>
         </motion.div>
@@ -163,9 +163,9 @@ export function UpgradePageContent({
                 )}
                 
                 <div className="mb-6">
-                  <h3 className="text-xl font-bold text-white mb-2 font-space-grotesk">{plan.name}</h3>
+                  <h3 className="text-[18px] font-bold text-white mb-2 font-space-grotesk">{plan.name}</h3>
                   <div className="flex items-baseline gap-1 mt-4">
-                    <span className="text-4xl font-bold text-white tracking-tight">${plan.price}</span>
+                    <span className="text-[44px] font-bold text-white tracking-tight">${plan.price}</span>
                     <span className="text-sm font-medium text-zinc-500">/mo</span>
                   </div>
                   <p className="text-sm text-zinc-500 mt-4 font-inter leading-relaxed">{plan.description}</p>
@@ -239,9 +239,9 @@ export function UpgradePageContent({
               className="relative p-8 rounded-2xl flex flex-col transition-shadow border min-h-[500px] bg-zinc-900/30 border-dashed border-zinc-700 hover:border-zinc-500 hover:shadow-xl hover:shadow-white/[0.02]"
             >
               <div className="mb-6">
-                <h3 className="text-xl font-bold text-white mb-2 font-space-grotesk">Enterprise</h3>
+                <h3 className="text-[18px] font-bold text-white mb-2 font-space-grotesk">Enterprise</h3>
                 <div className="flex items-baseline gap-1 mt-4">
-                  <span className="text-4xl font-bold text-white tracking-tight">Custom</span>
+                  <span className="text-[44px] font-bold text-white tracking-tight">Custom</span>
                 </div>
                 <p className="text-sm text-zinc-500 mt-4 font-inter leading-relaxed">For large scale agencies and enterprises needing custom solutions.</p>
               </div>
@@ -309,7 +309,7 @@ export function UpgradePageContent({
                 <div className="mb-6">
                   <h3 className="text-lg font-bold text-zinc-500 mb-1 font-inter uppercase tracking-widest">{pkg.name}</h3>
                   <div className="flex items-baseline gap-2 mt-4">
-                    <span className="text-5xl font-bold text-white font-space-grotesk">{pkg.credits}</span>
+                    <span className="text-[44px] font-bold text-white font-space-grotesk">{pkg.credits}</span>
                     <span className="text-lg font-bold text-zinc-400 font-inter">Credits</span>
                   </div>
                 </div>
@@ -330,7 +330,7 @@ export function UpgradePageContent({
                 </div>
 
                 <div className="mt-auto">
-                  <div className="text-3xl font-bold text-white mb-6 font-space-grotesk">
+                  <div className="text-[32px] font-bold text-white mb-6 font-space-grotesk">
                     ${pkg.prices.USD}
                     <span className="text-sm font-medium text-zinc-500 ml-2">USD</span>
                   </div>
@@ -372,7 +372,7 @@ export function UpgradePageContent({
         <h3 className="text-[11px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-6 font-inter">
           Global Payment Support
         </h3>
-        <p className="text-zinc-500 text-xs leading-relaxed max-w-md mx-auto mb-10 font-inter">
+        <p className="text-zinc-500 text-[11px] leading-relaxed max-w-md mx-auto mb-10 font-inter">
           Secure international payments powered by Razorpay. We support all major credit cards, debit cards, and digital wallets worldwide. All transactions are securely processed in USD.
         </p>
         <div className="flex justify-center items-center gap-10 grayscale opacity-20 hover:opacity-100 transition-all duration-700">

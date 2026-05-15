@@ -496,6 +496,22 @@ export async function executeDirectorPlan(
               briefingsForPrompt.set(id, { promptText: briefing.promptText, slopFlags: briefing.slopFlags });
             }
 
+            // ─── Brand context for creative intent ─────────────────
+            let brandBlock = '';
+            if (project.brandId && userId) {
+              try {
+                const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
+                const { buildBrandContextBlock } = await import('@/lib/shared/brand-context-block');
+                const brand = await getUnifiedBrand(userId, project.brandId);
+                brandBlock = buildBrandContextBlock(brand);
+                if (brandBlock) {
+                  console.log(`[Director] Brand context: ${brand?.name} (${project.brandId})`);
+                }
+              } catch (err) {
+                console.warn('[Director] Brand lookup failed (non-fatal):', err);
+              }
+            }
+
             // Layer 1b: LLM generates creative intent (WHAT + WHY, no frame numbers)
             const intentPlan = await generateCreativeIntentPlan(context, {
               editProfileName: effectiveProfile.name,
@@ -504,6 +520,7 @@ export async function executeDirectorPlan(
                 : 6,
               graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
               assetBriefings: briefingsForPrompt,
+              brandBlock,
             });
 
             // Layer 2: Translate creative intent → frame-accurate EDL decisions.
@@ -1059,6 +1076,74 @@ export async function executeDirectorPlan(
     result.success = true;
     onProgress?.(totalSteps, totalSteps, 'Director Agent execution complete');
 
+    // ─── Brand Intelligence: emit director_completed + transition status ───
+    try {
+      const { emitBrandEvent } = await import('@/lib/shared/brand-events');
+      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+
+      await transitionProjectStatus(projectId, userId, 'editing', 'director_completed');
+
+      // Read actual quality score from project doc (persisted by quality_review step above)
+      const { getDatabase: getBrandDb } = await import('@/lib/editron/db/mongodb');
+      const brandDb = await getBrandDb();
+      const projectDoc = await brandDb.collection('projects').findOne({ projectId });
+      const actualQualityScore = projectDoc?.qualityReview?.overallScore;
+
+      emitBrandEvent({
+        userId,
+        projectId,
+        service: 'editron',
+        type: 'director_completed',
+        payload: {
+          profileId: effectiveProfile.profileId,
+          actionsExecuted: result.actionsExecuted,
+          actionsSkipped: result.actionsSkipped.length,
+          sceneCount: storyboardScenes.length,
+          durationSec: Math.round((project.durationInFrames || 0) / (project.fps || 30)),
+          ...(typeof actualQualityScore === 'number' && { qualityScore: actualQualityScore }),
+        },
+      }).catch((e) => console.warn('[Director] Brand event failed:', e));
+    } catch (brandErr: unknown) {
+      const msg = brandErr instanceof Error ? brandErr.message : String(brandErr);
+      console.warn(`[Director] Brand intelligence wiring failed: ${msg}`);
+    }
+
+    // ─── Project Graph Record: send outcome to Graphiti for learning ───
+    try {
+      const { dispatchProjectGraphRecord, buildProjectGraphRecord } = await import(
+        '@/lib/editron/services/project-graph-writer'
+      );
+      const { getDatabase: getGraphDb } = await import('@/lib/editron/db/mongodb');
+      const graphDb = await getGraphDb();
+      const graphProjectDoc = await graphDb.collection('projects').findOne({ projectId });
+
+      if (graphProjectDoc?.genreParameters) {
+        const durationSec = Math.round((project.durationInFrames || 0) / (project.fps || 30));
+        const graphRecord = buildProjectGraphRecord({
+          projectId,
+          userId,
+          brandId: graphProjectDoc.brandId,
+          profileId: effectiveProfile.profileId,
+          videoDurationSec: durationSec,
+          speechCoverage: 0, // AI-generated video — no speech coverage metric at Director time
+          genreParameters: graphProjectDoc.genreParameters,
+          momentWeights: [], // Not tracked during Director execution
+          decisions: [], // Director actions are step-based, not decision-format
+          qualityScore: graphProjectDoc.qualityReview?.overallScore ?? 0,
+          constraintViolations: [], // Available in quality review but not threaded here
+          captionMode: 'auto',
+          segmentsRemoved: 0, // Mode 1 doesn't remove segments
+          userRendered: false,
+          userPublished: false,
+        });
+        await dispatchProjectGraphRecord(graphRecord);
+        console.log(`[Director] Project graph record dispatched for ${projectId}`);
+      }
+    } catch (graphWriterErr: unknown) {
+      const msg = graphWriterErr instanceof Error ? graphWriterErr.message : String(graphWriterErr);
+      console.warn(`[Director] Project graph record dispatch failed: ${msg}`);
+    }
+
     // ─── Graph sync: update Project + Scene nodes after Director ───
     try {
       const qstashToken = process.env.QSTASH_TOKEN;
@@ -1121,6 +1206,14 @@ export async function executeDirectorPlan(
   } catch (err: any) {
     result.warnings.push(`Director Agent failed: ${err.message}`);
     console.error('[Director] Execution failed:', err.message);
+
+    try {
+      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+      await transitionProjectStatus(
+        projectId, userId, 'failed', 'director_error',
+        { message: err.message, service: 'editron' },
+      );
+    } catch { /* best-effort */ }
   }
 
   // E2 FIX: Release project lock (always, even on error)

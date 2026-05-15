@@ -22,7 +22,7 @@ export default function EnterpriseHeroSection() {
           transition={{ duration: 0.8, delay: 0 }}
           className="mb-8 max-w-3xl mx-auto"
         >
-          <p className="text-lg sm:text-xl text-neutral-400 italic mb-2">
+          <p className="text-lg sm:text-[18px] text-neutral-400 italic mb-2">
             "Insturix empowered our team to deliver results 10x faster—at nearly half the cost."
           </p>
           <p className="text-sm text-neutral-500">
@@ -35,7 +35,7 @@ export default function EnterpriseHeroSection() {
           initial={{ opacity: 0, y: 30, rotateX: 10 }}
           animate={{ opacity: 1, y: 0, rotateX: 0 }}
           transition={{ duration: 0.8, delay: 0.1, ease: "easeOut" }}
-          className="text-5xl sm:text-7xl md:text-[84px] font-bold tracking-tight mb-6 max-w-5xl mx-auto"
+          className="text-[44px] sm:text-7xl md:text-[84px] font-bold tracking-tight mb-6 max-w-5xl mx-auto"
         >
           The Operating System for <br className="hidden sm:block" />
           <span className="relative inline-block">
@@ -51,7 +51,7 @@ export default function EnterpriseHeroSection() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
-          className="text-lg sm:text-xl text-neutral-400 max-w-2xl mx-auto mb-10 leading-relaxed"
+          className="text-lg sm:text-[18px] text-neutral-400 max-w-2xl mx-auto mb-10 leading-relaxed"
         >
           Scale your brand's digital presence with Insturix.
           <span className="text-neutral-200"> AI-powered production</span>, <span className="text-neutral-200">brand safety & rights management</span>, and <span className="text-neutral-200">data-driven insights</span>.

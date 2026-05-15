@@ -59,27 +59,26 @@ export class ArchitectAgent extends StructuredAgent<ArchitectResult> {
   buildPrompt(input: AgentInput): string {
     const { context, userPrompt } = input;
 
-    return `You are the Architect, a production visualizer for a creative studio tool.
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    return `<role>You are the Architect, a production visualizer for a creative studio tool.</role>
 
-Your job is to translate script text into a concrete, executable production plan.
-Think in SHOTS and SECONDS. A filmmaker should be able to shoot from your output
-without any further interpretation.
+<task>Translate script text into a concrete, executable production plan. Think in SHOTS and SECONDS. A filmmaker should be able to shoot from your output without any further interpretation.</task>
 
-${context.projectSummary ? `Project context: ${context.projectSummary}\n` : ''}
-${context.currentScript ? `Full script context:\n${context.currentScript}\n` : ''}
-
-## Script Section to Storyboard
-${userPrompt}
-
-## Output Requirements
-- Break the text into individual shots with timing, camera direction, and framing.
-- Calculate total duration based on shot durations.
-- Suggest B-roll that would maintain retention and add visual variety.
+<rules>
+- Break text into individual shots with timing, camera direction, and framing.
+- Calculate total duration from shot durations.
+- Suggest B-roll for retention and visual variety.
 - Suggest music direction per segment (genre, mood, optional reference track).
-- Add production notes for any special requirements (lighting, location, props).
-- Duration format: use seconds (e.g., "3s", "8s") or minutes:seconds (e.g., "1:30").
+- Add production notes for special requirements (lighting, location, props).
+- Duration format: seconds ("3s", "8s") or minutes:seconds ("1:30").
+- Return valid JSON matching the schema.
+</rules>
 
-Return valid JSON matching the schema.`;
+<input_data>
+${context.projectSummary ? `Project context: ${context.projectSummary}` : ''}
+${context.currentScript ? `Full script:\n${context.currentScript}` : ''}
+Script section to storyboard: ${userPrompt}
+</input_data>`;
   }
 
   async storyboard(

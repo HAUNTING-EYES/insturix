@@ -349,7 +349,7 @@ export default function ProjectDashboard() {
       <div className="container mx-auto px-4 py-12">
         {/* Header */}
         <div className="mb-12">
-          <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-zinc-100 dark:to-zinc-400 bg-clip-text text-transparent">
+          <h1 className="text-[44px] font-bold mb-2 bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-zinc-100 dark:to-zinc-400 bg-clip-text text-transparent">
             Editor
           </h1>
           <p className="text-zinc-600 dark:text-zinc-400">
@@ -470,7 +470,7 @@ export default function ProjectDashboard() {
           ) : projects.length === 0 ? (
             <Card className="p-12 text-center">
               <FileVideo className="w-16 h-16 mx-auto mb-4 text-zinc-400" />
-              <h3 className="text-xl font-semibold mb-2">No projects yet</h3>
+              <h3 className="text-[18px] font-semibold mb-2">No projects yet</h3>
               <p className="text-zinc-600 dark:text-zinc-400 mb-4">
                 Create your first project to get started
               </p>

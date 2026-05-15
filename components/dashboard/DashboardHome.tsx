@@ -60,29 +60,24 @@ interface Project {
   durationInFrames: number | null;
   aspectRatio: string | null;
 
-  // TODO: Wire to backend -- these fields don't exist on the project model yet.
-  // They need to be added to lib/editron/services/project-service.ts
-  // For now, derive placeholder values from what we have.
+  // Dashboard fields — now wired to backend (project-service.ts)
   brand: string | null;
   stage: StageKey;
   score: number | null;
   status: "active" | "needs_attention" | "complete";
 }
 
-/* ── Derive placeholder fields from raw API data ── */
+/* ── Map API response to dashboard Project ── */
 function enrichProject(raw: ApiProject): Project {
-  // TODO: Wire to backend -- stage should come from project model
-  // For now, default all projects to "edit" stage
-  const stage: StageKey = "edit";
-
-  // TODO: Wire to backend -- brand field doesn't exist yet
-  const brand: string | null = null;
-
-  // TODO: Wire to backend -- score field doesn't exist yet
-  const score: number | null = null;
-
-  // TODO: Wire to backend -- status field doesn't exist yet
-  const status: "active" | "needs_attention" | "complete" = "active";
+  // Use real fields from backend, fallback for old documents that lack them
+  const stage: StageKey = (raw as any).pipelineStage || "edit";
+  const brand: string | null = (raw as any).brand ?? null;
+  const score: number | null = (raw as any).qualityScore ?? null;
+  const rawStatus = (raw as any).projectStatus;
+  const status: "active" | "needs_attention" | "complete" =
+    rawStatus === "needs-attention" ? "needs_attention"
+    : rawStatus === "complete" ? "complete"
+    : "active";
 
   return {
     id: raw.projectId,
@@ -391,7 +386,7 @@ export function DashboardHome() {
                 onChange={(e) => setGroupBy(e.target.value as GroupBy)}
                 style={{
                   background: C.deeper, border: `1px solid ${C.border}`, borderRadius: 5,
-                  padding: "4px 8px", fontSize: 12, color: C.text, fontFamily: "inherit",
+                  padding: "4px 8px", fontSize: 11, color: C.text, fontFamily: "inherit",
                   cursor: "pointer", outline: "none",
                   appearance: "none", WebkitAppearance: "none",
                   paddingRight: 22,
@@ -440,7 +435,7 @@ export function DashboardHome() {
           <Link href="/dashboard/editron" style={{ textDecoration: "none" }}>
             <button style={{
               background: C.accent, color: C.bg, border: "none",
-              padding: "8px 20px", borderRadius: 7, fontSize: 12, fontWeight: 800,
+              padding: "8px 20px", borderRadius: 7, fontSize: 11, fontWeight: 800,
               cursor: "pointer", fontFamily: "inherit",
               display: "flex", alignItems: "center", gap: 6,
             }}>
@@ -504,25 +499,52 @@ export function DashboardHome() {
    ================================================================ */
 
 function AttentionZone() {
-  // TODO: Wire to backend -- attention items should come from:
-  // - failed publish jobs (from UploaderX)
-  // - client revision requests
-  // - approval timeouts
-  // For now: show empty state
+  const [items, setItems] = useState<{ id: string; type: string; title: string; detail: string; time: string; severity: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/dashboard/attention", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.items) setItems(data.items); })
+      .catch(() => {});
+  }, []);
+
   return (
     <section style={{ marginBottom: 24 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <div style={{ width: 6, height: 6, borderRadius: 3, background: C.red }} />
+        <div style={{ width: 6, height: 6, borderRadius: 3, background: items.length > 0 ? C.red : C.green }} />
         <span className="dh-mono" style={{ fontSize: 11, color: C.dim, letterSpacing: "0.06em" }}>
           NEEDS ATTENTION
         </span>
+        {items.length > 0 && (
+          <span style={{ fontSize: 11, color: C.red, fontFamily: "'JetBrains Mono', monospace" }}>{items.length}</span>
+        )}
       </div>
-      <div style={{
-        padding: "14px 16px", background: C.raised,
-        border: `1px solid ${C.border}`, borderRadius: 8,
-      }}>
-        <span style={{ fontSize: 13, color: C.faint }}>No items need attention</span>
-      </div>
+      {items.length === 0 ? (
+        <div style={{
+          padding: "12px 16px", background: C.raised,
+          border: `1px solid ${C.border}`, borderRadius: 8,
+        }}>
+          <span style={{ fontSize: 13, color: C.muted }}>No items need attention</span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {items.map((item) => (
+            <div key={item.id} style={{
+              padding: "12px 16px", background: C.raised,
+              border: `1px solid ${item.severity === "high" ? `${C.red}30` : C.border}`,
+              borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{item.title}</span>
+                <span style={{ fontSize: 11, color: C.muted, display: "block", marginTop: 2 }}>{item.detail}</span>
+              </div>
+              <span className="dh-mono" style={{ fontSize: 10, color: C.dim, whiteSpace: "nowrap" }}>
+                {new Date(item.time).toLocaleDateString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -571,7 +593,7 @@ function BoardView({ groups }: { groups: { key: string; label: string; color: st
                   borderRadius: 8, border: `1px dashed ${C.borderL}`,
                   padding: 24, minHeight: 80,
                 }}>
-                  <span style={{ fontSize: 12, color: C.faint }}>No projects</span>
+                  <span style={{ fontSize: 11, color: C.faint }}>No projects</span>
                 </div>
               )}
             </div>
@@ -608,7 +630,7 @@ function BoardCard({ project, stageColor }: { project: Project; stageColor: stri
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
           {!isUrl && (
-            <span style={{ fontSize: 16, fontWeight: 800, color: C.faint }}>
+            <span style={{ fontSize: 14, fontWeight: 800, color: C.faint }}>
               {project.name.charAt(0).toUpperCase()}
             </span>
           )}
@@ -720,7 +742,7 @@ function ListView({
                 {p.name}
               </span>
               {/* Brand */}
-              <span style={{ fontSize: 12, color: C.muted }}>{p.brand || "Personal"}</span>
+              <span style={{ fontSize: 11, color: C.muted }}>{p.brand || "Personal"}</span>
               {/* Stage */}
               <span className="dh-mono" style={{
                 fontSize: 11, fontWeight: 500, color: stageColor,
@@ -732,13 +754,13 @@ function ListView({
                 {stage?.label ?? p.stage}
               </span>
               {/* Status */}
-              <span style={{ fontSize: 12, color: C.soft, textTransform: "capitalize" }}>
+              <span style={{ fontSize: 11, color: C.soft, textTransform: "capitalize" }}>
                 {p.status.replace("_", " ")}
               </span>
               {/* Score */}
               {p.score !== null ? (
                 <span className="dh-mono" style={{
-                  fontSize: 12, fontWeight: 500,
+                  fontSize: 11, fontWeight: 500,
                   color: p.score >= 85 ? C.green : p.score >= 70 ? C.accent : C.red,
                   padding: "3px 8px", background: `${p.score >= 85 ? C.green : p.score >= 70 ? C.accent : C.red}12`,
                   borderRadius: 3, textAlign: "center",
@@ -799,7 +821,7 @@ function SplitView({
                 position: "sticky", top: 0, background: C.raised, zIndex: 1,
               }}>
                 <div style={{ width: 3, height: 12, borderRadius: 1, background: group.color }} />
-                <span style={{ fontSize: 12, fontWeight: 500 }}>{group.label}</span>
+                <span style={{ fontSize: 11, fontWeight: 500 }}>{group.label}</span>
                 <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{group.projects.length}</span>
               </div>
               {group.projects.map((p) => (
@@ -828,7 +850,7 @@ function SplitView({
               ))}
               {group.projects.length === 0 && (
                 <div style={{ padding: "16px", textAlign: "center" }}>
-                  <span style={{ fontSize: 12, color: C.faint }}>Empty</span>
+                  <span style={{ fontSize: 11, color: C.faint }}>Empty</span>
                 </div>
               )}
             </div>
@@ -888,7 +910,7 @@ function SplitDetail({ project }: { project: Project }) {
         }}>
           {stage?.label ?? project.stage}
         </span>
-        <span style={{ fontSize: 12, color: C.muted }}>{project.brand || "Personal"}</span>
+        <span style={{ fontSize: 11, color: C.muted }}>{project.brand || "Personal"}</span>
         {project.aspectRatio && (
           <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{project.aspectRatio}</span>
         )}
@@ -896,17 +918,17 @@ function SplitDetail({ project }: { project: Project }) {
       <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
         <div>
           <span style={{ fontSize: 11, color: C.faint, display: "block", marginBottom: 2 }}>Updated</span>
-          <span className="dh-mono" style={{ fontSize: 12, color: C.soft }}>{timeAgo(project.updatedAt)}</span>
+          <span className="dh-mono" style={{ fontSize: 11, color: C.soft }}>{timeAgo(project.updatedAt)}</span>
         </div>
         <div>
           <span style={{ fontSize: 11, color: C.faint, display: "block", marginBottom: 2 }}>Status</span>
-          <span style={{ fontSize: 12, color: C.soft, textTransform: "capitalize" }}>{project.status.replace("_", " ")}</span>
+          <span style={{ fontSize: 11, color: C.soft, textTransform: "capitalize" }}>{project.status.replace("_", " ")}</span>
         </div>
         {project.score !== null && (
           <div>
             <span style={{ fontSize: 11, color: C.faint, display: "block", marginBottom: 2 }}>Score</span>
             <span className="dh-mono" style={{
-              fontSize: 12, fontWeight: 500,
+              fontSize: 11, fontWeight: 500,
               color: project.score >= 85 ? C.green : project.score >= 70 ? C.accent : C.red,
             }}>{project.score}</span>
           </div>
@@ -1046,7 +1068,7 @@ function CinematicView({
                 </div>
                 <div style={{ padding: "8px 10px" }}>
                   <div style={{
-                    fontSize: 12, fontWeight: 500, marginBottom: 4,
+                    fontSize: 11, fontWeight: 500, marginBottom: 4,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>{p.name}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1071,20 +1093,50 @@ function CinematicView({
    ================================================================ */
 
 function ShippedSection() {
-  // TODO: Wire to backend -- shipped projects should come from UploaderX publish history
-  // For now: empty state
+  const [videos, setVideos] = useState<{ filename: string; uploadedAt: string; status: string; publicUrl: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/services/uploaderx/videos", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.videos) setVideos(data.videos.slice(0, 5)); })
+      .catch(() => {});
+  }, []);
+
   return (
     <section>
       <span className="dh-mono" style={{
         fontSize: 11, color: C.dim, letterSpacing: "0.06em",
         display: "block", marginBottom: 12,
       }}>SHIPPED</span>
-      <div style={{
-        background: C.raised, border: `1px solid ${C.border}`,
-        borderRadius: 12, padding: "24px 16px", textAlign: "center",
-      }}>
-        <span style={{ fontSize: 13, color: C.faint }}>No shipped projects yet</span>
-      </div>
+      {videos.length === 0 ? (
+        <div style={{
+          background: C.raised, border: `1px solid ${C.border}`,
+          borderRadius: 12, padding: "24px 16px", textAlign: "center",
+        }}>
+          <span style={{ fontSize: 13, color: C.faint }}>No shipped content yet</span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {videos.map((v, i) => (
+            <div key={i} style={{
+              padding: "12px 16px", background: C.raised,
+              border: `1px solid ${C.border}`, borderRadius: 8,
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{v.filename}</span>
+                <span style={{ fontSize: 11, color: C.muted, display: "block", marginTop: 2 }}>
+                  {v.status || "uploaded"}
+                </span>
+              </div>
+              <span className="dh-mono" style={{ fontSize: 10, color: C.dim, whiteSpace: "nowrap" }}>
+                {v.uploadedAt ? new Date(v.uploadedAt).toLocaleDateString() : ""}
+              </span>
+            </div>
+          ))}
+          {/* TODO: Link videos to Editron projects once UploaderX schema has editronProjectId */}
+        </div>
+      )}
     </section>
   );
 }

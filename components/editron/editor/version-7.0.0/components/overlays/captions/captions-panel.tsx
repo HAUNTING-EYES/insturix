@@ -251,16 +251,16 @@ export const CaptionsPanel: React.FC = () => {
                     <X className="h-3.5 w-3.5" />
                   </button>
                   <div className="space-y-1.5">
-                    <h3 className="text-xs font-medium text-gray-800 dark:text-gray-200">
+                    <h3 className="text-[11px] font-medium text-gray-800 dark:text-gray-200">
                       How would you like this to work?
                     </h3>
-                    <p className="text-xs text-gray-600 dark:text-gray-400 pr-4">
+                    <p className="text-[11px] text-gray-600 dark:text-gray-400 pr-4">
                       We&apos;re actively improving captions support and would
                       love your feedback!
                     </p>
                     <a
                       href="/docs/captions"
-                      className="inline-flex items-center text-xs text-primary 
+                      className="inline-flex items-center text-[11px] text-primary 
                         hover:text-primary/80 font-medium transition-colors"
                     >
                       Learn more about captions
@@ -288,7 +288,7 @@ export const CaptionsPanel: React.FC = () => {
             <div className="relative">
               <div className="absolute inset-x-0 -top-3 flex items-center justify-center">
                 <span
-                  className="px-3 py-1 text-xs text-muted-foreground dark:text-muted-foreground bg-background dark:bg-background 
+                  className="px-3 py-1 text-[11px] text-muted-foreground dark:text-muted-foreground bg-background dark:bg-background 
                 rounded-full border border-border dark:border-border"
                 >
                   or upload script
@@ -313,7 +313,7 @@ export const CaptionsPanel: React.FC = () => {
                     <span className="text-gray-600 dark:text-gray-300 group-hover:text-gray-800 dark:group-hover:text-gray-200">
                       Upload Script File
                     </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                    <span className="text-[11px] text-gray-500 dark:text-gray-500 mt-1">
                       Supported formats: .json
                     </span>
                   </div>
@@ -330,7 +330,7 @@ export const CaptionsPanel: React.FC = () => {
               <div className="relative">
                 <div className="absolute inset-x-0 -top-3 flex items-center justify-center">
                   <span
-                    className="px-3 py-1 text-xs text-muted-foreground dark:text-muted-foreground bg-background dark:bg-background 
+                    className="px-3 py-1 text-[11px] text-muted-foreground dark:text-muted-foreground bg-background dark:bg-background 
                   rounded-full border border-border dark:border-border"
                   >
                     or

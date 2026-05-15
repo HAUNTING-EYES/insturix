@@ -41,6 +41,7 @@ import type {
   Storyboard,
 } from '@/lib/pipeline/schemas/storyboard';
 import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
+import { createProjectLink } from '@/lib/shared/project-links';
 
 export const runtime = 'nodejs';
 // This route now only VALIDATES + DISPATCHES. Should complete in <30s even for
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest) {
       consistencyThreshold,
       globalEditDirections,
       suggestedProfileCategory,
+      brandId,
     }: {
       scenes: SceneDescriptor[];
       styleGuide?: StyleGuide;
@@ -123,6 +125,7 @@ export async function POST(request: NextRequest) {
       consistencyThreshold?: number;
       globalEditDirections?: any;
       suggestedProfileCategory?: string;
+      brandId?: string;
     } = body;
 
     const warnings: string[] = [];
@@ -265,6 +268,21 @@ export async function POST(request: NextRequest) {
       updatedAt: now,
     };
     await saveStoryboard(storyboard);
+
+    // ─── Create project link (fail-open: link failure must NOT block generation) ──
+    try {
+      await createProjectLink(userId, {
+        sessionId: projectId,
+        sourceScriptId,
+        storyboardId,
+        brandId,
+      });
+      console.log(`[storyboard/generate] Project link created for storyboard ${storyboardId}`);
+    } catch (linkErr: any) {
+      const linkWarn = `Project link creation failed: ${linkErr.message}. Storyboard generated without link — reconciliation will fix.`;
+      console.error(`[storyboard/generate] ${linkWarn}`);
+      warnings.push(linkWarn);
+    }
 
     // Create batch + job docs (tracked in MongoDB, polled by frontend)
     const sceneIndices = scenes.map((s) => s.sceneIndex);

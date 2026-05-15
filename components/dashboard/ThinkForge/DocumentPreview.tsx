@@ -50,7 +50,7 @@ const DocumentPreview = memo(function DocumentPreview({
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="text-xl font-semibold text-white mt-8 mb-3">
+            <h2 className="text-[18px] font-semibold text-white mt-8 mb-3">
               {children}
             </h2>
           ),
@@ -60,13 +60,13 @@ const DocumentPreview = memo(function DocumentPreview({
             </h3>
           ),
           h4: ({ children }) => (
-            <h4 className="text-base font-semibold text-[#ECE9E1] mt-5 mb-2">
+            <h4 className="text-[14px] font-semibold text-[#ECE9E1] mt-5 mb-2">
               {children}
             </h4>
           ),
 
           p: ({ children }) => (
-            <p className="text-[15px] text-[#B5B2A8] leading-[1.75] mb-4">
+            <p className="text-[14px] text-[#B5B2A8] leading-[1.75] mb-4">
               {children}
             </p>
           ),
@@ -89,7 +89,7 @@ const DocumentPreview = memo(function DocumentPreview({
             </ol>
           ),
           li: ({ children }) => (
-            <li className="text-[15px] text-[#B5B2A8] leading-[1.65] pl-1">
+            <li className="text-[14px] text-[#B5B2A8] leading-[1.65] pl-1">
               {children}
             </li>
           ),
@@ -179,7 +179,7 @@ const DocumentPreview = memo(function DocumentPreview({
                 loading="lazy"
               />
               {alt && (
-                <figcaption className="mt-2 text-xs text-[#5F5E5A] text-center">{alt}</figcaption>
+                <figcaption className="mt-2 text-[11px] text-[#5F5E5A] text-center">{alt}</figcaption>
               )}
             </figure>
           ),

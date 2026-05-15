@@ -154,7 +154,7 @@ function Thumbnail({ title }: { title: string }) {
         justifyContent: "center",
       }}
     >
-      <span style={{ fontFamily: FONT_SANS, fontSize: 16, fontWeight: 800, color: C.faint }}>
+      <span style={{ fontFamily: FONT_SANS, fontSize: 14, fontWeight: 800, color: C.faint }}>
         {title.charAt(0).toUpperCase()}
       </span>
     </div>
@@ -200,7 +200,7 @@ function ProjectRow({ project }: { project: Project }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
           <StagePill stage={project.stage} />
-          <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.dim }}>
+          <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: C.dim }}>
             {project.status}
           </span>
           {project.progress != null && <ProgressBar value={project.progress} />}
@@ -240,7 +240,7 @@ function AlertRow({ alert }: { alert: Alert }) {
 function SectionHeader({ label, count }: { label: string; count: number }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "0 16px", marginBottom: 8 }}>
-      <span style={{ fontFamily: FONT_SANS, fontSize: 12, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+      <span style={{ fontFamily: FONT_SANS, fontSize: 11, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
         {label}
       </span>
       <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.faint }}>{count}</span>
@@ -302,7 +302,7 @@ export function DashboardTimeline() {
             onClick={() => setOlderOpen(!olderOpen)}
             style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 16px", marginBottom: 8, cursor: "pointer" }}
           >
-            <span style={{ fontFamily: FONT_SANS, fontSize: 12, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            <span style={{ fontFamily: FONT_SANS, fontSize: 11, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
               Older
             </span>
             <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.faint }}>{older.length}</span>

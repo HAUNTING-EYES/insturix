@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { ClientWrapper } from "@/components/dashboard/Alyzitron/ClientWrapper";
 import { CreditsBadge } from "@/components/shared/CreditsCard";
+import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadcrumb";
 
 
 export const revalidate = 30;
@@ -11,6 +12,7 @@ export default async function AlyzitronDashboard() {
 
   return (
     <div className="min-h-screen bg-[#0B0B0A] text-[#ECE9E1]">
+      <PipelineBreadcrumb currentStep="analyze" />
       <div className="mx-auto max-w-[1040px] px-4 sm:px-7">
         <div className="flex h-11 items-center justify-between border-b border-[#1C1B19]">
           <div className="flex items-center gap-3.5">

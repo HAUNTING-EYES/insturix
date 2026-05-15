@@ -130,7 +130,7 @@ export function DashboardBoardV3() {
               }} />
               <span className="mono" style={{ fontSize: 11, color: C.faint }}>&#x2318;K</span>
             </div>
-            <span className="mono" style={{ fontSize: 12, color: C.muted }}>840</span>
+            <span className="mono" style={{ fontSize: 11, color: C.muted }}>840</span>
             <div style={{
               width: 26, height: 26, borderRadius: "50%", background: `${C.accent}18`,
               display: "flex", alignItems: "center", justifyContent: "center",
@@ -211,7 +211,7 @@ export function DashboardBoardV3() {
                   <button key={v} onClick={() => setView(v.toLowerCase())} style={{
                     background: view === v.toLowerCase() ? C.well : "transparent",
                     border: "none", borderRadius: 4,
-                    padding: "5px 14px", fontSize: 12,
+                    padding: "5px 14px", fontSize: 11,
                     fontWeight: view === v.toLowerCase() ? 500 : 400,
                     color: view === v.toLowerCase() ? C.text : C.muted,
                     cursor: "pointer", fontFamily: "inherit",
@@ -255,10 +255,10 @@ export function DashboardBoardV3() {
                     onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                   >
                     <span style={{ fontSize: 13, fontWeight: 500 }}>{item.title}</span>
-                    <span className="mono" style={{ fontSize: 12, fontWeight: 500, color: sc }}>{item.score}</span>
-                    <span className="mono" style={{ fontSize: 12, color: C.soft }}>{item.views}</span>
-                    <span className="mono" style={{ fontSize: 12, color: C.soft }}>{item.ctr}</span>
-                    <span className="mono" style={{ fontSize: 12, color: C.muted }}>{item.platforms}</span>
+                    <span className="mono" style={{ fontSize: 11, fontWeight: 500, color: sc }}>{item.score}</span>
+                    <span className="mono" style={{ fontSize: 11, color: C.soft }}>{item.views}</span>
+                    <span className="mono" style={{ fontSize: 11, color: C.soft }}>{item.ctr}</span>
+                    <span className="mono" style={{ fontSize: 11, color: C.muted }}>{item.platforms}</span>
                     <span className="mono" style={{ fontSize: 11, color: C.dim }}>{item.published}</span>
                   </div>
                 );
@@ -308,7 +308,7 @@ function BoardView() {
                   borderRadius: 8, border: `1px dashed ${C.borderL}`,
                   padding: 24, minHeight: 80,
                 }}>
-                  <span style={{ fontSize: 12, color: C.faint }}>No projects</span>
+                  <span style={{ fontSize: 11, color: C.faint }}>No projects</span>
                 </div>
               )}
             </div>
@@ -361,7 +361,7 @@ function ListView() {
             <div>
               <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{project.title}</div>
               {project.client && (
-                <span style={{ fontSize: 12, color: C.muted }}>{project.client}</span>
+                <span style={{ fontSize: 11, color: C.muted }}>{project.client}</span>
               )}
             </div>
 
@@ -397,7 +397,7 @@ function ListView() {
             {/* Score */}
             {sc ? (
               <span className="mono" style={{
-                fontSize: 12, fontWeight: 500, color: sc,
+                fontSize: 11, fontWeight: 500, color: sc,
                 padding: "3px 8px", background: `${sc}12`, borderRadius: 3,
                 textAlign: "center",
               }}>{project.score}</span>
@@ -452,7 +452,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
       </div>
       <button style={{
         background: "transparent", border: `1px solid ${C.borderL}`,
-        borderRadius: 6, padding: "6px 16px", fontSize: 12, fontWeight: 500,
+        borderRadius: 6, padding: "6px 16px", fontSize: 11, fontWeight: 500,
         color: C.text, cursor: "pointer", fontFamily: "inherit",
         transition: "all 0.2s ease",
       }}
@@ -535,7 +535,7 @@ function PipelineCard({ project, stageColor }: { project: PipelineProject; stage
 
       {/* Client + format */}
       <div style={{
-        fontSize: 12, color: C.faint, marginTop: 6,
+        fontSize: 11, color: C.faint, marginTop: 6,
         position: "relative", zIndex: 1,
       }}>
         {project.client && <span style={{ color: C.muted }}>{project.client} &middot; </span>}

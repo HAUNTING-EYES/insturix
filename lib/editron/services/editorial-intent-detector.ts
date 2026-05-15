@@ -246,52 +246,62 @@ async function classifyBatch(
 }
 
 function buildClassificationPrompt(segmentList: string, totalSegments: number): string {
-  return `You are a professional video editor analyzing raw footage transcript segments.
+  // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+  return `<role>
+You are a professional video editor analyzing raw footage transcript segments.
+</role>
 
-TASK: Classify each segment into exactly one category:
+<task>
+Classify each of the ${totalSegments} segments below into exactly one category: CONTENT, META_DISCARD, or META_KEEP.
+</task>
 
-CONTENT — Actual video content the viewer should see. The speaker is delivering their message, telling a story, explaining something, or performing. This is the DEFAULT — when in doubt, classify as CONTENT.
+<rules>
+RULE 1 — CATEGORIES:
+CONTENT — Actual video content the viewer should see. The speaker is delivering their message, telling a story, explaining, or performing. This is the DEFAULT — when in doubt, classify as CONTENT.
 
-META_DISCARD — Meta-commentary that should be REMOVED from the final edit:
+META_DISCARD — Meta-commentary to REMOVE from the final edit:
 - Self-corrections: "wait, let me start over", "that came out wrong"
 - Explicit retake requests: "cut!", "take two", "let me redo that"
-- Behind-the-scenes chatter: "is the camera recording?", "can you adjust the light?"
+- Behind-the-scenes: "is the camera recording?", "can you adjust the light?"
 - Verbal mistakes acknowledged: "I messed that up", "sorry, one more time"
 - Counting in: "three, two, one" (when clearly a slate, NOT part of content)
-- Process commentary: talking ABOUT the video/recording process itself — "this is how I make a video", "the whole process of making this", "that's a good thing to check before recording"
-- Creative self-assessment: reacting to own performance/script — "I like it", "okay I'm gonna use that", "that sounds good", "that works"
-- Production decisions: choosing between takes — "let me use that one", "that's better", "nah, let me try again"
-- Video format/structure commentary: talking TO THE VIEWER about the video itself rather than the topic — "so this is the editing challenge", "I'm gonna make a video right now", "and then you're gonna edit it", "I'll put this at the beginning", "I'm probably gonna put this in text descriptions"
-- Intro/preamble before content delivery: speakers often warm up, introduce themselves, describe what the video will be about, or address the viewer about the recording process BEFORE delivering the actual content. These setup segments should be META_DISCARD unless the introduction IS the content (e.g., a podcast host introducing the episode topic)
+- Process commentary: talking ABOUT the video/recording process itself
+- Creative self-assessment: reacting to own performance — "I like it", "that sounds good"
+- Production decisions: choosing between takes — "let me use that one", "that's better"
+- Video format/structure commentary: talking TO THE VIEWER about the video itself rather than the topic
+- Intro/preamble before content delivery: warm-up, self-introduction, describing what the video will be. META_DISCARD unless the introduction IS the content (e.g., podcast host introducing episode topic)
 
-META_KEEP — Meta-commentary that contains editorial INSTRUCTIONS to preserve:
+META_KEEP — Meta-commentary containing editorial INSTRUCTIONS to preserve:
 - Structural directives: "put this part at the beginning", "this should be the intro"
 - Emphasis requests: "make sure to highlight this", "zoom in here"
 - Sequencing instructions: "this goes after the product demo"
 - Content flags: "this is the key message", "this is the B-roll section"
 
-CRITICAL ANTI-OVERFIRE RULES:
-1. DEFAULT IS CONTENT. Only flag META when the speaker is CLEARLY breaking out of their content delivery.
-2. Pauses, hesitations, "um", "uh" are NOT meta — they are handled separately by filler detection.
-3. Rhetorical self-address ("let me think about that...") within a natural flow is CONTENT, not META. BUT if the speaker is commenting on THEIR OWN SCRIPT or PERFORMANCE (not the topic), that IS meta.
-4. If a segment contains BOTH content and meta-commentary, classify based on the PRIMARY purpose.
-5. Emotional moments, dramatic pauses, or charged silence are ALWAYS CONTENT — never discard these.
-6. THREE-WAY DISTINCTION — the speaker can talk about three things:
-   a) THE TOPIC they're presenting (CONTENT): "I think the internet is great" "The data shows a 40% increase"
-   b) THE VIDEO ITSELF — its format, structure, or what the viewer will do with it (META_DISCARD): "So this is the editing challenge" "I'm gonna make a video" "You're gonna edit this"
-   c) THE PRODUCTION — equipment, takes, performance (META_DISCARD): "Is my mic on?" "That take was great"
-   Only (a) is CONTENT. Both (b) and (c) are META_DISCARD.
-7. ORPHAN DETECTION: If a segment clearly leads into or introduces a topic that is NOT continued in the next segment (e.g., "And you're gonna see..." followed by a completely different topic), the lead-in segment is likely orphaned from removed content and should also be META_DISCARD.
+RULE 2 — ANTI-OVERFIRE (CRITICAL):
+1. DEFAULT IS CONTENT. Only flag META when the speaker CLEARLY breaks out of content delivery.
+2. Pauses, hesitations, "um", "uh" = NOT meta. Handled separately by filler detection.
+3. Rhetorical self-address ("let me think...") within natural flow = CONTENT. Commenting on OWN SCRIPT/PERFORMANCE = META.
+4. Segment with BOTH content + meta = classify by PRIMARY purpose.
+5. Emotional moments, dramatic pauses, charged silence = ALWAYS CONTENT.
+6. THREE-WAY DISTINCTION:
+   a) THE TOPIC (CONTENT): "I think the internet is great", "The data shows 40% increase"
+   b) THE VIDEO ITSELF (META_DISCARD): "So this is the editing challenge", "I'm gonna make a video"
+   c) THE PRODUCTION (META_DISCARD): "Is my mic on?", "That take was great"
+   Only (a) is CONTENT.
+7. ORPHAN DETECTION: lead-in segment for a topic NOT continued in the next segment = META_DISCARD.
 
-RETROACTIVE FLAGGING:
-When a META_DISCARD segment references a PREVIOUS segment (e.g., "that last part was bad", "scratch what I just said"), include "retroactive_targets" with the segment indices that should ALSO be discarded. Only reference segments within ${RETROACTIVE_WINDOW} positions back.
+RULE 3 — RETROACTIVE FLAGGING:
+When META_DISCARD references a PREVIOUS segment ("that last part was bad", "scratch what I just said"), include retroactive_targets with segment indices to also discard. Only reference segments within ${RETROACTIVE_WINDOW} positions back.
+</rules>
 
-There are ${totalSegments} total segments. Here are the segments to classify:
+<output_format>
+JSON array, one object per segment, in order:
+[{"classification": "CONTENT"|"META_DISCARD"|"META_KEEP", "confidence": 0.0-1.0, "reason": "brief explanation", "directive": "editorial instruction if META_KEEP", "retroactive_targets": [indices] or null}]
+</output_format>
 
+<segments>
 ${segmentList}
-
-Respond with a JSON array (one object per segment, in order):
-[{"classification": "CONTENT"|"META_DISCARD"|"META_KEEP", "confidence": 0.0-1.0, "reason": "brief explanation", "directive": "editorial instruction if META_KEEP", "retroactive_targets": [indices] or null}]`;
+</segments>`;
 }
 
 // ─── Retroactive Flagging ───────────────────────────────────────────

@@ -60,12 +60,12 @@ export const TextStylePanel: React.FC<TextStylePanelProps> = ({
         <h3 className="text-sm font-medium">Typography</h3>
 
         <div className="space-y-2">
-          <label className="text-xs text-muted-foreground">Font Family</label>
+          <label className="text-[11px] text-muted-foreground">Font Family</label>
           <Select
             value={localOverlay.styles.fontFamily}
             onValueChange={(value) => handleStyleChange("fontFamily", value)}
           >
-            <SelectTrigger className="w-full text-xs">
+            <SelectTrigger className="w-full text-[11px]">
               <SelectValue placeholder="Select a font" />
             </SelectTrigger>
             <SelectContent>
@@ -73,7 +73,7 @@ export const TextStylePanel: React.FC<TextStylePanelProps> = ({
                 <SelectItem
                   key={font.value}
                   value={font.value}
-                  className={`${font.value} text-xs`}
+                  className={`${font.value} text-[11px]`}
                 >
                   {font.label}
                 </SelectItem>
@@ -85,8 +85,8 @@ export const TextStylePanel: React.FC<TextStylePanelProps> = ({
         {/* Font Size Control */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-xs text-muted-foreground">Font Size</label>
-            <span className="text-xs text-muted-foreground font-mono">
+            <label className="text-[11px] text-muted-foreground">Font Size</label>
+            <span className="text-[11px] text-muted-foreground font-mono">
               {parseInt(localOverlay.styles.fontSize) || 32}px
             </span>
           </div>
@@ -112,7 +112,7 @@ export const TextStylePanel: React.FC<TextStylePanelProps> = ({
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">Alignment</label>
+            <label className="text-[11px] text-muted-foreground">Alignment</label>
             <ToggleGroup
               type="single"
               className="justify-start gap-1"
@@ -155,7 +155,7 @@ export const TextStylePanel: React.FC<TextStylePanelProps> = ({
           {!localOverlay.styles.WebkitBackgroundClip ? (
             <>
               <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">
+                <label className="text-[11px] text-muted-foreground">
                   Text Color
                 </label>
                 <Popover>
@@ -186,7 +186,7 @@ export const TextStylePanel: React.FC<TextStylePanelProps> = ({
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">
+                <label className="text-[11px] text-muted-foreground">
                   Highlight
                 </label>
                 <Popover>
@@ -222,7 +222,7 @@ export const TextStylePanel: React.FC<TextStylePanelProps> = ({
             </>
           ) : (
             <div className="col-span-3">
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 Color settings are not available for gradient text styles
               </p>
             </div>

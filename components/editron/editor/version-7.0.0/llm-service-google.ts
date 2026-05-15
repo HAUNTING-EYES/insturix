@@ -26,7 +26,7 @@ type NewTrackInput = Record<string, any>;
 type TrackPatch = Record<string, any>;
 
 /** Fallback system prompt — replace with proper import when module exists */
-const systemPrompt = 'You are Editron AI, an intelligent video editing assistant.';
+const systemPrompt = '<role>You are Editron AI, an intelligent video editing assistant.</role>';
 
 // ============================================================================
 // Configuration

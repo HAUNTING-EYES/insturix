@@ -101,7 +101,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
     </h1>
   ),
   h2: ({ children }) => (
-    <h2 className="text-xl font-semibold text-white mt-8 mb-3">{children}</h2>
+    <h2 className="text-[18px] font-semibold text-white mt-8 mb-3">{children}</h2>
   ),
   h3: ({ children }) => (
     <h3 className="text-lg font-semibold text-[#ECE9E1] mt-6 mb-2">
@@ -109,13 +109,13 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
     </h3>
   ),
   h4: ({ children }) => (
-    <h4 className="text-base font-semibold text-[#ECE9E1] mt-5 mb-2">
+    <h4 className="text-[14px] font-semibold text-[#ECE9E1] mt-5 mb-2">
       {children}
     </h4>
   ),
 
   p: ({ children }) => (
-    <p className="text-[15px] text-[#B5B2A8] leading-[1.75] mb-4">{children}</p>
+    <p className="text-[14px] text-[#B5B2A8] leading-[1.75] mb-4">{children}</p>
   ),
 
   strong: ({ children }) => (
@@ -136,7 +136,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
     </ol>
   ),
   li: ({ children }) => (
-    <li className="text-[15px] text-[#B5B2A8] leading-[1.65] pl-1">
+    <li className="text-[14px] text-[#B5B2A8] leading-[1.65] pl-1">
       {children}
     </li>
   ),
@@ -233,7 +233,7 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
         loading="lazy"
       />
       {alt && (
-        <figcaption className="mt-2 text-xs text-[#5F5E5A] text-center">
+        <figcaption className="mt-2 text-[11px] text-[#5F5E5A] text-center">
           {alt}
         </figcaption>
       )}

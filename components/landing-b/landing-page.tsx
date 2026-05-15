@@ -417,7 +417,7 @@ function Topbar({
             border: "none",
             padding: "8px 16px",
             borderRadius: 7,
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: 800,
             cursor: "pointer",
             fontFamily: "inherit",
@@ -581,7 +581,7 @@ function Rail({ phase, pct }: { phase: Phase; pct: number }) {
                 />
                 <span
                   style={{
-                    fontSize: 12,
+                    fontSize: 11,
                     color: active ? C.text : C.muted,
                     fontWeight: active ? 500 : 400,
                     transition: `all 0.3s ${EASE}`,

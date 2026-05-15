@@ -89,7 +89,7 @@ const s = StyleSheet.create({
   },
   headerLeft: { flex: 1 },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: "Helvetica-Bold",
     color: C.text100,
   },
@@ -100,7 +100,7 @@ const s = StyleSheet.create({
   },
   headerScoreWrap: { alignItems: "flex-end" },
   headerScore: {
-    fontSize: 40,
+    fontSize: 44,
     fontFamily: "Helvetica-Bold",
     color: C.text100,
     lineHeight: 1,
@@ -275,7 +275,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   scoreNum: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: "Helvetica-Bold",
   },
 

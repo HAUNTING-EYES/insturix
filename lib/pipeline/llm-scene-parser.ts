@@ -177,6 +177,8 @@ export async function parseScriptWithLLM(
     aspectRatio?: string;
     artStyle?: string;
     targetDuration?: number; // total video duration in seconds
+    brandId?: string; // Brand ID for brand-aware scene parsing
+    userId?: string;  // User ID for brand lookup
   } = {},
 ): Promise<LLMParseResult> {
   const google = getGeminiProvider();
@@ -190,364 +192,169 @@ export async function parseScriptWithLLM(
   // geminiRetry (Batch 4, Toyota A.gemini.6): transient 429 / 5xx / network
   // errors get up to 3 retries with exponential backoff (1.5s → 3s → 6s → 12s).
   // Daily quota exceeded + 401/403 bail immediately per retryer's classifier.
+  // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+  // Restructured from markdown ## headers to XML tags for better LLM
+  // instruction-following. Data (script) is LAST per proven methodology.
+  // Field-level extraction rules live in Zod .describe() strings above.
+  // System-level rules (format detection, grouping, anti-patterns) live here.
+  // See memory/prompt_engineering_methodology.md for the full rationale.
+  const artStyleDirective = options.artStyle
+    ? `Art style for ALL scenes: ${options.artStyle}. Adapt every description to this style.`
+    : 'Default art style: photorealistic cinematic with natural lighting. Maintain consistently.';
+  const targetSceneRange = options.targetDuration
+    ? `${Math.ceil(options.targetDuration / 8)}-${Math.ceil(options.targetDuration / 4)}`
+    : '4-8';
+  const targetDurationLabel = options.targetDuration || '30-60';
+  const aspectDirective = options.aspectRatio
+    ? `Aspect ratio: ${options.aspectRatio}. Adjust composition and framing accordingly.`
+    : '';
+
+  // ─── Brand Context (optional) ─────────────────────────────────
+  // If brandId + userId are provided, fetch brand data and inject into prompt.
+  // Brand context informs visual descriptions (colors, style), narration (voice),
+  // and on-screen text (typography). Graceful degradation: if lookup fails, no brand context.
+  let brandBlock = '';
+  if (options.brandId && options.userId) {
+    try {
+      const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
+      const { buildBrandContextBlock } = await import('@/lib/shared/brand-context-block');
+      const brand = await getUnifiedBrand(options.userId, options.brandId);
+      brandBlock = buildBrandContextBlock(brand);
+      if (brandBlock) {
+        console.log(`[SceneParser] Brand context injected: ${brand?.name} (${options.brandId})`);
+      }
+    } catch (err) {
+      console.warn('[SceneParser] Brand lookup failed (non-fatal):', err);
+    }
+  }
+
   const { geminiRetry } = await import('./gemini-retry');
   const { object } = await geminiRetry(() => generateObject({
     model,
     schema: ParseResultSchema,
     temperature: 0.05,
+    seed: 1, // Rule 35: temperature alone is not deterministic. Seed ensures reproducible output.
     // 2026-04-17: bumped 120s → 180s after witnessing cold-start timeouts on the
     // new GCP project (insturix-493414). First Gemini call of the day often takes
     // 120-150s (structured output on complex Zod schema). 180s gives headroom while
     // staying well under Vercel's 300s function limit (leaves ~100s for other work).
     // See pipeline_investigations.md "LLM parser cold-start timeouts" for root cause.
     abortSignal: AbortSignal.timeout(180_000),
-    prompt: `You are a senior video production director. Decompose a client script into discrete scenes, each representing ONE AI video generation call.
-
-## INPUT CONTRACT
-- You receive a script in ANY format: screenplay, voiceover, bullet points, two-column A/V, timestamped, casual notes, pre-decomposed storyboard, ThinkForge output, or any mix.
-- The script may be in any language or mixed languages (e.g., Hindi + English, Hinglish).
-- It may be complete or truncated (if truncated, a notice appears at the end).
-- If truncated: process only what you have. Add a final scene with title "SCRIPT_TRUNCATED" and empty fields.
-
-## STEP 1: FORMAT DETECTION (do this silently — do not output your detection)
-Read the entire script and identify its format. This determines extraction strategy:
-
-FORMAT A — Screenplay (INT./EXT. sluglines, VO:/NARRATOR: labels):
-→ Sluglines = scene boundaries. Labeled dialogue/VO = narration. Stage directions = visualDescription.
-
-FORMAT B — Voiceover script (continuous prose, no/minimal visual directions):
-→ All prose = narration. You must INVENT appropriate visuals for each segment.
-
-FORMAT C — Two-column A/V (separate VISUAL and AUDIO sections):
-→ Visual → visualDescription. Audio → extract spoken text as narration, SFX as sfxCue, music notes as audioDescription. Camera → videoMotionPrompt + cameraRig.
-
-FORMAT D — Bullet-point brief (bullets, numbered steps):
-→ Each bullet or logical group = one scene. Bullets are visual directions unless they contain quoted speech or are labeled as VO.
-
-FORMAT E — Timestamped (timecodes like [00:00-00:05] or 0:00-0:05):
-→ Use timestamps to set durationSeconds. Text between timestamps: spoken words = narration, visual directions = visualDescription.
-
-FORMAT F — Casual/conversational (unstructured paragraph, informal tone):
-→ Parse intent from natural language. "show X" = visual. Quoted text = narration. "add music" = audioDescription.
-
-FORMAT G — Pre-decomposed storyboard (already split into named scenes with sub-directions):
-→ Script "scenes" are EDITORIAL sections. Pipeline scenes are VIDEO GENERATION UNITS (one subject, one location, one frozen frame). These are NOT the same thing.
-→ If script scene has ONE subject in ONE location with continuous action → keep as one pipeline scene.
-→ If script scene describes a MONTAGE of DIFFERENT subjects/locations → DECOMPOSE into separate pipeline scenes, one per distinct subject/location.
-
-FORMAT H — ThinkForge output (scenes with Visuals/Audio/Camera/Music Direction subsections, plus header and Production Notes):
-→ Same decomposition rule as FORMAT G: split multi-subject scenes.
-→ Extract: Visuals → visualDescription, Audio → split into narration + sfxCue (see SFX EXTRACTION), Camera → videoMotionPrompt + cameraRig, Music Direction → audioDescription, **Transition:** line → editDirections.transition (map to exact transition ID).
-→ IMPORTANT: Look for standalone **Transition:** lines between scenes (e.g. "**Transition:** Hard cut to next scene", "**Transition:** Fast dissolve into next scene"). Map these to transition IDs: "Hard cut"→"hard-cut", "Fast dissolve"→"dissolve", "Quick energetic cut"→"hard-cut".
-→ Header block (Emotional Target, Genre, Tempo, Key, Instrumentation, Reference Tracks) → IGNORE for scenes. This is global metadata.
-→ Production Notes → IGNORE entirely.
-
-MIXED FORMATS: Apply the most specific matching format per section. Priority: labeled VO > quoted speech > prose paragraphs > visual directions.
-
-## NARRATION EXTRACTION
-Priority order:
-1. Text labeled VO: / VOICEOVER: / NARRATOR: → extract verbatim
-2. Quoted text after a character name (SARAH: "Hello") → extract quoted text
-3. In FORMAT B: all prose paragraphs = narration
-4. In FORMAT C/H: text in the AUDIO section that is clearly spoken words (not SFX, not music)
-5. Unlabeled prose in mixed scripts → narration ONLY if it reads as speakable
-6. Stage directions, camera notes, SFX descriptions, music cues → NEVER narration
-7. When uncertain → "" (empty string). Silent scenes are valid. Commercial/brand scripts often have ZERO narration.
-
-## VISUAL DESCRIPTION (generates ONE still image)
-This text is sent to an AI image model to generate a single photograph.
-- Describe what a camera captures in ONE exposure
-- Include: subject (exact visual details — colors, materials, textures, proportions), environment, lighting (type + direction + quality), color palette, composition, viewing angle, mood
-- MANDATORY: if a subject appeared in a previous scene, repeat their EXACT visual description for consistency
-
-### Handling multiple visual beats in one scene:
-Same subject, same camera setup (one subject doing a continuous action):
-→ Keep as one pipeline scene. Pick the most visually striking moment. Other beats inform videoMotionPrompt.
-
-Same subject, different camera setups (one subject shown from multiple framings in sequence):
-→ SPLIT — each framing requires its own photograph. Group beats that share the same framing.
-
-Different subjects (distinct people/objects across beats):
-→ ALWAYS SPLIT into separate pipeline scenes.
-
-### Handling montage descriptions:
-
-Pattern: "Rapid montage of X details" where X is ONE subject (multiple framings of the same thing):
-→ Keep as ONE scene with sceneType="montage"
-→ Create sub-shots with independentGeneration=FALSE (cut from same generated clip)
-→ The parent visualDescription shows the single subject, sub-shots define cut timings only
-
-Pattern: "Rapid montage of DIFFERENT subjects" (each beat shows a different thing):
-→ Keep as ONE scene with sceneType="montage"
-→ Create sub-shots with independentGeneration=TRUE on each
-→ Each sub-shot gets its own visualDescription + videoMotionPrompt describing ITS specific subject extracted verbatim from the script
-→ Each generates a separate AI video clip (additional cost per sub-shot)
-→ The parent scene's visualDescription becomes the FIRST sub-shot's visual
-
-COST NOTE: Each sub-shot with independentGeneration=true costs 3 credits.
-A montage with 3 independent sub-shots = 9 credits instead of 3.
-The user will see this breakdown in the cost preview and can collapse to 1 shot.
-
-${options.artStyle ? `Art style for ALL scenes: ${options.artStyle}. Adapt every description to this style.` : 'Default art style: photorealistic cinematic with natural lighting. Maintain consistently.'}
-
-BANNED in visualDescription (cause generation artifacts):
-- Camera movement: tracking, dolly, pan, zoom, follows, sweeps
-- Multi-frame: split, panels, grid, collage, storyboard, montage, series, diptych, triptych
-- Temporal: then, next, afterward, transitions to, cuts to
-
-## VIDEO MOTION (animates the frozen frame for ~5 seconds)
-The video model ALREADY SEES the image. Describe ONLY what changes.
-- One primary motion + one secondary atmospheric detail. Slow and deliberate.
-- Do NOT redescribe the visual contents.
-- USE the script's Camera section if present (tracking shot → slow tracking, push-in → gentle push-in).
-- For fast-paced scenes: describe the dominant motion, note "quick energy" in the prompt.
-
-## QUALITY TOKENS
-Must be specific to the art style AND the scene content.
-- If the script has a global style guide (e.g. "35mm Portra" in production notes) → use it consistently across all scenes. That's intentional.
-- If no global guide → vary tokens based on scene content:
-  - Food close-up → "macro lens, shallow depth of field, food photography lighting"
-  - Night scene → "high ISO, neon reflections, ambient city glow"
-  - Logo reveal → "clean sharp render, minimal depth of field, studio lighting"
-  - Establishing wide → "wide-angle lens, deep focus, golden hour"
-- Reference examples by style:
-  - Cinematic → "35mm Kodak Portra 400, shallow depth of field, anamorphic lens flare"
-  - Animation → "smooth vector lines, consistent stroke weight, cel-shaded"
-  - Documentary → "handheld natural light, 4K sensor, ungraded footage"
-  - Sports/commercial → "high-speed camera, crisp motion freeze, stadium lighting"
-- NEVER use generic "high quality, 4K, masterpiece" tokens.
-- NEVER put quality tokens inside videoMotionPrompt — that field is ONLY for motion/animation.
-
-## GENERATION UNIT GROUPING (CRITICAL — this controls cost and quality)
-
-Each output scene = ONE AI video generation call (~$0.35). Your job is to MINIMIZE generation calls while MAXIMIZING visual coverage.
-
-RULE: Group shots by SUBJECT + LOCATION + VISUAL STYLE. One generation unit = one 5-second video clip that can be CUT into multiple sub-shots.
-
-### How to group:
-1. Read ALL visual descriptions across the entire script
-2. Identify distinct SUBJECT+LOCATION combinations (e.g., "children at playground", "teenagers in car", "food close-ups")
-3. Each unique combination = ONE generation unit with a descriptive ID
-4. Assign generationUnitId to each scene
-5. Mark primaryVisualForUnit=true on the BEST scene in each unit (most visually rich)
-6. Other scenes in the same unit get primaryVisualForUnit=false (they reuse the generated video)
-
-### Sub-shots for montage sections — TWO distinct modes:
-
-**Mode A — Sub-shots CUT from ONE generated clip** (cheap, 1 video gen cost)
-When all sub-shots share the SAME subject in the SAME location with continuous action:
-- ONE scene, ONE visualDescription, ONE video gen
-- Sub-shots have \`independentGeneration: false\` (or omitted)
-- Each sub-shot is just a cut-point marker inside the single generated clip
-
-Example: "close-up of shoe sole → laces tightening → heel lift" (same shoe, same set)
-→ ONE scene, ONE clip, 3 sub-shots that reference time ranges in that one clip.
-
-**Mode B — Sub-shots generated INDEPENDENTLY** (expensive, N video gen cost)
-When sub-shots show DIFFERENT subjects, DIFFERENT locations, DIFFERENT eras, or DIFFERENT actors:
-- ONE scene, but EACH sub-shot has its OWN distinct visualDescription + videoMotionPrompt
-- Set \`independentGeneration: true\` on EVERY sub-shot in this mode
-- The pipeline will generate a separate storyboard image AND a separate video clip per sub-shot
-- Cost = (N × $0.02 image) + (N × $0.35 video). The user pre-approves this in the cost preview.
-
-RULE (abstract — do NOT copy any content from this block, it's a pattern schema):
-When the script describes a montage across DIFFERENT eras/times/subjects/locations
-(format: "SCENE_BEAT_1 → SCENE_BEAT_2 → SCENE_BEAT_3 → SCENE_BEAT_N"),
-output N sub-shots where each sub-shot's visualDescription is the EXACT subject
-and setting the user's script names for that beat. Every sub-shot gets
-independentGeneration: true. Each beat needs its own reference image because
-one image cannot represent N different subjects.
-
-Do NOT collapse the N beats into a single visualDescription.
-Do NOT invent beat content — use the subjects the script literally names.
-Tokens SCENE_BEAT_* above are placeholders; in real output they are replaced
-by the verbatim subjects from the user's script.
-
-### LITERAL SHOT COUNTS (MANDATORY — honor the script's explicit shot numbering)
-
-If the script uses explicit "Shot 1: / Shot 2: / Shot 3:" markers, produce EXACTLY that many sub-shots.
-Do NOT collapse Shot 1-3 into one visualDescription. Do NOT add extra sub-shots the script didn't ask for.
-
-RULE (abstract — do NOT copy any content from this block, it's a pattern schema):
-Script format: "Scene N: TITLE / Shot 1: SHOT_DESCRIPTION_ONE / Shot 2: SHOT_DESCRIPTION_TWO / Shot 3: SHOT_DESCRIPTION_THREE"
-Output: ONE scene with EXACTLY 3 sub-shots (N sub-shots for N shots, no more no less).
-        Each sub-shot's visualDescription = SHOT_DESCRIPTION_N extracted verbatim from that shot line.
-
-MODE decision:
-- If SHOT_DESCRIPTION_1/2/3 are 3 VISUALLY DISTINCT subjects (different things in different framings)
-  → MODE B: all sub-shots get independentGeneration: true + each writes its own visualDescription.
-- If SHOT_DESCRIPTION_1/2/3 show the SAME subject from different framings (close-up / medium / wide of one thing)
-  → MODE A: one shared clip, sub-shots are time-range markers only.
-
-WRONG patterns:
-- Collapsing N shots into one visualDescription — this loses (N-1)/N of the user's intended visuals.
-- Adding extra sub-shots the script didn't list — the script's shot count is canonical.
-
-Tokens SHOT_DESCRIPTION_* above are placeholders; real output uses the verbatim
-subject each shot line describes.
-
-### ANTI-PATTERN — do NOT duplicate previous scenes' montage content into later scenes
-
-Scripts often follow "Hook → Montage → Resolution" structure. The RESOLUTION scene is usually a UNIFIED present-day scene (one subject, one setting, emotional payoff), NOT another montage.
-
-WRONG example (abstract — the parser has done this before with various scripts):
-  Script Scene 3 (resolution): "<unified present-day hero moment the script describes — could be a team gathered around a desk, an athlete crossing a finish line, a family at a dinner table, a user closing an app with satisfaction>"
-  Parser output: 5 sub-shots REPEATING Scene 2's montage beats (different eras / different subjects / different locations).
-  → This DUPLICATES Scene 2's montage into Scene 3. Scene 3 is supposed to be ONE unified present-day beat.
-
-CORRECT output for that Scene 3:
-  ONE scene (or 1-3 sub-shots of the SAME unified moment: wide shot → close-up of hands → reaction), ALL showing the SAME unified present-day subject and setting.
-  NO era shifts. NO repeat of Scene 2's shot list.
-  sceneType: "continuous" (or "montage" ONLY if the script EXPLICITLY lists different sub-shots within Scene 3).
-
-Rule: each scene's subShots MUST describe DIFFERENT content from OTHER scenes' subShots. If you find yourself repeating Scene 2's shot descriptions in Scene 3's subShots, STOP — Scene 3 is a different scene and needs its own shot list extracted verbatim from the script.
-
-### When to SPLIT into separate generation units:
-- DIFFERENT subjects in DIFFERENT locations (any two beats that do not share a subject or a setting).
-- Dramatically different visual styles within the same script (e.g., script calls for period-look footage next to crisp modern footage).
-- Logo/brand reveals (always their own unit — even if thematically connected to adjacent scenes).
-
-### When to MERGE into one generation unit:
-- Same subject, same location, different camera angles → ONE unit, use Mode A sub-shots
-- Same setting, related subjects (family members at same table) → ONE unit
-- Progressive reveal of same scene (wide → close-up) → ONE unit
-
-Target: ${options.targetDuration ? Math.ceil(options.targetDuration / 8) + '-' + Math.ceil(options.targetDuration / 4) : '4-8'} generation units (scenes) for a ${options.targetDuration || '30-60'}-second video. Each scene = one AI video generation call (~$0.35). Use montage sub-shots to group rapid visual beats within one scene rather than making each beat a separate scene. This saves cost AND produces better montage pacing.
-
-### Scene types:
-- "continuous" — one unbroken shot, no cuts needed
-- "montage" — rapid cuts from the same clip (MUST have subShots)
-- "logo-reveal" — brand/logo moment
-- "text-card" — title/end card
-- "talking-head" — speaker on camera
-
-### Special cases:
-- Title cards / logo reveals → own generation unit, sceneType: "logo-reveal", narration: ""
-- Text-on-screen / end cards → own unit, sceneType: "text-card"
-- Talking head with B-roll → split: talking-head unit + separate B-roll units
-
-## ASSET TYPE
-Set assetRecommendation to "ai-video" for all scenes. The only exception: set "graphics-only" if the scene is purely data/charts/infographics with no real-world visuals. The system handles everything else automatically.
-
-## DURATION
-If the script provides timestamps → calculate durationSeconds for each pipeline scene.
-If narration exists → estimate: ~150 words per minute, add 1-2s buffer.
-If no data → default to 5.
-
-## AUDIO EXTRACTION (MUSIC vs SFX — MUST SPLIT)
-The script's Audio section often mixes music direction with sound effects. You MUST separate them into two fields:
-
-### musicDescription (for BGM generation):
-- Music mood, genre, tempo, instrumentation, energy curve
-- Shape only (placeholders — DO NOT copy these strings): "GENRE_OR_INSTRUMENTATION, MOOD_DESCRIPTOR, ENERGY_CURVE". Describe what the user\'s script actually calls for.
-- If no music direction in script → musicDescription: ""
-
-### sfxDescription (for sound effects search/generation):
-- Ambient beds: room tone, outdoor air, traffic hum, restaurant buzz
-- Spot SFX: cup clink, door close, footstep, paper rustle
-- Feature SFX: whoosh, impact hit, dramatic stinger, glass shatter
-- If no SFX direction in script → sfxDescription: ""
-
-### audioDescription (DEPRECATED — backward compat only):
-- Copy musicDescription value here for old consumers that still read it
-- Do NOT put SFX in audioDescription
-
-Shape only (placeholders — DO NOT copy, extract the user\'s actual audio):
-Input shape: "**Audio:** MUSIC_LINE_FROM_SCRIPT. SFX_LINE_FROM_SCRIPT."
-→ musicDescription: MUSIC_LINE_FROM_SCRIPT condensed to mood/genre/instrumentation
-→ sfxDescription:   SFX_LINE_FROM_SCRIPT condensed to comma-separated ambient+spot+feature sounds
-→ audioDescription: (copy of musicDescription for backward compat)
-
-Fill the placeholders from the user\'s actual Audio section. Do not substitute "synth pad", "acoustic guitar", "keyboard clicks", or any other content token.
-
-## MOTION GRAPHIC CUE EXTRACTION
-If the script implies branded / stat / callout elements without giving exact copy:
-→ Extract into editDirections.motionGraphicCue using the shape "GRAPHIC_TYPE: GRAPHIC_VALUE" where GRAPHIC_TYPE is one of stat counter / lower third / brand logo reveal / callout / etc. and GRAPHIC_VALUE comes verbatim from the user\'s script. Do not substitute brand names or numbers from other scripts.
-If nothing → motionGraphicCue: ""
-
-## ON-SCREEN TEXT EXTRACTION (CRITICAL — preserve exact script copy)
-Scripts frequently specify EXACT text that must appear visually on screen. Look for these patterns:
-  - "On-Screen Text: <text>" / "Text: <text>"
-  - "(Appears briefly: <text>)" / "(Brief flash: <text>)"
-  - Lines inside a scene that are explicitly quoted as visible copy (NOT narration)
-  - Final "On-Screen Text: @BrandHandle #Hashtag" lines in resolution scenes
-  - Multiple on-screen text lines in one scene (e.g. nostalgia ads often have 3+ short text beats in Scene 2)
-
-Extract EACH DISTINCT text line VERBATIM into editDirections.onScreenText as an array of strings.
-- Preserve exact wording, punctuation, hashtags, emoji, and capitalization.
-- One array entry = one visible text block = one graphic overlay.
-- Do NOT merge multi-line text blocks unless they genuinely appear as one visible text element.
-- Do NOT rewrite, shorten, or paraphrase. The downstream system will use these strings as literal text on the graphic overlay.
-
-Extraction patterns (these describe the SHAPE of valid output — placeholders in ALL_CAPS_UNDERSCORE are NOT literal text, they mark "insert the exact script text here"):
-
-Pattern 1 — single quoted line:
-Script contains: On-Screen Text: "USE_ACTUAL_SCRIPT_LINE_HERE"
-→ onScreenText: ["USE_ACTUAL_SCRIPT_LINE_HERE"]
-
-Pattern 2 — multiple parenthetical flashes in one scene:
-Script contains (between scene cuts):
-  (Appears briefly: "SCRIPT_FLASH_ONE")
-  (Appears briefly: "SCRIPT_FLASH_TWO")
-  (Appears briefly: "SCRIPT_FLASH_THREE")
-→ onScreenText: ["SCRIPT_FLASH_ONE", "SCRIPT_FLASH_TWO", "SCRIPT_FLASH_THREE"]
-
-Pattern 3 — closing-scene tagline + CTA/hashtag:
-Script's final scene ends with:
-  On-Screen Text: "SCRIPT_TAGLINE_HERE"
-  On-Screen Text: "SCRIPT_CTA_OR_HASHTAG_HERE"
-→ onScreenText: ["SCRIPT_TAGLINE_HERE", "SCRIPT_CTA_OR_HASHTAG_HERE"]
-
-CRITICAL — DO NOT COPY THE PLACEHOLDERS: the ALL_CAPS strings above are a pattern schema, not literal text. When processing a real script, replace them with the EXACT verbatim text from the script. Never emit strings containing underscores or ALL_CAPS placeholder tokens. Never emit made-up taglines. If the script has no on-screen text for a scene, OMIT the field or return empty array [].
-
-Hallucination guard: every string you emit in onScreenText MUST appear character-for-character somewhere in the script you received. A downstream validator will strip any string that is not present in the raw script — strings you invent will be silently deleted, so invention costs you nothing but accuracy.
-
-ALSO set motionGraphicCue as a brief free-form description (backward compat with older consumers),
-but onScreenText is the authoritative source.
-
-## SFX EXTRACTION (uses BOTH sfxDescription AND editDirections.sfxCue)
-The Audio section mixes music, narration, and SFX. Split them into three outputs:
-
-1. **musicDescription** — music mood, genre, tempo, instrumentation
-2. **sfxDescription** — ambient beds + spot SFX + feature SFX (the FULL SFX soundscape)
-3. **editDirections.sfxCue** — the MOST important single SFX moment (for targeted SFX search)
-4. **narration** — spoken words only
-
-Shape only (abstract — DO NOT copy any content, extract the user\'s actual audio):
-Input shape: "**Audio:** SFX: SFX_LIST. AMBIENT_LAYER. MUSIC_LINE."
-→ musicDescription: MUSIC_LINE as genre + mood + energy (music only, no sfx)
-→ sfxDescription:   SFX_LIST + AMBIENT_LAYER combined as comma-separated (sfx only, no music)
-→ sfxCue:           the single most prominent SFX moment from SFX_LIST (for targeted search)
-→ audioDescription: (copy of musicDescription for backward compat)
-
-Every placeholder above must be replaced with the user\'s literal script content. Do not copy placeholder tokens. Do not substitute content from other scripts.
-
-If no SFX in script → sfxDescription: "", sfxCue: null
-
-## EDIT DIRECTIONS MAPPING
-### Transitions (map script cues to exact IDs):
-VISUAL: DISSOLVE/"dissolve", FADE TO BLACK/"dip-to-black", FADE TO WHITE/"dip-to-white", FLASH/"flash", BLUR/"blur-transition", WIPE LEFT/"wipe-left", WIPE RIGHT/"wipe-right", SLIDE UP/"slide-up", SLIDE DOWN/"slide-down", ZOOM IN/"zoom-punch", ZOOM OUT/"zoom-out", WHIP PAN/"whip-pan", GLITCH/"glitch", FILM BURN/"film-burn", IRIS WIPE/"iris-wipe", SOFT CUT/"soft-cut"
-EDITORIAL: CUT TO/"hard-cut", SMASH CUT/"smash-cut", MATCH CUT/"match-cut", JUMP CUT/"jump-cut", CUT ON ACTION/"cut-on-action"
-DEFAULT: Any unlisted or ambiguous → "hard-cut"
-Durations: dissolve=500, dip-to-black=600, flash=270, hard-cut=0, zoom-punch=270, blur-transition=600
-
-### Pacing: "quick cuts"/"fast", "slow"/"slow", "build/escalating"/"building", default/"medium"
-
-## META CONTENT — IGNORE FOR SCENES
-Skip: Project overviews, creative briefs, emotional targets (header), genre/style descriptions, reference tracks, style guides, platform notes, production notes, color grade (global), sound design (global). These are metadata, NOT scenes.
-
-CRITICAL: Return null for individual editDirections FIELDS not explicitly in the script. Do NOT invent field values.
-BUT: Every scene MUST have an editDirections object (even if all fields inside are null). Never omit the editDirections object entirely.
-${options.aspectRatio ? `ASPECT RATIO: ${options.aspectRatio}. Adjust composition and framing accordingly.` : ''}
-
-## STYLE GUIDE EXTRACTION
-- characterDescriptions: For recurring subjects (2+ scenes), create exhaustive visual description for consistency. Empty object if none.
-- colorPalette: 3-8 specific named colors from visual descriptions (e.g., "cobalt blue", not "blue").
-- environmentNotes: 1-3 sentences summarizing the dominant visual world.
-
-SCRIPT:
+    prompt: `<role>
+You are a senior video production director. You decompose client scripts into discrete scenes, where each scene represents ONE AI video generation call.
+</role>
+
+<task>
+Parse the script provided in the <script> section below into structured scene objects conforming to the output schema. Each field's schema description specifies its extraction rules.
+
+The script may be in ANY format (screenplay, voiceover, bullets, two-column A/V, timestamped, casual notes, storyboard, ThinkForge output, or any mix) and any language. If truncated, process only available content and add a final scene with title "SCRIPT_TRUNCATED".
+</task>
+
+${brandBlock}
+<rules>
+RULE 1 — FORMAT DETECTION (silent, do not output your detection):
+Identify the script format to determine extraction strategy.
+A) Screenplay (INT./EXT. sluglines, VO:/NARRATOR: labels): sluglines = scene boundaries, labeled dialogue = narration, stage directions = visualDescription.
+B) Voiceover (continuous prose, no visual directions): all prose = narration, INVENT appropriate visuals.
+C) Two-column A/V (VISUAL and AUDIO sections): Visual = visualDescription, Audio = split into narration + sfxCue + musicDescription, Camera = videoMotionPrompt + cameraRig.
+D) Bullet-point brief: each bullet or group = one scene, bullets are visual directions unless labeled VO or containing quoted speech.
+E) Timestamped ([00:00-00:05]): timestamps set durationSeconds, text between = narration or visualDescription.
+F) Casual/conversational: parse intent from natural language ("show X" = visual, quoted = narration, "add music" = musicDescription).
+G) Pre-decomposed storyboard: script "scenes" are EDITORIAL sections, NOT pipeline scenes. Decompose multi-subject scenes into separate pipeline scenes (one subject, one location per scene).
+H) ThinkForge output (Visuals/Audio/Camera/Music Direction subsections): same decomposition as G. Extract Visuals = visualDescription, Camera = videoMotionPrompt, Music Direction = musicDescription. Look for standalone **Transition:** lines and map to IDs (Hard cut = hard-cut, Fast dissolve = dissolve). IGNORE header blocks and Production Notes.
+Mixed: apply the most specific matching format per section. Priority: labeled VO > quoted speech > prose > visual directions.
+
+RULE 2 — NARRATION EXTRACTION PRIORITY:
+1. Text labeled VO:/VOICEOVER:/NARRATOR: = extract verbatim
+2. Quoted text after character name (SARAH: "Hello") = extract quoted text
+3. FORMAT B: all prose = narration
+4. FORMAT C/H: spoken words in AUDIO section (not SFX, not music)
+5. Unlabeled prose in mixed scripts = narration ONLY if speakable
+6. Stage directions, camera notes, SFX, music cues = NEVER narration
+7. Uncertain = "" (empty). Silent scenes are valid.
+
+RULE 3 — VISUAL DESCRIPTION (generates ONE still image):
+- Describe ONE exposure: one primary subject, one setting, one frozen moment
+- Include: subject with exact visual details, environment, lighting, color palette, composition, viewing angle
+- MANDATORY: repeat EXACT visual description for recurring subjects across scenes (consistency)
+- Same subject + same camera = ONE scene, pick hero moment, other beats inform videoMotionPrompt
+- Same subject + different camera setups = SPLIT into separate scenes
+- Different subjects = ALWAYS SPLIT
+- BANNED words (cause artifacts): tracking, dolly, pan, zoom, follows, sweeps, split, panels, grid, collage, montage, series, diptych, triptych, then, next, afterward, transitions to, cuts to
+- ${artStyleDirective}
+${aspectDirective ? `- ${aspectDirective}` : ''}
+
+RULE 4 — GENERATION UNIT GROUPING (controls cost):
+Each scene = ONE AI video generation call (~$0.35). MINIMIZE calls, MAXIMIZE coverage.
+Group by SUBJECT + LOCATION + VISUAL STYLE. One unit = one 5-second clip cuttable into sub-shots.
+Steps: read ALL visual descriptions, identify distinct subject+location combos, assign generationUnitId, mark primaryVisualForUnit=true on best scene per unit.
+Target: ${targetSceneRange} scenes for a ${targetDurationLabel}-second video.
+
+Sub-shot Mode A (cheap, 1 video gen): all sub-shots share SAME subject in SAME location. independentGeneration=false. Sub-shots are cut-point markers in one clip.
+Sub-shot Mode B (expensive, N video gens): sub-shots show DIFFERENT subjects/locations/eras. independentGeneration=true on EVERY sub-shot. Each gets own visualDescription + videoMotionPrompt.
+
+LITERAL SHOT COUNTS: if the script has "Shot 1: / Shot 2: / Shot 3:" markers, produce EXACTLY that many sub-shots. Do NOT collapse. Do NOT add extras. Script shot count is canonical.
+
+ANTI-DUPLICATION: each scene's subShots MUST describe DIFFERENT content from other scenes. Resolution scenes are UNIFIED present-day moments, NOT repeats of prior montage beats. If you find yourself repeating Scene 2's shot descriptions in Scene 3, STOP.
+
+Split units when: different subjects in different locations, dramatically different visual styles, logo/brand reveals.
+Merge units when: same subject + same location + different angles, same setting + related subjects, progressive reveal.
+
+RULE 5 — AUDIO SPLITTING (MUST separate music from SFX):
+musicDescription = music mood, genre, tempo, instrumentation, energy curve ONLY. No SFX.
+sfxDescription = ambient beds + spot SFX + feature SFX. No music.
+editDirections.sfxCue = single most prominent SFX moment (for targeted search).
+audioDescription = copy of musicDescription (backward compat, DEPRECATED).
+Empty string if not in script. Extract from user's actual audio section, do not substitute content.
+
+RULE 6 — ON-SCREEN TEXT (preserve exact script copy):
+Extract EACH line VERBATIM into editDirections.onScreenText as string array.
+Look for: "On-Screen Text:", "Text:", "(Appears briefly:)", "(Brief flash:)", quoted visible copy.
+Preserve exact wording, punctuation, hashtags, emoji, capitalization.
+One array entry = one visible text block = one graphic overlay.
+Do NOT rewrite, shorten, merge, or invent. Hallucination guard: every string must appear character-for-character in the script. Invented strings will be stripped by downstream validator.
+
+RULE 7 — TRANSITION MAPPING:
+Map script cues to exact IDs: DISSOLVE="dissolve", FADE TO BLACK="dip-to-black", FADE TO WHITE="dip-to-white", FLASH="flash", BLUR="blur-transition", WIPE LEFT="wipe-left", WIPE RIGHT="wipe-right", SLIDE UP="slide-up", SLIDE DOWN="slide-down", ZOOM IN="zoom-punch", ZOOM OUT="zoom-out", WHIP PAN="whip-pan", GLITCH="glitch", FILM BURN="film-burn", IRIS WIPE="iris-wipe", SOFT CUT="soft-cut", CUT TO="hard-cut", SMASH CUT="smash-cut", MATCH CUT="match-cut", JUMP CUT="jump-cut", CUT ON ACTION="cut-on-action".
+Default for unlisted or ambiguous transition cues = "hard-cut".
+Durations: dissolve=500, dip-to-black=600, flash=270, hard-cut=0, zoom-punch=270, blur-transition=600.
+Pacing: "quick cuts"="fast", "slow"="slow", "build/escalating"="building", default="medium".
+
+RULE 8 — WHAT TO IGNORE (metadata, NOT scenes):
+Skip: project overviews, creative briefs, emotional targets (header), genre/style descriptions, reference tracks, style guides, platform notes, production notes, color grade (global), sound design (global).
+
+RULE 9 — EDIT DIRECTIONS:
+Return null for individual editDirections FIELDS not explicitly in the script. Do NOT invent values.
+Every scene MUST have an editDirections object (even if all fields are null).
+
+RULE 10 — QUALITY TOKENS:
+Must match art style AND scene content. Use scene-specific descriptors (food = "macro lens, shallow DOF", night = "high ISO, neon reflections", logo = "clean sharp render, studio lighting"). Vary by scene unless script has a global style guide. NEVER use generic "high quality, 4K, masterpiece". NEVER put quality tokens in videoMotionPrompt.
+
+RULE 11 — VIDEO MOTION:
+Describe ONLY what changes from the still image. One primary motion + one atmospheric detail. Do NOT redescribe visual contents. USE script Camera section if present. Keep subtle and cinematic.
+
+RULE 12 — DURATION:
+Timestamps in script = calculate durationSeconds. Narration = estimate ~150 words/minute + 1-2s buffer. No data = default 5.
+
+RULE 13 — MOTION GRAPHIC CUES:
+Branded/stat/callout elements without exact copy = editDirections.motionGraphicCue as "GRAPHIC_TYPE: GRAPHIC_VALUE" from script. Nothing = "".
+
+RULE 14 — STYLE GUIDE:
+characterDescriptions: exhaustive visual description for subjects in 2+ scenes. Empty object if none.
+colorPalette: 3-8 specific named colors (e.g. "cobalt blue" not "blue").
+environmentNotes: 1-3 sentences summarizing dominant visual world.
+
+RULE 15 — SCENE TYPES:
+"continuous" = one unbroken shot. "montage" = rapid cuts (MUST have subShots). "logo-reveal" = brand/logo moment. "text-card" = title/end card. "talking-head" = speaker on camera.
+
+RULE 16 — ASSET TYPE:
+Always "ai-video". Only exception: "graphics-only" for purely data/chart/infographic scenes.
+</rules>
+
+<script>
 ${scriptText.substring(0, 24000)}
-${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters. Process only content above. Add final scene with title "SCRIPT_TRUNCATED".]' : ''}`,
+${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters. Process only content above. Add final scene with title "SCRIPT_TRUNCATED".]' : ''}
+</script>`,
   }), { label: 'llm-scene-parser main', maxRetries: 2 });
 
   // ─── Post-processing validation ────────────────────────────────
@@ -1722,14 +1529,11 @@ export async function extractSubjectsFromScenes(
         schema: SubjectExtractionSchema,
         temperature: 0.2,
         abortSignal: AbortSignal.timeout(110_000),
-    prompt: `You are a senior concept artist doing pre-production for a video. Read EVERY scene carefully and extract ALL visual subjects that could benefit from a reference image.
+    prompt: `<role>You are a senior concept artist doing pre-production for a video.</role>
 
-=== SCENES ===
-${scenesSummary}
+<task>Read EVERY scene carefully and extract ALL visual subjects that could benefit from a reference image. Classify into two tiers: hero (auto-generated) and suggested (user-optional).</task>
 
-=== YOUR TASK ===
-Extract TWO TIERS of subjects:
-
+<rules>
 TIER 1 — "hero" (1-2 subjects): The absolute most important recurring subjects that MUST have reference images. These will be auto-generated.
 TIER 2 — "suggested" (3-10 subjects): Every other notable visual subject mentioned in the script that the user MIGHT want a reference for. Be thorough — scan every scene for characters, objects, products, vehicles. Even things appearing once can be suggested if they're visually important.
 
@@ -1747,7 +1551,7 @@ WHAT TO SKIP:
 - Abstract concepts, moods, logos as text
 - Truly generic items (a random table, generic clouds)
 
-=== VISUAL DESCRIPTION INSTRUCTIONS ===
+VISUAL DESCRIPTION RULES:
 For each subject, write a visualDescription as if briefing an illustrator who has NEVER seen this thing.
 
 Be EXHAUSTIVE and SPECIFIC:
@@ -1766,7 +1570,14 @@ GOOD shape (placeholders only — DO NOT copy, describe the user's actual subjec
   Characters: "AGE_RANGE + GENDER, HAIR_DESCRIPTION (color+length+style), SKIN_TONE, FACE_FEATURE, CLOTHING_DETAIL, ACCESSORY_OR_POSTURE, BUILD"
 
 Fill every placeholder token (ALL_CAPS_UNDERSCORE) from what the user's script literally describes about that subject. Do NOT substitute content from these shapes — they are templates, not examples of real subjects.
+</rules>
+
+<output_format>JSON object with "hero" array (1-2 subjects) and "suggested" array (3-10 subjects). Each subject includes: name, category, tier, visualDescription, sceneAppearances.</output_format>
 ${options.artStyle ? `\nArt style: ${options.artStyle}. Describe subjects in this visual style.` : ''}
+
+<input_data>
+${scenesSummary}
+</input_data>
 
 Extract ALL subjects now (heroes + suggestions):`,
       });
@@ -1914,64 +1725,67 @@ Weave these specific ambient/foley sounds into Layer 3: ${context.sfxDescription
   // HOTFIX 2026-04-08: 60s hard cap — called per-scene from video worker
   // (300s total budget). If refinement hangs, worker falls back to buildMotionPrompt()
   // heuristic, which is what the video worker's catch block at line ~113 already expects.
+  // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
   const { object } = await generateObject({
     model,
     schema: RefinedVideoPromptSchema,
     temperature: 0.2,
+    seed: 1, // Rule 35: deterministic — same scene context should produce same video prompt.
     abortSignal: AbortSignal.timeout(60_000),
-    prompt: `You are VideoPromptMaster — a prompt engineer for image-to-video AI models.
+    prompt: `<role>
+You are VideoPromptMaster — a prompt engineer for image-to-video AI models.
+</role>
 
-## TASK
-Refine a motion prompt for one scene. The video model receives the starting image + your text. Output ONE prompt describing how the image comes to life.
+<task>
+Refine a motion prompt for one scene. The video model receives the starting image + your text. Output ONE prompt (80-150 words, one paragraph, no bullet points) describing how the image comes to life.
+</task>
 
-## SCENE CONTEXT
-Starting image shows: ${context.visualDescription.substring(0, 400)}
+<rules>
+RULE 1 — PROMPT STRUCTURE (follow this order):
+1. ENVIRONMENT + LIGHTING: lighting quality + direction + setting type
+2. SUBJECT + ACTION: use the script's exact subject and action
+3. CAMERA MOVEMENT: be PRECISE — specific move verb + speed + target
+4. ATMOSPHERIC DETAIL: ONE only — fog, steam, dust, light shift, or fabric motion
+
+RULE 2 — ARTIFACT AVOIDANCE (CRITICAL):
+- NEVER describe hands interacting with small objects (AI fails at finger articulation). Frame the RESULT instead.
+- NEVER describe eating mechanics (biting, chewing). Describe surrounding expression instead.
+- NEVER include readable text. Text overlays added in post.
+- ALWAYS specify: "consistent lighting throughout, no exposure changes"
+- ALWAYS specify: "temporally consistent, smooth motion, no flickering"
+- People: natural relaxed posture, hands at sides or resting, unless gesture is essential.
+- Products: hero at rule-of-thirds intersection, shallow depth of field.
+
+RULE 3 — COMPOSITION:
+- Rule of thirds for subject placement
+- Foreground/background separation (depth)
+- Specify lighting direction explicitly
+- Appropriate headroom and looking room for people
+
+RULE 4 — PHYSICS & REALISM:
+- Include weight: "heavy door swings slowly" not "door opens"
+- Include momentum: "hair settles after turning" not "turns head"
+- Natural environmental motion: wind on fabric, steam, reflections
+
+RULE 5 — MODEL-SPECIFIC TUNING:
+${modelGuide}
+</rules>
+
+<scene_context>
+Starting image: ${context.visualDescription.substring(0, 400)}
 Initial motion idea: ${context.videoMotionPrompt || 'Not specified — choose most cinematic option'}
 ${effectiveSuppressDialogue
-  ? `Voice cadence reference (TTS handles the actual speech separately — DO NOT generate voice): "${context.narration?.substring(0, 400) || ''}"`
+  ? `Voice cadence reference (TTS handles speech separately — DO NOT generate voice): "${context.narration?.substring(0, 400) || ''}"`
   : `Narration: ${context.narration?.substring(0, 800) || 'Silent'}`
 }
 Mood: ${context.mood || 'neutral'} | Duration: ${context.durationSeconds}s
 ${context.cameraDirection ? `Camera direction: ${context.cameraDirection}` : ''}
 ${context.transitionHint ? `Scene ends with: ${context.transitionHint}` : ''}
 ${context.previousSceneLastFrame ? 'Continues from previous scene — maintain visual continuity.' : ''}
-${context.sfxDescription ? `\n## SOUND DESIGN (creative_production_knowledge §3 Three-Layer Sound Model)\nAmbient + spot SFX for this scene: ${context.sfxDescription.substring(0, 300)}` : ''}
-${context.cinemaHardware ? `\n## CINEMA HARDWARE (weave these terms naturally into your prompt)\n${context.cinemaHardware}` : ''}
-
-## KEY SUBJECTS
-${subjectContext}
-
-## PROMPT STRUCTURE (follow this order — placeholders DO NOT copy, fill from script)
-1. ENVIRONMENT + LIGHTING first. Shape: "LIGHTING_QUALITY + DIRECTION fills SETTING_TYPE interior/exterior"
-2. SUBJECT + ACTION. Shape: "SUBJECT performs ACTION in SETTING" — use the script's exact subject and action.
-3. CAMERA MOVEMENT — be PRECISE. Shape: "CAMERA_MOVE_VERB + SPEED + TARGET" (e.g. the specific move the script calls for, not the generic word "camera moves").
-4. ATMOSPHERIC DETAIL — ONE only. Shape: "ATMOSPHERIC_ELEMENT VERB subtly/gently (fog, steam, dust, light shift, fabric motion — pick one that fits the user\'s setting, do not invent).
-
-## ARTIFACT AVOIDANCE (CRITICAL — these cause visual failures in AI video models)
-- NEVER describe hands interacting with small objects in precise grip/manipulation. AI models fail at finger-object articulation. Instead frame the RESULT or wider context of the action — describe what the action accomplishes, not the micro-mechanics of fingers/hands gripping.
-- NEVER describe eating mechanics (biting, chewing, swallowing). AI models fail at mouth+food motion. Instead describe the surrounding expression and staging — the moment around the meal, not the moment of consumption.
-- NEVER include readable text in the scene. Text overlays are added separately in post.
-- ALWAYS specify: "consistent lighting throughout, no exposure changes"
-- ALWAYS specify: "temporally consistent, smooth motion, no flickering"
-- For people: default to natural relaxed posture with hands at sides or resting on a surface, unless a specific gesture is essential to the script.
-- For products/foreground subjects: hero positioned at rule-of-thirds intersection with shallow depth of field.
-
-## COMPOSITION (from cinematography principles)
-- Use rule of thirds for subject placement
-- Include foreground/background separation (depth)
-- Specify lighting direction: "soft diffused light from left" or "warm backlight with rim highlights"
-- Appropriate headroom and looking room for people shots
-
-## PHYSICS & REALISM
-- Include weight: "heavy door swings slowly" not "door opens"
-- Include momentum: "hair settles after turning" not "turns head"
-- Natural environmental motion: wind on fabric, steam, reflections in glass
-
-## MODEL-SPECIFIC TUNING
-${modelGuide}
-
-## OUTPUT
-80-150 words. ONE paragraph. No bullet points. Return in the prompt field.`,
+${context.sfxDescription ? `Sound design (Three-Layer Sound Model): ${context.sfxDescription.substring(0, 300)}` : ''}
+${context.cinemaHardware ? `Cinema hardware: ${context.cinemaHardware}` : ''}
+Key subjects: ${subjectContext}
+</scene_context>`,
   });
 
   let finalPrompt = object.prompt;

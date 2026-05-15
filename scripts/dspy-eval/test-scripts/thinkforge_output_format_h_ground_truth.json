@@ -1,0 +1,140 @@
+{
+  "script_id": "thinkforge_output_format_h",
+  "script_text": "",
+  "expected_scenes": [
+    {
+      "title": "The Problem",
+      "narration": "You're drowning in tabs. Drowning in notifications. Drowning in noise.",
+      "visualDescription": "A frustrated office worker staring at a cluttered desktop screen filled with dozens of open browser tabs, spreadsheets, and notifications, harsh fluorescent lighting, papers scattered on the desk, coffee cup half-empty",
+      "musicDescription": "Tense, minimal electronic pulse, low synth drone with irregular glitchy ticks",
+      "sfxDescription": "Keyboard clacking, notification pings overlapping, mouse clicks",
+      "durationSeconds": 5,
+      "mood": "serious",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": [],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "The Breaking Point",
+      "narration": "There has to be a better way.",
+      "visualDescription": "An office worker slamming their laptop shut in frustration, the screen going dark, a moment of silence and darkness",
+      "musicDescription": "Music cuts to silence on the slam, then a single sustained note",
+      "sfxDescription": "Laptop slam, sudden silence",
+      "durationSeconds": 4,
+      "mood": "dramatic",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": {"type": "hard-cut", "durationMs": 0},
+        "onScreenText": [],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "FocusFlow Introduction",
+      "narration": "Introducing FocusFlow. One workspace. Zero chaos.",
+      "visualDescription": "Clean minimal workspace with a single monitor displaying the FocusFlow app interface, soft natural light from a window, a small plant on the desk, worker looking relaxed and in control",
+      "musicDescription": "Bright, optimistic synth melody, clean and modern",
+      "sfxDescription": "Soft UI chime as the app appears on screen",
+      "durationSeconds": 6,
+      "mood": "inspirational",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": {"type": "dip-to-black", "durationMs": 600},
+        "onScreenText": ["FocusFlow"],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "Smart Tabs",
+      "narration": "Smart Tabs learn how you work and organize everything automatically.",
+      "visualDescription": "Screen recording style showing the FocusFlow interface with tabs automatically organizing themselves into color-coded groups: Work, Research, Personal",
+      "musicDescription": "Music continues building, light percussion added",
+      "sfxDescription": "",
+      "durationSeconds": 4,
+      "mood": "energetic",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": {"type": "dissolve", "durationMs": 500},
+        "onScreenText": ["Smart Tabs", "AI-Powered Organization"],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "Focus Mode",
+      "narration": "Focus Mode eliminates distractions with one click.",
+      "visualDescription": "The FocusFlow interface transitioning into Focus Mode, unnecessary elements fading away, leaving only the active document, a subtle blue glow around the screen edges, a progress timer in the corner",
+      "musicDescription": "Music simplifies to match the focus theme, fewer instruments, clearer melody",
+      "sfxDescription": "",
+      "durationSeconds": 4,
+      "mood": "calm",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": {"type": "wipe-right", "durationMs": 500},
+        "onScreenText": ["Focus Mode", "One Click. Zero Distractions."],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "The Result",
+      "narration": "From chaos to clarity. From overwhelmed to in control.",
+      "visualDescription": "Clean FocusFlow workspace with organized interface, bright and calm, professional desktop environment",
+      "musicDescription": "Full arrangement, synth, percussion, bass, triumphant and resolving",
+      "sfxDescription": "Satisfying UI completion sound",
+      "durationSeconds": 4,
+      "mood": "inspirational",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": {"type": "soft-cut", "durationMs": 500},
+        "onScreenText": [],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "Social Proof",
+      "narration": "Trusted by 50,000 professionals.",
+      "visualDescription": "Clean white background with a large pull quote and a 5-star rating, professional minimal typography",
+      "musicDescription": "Music sustains, begins gentle fade",
+      "sfxDescription": "",
+      "durationSeconds": 2,
+      "mood": "serious",
+      "sceneType": "text-card",
+      "editDirections": {
+        "transition": {"type": "flash", "durationMs": 270},
+        "onScreenText": ["50,000+ Professionals", "4.9 Stars"],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "CTA Logo",
+      "narration": "Try FocusFlow free. Your focus starts now.",
+      "visualDescription": "FocusFlow logo on a gradient blue-to-purple background, download buttons for App Store and Chrome Web Store below, tagline centered",
+      "musicDescription": "Final chord resolves, clean ending",
+      "sfxDescription": "Subtle whoosh on logo reveal",
+      "durationSeconds": 3,
+      "mood": "inspirational",
+      "sceneType": "logo-reveal",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": ["Try Free for 14 Days", "focusflow.app"],
+        "pacing": null
+      },
+      "subShots": null
+    }
+  ],
+  "expected_global": {
+    "overallMusicPrompt": "Modern electronic, starting tense and minimal, building to bright optimistic synth, resolving triumphantly",
+    "suggestedProfileCategory": "industry-vertical"
+  },
+  "target_duration": 32,
+  "art_style": ""
+}

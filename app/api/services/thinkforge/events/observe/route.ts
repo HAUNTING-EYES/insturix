@@ -4,7 +4,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { createModelByTier, ModelTier } from '@/lib/thinkforge/agents/model-factory';
 import { addDataBankEntry, type DataBankScope } from '@/lib/thinkforge/services/db';
-import { embedDataBankEntry, checkDuplicateBeforeSave } from '@/lib/thinkforge/services/embedding-service';
+import { embedDataBankEntry, checkDuplicateBeforeSave, processPendingEmbeddings } from '@/lib/thinkforge/services/embedding-service';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,8 +28,7 @@ const extractionSchema = z.object({
  * Returns 202 immediately; extraction and storage happen asynchronously.
  */
 export async function POST(req: Request) {
-  // SECOND BRAIN DISABLED
-  if (true) {
+  if (process.env.OBSERVER_ENABLED !== 'true') {
     return NextResponse.json({ accepted: true, disabled: true }, { status: 202 });
   }
 
@@ -74,16 +73,24 @@ async function processObservation(
   const { object } = await generateObject({
     model,
     schema: extractionSchema,
-    prompt: `You are a silent observer extracting actionable facts from a user's writing or chat session.
-Analyze the following text and extract ALL clear facts: user preferences, rules, personal info, structural habits, technical claims, or audience insights.
-Even short statements like "my name is X" or "I like Y" are valid facts. Extract them with confidence >= 0.5.
-Extract personal info (name, role, channel name), preferences, rules, habits, and opinions.
-If a preference is universal (e.g. "I hate puns", "my name is X"), mark scope as "global". If project-specific, mark "project".
+    prompt: `<role>You are a silent observer extracting actionable facts from a user's writing or chat session.</role>
 
+<task>Analyze the provided text and extract ALL clear facts: user preferences, rules, personal info, structural habits, technical claims, or audience insights.</task>
+
+<rules>
+1. Even short statements like "my name is X" or "I like Y" are valid facts. Extract them with confidence >= 0.5.
+2. Extract personal info (name, role, channel name), preferences, rules, habits, and opinions.
+3. If a preference is universal (e.g. "I hate puns", "my name is X"), mark scope as "global". If project-specific, mark "project".
+</rules>
+
+<output_format>Array of facts, each with: type (preference|rule|personal_info|habit|opinion), content, confidence (0-1), scope (global|project).</output_format>
+
+<input_data>
 Text from ${source || 'editor'}:
 """
 ${text.slice(0, 1500)}
-"""`,
+"""
+</input_data>`,
     temperature: 0.1,
   });
 
@@ -94,7 +101,9 @@ ${text.slice(0, 1500)}
     return;
   }
 
-  const highConfidence = object.facts.filter((f) => f.confidence >= 0.5);
+  const highConfidence = object.facts.filter((f) =>
+    f.scope === 'global' ? f.confidence >= 0.65 : f.confidence >= 0.5,
+  );
   console.log(`[Observer] ${highConfidence.length}/${object.facts.length} facts passed confidence filter`);
 
   for (const fact of highConfidence) {
@@ -124,4 +133,8 @@ ${text.slice(0, 1500)}
     console.log('[Observer] Saved fact:', fact.content.slice(0, 60), '| scope:', fact.scope, '| id:', (entry as any)._id);
     embedDataBankEntry(entry).catch((err) => console.error('[Observer] Embedding failed:', err));
   }
+
+  processPendingEmbeddings(20).catch((err) =>
+    console.error('[Observer] Batch embedding sweep failed:', err),
+  );
 }

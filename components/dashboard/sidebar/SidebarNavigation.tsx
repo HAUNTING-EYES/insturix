@@ -1,7 +1,9 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Home } from "lucide-react"
+import { Home, Shield } from "lucide-react"
+import { useUser } from "@clerk/nextjs"
 import { NavItem } from "./NavItem"
 import { coreCreationTools, growthLegalTools } from "./constants"
 
@@ -10,6 +12,25 @@ interface SidebarNavigationProps {
 }
 
 export function SidebarNavigation({ isExpanded }: SidebarNavigationProps) {
+  const { user } = useUser()
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    if (!user) { setIsAdmin(false); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch("/api/admin/whoami", { credentials: "include" })
+        if (!res.ok) { if (!cancelled) setIsAdmin(false); return }
+        const data = (await res.json()) as { isAdmin?: boolean }
+        if (!cancelled) setIsAdmin(Boolean(data.isAdmin))
+      } catch {
+        if (!cancelled) setIsAdmin(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [user])
+
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden py-4 relative">
       <motion.div className="px-2 space-y-1" layout>
@@ -24,6 +45,20 @@ export function SidebarNavigation({ isExpanded }: SidebarNavigationProps) {
             isPro={false}
           />
         </motion.div>
+
+        {/* Admin — only visible to admins */}
+        {isAdmin && (
+          <motion.div layout>
+            <NavItem
+              href="/admin/dashboard"
+              icon={<Shield className="h-5 w-5" />}
+              label="Admin"
+              isExpanded={isExpanded}
+              description=""
+              isPro={false}
+            />
+          </motion.div>
+        )}
         
         {/* First Divider */}
         <motion.div layout className="py-2">

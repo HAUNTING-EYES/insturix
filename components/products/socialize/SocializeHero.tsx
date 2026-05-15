@@ -78,7 +78,7 @@ export default function SocializeHero() {
         {/* Main Heading */}
         <motion.h1
           variants={itemVariants}
-          className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight mb-6"
+          className="text-[44px] md:text-7xl lg:text-8xl font-bold tracking-tight mb-6"
         >
           <span className="bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-700 dark:from-white dark:via-neutral-200 dark:to-neutral-400 bg-clip-text text-transparent">
             Share Everything You Are
@@ -92,7 +92,7 @@ export default function SocializeHero() {
         {/* Subtitle */}
         <motion.p
           variants={itemVariants}
-          className="text-lg md:text-xl text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
+          className="text-lg md:text-[18px] text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
         >
           Create a stunning landing page for all your content, social profiles, and links. Make it easier for your audience to find everything you share online.
         </motion.p>
@@ -141,7 +141,7 @@ export default function SocializeHero() {
             <div className="absolute inset-0 bg-gradient-to-br from-sky-500/10 via-transparent to-blue-400/10 flex items-center justify-center">
               <div className="text-center text-white">
                 <Share2 className="w-16 h-16 mx-auto mb-4 opacity-70" />
-                <p className="text-xl font-semibold">See Socialize in Action</p>
+                <p className="text-[18px] font-semibold">See Socialize in Action</p>
                 <p className="text-sm opacity-60 mt-2">Your smart link-in-bio solution</p>
               </div>
             </div>

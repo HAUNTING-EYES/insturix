@@ -23,13 +23,14 @@ export function SidebarHeader({ isExpanded }: SidebarHeaderProps) {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.2 }}
-              className="font-bold text-2xl tracking-wide text-white logotext"
+              className="text-white"
               style={{
-                fontFamily: "'Blanka', 'Montserrat', 'Arial', sans-serif",
-                letterSpacing: "0.15em",
+                fontWeight: 800,
+                fontSize: 24,
+                letterSpacing: "-0.02em",
               }}
             >
-              <Link href="/">INSTURIX</Link>
+              <Link href="/">Insturix</Link>
             </motion.div>
           ) : (
             <motion.div

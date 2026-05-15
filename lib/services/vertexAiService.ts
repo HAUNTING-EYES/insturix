@@ -191,114 +191,80 @@ export async function analyzeVideoWithGemini(
     });
 
     // analysis prompt with explicit JSON formatting instructions
-    const prompt = `
-Analyze this video and provide a structured JSON response based on the video content.
+    const prompt = `<role>You are a professional video content analyst specializing in compliance, quality assessment, and transcription.</role>
 
-VIDEO METADATA:
-- Duration: ${metadata.videoDuration} seconds
-- Title: ${metadata.originalFilename}
-- Video URL: ${videoUrl}
+<task>Analyze the provided video and return a structured JSON response covering quality, compliance, transcription, and actionable recommendations.</task>
 
-USER CONTEXT & SAFETY SETTINGS:
-- Family-Friendly Handling: ${context.familyFriendly ? "Enabled (Strict)" : "Disabled (Standard Safety)"}
-- Platform: ${context.platform}
-- Location/Legal Context: ${context.location}
-- Additional Details: ${context.additionalDetails || "None"}
-
-GUIDELINES:
+<rules>
 ${context.familyFriendly
-        ? "1. FAMILY FRIENDLY MODE: Ensure the analysis and language are suitable for all age groups. Avoid violence, abusive language, adult themes, hate speech, or offensive humor."
-        : "1. CONTENT SAFETY: Avoid illegal or extremely explicit content."
+        ? "- FAMILY FRIENDLY MODE: Ensure the analysis and language are suitable for all age groups. Avoid violence, abusive language, adult themes, hate speech, or offensive humor."
+        : "- CONTENT SAFETY: Avoid illegal or extremely explicit content."
       }
 
-2. PLATFORM AWARENESS (${context.platform}):
-   - Adapt tone, depth, and language according to the selected platform.
-   - Social Media: Short, engaging, simple language.
-   - Documentary: Informative, neutral, factual.
-   - Television/News: Formal, unbiased, professional.
-   - OTT/YouTube: Platform-appropriate but compliant.
+PLATFORM AWARENESS (${context.platform}):
+- Adapt tone, depth, and language according to the selected platform.
+- Social Media: Short, engaging, simple language.
+- Documentary: Informative, neutral, factual.
+- Television/News: Formal, unbiased, professional.
+- OTT/YouTube: Platform-appropriate but compliant.
 
-3. LOCATION & LEGAL SENSITIVITY (${context.location}):
-   - Analyze the video through the lens of ${context.location === "Global" ? "international" : context.location} laws, cultural norms, and sensitivities.
-   - For specific countries (e.g., India, USA, UAE), apply their unique regulatory frameworks (e.g., IT Act 2000 for India, COPPA/Section 230 for USA).
-   - Do NOT make statements that violate local regulations or cultural taboos of the selected region.
-   - Do NOT criticize, insult, or make negative remarks about high authorities (e.g., PM, President, Government bodies, National institutions) if the location's laws prohibit such speech.
-   - Identify risks that are specific to ${context.location} (e.g., certain hand gestures, linguistic nuances, or restricted symbols).
+LOCATION AND LEGAL SENSITIVITY (${context.location}):
+- Analyze through the lens of ${context.location === "Global" ? "international" : context.location} laws, cultural norms, and sensitivities.
+- For specific countries (e.g., India, USA, UAE), apply their unique regulatory frameworks (e.g., IT Act 2000 for India, COPPA/Section 230 for USA).
+- Do NOT make statements that violate local regulations or cultural taboos of the selected region.
+- Do NOT criticize, insult, or make negative remarks about high authorities (e.g., PM, President, Government bodies, National institutions) if the location's laws prohibit such speech.
+- Identify risks that are specific to ${context.location} (e.g., certain hand gestures, linguistic nuances, or restricted symbols).
 
-4. CONTENT SAFETY:
-   - Do not spread misinformation, hate, discrimination, or illegal advice.
-   - Ensure the analysis is respectful, neutral, and responsible.
-5. PERSON / FACE RECOGNITION (STRICT RULES):
+CONTENT SAFETY:
+- Do not spread misinformation, hate, discrimination, or illegal advice.
+- Ensure the analysis is respectful, neutral, and responsible.
+
+PERSON / FACE RECOGNITION:
 - If the video contains a WELL-KNOWN PUBLIC FIGURE (e.g., widely recognized celebrity, politician, influencer), you MAY mention their name ONLY if you are highly confident.
 - If confidence is LOW, DO NOT guess or hallucinate names. Instead describe generically (e.g., "a male presenter", "a female host", "a public speaker").
 - DO NOT perform web search or assume identity from context alone.
 - DO NOT identify private individuals.
+- If a known public figure is confidently identified: slightly adjust overall_score based on their relevance, credibility, or audience appeal; optimize suggested titles to include their name naturally; mention their presence in overview and strengths.
+- If no known figure is confidently identified: proceed normally without guessing.
 
-- If a known public figure is confidently identified:
-  - Slightly adjust overall_score based on their relevance, credibility, or audience appeal.
-  - Optimize suggested titles to include their name naturally.
-  - Mention their presence in overview and strengths.
-
-- If no known figure is confidently identified:
-  - Proceed normally without guessing.
-
-CRITICAL TIMESTAMP INSTRUCTIONS:
-- Include timestamps in STRICT [HH:MM:SS] format naturally WITHIN the description text, NOT as a separate field
-- ONLY include timestamps when pointing to a SPECIFIC moment in the video
+TIMESTAMP RULES:
+- Include timestamps in STRICT [HH:MM:SS] format naturally WITHIN the description text, NOT as a separate field.
+- ONLY include timestamps when pointing to a SPECIFIC moment in the video.
 - ONLY include timestamps for analysis, compliance_risks, strengths and weaknesses.
 - Timestamps must be lesser or equal to video length. If video length is 30 minutes then timestamp can't be [01:00:00], [00:32:00] etc.
-- If an observation applies generally to the entire video, DO NOT include a timestamp
-- Format: Use square brackets like [00:01:23] embedded naturally in the sentence. Don't give timestamp like [HH:MM:SS , HH:MM:SS] or [HH:MM:SS - HH:MM:SS]. Timestamp must be in strict [HH:MM:SS] format.
-- Examples:
-  ✅ GOOD: "The voiceover at [00:00:15] is clear and engaging"
-  ✅ GOOD: "Potential copyright issue visible at [00:01:30] with the background music"
-  ✅ GOOD: "The video maintains consistent quality throughout" (no timestamp - general)
-  ❌ BAD: Don't add timestamps to every single description
-  ❌ BAD: Don't give timestamps like [HH:MM:SS - HH:MM:SS] to specify range.
+- If an observation applies generally to the entire video, DO NOT include a timestamp.
+- Format: Use square brackets like [00:01:23] embedded naturally in the sentence. Do not give timestamp ranges like [HH:MM:SS - HH:MM:SS]. Each timestamp must be a single strict [HH:MM:SS] value.
 
 ANALYSIS REQUIREMENTS:
-1. Provide a detailed summary of what happens in the video
-2. Identify key moments with timestamps (format: "HH:MM:SS") and descriptions
+1. Provide a detailed summary of what happens in the video.
+2. Identify key moments with timestamps (format: "HH:MM:SS") and descriptions.
 3. Assess video quality (audio, visuals, pacing, engagement) with overall_score on a scale of 1-100 (Higher is Better).
 4. For all analysis metrics and compliance risks, use a scale of 1-100.
-   - For Quality/Performance metrics: Higher score = better performance.
-   - For Risk/Issue/Compliance metrics: Higher score = higher risk/problem (Lower is Better for the user).
-5. Include timestamps [HH:MM:SS] naturally in descriptions ONLY when referring to specific moments
-6. Give specific suggestions and remarks for improvement that are strategically aligned with the user's context (${context.platform}, ${context.location}). For example, if location is India, suggest optimizations for Indian viewers or compliance with Indian ad standards.
-7. List any content warnings if applicable
+   - Quality/Performance metrics: Higher score = better performance.
+   - Risk/Issue/Compliance metrics: Higher score = higher risk/problem (Lower is Better for the user).
+5. Include timestamps [HH:MM:SS] naturally in descriptions ONLY when referring to specific moments.
+6. Give specific suggestions for improvement strategically aligned with the user's context (${context.platform}, ${context.location}).
+7. List any content warnings if applicable.
 8. Provide a word-for-word full transcript and speaker segments. Strictly do not summarize the dialogue, provide EVERYTHING spoken verbatim.
 ${audioUri ? `
-
-SCORING LOGIC (IMPORTANT):
-
+SCORING LOGIC:
 - The overall_score MUST be calculated using weighted evaluation:
-
-  • Visual Quality → 25%
-  • Audio Quality → 20%
-  • Content Value & Clarity → 20%
-  • Engagement & Retention → 15%
-  • Editing & Pacing → 10%
-  • Platform Optimization → 5%
-  • Compliance & Safety → 5%
-
+  Visual Quality 25%, Audio Quality 20%, Content Value & Clarity 20%, Engagement & Retention 15%, Editing & Pacing 10%, Platform Optimization 5%, Compliance & Safety 5%.
 - Adjustments:
-  • If a WELL-KNOWN PUBLIC FIGURE is confidently identified:
-    + Increase engagement score slightly (max +5 overall impact)
-  
-  • If compliance risks are high:
-    - Reduce overall_score proportionally
+  - If a WELL-KNOWN PUBLIC FIGURE is confidently identified: increase engagement score slightly (max +5 overall impact).
+  - If compliance risks are high: reduce overall_score proportionally.
+  - If video violates location (${context.location}) norms: apply penalty (5-20 points depending on severity).
+- DO NOT assign random scores. Every score MUST reflect actual observed quality from the video.
 
-  • If video violates location (${context.location}) norms:
-    - Apply penalty (5–20 points depending on severity)
-
-- DO NOT assign random scores.
-- Every score MUST reflect actual observed quality from the video.
 DUAL-FILE AUDIO INSTRUCTION:
-I have provided a video file and its separate audio track. Please analyze them together. Ensure the transcript is generated from the provided audio track while using the video for visual context and speaker identification.
+A video file and its separate audio track are both provided. Analyze them together. Generate the transcript from the provided audio track while using the video for visual context and speaker identification.
 ` : ''}
-CRITICAL: Return ONLY raw JSON without any markdown formatting, backticks, or explanatory text.
+</rules>
 
-JSON STRUCTURE EXAMPLE:
+<output_format>
+Return ONLY raw JSON without any markdown formatting, backticks, or explanatory text.
+
+JSON STRUCTURE:
 {
   "full_transcript": "Wait, let's keep going. Yes, I think so...",
   "speaker_segments": [
@@ -323,7 +289,7 @@ JSON STRUCTURE EXAMPLE:
         {
           "name": "Map Animation & Clarity",
           "score": 90,
-          "description": "Clear satellite imagery with effective highlighting",
+          "description": "Clear satellite imagery with effective highlighting"
         }
       ]
     }
@@ -332,11 +298,25 @@ JSON STRUCTURE EXAMPLE:
     {
       "name": "Misinformation Risk",
       "score": 10,
-      "description": "Content is factual",
+      "description": "Content is factual"
     }
   ],
   "analysisTime": "${new Date().toISOString()}"
 }
+</output_format>
+
+<input_data>
+VIDEO METADATA:
+- Duration: ${metadata.videoDuration} seconds
+- Title: ${metadata.originalFilename}
+- Video URL: ${videoUrl}
+
+USER CONTEXT:
+- Family-Friendly Handling: ${context.familyFriendly ? "Enabled (Strict)" : "Disabled (Standard Safety)"}
+- Platform: ${context.platform}
+- Location/Legal Context: ${context.location}
+- Additional Details: ${context.additionalDetails || "None"}
+</input_data>
 
 Be specific and reference actual content from the video with precise timestamps.
 `;

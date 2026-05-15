@@ -115,7 +115,7 @@ export const ToolCallIndicator: React.FC<ToolCallIndicatorProps> = ({
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs transition-colors",
+          "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] transition-colors",
           isComplete
             ? "bg-emerald-500/10 text-emerald-500"
             : "bg-muted text-muted-foreground",
@@ -174,7 +174,7 @@ export const ToolCallIndicator: React.FC<ToolCallIndicatorProps> = ({
           
           {!isComplete && (
             <p 
-              className="text-xs text-muted-foreground animate-pulse" 
+              className="text-[11px] text-muted-foreground animate-pulse" 
               key={messageIndex}
             >
               {messages[messageIndex]}...
@@ -182,7 +182,7 @@ export const ToolCallIndicator: React.FC<ToolCallIndicatorProps> = ({
           )}
           
           {isComplete && (
-            <p className="text-xs text-emerald-500/70">Done</p>
+            <p className="text-[11px] text-emerald-500/70">Done</p>
           )}
         </div>
       </div>

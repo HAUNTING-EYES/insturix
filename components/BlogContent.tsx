@@ -37,12 +37,12 @@ export default function BlogContent({ content }: BlogContentProps) {
             );
           },
           h1: ({ children }) => (
-            <h1 className="font-serif text-4xl font-light mt-16 mb-8 text-white border-b border-white/10 pb-6 first:mt-0">
+            <h1 className="font-serif text-[44px] font-light mt-16 mb-8 text-white border-b border-white/10 pb-6 first:mt-0">
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="font-serif text-3xl font-light mt-12 mb-6 text-white">
+            <h2 className="font-serif text-[32px] font-light mt-12 mb-6 text-white">
               {children}
             </h2>
           ),
@@ -73,7 +73,7 @@ export default function BlogContent({ content }: BlogContentProps) {
             );
           },
           blockquote: ({ children }) => (
-            <blockquote className="border-l border-white/20 pl-8 py-6 my-12 bg-white/[0.02] italic text-gray-200 font-light text-xl leading-relaxed">
+            <blockquote className="border-l border-white/20 pl-8 py-6 my-12 bg-white/[0.02] italic text-gray-200 font-light text-[18px] leading-relaxed">
               {children}
             </blockquote>
           ),

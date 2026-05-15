@@ -193,6 +193,22 @@ async function handler(request: NextRequest) {
         }
       );
 
+      try {
+        const { emitBrandEvent } = await import('@/lib/shared/brand-events');
+        emitBrandEvent({
+          userId,
+          service: 'alyzitron',
+          type: 'analysis_complete',
+          payload: {
+            taskId,
+            hasTranscription: !!transcriptResult,
+            wordCount: transcriptResult?.wordCount ?? 0,
+          },
+        }).catch((e: unknown) => logger.warn('[Alyzitron] Brand event failed', { data: { error: String(e) } }));
+      } catch {
+        // brand event emission is best-effort
+      }
+
       return NextResponse.json({ success: true, taskId, status: "completed" });
 
     } catch (err: any) {

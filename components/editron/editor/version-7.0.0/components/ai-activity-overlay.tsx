@@ -148,7 +148,7 @@ export function AIActivityOverlay() {
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-foreground">Editron AI is editing</h3>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-[11px] text-muted-foreground">
                       {elapsedSeconds > 0 ? `${elapsedSeconds}s elapsed` : 'Starting...'}
                     </p>
                   </div>
@@ -174,7 +174,7 @@ export function AIActivityOverlay() {
                           <div className={`shrink-0 ${meta.color}`}>
                             <Icon className="w-4 h-4" />
                           </div>
-                          <span className="text-xs text-foreground flex-1 truncate">
+                          <span className="text-[11px] text-foreground flex-1 truncate">
                             {meta.label}
                           </span>
                           <Loader2 className="w-3.5 h-3.5 text-primary animate-spin shrink-0" />
@@ -201,7 +201,7 @@ export function AIActivityOverlay() {
                           <div className="shrink-0 text-muted-foreground">
                             <Icon className="w-3.5 h-3.5" />
                           </div>
-                          <span className="text-xs text-muted-foreground flex-1 truncate">
+                          <span className="text-[11px] text-muted-foreground flex-1 truncate">
                             {meta.label}
                           </span>
                           <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
@@ -231,7 +231,7 @@ export function AIActivityOverlay() {
                           />
                         ))}
                       </div>
-                      <span className="text-xs text-muted-foreground">Thinking...</span>
+                      <span className="text-[11px] text-muted-foreground">Thinking...</span>
                     </motion.div>
                   )}
                 </div>

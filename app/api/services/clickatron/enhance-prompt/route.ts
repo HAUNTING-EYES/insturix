@@ -95,38 +95,38 @@ export async function POST(request: Request) {
     const model = google("gemini-2.5-flash");
 
     // Define system prompts for different task types
+    // ─── Prompts: XML-structured per Rule 35 (2026-05-15) ──────────
+    // Removed few-shot examples (Rule 35: cause pattern anchoring).
     const systemPrompts = {
-      imageGeneration: `You are a prompt engineer specializing in creating effective prompts for AI-generated thumbnails, posters, and visual content for videos. Your role is to refine the user's idea into a clear, engaging prompt that captures the essence without inventing unrelated details. Use simple, direct language and focus on key elements: subject, action, setting, emotions, and vibes relevant to the input.
+      imageGeneration: `<role>You are a prompt engineer specializing in AI-generated thumbnails, posters, and visual content for videos.</role>
 
-        Process:
-        1. Deconstruct the core idea: Identify the main subject, any action or emotion, and basic setting from the user's prompt.
-        2. Enhance thoughtfully: Build a cohesive description by adding format-appropriate details only if the user specifies a type like "thumbnail" or "poster," or if the request is vague. For general prompts, keep it concise with medium-length descriptive sentences.
+<task>Refine the user's idea into a clear, engaging image generation prompt. Capture the essence without inventing unrelated details.</task>
 
-        Key principles for formats:
-        - Thumbnails (optimized for clickability): Bold, central subject with strong facial expressions or dynamic poses; high contrast and vibrant colors to stand out; simple, uncluttered background; emotional hook like surprise or excitement; if text is mentioned, include it exactly as specified (e.g., short, bold phrases like "SHOCKING REVEAL" in large, readable font); close-up composition for impact at small sizes.
-        - Posters (for promotional visuals): Strong focal point with clear hierarchy; balanced layout with space for elements; readable text if provided, placed prominently; dramatic lighting and mood to evoke curiosity or energy; medium shot framing to show context without overcrowding.
-        - Other formats (banners, covers): Adapt to wide aspect ratios with horizontal flow; eye-catching leading elements; maintain simplicity and high visibility.
+<rules>
+RULE 1 — PROCESS: Deconstruct the core idea (subject, action, emotion, setting), then enhance with format-appropriate details.
 
-        If the user provides specific text (e.g., title or overlay), incorporate it exactly into the prompt description, specifying style like "with bold white text 'VIDEO TITLE' at the bottom."
-        Handle reference tags (@img1, @img2): Keep them and note their use for style or inspiration only, e.g., "in the vibrant color scheme of @img1."
+RULE 2 — FORMAT PRINCIPLES:
+- Thumbnails: bold central subject, strong expressions, high contrast, vibrant colors, simple background, emotional hook, close-up composition for small-size impact.
+- Posters: strong focal point, balanced layout, dramatic lighting, medium shot framing.
+- Banners/covers: wide aspect ratios, horizontal flow, simplicity.
 
-        Avoid complex jargon or excessive length. Output only the single enhanced prompt as a string, no extras.
+RULE 3 — TEXT: If user provides specific text (title, overlay), incorporate it EXACTLY, specifying style (e.g., "bold white text 'TITLE' at bottom").
 
-        Example User Input: "a knight in a forest thumbnail"
+RULE 4 — REFERENCE TAGS: Keep @img1, @img2 tags. Note their use for style/inspiration (e.g., "in the vibrant color scheme of @img1").
 
-        Enhanced Output: "A fierce knight charging through a misty forest, determined expression, dramatic sunlight beams, high contrast greens and golds, bold central composition for thumbnail impact, vibrant and eye-catching."`,
-      
-      imageEditing: `You are a prompt enhancer for AI image editing. Transform the user's request into a concise, clear description of the final desired result. Be specific about what to edit, using reference images with tags like @img1 or @img2 if provided. Describe the end result directly, without step-by-step instructions, programmatic commands like "select and apply," or ambiguity.
-    
-        For example, if the user says "swap the tshirt in the image with one from another image," output: "Swap the t-shirt on the person in the main image with the t-shirt from @img2, matching the lighting, pose, and fabric texture realistically for a seamless edit."
-        
-        If tags are present, integrate them to specify sources or targets clearly, e.g., "Change the background in @img1 to match the cityscape in @img2." Ensure the prompt guides the model to edit the target image appropriately without altering references unless specified.
-        
-        Keep it concise and focused on the final outcome. If the request is ambiguous, output a single clarifying question. Otherwise, output only the enhanced prompt as a single string, without code blocks or extra text.
-        
-        Example Clear Input: "change the car from red to blue"
-        
-        Enhanced Output: "Change the color of the car in the image from red to vibrant blue, keeping all other details the same."`,
+RULE 5 — OUTPUT: Single enhanced prompt string only. No extras, no jargon, concise.
+</rules>`,
+
+      imageEditing: `<role>You are a prompt enhancer for AI image editing.</role>
+
+<task>Transform the user's editing request into a concise, clear description of the final desired result.</task>
+
+<rules>
+RULE 1 — Describe the END RESULT directly. No step-by-step instructions, no programmatic commands.
+RULE 2 — If reference tags (@img1, @img2) are present, integrate them to specify sources/targets clearly.
+RULE 3 — Keep concise, focused on outcome. If ambiguous, output a single clarifying question.
+RULE 4 — Output only the enhanced prompt as a single string. No code blocks, no extra text.
+</rules>`,
     };
 
     // Select the appropriate system prompt based on task type

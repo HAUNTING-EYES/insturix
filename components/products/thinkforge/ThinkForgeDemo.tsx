@@ -78,7 +78,7 @@ export default function ThinkForgeDemo() {
             <Play className="w-4 h-4" />
             See the Workflow
           </div>
-          <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
+          <h2 className="text-[44px] md:text-[110px] font-bold tracking-tight mb-6">
             <span className="bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-700 dark:from-white dark:via-neutral-200 dark:to-neutral-400 bg-clip-text text-transparent">
               How ThinkForge
             </span>

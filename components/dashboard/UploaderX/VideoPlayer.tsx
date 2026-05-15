@@ -213,9 +213,9 @@ export function VideoPlayer({
           {hasVideoError && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/50">
               <div className="flex flex-col items-center gap-3 text-center p-4">
-                <div className="text-red-400 text-4xl">⚠️</div>
+                <div className="text-red-400 text-[44px]">⚠️</div>
                 <span className="text-white text-sm">Video cannot be played</span>
-                <span className="text-gray-300 text-xs">File may be corrupted or unsupported</span>
+                <span className="text-gray-300 text-[11px]">File may be corrupted or unsupported</span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -299,7 +299,7 @@ export function VideoPlayer({
               onChange={handleSeek}
               className="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer slider"
             />
-            <div className="flex justify-between text-xs text-zinc-400">
+            <div className="flex justify-between text-[11px] text-zinc-400">
               <span>{formatTime(currentTime)}</span>
               <span>{formatTime(duration)}</span>
             </div>
@@ -353,12 +353,12 @@ export function VideoPlayer({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="font-medium text-zinc-200 truncate">{filename}</h3>
-              <Badge variant="outline" className="text-xs">
+              <Badge variant="outline" className="text-[11px]">
                 {videoUuid.slice(0, 8)}...
               </Badge>
             </div>
             {uploadedAt && (
-              <p className="text-xs text-zinc-400">
+              <p className="text-[11px] text-zinc-400">
                 Uploaded {uploadedAt ? uploadedAt.toLocaleDateString() : 'Unknown date'} at {uploadedAt ? uploadedAt.toLocaleTimeString() : 'Unknown time'}
               </p>
             )}
