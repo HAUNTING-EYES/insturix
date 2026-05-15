@@ -46,7 +46,7 @@ export async function getAnalysisModel() {
  */
 export async function getChatModel() {
   const genAI = await getGenAI();
-  return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  return genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite-preview' });
 }
 
 /**
