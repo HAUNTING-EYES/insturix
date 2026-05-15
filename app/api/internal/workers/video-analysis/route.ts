@@ -540,15 +540,23 @@ async function handler(request: NextRequest) {
     // Read quality score from project doc (Director writes it during quality_review).
     // Record outcome so bandit learns from this project's results.
     // Non-fatal — learning is an enhancement, not critical path.
+    // GUARD: skip when quality review has many criticals (likely system failure,
+    // not bad genre params). Recording reward=0 from broken pipelines poisons the bandit.
+    // ⚠️ Threshold 5 is INVENTED — normal projects have 0-2 criticals.
     try {
       const projectAfterDirector = await db.collection('projects').findOne(
         { projectId },
-        { projection: { 'qualityReview.overallScore': 1 } },
+        { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
       );
       const qualityScore = projectAfterDirector?.qualityReview?.overallScore ?? 50;
+      const criticalCount = projectAfterDirector?.qualityReview?.criticalCount ?? 0;
 
-      const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-      await recordProjectOutcome(userId, projectId, qualityScore, false, false);
+      if (criticalCount > 5) {
+        console.log(`[VideoAnalysisWorker] Bandit: skipping outcome recording — ${criticalCount} critical issues suggests system failure, not bad genre params`);
+      } else {
+        const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
+        await recordProjectOutcome(userId, projectId, qualityScore, false, false);
+      }
     } catch (banditErr: unknown) {
       const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);
       console.warn(`[VideoAnalysisWorker] Bandit outcome recording failed (non-fatal): ${msg}`);

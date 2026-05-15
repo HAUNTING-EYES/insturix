@@ -376,8 +376,19 @@ function checkDeadSilence(overlays: AnalyzableOverlay[], fps: number): QualityIs
   const hasBGM = overlays.some(o => o.type === 'sound' && o.row === ROW.BGM);
   const hasVO = overlays.some(o => o.type === 'sound' && o.row === ROW.VOICEOVER);
   const hasSFX = overlays.some(o => o.type === 'sound' && o.row === ROW.SFX);
-  const videoLength = overlays.filter(o => o.type === 'video').reduce((sum, o) => sum + o.durationInFrames, 0) / fps;
+  const videoOverlays = overlays.filter(o => o.type === 'video');
+  const videoLength = videoOverlays.reduce((sum, o) => sum + o.durationInFrames, 0) / fps;
   if (!hasBGM && !hasVO && !hasSFX && videoLength > 10) {
+    // Mode 2 raw footage: audio is embedded in video clips (not separate sound overlays).
+    // Detect single-source content (all videos share one assetId) as a proxy for "user upload with audio."
+    // OLD: flagged as critical → -15 points → false 0/100 on all Mode 2 projects.
+    // FIX: downgrade to info for single-source (embedded audio likely). Keep critical for Mode 1
+    // (AI-generated clips have no embedded audio — genuinely silent without BGM/VO).
+    const uniqueAssets = new Set(videoOverlays.map(o => (o as any).assetId).filter(Boolean));
+    const isSingleSource = uniqueAssets.size === 1 && videoOverlays.length > 1;
+    if (isSingleSource) {
+      return [{ type: 'dead_silence', severity: 'info', description: `No separate audio overlays, but source video likely has embedded audio (single-source Mode 2)`, autoFixable: false, suggestedFix: 'Consider adding background music for a more polished feel' }];
+    }
     return [{ type: 'dead_silence', severity: 'critical', description: `${videoLength.toFixed(0)}s of video with zero audio — completely silent`, autoFixable: false, suggestedFix: 'Add background music, voiceover, or ambient sound' }];
   }
   return [];

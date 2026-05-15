@@ -20,6 +20,29 @@
 
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 
+// ─── Gemini 429 Retry ───────────────────────────────────────────
+// Gemini rate limits are transient. Exponential backoff (2s, 4s, 8s) recovers
+// in ~14s worst case. Without this, 5/7 analyses fail in Mode 1 tests.
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries: number = 3,
+): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED');
+      if (!is429 || attempt === maxRetries) throw err;
+      const delayMs = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+      console.warn(`[Analysis] ${label}: 429 rate limit, retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  throw new Error('unreachable');
+}
+
 // ─── Types ───────────────────────────────────────────────────────
 
 /** Layer 1: Shot boundaries */
@@ -493,10 +516,13 @@ RULE 5 — Return ONLY valid JSON, no markdown.
 }
 </output_format>`;
 
-    const result = await model.generateContent([
-      { fileData: { fileUri, mimeType: 'video/mp4' } },
-      { text: prompt },
-    ]);
+    const result = await withRetry(
+      () => model.generateContent([
+        { fileData: { fileUri, mimeType: 'video/mp4' } },
+        { text: prompt },
+      ]),
+      'merged_vision',
+    );
 
     const text = result.response.text();
     // Extract JSON from response (may be wrapped in ```json ... ```)

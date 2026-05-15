@@ -291,6 +291,13 @@ export async function executeDirectorPlan(
             geminiFileUri: (projectDoc as any)?._vuGeminiFileUri,
           });
 
+          // Inter-clip delay to avoid Gemini 429 rate limits.
+          // 7 back-to-back Gemini Vision calls with zero delay hits the RPM limit by clip 3-4.
+          // 2.5s between clips keeps us under the limit. ⚠️ INVENTED delay value.
+          if (i < videoOverlays.length - 1) {
+            await new Promise(r => setTimeout(r, 2500));
+          }
+
           if (analysis) {
             // Attach timeline offset so Reactive Engine places decisions at correct absolute frames.
             // Without this, all assets' decisions land at frames 0-N (relative to clip start),

@@ -4526,13 +4526,18 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         await projectService.addOverlay(userId, projectId, newOverlay as any);
 
+        // OLD: match!.template crashed when match was null (Lottie 404 → CSS fallback path).
+        // Overlay was already saved at line 4527 but response envelope crashed the Director step.
+        const templateId = match?.template?.templateId ?? 'css-fallback';
+        const templateName = match?.template?.name ?? 'CSS Overlay';
+        const templateScore = match ? Math.round(match.score * 100) / 100 : 0;
         return successEnvelope({
           id,
-          templateUsed: match!.template.templateId,
-          templateName: match!.template.name,
-          score: Math.round(match!.score * 100) / 100,
+          templateUsed: templateId,
+          templateName,
+          score: templateScore,
           metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
-          message: `Added motion graphic "${match!.template.name}" for "${input.description}". Duration: ${duration} frames. (Code hidden from chat log)`,
+          message: `Added motion graphic "${templateName}" for "${input.description}". Duration: ${duration} frames.`,
         });
       } catch (e: any) {
         console.error('[MOTION-GRAPHIC] Error:', e);

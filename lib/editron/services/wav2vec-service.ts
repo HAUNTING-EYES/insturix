@@ -71,7 +71,8 @@ const MODAL_WAV2VEC_ENDPOINT = process.env.MODAL_WAV2VEC_ENDPOINT
 
 const VALID_VALENCES: Set<string> = new Set(['positive', 'negative', 'neutral', 'mixed']);
 
-const REQUEST_TIMEOUT_MS = 45_000; // 45s — warm container responds in ~5-15s.
+const REQUEST_TIMEOUT_MS = 45_000; // 45s per batch — warm container responds in ~5-15s.
+const BATCH_SIZE = 30;             // ⚠️ INVENTED — matches vjepa-service.ts batch size.
 
 // ─── Warmup ────────────────────────────────────────────────────────────────
 
@@ -122,60 +123,79 @@ export async function analyzeAudioWithWav2Vec(
   }
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    const response = await fetch(MODAL_WAV2VEC_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Token ${tokenId}:${tokenSecret}`,
-      },
-      body: JSON.stringify({
-        audio_url: audioUrl,
-        segments: segments.map(s => ({
-          start_ms: s.startMs,
-          end_ms: s.endMs,
-        })),
-        features: ['emotion', 'energy', 'pitch', 'stress', 'filler'],
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      console.error(`[Wav2VecService] Modal returned ${response.status}: ${response.statusText}`);
-      return null;
+    // Batch segments to avoid timeout on long videos.
+    // OLD: sent all segments in one request → 45s abort on anything > ~50 segments.
+    // FIX: send in chunks of BATCH_SIZE, concatenate results.
+    const allResults: Wav2VecSegmentResult[] = [];
+    const batches: Wav2VecSegmentInput[][] = [];
+    for (let i = 0; i < segments.length; i += BATCH_SIZE) {
+      batches.push(segments.slice(i, i + BATCH_SIZE));
     }
 
-    const data = (await response.json()) as ModalWav2VecResponse;
-    if (!data?.segments?.length) {
-      console.warn('[Wav2VecService] Empty response from Modal');
-      return null;
+    console.log(`[Wav2VecService] ${segments.length} segments → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
+    const batchStartMs = Date.now();
+
+    for (let b = 0; b < batches.length; b++) {
+      const batch = batches[b];
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+      const response = await fetch(MODAL_WAV2VEC_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${tokenId}:${tokenSecret}`,
+        },
+        body: JSON.stringify({
+          audio_url: audioUrl,
+          segments: batch.map(s => ({
+            start_ms: s.startMs,
+            end_ms: s.endMs,
+          })),
+          features: ['emotion', 'energy', 'pitch', 'stress', 'filler'],
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        console.error(`[Wav2VecService] Batch ${b + 1}/${batches.length} failed: ${response.status} ${response.statusText}`);
+        return null;
+      }
+
+      const data = (await response.json()) as ModalWav2VecResponse;
+      if (!data?.segments?.length) {
+        console.warn(`[Wav2VecService] Batch ${b + 1}/${batches.length}: empty response`);
+        return null;
+      }
+
+      const mapped: Wav2VecSegmentResult[] = data.segments.map(s => ({
+        startMs: s.start_ms,
+        endMs: s.end_ms,
+        emotionIntensity: clamp(s.emotion_intensity, 0, 1),
+        emotionalValence: parseValence(s.emotional_valence),
+        energy: clamp(s.energy, 0, 1),
+        pitchVariability: clamp(s.pitch_variability, 0, 1),
+        stressDetected: s.stress_detected ?? false,
+        fillerConfidence: clamp(s.filler_confidence, 0, 1),
+      }));
+
+      allResults.push(...mapped);
+      console.log(`[Wav2VecService] Batch ${b + 1}/${batches.length}: ${mapped.length} segments analyzed`);
     }
 
-    const mapped: Wav2VecSegmentResult[] = data.segments.map(s => ({
-      startMs: s.start_ms,
-      endMs: s.end_ms,
-      emotionIntensity: clamp(s.emotion_intensity, 0, 1),
-      emotionalValence: parseValence(s.emotional_valence),
-      energy: clamp(s.energy, 0, 1),
-      pitchVariability: clamp(s.pitch_variability, 0, 1),
-      stressDetected: s.stress_detected ?? false,
-      fillerConfidence: clamp(s.filler_confidence, 0, 1),
-    }));
-
+    const totalMs = Date.now() - batchStartMs;
     console.log(
-      `[Wav2VecService] Analyzed ${mapped.length} segments ` +
-      `(avg emotion: ${(mapped.reduce((sum, r) => sum + r.emotionIntensity, 0) / mapped.length).toFixed(2)}, ` +
-      `valence: ${countValences(mapped)})`,
+      `[Wav2VecService] All ${allResults.length} segments analyzed in ${totalMs}ms ` +
+      `(avg emotion: ${(allResults.reduce((sum, r) => sum + r.emotionIntensity, 0) / allResults.length).toFixed(2)}, ` +
+      `valence: ${countValences(allResults)})`,
     );
 
     return {
-      segments: mapped,
-      modelVersion: data.model_version ?? 'wav2vec-2.0',
-      processingTimeMs: data.processing_time_ms ?? 0,
+      segments: allResults,
+      modelVersion: 'wav2vec-2.0',
+      processingTimeMs: totalMs,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

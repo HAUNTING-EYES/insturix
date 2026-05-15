@@ -91,9 +91,11 @@ const VALID_FACE_EMOTIONS: Set<string> = new Set([
   'fearful', 'disgusted', 'neutral', 'contempt',
 ]);
 
-const REQUEST_TIMEOUT_MS = 45_000; // 45s — Modal warm container responds in ~10-20s.
+const REQUEST_TIMEOUT_MS = 45_000; // 45s per batch — Modal warm container responds in ~10-20s.
                                    // Cold start takes 60-90s → will timeout and return null.
                                    // Use warmupVjepa() during upload to pre-warm the container.
+const BATCH_SIZE = 30;             // ⚠️ INVENTED — based on "warm container handles ~20 in 10-20s"
+                                   // with margin. Keeps each batch well within 45s timeout.
 
 // ─── Warmup ────────────────────────────────────────────────────────────────
 
@@ -148,59 +150,80 @@ export async function analyzeVideoWithVjepa(
   }
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    const response = await fetch(MODAL_VJEPA_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Token ${tokenId}:${tokenSecret}`,
-      },
-      body: JSON.stringify({
-        video_url: videoUrl,
-        segments: segments.map(s => ({
-          start_ms: s.startMs,
-          end_ms: s.endMs,
-        })),
-        features: ['visual_significance', 'motion', 'action', 'face', 'gaze'],
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      console.error(`[VjepaService] Modal returned ${response.status}: ${response.statusText}`);
-      return null;
+    // Batch segments to avoid timeout on long videos.
+    // OLD: sent all segments (e.g. 196) in one request → 45s abort on anything > ~50.
+    // FIX: send in chunks of BATCH_SIZE, concatenate results.
+    const allResults: VjepaSegmentResult[] = [];
+    const batches: VjepaSegmentInput[][] = [];
+    for (let i = 0; i < segments.length; i += BATCH_SIZE) {
+      batches.push(segments.slice(i, i + BATCH_SIZE));
     }
 
-    const data = (await response.json()) as ModalVjepaResponse;
-    if (!data?.segments?.length) {
-      console.warn('[VjepaService] Empty response from Modal');
-      return null;
+    console.log(`[VjepaService] ${segments.length} segments → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
+    const batchStartMs = Date.now();
+
+    for (let b = 0; b < batches.length; b++) {
+      const batch = batches[b];
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+      const response = await fetch(MODAL_VJEPA_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${tokenId}:${tokenSecret}`,
+        },
+        body: JSON.stringify({
+          video_url: videoUrl,
+          segments: batch.map(s => ({
+            start_ms: s.startMs,
+            end_ms: s.endMs,
+          })),
+          features: ['visual_significance', 'motion', 'action', 'face', 'gaze'],
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        console.error(`[VjepaService] Batch ${b + 1}/${batches.length} failed: ${response.status} ${response.statusText}`);
+        // Short-circuit on first failure — partial V-JEPA data is worse than none
+        // (moment weights expect full coverage or null, not partial)
+        return null;
+      }
+
+      const data = (await response.json()) as ModalVjepaResponse;
+      if (!data?.segments?.length) {
+        console.warn(`[VjepaService] Batch ${b + 1}/${batches.length}: empty response`);
+        return null;
+      }
+
+      const mapped: VjepaSegmentResult[] = data.segments.map(s => ({
+        startMs: s.start_ms,
+        endMs: s.end_ms,
+        visualSignificance: clamp(s.visual_significance, 0, 1),
+        motionIntensity: clamp(s.motion_intensity, 0, 1),
+        actionType: parseActionType(s.action_type),
+        motionType: parseMotionType(s.motion_type),
+        faceEmotion: parseFaceEmotion(s.face_emotion),
+        eyeContact: s.eye_contact ?? null,
+      }));
+
+      allResults.push(...mapped);
+      console.log(`[VjepaService] Batch ${b + 1}/${batches.length}: ${mapped.length} segments analyzed`);
     }
 
-    const mapped: VjepaSegmentResult[] = data.segments.map(s => ({
-      startMs: s.start_ms,
-      endMs: s.end_ms,
-      visualSignificance: clamp(s.visual_significance, 0, 1),
-      motionIntensity: clamp(s.motion_intensity, 0, 1),
-      actionType: parseActionType(s.action_type),
-      motionType: parseMotionType(s.motion_type),
-      faceEmotion: parseFaceEmotion(s.face_emotion),
-      eyeContact: s.eye_contact ?? null,
-    }));
-
+    const totalMs = Date.now() - batchStartMs;
     console.log(
-      `[VjepaService] Analyzed ${mapped.length} segments ` +
-      `(avg significance: ${(mapped.reduce((sum, r) => sum + r.visualSignificance, 0) / mapped.length).toFixed(2)})`,
+      `[VjepaService] All ${allResults.length} segments analyzed in ${totalMs}ms ` +
+      `(avg significance: ${(allResults.reduce((sum, r) => sum + r.visualSignificance, 0) / allResults.length).toFixed(2)})`,
     );
 
     return {
-      segments: mapped,
-      modelVersion: data.model_version ?? 'vjepa-2',
-      processingTimeMs: data.processing_time_ms ?? 0,
+      segments: allResults,
+      modelVersion: 'vjepa-2',
+      processingTimeMs: totalMs,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
