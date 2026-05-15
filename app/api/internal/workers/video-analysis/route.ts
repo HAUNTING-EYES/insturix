@@ -1,19 +1,23 @@
 /**
  * POST /api/internal/workers/video-analysis
  *
- * QStash worker for Mode 2 heavy video processing:
- * 1. Download video from R2 CDN
- * 2. Upload to Gemini Files API (up to 2GB)
- * 3. Gemini Vision → SyntheticStoryboard
- * 4. Store on project doc
- * 5. Run profile detection with real scene data
- * 6. Execute Director Agent
+ * QStash worker for Mode 2 video processing.
+ * Architecture: cuts FIRST, analyze SECOND.
  *
- * Runs async via QStash — doesn't block the from-asset response.
- * Same pattern as pipeline/video and pipeline/audio workers.
+ * Flow:
+ * 1.   Transcribe + classify + build cut plan (processRawFootage)
+ * 1.55 Fix duration from transcript timestamps
+ * 1.6  Execute silence removal (apply cuts to timeline)
+ * 2.   Visual Understanding — segment-aware (Gemini Vision → SyntheticStoryboard)
+ * 3.   Genre parameters + Thompson Sampling bandit
+ * 3.5  V-JEPA + Wav2Vec GPU analysis (parallel, Modal)
+ * 3.6  Moment weight map
+ * 4.   Store all results on project doc
+ * 5.   Profile detection
+ * 6.   Director Agent (13-step deterministic executor)
  *
- * Memory: handles large videos (100MB+) without pressuring the
- * main from-asset route's serverless function.
+ * VU runs AFTER cuts and receives kept-segment context so Gemini
+ * focuses on what the viewer will actually see.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -64,57 +68,29 @@ async function handler(request: NextRequest) {
       { $set: { autoEditStatus: 'analyzing', autoEditStartedAt: new Date() } },
     );
 
-    // ─── Step 1: Visual Setup + Transcription IN PARALLEL ──────────
-    // Per creative doc v3: Stage 1 (transcribe) and Stage 3 (visual setup) are
-    // independent. VU watches video (visual), raw footage processes audio (transcript).
-    // Running sequentially wasted 4.75 min blocking on VU before transcription started.
+    // ─── Step 1: Transcription + Cuts FIRST ────────────────────────
+    // Architecture: cuts FIRST, analyze SECOND.
+    // processRawFootage runs Deepgram transcription (~10-30s, NOT Gemini) then
+    // Gemini transcript editor (~10-30s). After cuts are decided, VU runs at
+    // Step 2 with segment context so it analyzes what the viewer will see.
     let syntheticStoryboard: any = null;
     let rawFootageAnalysis: any = null;
 
-    console.log(`[VideoAnalysisWorker] Analyzing ${Math.round(durationSec)}s video (${assetId}) — VU + transcription in parallel...`);
+    console.log(`[VideoAnalysisWorker] Step 1: Transcribing + cutting ${Math.round(durationSec)}s video (${assetId})...`);
 
-    const [vuResult, rawResult] = await Promise.allSettled([
-      // Stage 3: Visual setup analysis (Gemini Vision — watches video)
-      (async () => {
-        const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
-        return analyzeVideo(videoUrl, durationSec, userIntent || title);
-      })(),
-      // Stage 1: Transcribe + silence detect + best-take + classify (audio processing)
-      (async () => {
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'transcribing' } },
-        );
-        const { processRawFootage } = await import('@/lib/editron/services/raw-footage-processor');
-        return processRawFootage(assetId, userId, durationSec, platform, userIntent);
-      })(),
-    ]);
-
-    // Handle VU result
-    if (vuResult.status === 'fulfilled' && vuResult.value) {
-      syntheticStoryboard = vuResult.value;
-      const setup = syntheticStoryboard.visualSetup;
-      console.log(`[VideoAnalysisWorker] VU: type=${syntheticStoryboard.contentType}, setup=${setup?.environment || 'unknown'}/${setup?.dominantShotScale || 'unknown'}/${setup?.productionQuality || 'unknown'}`);
-    } else {
-      const msg = vuResult.status === 'rejected' ? vuResult.reason?.message || String(vuResult.reason) : 'returned null';
-      console.warn(`[VideoAnalysisWorker] VU failed: ${msg}. Continuing without visual setup.`);
-    }
-
-    // Handle raw footage result
-    if (rawResult.status === 'fulfilled' && rawResult.value) {
-      rawFootageAnalysis = rawResult.value;
+    try {
+      await db.collection('projects').updateOne(
+        { projectId },
+        { $set: { autoEditStatus: 'transcribing' } },
+      );
+      const { processRawFootage } = await import('@/lib/editron/services/raw-footage-processor');
+      rawFootageAnalysis = await processRawFootage(assetId, userId, durationSec, platform, userIntent);
       console.log(`[VideoAnalysisWorker] Raw footage: ${rawFootageAnalysis.contentTypeDetection.contentType} (${rawFootageAnalysis.silenceRemovalPlan.length} removals, clean=${Math.round(rawFootageAnalysis.estimatedCleanDurationMs / 1000)}s)`);
-    } else {
-      const err = rawResult.status === 'rejected' ? rawResult.reason : null;
-      const msg = err instanceof Error ? err.message : String(err || 'returned null');
-      const stack = err instanceof Error ? err.stack : '';
+    } catch (rawErr: unknown) {
+      const msg = rawErr instanceof Error ? rawErr.message : String(rawErr);
+      const stack = rawErr instanceof Error ? rawErr.stack : '';
       console.error(`[VideoAnalysisWorker] Raw footage processing FAILED: ${msg}`);
       if (stack) console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
-    }
-
-    // Platform override
-    if (platform && syntheticStoryboard) {
-      syntheticStoryboard.platform = platform;
     }
 
     // ─── Reference style transfer (if provided) ───────────────────
@@ -220,6 +196,42 @@ async function handler(request: NextRequest) {
         console.error(`[VideoAnalysisWorker] Silence removal FAILED: ${msg}`);
         console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
       }
+    }
+
+    // ─── Step 2: Visual Understanding (AFTER cuts, segment-aware) ──
+    // VU runs after cuts so it doesn't compete with transcription for Gemini quota,
+    // and receives segment context so Gemini focuses on what the viewer will see.
+    // Uses effectiveDurationSec (corrected by Step 1.55).
+    // Non-fatal: pipeline continues without syntheticStoryboard if VU fails.
+    try {
+      const segmentContext = rawFootageAnalysis ? {
+        keptCount: rawFootageAnalysis.segments?.length ?? 0,
+        totalKeptSec: Math.max(0, Math.round((rawFootageAnalysis.estimatedCleanDurationMs ?? 0) / 1000)),
+        contentType: rawFootageAnalysis.contentTypeDetection?.contentType ?? 'unknown',
+        keptRanges: (rawFootageAnalysis.segments || []).slice(0, 15).map((s: any) => ({
+          startSec: Math.round((s.startMs ?? 0) / 100) / 10,
+          endSec: Math.round((s.endMs ?? 0) / 100) / 10,
+        })),
+      } : undefined;
+
+      console.log(`[VideoAnalysisWorker] Step 2: Running Visual Understanding on ${Math.round(effectiveDurationSec)}s video${segmentContext ? ` (${segmentContext.keptCount} kept segments, ${segmentContext.totalKeptSec}s clean)` : ''}...`);
+
+      const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
+      syntheticStoryboard = await analyzeVideo(videoUrl, effectiveDurationSec, userIntent || title, segmentContext);
+      if (syntheticStoryboard) {
+        const setup = syntheticStoryboard.visualSetup;
+        console.log(`[VideoAnalysisWorker] VU: type=${syntheticStoryboard.contentType}, setup=${setup?.environment || 'unknown'}/${setup?.dominantShotScale || 'unknown'}/${setup?.productionQuality || 'unknown'}`);
+      } else {
+        console.warn(`[VideoAnalysisWorker] VU returned null. Continuing without visual setup.`);
+      }
+    } catch (vuErr: unknown) {
+      const msg = vuErr instanceof Error ? vuErr.message : String(vuErr);
+      console.warn(`[VideoAnalysisWorker] VU failed: ${msg}. Continuing without visual setup.`);
+    }
+
+    // Platform override
+    if (platform && syntheticStoryboard) {
+      syntheticStoryboard.platform = platform;
     }
 
     // ─── Step 3: Compute Genre Parameters (signal-driven, no profiles) ──

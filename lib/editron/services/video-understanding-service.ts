@@ -84,20 +84,30 @@ export interface SyntheticStoryboard {
 
 /**
  * Analyze a video and produce a SyntheticStoryboard.
- * Uses Gemini Vision to watch the full video and extract:
- * - Scene breakdown (timestamps, descriptions, moods)
- * - Narration/speech transcript
- * - Edit style recommendations
+ * Uses Gemini Vision to extract holistic visual context:
+ * - Visual setup (environment, lighting, production quality, camera movement)
+ * - Global edit directions (color grade, pacing, graphics density)
  * - Content type + platform detection
  *
+ * When segmentContext is provided (post-cut), the prompt tells Gemini which
+ * portions of the video will be in the final edit so it focuses its
+ * analysis on what the viewer will actually see.
+ *
  * @param videoUrl - Playable video URL (R2 CDN or GCS signed)
- * @param durationSec - Video duration in seconds
+ * @param durationSec - Video duration in seconds (corrected by transcript if available)
  * @param userIntent - Optional hint ("gym promo for Instagram")
+ * @param segmentContext - Optional post-cut segment info (kept count, duration, content type, ranges)
  */
 export async function analyzeVideo(
   videoUrl: string,
   durationSec: number,
   userIntent?: string,
+  segmentContext?: {
+    keptCount: number;
+    totalKeptSec: number;
+    contentType: string;
+    keptRanges?: Array<{ startSec: number; endSec: number }>;
+  },
 ): Promise<SyntheticStoryboard | null> {
   // Use creative doc cached model — gives Gemini professional editing knowledge
   // Falls back to uncached analysis model on any cache failure
@@ -113,14 +123,23 @@ export async function analyzeVideo(
 
     const model = await getCreativeDocModel();
 
-    const intentContext = userIntent
-      ? `\nUser intent: "${userIntent}" — use this to inform content type, platform, and edit style.\n`
-      : '';
+    let contextBlocks = '';
+    if (userIntent) {
+      contextBlocks += `\n<user_intent>${userIntent}</user_intent>`;
+    }
+    if (segmentContext && segmentContext.keptCount > 0) {
+      let editBlock = `\n<edit_context>This video has been edited. The final cut keeps ${segmentContext.keptCount} segments (${segmentContext.totalKeptSec}s of ${Math.round(durationSec)}s original). Content type: ${segmentContext.contentType}. Focus your visual assessment on the kept content — removed portions contain retakes, false starts, and dead air that the viewer will never see.`;
+      if (segmentContext.keptRanges && segmentContext.keptRanges.length > 0) {
+        editBlock += `\nKept time ranges: ${segmentContext.keptRanges.map(r => `${r.startSec}-${r.endSec}s`).join(', ')}${segmentContext.keptRanges.length < segmentContext.keptCount ? ` (showing first ${segmentContext.keptRanges.length} of ${segmentContext.keptCount})` : ''}`;
+      }
+      editBlock += '</edit_context>';
+      contextBlocks += editBlock;
+    }
 
-    const prompt = `<role>You are a professional video editor watching raw footage for the first time.</role>
+    const prompt = `<role>You are a professional video editor watching ${segmentContext ? 'edited' : 'raw'} footage for the first time.</role>
 
-<task>Understand the VISUAL SETUP of this ${Math.round(durationSec)}s footage — what kind of space, who's in it, how it's shot, what the production quality is. You are NOT breaking it into scenes. Scene boundaries come from the transcript, not from you.${intentContext}</task>
-
+<task>Understand the VISUAL SETUP of this ${Math.round(durationSec)}s footage — what kind of space, who's in it, how it's shot, what the production quality is. You are NOT breaking it into scenes. Scene boundaries come from the transcript, not from you.</task>
+${contextBlocks}
 <rules>
 RULE 1 — Watch the ENTIRE video before answering.
 RULE 2 — visualSetup describes what is STABLE across the footage — the room doesn't change, the lighting doesn't change, the number of people doesn't change. Report what persists.
