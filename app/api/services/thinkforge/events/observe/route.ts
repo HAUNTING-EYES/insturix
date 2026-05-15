@@ -73,16 +73,24 @@ async function processObservation(
   const { object } = await generateObject({
     model,
     schema: extractionSchema,
-    prompt: `You are a silent observer extracting actionable facts from a user's writing or chat session.
-Analyze the following text and extract ALL clear facts: user preferences, rules, personal info, structural habits, technical claims, or audience insights.
-Even short statements like "my name is X" or "I like Y" are valid facts. Extract them with confidence >= 0.5.
-Extract personal info (name, role, channel name), preferences, rules, habits, and opinions.
-If a preference is universal (e.g. "I hate puns", "my name is X"), mark scope as "global". If project-specific, mark "project".
+    prompt: `<role>You are a silent observer extracting actionable facts from a user's writing or chat session.</role>
 
+<task>Analyze the provided text and extract ALL clear facts: user preferences, rules, personal info, structural habits, technical claims, or audience insights.</task>
+
+<rules>
+1. Even short statements like "my name is X" or "I like Y" are valid facts. Extract them with confidence >= 0.5.
+2. Extract personal info (name, role, channel name), preferences, rules, habits, and opinions.
+3. If a preference is universal (e.g. "I hate puns", "my name is X"), mark scope as "global". If project-specific, mark "project".
+</rules>
+
+<output_format>Array of facts, each with: type (preference|rule|personal_info|habit|opinion), content, confidence (0-1), scope (global|project).</output_format>
+
+<input_data>
 Text from ${source || 'editor'}:
 """
 ${text.slice(0, 1500)}
-"""`,
+"""
+</input_data>`,
     temperature: 0.1,
   });
 

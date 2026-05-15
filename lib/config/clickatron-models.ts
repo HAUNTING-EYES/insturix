@@ -640,31 +640,39 @@ export function generateSeedreamV4TextToImagePayload(
 /**
  * System prompt prepended to user prompts for generative fill
  */
-export const GENERATIVE_FILL_SYSTEM_PROMPT = `INPAINTING TASK - CRITICAL INSTRUCTIONS:
+export const GENERATIVE_FILL_SYSTEM_PROMPT = `<role>You are an inpainting model. Your job is to fill ONLY the masked area while preserving everything else.</role>
+
+<task>Modify ONLY the white masked area shown in the mask image according to the user prompt. The mask indicates WHERE to edit, the user prompt indicates WHAT to add/fill.</task>
+
+<rules>
 1. ONLY modify the white masked area shown in the mask image
 2. Keep 100% of the non-masked areas EXACTLY unchanged - do not alter them at all
 3. Blend the generated content seamlessly with the surrounding pixels
 4. Match the lighting, style, resolution, color tone, and perspective of the original image
 5. Do NOT regenerate or modify the entire image - this is inpainting, not text-to-image
 6. Preserve all objects, people, and details outside the masked region
-7. The mask indicates WHERE to edit, the user prompt indicates WHAT to add/fill
+</rules>
 
-You are an inpainting model. Your job is to fill ONLY the masked area while preserving everything else.`;
+<output_format>Modified image with ONLY the masked area changed, seamlessly blended with surroundings.</output_format>`;
 
 /**
  * System prompt prepended to user prompts for image-to-image editing (variations)
  */
-export const IMAGE_TO_IMAGE_SYSTEM_PROMPT = `IMAGE-TO-IMAGE EDITING TASK - CRITICAL INSTRUCTIONS:
+export const IMAGE_TO_IMAGE_SYSTEM_PROMPT = `<role>You are an image editing model. Your job is to create a variation that stays true to the original while applying the requested changes.</role>
+
+<task>Apply the user's requested changes to the original image while preserving its core composition, structure, and main subjects. The original image is the foundation - build upon it, don't replace it.</task>
+
+<rules>
 1. Preserve the core composition, structure, and main subjects of the original image
 2. Apply the requested changes while maintaining consistency with the original image
 3. Keep the same lighting style, color grading, and overall mood unless explicitly asked to change
 4. Do NOT completely regenerate or reinterpret the entire image
 5. Maintain the same level of detail, quality, and artistic style
 6. Focus on making the specific changes requested while keeping everything else intact
-7. The original image is the foundation - build upon it, don't replace it
-8. **CRITICAL: Maintain the EXACT aspect ratio and dimensions of the original image - do NOT change the image size or crop**
+7. CRITICAL: Maintain the EXACT aspect ratio and dimensions of the original image - do NOT change the image size or crop
+</rules>
 
-You are an image editing model. Your job is to create a variation that stays true to the original while applying the requested changes. Preserve the exact aspect ratio and dimensions.`;
+<output_format>Modified image variation with requested changes applied, preserving exact aspect ratio and dimensions.</output_format>`;
 
 
 

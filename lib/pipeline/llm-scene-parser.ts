@@ -1529,14 +1529,11 @@ export async function extractSubjectsFromScenes(
         schema: SubjectExtractionSchema,
         temperature: 0.2,
         abortSignal: AbortSignal.timeout(110_000),
-    prompt: `You are a senior concept artist doing pre-production for a video. Read EVERY scene carefully and extract ALL visual subjects that could benefit from a reference image.
+    prompt: `<role>You are a senior concept artist doing pre-production for a video.</role>
 
-=== SCENES ===
-${scenesSummary}
+<task>Read EVERY scene carefully and extract ALL visual subjects that could benefit from a reference image. Classify into two tiers: hero (auto-generated) and suggested (user-optional).</task>
 
-=== YOUR TASK ===
-Extract TWO TIERS of subjects:
-
+<rules>
 TIER 1 — "hero" (1-2 subjects): The absolute most important recurring subjects that MUST have reference images. These will be auto-generated.
 TIER 2 — "suggested" (3-10 subjects): Every other notable visual subject mentioned in the script that the user MIGHT want a reference for. Be thorough — scan every scene for characters, objects, products, vehicles. Even things appearing once can be suggested if they're visually important.
 
@@ -1554,7 +1551,7 @@ WHAT TO SKIP:
 - Abstract concepts, moods, logos as text
 - Truly generic items (a random table, generic clouds)
 
-=== VISUAL DESCRIPTION INSTRUCTIONS ===
+VISUAL DESCRIPTION RULES:
 For each subject, write a visualDescription as if briefing an illustrator who has NEVER seen this thing.
 
 Be EXHAUSTIVE and SPECIFIC:
@@ -1573,7 +1570,14 @@ GOOD shape (placeholders only — DO NOT copy, describe the user's actual subjec
   Characters: "AGE_RANGE + GENDER, HAIR_DESCRIPTION (color+length+style), SKIN_TONE, FACE_FEATURE, CLOTHING_DETAIL, ACCESSORY_OR_POSTURE, BUILD"
 
 Fill every placeholder token (ALL_CAPS_UNDERSCORE) from what the user's script literally describes about that subject. Do NOT substitute content from these shapes — they are templates, not examples of real subjects.
+</rules>
+
+<output_format>JSON object with "hero" array (1-2 subjects) and "suggested" array (3-10 subjects). Each subject includes: name, category, tier, visualDescription, sceneAppearances.</output_format>
 ${options.artStyle ? `\nArt style: ${options.artStyle}. Describe subjects in this visual style.` : ''}
+
+<input_data>
+${scenesSummary}
+</input_data>
 
 Extract ALL subjects now (heroes + suggestions):`,
       });
