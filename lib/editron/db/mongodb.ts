@@ -69,6 +69,7 @@ export const COLLECTIONS = {
   MEDIA_UPLOADS: 'mediaUploads',
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
   STYLE_PROFILES: 'styleProfiles',
+  PROJECT_LINKS: 'project_links',
 } as const;
 
 /**
@@ -119,6 +120,16 @@ export async function initializeIndexes(): Promise<void> {
       name: 'ttl_lastActivity',
       expireAfterSeconds: 604800, // 7 days
     },
+  ]);
+
+  // Project links indexes (cross-service content lineage)
+  await db.collection(COLLECTIONS.PROJECT_LINKS).createIndexes([
+    { key: { universalId: 1 }, name: 'universalId_unique', unique: true },
+    { key: { userId: 1, brandId: 1 }, name: 'userId_brandId' },
+    { key: { userId: 1, sessionId: 1 }, name: 'userId_sessionId' },
+    { key: { userId: 1, storyboardIds: 1 }, name: 'userId_storyboardIds' },
+    { key: { userId: 1, projectIds: 1 }, name: 'userId_projectIds' },
+    { key: { userId: 1, videoIds: 1 }, name: 'userId_videoIds' },
   ]);
 
   console.log('Database indexes initialized successfully');

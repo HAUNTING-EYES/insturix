@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getRenderProgress } from '@remotion/lambda/client';
-import { 
-  updateJobProgress, 
-  completeJob, 
-  failJob 
+import {
+  updateJobProgress,
+  completeJob,
+  failJob
 } from '@/lib/editron/services/render-job-service';
+import { addVideoToLink } from '@/lib/shared/project-links';
 
 export async function GET(request: Request) {
   try {
@@ -70,6 +71,16 @@ export async function GET(request: Request) {
               renderId,
             },
           }).catch((e) => console.warn('[RenderProgress] Brand event failed:', e));
+
+          // Project link: wire rendered video
+          try {
+            const linked = await addVideoToLink(renderJob.userId, renderJob.projectId, renderId);
+            if (linked) {
+              console.log(`[render/progress] Project link updated: project ${renderJob.projectId} → video ${renderId}`);
+            }
+          } catch (linkErr: any) {
+            console.error(`[render/progress] Project link update failed: ${linkErr.message}`);
+          }
         }
       } catch (brandErr: any) {
         console.warn(`[RenderProgress] Brand intelligence wiring failed: ${brandErr.message}`);

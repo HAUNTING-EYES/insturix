@@ -12,6 +12,7 @@ import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getAnalysis, selectBestSegment } from '@/lib/editron/services/five-track-analysis';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
+import { addProjectToLink } from '@/lib/shared/project-links';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -725,6 +726,18 @@ export async function POST(
         },
       },
     );
+
+    // ─── Update project link with new projectId (fail-open) ────────
+    try {
+      const linked = await addProjectToLink(userId, id, project.projectId);
+      if (linked) {
+        console.log(`[finalize] Project link updated: storyboard ${id} → project ${project.projectId}`);
+      } else {
+        console.warn(`[finalize] No project link found for storyboard ${id} — link may not have been created at generate time`);
+      }
+    } catch (linkErr: any) {
+      console.error(`[finalize] Project link update failed: ${linkErr.message}`);
+    }
 
     // ─── Graph sync: create Project + Scene nodes in Neo4j ────────
     try {

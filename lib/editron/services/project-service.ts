@@ -9,6 +9,7 @@ import { assetResolver } from './asset-resolver';
 import type { Overlay, AspectRatio } from '@/components/editron/editor/version-7.0.0/types';
 import { nanoid } from 'nanoid';
 import { orgMemberService } from '@/lib/services/orgMemberService';
+import { removeProjectFromLinks } from '@/lib/shared/project-links';
 
 export interface EditorState {
   overlays: Overlay[];
@@ -403,6 +404,13 @@ export class ProjectService {
 
     // Delete associated chat sessions
     await db.collection(COLLECTIONS.CHAT_SESSIONS).deleteMany({ projectId });
+
+    // Clean up project links (fail-open — link cleanup failure must not block delete)
+    try {
+      await removeProjectFromLinks(userId, projectId);
+    } catch (linkErr: any) {
+      console.error(`[deleteProject] Link cleanup failed for ${projectId}: ${linkErr.message}`);
+    }
 
     // Note: We don't delete media assets as they might be shared across projects
   }
