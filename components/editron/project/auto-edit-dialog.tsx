@@ -113,7 +113,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
 
   return (
     <Dialog open={file !== null} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-[580px] max-h-none p-0 bg-[#131312] border-[#282724] rounded-lg">
+      <DialogContent className="max-w-[640px] max-h-none p-0 bg-[#131312] border-[#282724] rounded-lg">
         <DialogHeader className="sr-only">
           <DialogDescription>
             Configure how AI edits your video
@@ -135,9 +135,9 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
           .ae-energy-line::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent 0%, #D4A652 50%, transparent 100%); background-size: 200% 100%; animation: ae-energy 4s linear infinite; opacity: 0.3; }
         `}} />
 
-        <div className="px-5 pt-5 pb-4">
+        <div className="px-5 pt-4 pb-3">
           {/* File card */}
-          <div className="flex items-center gap-3.5 rounded-md border border-[#282724] bg-[#1B1A18] px-4 py-3.5 relative">
+          <div className="flex items-center gap-3.5 rounded-md border border-[#282724] bg-[#1B1A18] px-4 py-3 relative">
             <div className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0 relative" style={{ background: 'linear-gradient(135deg, rgba(212,166,82,0.06), rgba(212,166,82,0.12))', border: '1px solid rgba(212,166,82,0.18)' }}>
               <div className="ae-icon-ring" />
               <FileVideo className="h-5 w-5 text-[#D4A652] relative z-[1]" />
@@ -164,14 +164,14 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
           <button
             type="button"
             onClick={handleQuickEdit}
-            className="ae-cta flex w-full items-center justify-center gap-2.5 mt-4 px-4 py-3.5 rounded-md bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] text-[14px] font-bold transition-colors"
+            className="ae-cta flex w-full items-center justify-center gap-2.5 mt-3 px-4 py-3 rounded-md bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] text-[14px] font-bold transition-colors"
           >
             <Sparkles className="h-[18px] w-[18px] relative z-[1]" />
             <span className="relative z-[1]">Quick Edit — Let AI Decide Everything</span>
           </button>
 
           {/* "or" divider */}
-          <div className="flex items-center gap-3 my-2.5">
+          <div className="flex items-center gap-3 my-1.5">
             <div className="flex-1 h-px bg-[#1C1B19]" />
             <span className="font-mono text-[9px] tracking-[0.1em] uppercase text-[#454340]">or</span>
             <div className="flex-1 h-px bg-[#1C1B19]" />
