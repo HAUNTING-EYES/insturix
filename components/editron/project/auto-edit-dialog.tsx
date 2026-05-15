@@ -113,157 +113,163 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
 
   return (
     <Dialog open={file !== null} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-lg p-6">
-        <DialogHeader className="pb-2">
-          <DialogDescription className="sr-only">
+      <DialogContent className="max-w-[460px] p-0 bg-[#131312] border-[#282724] rounded-md">
+        <DialogHeader className="sr-only">
+          <DialogDescription>
             Configure how AI edits your video
           </DialogDescription>
         </DialogHeader>
 
-        {/* File info strip */}
-        <div className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900/60 px-4 py-3">
-          <FileVideo className="h-8 w-8 shrink-0 text-blue-400" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-neutral-200">
-              {file?.name}
-            </p>
-            <p className="text-xs text-neutral-500">{fileSizeMB} MB</p>
+        <div className="px-5 pt-5 pb-4">
+          {/* File info strip */}
+          <div className="flex items-center gap-3 rounded border border-[#282724] bg-[#1B1A18] px-3.5 py-3">
+            <div className="w-9 h-9 rounded-md bg-[#D4A652]/8 border border-[#D4A652]/15 flex items-center justify-center shrink-0">
+              <FileVideo className="h-[18px] w-[18px] text-[#D4A652]" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium text-[#ECE9E1]">
+                {file?.name}
+              </p>
+              <p className="font-mono text-[11px] text-[#5F5E5A]">{fileSizeMB} MB</p>
+            </div>
           </div>
-        </div>
 
-        {/* Large file proxy notice */}
-        {file && file.size > 100 * 1024 * 1024 && (
-          <div className="rounded-md border border-blue-800/50 bg-blue-950/30 px-3 py-2 text-xs text-blue-300">
-            Large file — editor will open with a preview-quality version while the full resolution uploads in the background. Final render uses the original.
-          </div>
-        )}
-
-        {/* Quick edit CTA */}
-        <Button
-          onClick={handleQuickEdit}
-          className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-          size="lg"
-        >
-          <Sparkles className="h-4 w-4" />
-          Quick Edit — Let AI Decide Everything
-        </Button>
-
-        {/* Advanced toggle */}
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((prev) => !prev)}
-          className="flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-xs text-neutral-400 transition-colors hover:text-neutral-200"
-        >
-          {showAdvanced ? (
-            <>
-              <ChevronUp className="h-3.5 w-3.5" />
-              Hide options
-            </>
-          ) : (
-            <>
-              <ChevronDown className="h-3.5 w-3.5" />
-              Customize edit settings
-            </>
+          {/* Large file proxy notice */}
+          {file && file.size > 100 * 1024 * 1024 && (
+            <div className="mt-2.5 rounded border border-[#D4A652]/15 bg-[#D4A652]/4 px-3 py-2 text-[11px] leading-relaxed text-[#D4A652]">
+              Large file — editor will open with a preview-quality version while the full resolution uploads in the background. Final render uses the original.
+            </div>
           )}
-        </button>
 
-        {/* Advanced options — collapsible */}
-        {showAdvanced && (
-          <div className="space-y-4 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
-            {/* Platform */}
-            <div className="space-y-1.5">
-              <Label htmlFor="ae-platform" className="text-xs text-neutral-400">
-                Platform
-              </Label>
-              <Select value={platform} onValueChange={setPlatform}>
-                <SelectTrigger id="ae-platform" className="h-9">
-                  <SelectValue placeholder="Auto-detect" />
-                </SelectTrigger>
-                <SelectContent>
-                  {PLATFORM_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Quick edit CTA */}
+          <button
+            type="button"
+            onClick={handleQuickEdit}
+            className="flex w-full items-center justify-center gap-2 mt-3.5 px-4 py-3 rounded border border-[#D4A652]/30 text-[#D4A652] text-[14px] font-semibold transition-all hover:border-[#D4A652]/50"
+            style={{ background: 'linear-gradient(135deg, rgba(212,166,82,0.08), rgba(212,166,82,0.03))' }}
+          >
+            <Sparkles className="h-4 w-4" />
+            Quick Edit — Let AI Decide Everything
+          </button>
+
+          {/* Advanced toggle */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((prev) => !prev)}
+            className="flex w-full items-center justify-center gap-1.5 py-1.5 mt-2 text-[12px] text-[#7A776E] transition-colors hover:text-[#B5B2A8]"
+          >
+            {showAdvanced ? (
+              <>
+                <ChevronUp className="h-3.5 w-3.5" />
+                Hide options
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-3.5 w-3.5" />
+                Customize edit settings
+              </>
+            )}
+          </button>
+
+          {/* Advanced options — collapsible */}
+          {showAdvanced && (
+            <div className="mt-2 rounded border border-[#282724] bg-[#0F0F0E] p-3.5">
+              {/* Platform + Aspect Ratio side by side */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <Label htmlFor="ae-platform" className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">
+                    Platform
+                  </Label>
+                  <Select value={platform} onValueChange={setPlatform}>
+                    <SelectTrigger id="ae-platform" className="h-[34px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[13px]">
+                      <SelectValue placeholder="Auto-detect" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#1B1A18] border-[#282724]">
+                      {PLATFORM_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="ae-aspect" className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">
+                    Aspect Ratio
+                  </Label>
+                  <Select value={aspectRatio} onValueChange={setAspectRatio}>
+                    <SelectTrigger id="ae-aspect" className="h-[34px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[13px]">
+                      <SelectValue placeholder="16:9" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#1B1A18] border-[#282724]">
+                      {ASPECT_RATIO_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* User Intent */}
+              <div className="mt-3">
+                <Label htmlFor="ae-intent" className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">
+                  What is this video for?
+                  <span className="ml-1 text-[#454340] normal-case tracking-normal">(optional)</span>
+                </Label>
+                <Textarea
+                  id="ae-intent"
+                  placeholder="e.g. Gym promo for Instagram, product demo for LinkedIn, travel vlog for YouTube..."
+                  value={userIntent}
+                  onChange={(e) => setUserIntent(e.target.value)}
+                  rows={2}
+                  className="resize-none text-[13px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] placeholder:text-[#454340]"
+                  maxLength={500}
+                />
+              </div>
+
+              {/* Script / Narration */}
+              <div className="mt-3">
+                <Label htmlFor="ae-script" className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">
+                  Script / Narration
+                  <span className="ml-1 text-[#454340] normal-case tracking-normal">(optional — AI generates captions from this)</span>
+                </Label>
+                <Textarea
+                  id="ae-script"
+                  placeholder="Paste your script here if you have one. AI will use it as narration over your footage."
+                  value={script}
+                  onChange={(e) => setScript(e.target.value)}
+                  rows={3}
+                  className="resize-none text-[13px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] placeholder:text-[#454340]"
+                  maxLength={5000}
+                />
+              </div>
+
+              {/* Confirm with options */}
+              <div className="flex items-center justify-end gap-2 mt-3.5 pt-3 border-t border-[#1C1B19]">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    onCancel();
+                    resetState();
+                  }}
+                  className="bg-transparent border border-[#282724] text-[#7A776E] hover:border-[#D4A652] hover:text-[#D4A652] rounded text-[13px]"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleConfirmWithOptions}
+                  className="gap-1.5 bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded text-[13px] border-none"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Edit with These Settings
+                </Button>
+              </div>
             </div>
-
-            {/* Aspect Ratio */}
-            <div className="space-y-1.5">
-              <Label htmlFor="ae-aspect" className="text-xs text-neutral-400">
-                Aspect Ratio
-              </Label>
-              <Select value={aspectRatio} onValueChange={setAspectRatio}>
-                <SelectTrigger id="ae-aspect" className="h-9">
-                  <SelectValue placeholder="16:9" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ASPECT_RATIO_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* User Intent */}
-            <div className="space-y-1.5">
-              <Label htmlFor="ae-intent" className="text-xs text-neutral-400">
-                What is this video for?
-                <span className="ml-1 text-neutral-600">(optional)</span>
-              </Label>
-              <Textarea
-                id="ae-intent"
-                placeholder="e.g. Gym promo for Instagram, product demo for LinkedIn, travel vlog for YouTube..."
-                value={userIntent}
-                onChange={(e) => setUserIntent(e.target.value)}
-                rows={2}
-                className="resize-none text-sm"
-                maxLength={500}
-              />
-            </div>
-
-            {/* Script / Narration */}
-            <div className="space-y-1.5">
-              <Label htmlFor="ae-script" className="text-xs text-neutral-400">
-                Script / Narration
-                <span className="ml-1 text-neutral-600">(optional — AI generates captions from this)</span>
-              </Label>
-              <Textarea
-                id="ae-script"
-                placeholder="Paste your script here if you have one. AI will use it as narration over your footage."
-                value={script}
-                onChange={(e) => setScript(e.target.value)}
-                rows={4}
-                className="resize-none text-sm"
-                maxLength={5000}
-              />
-            </div>
-
-            {/* Confirm with options */}
-            <DialogFooter className="pt-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  onCancel();
-                  resetState();
-                }}
-                className="text-sm"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleConfirmWithOptions}
-                className="gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                Edit with These Settings
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
