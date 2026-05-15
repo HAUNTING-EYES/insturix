@@ -20,11 +20,9 @@ import { getCreativeRulesPromptText } from '@/lib/editron/data/creative-doc-rule
 
 const CACHE_TTL_SECONDS = 1800; // 30 min — balances cost vs freshness
 const REDIS_KEY = 'editron:gemini:creative-doc-cache';
-// ⚠️ Context caching model must match the model used for generation.
-// Updated 2026-05-15: gemini-2.5-flash → gemini-3.1-flash.
-// If gemini-3.1-flash doesn't support caching yet, this will fail gracefully
-// (getCreativeDocCachedModel falls back to uncached model with inline system instruction).
-const CACHE_MODEL = 'models/gemini-3.1-flash';
+// REVERTED 2026-05-15: gemini-3.1-flash is NOT a valid model ID (404 on Google API).
+// Keeping gemini-2.5-flash which is verified to support context caching.
+const CACHE_MODEL = 'models/gemini-2.5-flash'; // Must match the model used for generation
 
 // ─── Redis Helpers ───────────────────────────────────────────────
 

@@ -442,14 +442,15 @@ export const DEFAULT_CONFIG: EditronConfig = {
     //   better instruction-following. Still well within the 90s abort cap on typical scripts.
     //   subjectExtractionModel stays on 2.5-flash for the same reason (structured output reliability).
     //   montageDetectionModel stays on flash-lite because it's a narrower task (simpler prompt).
-    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
-    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
-    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
-    referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
-    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro', 'gemini-3.1-flash'),
-    // Updated 2026-05-15: standardized to gemini-3.1-flash.
-    // History: gemma-4-31b-it (no audio) → gemini-3.1-flash-lite-preview → gemini-3.1-flash.
-    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash', 'gemini-3.1-flash'),
+    sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
+    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
+    referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
+    // REVERTED 2026-05-15: gemini-3.1-flash / gemini-3.1-pro are NOT valid model IDs.
+    // Google API returns 404: "models/gemini-3.1-pro is not found for API version v1beta".
+    // The -preview suffix IS required. Keeping verified-working models.
+    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
   },

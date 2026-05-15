@@ -616,7 +616,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
       const functionDeclarations = _functionDeclarationsCache[projectId];
       
       const directModel = genAI.getGenerativeModel({
-        model: 'gemini-3.1-flash',
+        model: 'gemini-2.5-flash',
         generationConfig: {
           temperature: 0,
           maxOutputTokens: 8192,

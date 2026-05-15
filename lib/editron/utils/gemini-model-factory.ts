@@ -35,7 +35,7 @@ async function getGenAI() {
  */
 export async function getAnalysisModel() {
   const genAI = await getGenAI();
-  const modelName = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash';
+  const modelName = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview';
   return genAI.getGenerativeModel({ model: modelName });
 }
 
@@ -46,7 +46,7 @@ export async function getAnalysisModel() {
  */
 export async function getChatModel() {
   const genAI = await getGenAI();
-  return genAI.getGenerativeModel({ model: 'gemini-3.1-flash' });
+  return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 }
 
 /**
@@ -56,7 +56,7 @@ export async function getChatModel() {
  */
 export async function getGeneralModel() {
   const genAI = await getGenAI();
-  const modelName = process.env.LLM_GENERAL_MODEL || 'gemini-3.1-pro';
+  const modelName = process.env.LLM_GENERAL_MODEL || 'gemini-3.1-pro-preview';
   return genAI.getGenerativeModel({ model: modelName });
 }
 
@@ -130,8 +130,8 @@ export async function withAnalysisFallback<T>(
     return await fn(primaryModel);
   } catch (err: any) {
     if (isModelUnsupportedError(err)) {
-      const primaryName = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash';
-      const fallbackName = 'gemini-3.1-flash';
+      const primaryName = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview';
+      const fallbackName = 'gemini-2.5-flash';
       console.warn(`[ModelFactory] ${primaryName} unsupported for this operation, falling back to ${fallbackName}: ${err.message}`);
       const genAI = await getGenAI();
       const fallback = genAI.getGenerativeModel({ model: fallbackName });
