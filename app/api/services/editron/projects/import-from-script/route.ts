@@ -28,12 +28,14 @@ export async function POST(request: NextRequest) {
       aspectRatio,
       sourceScriptId,
       storyboardImages,
+      brandId,
     }: {
       scenes: SceneDescriptor[];
       title?: string;
       aspectRatio?: string;
       sourceScriptId?: string;
       storyboardImages?: StoryboardImage[];
+      brandId?: string;
     } = body;
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
@@ -69,7 +71,7 @@ export async function POST(request: NextRequest) {
 
     // Create Editron project
     const projectName = title || 'Imported Script';
-    const project = await projectService.createProject(userId, projectName);
+    const project = await projectService.createProject(userId, projectName, { brandId });
 
     // Convert scenes to overlays (with storyboard images if available)
     const overlays = scenesToOverlays(scenes, { fps, width, height }, storyboardImages);

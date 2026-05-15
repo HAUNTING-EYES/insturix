@@ -35,6 +35,7 @@ interface FromAssetRequest {
   imageAssetIds?: string[];  // Reference images → IP-adapter consistency
   userIntent?: string;       // "gym promo for Instagram" → guides content type + platform detection
   platform?: string;         // Explicit platform override (youtube/instagram/tiktok/linkedin)
+  brandId?: string;          // Brand ID for brand-aware editing
 }
 
 export async function POST(request: NextRequest) {
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: FromAssetRequest = await request.json();
-    const { assetId, title, aspectRatio = '16:9', script, referenceAssetId, imageAssetIds, userIntent, platform } = body;
+    const { assetId, title, aspectRatio = '16:9', script, referenceAssetId, imageAssetIds, userIntent, platform, brandId } = body;
 
     if (!assetId) {
       return NextResponse.json({ success: false, error: 'assetId is required' }, { status: 400 });
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     // 4. Create Editron project
     const projectName = title || `Auto-Edit: ${asset.filename}`;
-    const project = await projectService.createProject(userId, projectName);
+    const project = await projectService.createProject(userId, projectName, { brandId });
     const projectId = project.projectId;
 
     console.log(`[auto-edit/from-asset] Created project ${projectId}`);

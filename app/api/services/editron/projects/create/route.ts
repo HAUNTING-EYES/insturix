@@ -12,7 +12,7 @@ export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, templateId } = body;
+    const { name, templateId, brandId } = body;
 
     const { userId } = await auth();
 
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const project = await projectService.createProject(userId, name, templateId);
+    const project = await projectService.createProject(userId, name, { templateId, brandId });
 
     return NextResponse.json({
       success: true,

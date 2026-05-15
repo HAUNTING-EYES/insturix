@@ -93,9 +93,9 @@ export class ProjectService {
   /**
    * Create new personal project
    */
-  async createProject(userId: string, name: string, templateId?: string): Promise<Project> {
+  async createProject(userId: string, name: string, options?: { templateId?: string; brandId?: string }): Promise<Project> {
     const projectId = `proj_${nanoid(12)}`;
-    
+
     const project: Project = {
       projectId,
       userId,
@@ -111,6 +111,7 @@ export class ProjectService {
       visibility: 'private',
       pipelineStage: 'edit',
       projectStatus: 'active',
+      ...(options?.brandId ? { brandId: options.brandId } : {}),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
