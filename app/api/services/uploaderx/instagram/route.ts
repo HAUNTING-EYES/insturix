@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import UploaderX from "@/schemas/uploaderx";
+import UploaderXVideo from "@/schemas/uploaderx-video";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
 export async function POST(req: Request) {
@@ -78,7 +78,7 @@ export async function POST(req: Request) {
     let videoDoc = null;
 
     if (videoUuid) {
-      videoDoc = await UploaderX.findOne({ videoUuid });
+      videoDoc = await UploaderXVideo.findOne({ videoUuid });
       if (videoDoc?.metadata) {
         const meta = videoDoc.metadata;
         if (meta.instagram) {
@@ -194,7 +194,7 @@ export async function POST(req: Request) {
     const instagramUrl = `https://www.instagram.com/p/${mediaId}`;
 
     if (videoUuid) {
-      await UploaderX.updateOne(
+      await UploaderXVideo.updateOne(
         { videoUuid },
         {
           $set: {

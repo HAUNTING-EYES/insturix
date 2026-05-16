@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import UploaderX from "@/schemas/uploaderx";
+import UploaderXVideo from "@/schemas/uploaderx-video";
 
 export async function POST(request: Request) {
   try {
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       };
     }
 
-    const upload = await UploaderX.create({
+    const upload = await UploaderXVideo.create({
       userId,
       email, // ✅ Added required email field
       videoUuid,

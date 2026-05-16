@@ -2,7 +2,7 @@ import { google } from "googleapis";
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import UploaderX from "@/schemas/uploaderx";
+import UploaderXVideo from "@/schemas/uploaderx-video";
 import { fetchUploaderXStream, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
 export async function POST(req: Request) {
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
     if (videoUuid) {
       try {
         await connectToDatabase();
-        const video = await UploaderX.findOne({ videoUuid });
+        const video = await UploaderXVideo.findOne({ videoUuid });
 
         if (video?.metadata) {
           if (video.metadata.youtube?.videoId) {
@@ -157,7 +157,7 @@ export async function POST(req: Request) {
       youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
       if (videoUuid) {
-        await UploaderX.updateOne(
+        await UploaderXVideo.updateOne(
           { videoUuid },
           {
             $set: {

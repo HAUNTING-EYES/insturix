@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import UploaderX from "@/schemas/uploaderx";
+import UploaderXVideo from "@/schemas/uploaderx-video";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
 export async function POST(req: Request) {
@@ -307,7 +307,7 @@ export async function POST(req: Request) {
     const postUrl = `https://www.linkedin.com/feed/update/${postId}`;
 
     if (videoUuid) {
-      await UploaderX.updateOne(
+      await UploaderXVideo.updateOne(
         { videoUuid },
         {
           $set: {

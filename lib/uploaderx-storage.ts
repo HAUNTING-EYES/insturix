@@ -5,7 +5,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import UploaderX from "@/schemas/uploaderx";
+import UploaderXVideo from "@/schemas/uploaderx-video";
 
 type ResolvedUploaderXVideo = {
   videoUuid?: string;
@@ -82,7 +82,7 @@ export async function resolveUploaderXVideo(params: {
   await connectToDatabase();
 
   const query = params.videoUuid ? { videoUuid: params.videoUuid } : { gcsPath: params.gcsPath };
-  const video = await UploaderX.findOne(query).lean<ResolvedUploaderXVideo | null>();
+  const video = await UploaderXVideo.findOne(query).lean<ResolvedUploaderXVideo | null>();
 
   if (!video?.gcsPath) {
     throw new Error("UploaderX video record not found");
