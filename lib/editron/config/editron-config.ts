@@ -172,11 +172,10 @@ export interface MusicConfig {
 
 // ─── AI Models ─────────────────────────────────────────────────────
 
-// Models known to work with the Google generativelanguage.googleapis.com API.
-// Updated 2026-05-15: standardized on gemini-3.1-flash (quick) + gemini-3.1-pro (heavy).
-// Legacy models kept in allowlist for env var overrides during transition.
+// Models verified working on Google generativelanguage.googleapis.com API.
+// VERIFIED 2026-05-16: gemini-3.1-flash and gemini-3.1-pro DO NOT EXIST (404).
+// Only -preview suffix variants are valid for the 3.1 family.
 const VALID_GOOGLE_AI_MODELS = [
-  'gemini-3.1-flash', 'gemini-3.1-pro',
   'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview',
   'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
 ];

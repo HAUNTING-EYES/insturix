@@ -238,24 +238,41 @@ class Wav2VecAnalyzer:
 
 
 def _load_audio(url: str) -> tuple["np.ndarray", int]:
-    """Download audio from URL, decode to mono float32 numpy at native SR."""
+    """Download audio from URL, decode to mono float32 numpy at native SR.
+    Handles R2 presigned URLs and CDN proxy URLs (query params stripped for extension detection)."""
     import tempfile
     import os
     import requests
     import librosa
-    import numpy as np
+    from urllib.parse import urlparse
 
     resp = requests.get(url, timeout=120, stream=True)
     resp.raise_for_status()
 
-    # Determine extension from URL or content-type
+    # Parse URL path (strip query params) to get real file extension
+    parsed_path = urlparse(url).path.lower()
     ext = ".wav"
-    if ".mp3" in url.lower():
+    if parsed_path.endswith(".mp3"):
         ext = ".mp3"
-    elif ".mp4" in url.lower() or ".m4a" in url.lower():
+    elif parsed_path.endswith(".mp4") or parsed_path.endswith(".m4a"):
         ext = ".mp4"
-    elif ".ogg" in url.lower():
+    elif parsed_path.endswith(".ogg") or parsed_path.endswith(".opus"):
         ext = ".ogg"
+    elif parsed_path.endswith(".webm"):
+        ext = ".webm"
+    elif parsed_path.endswith(".flac"):
+        ext = ".flac"
+    else:
+        # Fall back to Content-Type header
+        content_type = resp.headers.get("content-type", "").lower()
+        if "mp3" in content_type or "mpeg" in content_type:
+            ext = ".mp3"
+        elif "mp4" in content_type or "m4a" in content_type:
+            ext = ".mp4"
+        elif "ogg" in content_type or "opus" in content_type:
+            ext = ".ogg"
+        elif "webm" in content_type:
+            ext = ".webm"
 
     tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
     try:
@@ -263,7 +280,7 @@ def _load_audio(url: str) -> tuple["np.ndarray", int]:
             tmp.write(chunk)
         tmp.close()
 
-        # librosa loads to mono float32 at target SR
+        # librosa loads to mono float32 at target SR (ffmpeg backend handles all formats)
         waveform, sr = librosa.load(tmp.name, sr=TARGET_SR, mono=True)
         return waveform, sr
     finally:

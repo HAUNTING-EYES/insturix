@@ -18,7 +18,7 @@
  */
 
 import type { GraphIndex, ConstraintNode } from './graph-query';
-import type { EditDecision } from './signal-executor';
+import type { EditDecision } from '../types/edit-decision';
 import type { RawFootageAnalysis, OverlayInfo } from './signal-registry';
 
 // ─── Types ──────────────────────────────────────────────────────────────────

@@ -1,0 +1,230 @@
+/**
+ * Brief Executor — Translates Creative Brief to frame-level EDL
+ *
+ * Takes the word-index-based decisions from the Creative Brief service and
+ * resolves each one to an exact frame number using word timestamps + audio
+ * energy curves. Then dispatches to the existing executeEDL() which handles
+ * all overlay creation, zoom application, transition placement, etc.
+ *
+ * Architecture:
+ *   CreativeBrief (word indices) → Brief Executor → EditDecisionList (frames) → executeEDL()
+ *
+ * Deterministic: same CreativeBrief + same word timestamps = same frame numbers. Always.
+ */
+
+import type { EditDecision, EditDecisionList } from '../types/edit-decision';
+import type { CreativeBrief, BriefDecision, BriefDecisionType } from './creative-brief';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export interface BriefExecutorInput {
+  brief: CreativeBrief;
+  transcription: { word: string; startMs: number; endMs: number }[];
+  fps: number;
+  audioEnergyCurve?: number[];
+  totalDurationMs: number;
+}
+
+export interface BriefExecutorOutput {
+  edl: EditDecisionList;
+  stats: {
+    totalDecisions: number;
+    resolvedToFrame: number;
+    skippedOutOfRange: number;
+    snappedToEnergy: number;
+  };
+}
+
+// ─── Type Mapping ───────────────────────────────────────────────────────────
+
+const TYPE_MAP: Record<string, EditDecision['type']> = {
+  zoom_push: 'zoom',
+  zoom_punch: 'zoom',
+  zoom_pull_back: 'zoom',
+  zoom_drift: 'zoom',
+  transition_dissolve: 'transition',
+  transition_hard_cut: 'transition',
+  transition_whip_pan: 'transition',
+  transition_fade_to_black: 'transition',
+  transition_flash: 'transition',
+  transition_j_cut: 'transition',
+  transition_l_cut: 'transition',
+  transition_soft_cut: 'transition',
+  transition_wipe: 'transition',
+  caption_emphasis: 'caption-emphasis',
+  sfx_whoosh: 'sfx',
+  sfx_impact: 'sfx',
+  sfx_shimmer: 'sfx',
+  sfx_ambient: 'sfx',
+  speed_slow_motion: 'speed-change',
+  speed_ramp: 'speed-change',
+  graphic_stat_counter: 'graphic',
+  graphic_lower_third: 'graphic',
+  graphic_callout: 'graphic',
+  graphic_keyword_highlight: 'graphic',
+  graphic_logo_reveal: 'graphic',
+  camera_shake: 'camera-shake',
+  audio_duck: 'audio-duck',
+  audio_bed_select: 'sfx',
+  hold_longer: 'pacing',
+  cut_shorter: 'pacing',
+};
+
+// ─── Main Function ──────────────────────────────────────────────────────────
+
+const ENERGY_SNAP_WINDOW_MS = 500;
+
+export function executeBrief(input: BriefExecutorInput): BriefExecutorOutput {
+  const { brief, transcription, fps, audioEnergyCurve, totalDurationMs } = input;
+
+  const stats = {
+    totalDecisions: brief.decisions.length,
+    resolvedToFrame: 0,
+    skippedOutOfRange: 0,
+    snappedToEnergy: 0,
+  };
+
+  const decisions: EditDecision[] = [];
+
+  for (const decision of brief.decisions) {
+    const resolved = resolveDecisionToFrame(decision, transcription, fps, audioEnergyCurve, totalDurationMs);
+
+    if (resolved === null) {
+      stats.skippedOutOfRange++;
+      continue;
+    }
+
+    if (resolved.snappedToEnergy) {
+      stats.snappedToEnergy++;
+    }
+
+    decisions.push(resolved.editDecision);
+    stats.resolvedToFrame++;
+  }
+
+  // Sort by frame (linear playback order) then confidence for tie-breaking
+  decisions.sort((a, b) => a.frame - b.frame || b.confidence - a.confidence);
+
+  const edl: EditDecisionList = {
+    decisions,
+    metadata: {
+      totalMappingsEvaluated: brief.decisions.length,
+      totalMappingsFired: brief.decisions.length,
+      totalDecisionsGenerated: stats.resolvedToFrame,
+      totalDecisionsSuppressed: stats.skippedOutOfRange,
+      executionTimeMs: 0,
+    },
+  };
+
+  console.log(
+    `[BriefExecutor] ${stats.resolvedToFrame}/${stats.totalDecisions} resolved to frames ` +
+    `(${stats.snappedToEnergy} snapped to energy peak, ${stats.skippedOutOfRange} out of range)`
+  );
+
+  return { edl, stats };
+}
+
+// ─── Frame Resolution ───────────────────────────────────────────────────────
+
+interface ResolvedDecision {
+  editDecision: EditDecision;
+  snappedToEnergy: boolean;
+}
+
+function resolveDecisionToFrame(
+  decision: BriefDecision,
+  transcription: { word: string; startMs: number; endMs: number }[],
+  fps: number,
+  energyCurve: number[] | undefined,
+  totalDurationMs: number,
+): ResolvedDecision | null {
+  const { targetWordIdx, type, confidence, reason, params } = decision;
+
+  // Validate word index
+  if (targetWordIdx < 0 || targetWordIdx >= transcription.length) {
+    return null;
+  }
+
+  const word = transcription[targetWordIdx];
+  let targetMs = word.startMs;
+  let snappedToEnergy = false;
+
+  // For zoom/emphasis decisions, snap to the nearest audio energy peak within window
+  if (shouldSnapToEnergy(type) && energyCurve && energyCurve.length > 0) {
+    const snapped = snapToEnergyPeak(targetMs, energyCurve, totalDurationMs, fps);
+    if (snapped !== null) {
+      targetMs = snapped;
+      snappedToEnergy = true;
+    }
+  }
+
+  // For transition decisions, snap to BETWEEN words (the gap between end of prev and start of next)
+  if (isTransitionType(type) && targetWordIdx > 0) {
+    const prevWord = transcription[targetWordIdx - 1];
+    targetMs = prevWord.endMs + (word.startMs - prevWord.endMs) / 2;
+  }
+
+  const frame = Math.round(targetMs / 1000 * fps);
+
+  // Validate frame is within video bounds
+  const maxFrame = Math.round(totalDurationMs / 1000 * fps);
+  if (frame < 0 || frame > maxFrame) {
+    return null;
+  }
+
+  const editDecision: EditDecision = {
+    type: TYPE_MAP[type] || 'zoom',
+    frame,
+    confidence,
+    source: `creative-brief:${reason}`,
+    technique: type,
+    params: { ...params },
+    reason: reason,
+  };
+
+  return { editDecision, snappedToEnergy };
+}
+
+// ─── Energy Snap ────────────────────────────────────────────────────────────
+
+function snapToEnergyPeak(
+  targetMs: number,
+  energyCurve: number[],
+  totalDurationMs: number,
+  fps: number,
+): number | null {
+  if (energyCurve.length === 0 || totalDurationMs <= 0) return null;
+
+  const msPerSample = totalDurationMs / energyCurve.length;
+  const targetSample = Math.round(targetMs / msPerSample);
+  const windowSamples = Math.round(ENERGY_SNAP_WINDOW_MS / msPerSample);
+
+  const startSample = Math.max(0, targetSample - windowSamples);
+  const endSample = Math.min(energyCurve.length - 1, targetSample + windowSamples);
+
+  let peakSample = targetSample;
+  let peakValue = energyCurve[targetSample] ?? 0;
+
+  for (let i = startSample; i <= endSample; i++) {
+    if (energyCurve[i] > peakValue) {
+      peakValue = energyCurve[i];
+      peakSample = i;
+    }
+  }
+
+  // Only snap if peak is meaningfully higher than target (avoid snapping to noise)
+  const targetValue = energyCurve[targetSample] ?? 0;
+  if (peakValue - targetValue < 0.05) return null;
+
+  return peakSample * msPerSample;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function shouldSnapToEnergy(type: BriefDecisionType): boolean {
+  return type.startsWith('zoom_') || type === 'caption_emphasis' || type === 'camera_shake';
+}
+
+function isTransitionType(type: BriefDecisionType): boolean {
+  return type.startsWith('transition_');
+}

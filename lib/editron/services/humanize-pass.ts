@@ -18,7 +18,7 @@
  * Consumers: director-agent.ts (Path D, between signal-executor and constraint-enforcer)
  */
 
-import type { EditDecision, EditDecisionList } from './signal-executor';
+import type { EditDecision, EditDecisionList } from '../types/edit-decision';
 import type { RawFootageAnalysis } from './signal-registry';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
