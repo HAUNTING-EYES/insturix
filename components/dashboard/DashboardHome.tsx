@@ -612,6 +612,8 @@ function BoardView({ groups }: { groups: { key: string; label: string; color: st
 /* ── Board card ── */
 
 function BoardCard({ project, stageColor }: { project: Project; stageColor: string }) {
+  const isPipeline = !!project.sourceSessionId;
+  const cardColor = isPipeline ? stageColor : C.dim;
   const bg = project.thumbnail || thumbGradient(project.name);
   const isUrl = project.thumbnail && (project.thumbnail.startsWith("http") || project.thumbnail.startsWith("/"));
   const scoreColor = project.score !== null
@@ -677,8 +679,8 @@ function BoardCard({ project, stageColor }: { project: Project; stageColor: stri
       {/* Meta row */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <div style={{ width: 3, height: 10, borderRadius: 1, background: stageColor }} />
-          <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>
+          <div style={{ width: 3, height: 10, borderRadius: 1, background: cardColor }} />
+          <span className="dh-mono" style={{ fontSize: 11, color: isPipeline ? C.dim : C.faint }}>
             {STAGES.find((s) => s.key === project.stage)?.label ?? project.stage}
           </span>
         </div>
@@ -755,7 +757,8 @@ function ListView({
         )}
         {projects.map((p, i) => {
           const stage = STAGES.find((s) => s.key === p.stage);
-          const stageColor = stage?.color ?? C.dim;
+          const isPL = !!p.sourceSessionId;
+          const sc = isPL ? (stage?.color ?? C.dim) : C.dim;
           return (
             <div key={p.id} style={{
               display: "grid", gridTemplateColumns: gridCols,
@@ -775,12 +778,12 @@ function ListView({
               <span style={{ fontSize: 11, color: C.muted }}>{p.brand || "Personal"}</span>
               {/* Stage */}
               <span className="dh-mono" style={{
-                fontSize: 11, fontWeight: 500, color: stageColor,
-                padding: "3px 8px", background: `${stageColor}12`,
+                fontSize: 11, fontWeight: 500, color: sc,
+                padding: "3px 8px", background: `${sc}12`,
                 borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 5,
                 width: "fit-content",
               }}>
-                <div style={{ width: 3, height: 10, borderRadius: 1, background: stageColor }} />
+                <div style={{ width: 3, height: 10, borderRadius: 1, background: sc }} />
                 {stage?.label ?? p.stage}
               </span>
               {/* Status */}
@@ -907,7 +910,8 @@ function SplitView({
 
 function SplitDetail({ project }: { project: Project }) {
   const stage = STAGES.find((s) => s.key === project.stage);
-  const stageColor = stage?.color ?? C.dim;
+  const isPipeline = !!project.sourceSessionId;
+  const stageColor = isPipeline ? (stage?.color ?? C.dim) : C.dim;
   const bg = project.thumbnail || thumbGradient(project.name);
   const isUrl = project.thumbnail && (project.thumbnail.startsWith("http") || project.thumbnail.startsWith("/"));
 
@@ -1078,6 +1082,8 @@ function CinematicView({
         }}>
           {projects.map((p) => {
             const stage = STAGES.find((s) => s.key === p.stage)!;
+            const isPL = !!p.sourceSessionId;
+            const sc = isPL ? (stage?.color ?? C.dim) : C.dim;
             const isSel = focusId === p.id;
             const pBg = p.thumbnail || thumbGradient(p.name);
             const pIsUrl = p.thumbnail && (p.thumbnail.startsWith("http") || p.thumbnail.startsWith("/"));
@@ -1106,7 +1112,7 @@ function CinematicView({
                   <div style={{
                     position: "absolute", bottom: 0, left: 0,
                     width: "100%", height: 2,
-                    background: stage?.color ?? C.dim,
+                    background: sc,
                     opacity: isSel ? 1 : 0.25,
                   }} />
                 </div>
@@ -1116,7 +1122,7 @@ function CinematicView({
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>{p.name}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span className="dh-mono" style={{ fontSize: 11, color: stage?.color ?? C.dim }}>
+                    <span className="dh-mono" style={{ fontSize: 11, color: sc }}>
                       {stage?.label ?? p.stage}
                     </span>
                     <span className="dh-mono" style={{ fontSize: 11, color: C.faint }}>{timeAgo(p.updatedAt)}</span>
