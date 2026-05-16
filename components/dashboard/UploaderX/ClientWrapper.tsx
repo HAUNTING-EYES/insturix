@@ -364,6 +364,26 @@ export function UploaderXClientWrapper() {
     }
   }, [user, openUserProfile, toast]);
 
+  const RESET_ENDPOINTS: Record<string, string> = {
+    instagram: "/api/services/uploaderx/instagram/reset",
+    facebook: "/api/services/uploaderx/facebook/reset",
+    twitter: "/api/services/uploaderx/twitter/reset",
+  };
+
+  const handleDisconnect = useCallback(async (platform: PlatformStatus) => {
+    const resetUrl = RESET_ENDPOINTS[platform.key];
+    if (!resetUrl) return;
+    try {
+      const res = await fetch(resetUrl, { method: "POST" });
+      if (res.ok) {
+        toast({ title: `${platform.label} disconnected`, description: "You can reconnect anytime." });
+        setPlatformStatuses((prev) => prev.map((p) => p.key === platform.key ? { ...p, connected: false, userName: undefined } : p));
+      }
+    } catch {
+      toast({ title: "Disconnect failed", description: "Please try again.", variant: "destructive" });
+    }
+  }, [toast]);
+
   const connectedCount = platformStatuses.filter(p => p.connected).length;
 
   // ─── Helper: format file size ────────────────────────────────
@@ -711,10 +731,7 @@ export function UploaderXClientWrapper() {
               platformStatuses.map((p) => (
                 <div
                   key={p.key}
-                  onClick={() => !p.connected && handleConnect(p)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, cursor: p.connected ? "default" : "pointer", transition: "opacity .2s" }}
-                  onMouseEnter={(e) => { if (!p.connected) e.currentTarget.style.opacity = "0.7"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+                  style={{ display: "flex", alignItems: "center", gap: 6, transition: "opacity .2s" }}
                 >
                   <span style={{
                     width: 6, height: 6, borderRadius: 3,
@@ -724,6 +741,31 @@ export function UploaderXClientWrapper() {
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t4, letterSpacing: ".04em" }}>
                     {p.label}
                   </span>
+                  {p.connected && RESET_ENDPOINTS[p.key] ? (
+                    <button
+                      onClick={() => handleDisconnect(p)}
+                      style={{
+                        fontSize: 9, color: C.t5, background: "none", border: `1px solid ${C.border}`,
+                        padding: "1px 6px", borderRadius: 3, cursor: "pointer", fontFamily: "var(--font-mono)",
+                        transition: `all .2s ${EASE}`, lineHeight: 1.4,
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = C.red; e.currentTarget.style.borderColor = C.red; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = C.t5; e.currentTarget.style.borderColor = C.border; }}
+                    >
+                      ×
+                    </button>
+                  ) : !p.connected ? (
+                    <button
+                      onClick={() => handleConnect(p)}
+                      style={{
+                        fontSize: 9, color: C.gold, background: "none", border: `1px solid ${C.goldBd}`,
+                        padding: "1px 6px", borderRadius: 3, cursor: "pointer", fontFamily: "var(--font-mono)",
+                        transition: `all .2s ${EASE}`, lineHeight: 1.4,
+                      }}
+                    >
+                      connect
+                    </button>
+                  ) : null}
                 </div>
               ))
             )}
