@@ -28,7 +28,6 @@ const C = {
 const STAGES = [
   { key: "script", label: "Script", color: C.accent },
   { key: "edit", label: "Edit", color: C.red },
-  { key: "analyze", label: "Analyze", color: C.purple },
   { key: "thumbnails", label: "Thumbnails", color: C.pink },
   { key: "publish", label: "Publish", color: C.green },
 ] as const;
@@ -70,7 +69,10 @@ interface Project {
 /* ── Map API response to dashboard Project ── */
 function enrichProject(raw: ApiProject): Project {
   // Use real fields from backend, fallback for old documents that lack them
-  const stage: StageKey = (raw as any).pipelineStage || "edit";
+  // "analyze" was removed as a stage — quality review is metadata, not a pipeline stage.
+  // Remap old "analyze" docs back to "edit".
+  const rawStage = (raw as any).pipelineStage || "edit";
+  const stage: StageKey = rawStage === "analyze" ? "edit" : rawStage;
   const brand: string | null = (raw as any).brand ?? null;
   const score: number | null = (raw as any).qualityScore ?? null;
   const rawStatus = (raw as any).projectStatus;
@@ -610,16 +612,42 @@ function BoardView({ groups }: { groups: { key: string; label: string; color: st
 function BoardCard({ project, stageColor }: { project: Project; stageColor: string }) {
   const bg = project.thumbnail || thumbGradient(project.name);
   const isUrl = project.thumbnail && (project.thumbnail.startsWith("http") || project.thumbnail.startsWith("/"));
+  const scoreColor = project.score !== null
+    ? project.score > 75 ? C.green : project.score >= 50 ? C.accent : C.red
+    : null;
 
   return (
     <div style={{
       background: C.deeper, border: `1px solid ${C.border}`,
       borderRadius: 8, padding: 10, cursor: "pointer",
       transition: "border-color 0.25s ease",
+      position: "relative",
     }}
       onMouseEnter={(e) => e.currentTarget.style.borderColor = C.borderL}
       onMouseLeave={(e) => e.currentTarget.style.borderColor = C.border}
     >
+      {/* Quality score indicator */}
+      {scoreColor && (
+        <div
+          title={`Quality: ${project.score}/100`}
+          style={{
+            position: "absolute", top: 6, right: 6,
+            display: "flex", alignItems: "center", gap: 4,
+            padding: "2px 6px", borderRadius: 4,
+            background: `${scoreColor}18`,
+            cursor: "pointer",
+          }}
+        >
+          <div style={{
+            width: 6, height: 6, borderRadius: 3,
+            background: scoreColor,
+          }} />
+          <span className="dh-mono" style={{
+            fontSize: 10, fontWeight: 500, color: scoreColor,
+          }}>{project.score}</span>
+        </div>
+      )}
+
       {/* Thumbnail */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
         <div style={{

@@ -39,15 +39,10 @@ export async function POST(req: NextRequest) {
       },
     }).catch((err) => console.error('[quality-review] Brand event failed:', err));
 
-    // Write score + stage back to the project document directly
-    // (saveProject only handles editor state fields, not metadata)
+    // Write score back to the project document (quality review is metadata, not a stage change)
     await projectService.updateProjectMetadata(projectId, {
       qualityScore: report.overallScore,
-      pipelineStage: 'analyze',
     });
-
-    // Refresh derived project status after stage change
-    await projectService.refreshProjectStatus(projectId);
 
     return NextResponse.json({
       success: true,
