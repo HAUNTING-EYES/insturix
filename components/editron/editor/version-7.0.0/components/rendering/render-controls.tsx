@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, Loader2, Bell, Save, X, Layers, Info, AlertTriangle } from "lucide-react";
+import { Download, Loader2, Bell, Save, X, Layers, Info, AlertTriangle, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -179,6 +179,34 @@ const RenderControls: React.FC<RenderControlsProps> = ({
     }
   }, [state.status, state.url, state.error]);
 
+  const [analyzingId, setAnalyzingId] = React.useState<string | null>(null);
+
+  const handleAnalyze = async (url: string, renderId: string) => {
+    if (!projectId || analyzingId) return;
+    setAnalyzingId(renderId);
+    try {
+      const res = await fetch('/api/services/alyzitron/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          video_url: url,
+          editronProjectId: projectId,
+          metadata: { mimeType: 'video/mp4' },
+          storage: url.includes('storage.googleapis.com') ? 'gcs' : 'external',
+        }),
+      });
+      if (!res.ok) throw new Error(`Analysis failed: ${res.status}`);
+      const data = await res.json();
+      if (data.success) {
+        console.log(`[RenderControls] Analysis queued: task ${data.taskId}`);
+      }
+    } catch (err: any) {
+      console.error('[RenderControls] Analyze failed:', err.message);
+    } finally {
+      setAnalyzingId(null);
+    }
+  };
+
   const handleDownload = async (url: string) => {
     try {
       let downloadUrl = url;
@@ -317,14 +345,28 @@ const RenderControls: React.FC<RenderControlsProps> = ({
                       return isExpired ? (
                         <span className="text-[10px] text-muted-foreground px-1.5">Expired</span>
                       ) : (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="text-zinc-200 hover:text-gray-800 h-6 w-6"
-                          onClick={() => handleDownload(render.url!)}
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </Button>
+                        <div className="flex items-center gap-0.5">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-zinc-200 hover:text-gray-800 h-6 w-6"
+                            onClick={() => handleAnalyze(render.url!, render.id)}
+                            disabled={analyzingId === render.id}
+                            title="Analyze with Alyzitron"
+                          >
+                            {analyzingId === render.id
+                              ? <Loader2 className="w-3 h-3 animate-spin" />
+                              : <BarChart3 className="w-3 h-3" />}
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-zinc-200 hover:text-gray-800 h-6 w-6"
+                            onClick={() => handleDownload(render.url!)}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       );
                     })()
                   )}
