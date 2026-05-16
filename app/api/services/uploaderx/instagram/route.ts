@@ -38,12 +38,11 @@ export async function POST(req: Request) {
 
     const ig = user.instagramTokens as any;
     const accounts = ig.accounts || [];
-    const pageTokens = ig.pageTokens || [];
     if (accounts.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          error: "No Instagram Business accounts found. You need at least one connected account.",
+          error: "No Instagram accounts connected. Please connect your Instagram account first.",
         },
         { status: 400 }
       );
@@ -60,19 +59,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // Get the corresponding page access token for this Instagram account
-    const pageTokenEntry = pageTokens.find(
-      (pt: any) => pt.instagramAccountId === targetAccount.instagramAccountId
-    );
+    // Instagram Login flow: use the user access token directly (no Page token needed)
+    const igUserAccessToken = ig.userAccessToken;
 
-    if (!pageTokenEntry) {
+    if (!igUserAccessToken) {
       return NextResponse.json(
-        { success: false, error: "No Page Access Token found for this Instagram account. Please reconnect." },
+        { success: false, error: "Instagram access token missing. Please reconnect your account." },
         { status: 400 }
       );
     }
-
-    const igUserAccessToken = pageTokenEntry.pageAccessToken;
     let finalCaption = title || "";
     let finalDescription = description || "";
     let videoDoc = null;
