@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, Loader2, Bell, Save, X, Layers, Info, AlertTriangle, BarChart3 } from "lucide-react";
+import { Download, Loader2, Bell, Save, X, Layers, Info, BarChart3, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -123,6 +123,33 @@ const RenderControls: React.FC<RenderControlsProps> = ({
   // Check if rendering is disabled via environment variable
   const isRenderDisabled = process.env.NEXT_PUBLIC_DISABLE_RENDER === "true";
 
+  // Alyzitron analysis state
+  const [analyzingId, setAnalyzingId] = React.useState<string | null>(null);
+  const [postRenderDialog, setPostRenderDialog] = React.useState<{ url: string } | null>(null);
+
+  const handleAnalyze = async (url: string, renderId?: string) => {
+    if (!projectId || analyzingId) return;
+    setAnalyzingId(renderId || 'dialog');
+    try {
+      const res = await fetch('/api/services/alyzitron/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          video_url: url,
+          editronProjectId: projectId,
+          metadata: { mimeType: 'video/mp4' },
+          storage: url.includes('storage.googleapis.com') ? 'gcs' : 'external',
+        }),
+      });
+      if (!res.ok) throw new Error(`Analysis failed: ${res.status}`);
+    } catch (err: any) {
+      console.error('[RenderControls] Analyze failed:', err.message);
+    } finally {
+      setAnalyzingId(null);
+      setPostRenderDialog(null);
+    }
+  };
+
   // Fetch render history on mount (for persistence across refreshes)
   React.useEffect(() => {
     if (!projectId || renderType !== "lambda") return;
@@ -151,7 +178,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
     fetchHistory();
   }, [projectId, renderType]);
 
-  // Add new render to the list when completed
+  // Add new render to the list when completed + show post-render dialog
   React.useEffect(() => {
     if (state.status === "done") {
       setRenders((prev) => [
@@ -164,6 +191,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
         ...prev,
       ]);
       setHasNewRender(true);
+      if (state.url) setPostRenderDialog({ url: state.url });
     } else if (state.status === "error") {
       setRenders((prev) => [
         {
@@ -178,34 +206,6 @@ const RenderControls: React.FC<RenderControlsProps> = ({
       setHasNewRender(true);
     }
   }, [state.status, state.url, state.error]);
-
-  const [analyzingId, setAnalyzingId] = React.useState<string | null>(null);
-
-  const handleAnalyze = async (url: string, renderId: string) => {
-    if (!projectId || analyzingId) return;
-    setAnalyzingId(renderId);
-    try {
-      const res = await fetch('/api/services/alyzitron/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          video_url: url,
-          editronProjectId: projectId,
-          metadata: { mimeType: 'video/mp4' },
-          storage: url.includes('storage.googleapis.com') ? 'gcs' : 'external',
-        }),
-      });
-      if (!res.ok) throw new Error(`Analysis failed: ${res.status}`);
-      const data = await res.json();
-      if (data.success) {
-        console.log(`[RenderControls] Analysis queued: task ${data.taskId}`);
-      }
-    } catch (err: any) {
-      console.error('[RenderControls] Analyze failed:', err.message);
-    } finally {
-      setAnalyzingId(null);
-    }
-  };
 
   const handleDownload = async (url: string) => {
     try {
@@ -484,6 +484,44 @@ const RenderControls: React.FC<RenderControlsProps> = ({
           <span>Chapter render (parallel)</span>
         </div>
       )}
+
+      {/* Post-render dialog: Download or Analyze */}
+      <AlertDialog open={!!postRenderDialog} onOpenChange={(open) => !open && setPostRenderDialog(null)}>
+        <AlertDialogContent className="bg-zinc-900 border-zinc-700 text-white max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base">Your video is ready</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400 text-sm">
+              Download your rendered video or send it to Alyzitron for quality analysis, engagement scoring, and improvement suggestions.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
+            <AlertDialogAction
+              className="bg-zinc-700 text-white hover:bg-zinc-600 w-full"
+              onClick={() => {
+                if (postRenderDialog?.url) handleDownload(postRenderDialog.url);
+                setPostRenderDialog(null);
+              }}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download Video
+            </AlertDialogAction>
+            <AlertDialogAction
+              className="bg-[#D4A652] text-zinc-900 hover:bg-[#c49542] w-full font-semibold"
+              disabled={analyzingId === 'dialog'}
+              onClick={() => {
+                if (postRenderDialog?.url) handleAnalyze(postRenderDialog.url);
+              }}
+            >
+              {analyzingId === 'dialog'
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending...</>
+                : <><BarChart3 className="w-4 h-4 mr-2" />Analyze with Alyzitron</>}
+            </AlertDialogAction>
+            <AlertDialogCancel className="bg-transparent border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white w-full mt-0">
+              Close
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };
