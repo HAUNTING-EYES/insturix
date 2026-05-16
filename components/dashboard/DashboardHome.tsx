@@ -28,6 +28,7 @@ const C = {
 const STAGES = [
   { key: "script", label: "Script", color: C.accent },
   { key: "edit", label: "Edit", color: C.red },
+  { key: "analyze", label: "Analyze", color: C.purple },
   { key: "thumbnails", label: "Thumbnails", color: C.pink },
   { key: "publish", label: "Publish", color: C.green },
 ] as const;
@@ -71,10 +72,8 @@ interface Project {
 /* ── Map API response to dashboard Project ── */
 function enrichProject(raw: ApiProject): Project {
   // Use real fields from backend, fallback for old documents that lack them
-  // "analyze" was removed as a stage — quality review is metadata, not a pipeline stage.
-  // Remap old "analyze" docs back to "edit".
   const rawStage = (raw as any).pipelineStage || "edit";
-  const stage: StageKey = rawStage === "analyze" ? "edit" : rawStage;
+  const stage: StageKey = rawStage;
   const brand: string | null = (raw as any).brand ?? null;
   const score: number | null = (raw as any).qualityScore ?? null;
   const rawStatus = (raw as any).projectStatus;
