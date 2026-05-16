@@ -319,12 +319,139 @@ export async function executeDirectorPlan(
         }
       }
 
+      // ── PATH E: Creative Brief (Director's Cut Architecture) ──────────
+      // Feature-flagged new path. Gemini produces a holistic Creative Brief
+      // (all editing decisions as structured JSON), then the Brief Executor
+      // resolves word indices to exact frames deterministically.
+      // Enable via env: USE_CREATIVE_BRIEF=true
+      let pathDHandled = false;
+      if (process.env.USE_CREATIVE_BRIEF === 'true' && projectDoc?.rawFootageAnalysis?.segments?.length > 0) {
+        try {
+          onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
+          console.log('[Director] Path E: Creative Brief architecture (USE_CREATIVE_BRIEF=true)');
+
+          const { generateCreativeBrief } = await import('@/lib/editron/services/creative-brief');
+          const { executeBrief } = await import('@/lib/editron/services/brief-executor');
+          const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
+          const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
+          const { executeEDL: executeEDLPathE } = await import('@/lib/editron/services/edl-executor');
+
+          const pathEFps = project.fps || 30;
+          const rfa = projectDoc.rawFootageAnalysis;
+
+          // Build transcription from rawFootageAnalysis segments
+          const transcription: { word: string; startMs: number; endMs: number }[] = [];
+          for (const seg of rfa.segments || []) {
+            if (seg.words && Array.isArray(seg.words)) {
+              for (const w of seg.words) {
+                transcription.push({ word: w.word || w.text || '', startMs: w.startMs ?? w.start ?? 0, endMs: w.endMs ?? w.end ?? 0 });
+              }
+            }
+          }
+
+          // Build audio energy curve from segments (if available)
+          const audioEnergyCurve: number[] = (rfa.segments || []).map((s: any) => s.energy ?? 0.5);
+
+          // Collect user preferences (from brief or defaults)
+          const userPrefs = {
+            captionStyle: brief?.captionStyle as any,
+            transitionPreference: brief?.transitionPreference as any,
+            zoomBehavior: brief?.zoomBehavior as any,
+            motionGraphics: brief?.motionGraphics as any,
+            pacingFeel: brief?.pacingFeel as any,
+            musicPreference: brief?.musicPreference as any,
+          };
+
+          // Gemini file URI for video watching (from VU if available)
+          const geminiFileUri = (projectDoc as any)?._vuGeminiFileUri
+            || projectDoc?.syntheticStoryboard?.geminiFileUri
+            || undefined;
+
+          // Build video context for Creative Brief
+          const videoContext = {
+            transcription,
+            totalDurationSec: (project.durationInFrames || 900) / pathEFps,
+            segmentCount: rfa.segments?.length || 0,
+            audioFeatures: audioEnergyCurve.length > 0 ? {
+              rmsEnergyCurve: audioEnergyCurve,
+              silenceGaps: (rfa.silenceGaps || []).map((g: any) => ({ startMs: g.startMs || g.start || 0, endMs: g.endMs || g.end || 0 })),
+            } : undefined,
+            vjepaFeatures: projectDoc.vjepaAnalysis?.segments?.length > 0 ? { segments: projectDoc.vjepaAnalysis.segments } : undefined,
+            wav2vecFeatures: projectDoc.wav2vecAnalysis?.segments?.length > 0 ? { segments: projectDoc.wav2vecAnalysis.segments } : undefined,
+          };
+
+          // Generate Creative Brief (Gemini call 2 — context-cached creative doc)
+          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri);
+
+          if (creativeBrief && creativeBrief.decisions.length > 0) {
+            console.log(`[Director] Path E: Creative Brief generated — ${creativeBrief.decisions.length} decisions, pacing=${creativeBrief.overallPacing}`);
+
+            // Brief Executor: resolve word indices → frame numbers
+            const totalDurationMs = (project.durationInFrames || 900) / pathEFps * 1000;
+            const briefResult = executeBrief({
+              brief: creativeBrief,
+              transcription,
+              fps: pathEFps,
+              audioEnergyCurve: audioEnergyCurve.length > 0 ? audioEnergyCurve : undefined,
+              totalDurationMs,
+            });
+
+            console.log(`[Director] Path E: Brief Executor — ${briefResult.stats.resolvedToFrame} resolved, ${briefResult.stats.snappedToEnergy} snapped to energy`);
+
+            // Humanize pass (organic imperfection)
+            const humanizedEdl = humanizeEdl(briefResult.edl, projectId, rfa, pathEFps);
+
+            // Constraint enforcement (8-pass safety net)
+            const overlayInfos = overlays.map((o: any) => ({
+              id: o.id, type: o.type, from: o.from,
+              durationInFrames: o.durationInFrames, row: o.row, assetId: o.assetId,
+            }));
+
+            let graphIndex: any = null;
+            try {
+              const { loadGraph } = await import('@/lib/editron/services/graph-query');
+              graphIndex = loadGraph();
+            } catch { /* constraint enforcement optional if graph unavailable */ }
+
+            if (graphIndex) {
+              const constraintResult = enforceConstraints(
+                humanizedEdl.decisions, overlayInfos, graphIndex, rfa, pathEFps
+              );
+              if (constraintResult.totalViolations > 0) {
+                console.log(`[Director] Path E: ${constraintResult.totalViolations} constraint violations (${constraintResult.totalAutoCorrected} auto-corrected)`);
+              }
+              pathDConstraintViolations = constraintResult.violations;
+            }
+
+            // Execute EDL (apply to overlays)
+            const canvas = project.playerDimensions || { width: 1920, height: 1080 };
+            const analysesMap = new Map<string, any>();
+            for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
+            await executeEDLPathE(briefResult.edl, projectId, userId, overlays, canvas, analysesMap);
+
+            // Update summary for downstream quality review
+            edlSummary.totalDecisions = humanizedEdl.decisions.length;
+            edlSummary.executed = briefResult.stats.resolvedToFrame;
+            edlSummary.skipped = briefResult.stats.skippedOutOfRange;
+            for (const d of humanizedEdl.decisions) {
+              edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
+            }
+
+            pathDHandled = true;
+            console.log(`[Director] Path E: Creative Brief execution COMPLETE — ${humanizedEdl.decisions.length} decisions applied`);
+          } else {
+            console.warn('[Director] Path E: Creative Brief returned null or empty — falling through to Path D');
+          }
+        } catch (pathEErr: any) {
+          console.error(`[Director] Path E failed (${pathEErr.message}), falling through to Path D`);
+        }
+      }
+
       // ── PATH D: Signal-Driven Execution (Mode 2 + v3 Knowledge Graph) ──
       // When raw footage analysis exists AND the creative knowledge graph loads,
       // bypass LLM-based intelligence entirely. The signal executor evaluates
       // 95 mappings from the graph against detected signals to produce EDL decisions.
       // Falls through to Unified Intelligence / Reactive Engine if Path D fails.
-      let pathDHandled = false;
       if (projectDoc?.rawFootageAnalysis?.segments?.length > 0 && analyses.length > 0) {
         try {
           const { loadGraph } = await import('@/lib/editron/services/graph-query');

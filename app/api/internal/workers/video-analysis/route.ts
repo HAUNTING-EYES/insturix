@@ -39,6 +39,13 @@ interface VideoAnalysisPayload {
   referenceAssetId?: string;
   script?: string;
   platform?: string;
+  // Creative Brief preferences (Director's Cut architecture)
+  captionStyle?: string;
+  transitionPreference?: string;
+  zoomBehavior?: string;
+  motionGraphics?: string;
+  pacingFeel?: string;
+  musicPreference?: string;
 }
 
 async function handler(request: NextRequest) {
@@ -51,6 +58,7 @@ async function handler(request: NextRequest) {
       projectId, userId, assetId, videoUrl, durationSec,
       title, profileId: initialProfileId,
       userIntent, referenceAssetId, script, platform,
+      captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference,
     } = payload;
 
     let effectiveDurationSec = durationSec;
@@ -503,8 +511,20 @@ async function handler(request: NextRequest) {
 
     // ─── Step 6: Run Director ─────────────────────────────────────
     let brief: any = undefined;
+    // Merge Creative Brief preferences from user's pre-edit panel
+    const userPrefs = {
+      ...(captionStyle && { captionStyle }),
+      ...(transitionPreference && { transitionPreference }),
+      ...(zoomBehavior && { zoomBehavior }),
+      ...(motionGraphics && { motionGraphics }),
+      ...(pacingFeel && { pacingFeel }),
+      ...(musicPreference && { musicPreference }),
+      ...(platform && { platform }),
+      ...(userIntent && { intent: userIntent }),
+    };
     if (editDNA) {
       brief = {
+        ...userPrefs,
         overrides: {
           ...(editDNA.pacing?.overall && { pacing: editDNA.pacing.overall }),
           ...(editDNA.cutRhythm?.avgCutsPerMinute && { cutsPerMinute: editDNA.cutRhythm.avgCutsPerMinute }),
@@ -512,6 +532,8 @@ async function handler(request: NextRequest) {
           ...(editDNA.graphicsDensity && { graphicsDensity: editDNA.graphicsDensity }),
         },
       };
+    } else if (Object.keys(userPrefs).length > 0) {
+      brief = { ...userPrefs, modifiers: [] };
     }
 
     const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');

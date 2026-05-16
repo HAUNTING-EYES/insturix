@@ -36,6 +36,13 @@ interface FromAssetRequest {
   userIntent?: string;       // "gym promo for Instagram" → guides content type + platform detection
   platform?: string;         // Explicit platform override (youtube/instagram/tiktok/linkedin)
   brandId?: string;          // Brand ID for brand-aware editing
+  // Creative Brief preferences (Director's Cut architecture)
+  captionStyle?: string;
+  transitionPreference?: string;
+  zoomBehavior?: string;
+  motionGraphics?: string;
+  pacingFeel?: string;
+  musicPreference?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -47,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: FromAssetRequest = await request.json();
-    const { assetId, title, aspectRatio = '16:9', script, referenceAssetId, imageAssetIds, userIntent, platform, brandId } = body;
+    const { assetId, title, aspectRatio = '16:9', script, referenceAssetId, imageAssetIds, userIntent, platform, brandId, captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference } = body;
 
     if (!assetId) {
       return NextResponse.json({ success: false, error: 'assetId is required' }, { status: 400 });
@@ -224,6 +231,12 @@ export async function POST(request: NextRequest) {
           referenceAssetId,
           script,
           platform,
+          captionStyle,
+          transitionPreference,
+          zoomBehavior,
+          motionGraphics,
+          pacingFeel,
+          musicPreference,
         }),
       });
 

@@ -146,6 +146,13 @@ export interface ProjectBrief {
   tone?: string;
   /** BGM mood override */
   bgmMood?: string;
+  /** Creative Brief preferences (Director's Cut architecture) */
+  captionStyle?: 'word_by_word' | 'sentence' | 'key_phrases' | 'none';
+  transitionPreference?: 'minimal' | 'subtle' | 'dynamic' | 'energetic';
+  zoomBehavior?: 'none' | 'subtle' | 'moderate' | 'aggressive';
+  motionGraphics?: 'none' | 'stats_only' | 'full';
+  pacingFeel?: 'calm' | 'balanced' | 'energetic' | 'fast';
+  musicPreference?: 'none' | 'subtle_bed' | 'energetic' | 'match_video';
 }
 
 export interface DirectorResult {
