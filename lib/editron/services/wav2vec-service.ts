@@ -71,7 +71,7 @@ const MODAL_WAV2VEC_ENDPOINT = process.env.MODAL_WAV2VEC_ENDPOINT
 
 const VALID_VALENCES: Set<string> = new Set(['positive', 'negative', 'neutral', 'mixed']);
 
-const REQUEST_TIMEOUT_MS = 45_000; // 45s per batch — warm container responds in ~5-15s.
+const REQUEST_TIMEOUT_MS = 90_000; // 90s per batch — accounts for Modal cold start (60-90s). Warm container responds in ~5-15s.
 const BATCH_SIZE = 30;             // ⚠️ INVENTED — matches vjepa-service.ts batch size.
 
 // ─── Warmup ────────────────────────────────────────────────────────────────

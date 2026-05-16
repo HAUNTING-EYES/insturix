@@ -233,7 +233,7 @@ RULE 8 — Return ONLY the JSON object. No markdown, no explanation.
       visualSetup,
       scenes: [],
       analyzedAt: new Date().toISOString(),
-      geminiFileUri: fileUri.startsWith('http') ? undefined : fileUri,
+      geminiFileUri: fileUri || undefined,
     };
 
     console.log(`[VideoUnderstanding] Done: type=${storyboard.contentType}, platform=${storyboard.platform}, setup=${visualSetup.environment}/${visualSetup.dominantShotScale}/${visualSetup.productionQuality}`);
