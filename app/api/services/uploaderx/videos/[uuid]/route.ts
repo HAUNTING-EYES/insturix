@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import UploaderX from "@/schemas/uploaderx";
+import UploaderXVideo from "@/schemas/uploaderx-video";
 
 export async function PATCH(
     request: Request,
@@ -27,7 +27,7 @@ export async function PATCH(
 
         await connectToDatabase();
 
-        const video = await UploaderX.findOne({
+        const video = await UploaderXVideo.findOne({
             userId: session.userId,
             videoUuid: uuid
         });

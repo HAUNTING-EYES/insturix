@@ -1,8 +1,8 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import UploaderX from "@/schemas/uploaderx";
+import UploaderXVideo from "@/schemas/uploaderx-video";
 import {
   buildUploaderXPublicUrl,
   deleteUploaderXObject,
@@ -12,8 +12,14 @@ import {
 export async function POST(req: Request) {
   try {
     const session = await auth();
-    if (!session?.userId) {
+    const user = await currentUser();
+    if (!session?.userId || !user) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const email = user.emailAddresses[0]?.emailAddress;
+    if (!email) {
+      return NextResponse.json({ success: false, error: "User email not found" }, { status: 400 });
     }
 
     const data = await req.formData();
@@ -39,8 +45,9 @@ export async function POST(req: Request) {
     const editronProjectId = data.get("editronProjectId") as string | null;
 
     await connectToDatabase();
-    const video = await UploaderX.create({
+    const video = await UploaderXVideo.create({
       userId: session.userId,
+      email,
       editronProjectId: editronProjectId || null,
       videoUuid: randomUUID(),
       filename: file.name,
@@ -85,7 +92,7 @@ export async function GET() {
     }
 
     await connectToDatabase();
-    const videos = await UploaderX.find({ userId: session.userId }).sort({ uploadedAt: -1 }).lean();
+    const videos = await UploaderXVideo.find({ userId: session.userId }).sort({ uploadedAt: -1 }).lean();
 
     return NextResponse.json({
       success: true,
@@ -113,7 +120,7 @@ export async function DELETE(request: Request) {
     }
 
     await connectToDatabase();
-    const deleted = await UploaderX.findOneAndDelete({
+    const deleted = await UploaderXVideo.findOneAndDelete({
       userId: session.userId,
       videoUuid,
     });

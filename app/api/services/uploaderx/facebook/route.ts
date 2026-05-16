@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import UploaderX from "@/schemas/uploaderx";
+import UploaderXVideo from "@/schemas/uploaderx-video";
 import axios from "axios";
 import FormData from "form-data";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     let videoDoc = null;
 
     if (videoUuid) {
-      videoDoc = await UploaderX.findOne({ videoUuid });
+      videoDoc = await UploaderXVideo.findOne({ videoUuid });
       if (videoDoc?.metadata?.facebook?.videoId) {
         existingFbVideoId = videoDoc.metadata.facebook.videoId;
       }
@@ -165,7 +165,7 @@ export async function POST(req: Request) {
         if (!simpleData.error) {
           const facebookUrl = `https://www.facebook.com/${targetPage.pageId}/videos/${simpleData.id}`;
           if (videoUuid) {
-            await UploaderX.updateOne(
+            await UploaderXVideo.updateOne(
               { videoUuid },
               {
                 $set: {
@@ -291,7 +291,7 @@ export async function POST(req: Request) {
 
     const facebookUrl = `https://www.facebook.com/${targetPage.pageId}/videos/${videoId}`;
     if (videoUuid) {
-      await UploaderX.updateOne(
+      await UploaderXVideo.updateOne(
         { videoUuid },
         {
           $set: {
