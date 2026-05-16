@@ -41,7 +41,7 @@ import type {
   Storyboard,
 } from '@/lib/pipeline/schemas/storyboard';
 import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
-import { createProjectLink } from '@/lib/shared/project-links';
+import { createProjectLink, findLinkBySessionId, addStoryboardToLink } from '@/lib/shared/project-links';
 
 export const runtime = 'nodejs';
 // This route now only VALIDATES + DISPATCHES. Should complete in <30s even for
@@ -269,17 +269,26 @@ export async function POST(request: NextRequest) {
     };
     await saveStoryboard(storyboard);
 
-    // ─── Create project link (fail-open: link failure must NOT block generation) ──
+    // ─── Project link: reuse existing (from session creation) or create new ──
+    // Phase 1 of Big Integration creates a project_link at ThinkForge session time.
+    // If that link exists, add the storyboardId to it. Otherwise create fresh
+    // (backward compat for direct-to-storyboard without ThinkForge session).
     try {
-      await createProjectLink(userId, {
-        sessionId: projectId,
-        sourceScriptId,
-        storyboardId,
-        brandId,
-      });
-      console.log(`[storyboard/generate] Project link created for storyboard ${storyboardId}`);
+      const existingLink = projectId ? await findLinkBySessionId(userId, projectId) : null;
+      if (existingLink) {
+        await addStoryboardToLink(userId, existingLink.universalId, storyboardId);
+        console.log(`[storyboard/generate] Added storyboard ${storyboardId} to existing link ${existingLink.universalId}`);
+      } else {
+        await createProjectLink(userId, {
+          sessionId: projectId,
+          sourceScriptId,
+          storyboardId,
+          brandId,
+        });
+        console.log(`[storyboard/generate] Project link created for storyboard ${storyboardId}`);
+      }
     } catch (linkErr: any) {
-      const linkWarn = `Project link creation failed: ${linkErr.message}. Storyboard generated without link — reconciliation will fix.`;
+      const linkWarn = `Project link operation failed: ${linkErr.message}. Storyboard generated without link — reconciliation will fix.`;
       console.error(`[storyboard/generate] ${linkWarn}`);
       warnings.push(linkWarn);
     }

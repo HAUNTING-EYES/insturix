@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
+import { projectService } from '@/lib/editron/services/project-service';
+import { createProjectLink, findLinkBySessionId } from '@/lib/shared/project-links';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,6 +46,34 @@ export async function POST(req: Request) {
 
     // Create/get session with org context
     const session = await db.getOrCreateSession(userId, sessionId, projectMeta, orgId, createdByName);
+
+    // If this is a NEW session (no sessionId provided in request), create a lightweight
+    // Editron project at "script" stage so it appears on the Production Floor dashboard.
+    // Fail-open: project creation failure must never block session functionality.
+    if (!sessionId) {
+      try {
+        const scriptTitle = projectMeta?.title || projectMeta?.topic || 'Untitled Script';
+        const project = await projectService.createScriptStageProject(
+          userId,
+          session._id,
+          scriptTitle,
+          { brandId: (projectMeta as any)?.brandId, orgId: orgId || undefined },
+        );
+        if (project) {
+          // Create early project link tying session → project
+          const existingLink = await findLinkBySessionId(userId, session._id);
+          if (!existingLink) {
+            await createProjectLink(userId, {
+              sessionId: session._id,
+              brandId: (projectMeta as any)?.brandId,
+            });
+          }
+          console.log(`[ThinkForge] Script-stage project ${project.projectId} created for session ${session._id}`);
+        }
+      } catch (linkErr: any) {
+        console.error(`[ThinkForge] Script-stage project creation failed (non-blocking): ${linkErr.message}`);
+      }
+    }
 
     // Load script for session
     const script = await db.getScript(session._id);

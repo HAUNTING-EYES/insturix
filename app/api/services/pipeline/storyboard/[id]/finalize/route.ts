@@ -689,9 +689,23 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // Create Editron project then save overlays + settings
+    // Reuse existing script-stage project (created at ThinkForge session time) or create new.
+    // storyboard.projectId is the ThinkForge sessionId (confusing name — legacy schema).
     const projectName = storyboard.title || 'Storyboard Video';
-    const project = await projectService.createProject(userId, projectName, { brandId });
+    const existingProject = storyboard.projectId
+      ? await projectService.findProjectBySessionId(userId, storyboard.projectId)
+      : null;
+
+    const project = existingProject || await projectService.createProject(userId, projectName, { brandId });
+
+    // Update name + stage on reused project (it was created with a possibly-different title)
+    if (existingProject) {
+      const db2 = await getDatabase();
+      await db2.collection(COLLECTIONS.PROJECTS).updateOne(
+        { projectId: project.projectId },
+        { $set: { name: projectName, pipelineStage: 'edit', brandId: brandId || undefined, updatedAt: new Date() } },
+      );
+    }
 
     await projectService.saveProject(userId, project.projectId, {
       overlays,

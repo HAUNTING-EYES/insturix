@@ -64,6 +64,8 @@ interface Project {
   stage: StageKey;
   score: number | null;
   status: "active" | "needs_attention" | "complete";
+  // Cross-service linkage
+  sourceSessionId: string | null;
 }
 
 /* ── Map API response to dashboard Project ── */
@@ -92,6 +94,7 @@ function enrichProject(raw: ApiProject): Project {
     stage,
     score,
     status,
+    sourceSessionId: (raw as any).sourceSessionId ?? null,
   };
 }
 
@@ -962,12 +965,19 @@ function SplitDetail({ project }: { project: Project }) {
           </div>
         )}
       </div>
-      <Link href={`/dashboard/editron?project=${project.id}`} style={{ textDecoration: "none" }}>
+      <Link
+        href={
+          project.stage === "script" && project.sourceSessionId
+            ? `/dashboard/thinkforge?session=${project.sourceSessionId}`
+            : `/dashboard/editron?project=${project.id}`
+        }
+        style={{ textDecoration: "none" }}
+      >
         <button style={{
           background: C.accent, color: C.bg, border: "none",
           padding: "10px 28px", borderRadius: 7, fontSize: 13, fontWeight: 800,
           cursor: "pointer", fontFamily: "inherit",
-        }}>Open project</button>
+        }}>{project.stage === "script" ? "Open script" : "Open project"}</button>
       </Link>
     </div>
   );
@@ -1037,12 +1047,19 @@ function CinematicView({
                 <span style={{ color: C.faint }}>&middot;</span>
                 <span>{timeAgo(focus.updatedAt)}</span>
               </div>
-              <Link href={`/dashboard/editron?project=${focus.id}`} style={{ textDecoration: "none" }}>
+              <Link
+                href={
+                  focus.stage === "script" && focus.sourceSessionId
+                    ? `/dashboard/thinkforge?session=${focus.sourceSessionId}`
+                    : `/dashboard/editron?project=${focus.id}`
+                }
+                style={{ textDecoration: "none" }}
+              >
                 <button style={{
                   background: C.accent, color: C.bg, border: "none",
                   padding: "10px 28px", borderRadius: 7, fontSize: 13, fontWeight: 800,
                   cursor: "pointer", fontFamily: "inherit",
-                }}>Open</button>
+                }}>{focus.stage === "script" ? "Open script" : "Open"}</button>
               </Link>
             </div>
           ) : (
