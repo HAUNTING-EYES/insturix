@@ -127,8 +127,13 @@ export async function generateCreativeBrief(
   const startTime = Date.now();
 
   try {
+    console.log(`[CreativeBrief] Starting generation (${videoContext.transcription.length} words, ${videoContext.segmentCount} segments, geminiFileUri=${!!geminiFileUri})`);
+
     const model = await getCreativeDocCachedModel();
+    console.log('[CreativeBrief] Model obtained from context cache');
+
     const prompt = buildPrompt(videoContext, preferences);
+    console.log(`[CreativeBrief] Prompt built (${prompt.length} chars, prefs: ${JSON.stringify(preferences)})`);
 
     const generationConfig = {
       responseMimeType: 'application/json',
@@ -143,8 +148,10 @@ export async function generateCreativeBrief(
       parts.unshift({
         fileData: { mimeType: 'video/mp4', fileUri: geminiFileUri },
       });
+      console.log(`[CreativeBrief] Video file attached: ${geminiFileUri.substring(0, 80)}...`);
     }
 
+    console.log('[CreativeBrief] Calling Gemini...');
     const result = await model.generateContent({
       contents: [{ role: 'user', parts }],
       generationConfig,
@@ -152,15 +159,25 @@ export async function generateCreativeBrief(
 
     const responseText = result.response?.text?.() || result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!responseText) {
-      console.error('[CreativeBrief] Empty response from Gemini');
+      console.error('[CreativeBrief] Empty response from Gemini. Full response:', JSON.stringify(result.response?.candidates?.[0] || 'no candidates'));
       return null;
     }
 
+    console.log(`[CreativeBrief] Gemini responded (${responseText.length} chars). Parsing JSON...`);
+
     const parsed = JSON.parse(responseText);
     const brief = validateAndGate(parsed, startTime);
+
+    if (brief) {
+      console.log(`[CreativeBrief] SUCCESS: ${brief.decisions.length} decisions, pacing=${brief.overallPacing}, ${brief.narrativeArc.length} sections`);
+    } else {
+      console.error('[CreativeBrief] validateAndGate returned null — parsed response was invalid');
+    }
+
     return brief;
   } catch (err: any) {
-    console.error(`[CreativeBrief] Generation failed: ${err.message}`);
+    console.error(`[CreativeBrief] Generation FAILED: ${err.message}`);
+    console.error(`[CreativeBrief] Stack: ${err.stack?.split('\n').slice(0, 3).join(' | ')}`);
     return null;
   }
 }

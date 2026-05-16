@@ -197,9 +197,18 @@ export async function executeDirectorPlan(
       const isAIProject = storyboardScenes.length > 0;
 
       // ── Per-asset analysis with INDIVIDUAL error isolation ──
-      onProgress?.(0, 0, `Analyzing ${videoOverlays.length} video assets (5-track)...`);
+      // SKIP when Creative Brief is active — Path E watches the video directly via
+      // geminiFileUri. Running 43 per-asset Gemini calls exhausts quota before
+      // the Creative Brief can make its ONE call. This was the root cause of
+      // proj_FGHYdAd7VkhU producing zero editing decisions.
+      const skipPerAssetAnalysis = process.env.USE_CREATIVE_BRIEF === 'true';
+      if (skipPerAssetAnalysis) {
+        console.log(`[Director] Skipping per-asset 5-Track analysis (USE_CREATIVE_BRIEF=true, ${videoOverlays.length} assets). Creative Brief uses geminiFileUri directly.`);
+      } else {
+        onProgress?.(0, 0, `Analyzing ${videoOverlays.length} video assets (5-track)...`);
+      }
 
-      for (let i = 0; i < videoOverlays.length; i++) {
+      for (let i = 0; i < videoOverlays.length && !skipPerAssetAnalysis; i++) {
         const vo = videoOverlays[i];
         const assetId = (vo as any).assetId;
         if (!assetId) {
