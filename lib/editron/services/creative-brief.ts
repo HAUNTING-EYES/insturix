@@ -209,11 +209,13 @@ Your decisions will be executed deterministically by a frame-level executor. Be 
 
 <rules>
 - Reference word indices (from the transcription below) as your primary anchor for timing.
+- CRITICAL: Word indices MUST be between 0 and ${ctx.transcription.length - 1}. There are exactly ${ctx.transcription.length} words. Any target_word_idx outside this range is INVALID and will be discarded.
 - Include a confidence score (0.0-1.0) for each decision. Below 0.5 = executor skips it.
 - Respect all constraints from the creative doc in your context (anti-patterns, maximums, never-rules).
 - Do NOT over-edit. Silence and stillness are valid creative choices. Fewer confident decisions > many uncertain ones.
 - Match the user's preferences below. If they said "minimal transitions", use mostly hard cuts.
 - Your narrative_arc sections should cover the ENTIRE transcription (no gaps).
+- Distribute decisions across the FULL length of the video, not clustered at the start or end.
 </rules>
 
 <output_format>
