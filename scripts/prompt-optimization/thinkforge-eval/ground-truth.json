@@ -1,0 +1,299 @@
+[
+  {
+    "id": "gt-001-product-ad",
+    "input_prompt": "Write a 30-second product ad for AeroPress coffee maker. Target: busy professionals who care about coffee quality. Brand voice: confident, modern, no-nonsense.",
+    "content_type": "product_ad",
+    "expected_output": {
+      "title": "60 Seconds to Perfect Coffee",
+      "scenes": [
+        {
+          "sceneIndex": 0,
+          "narration": "You've got a meeting in ten minutes. The office machine is broken. Again.",
+          "visualDescription": "Close-up of a generic drip coffee machine with a blinking red error light. Harsh fluorescent office lighting. Shallow depth of field.",
+          "mood": "frustrated",
+          "duration": "4s",
+          "editDirections": { "pacing": "quick", "transition": "hard cut" },
+          "onScreenText": null
+        },
+        {
+          "sceneIndex": 1,
+          "narration": "But you don't drink that coffee anyway.",
+          "visualDescription": "Hands confidently placing an AeroPress on a clean desk. Morning sunlight streaming in. The AeroPress catches the light. Product hero shot.",
+          "mood": "confident",
+          "duration": "3s",
+          "editDirections": { "pacing": "medium", "cameraMove": "slow push-in on product" },
+          "onScreenText": null
+        },
+        {
+          "sceneIndex": 2,
+          "narration": "Sixty seconds. Hot water. Press. Done.",
+          "visualDescription": "Quick montage: water poured from electric kettle, plunger pressed down with satisfying resistance, rich dark coffee flowing into a ceramic mug. Each action fills 1 second. Warm color grade.",
+          "mood": "satisfying",
+          "duration": "5s",
+          "editDirections": { "pacing": "fast-montage", "transition": "whip cuts between actions" },
+          "onScreenText": "60 seconds. That's it."
+        },
+        {
+          "sceneIndex": 3,
+          "narration": "AeroPress. For people who refuse to drink bad coffee.",
+          "visualDescription": "Professional sipping coffee at their desk, slight smile. Pull back to reveal a clean, modern workspace. AeroPress visible in the background. Warm, golden-hour lighting.",
+          "mood": "confident-warm",
+          "duration": "4s",
+          "editDirections": { "pacing": "slow", "cameraMove": "gentle pull-back" },
+          "onScreenText": "AeroPress"
+        }
+      ],
+      "quality_markers": {
+        "has_hook": true,
+        "hook_type": "pain-point",
+        "emotional_arc": "frustration → confidence → satisfaction → aspiration",
+        "visual_specificity": "high",
+        "brand_voice_match": true,
+        "pacing_variety": true,
+        "cta_present": true,
+        "total_duration": "16s"
+      }
+    }
+  },
+  {
+    "id": "gt-002-brand-film",
+    "input_prompt": "Write a 60-second brand film for a sustainable fashion brand called 'Thread'. Their mission is making luxury clothing from recycled ocean plastics. Target audience: environmentally conscious millennials with disposable income.",
+    "content_type": "brand_film",
+    "expected_output": {
+      "title": "What Washes Up",
+      "scenes": [
+        {
+          "sceneIndex": 0,
+          "narration": null,
+          "visualDescription": "Aerial drone shot of a pristine coastline at golden hour. Waves rolling in. No people. The beauty is almost aggressive. Hold for 3 seconds. Then: a single plastic bottle tumbles in the surf.",
+          "mood": "contemplative-jarring",
+          "duration": "5s",
+          "editDirections": { "pacing": "slow-build", "cameraMove": "aerial tracking", "transition": "none" },
+          "onScreenText": null
+        },
+        {
+          "sceneIndex": 1,
+          "narration": "Every year, eight million tons of plastic enter the ocean.",
+          "visualDescription": "Close-up of weathered plastic debris on wet sand. Macro detail. The texture is almost abstract, almost beautiful. Muted, desaturated color grade.",
+          "mood": "somber",
+          "duration": "5s",
+          "editDirections": { "pacing": "slow", "cameraMove": "slow pan across debris" },
+          "onScreenText": "8 million tons. Every year."
+        },
+        {
+          "sceneIndex": 2,
+          "narration": "We asked: what if that waste became something you actually wanted to wear?",
+          "visualDescription": "Match cut: the abstract plastic texture dissolves into the texture of Thread fabric. Close-up of hands running over the material. The fabric has a subtle sheen. Studio lighting, clean background.",
+          "mood": "curious-hopeful",
+          "duration": "6s",
+          "editDirections": { "pacing": "medium", "transition": "dissolve-match-cut" },
+          "onScreenText": null
+        },
+        {
+          "sceneIndex": 3,
+          "narration": "Thread takes ocean-bound plastic and turns it into clothing that lasts. Not fast fashion. Not compromise. Actual luxury.",
+          "visualDescription": "Montage: factory hands sorting pellets, weaving machines in motion, a tailor fitting a jacket on a model. Each shot is composed like a portrait. Warm lighting, earth tones.",
+          "mood": "purposeful",
+          "duration": "10s",
+          "editDirections": { "pacing": "medium-montage", "cameraMove": "steady, composed frames" },
+          "onScreenText": null
+        },
+        {
+          "sceneIndex": 4,
+          "narration": "Because the most sustainable thing you can own is something you never throw away.",
+          "visualDescription": "Model wearing Thread jacket walks along the same coastline from scene 0. Camera at eye level. They're not posing, they're just walking. The beach is clean now. Golden hour.",
+          "mood": "aspirational-quiet",
+          "duration": "7s",
+          "editDirections": { "pacing": "slow", "cameraMove": "tracking, eye-level" },
+          "onScreenText": "Thread. Wear the change."
+        }
+      ],
+      "quality_markers": {
+        "has_hook": true,
+        "hook_type": "visual-contrast",
+        "emotional_arc": "beauty → shock → curiosity → purpose → aspiration",
+        "visual_specificity": "very high",
+        "brand_voice_match": true,
+        "pacing_variety": true,
+        "narrative_structure": "problem → reframe → solution → vision",
+        "total_duration": "33s"
+      }
+    }
+  },
+  {
+    "id": "gt-003-tutorial",
+    "input_prompt": "Write a 90-second tutorial on 'How to set up Google Analytics 4 for your Shopify store'. Target: small business owners who aren't technical. Keep it simple, no jargon.",
+    "content_type": "tutorial",
+    "expected_output": {
+      "title": "Google Analytics on Shopify in 3 Minutes",
+      "scenes": [
+        {
+          "sceneIndex": 0,
+          "narration": "If you're running a Shopify store and you don't know where your customers are coming from, you're flying blind. Let's fix that in under three minutes.",
+          "visualDescription": "Screen recording: Shopify dashboard with analytics tab open showing zeros. Cursor circles the empty graphs. Clean, bright screen capture.",
+          "mood": "direct-friendly",
+          "duration": "8s",
+          "editDirections": { "pacing": "medium", "transition": "none" },
+          "onScreenText": "Step 0: Why This Matters"
+        },
+        {
+          "sceneIndex": 1,
+          "narration": "Step one. Go to analytics.google.com and click 'Start measuring'. Use the same Google account you use for everything else. Name your account after your store.",
+          "visualDescription": "Screen recording: browser navigating to analytics.google.com. Click 'Start measuring'. Type store name into account field. Each click highlighted with a cursor spotlight effect.",
+          "mood": "instructional",
+          "duration": "15s",
+          "editDirections": { "pacing": "steady", "cameraMove": "screen follow" },
+          "onScreenText": "Step 1: Create GA4 Account"
+        },
+        {
+          "sceneIndex": 2,
+          "narration": "Step two. When it asks for a property, that's just Google's word for 'your website'. Put in your store URL. Pick your timezone and currency.",
+          "visualDescription": "Screen recording: property setup page. Cursor fills in the URL field, selects timezone dropdown, picks currency. Jargon like 'property' gets a callout bubble: 'Property = Your Website'.",
+          "mood": "reassuring",
+          "duration": "12s",
+          "editDirections": { "pacing": "steady" },
+          "onScreenText": "Step 2: Add Your Website"
+        },
+        {
+          "sceneIndex": 3,
+          "narration": "Step three. Grab the measurement ID. It starts with G-something. Copy it. Now go to your Shopify admin, click Online Store, then Preferences. Paste it in the Google Analytics box. Hit save.",
+          "visualDescription": "Split screen: left side shows GA4 with measurement ID highlighted. Right side shows Shopify admin > Online Store > Preferences. Arrow connects them visually. Paste animation.",
+          "mood": "action",
+          "duration": "18s",
+          "editDirections": { "pacing": "medium-fast", "transition": "split-screen" },
+          "onScreenText": "Step 3: Connect to Shopify"
+        },
+        {
+          "sceneIndex": 4,
+          "narration": "That's it. Give it 24 hours and you'll start seeing real data: where your visitors come from, what they look at, and what makes them buy. No more guessing.",
+          "visualDescription": "Screen recording: GA4 realtime dashboard showing actual visitor data flowing in. Numbers ticking up. Map showing visitor locations. The data is alive.",
+          "mood": "satisfying-empowering",
+          "duration": "10s",
+          "editDirections": { "pacing": "medium-slow", "cameraMove": "slow zoom on realtime data" },
+          "onScreenText": "You're tracking. No more guessing."
+        }
+      ],
+      "quality_markers": {
+        "has_hook": true,
+        "hook_type": "pain-point-with-promise",
+        "emotional_arc": "problem → action → action → action → payoff",
+        "visual_specificity": "high",
+        "jargon_handled": true,
+        "step_clarity": "numbered, sequential",
+        "total_duration": "63s"
+      }
+    }
+  },
+  {
+    "id": "gt-004-talking-head",
+    "input_prompt": "Write a 45-second talking head video: 'Why most startups fail at marketing'. Speaker is a marketing agency CEO. Platform: LinkedIn. Tone: authoritative but not arrogant.",
+    "content_type": "talking_head",
+    "expected_output": {
+      "title": "The Marketing Mistake That Kills Startups",
+      "scenes": [
+        {
+          "sceneIndex": 0,
+          "narration": "I've worked with over 200 startups. Want to know the number one reason their marketing fails? They build the product first and ask 'how do we sell this?' second.",
+          "visualDescription": "Speaker directly to camera. Clean background, slightly off-center framing. Confident posture. One small gesture on 'number one reason'. Warm but not soft lighting.",
+          "mood": "authoritative-hook",
+          "duration": "10s",
+          "editDirections": { "pacing": "medium", "cameraMove": "static, tight frame" },
+          "onScreenText": null
+        },
+        {
+          "sceneIndex": 1,
+          "narration": "That's backwards. The companies that win? They start with the customer's language. The exact words people use when they're frustrated. When they're searching. When they're complaining to their friends.",
+          "visualDescription": "Same speaker, slightly wider frame now. Uses hands to emphasize 'exact words'. Energy builds. Cut to B-roll: someone typing a frustrated search query on their phone.",
+          "mood": "building-intensity",
+          "duration": "12s",
+          "editDirections": { "pacing": "building", "transition": "cut to B-roll on 'searching'" },
+          "onScreenText": "Start with their words. Not yours."
+        },
+        {
+          "sceneIndex": 2,
+          "narration": "If you can't describe what you do in the words your customer already uses, you don't have a marketing problem. You have a listening problem.",
+          "visualDescription": "Back to speaker. Closer frame. Direct eye contact. Slight pause after 'listening problem'. The pause lands. No movement, just conviction.",
+          "mood": "decisive",
+          "duration": "8s",
+          "editDirections": { "pacing": "slow-emphatic", "cameraMove": "slow push-in" },
+          "onScreenText": null
+        },
+        {
+          "sceneIndex": 3,
+          "narration": "Talk to ten customers this week. Write down exactly how they describe the problem. That's your marketing. That's it.",
+          "visualDescription": "Speaker, medium frame. Opens hands in a 'that simple' gesture. Slight smile. Holds the look for 1 second after finishing. Cut to branded end card.",
+          "mood": "warm-actionable",
+          "duration": "8s",
+          "editDirections": { "pacing": "medium", "transition": "cut to end card" },
+          "onScreenText": "Talk to 10 customers. This week."
+        }
+      ],
+      "quality_markers": {
+        "has_hook": true,
+        "hook_type": "credibility-then-contrarian",
+        "emotional_arc": "authority → tension → insight → action",
+        "visual_specificity": "medium-high",
+        "speaker_energy_variation": true,
+        "pause_placement": "after key insight (scene 2)",
+        "cta_specific": true,
+        "total_duration": "38s"
+      }
+    }
+  },
+  {
+    "id": "gt-005-ugc-social",
+    "input_prompt": "Write a 15-second Instagram Reel for a protein bar called 'FuelUp'. Target: gym-goers aged 20-30. Vibe: energetic, punchy, not corporate. Brand voice: like a gym buddy, not a nutritionist.",
+    "content_type": "ugc_social",
+    "expected_output": {
+      "title": "Post-Workout Problem, Solved",
+      "scenes": [
+        {
+          "sceneIndex": 0,
+          "narration": null,
+          "visualDescription": "POV: someone just finished a hard workout. Heavy breathing sound. Phone screen shows 11:47 PM. Gym is empty. Dark, gritty, handheld camera shake.",
+          "mood": "raw-tired",
+          "duration": "3s",
+          "editDirections": { "pacing": "fast", "transition": "smash cut" },
+          "onScreenText": "11:47 PM. Starving."
+        },
+        {
+          "sceneIndex": 1,
+          "narration": null,
+          "visualDescription": "Hand reaches into gym bag. Pulls out a FuelUp bar. Rips the wrapper. The tear sound is satisfying and loud. Close-up of the bar texture. Handheld, raw lighting.",
+          "mood": "satisfying-raw",
+          "duration": "4s",
+          "editDirections": { "pacing": "fast-punchy", "transition": "jump cut" },
+          "onScreenText": "30g protein. Zero excuses."
+        },
+        {
+          "sceneIndex": 2,
+          "narration": null,
+          "visualDescription": "Person takes a bite. Nods. Walks out of gym into the night. Door swings shut behind them. Confident walk. Street lights. Low angle.",
+          "mood": "satisfied-cool",
+          "duration": "4s",
+          "editDirections": { "pacing": "medium", "cameraMove": "low angle tracking" },
+          "onScreenText": null
+        },
+        {
+          "sceneIndex": 3,
+          "narration": null,
+          "visualDescription": "FuelUp logo animates in. Clean. Simple. The wrapper from scene 1 sits crumpled in frame. Real, not styled.",
+          "mood": "brand-stamp",
+          "duration": "2s",
+          "editDirections": { "pacing": "snap", "transition": "hard cut to logo" },
+          "onScreenText": "FuelUp. Feed the grind."
+        }
+      ],
+      "quality_markers": {
+        "has_hook": true,
+        "hook_type": "relatable-moment",
+        "emotional_arc": "exhaustion → relief → satisfaction → brand",
+        "visual_specificity": "very high",
+        "no_narration": true,
+        "platform_native": "vertical, fast cuts, text overlays",
+        "brand_voice_match": true,
+        "total_duration": "13s"
+      }
+    }
+  }
+]
