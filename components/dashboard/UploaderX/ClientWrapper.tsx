@@ -339,11 +339,21 @@ export function UploaderXClientWrapper() {
           toast({ title: "YouTube connected", description: "Your Google account has YouTube permissions." });
           return;
         }
-        await createExternalAccountWithVerification({
-          strategy: "oauth_google",
-          redirectUrl: `${window.location.origin}/dashboard/uploaderx`,
-          additionalScopes: [YT_SCOPE],
-        });
+        if (googleAccount) {
+          const reauth = await googleAccount.reauthorize({
+            redirectUrl: `${window.location.origin}/dashboard/uploaderx`,
+            additionalScopes: [YT_SCOPE],
+          });
+          if (reauth.verification?.externalVerificationRedirectURL) {
+            window.location.href = reauth.verification.externalVerificationRedirectURL.toString();
+          }
+        } else {
+          await createExternalAccountWithVerification({
+            strategy: "oauth_google",
+            redirectUrl: `${window.location.origin}/dashboard/uploaderx`,
+            additionalScopes: [YT_SCOPE],
+          });
+        }
       } catch (err) {
         console.error("[YouTube connect]", err);
         toast({
