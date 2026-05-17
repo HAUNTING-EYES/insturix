@@ -436,6 +436,7 @@ async function handler(request: NextRequest) {
         $set: {
           autoEditStatus: 'analysis_complete',
           ...(syntheticStoryboard && { syntheticStoryboard }),
+          ...(syntheticStoryboard?.geminiFileUri && { geminiFileUri: syntheticStoryboard.geminiFileUri }),
           ...(editDNA && { referenceEditDNA: editDNA }),
           ...(rawFootageAnalysis && { rawFootageAnalysis }),
           ...(genreParameters && { genreParameters }),

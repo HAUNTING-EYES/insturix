@@ -373,6 +373,7 @@ export async function executeDirectorPlan(
 
           // Gemini file URI for video watching (from VU if available)
           const geminiFileUri = (projectDoc as any)?._vuGeminiFileUri
+            || projectDoc?.geminiFileUri
             || projectDoc?.syntheticStoryboard?.geminiFileUri
             || undefined;
 
