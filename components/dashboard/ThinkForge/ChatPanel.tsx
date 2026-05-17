@@ -20,6 +20,7 @@ interface ChatPanelProps {
   selectedIdea: Idea;
   script: Script | null;
   scriptId?: string | null;
+  isScriptLoading?: boolean;
   onApplyEdit: (updated: Script) => void;
   onRunEdit?: (instruction: string, selection?: string) => Promise<any>;
   sessionId?: string | null;
@@ -119,6 +120,7 @@ function modelToScript(m: ScriptModel | null): Script | null {
 export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: string) => void }> = ({
   selectedIdea,
   script,
+  isScriptLoading,
   onApplyEdit,
   sessionId,
   scriptId,
@@ -233,6 +235,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   useEffect(() => {
     if (autoStartFired.current) return;
     if (!sessionId) return;
+    if (isScriptLoading) return;
     if (!selectedIdea?.idea) return;
     if (chat.messages.length > 0) return;
     if (chat.isStreaming) return;
@@ -272,7 +275,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     }, 3000);
 
     return () => clearTimeout(timer);
-  }, [sessionId, selectedIdea?.idea]);
+  }, [sessionId, selectedIdea?.idea, isScriptLoading]);
 
   // Build project payload from selected idea
   const sessionPayload = useMemo(

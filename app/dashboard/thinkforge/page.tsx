@@ -749,6 +749,7 @@ export default function ThinkForgeLanding() {
 				scriptId={activeScriptId}
 				tabsRefreshTrigger={tabsRefreshCounter}
 				script={scriptFromHook}
+				isScriptLoading={scriptHook.isLoading}
 				isSaving={scriptHook.isSaving}
 				onApplyEdit={handleApplyEdit}
 				onRunEdit={handleRunEdit}
