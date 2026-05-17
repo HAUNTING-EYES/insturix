@@ -343,6 +343,11 @@ export default function ProjectDashboard() {
               analyzing: 'AI is analyzing your video...',
               transcribing: 'Transcribing speech...',
               cleaning: 'Removing silence and fillers...',
+              computing_params: 'Computing editing parameters...',
+              analyzing_deep: 'Deep visual + audio analysis...',
+              analysis_complete: 'Analysis complete, preparing edit...',
+              directing_queued: 'Queued for editing...',
+              directing: 'Applying edits, transitions, captions...',
               editing: 'Applying edits, transitions, captions...',
             };
             setAutoEditProgress(progressMap[status] || `Processing (${status})...`);

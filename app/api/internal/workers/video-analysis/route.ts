@@ -4,6 +4,8 @@
  * QStash worker for Mode 2 video processing.
  * Architecture: cuts FIRST, analyze SECOND.
  *
+ * Stage 1 of two-stage QStash pipeline (Stage 2: /api/internal/workers/director).
+ *
  * Flow:
  * 1.   Transcribe + classify + build cut plan (processRawFootage)
  * 1.55 Fix duration from transcript timestamps
@@ -13,8 +15,7 @@
  * 3.5  V-JEPA + Wav2Vec GPU analysis (parallel, Modal)
  * 3.6  Moment weight map
  * 4.   Store all results on project doc
- * 5.   Profile detection
- * 6.   Director Agent (13-step deterministic executor)
+ * 5.   Dispatch Director worker via QStash (or run inline in dev)
  *
  * VU runs AFTER cuts and receives kept-segment context so Gemini
  * focuses on what the viewer will actually see.
@@ -51,6 +52,8 @@ interface VideoAnalysisPayload {
 async function handler(request: NextRequest) {
   const startMs = Date.now();
   console.log('[VideoAnalysisWorker] Started');
+  let trackedProjectId: string | undefined;
+  let directorDispatched = false;
 
   try {
     const payload: VideoAnalysisPayload = await request.json();
@@ -60,6 +63,7 @@ async function handler(request: NextRequest) {
       userIntent, referenceAssetId, script, platform,
       captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference,
     } = payload;
+    trackedProjectId = projectId;
 
     let effectiveDurationSec = durationSec;
 
@@ -430,7 +434,7 @@ async function handler(request: NextRequest) {
       { projectId },
       {
         $set: {
-          autoEditStatus: 'editing',
+          autoEditStatus: 'analysis_complete',
           ...(syntheticStoryboard && { syntheticStoryboard }),
           ...(editDNA && { referenceEditDNA: editDNA }),
           ...(rawFootageAnalysis && { rawFootageAnalysis }),
@@ -479,13 +483,65 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // ─── Step 5: Profile detection ─────────────────────────────────
-    // Use content-type detector's profile (transcript-based, higher confidence)
-    // if available. Fall back to SyntheticStoryboard-based detection.
+    // ─── Step 5: Dispatch Director to separate worker ─────────────
+    // Analysis complete. Director runs in a SEPARATE Vercel function
+    // to stay under the 800s timeout. 20-min videos timed out with the
+    // single-function approach (proj_YH4AyxeGMWvY: 31 transitions placed,
+    // then killed at 800s — captions, zooms, quality review never ran).
+    const directorPayload = {
+      projectId, userId,
+      profileId: initialProfileId,
+      title, platform, userIntent,
+      captionStyle, transitionPreference, zoomBehavior,
+      motionGraphics, pacingFeel, musicPreference,
+    };
+
+    if (process.env.QSTASH_TOKEN) {
+      await db.collection('projects').updateOne(
+        { projectId },
+        { $set: { autoEditStatus: 'directing_queued' } },
+      );
+
+      const qstashBaseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+      const directorUrl = `${qstashBaseUrl}/api/internal/workers/director`;
+      const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${directorUrl}`;
+
+      const dispatchRes = await fetch(qstashUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
+          'Content-Type': 'application/json',
+          'Upstash-Retries': '0',
+          'Upstash-Delay': '3s',
+        },
+        body: JSON.stringify(directorPayload),
+      });
+
+      if (!dispatchRes.ok) {
+        const errBody = await dispatchRes.text().catch(() => 'no body');
+        throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+      }
+
+      directorDispatched = true;
+      const dispatchData = await dispatchRes.json().catch(() => ({}));
+      const totalMs = Date.now() - startMs;
+      console.log(`[VideoAnalysisWorker] Analysis complete: ${projectId} in ${totalMs}ms. Director dispatched (messageId=${dispatchData.messageId || 'unknown'}).`);
+      return NextResponse.json({ success: true, totalMs, stage: 'analysis' });
+    }
+
+    // ─── Dev fallback: no QStash → run Director inline ────────────
+    console.warn(`[VideoAnalysisWorker] No QSTASH_TOKEN — running Director inline`);
+    await db.collection('projects').updateOne(
+      { projectId },
+      { $set: { autoEditStatus: 'directing' } },
+    );
+
     let profileId = initialProfileId;
     if (rawFootageAnalysis?.contentTypeDetection?.confidence >= 0.5) {
       profileId = rawFootageAnalysis.contentTypeDetection.profileId;
-      console.log(`[VideoAnalysisWorker] Profile from content-type detector: ${profileId} (${rawFootageAnalysis.contentTypeDetection.contentType}, confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)})`);
+      console.log(`[VideoAnalysisWorker] Profile: ${profileId} (${rawFootageAnalysis.contentTypeDetection.contentType})`);
     } else {
       try {
         const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
@@ -503,15 +559,12 @@ async function handler(request: NextRequest) {
           overallMusicPrompt: syntheticStoryboard?.overallMusicPrompt,
         });
         if (profile?.profileId) profileId = profile.profileId;
-        console.log(`[VideoAnalysisWorker] Profile from SyntheticStoryboard: ${profileId}`);
       } catch {
         console.warn(`[VideoAnalysisWorker] Profile detection failed, using ${profileId}`);
       }
     }
 
-    // ─── Step 6: Run Director ─────────────────────────────────────
     let brief: any = undefined;
-    // Merge Creative Brief preferences from user's pre-edit panel
     const userPrefs = {
       ...(captionStyle && { captionStyle }),
       ...(transitionPreference && { transitionPreference }),
@@ -542,7 +595,6 @@ async function handler(request: NextRequest) {
       (step, total, desc) => console.log(`[VideoAnalysisWorker] Director ${step}/${total}: ${desc}`),
     );
 
-    // ─── Step 7: Mark complete ────────────────────────────────────
     const totalMs = Date.now() - startMs;
     await db.collection('projects').updateOne(
       { projectId },
@@ -556,15 +608,8 @@ async function handler(request: NextRequest) {
       },
     );
 
-    console.log(`[VideoAnalysisWorker] Complete: ${projectId} in ${totalMs}ms (${directorResult.actionsExecuted} actions)`);
+    console.log(`[VideoAnalysisWorker] Complete (inline): ${projectId} in ${totalMs}ms (${directorResult.actionsExecuted} actions)`);
 
-    // ─── Step 7.1: Record bandit outcome (reward feedback loop) ───
-    // Read quality score from project doc (Director writes it during quality_review).
-    // Record outcome so bandit learns from this project's results.
-    // Non-fatal — learning is an enhancement, not critical path.
-    // GUARD: skip when quality review has many criticals (likely system failure,
-    // not bad genre params). Recording reward=0 from broken pipelines poisons the bandit.
-    // ⚠️ Threshold 5 is INVENTED — normal projects have 0-2 criticals.
     try {
       const projectAfterDirector = await db.collection('projects').findOne(
         { projectId },
@@ -572,17 +617,11 @@ async function handler(request: NextRequest) {
       );
       const qualityScore = projectAfterDirector?.qualityReview?.overallScore ?? 50;
       const criticalCount = projectAfterDirector?.qualityReview?.criticalCount ?? 0;
-
-      if (criticalCount > 5) {
-        console.log(`[VideoAnalysisWorker] Bandit: skipping outcome recording — ${criticalCount} critical issues suggests system failure, not bad genre params`);
-      } else {
+      if (criticalCount <= 5) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
         await recordProjectOutcome(userId, projectId, qualityScore, false, false);
       }
-    } catch (banditErr: unknown) {
-      const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);
-      console.warn(`[VideoAnalysisWorker] Bandit outcome recording failed (non-fatal): ${msg}`);
-    }
+    } catch { /* non-fatal */ }
 
     return NextResponse.json({ success: true, totalMs });
 
@@ -590,18 +629,18 @@ async function handler(request: NextRequest) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`[VideoAnalysisWorker] Failed: ${msg}`);
 
-    // Mark project as failed
-    try {
-      const payload = await request.clone().json().catch(() => null);
-      if (payload?.projectId) {
+    // Mark project as failed — but only if Director hasn't already been dispatched
+    // (if dispatched, the Director worker owns the final status)
+    if (trackedProjectId && !directorDispatched) {
+      try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
         await db.collection('projects').updateOne(
-          { projectId: payload.projectId },
+          { projectId: trackedProjectId },
           { $set: { autoEditStatus: 'failed', autoEditError: msg } },
         );
-      }
-    } catch {}
+      } catch { /* best-effort status update */ }
+    }
 
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
