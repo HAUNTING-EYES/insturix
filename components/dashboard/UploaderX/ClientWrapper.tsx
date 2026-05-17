@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
-import { useUser, useClerk } from "@clerk/nextjs";
+import { useUser, useClerk, useReverification } from "@clerk/nextjs";
 
 // ─── Design tokens (Insturix design system) ───────────────────
 const C = {
@@ -61,6 +61,10 @@ export function UploaderXClientWrapper() {
   const { toast } = useToast();
   const { user } = useUser();
   const { openUserProfile } = useClerk();
+  const createExternalAccountWithVerification = useReverification(
+    (params: { strategy: string; redirectUrl: string; additionalScopes: string[] }) =>
+      user?.createExternalAccount(params as any)
+  );
   const [view, setView] = useState<ViewState>("floor");
   const [platformStatuses, setPlatformStatuses] = useState<PlatformStatus[]>([]);
   const [videos, setVideos] = useState<VideoItem[]>([]);
@@ -335,7 +339,7 @@ export function UploaderXClientWrapper() {
           toast({ title: "YouTube connected", description: "Your Google account has YouTube permissions." });
           return;
         }
-        await user?.createExternalAccount({
+        await createExternalAccountWithVerification({
           strategy: "oauth_google",
           redirectUrl: `${window.location.origin}/dashboard/uploaderx`,
           additionalScopes: [YT_SCOPE],
@@ -352,7 +356,7 @@ export function UploaderXClientWrapper() {
     } else if (platform.authUrl) {
       window.location.href = platform.authUrl;
     }
-  }, [user, openUserProfile, toast]);
+  }, [user, openUserProfile, toast, createExternalAccountWithVerification]);
 
   const RESET_ENDPOINTS: Record<string, string> = {
     instagram: "/api/services/uploaderx/instagram/reset",
