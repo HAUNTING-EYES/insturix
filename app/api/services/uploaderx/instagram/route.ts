@@ -145,7 +145,7 @@ export async function POST(req: Request) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
         attempts++;
 
-        const statusUrl = `https://graph.instagram.com/v21.0/${containerId}?fields=status_code,status_message&access_token=${igUserAccessToken}`;
+        const statusUrl = `https://graph.instagram.com/v21.0/${containerId}?fields=status_code&access_token=${igUserAccessToken}`;
         const statusRes = await fetch(statusUrl);
         const statusData = await statusRes.json();
         console.log(`[IG] Poll attempt ${attempts}:`, JSON.stringify(statusData));
@@ -155,7 +155,7 @@ export async function POST(req: Request) {
           return NextResponse.json(
             {
               success: false,
-              error: `Instagram processing error: ${statusData.status_message || "Unknown error"}`,
+              error: `Instagram processing error: ${statusData.error?.message || "Unknown error"}`,
             },
             { status: 500 }
           );
