@@ -51,11 +51,11 @@ export class ScriptDraftAgent {
   constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
     this.outlineAgent = new ScriptOutlineAgent({
       maxTokens: config?.maxTokens ?? 500,
-      temperature: 0.2,
+      temperature: 0.5,
     });
     this.contractAgent = new ScriptContractAgent({
       maxTokens: 400,
-      temperature: 0.2,
+      temperature: 0.4,
     });
     this.authorAgent = new ScriptAuthorAgent({
       maxTokens: 2600,

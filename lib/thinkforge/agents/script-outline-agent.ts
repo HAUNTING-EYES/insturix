@@ -25,14 +25,13 @@ export class ScriptOutlineAgent extends StructuredAgent<ScriptOutline> {
   protected schema = ScriptOutlineSchema;
 
   constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
-    const modelName = 'gemini-2.5-flash-lite';
     super({
       ...config,
       agentType: 'script_outline',
-      modelName,
+      modelName: config?.modelName ?? 'gemini-2.5-flash',
       maxTokens: config?.maxTokens ?? 500,
-      temperature: config?.temperature ?? 0.2,
-      modelTier: ModelTier.Structural,
+      temperature: config?.temperature ?? 0.5,
+      modelTier: ModelTier.Reasoning,
     });
   }
 

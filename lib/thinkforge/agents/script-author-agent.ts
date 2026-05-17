@@ -289,12 +289,47 @@ ${intentGuidance}
 
 ${scriptContextBlock}
 
-<output_format>
-Return valid JSON matching the AgentScriptResponse schema.
-No markdown. No commentary. No backticks.
-The response must be a single JSON object.
-Include blockIds in patches.
-</output_format>`;
+OUTPUT FORMAT REQUIREMENTS:
+- You must output valid JSON matching the AgentScriptResponse schema.
+- Do not include markdown.
+- Do not include commentary.
+- Do not include backticks.
+- The response must be a single JSON object.
+
+${contract ? `Narrative voice: ${contract.narrator_voice || roleProfile.defaultVoice}
+Tone: ${contract.tone || 'confident'}
+Medium: ${contract.medium || roleProfile.defaultMedium}
+
+Style notes:
+${(contract.style_notes || []).map((n) => `- ${n}`).join('\n') || '- (none)'}
+
+Forbidden:
+${(contract.forbidden || []).map((n) => `- ${n}`).join('\n') || '- (none)'}
+` : ''}
+
+Outline (for guidance only):
+${outlineSummary}
+
+## Output Requirements
+- Return JSON only. No Markdown.
+- Include blockIds in patches.
+- Headings are structural anchors, not literary chapter titles.
+- Use this as the H1 title when possible: ${outline?.title || 'Use a clear, professional title'}
+${roleProfile.sectionGuidance}
+${['vfx_brief', 'budget', 'shot_list', 'research'].includes(input.documentType || '')
+  ? `- Documents must be modular and scannable. Prefer short sections over long narrative blocks.
+- Content must be written for reuse, clarity, and execution.
+- Do not write long continuous prose blocks.
+- Do not prioritize emotional language over clarity.
+- Do not write to impress, write to enable execution.`
+  : `- Write with voice and personality. The script should sound like a talented human, not a template.
+- Use vivid, specific language. Replace generic phrases with concrete imagery.
+- Let narrative breathe — short sections are fine but don't chop sentences that need flow.
+- Emotion and energy are assets, not liabilities. Use them when the content calls for it.`}
+- Do not mention internal systems, schemas, or validation rules.
+
+Final rule: This must feel like something a professional would use immediately — ${['vfx_brief', 'budget', 'shot_list', 'research'].includes(input.documentType || '') ? 'clear and executable.' : 'engaging, production-ready, and worth reading.'}
+`;
   }
 
   buildPrompt(input: AgentInput): string {
