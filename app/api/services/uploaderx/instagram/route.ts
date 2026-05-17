@@ -145,9 +145,10 @@ export async function POST(req: Request) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
         attempts++;
 
-        const statusUrl = `https://graph.instagram.com/${containerId}?fields=status_code,status_message&access_token=${igUserAccessToken}`;
+        const statusUrl = `https://graph.instagram.com/v21.0/${containerId}?fields=status_code,status_message&access_token=${igUserAccessToken}`;
         const statusRes = await fetch(statusUrl);
         const statusData = await statusRes.json();
+        console.log(`[IG] Poll attempt ${attempts}: status_code=${statusData.status_code}, message=${statusData.status_message || "none"}`);
         containerStatus = statusData.status_code;
 
         if (containerStatus === "ERROR") {
