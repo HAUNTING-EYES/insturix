@@ -331,20 +331,10 @@ export function UploaderXClientWrapper() {
       );
 
       try {
-        if (googleAccount) {
-          const hasScope = googleAccount.approvedScopes?.includes(YT_SCOPE);
-          if (hasScope !== false) {
-            // Already has scope — just refresh status
-            toast({ title: "YouTube connected", description: "Your Google account has YouTube permissions." });
-            return;
-          }
-          // Has Google but missing YouTube scope — remove and re-add with scope
-          toast({ title: "Reconnecting...", description: "Adding YouTube upload permissions to your Google account." });
-          await googleAccount.destroy();
-          // Small delay to let Clerk process the removal
-          await new Promise(r => setTimeout(r, 500));
+        if (googleAccount?.approvedScopes?.includes(YT_SCOPE)) {
+          toast({ title: "YouTube connected", description: "Your Google account has YouTube permissions." });
+          return;
         }
-        // Create fresh connection with YouTube scope
         await user?.createExternalAccount({
           strategy: "oauth_google",
           redirectUrl: `${window.location.origin}/dashboard/uploaderx`,
