@@ -115,6 +115,8 @@ const menuItems = [
       { title: "Blogs", href: "/resources/blogs" },
       { title: "Support", href: "/resources/support" },
       { title: "FAQ", href: "/resources/faq" },
+      { title: "Privacy Policy", href: "/legal/privacy" },
+      { title: "Terms of Service", href: "/legal/terms" },
     ],
   },
   {

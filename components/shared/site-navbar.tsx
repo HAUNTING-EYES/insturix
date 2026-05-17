@@ -51,6 +51,8 @@ const menuItems = [
       { title: "Tutorials", href: "/resources/tutorials" },
       { title: "Support", href: "/resources/support" },
       { title: "FAQ", href: "/resources/faq" },
+      { title: "Privacy Policy", href: "/legal/privacy" },
+      { title: "Terms of Service", href: "/legal/terms" },
     ],
   },
   { title: "Pricing", href: "/upgrade" },
