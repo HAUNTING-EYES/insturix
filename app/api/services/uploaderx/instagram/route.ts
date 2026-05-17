@@ -108,7 +108,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const createContainerUrl = `https://graph.instagram.com/v21.0/${igAccountId}/media`;
+    const createContainerUrl = `https://graph.instagram.com/v21.0/me/media`;
     const containerParams = new URLSearchParams();
     containerParams.set(isVideo ? "video_url" : "image_url", mediaUrl);
     if (isVideo) {
@@ -143,7 +143,7 @@ export async function POST(req: Request) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
         attempts++;
 
-        const statusUrl = `https://graph.instagram.com/v21.0/${containerId}?fields=status_code,status_message&access_token=${igUserAccessToken}`;
+        const statusUrl = `https://graph.instagram.com/${containerId}?fields=status_code,status_message&access_token=${igUserAccessToken}`;
         const statusRes = await fetch(statusUrl);
         const statusData = await statusRes.json();
         containerStatus = statusData.status_code;
@@ -167,7 +167,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const publishUrl = `https://graph.instagram.com/v21.0/${igAccountId}/media_publish`;
+    const publishUrl = `https://graph.instagram.com/v21.0/me/media_publish`;
     const publishParams = new URLSearchParams();
     publishParams.set("creation_id", containerId);
     publishParams.set("access_token", igUserAccessToken);
