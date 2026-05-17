@@ -4,6 +4,8 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
+export const maxDuration = 300;
+
 export async function POST(req: Request) {
   try {
     const session = await auth();
