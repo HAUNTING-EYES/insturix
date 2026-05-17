@@ -160,7 +160,7 @@ async function handler(request: NextRequest) {
       },
     );
 
-    console.log(`[DirectorWorker] Complete: ${projectId} in ${totalMs}ms (${directorResult.actionsExecuted} actions)`);
+    console.log(`[DirectorWorker] Complete: ${projectId} in ${directorMs}ms (${directorResult.actionsExecuted} actions)`);
 
     // ─── Bandit outcome recording ─────────────────────────────────
     try {
@@ -182,7 +182,7 @@ async function handler(request: NextRequest) {
       console.warn(`[DirectorWorker] Bandit outcome recording failed (non-fatal): ${msg}`);
     }
 
-    return NextResponse.json({ success: true, totalMs, actionsExecuted: directorResult.actionsExecuted });
+    return NextResponse.json({ success: true, totalMs: directorMs, actionsExecuted: directorResult.actionsExecuted });
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
