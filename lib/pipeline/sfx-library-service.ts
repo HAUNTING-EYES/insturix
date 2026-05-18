@@ -88,7 +88,7 @@ async function searchFreesound(
 ): Promise<{ url: string; title: string; duration: number } | null> {
   const apiKey = process.env.FREESOUND_API_KEY;
   if (!apiKey) {
-    console.warn('[SFXLib] FREESOUND_API_KEY not set');
+    console.error('[SFXLib] FREESOUND_API_KEY not set — SFX search unavailable. Set this env var on Vercel to enable sound effects. Free key: https://freesound.org/apiv2/apply/');
     return null;
   }
 
@@ -377,10 +377,19 @@ export function audioDescriptionToSearchQuery(audioDescription: string): string 
 }
 
 /**
- * Check if any SFX library is available.
- * Pixabay removed — their general API returns images, not audio.
- * Only Freesound provides actual audio search.
+ * Check if SFX library search can return results.
+ *
+ * OLD: returned false when FREESOUND_API_KEY was missing → EDL executor skipped
+ * ALL sfx-trigger decisions → zero SFX in output. Silent failure (Rule 18N violation).
+ *
+ * NEW: Always returns true. The search function handles missing credentials by
+ * logging a loud warning and returning null PER SEARCH — but the EDL executor
+ * still processes SFX decisions for budget tracking and quality review accounting.
+ * This means:
+ *   - Budget system correctly counts SFX (prevents over-allocation on retry)
+ *   - Quality review can detect "SFX requested but unfulfilled"
+ *   - Setting the env var immediately unlocks audio without code changes
  */
 export function isSFXLibraryAvailable(): boolean {
-  return !!process.env.FREESOUND_API_KEY;
+  return true;
 }

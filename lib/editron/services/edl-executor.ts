@@ -280,18 +280,19 @@ export async function executeEDL(
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
 
-    // ── Single-source: suppress only TRANSITION type at same-scene boundaries ──
-    // OLD: killed ALL transitions + SFX for single-source when color similarity > 0.7.
-    //   On talking heads (one camera, one location), color is always similar = 0 effects.
-    // FIX: Only suppress transition decisions (dissolves between same-scene are wrong).
-    //   Zooms, SFX, graphics, shakes, captions pass through — they're about content
-    //   emphasis, not scene changes. Budget system caps total counts.
-    if (isSingleSource && decision.type === 'transition') {
-      if (shouldSuppressAtBoundary(decision.frame, videoOverlaysForSourceCheck, analyses)) {
-        result.decisionsSkipped++;
-        continue;
-      }
-    }
+    // ── Single-source transition handling ──
+    // OLD: shouldSuppressAtBoundary() compared 5-Track keyframe colors on either
+    // side of the cut. For talking heads (same camera, same room), Jaccard similarity
+    // was always >0.7 → ALL transitions killed → zero transitions in output.
+    //
+    // WHY REMOVED: In single-source projects (Mode 2 transcript-editor cuts),
+    // transitions are EDITORIAL beat markers (topic shift, time passage, pacing).
+    // They are NOT visual-scene-change indicators. A dissolve between two sections
+    // of a talking head is a standard documentary technique. The intelligence system
+    // and budget (MAX_TRANSITIONS_PER_TYPE=4) already gate what gets placed.
+    // Color similarity is the wrong signal for editorial decisions.
+    //
+    // The intelligence decided WHERE. The budget decides HOW MANY. Color decided NOTHING useful.
 
     // Script-specified on-screen text BYPASSES budget. The user wrote this
     // text in their script — budget should never reject explicit user content.
@@ -750,18 +751,34 @@ function applyZoom(
   }
   const videoOverlay = clipMatch.clip;
 
-  // Guard: never zoom at frame 0 — no baseline established, viewer just arrived.
-  // Per creative doc v3 mapping:structural.hook_zone_treatment: "first frame must be
-  // visually compelling" but zoom needs a starting reference. Shift to first motion peak
-  // or skip entirely if within first 1 second.
-  if (decision.frame <= videoOverlay.from + 30) { // within first 1s of clip
+  // Guard: hook zone — creative graph mapping:structural.hook_zone_treatment
+  // says first 5% of VIDEO needs strong visual opening without jarring zooms.
+  //
+  // OLD: blocked zooms in first 30 frames of EACH CLIP. Wrong for Mode 2
+  // single-source projects where clips are editorial transcript cuts of continuous
+  // footage. The viewer is watching the same camera — there's no "new shot
+  // orientation" at each cut. This killed 53% of zoom decisions.
+  //
+  // NEW: Only apply hook zone guard at the start of the OVERALL VIDEO (first 5%
+  // of total duration per creative graph) OR for multi-source projects where each
+  // clip is genuinely a different visual (new shot = viewer needs orientation).
+  const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
+  const isFirstClipInTimeline = videoOverlays.length > 0 && videoOverlay === videoOverlays[0];
+  const uniqueAssets = new Set(videoOverlays.map(o => (o as any).assetId).filter(Boolean));
+  const isMultiSource = uniqueAssets.size > 1;
+
+  const shouldApplyHookZone = isMultiSource
+    ? decision.frame <= videoOverlay.from + 30  // Multi-source: per-clip (new shot)
+    : isFirstClipInTimeline && decision.frame <= videoOverlay.from + 30; // Single-source: only first clip
+
+  if (shouldApplyHookZone) {
     const analysis = videoOverlay.assetId ? analyses?.get(videoOverlay.assetId) : undefined;
     const peaks = (analysis as any)?.motionPeaks || [];
     if (peaks.length > 0 && peaks[0] > 30) {
-      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} too early (hook zone) — shifted to first motion peak at frame ${videoOverlay.from + peaks[0]}`);
+      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} in hook zone — shifted to first motion peak at frame ${videoOverlay.from + peaks[0]}`);
       decision.frame = videoOverlay.from + peaks[0];
     } else {
-      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} too early (hook zone) — SKIPPED (no suitable motion peak)`);
+      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} in hook zone — SKIPPED (no suitable motion peak)`);
       return null;
     }
   }

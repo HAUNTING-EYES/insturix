@@ -1227,6 +1227,53 @@ export function runQualityReview(
     }
   }
 
+  // ── Absence checks: missing production elements ──
+  // A video that has no problems but also no QUALITY is still garbage.
+  // Professional output requires: transitions, visual motion, and SFX.
+  const videoOverlays = overlays.filter(o => o.type === 'video');
+  const totalDurationSec = totalDuration > 0 ? totalDuration / fps : 0;
+
+  if (totalDurationSec > 15 && videoOverlays.length > 3) {
+    const transitionOverlays = overlays.filter(o => o.type === 'transition' || (o as any).metadata?.isTransition);
+    if (transitionOverlays.length === 0) {
+      allIssues.push({
+        type: 'visual_monotony' as IssueType,
+        severity: 'critical',
+        description: `Zero transitions in ${videoOverlays.length}-clip video (${Math.round(totalDurationSec)}s). Video feels like a slideshow with hard cuts only.`,
+        autoFixable: false,
+        suggestedFix: 'Re-run Director Agent or manually add transitions between key sections',
+      });
+    }
+
+    const clipsWithMotion = videoOverlays.filter(o => (o as any).keyframeTracks?.length > 0);
+    if (clipsWithMotion.length < videoOverlays.length * 0.3) {
+      allIssues.push({
+        type: 'visual_monotony' as IssueType,
+        severity: 'warning',
+        description: `Only ${clipsWithMotion.length}/${videoOverlays.length} clips have visual motion (zoom/pan). Video feels static.`,
+        autoFixable: false,
+        suggestedFix: 'Add zoom keyframes or camera movement to key clips',
+      });
+    }
+  }
+
+  if (totalDurationSec > 30) {
+    const sfxOverlays = overlays.filter(o =>
+      (o as any).row === 4 || // ROW.SFX
+      (o as any).metadata?.source?.includes('sfx') ||
+      (o as any).metadata?.sfxType
+    );
+    if (sfxOverlays.length === 0) {
+      allIssues.push({
+        type: 'dead_silence' as IssueType,
+        severity: 'warning',
+        description: `Zero sound effects in ${Math.round(totalDurationSec)}s video. Transitions and emphasis moments lack audio punctuation.`,
+        autoFixable: false,
+        suggestedFix: 'Set FREESOUND_API_KEY env var to enable SFX library, then re-run Director',
+      });
+    }
+  }
+
   // ── Constraint violations from signal-driven executor (Mode 2 Path D) ──
   // Uncorrectable violations are real quality issues; auto-corrected ones are already fixed.
   if (constraintViolations?.length) {

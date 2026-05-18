@@ -458,11 +458,16 @@ export async function executeDirectorPlan(
       }
 
       // ── PATH D: Signal-Driven Execution (Mode 2 + v3 Knowledge Graph) ──
-      // When raw footage analysis exists AND the creative knowledge graph loads,
-      // bypass LLM-based intelligence entirely. The signal executor evaluates
-      // 95 mappings from the graph against detected signals to produce EDL decisions.
-      // Falls through to Unified Intelligence / Reactive Engine if Path D fails.
-      if (projectDoc?.rawFootageAnalysis?.segments?.length > 0 && analyses.length > 0) {
+      // Signal executor evaluates 95 mappings from the graph against detected
+      // signals to produce EDL decisions. Uses rawFootageAnalysis + segmentAnalysis
+      // (transcription, wav2vec, moment weights) — does NOT need 5-Track per-asset
+      // analysis. The old `analyses.length > 0` gate caused a dead zone: when
+      // USE_CREATIVE_BRIEF=true skipped 5-Track and Path E failed, Path D was
+      // also blocked, leaving zero intelligence. Fixed: Mode 2 projects (with
+      // rawFootageAnalysis) can run Path D without 5-Track.
+      const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
+      const canRunPathD = hasRawFootage && (analyses.length > 0 || projectDoc?.segmentAnalysis?.version === 1);
+      if (canRunPathD) {
         try {
           const { loadGraph } = await import('@/lib/editron/services/graph-query');
           const graphIndex = loadGraph();
@@ -2145,10 +2150,32 @@ async function invokeAITool(
       break;
     }
     case 'generate_html_scene': {
-      params.description = params.description || 'intro title card';
       params.start = params.start || 0;
       params.duration = params.duration || 90;
       params.row = params.row || 1;
+
+      // Validate description quality — reject placeholder/filler text.
+      // The description drives Gemini HTML generation: garbage in = garbage out.
+      // A motion designer given "minimal text here" would ask for clarification.
+      const rawDesc = (params.description || '').trim();
+      const PLACEHOLDER_PATTERNS = /^(minimal|sample|placeholder|default|test|example|some|basic|simple)\b.{0,20}$/i;
+      const isPlaceholder = !rawDesc || rawDesc.length < 20 || PLACEHOLDER_PATTERNS.test(rawDesc);
+
+      if (isPlaceholder) {
+        // Enrich with profile context instead of passing garbage to Gemini
+        const category = profile.category || 'general';
+        const density = profile.graphicsDensity || 'moderate';
+        const style = density === 'heavy' ? 'bold animated'
+          : density === 'moderate' ? 'clean professional'
+          : 'minimal elegant';
+        const contextualDesc = rawDesc && rawDesc.length >= 10
+          ? `${style} ${rawDesc} for ${category} content`
+          : `${style} title card with subtle gradient animation for ${category} video`;
+        params.description = contextualDesc;
+        console.warn(`[Director] generate_html_scene: description too vague ("${rawDesc.substring(0, 30)}") — enriched to: "${contextualDesc.substring(0, 60)}"`);
+      } else {
+        params.description = rawDesc;
+      }
       break;
     }
   }

@@ -138,11 +138,35 @@ function resolveDecisionToFrame(
   energyCurve: number[] | undefined,
   totalDurationMs: number,
 ): ResolvedDecision | null {
-  const { targetWordIdx, type, confidence, reason, params } = decision;
+  const { targetWordIdx: rawIdx, type, confidence, reason, params } = decision;
 
-  // Validate word index
-  if (targetWordIdx < 0 || targetWordIdx >= transcription.length) {
-    return null;
+  if (transcription.length === 0) return null;
+
+  // Smart clamping: recover near-boundary indices, discard hallucinated ones.
+  // Gemini's creative brief sometimes generates indices beyond transcript bounds.
+  // Off-by-a-few is recoverable (meant "near the end"). Wildly off (3x overshoot)
+  // is hallucinated garbage that would dump random effects at the video boundary.
+  // Proximity gate: clamp if within 10% of transcript length, discard if beyond.
+  const MAX_OVERSHOOT_RATIO = 0.1; // 10% — e.g., index 44 for 40 words = OK, index 120 = garbage
+  const maxAllowedOvershoot = Math.max(3, Math.ceil(transcription.length * MAX_OVERSHOOT_RATIO));
+  let targetWordIdx = rawIdx;
+  if (rawIdx < 0) {
+    if (Math.abs(rawIdx) <= maxAllowedOvershoot) {
+      targetWordIdx = 0;
+      console.warn(`[BriefExecutor] Word index ${rawIdx} < 0 — clamped to 0 (decision: ${type})`);
+    } else {
+      console.warn(`[BriefExecutor] Word index ${rawIdx} wildly negative (max overshoot: ${maxAllowedOvershoot}) — DISCARDED (decision: ${type})`);
+      return null;
+    }
+  } else if (rawIdx >= transcription.length) {
+    const overshoot = rawIdx - (transcription.length - 1);
+    if (overshoot <= maxAllowedOvershoot) {
+      targetWordIdx = transcription.length - 1;
+      console.warn(`[BriefExecutor] Word index ${rawIdx} >= transcript length ${transcription.length} — clamped to last word (overshoot: ${overshoot}, decision: ${type})`);
+    } else {
+      console.warn(`[BriefExecutor] Word index ${rawIdx} >> transcript length ${transcription.length} (overshoot: ${overshoot}, max: ${maxAllowedOvershoot}) — DISCARDED as hallucinated (decision: ${type})`);
+      return null;
+    }
   }
 
   const word = transcription[targetWordIdx];
