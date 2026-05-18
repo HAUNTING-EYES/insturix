@@ -159,6 +159,13 @@ export default function RootLayout({
           />
         </head>
         <body suppressHydrationWarning>
+          <noscript>
+            <div style={{ padding: "40px 20px", maxWidth: 800, margin: "0 auto", fontFamily: "sans-serif", color: "#ECE9E1", background: "#0B0B0A" }}>
+              <h1>Insturix</h1>
+              <p>Insturix is an AI-powered video production platform. Replace your entire video production workflow — script, edit, analyze, and publish from a single prompt. Built for agencies and businesses producing content at scale.</p>
+              <p><a href="/legal/privacy" style={{ color: "#D4A652" }}>Privacy Policy</a> | <a href="/legal/terms" style={{ color: "#D4A652" }}>Terms of Service</a> | <a href="mailto:contact@insturix.com" style={{ color: "#D4A652" }}>Contact</a></p>
+            </div>
+          </noscript>
           <ReactQueryProvider>
             <ThemeProvider>
               {children}
