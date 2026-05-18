@@ -14,6 +14,7 @@
 
 import type { EditDecision, EditDecisionList } from '../types/edit-decision';
 import type { CreativeBrief, BriefDecision, BriefDecisionType } from './creative-brief';
+import { TYPE_TO_EDL } from '../data/decision-registry';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -35,40 +36,9 @@ export interface BriefExecutorOutput {
   };
 }
 
-// ─── Type Mapping ───────────────────────────────────────────────────────────
+// ─── Type Mapping (from Decision Registry — single source of truth) ─────────
 
-const TYPE_MAP: Record<string, EditDecision['type']> = {
-  zoom_push: 'zoom',
-  zoom_punch: 'zoom',
-  zoom_pull_back: 'zoom',
-  zoom_drift: 'zoom',
-  transition_dissolve: 'transition',
-  transition_hard_cut: 'transition',
-  transition_whip_pan: 'transition',
-  transition_fade_to_black: 'transition',
-  transition_flash: 'transition',
-  transition_j_cut: 'transition',
-  transition_l_cut: 'transition',
-  transition_soft_cut: 'transition',
-  transition_wipe: 'transition',
-  caption_emphasis: 'caption-emphasis',
-  sfx_whoosh: 'sfx',
-  sfx_impact: 'sfx',
-  sfx_shimmer: 'sfx',
-  sfx_ambient: 'sfx',
-  speed_slow_motion: 'speed-change',
-  speed_ramp: 'speed-change',
-  graphic_stat_counter: 'graphic',
-  graphic_lower_third: 'graphic',
-  graphic_callout: 'graphic',
-  graphic_keyword_highlight: 'graphic',
-  graphic_logo_reveal: 'graphic',
-  camera_shake: 'camera-shake',
-  audio_duck: 'audio-duck',
-  audio_bed_select: 'sfx',
-  hold_longer: 'pacing',
-  cut_shorter: 'pacing',
-};
+const TYPE_MAP: Record<string, EditDecision['type']> = { ...TYPE_TO_EDL };
 
 // ─── Main Function ──────────────────────────────────────────────────────────
 

@@ -377,10 +377,14 @@ export async function executeDirectorPlan(
             || projectDoc?.syntheticStoryboard?.geminiFileUri
             || undefined;
 
+          // Use estimated clean duration (post-transcript-editor), not durationInFrames
+          // which may reflect a buggy silence-removal output.
+          const cleanDurationSec = (rfa.estimatedCleanDurationMs || rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000) / 1000;
+
           // Build video context for Creative Brief
           const videoContext = {
             transcription,
-            totalDurationSec: (project.durationInFrames || 900) / pathEFps,
+            totalDurationSec: cleanDurationSec,
             segmentCount: rfa.segments?.length || 0,
             audioFeatures: audioEnergyCurve.length > 0 ? {
               rmsEnergyCurve: audioEnergyCurve,
@@ -390,8 +394,23 @@ export async function executeDirectorPlan(
             wav2vecFeatures: projectDoc.wav2vecAnalysis?.segments?.length > 0 ? { segments: projectDoc.wav2vecAnalysis.segments } : undefined,
           };
 
-          // Generate Creative Brief (Gemini call 2 — context-cached creative doc)
-          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri);
+          // Compute per-video genre parameters from signals (no profiles)
+          let pathEGenreParams: import('@/lib/editron/services/graph-query').GenreParameters | undefined;
+          try {
+            const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
+            const genreResult = computeGenreParameters({
+              rawFootage: rfa,
+              analyses,
+              videoDurationSec: cleanDurationSec,
+            });
+            pathEGenreParams = genreResult.genreParams;
+            console.log(`[Director] Path E: Genre params computed (confidence: ${genreResult.confidence}, zoom_budget=${pathEGenreParams.zoom_budget}, transition_density=${pathEGenreParams.transition_density})`);
+          } catch (gpErr: any) {
+            console.warn(`[Director] Path E: Genre param computation failed (non-fatal): ${gpErr.message}`);
+          }
+
+          // Generate Creative Brief (Gemini call — context-cached creative doc + decision registry)
+          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams);
 
           if (creativeBrief && creativeBrief.decisions.length > 0) {
             console.log(`[Director] Path E: Creative Brief generated — ${creativeBrief.decisions.length} decisions, pacing=${creativeBrief.overallPacing}`);
