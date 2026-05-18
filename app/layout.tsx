@@ -173,11 +173,11 @@ export default function RootLayout({
               )}
             </ThemeProvider>
           </ReactQueryProvider>
-          <footer style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 0, padding: "8px 16px", background: "#0B0B0A", borderTop: "1px solid #1C1B19", display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
-            <span style={{ fontSize: 11, color: "#454340", fontFamily: "sans-serif" }}>Insturix — AI-powered video production platform</span>
-            <a href="/legal/privacy" style={{ fontSize: 11, color: "#5F5E5A", fontFamily: "sans-serif", textDecoration: "none" }}>Privacy Policy</a>
-            <a href="/legal/terms" style={{ fontSize: 11, color: "#5F5E5A", fontFamily: "sans-serif", textDecoration: "none" }}>Terms</a>
-            <a href="mailto:support@insturix.com" style={{ fontSize: 11, color: "#5F5E5A", fontFamily: "sans-serif", textDecoration: "none" }}>Contact</a>
+          <footer style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 10, padding: "8px 16px", background: "#0B0B0A", borderTop: "1px solid #1C1B19", display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
+            <span style={{ fontSize: 11, color: "#7A776E", fontFamily: "sans-serif" }}>Insturix — AI-powered video production platform</span>
+            <a href="/legal/privacy" style={{ fontSize: 11, color: "#B5B2A8", fontFamily: "sans-serif", textDecoration: "none" }}>Privacy Policy</a>
+            <a href="/legal/terms" style={{ fontSize: 11, color: "#B5B2A8", fontFamily: "sans-serif", textDecoration: "none" }}>Terms</a>
+            <a href="mailto:support@insturix.com" style={{ fontSize: 11, color: "#B5B2A8", fontFamily: "sans-serif", textDecoration: "none" }}>Contact</a>
           </footer>
         </body>
       </html>
