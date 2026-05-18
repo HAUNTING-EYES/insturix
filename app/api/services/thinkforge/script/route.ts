@@ -1,14 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { executeScriptOperation } from '@/lib/thinkforge/services/script-service';
-import { z } from 'zod';
-
-const ScriptOpSchema = z.object({
-  sessionId: z.string().min(1),
-  action: z.enum(['get', 'save', 'update']),
-  script: z.any().optional(),
-  baseVersion: z.number().optional(),
-}).passthrough();
+import { ScriptOpSchema } from '@/lib/thinkforge/schemas/route-validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

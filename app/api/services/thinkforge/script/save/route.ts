@@ -2,26 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import * as db from '@/lib/thinkforge/services/db';
-import { z } from 'zod';
-
-// V2: Block-level validation — checks kind enum when present, allows extra fields
-const ThinkForgeBlockSchema = z.object({
-  id: z.string().optional(),
-  kind: z.enum(['header', 'action', 'why', 'example', 'paragraph', 'scene', 'editorial']).optional(),
-  content: z.array(z.any()).optional(),
-}).passthrough();
-
-const SaveScriptSchema = z.object({
-  sessionId: z.string().min(1),
-  scriptId: z.string().optional(),
-  baseVersion: z.number().optional(),
-  script: z.object({
-    title: z.string().optional(),
-    content: z.string().optional(),
-    blocks: z.array(ThinkForgeBlockSchema).optional(),
-    richText: z.any().optional(),
-  }).passthrough().optional(),
-}).passthrough();
+import { SaveScriptSchema } from '@/lib/thinkforge/schemas/route-validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

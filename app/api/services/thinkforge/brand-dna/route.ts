@@ -1,16 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getUserBrandDNA, updateUserBrandDNA } from '@/lib/thinkforge/services/db';
-import { z } from 'zod';
-
-const BrandDNAPatchSchema = z.object({
-  voiceLock: z.any().optional(),
-  nicheMap: z.any().optional(),
-  killList: z.any().optional(),
-  hookArchetypes: z.any().optional(),
-  structuralHabits: z.any().optional(),
-  recurringAssets: z.any().optional(),
-}).passthrough();
+import { BrandDNAPatchSchema } from '@/lib/thinkforge/schemas/route-validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
