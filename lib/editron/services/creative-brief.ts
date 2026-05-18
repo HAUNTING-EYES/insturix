@@ -206,10 +206,9 @@ function buildPrompt(
     .map(([k, v]) => `  ${k}: ${v}`)
     .join('\n');
 
-  // Compact transcript: group words into lines of ~10 with start index + timestamp.
-  // Full per-word timestamps waste ~60% of tokens. Gemini needs word indices and
-  // rough timing, not millisecond precision per word.
-  const transcriptBlock = buildCompactTranscript(ctx.transcription);
+  const transcriptBlock = ctx.transcription
+    .map((w, i) => `[${i}] ${w.word} (${w.startMs}-${w.endMs}ms)`)
+    .join('\n');
 
   const featuresBlock = buildFeaturesBlock(ctx);
 
