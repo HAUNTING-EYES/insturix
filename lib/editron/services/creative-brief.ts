@@ -249,11 +249,14 @@ Use ONLY these exact reason strings: ${validReasonsBlock}
 
 <anti_patterns>
 - NEVER produce cut, jump_cut, or hard_cut type decisions — the transcript editor handles all cuts.
-- NEVER assign the same confidence to every decision. Vary 0.55-0.95 based on how certain you are. If everything is 0.95, you are not discriminating.
+- NEVER assign the same confidence to every decision. Vary 0.55-0.95 based on certainty. Your BEST decisions get 0.90-0.95. Decent ones 0.70-0.85. Uncertain ones 0.55-0.65.
 - NEVER place SFX on every transition. SFX marks MOMENTS, not cuts.
-- NEVER cluster decisions in one section. Spread across the full video.
-- NEVER use more than 3 consecutive decisions of the same type category (zoom, transition, etc.).
+- NEVER cluster decisions in one section. Each third of the video should have roughly equal decision count.
+- NEVER use more than 3 consecutive decisions of the same type category.
 - NEVER exceed the budget maximums above. Fewer confident decisions beat many uncertain ones.
+- NEVER use caption_emphasis as the dominant type. Zooms, transitions, and SFX should collectively outnumber caption_emphasis decisions. Captions are SUPPORTING, not the main edit.
+- NEVER use "cta" reason unless the speaker is literally asking the viewer to DO something (subscribe, click, buy, visit). "cta" is NOT a synonym for "important word".
+- NEVER place all your decisions after the midpoint. The opening third needs just as much creative attention.
 </anti_patterns>
 
 <rules>
@@ -479,14 +482,21 @@ function computeDecisionBudget(
   durationSec: number,
 ): BudgetMap {
   const durationMin = Math.max(durationSec / 60, 0.5);
-  const transMax = Math.ceil(gp.transition_density * durationMin);
+
+  // Creative transitions are NON-hard-cut transitions (dissolves, fades, wipes)
+  // placed at narrative boundaries. Hard cuts are the default and don't need a
+  // decision from Gemini. A 10-min talking head might have 1-3 dissolves and
+  // 1-2 fade-to-blacks. Cap at 2/min — generous for any content type.
+  const transMax = Math.max(2, Math.ceil(Math.min(gp.transition_density, 2) * durationMin));
+  // SFX: 0.3-0.5 per transition. Not every transition gets sound.
+  const sfxMax = Math.max(1, Math.ceil(Math.min(gp.sfx_density, 0.5) * transMax));
 
   return {
     zoom: { min: 2, max: Math.max(2, gp.zoom_budget) },
     transition: { min: 2, max: Math.max(2, transMax) },
-    sfx: { min: 0, max: Math.max(1, Math.ceil(gp.sfx_density * transMax)) },
+    sfx: { min: 0, max: sfxMax },
     graphic: { min: 0, max: Math.max(1, Math.ceil(gp.graphic_density * durationMin)) },
-    caption: { min: 2, max: Math.max(3, Math.ceil(transMax * 0.5)) },
+    caption: { min: 2, max: Math.max(3, Math.ceil(durationMin * 2)) },
     speed: { min: 0, max: 3 },
     shake: { min: 0, max: 3 },
     audio: { min: 0, max: 4 },
