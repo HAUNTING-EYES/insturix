@@ -147,6 +147,7 @@ export async function generateCreativeBrief(
       responseMimeType: 'application/json',
       temperature: 0.3,
       seed: 42,
+      maxOutputTokens: 65536,
     };
 
     const parts: any[] = [{ text: prompt }];
@@ -205,9 +206,10 @@ function buildPrompt(
     .map(([k, v]) => `  ${k}: ${v}`)
     .join('\n');
 
-  const transcriptBlock = ctx.transcription
-    .map((w, i) => `[${i}] ${w.word} (${w.startMs}-${w.endMs}ms)`)
-    .join('\n');
+  // Compact transcript: group words into lines of ~10 with start index + timestamp.
+  // Full per-word timestamps waste ~60% of tokens. Gemini needs word indices and
+  // rough timing, not millisecond precision per word.
+  const transcriptBlock = buildCompactTranscript(ctx.transcription);
 
   const featuresBlock = buildFeaturesBlock(ctx);
 
@@ -256,7 +258,8 @@ Use ONLY these exact reason strings: ${validReasonsBlock}
 - NEVER exceed the budget maximums above. Fewer confident decisions beat many uncertain ones.
 - NEVER use caption_emphasis as the dominant type. Zooms, transitions, and SFX should collectively outnumber caption_emphasis decisions. Captions are SUPPORTING, not the main edit.
 - NEVER use "cta" reason unless the speaker is literally asking the viewer to DO something (subscribe, click, buy, visit). "cta" is NOT a synonym for "important word".
-- NEVER place all your decisions after the midpoint. The opening third needs just as much creative attention.
+- NEVER place all your decisions in the first half. EVERY narrative_arc section MUST have at least one decision. If your last decision is before word ${Math.floor(ctx.transcription.length * 0.7)}, you are truncating the video.
+- GENERATE DECISIONS FOR THE FULL VIDEO. Spread them evenly: ~${Math.max(1, Math.floor(52 / Math.max(ctx.transcription.length / 500, 1)))} decisions per 500 words. Cover words 0 through ${ctx.transcription.length - 1}.
 </anti_patterns>
 
 <rules>
@@ -679,6 +682,18 @@ function validateEnum<T extends string>(value: any, valid: T[], fallback: T): T 
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function buildCompactTranscript(words: { word: string; startMs: number; endMs: number }[]): string {
+  const WORDS_PER_LINE = 10;
+  const lines: string[] = [];
+  for (let i = 0; i < words.length; i += WORDS_PER_LINE) {
+    const chunk = words.slice(i, i + WORDS_PER_LINE);
+    const startMs = chunk[0].startMs;
+    const text = chunk.map(w => w.word).join(' ');
+    lines.push(`[${i}] @${Math.round(startMs / 1000)}s: ${text}`);
+  }
+  return lines.join('\n');
 }
 
 function sampleArray(arr: number[], targetSize: number): number[] {
