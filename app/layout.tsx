@@ -151,7 +151,7 @@ export default function RootLayout({
                 ],
                 contactPoint: {
                   "@type": "ContactPoint",
-                  email: "contact@insturix.com",
+                  email: "support@insturix.com",
                   contactType: "customer service",
                 },
               }),
@@ -177,7 +177,7 @@ export default function RootLayout({
             <span style={{ fontSize: 11, color: "#454340", fontFamily: "sans-serif" }}>Insturix — AI-powered video production platform</span>
             <a href="/legal/privacy" style={{ fontSize: 11, color: "#5F5E5A", fontFamily: "sans-serif", textDecoration: "none" }}>Privacy Policy</a>
             <a href="/legal/terms" style={{ fontSize: 11, color: "#5F5E5A", fontFamily: "sans-serif", textDecoration: "none" }}>Terms</a>
-            <a href="mailto:contact@insturix.com" style={{ fontSize: 11, color: "#5F5E5A", fontFamily: "sans-serif", textDecoration: "none" }}>Contact</a>
+            <a href="mailto:support@insturix.com" style={{ fontSize: 11, color: "#5F5E5A", fontFamily: "sans-serif", textDecoration: "none" }}>Contact</a>
           </footer>
         </body>
       </html>
