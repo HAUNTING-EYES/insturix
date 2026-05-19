@@ -425,7 +425,7 @@ async function applyDecision(
         params: { ...decision.params, text: emphasisWord, graphicType: 'keyword-highlight' },
         durationFrames: 60, // 2s pop
       };
-      return applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvasDimensions, idEpoch, decisionIndex);
+      return applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
     }
 
     case 'sfx':
