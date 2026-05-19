@@ -99,8 +99,10 @@ function inferRoleFromContext(projectSummary: string, userPrompt: string, explic
       defaultMedium: 'interview_guide',
     };
   }
-  // Video script BEFORE score_direction — RC6 fix: "video with music" is a video, not a score brief
-  if (docType === 'video_script' || /video\s*(script|ad|reel|brief|content)|commercial\b|product\s*ad|\breel\b|short[- ]?form|youtube\s*(video|script|short)|tiktok|brand[- ]?film|ugc\b/i.test(combined)) {
+  // Video: check USER PROMPT (not combined) with broad regex. Post detection already ran,
+  // so "post about video" is filtered. "video" in user prompt = production intent.
+  // "video" only in project summary = NOT production intent (falls through to generic).
+  if (docType === 'video_script' || /video|ad\b|commercial|reel|short[- ]?form|youtube|tiktok|brand[- ]?film|product[- ]?ad|ugc/i.test(userLower)) {
     return {
       role: 'a Senior Creative Director and Video Scriptwriter',
       executionTest: 'A video editor should be able to say: "I know exactly what to show, say, and hear in every second."',
