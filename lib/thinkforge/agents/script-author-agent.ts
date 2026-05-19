@@ -33,7 +33,21 @@ interface DocumentRoleProfile {
 
 function inferRoleFromContext(projectSummary: string, userPrompt: string, explicitDocType?: string): DocumentRoleProfile {
   const docType = (explicitDocType || '').toLowerCase();
+  const userLower = userPrompt.toLowerCase();
   const combined = `${projectSummary} ${userPrompt}`.toLowerCase();
+
+  // Post/article/text content — check USER PROMPT first (overrides project context).
+  // A user asking "write a LinkedIn post" means a post, even if the project is about video.
+  if (docType === 'post' || docType === 'article' || /\b(linkedin\s*post|twitter\s*post|x\s*post|instagram\s*caption|facebook\s*post|social\s*media\s*post|blog\s*post|article|newsletter|email\s*campaign|email\s*copy|carousel\s*post)\b/i.test(userLower)) {
+    return {
+      role: 'a Senior Content Strategist and Copywriter',
+      executionTest: 'A social media manager should be able to say: "I can publish this immediately — it fits the platform, hooks the audience, and drives the action I need."',
+      outputFeeling: 'a polished, platform-ready post or article — not a brief, not a script, not an outline',
+      sectionGuidance: '- Write the FINAL copy. Not a script. Not production notes. The actual words that will be published.\n- No scene headings. No **Visual:** or **Narration:** labels. This is TEXT content.\n- Use markdown for emphasis (**bold**, *italic*) but keep formatting minimal.\n- Match the platform voice: LinkedIn is professional-conversational, Twitter is punchy, Instagram is visual-first captions.',
+      defaultVoice: 'author',
+      defaultMedium: 'post',
+    };
+  }
 
   if (docType === 'character_bible' || /character|backstor|bible|arc|motivation|relationship/i.test(combined)) {
     return {
