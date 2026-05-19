@@ -9,7 +9,6 @@ import { SoundLayerContent } from "../overlays/captions/sound-layer-content";
 import { StickerLayerContent } from "../overlays/stickers/sticker-layer-content";
 import { HtmlSceneLayerContent } from "../overlays/html/html-scene-layer-content";
 import { TransitionLayerContent } from "../overlays/transitions/transition-layer-content";
-import { MotionGraphicLayerContent } from "../overlays/motion-graphic/motion-graphic-layer-content";
 
 /**
  * Props for the LayerContent component
@@ -121,13 +120,6 @@ export const LayerContent: React.FC<LayerContentProps> = ({
       return (
         <div style={{ ...commonStyle }}>
           <TransitionLayerContent overlay={overlay as any} />
-        </div>
-      );
-
-    case OverlayType.MOTION_GRAPHIC:
-      return (
-        <div style={{ ...commonStyle }}>
-          <MotionGraphicLayerContent overlay={overlay as any} />
         </div>
       );
 

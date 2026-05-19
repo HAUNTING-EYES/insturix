@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, ReactNode } from "react";
-// OLD: local gsap + ScrollTrigger imports + registerPlugin — moved to centralized config
-// NEW: import from shared config (plugins pre-registered)
-import { gsap, ScrollTrigger } from "@/lib/animation/gsap-config";
+import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+gsap.registerPlugin(ScrollTrigger);
 
 interface AnimatedContentProps {
   children: ReactNode;
@@ -64,11 +65,8 @@ const AnimatedContent: React.FC<AnimatedContentProps> = ({
       },
     });
 
-    // OLD: ScrollTrigger.getAll().forEach(t => t.kill()) — kills ALL triggers globally (bug)
-    // NEW: kill only this element's tweens and its specific ScrollTrigger
     return () => {
-      const triggers = ScrollTrigger.getAll().filter((t) => t.vars.trigger === el);
-      triggers.forEach((t) => t.kill());
+      ScrollTrigger.getAll().forEach((t) => t.kill());
       gsap.killTweensOf(el);
     };
   }, [

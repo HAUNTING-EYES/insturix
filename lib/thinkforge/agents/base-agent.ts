@@ -29,10 +29,10 @@ const SCRIPT_CONSTRAINTS_TECHNICAL = [
 ].join('\n- ');
 
 const SCRIPT_CONSTRAINTS_CREATIVE = [
-  'Write with personality and voice. The output should sound like a talented human wrote it, not a template.',
+  'Write with personality and voice. The output should sound like a talented human wrote it.',
   'No conversational framing directed at the reader (e.g., "In this section", "Let us").',
-  'Narration is the core product — write spoken words with rhythm, punch, and conversational cadence. Visual direction supports the narration, not the other way around.',
-  'Be specific and concrete. Replace generic claims with exact details, real examples, and vivid language.',
+  'Be vivid and specific. Replace generic language with concrete imagery and sensory detail.',
+  'Balance structure with narrative flow. Use headings for navigation but let prose breathe within sections.',
   'Every sentence should earn its place — cut filler, but keep emotion and energy.',
 ].join('\n- ');
 

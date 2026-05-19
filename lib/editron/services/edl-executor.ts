@@ -17,9 +17,6 @@ import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, audioDescriptionToSearchQuery } from '@/lib/pipeline/sfx-library-service';
-import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
-import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
-import { resolveMotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -291,6 +288,20 @@ export async function executeEDL(
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
 
+    // ── Single-source transition handling ──
+    // OLD: shouldSuppressAtBoundary() compared 5-Track keyframe colors on either
+    // side of the cut. For talking heads (same camera, same room), Jaccard similarity
+    // was always >0.7 → ALL transitions killed → zero transitions in output.
+    //
+    // WHY REMOVED: In single-source projects (Mode 2 transcript-editor cuts),
+    // transitions are EDITORIAL beat markers (topic shift, time passage, pacing).
+    // They are NOT visual-scene-change indicators. A dissolve between two sections
+    // of a talking head is a standard documentary technique. The intelligence system
+    // and budget (MAX_TRANSITIONS_PER_TYPE=4) already gate what gets placed.
+    // Color similarity is the wrong signal for editorial decisions.
+    //
+    // The intelligence decided WHERE. The budget decides HOW MANY. Color decided NOTHING useful.
+
     // Script-specified on-screen text BYPASSES budget. The user wrote this
     // text in their script — budget should never reject explicit user content.
     // Only LLM-generated graphics are budget-constrained.
@@ -383,7 +394,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
+      return applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -414,7 +425,7 @@ async function applyDecision(
         params: { ...decision.params, text: emphasisWord, graphicType: 'keyword-highlight' },
         durationFrames: 60, // 2s pop
       };
-      return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
+      return applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
     }
 
     case 'sfx':
@@ -505,6 +516,91 @@ function applyCameraShake(
   video.keyframeTracks.push({ property: 'y', keyframes: yKeyframes });
 
   return { created: 0, modified: 1 };
+}
+
+// OLD: Created HTML overlays (System B) that the editor couldn't display as timeline tiles.
+// NEW: Creates proper TransitionOverlay tiles (System A) with clipAId/clipBId that the
+// editor renders both as timeline tiles AND as visual transitions in the video.
+/**
+ * Per-boundary visual similarity check for single-source projects.
+ * Compares 5-Track keyframe colors on either side of a transition boundary.
+ * Returns true if the transition should be SUPPRESSED (same visual scene).
+ *
+ * Uses Jaccard similarity on dominant color string sets — pure math, no KB thresholds.
+ * ⚠️ Similarity thresholds (0.7 suppress, 0.4 allow) are judgment calls, not verified
+ * industry standards. May need tuning after production testing.
+ */
+function shouldSuppressAtBoundary(
+  frame: number,
+  videoOverlays: any[],
+  analyses: Map<string, any> | undefined,
+  fps: number = 30,
+): boolean {
+  if (!analyses || analyses.size === 0) return false; // No data → allow (respect intelligence)
+
+  // Find the two adjacent video overlays at this boundary
+  const clipA = videoOverlays.filter(o => o.from + o.durationInFrames <= frame + 15).pop(); // ends near this frame
+  const clipB = videoOverlays.find(o => o.from >= frame - 15); // starts near this frame
+  if (!clipA || !clipB || clipA === clipB) return false; // Can't determine boundary → allow
+
+  const assetId = (clipA as any).assetId;
+  if (!assetId) return false;
+  const analysis = analyses.get(assetId);
+  if (!analysis?.keyframeAnalyses?.length) return false; // No keyframe data → allow
+
+  const allKf = analysis.keyframeAnalyses;
+
+  // Get source time ranges for each clip
+  const aStartSec = ((clipA as any).videoStartTime ?? 0) / fps;
+  const aEndSec = aStartSec + (clipA.durationInFrames / fps);
+  const bStartSec = ((clipB as any).videoStartTime ?? 0) / fps;
+  const bEndSec = bStartSec + (clipB.durationInFrames / fps);
+
+  // Filter keyframes to each clip's source range
+  let kfA = allKf.filter((kf: any) => {
+    const s = (kf.timestampMs ?? 0) / 1000;
+    return s >= aStartSec && s < aEndSec;
+  });
+  let kfB = allKf.filter((kf: any) => {
+    const s = (kf.timestampMs ?? 0) / 1000;
+    return s >= bStartSec && s < bEndSec;
+  });
+
+  // Nearest-neighbor fallback for short segments
+  if (kfA.length === 0) {
+    const mid = (aStartSec + aEndSec) / 2;
+    kfA = [allKf.reduce((best: any, kf: any) =>
+      Math.abs((kf.timestampMs ?? 0) / 1000 - mid) < Math.abs((best.timestampMs ?? 0) / 1000 - mid) ? kf : best
+    )];
+  }
+  if (kfB.length === 0) {
+    const mid = (bStartSec + bEndSec) / 2;
+    kfB = [allKf.reduce((best: any, kf: any) =>
+      Math.abs((kf.timestampMs ?? 0) / 1000 - mid) < Math.abs((best.timestampMs ?? 0) / 1000 - mid) ? kf : best
+    )];
+  }
+
+  // Extract + compare dominant colors (Jaccard similarity)
+  const colorsA = new Set(kfA.flatMap((kf: any) => (kf.dominantColors || []).map((c: string) => c.toLowerCase())));
+  const colorsB = new Set(kfB.flatMap((kf: any) => (kf.dominantColors || []).map((c: string) => c.toLowerCase())));
+
+  if (colorsA.size === 0 || colorsB.size === 0) return false; // No color data → allow
+
+  const intersection = [...colorsA].filter(c => colorsB.has(c));
+  const union = new Set([...colorsA, ...colorsB]);
+  const similarity = union.size > 0 ? intersection.length / union.size : 0.5;
+
+  // ⚠️ Thresholds are judgment calls, not KB values. May need tuning.
+  // >0.7 = most colors shared = visually same scene = suppress transition
+  // <0.4 = most colors different = visual scene change = allow transition
+  // 0.4-0.7 = uncertain = allow (benefit of the doubt, let intelligence decide)
+  if (similarity > 0.7) {
+    console.log(`[EDL-Exec] Single-source boundary at frame ${frame}: SUPPRESSED (color similarity ${similarity.toFixed(2)} > 0.7, same visual scene)`);
+    return true;
+  }
+
+  console.log(`[EDL-Exec] Single-source boundary at frame ${frame}: ALLOWED (color similarity ${similarity.toFixed(2)}, visual change detected)`);
+  return false;
 }
 
 function applyTransition(
@@ -880,77 +976,7 @@ function applyFade(
   return { created: 0, modified: 1 };
 }
 
-// ── Template-based graphic rendering helpers ──
-// Maps creative brief decision params to template slot values per graphic type.
-// Rule-based, deterministic, no AI. Each graphic type knows its slot schema.
-function mapDecisionParamsToSlots(
-  graphicType: string,
-  params: Record<string, any>,
-  template: MotionGraphicTemplate,
-): Record<string, string> {
-  const text = params.text || '';
-  const slots: Record<string, string> = {};
-
-  switch (graphicType) {
-    case 'stat-counter': {
-      slots.value = params.endValue ? String(params.endValue) : text;
-      slots.label = params.label || '';
-      slots.prefix = params.prefix || '';
-      slots.suffix = params.suffix || '';
-      break;
-    }
-    case 'lower-third': {
-      const parts = text.split(/[,\-–—]\s*/);
-      slots.name = parts[0]?.trim() || text;
-      slots.title = parts[1]?.trim() || params.title || '';
-      break;
-    }
-    case 'callout': {
-      slots.title = text;
-      slots.body = params.body || '';
-      break;
-    }
-    case 'quote-card': {
-      slots.quote = text;
-      slots.author = params.author || '';
-      break;
-    }
-    case 'logo-reveal': {
-      slots.text = text;
-      break;
-    }
-    case 'keyword-highlight':
-    default: {
-      const primaryTextSlot = template.slots.find(s => s.type === 'text');
-      if (primaryTextSlot) {
-        slots[primaryTextSlot.name] = text;
-      }
-      break;
-    }
-  }
-
-  return slots;
-}
-
-function fillTemplateWithSlotValues(
-  template: MotionGraphicTemplate,
-  slotValues: Record<string, string>,
-): string {
-  let html = template.htmlTemplate;
-  for (const slot of template.slots) {
-    const value = slotValues[slot.name] ?? slot.default;
-    const safeValue = String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#x27;');
-    html = html.replace(new RegExp(`\\{\\{${slot.name}\\}\\}`, 'g'), safeValue);
-  }
-  return html;
-}
-
-async function applyGraphic(
+function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
   projectId: string,
@@ -973,7 +999,7 @@ async function applyGraphic(
   // First one wins — no visual clutter from overlapping graphics.
   const _graphicCheckDur = decision.durationFrames || 90;
   const existingGraphic = overlays.find(o =>
-    (o.type === 'html-scene' || o.type === 'motion-graphic' || (o as any).type === 'sticker') &&
+    (o.type === 'html-scene' || (o as any).type === 'sticker') &&
     o.from <= decision.frame + 15 &&
     (o.from + o.durationInFrames) >= decision.frame - 15
   );
@@ -991,7 +1017,7 @@ async function applyGraphic(
     'logo-reveal': 120,       // 4s — brand moment
     'callout': 75,            // 2.5s — brief label
   };
-  let duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
+  const duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
   // Full HTML entity escaping — prevents XSS if Gemini outputs malicious text
   const safeText = text
     .replace(/&/g, '&amp;')
@@ -1156,24 +1182,6 @@ async function applyGraphic(
     }
   }
 
-  // ── Template upgrade: replace inline CSS with curated template if available ──
-  // Runs at pipeline time (Director phase) so async MongoDB access is safe.
-  // Falls back to the inline CSS html from the switch above if no template matches.
-  try {
-    const templateSearchQuery = graphicType.replace(/-/g, ' ');
-    const templateMatch = await findBestTemplate(templateSearchQuery);
-    if (templateMatch && templateMatch.score >= 0.15) {
-      const slotValues = mapDecisionParamsToSlots(graphicType, decision.params, templateMatch.template);
-      html = fillTemplateWithSlotValues(templateMatch.template, slotValues);
-      if (templateMatch.template.defaultDuration && !decision.durationFrames) {
-        duration = templateMatch.template.defaultDuration;
-      }
-      console.log(`[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: template '${templateMatch.template.templateId}' (score: ${templateMatch.score.toFixed(2)})`);
-    }
-  } catch (err) {
-    console.warn(`[EDL-Exec] Template lookup failed for '${graphicType}', using inline CSS:`, (err as Error).message);
-  }
-
   // Snap graphic to nearest containing clip (handles pacing drift).
   // If decision.frame falls in a gap between clips, snap to nearest clip start.
   const graphicClipMatch = findClipAtFrame(decision.frame, overlays, 20);
@@ -1182,56 +1190,14 @@ async function applyGraphic(
     console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: snapped to ${snappedGraphicFrame} (drift: ${graphicClipMatch.drift} frames)`);
   }
 
-  // Stat-counter uses the React-rendered MOTION_GRAPHIC path (Structure × Theme).
-  // All other types use html-scene (Shadow DOM) until their structure components exist.
-  if (graphicType === 'stat-counter') {
-    const tokens = resolveMotionTokens(decision.params.signals || {}, decision.params.brand || {});
-    const contentMap: Record<string, string> = {
-      value: decision.params.endValue ? String(decision.params.endValue) : text,
-      prefix: decision.params.prefix || '',
-      suffix: decision.params.suffix || '',
-      label: decision.params.label || '',
-    };
-
-    const motionOverlay = {
-      id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
-      type: 'motion-graphic' as const,
-      from: snappedGraphicFrame,
-      durationInFrames: duration,
-      row: ROW.BGM, // z-idx 90, same as html-scene graphics (see E3 z-index comment)
-      left,
-      top,
-      width,
-      height,
-      isDragging: false,
-      rotation: 0,
-      structureType: 'stat-counter',
-      content: contentMap,
-      resolvedTokens: tokens,
-      styles: {
-        opacity: 1,
-        backgroundColor: 'transparent',
-      },
-      metadata: {
-        sourceType: 'edl-graphic',
-        graphicType,
-        edlSource: decision.source,
-        edlReason: decision.reason,
-      },
-    };
-
-    overlays.push(motionOverlay as any);
-    console.log(`[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: MOTION_GRAPHIC overlay (React-rendered)`);
-    return { created: 1, modified: 0 };
-  }
-
-  // All other graphic types: html-scene overlay (Shadow DOM, template or inline CSS)
   const graphicOverlay = {
+    // Deterministic ID: stable across render passes, unique per decision index
     id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
     type: 'html-scene' as const,
     from: snappedGraphicFrame,
     durationInFrames: duration,
     // Row 1 (above video on row 2, below captions-exception at z-index 95).
+    // NOTE: row 1 is canonically BGM but BGM is audio-only (no visual collision).
     // Graphics need z-index above video (row 2 = z-idx 80) and z-idx formula is 100-row*10,
     // so row 1 = z-idx 90. Moving to canonical ROW.MOTION_GRAPHICS (6) would yield z-idx 40
     // which is BELOW video — graphics would be invisible. This is an intentional exception.

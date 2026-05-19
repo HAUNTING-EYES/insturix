@@ -50,66 +50,6 @@ function parseInlineStyles(text: string): RichTextNode[] {
   return nodes;
 }
 
-// ─── Scene Detection ──────────────────────────────────────────────────────
-
-const SCENE_HEADING_RE = /^Scene\s+\d+/i;
-const MUSIC_HEADING_RE = /^Music\s+Direction/i;
-const LABEL_RE = /^\*\*([^*:]+?):\*\*\s*(.*)/;
-
-const NARRATION_LABELS = /^(narration|voiceover|vo|dialogue|on[- ]?camera|script)$/i;
-const VISUAL_LABELS = /^(visual|shot|camera|video)$/i;
-const AUDIO_LABELS = /^(audio|music|sfx|sound)$/i;
-const TEXT_LABELS = /^(on[- ]?screen\s*text|text\s*overlay|title|caption|super)$/i;
-const MOOD_LABELS = /^(mood|tone|feeling|emotion)$/i;
-
-interface SceneCollector {
-  title: string;
-  narration: string[];
-  visual: string[];
-  audio: string[];
-  onScreenText: string[];
-  mood: string[];
-  unlabeled: string[];
-}
-
-function createSceneBlock(
-  collector: SceneCollector,
-  helpers: { ensureId: () => string; normalize: typeof normalizeThinkForgeRichText; parseStyles: typeof parseInlineStyles },
-): ThinkForgeBlock {
-  const narrationText = collector.narration.length > 0
-    ? collector.narration.join(' ')
-    : collector.unlabeled.join(' ');
-
-  return {
-    id: helpers.ensureId(),
-    kind: 'scene',
-    content: helpers.normalize(helpers.parseStyles(narrationText || '')),
-    scene: {
-      visualDescription: collector.visual.join(' '),
-      subjects: [],
-      ...(collector.mood.length > 0 ? { mood: collector.mood.join(', ') } : {}),
-      ...(collector.onScreenText.length > 0 ? { onScreenText: collector.onScreenText } : {}),
-      ...(collector.audio.length > 0 ? { musicDescription: collector.audio.join(' ') } : {}),
-    },
-  };
-}
-
-function processSceneLine(collector: SceneCollector, trimmedLine: string): void {
-  const labelMatch = LABEL_RE.exec(trimmedLine);
-  if (labelMatch) {
-    const label = labelMatch[1].trim();
-    const value = labelMatch[2].trim();
-    if (NARRATION_LABELS.test(label)) collector.narration.push(value);
-    else if (VISUAL_LABELS.test(label)) collector.visual.push(value);
-    else if (AUDIO_LABELS.test(label)) collector.audio.push(value);
-    else if (TEXT_LABELS.test(label)) collector.onScreenText.push(value);
-    else if (MOOD_LABELS.test(label)) collector.mood.push(value);
-    else collector.unlabeled.push(trimmedLine);
-  } else if (trimmedLine) {
-    collector.unlabeled.push(trimmedLine);
-  }
-}
-
 /**
  * Parse Markdown into ThinkForge blocks.
  *
@@ -132,14 +72,11 @@ export function parseMarkdownToBlocks(markdown: string): ThinkForgeBlock[] {
   const H2_RE = /^##\s+(.*)$/;
   const H3_RE = /^###\s+(.*)$/;
   const BULLET_RE = /^[\-•]\s+(.*)$/;
-  const STAR_BULLET_RE = /^\*\s+(?!\*)(.*)$/;
+  const STAR_BULLET_RE = /^\*\s+(?!\*)(.*)$/; // * followed by space, NOT ** (avoid matching bold)
   const NUMBERED_RE = /^\d+[.)]\s+(.*)$/;
 
+  // Collect consecutive bullet/numbered lines into one block
   let listBuffer: string[] = [];
-  let currentScene: SceneCollector | null = null;
-  let editorialBuffer: string[] | null = null;
-
-  const helpers = { ensureId: ensureThinkForgeBlockId, normalize: normalizeThinkForgeRichText, parseStyles: parseInlineStyles };
 
   const flushList = () => {
     if (listBuffer.length === 0) return;
@@ -152,42 +89,25 @@ export function parseMarkdownToBlocks(markdown: string): ThinkForgeBlock[] {
     listBuffer = [];
   };
 
-  const flushScene = () => {
-    if (!currentScene) return;
-    blocks.push(createSceneBlock(currentScene, helpers));
-    currentScene = null;
-  };
-
-  const flushEditorial = () => {
-    if (!editorialBuffer) return;
-    const text = editorialBuffer.join('\n');
-    blocks.push({
-      id: ensureThinkForgeBlockId(),
-      kind: 'editorial',
-      content: normalizeThinkForgeRichText(parseInlineStyles(text)),
-      editorial: { editorialType: 'instrumentation' },
-    });
-    editorialBuffer = null;
-  };
-
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
 
+    // Empty line — flush any pending list
     if (trimmed === '') {
       flushList();
       continue;
     }
 
+    // --- (horizontal rule)
     if (trimmed === '---' || trimmed === '___' || trimmed === '***') {
       flushList();
       continue;
     }
 
+    // Heading detection (H3 first, then H2, then H1)
     let headingMatch;
     if ((headingMatch = H3_RE.exec(trimmed))) {
       flushList();
-      flushScene();
-      flushEditorial();
       blocks.push({
         id: ensureThinkForgeBlockId(),
         kind: 'header',
@@ -198,44 +118,16 @@ export function parseMarkdownToBlocks(markdown: string): ThinkForgeBlock[] {
     }
     if ((headingMatch = H2_RE.exec(trimmed))) {
       flushList();
-      flushScene();
-      flushEditorial();
-      const headingText = headingMatch[1];
-
-      if (SCENE_HEADING_RE.test(headingText)) {
-        blocks.push({
-          id: ensureThinkForgeBlockId(),
-          kind: 'header',
-          content: normalizeThinkForgeRichText(parseInlineStyles(headingText)),
-          meta: { level: 2 },
-        });
-        currentScene = { title: headingText, narration: [], visual: [], audio: [], onScreenText: [], mood: [], unlabeled: [] };
-        continue;
-      }
-
-      if (MUSIC_HEADING_RE.test(headingText)) {
-        blocks.push({
-          id: ensureThinkForgeBlockId(),
-          kind: 'header',
-          content: normalizeThinkForgeRichText(parseInlineStyles(headingText)),
-          meta: { level: 2 },
-        });
-        editorialBuffer = [];
-        continue;
-      }
-
       blocks.push({
         id: ensureThinkForgeBlockId(),
         kind: 'header',
-        content: normalizeThinkForgeRichText(parseInlineStyles(headingText)),
+        content: normalizeThinkForgeRichText(parseInlineStyles(headingMatch[1])),
         meta: { level: 2 },
       });
       continue;
     }
     if ((headingMatch = H1_RE.exec(trimmed))) {
       flushList();
-      flushScene();
-      flushEditorial();
       blocks.push({
         id: ensureThinkForgeBlockId(),
         kind: 'header',
@@ -245,26 +137,19 @@ export function parseMarkdownToBlocks(markdown: string): ThinkForgeBlock[] {
       continue;
     }
 
-    if (currentScene) {
-      processSceneLine(currentScene, trimmed);
-      continue;
-    }
-
-    if (editorialBuffer) {
-      editorialBuffer.push(trimmed);
-      continue;
-    }
-
+    // Bullet list line  (- item or • item)
     if (BULLET_RE.test(trimmed) || STAR_BULLET_RE.test(trimmed)) {
       listBuffer.push(trimmed);
       continue;
     }
 
+    // Numbered list line (1. item or 2) item)
     if (NUMBERED_RE.test(trimmed)) {
       listBuffer.push(trimmed);
       continue;
     }
 
+    // Regular text line → flush any pending list, then create its own paragraph
     flushList();
     blocks.push({
       id: ensureThinkForgeBlockId(),
@@ -274,7 +159,5 @@ export function parseMarkdownToBlocks(markdown: string): ThinkForgeBlock[] {
   }
 
   flushList();
-  flushScene();
-  flushEditorial();
   return blocks;
 }
