@@ -486,7 +486,7 @@ export async function executeDirectorPlan(
       // rawFootageAnalysis) can run Path D without 5-Track.
       const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
       const canRunPathD = hasRawFootage && (analyses.length > 0 || projectDoc?.segmentAnalysis?.version === 1);
-      if (canRunPathD) {
+      if (canRunPathD && !pathDHandled) {
         try {
           const { loadGraph } = await import('@/lib/editron/services/graph-query');
           const graphIndex = loadGraph();
