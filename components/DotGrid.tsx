@@ -1,9 +1,8 @@
 'use client';
 import React, { useRef, useEffect, useCallback, useMemo } from 'react';
-import { gsap } from 'gsap';
-import { InertiaPlugin } from 'gsap/InertiaPlugin';
-
-gsap.registerPlugin(InertiaPlugin);
+// OLD: local gsap import + registerPlugin(InertiaPlugin) — moved to centralized config
+// NEW: import from shared config (plugins pre-registered)
+import { gsap } from '@/lib/animation/gsap-config';
 
 const throttle = (func: (...args: any[]) => void, limit: number) => {
   let lastCall = 0;

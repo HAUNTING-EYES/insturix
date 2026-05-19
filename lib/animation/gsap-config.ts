@@ -10,12 +10,13 @@
 
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { InertiaPlugin } from 'gsap/InertiaPlugin';
 
 // ─── Plugin Registration (one-time, SSR-safe) ──────────────────
 // Only register in browser. gsap handles duplicate registration gracefully,
 // but we guard anyway to be explicit.
 if (typeof window !== 'undefined') {
-  gsap.registerPlugin(ScrollTrigger);
+  gsap.registerPlugin(ScrollTrigger, InertiaPlugin);
 }
 
 // ─── Global Defaults ────────────────────────────────────────────
@@ -44,4 +45,4 @@ if (typeof window !== 'undefined') {
 // ─── Exports ────────────────────────────────────────────────────
 // Re-export so consumers import from here, not directly from 'gsap'.
 // This ensures plugins are always registered before use.
-export { gsap, ScrollTrigger };
+export { gsap, ScrollTrigger, InertiaPlugin };
