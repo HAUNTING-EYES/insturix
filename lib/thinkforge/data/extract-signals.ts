@@ -147,6 +147,8 @@ const KEYWORD_SIGNALS: Array<{ pattern: RegExp; signals: PartialSignals }> = [
   { pattern: /educate|teach|explain|how.?to|tutorial/i, signals: { education_intent: 0.7 } },
   { pattern: /entertain|engage|captivate|hook/i, signals: { entertainment_intent: 0.7 } },
   { pattern: /persuade|convince|sell|convert/i, signals: { kairos_pressure: 0.6, pathos_load: 0.6, ethos_load: 0.6 } },
+  { pattern: /talking\s*head|to\s*camera|face\s*to\s*camera|direct\s*address|on[- ]?camera|vlog|podcast/i, signals: { visual_dependency: 0.3, show_tell_ratio: 0.2 } },
+  { pattern: /montage|b[- ]?roll\s*only|cinematic|visual[- ]?only|no\s*(narration|voice|vo)/i, signals: { visual_dependency: 0.9, show_tell_ratio: 0.9 } },
 ];
 
 /**

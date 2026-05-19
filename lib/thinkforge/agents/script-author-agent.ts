@@ -264,7 +264,20 @@ Labels per shot: **Shot:**, **Camera:**, **Framing:**, **Motion:**, **Audio:**, 
 
     const narrationTechniques = selectTechniques(signals, 'narration_mode', 1);
     const narrationMode = narrationTechniques[0]?.id || 'narration_anchor';
-    const hasNarration = narrationMode !== 'narration_minimal';
+    const visualDep = (signals.visual_dependency as number) ?? 0.5;
+
+    // Signal-driven narration label:
+    // - narration_minimal (high visual_dep) → Text Overlay (montage, ASMR, cinematic)
+    // - narration_anchor + low visual_dep → On-Camera (talking head, vlog, podcast)
+    // - narration_complement/counterpoint → VO with delivery note (standard video script)
+    let narrationLabel: string;
+    if (narrationMode === 'narration_minimal') {
+      narrationLabel = '  **Text Overlay:** Key messages shown visually. This content has no voiceover.';
+    } else if (narrationMode === 'narration_anchor' && visualDep < 0.4) {
+      narrationLabel = '  **On-Camera (delivery note):** What the person SAYS to camera + HOW they say it. e.g., "On-Camera (casual, direct):" or "On-Camera (passionate, leaning in):". This is dialogue, not voiceover.';
+    } else {
+      narrationLabel = '  **VO (delivery note):** The spoken words + HOW to say them. e.g., "VO (dry, measured):" or "VO (urgent, building):". The delivery note IS direction.';
+    }
 
     return `<output_format>
 Return Markdown only. No JSON. No block IDs.
@@ -281,7 +294,7 @@ SCENE FORMAT — Each scene heading includes timing:
   ## [0:00-0:08] Scene 1: The Hook
 
 EVERY scene MUST have these elements, EACH on its own bold-labeled line:
-${hasNarration ? '  **VO (delivery note):** The spoken words + HOW to say them. e.g., "VO (dry, measured):" or "VO (urgent, building):". The delivery note IS direction.' : '  **Text Overlay:** Key messages shown visually. This content has no voiceover.'}
+${narrationLabel}
   **Visual:** What the camera SHOWS. Specific ACTION the subject is DOING + shot type (close-up, wide, overhead). NOT feelings ("looks worried") — ACTIONS ("stares at phone, jaw tight").
   **Audio:** Sound design for this scene — room tone, SFX, silence, OR modulation from music brief. "Silence" and "room tone only" are valid. Not every scene needs music.
   **Text:** On-screen text/titles/captions. If none needed, write "[none — the image carries it]".
