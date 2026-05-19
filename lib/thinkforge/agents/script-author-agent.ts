@@ -5,6 +5,8 @@ import type { ScriptOutline } from './script-outline-agent';
 import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { ScriptIntent, type AgentScriptResponse } from '../protocol/intent';
 import { parseAgentJson } from '../protocol/parse-agent-json';
+import { selectAllTechniques, getConstraints, type TechniqueResult } from '../data/writing-graph-query';
+import { extractSignalsFromContext } from '../data/extract-signals';
 
 export interface ScriptAuthorInput extends AgentInput {
   outline?: ScriptOutline;
@@ -158,6 +160,57 @@ export class ScriptAuthorAgent extends BaseAgent {
 
   protected applyGlobalConstraints(prompt: string): string {
     return prompt;
+  }
+
+  // ─── Writing Knowledge Injection ──────────────────────────────────
+  private buildWritingKnowledgeBlock(params: {
+    documentType?: string;
+    medium?: string;
+    projectSummary?: string;
+    userPrompt?: string;
+  }): string {
+    try {
+      const signals = extractSignalsFromContext(params);
+      const techniqueMap = selectAllTechniques(signals, 2);
+      const antiAiConstraints = getConstraints('Anti-AI Constraints');
+
+      if (techniqueMap.size === 0 && antiAiConstraints.length === 0) return '';
+
+      const lines: string[] = ['<writing_knowledge>'];
+
+      techniqueMap.forEach((techniques: TechniqueResult[], category: string) => {
+        const top = techniques[0];
+        if (!top) return;
+        lines.push(`${category.toUpperCase()} — Use: ${top.id} (score ${top.score.toFixed(2)})`);
+        if (top.primary) lines.push(`  Action: ${top.primary}`);
+        if (top.antiPatterns && top.antiPatterns.length > 0) {
+          lines.push('  Anti-patterns:');
+          for (const ap of top.antiPatterns.slice(0, 3)) {
+            lines.push(`    - ${ap}`);
+          }
+        }
+        if (top.weightResponse) {
+          const entries: string[] = [];
+          for (const [k, v] of Object.entries(top.weightResponse)) {
+            entries.push(`${k}: ${v}`);
+          }
+          if (entries.length > 0) lines.push(`  Intensity: ${entries[0]}`);
+        }
+        lines.push('');
+      });
+
+      if (antiAiConstraints.length > 0) {
+        lines.push('CONSTRAINTS (mandatory — avoid these AI tells):');
+        for (const c of antiAiConstraints.slice(0, 5)) {
+          lines.push(`  - ${c.id.replace(/_/g, ' ')} (${c.severity}): ${c.detection || c.why || ''}`);
+        }
+      }
+
+      lines.push('</writing_knowledge>');
+      return lines.join('\n');
+    } catch {
+      return '';
+    }
   }
 
   // ─── Shared prompt core (Rule 35: XML structure, DRY) ─────────────
@@ -367,7 +420,16 @@ Final rule: This must feel like something a professional would use immediately �
       brandBlock,
     });
 
+    const writingBlock = this.buildWritingKnowledgeBlock({
+      documentType: (input as ScriptAuthorInput).documentType,
+      medium: contract?.medium,
+      projectSummary: context.projectSummary,
+      userPrompt,
+    });
+
     return `${core}
+
+${writingBlock}
 
 <output_format>
 Return Markdown only. No JSON. No block IDs. No schema objects.
