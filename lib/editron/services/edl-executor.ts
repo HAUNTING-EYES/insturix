@@ -247,7 +247,7 @@ export async function executeEDL(
     // and creative brief ('sfx' with technique name like 'sfx_whoosh' in decision.technique)
     const sfxDecisions = actionable.filter(d => d.type === 'sfx-trigger' || d.type === 'sfx');
     const uniqueTokens = new Set(sfxDecisions.map(d => {
-      return (d as any).params?.sfxType || (d as any).technique?.replace('sfx_', '') || 'whoosh';
+      return (d as any).params?.sfxType || (d as any).technique?.replace('sfx_', '') || undefined;
     }).filter(Boolean));
     for (const token of uniqueTokens) {
       try {
@@ -418,7 +418,11 @@ async function applyDecision(
       // 'sfx' from creative brief (Path E) has technique name like 'sfx_whoosh'
       const sfxType = (decision as any).params?.sfxType
         || (decision as any).technique?.replace('sfx_', '')
-        || 'whoosh';
+        || undefined;
+      if (!sfxType) {
+        console.warn(`[EDL-Exec] SFX at frame ${decision.frame}: no sfxType or technique — SKIPPED (not guessing)`);
+        return null;
+      }
       if (!sfxCache) return null;
       const cached = sfxCache.get(sfxType);
       if (!cached) return null;
