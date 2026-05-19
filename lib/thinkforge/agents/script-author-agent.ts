@@ -107,14 +107,11 @@ function inferRoleFromContext(projectSummary: string, userPrompt: string, explic
       role: 'a Senior Creative Director and Video Scriptwriter',
       executionTest: 'A video editor should be able to say: "I know exactly what to show, say, and hear in every second."',
       outputFeeling: 'a professional video production script with scene-by-scene direction',
-      sectionGuidance: `- Each scene is a ## heading (e.g., ## Scene 1: The Hook).
-- Within each scene, use bold labels on separate lines for each element.
-- **Visual:** describes what the camera shows — a single frozen moment, no motion verbs.
-- **Narration:** is the voiceover or spoken words — this IS the core script.
-- **Audio:** is music/SFX direction for this scene (modulations from the project-level music brief).
-- **On-Screen Text:** is graphics, titles, or captions that appear on screen.
-- Keep scenes tight. One clear moment per scene. If a scene has two distinct visuals, split it.
-- The output_format block below specifies which labels to use — follow it exactly.`,
+      sectionGuidance: `- This is a VIDEO SCRIPT. Follow the <output_format> block EXACTLY for per-scene structure.
+- Think like a director: for every line of narration, ask "what do I SHOW while these words are spoken?"
+- Each scene = one distinct visual moment. Two visuals = two scenes.
+- The VO text IS the product. Visual direction SERVES the narration.
+- Be SPECIFIC. Not "a person looks worried" but "freelancer stares at phone, jaw tight, laptop light on face."`,
       defaultVoice: 'voiceover',
       defaultMedium: 'video_script',
     };
@@ -239,8 +236,22 @@ export class ScriptAuthorAgent extends BaseAgent {
 
     if (!isVideo && !isShotList) {
       return `<output_format>
-Return Markdown. Use ## for sections, ### for sub-sections.
-Write as final copy — not a brief, outline, or commentary.
+Write the ACTUAL publishable text. Not a brief. Not production notes. Not an outline ABOUT the content. The FINAL COPY.
+
+${/post|linkedin|twitter|instagram|facebook|social/i.test(docType) ? `PLATFORM FORMAT:
+  - Target: 1,300-1,900 characters (LinkedIn optimal). Max 3,000.
+  - First line must hook BEFORE the fold (~210 chars visible).
+  - Short paragraphs. One-liners for punch. Line breaks for rhythm.
+  - End with: engagement CTA (question or repost prompt) + 3-5 hashtags.
+  - NO section headings (##). This is a post, not a document.
+  - NO production notes, visual direction, or "Scene" labels.` : `DOCUMENT FORMAT:
+  - Use ## for sections, ### for sub-sections.
+  - Write for the reader, not for a system.`}
+
+RULES:
+  - Sound like a specific human with a point of view, not a brand voice generator.
+  - Every paragraph must earn its place. If you can delete it and nothing is lost, delete it.
+  - Be SPECIFIC. Not "many companies struggle" but "your onboarding takes 3 weeks and costs $4,200 per hire."
 </output_format>`;
     }
 
@@ -253,29 +264,37 @@ Labels per shot: **Shot:**, **Camera:**, **Framing:**, **Motion:**, **Audio:**, 
 
     const narrationTechniques = selectTechniques(signals, 'narration_mode', 1);
     const narrationMode = narrationTechniques[0]?.id || 'narration_anchor';
-
-    const labels: string[] = [];
-    if (narrationMode !== 'narration_minimal') {
-      labels.push('**Narration:** (the voiceover / spoken words — this IS the script)');
-    }
-    labels.push('**Visual:** (what the camera shows — a single frozen moment, no motion verbs)');
-    labels.push('**Audio:** (music direction, ambient sound, SFX for this scene)');
-    labels.push('**On-Screen Text:** (graphics, titles, captions that appear on screen)');
-    if (narrationMode === 'narration_minimal') {
-      labels.push('**Text Overlay:** (key messages shown visually — no voiceover in this content)');
-    }
+    const hasNarration = narrationMode !== 'narration_minimal';
 
     return `<output_format>
 Return Markdown only. No JSON. No block IDs.
-Use ## for scene headings (e.g., ## Scene 1: The Hook).
-Each scene MUST have these elements, each on its own line:
-${labels.map(l => '  ' + l).join('\n')}
-MUSIC DIRECTION: Write ONE project-level music brief BEFORE the first scene:
+
+PROCESS: First estimate the total duration from the brief. Then divide into scenes. Then fill every element per scene.
+
+MUSIC DIRECTION — Write this FIRST, before any scenes:
   ## Music Direction
-  **Style:** (genre, mood, reference tracks)
-  **Tempo:** (BPM range or feel)
-  **Arc:** (how music evolves across the piece)
-  Then per-scene, use **Audio:** for scene-specific modulations only.
+  **Style:** genre + mood + 1-2 reference tracks (real songs/artists)
+  **Tempo:** BPM range or feel
+  **Arc:** where it builds, where it drops, where it is ABSENT (silence is a choice)
+
+SCENE FORMAT — Each scene heading includes timing:
+  ## [0:00-0:08] Scene 1: The Hook
+
+EVERY scene MUST have these elements, EACH on its own bold-labeled line:
+${hasNarration ? '  **VO (delivery note):** The spoken words + HOW to say them. e.g., "VO (dry, measured):" or "VO (urgent, building):". The delivery note IS direction.' : '  **Text Overlay:** Key messages shown visually. This content has no voiceover.'}
+  **Visual:** What the camera SHOWS. Specific ACTION the subject is DOING + shot type (close-up, wide, overhead). NOT feelings ("looks worried") — ACTIONS ("stares at phone, jaw tight").
+  **Audio:** Sound design for this scene — room tone, SFX, silence, OR modulation from music brief. "Silence" and "room tone only" are valid. Not every scene needs music.
+  **Text:** On-screen text/titles/captions. If none needed, write "[none — the image carries it]".
+  **Mood:** One film or scene reference. "Think Whiplash opening." "Social Network deposition energy." This removes ambiguity that adjectives cannot.
+  **Transition:** How this scene ENDS — hard cut | dissolve | hold on black 0.5s | match cut to [what].
+
+RULES:
+  - Visual = ACTIONS not feelings. "Picks up phone" not "feels anxious."
+  - Timing brackets on every scene. Total must approximately match target duration.
+  - NOT every scene needs text overlay — use "[none]" when the image speaks.
+  - NOT every scene needs music — silence and room tone create tension.
+  - Transitions must VARY. All hard-cuts = monotonous. Mix cuts, dissolves, holds.
+  - Be SPECIFIC. Not "a workspace" but "MacBook with 14 Chrome tabs, cold coffee, 2am."
 </output_format>`;
   }
 
