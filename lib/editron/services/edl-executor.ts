@@ -16,7 +16,7 @@ import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
-import { searchAndDownloadSFX, isSFXLibraryAvailable } from '@/lib/pipeline/sfx-library-service';
+import { searchAndDownloadSFX, isSFXLibraryAvailable, audioDescriptionToSearchQuery } from '@/lib/pipeline/sfx-library-service';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -251,9 +251,13 @@ export async function executeEDL(
     }).filter(Boolean));
     for (const token of uniqueTokens) {
       try {
-        const result = await searchAndDownloadSFX(token as string, userId, 3);
+        // Normalize raw technique names to atomic Freesound search terms via KB token mapping.
+        // Without this, "audio_bed_select" searches Freesound literally → "Coin Pickup SFX".
+        // With this, "audio_bed_select" → audioDescriptionToSearchQuery → "ambient" → proper results.
+        const searchQuery = audioDescriptionToSearchQuery(token as string);
+        const result = await searchAndDownloadSFX(searchQuery, userId, 3);
         sfxCache.set(token as string, result ? { audioUrl: result.audioUrl, audioAssetId: result.audioAssetId, durationMs: result.durationMs } : null);
-        console.log(`[EDL-Exec] SFX pre-resolve: "${token}" → ${result ? 'found' : 'null'}`);
+        console.log(`[EDL-Exec] SFX pre-resolve: "${token}" → query="${searchQuery}" → ${result ? 'found' : 'null'}`);
       } catch (err: any) {
         sfxCache.set(token as string, null);
         console.warn(`[EDL-Exec] SFX pre-resolve failed for "${token}": ${err.message}`);
@@ -969,7 +973,13 @@ function applyGraphic(
   idEpoch: number = 0,
   decisionIndex: number = 0,
 ): { created: number; modified: number } | null {
-  const { graphicType, text, position } = decision.params;
+  const { text, position } = decision.params;
+  // Extract graphicType from params (signal executor) or technique (creative brief).
+  // Creative brief outputs technique like 'graphic_stat_counter' — convert to 'stat-counter'
+  // which matches the switch cases and GRAPHIC_DURATIONS keys.
+  const graphicType = decision.params.graphicType
+    || (decision as any).technique?.replace('graphic_', '').replace(/_/g, '-')
+    || 'keyword-highlight';
   if (!text) return null;
 
   // DEDUP: Don't create graphic if one already exists at this frame range.

@@ -202,6 +202,18 @@ async function handler(request: NextRequest) {
         const { executeSilenceRemoval } = await import('@/lib/editron/services/silence-removal-executor');
         const removalResult = await executeSilenceRemoval(projectId, userId, rawFootageAnalysis.silenceRemovalPlan);
         console.log(`[VideoAnalysisWorker] Silence removed: ${removalResult.totalFramesRemoved} frames (${removalResult.actionsExecuted} actions, ${removalResult.overlaysDeleted} deleted)`);
+
+        // Belt-and-suspenders: ensure durationInFrames matches the post-cut timeline.
+        // saveProject inside executeSilenceRemoval should handle this, but the save
+        // pipeline (overlay merging, URL stripping, worker overlay preservation) can
+        // lose the durationInFrames field. Direct $set guarantees it.
+        if (removalResult.newDurationInFrames > 0) {
+          await db.collection('projects').updateOne(
+            { projectId },
+            { $set: { durationInFrames: removalResult.newDurationInFrames } },
+          );
+          console.log(`[VideoAnalysisWorker] Duration updated: ${removalResult.newDurationInFrames} frames (${Math.round(removalResult.newDurationInFrames / 30)}s)`);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         const stack = err instanceof Error ? err.stack : '';
