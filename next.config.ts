@@ -16,6 +16,8 @@ const nextConfig: NextConfig = {
       '@tabler/icons-react',
       'lucide-react',
       'framer-motion',
+      'gsap',
+      '@gsap/react',
       '@tanstack/react-query',
     ],
   },
@@ -47,7 +49,7 @@ const nextConfig: NextConfig = {
           ui: {
             name: 'ui',
             chunks: 'all',
-            test: /node_modules\/(framer-motion|@radix-ui|lucide-react)/,
+            test: /node_modules\/(framer-motion|@radix-ui|lucide-react|gsap|@gsap)/,
             priority: 30,
           },
           // Common chunk for shared code
