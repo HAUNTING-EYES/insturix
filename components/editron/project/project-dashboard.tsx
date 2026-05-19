@@ -111,15 +111,19 @@ export default function ProjectDashboard() {
   // OLD: CSS @keyframes efStaggerIn with manual animationDelay per element
   // NEW: GSAP timeline with shared presets, coordinated timing, auto-cleanup
   useGSAP(() => {
-    // All .ef-stagger elements start at opacity:0 (set via CSS).
-    // GSAP reveals them in a coordinated sequence.
-    gsap.from('.ef-stagger', {
-      y: 24,
-      opacity: 0,
-      duration: DURATIONS.atmosphere,
-      ease: 'expo.out',
-      stagger: { each: STAGGER.wide.each, from: 'start' },
-    });
+    // FIX: gsap.from() reads current CSS state (opacity:0) as the target,
+    // so from({opacity:0}) → to(opacity:0) = stays invisible.
+    // Use gsap.fromTo() to explicitly set both start AND end values.
+    gsap.fromTo('.ef-stagger',
+      { y: 24, opacity: 0 },
+      {
+        y: 0,
+        opacity: 1,
+        duration: DURATIONS.atmosphere,
+        ease: 'expo.out',
+        stagger: { each: STAGGER.wide.each, from: 'start' },
+      }
+    );
   }, { scope: pageRef });
 
   // ── Load projects (PRESERVED) ──
