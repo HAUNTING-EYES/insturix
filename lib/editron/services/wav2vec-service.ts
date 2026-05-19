@@ -71,8 +71,9 @@ const MODAL_WAV2VEC_ENDPOINT = process.env.MODAL_WAV2VEC_ENDPOINT
 
 const VALID_VALENCES: Set<string> = new Set(['positive', 'negative', 'neutral', 'mixed']);
 
-const REQUEST_TIMEOUT_MS = 90_000; // 90s per batch — accounts for Modal cold start (60-90s). Warm container responds in ~5-15s.
-const BATCH_SIZE = 30;             // ⚠️ INVENTED — matches vjepa-service.ts batch size.
+const COLD_TIMEOUT_MS = 90_000;  // 90s for batch 1 — accounts for Modal cold start (60-90s)
+const WARM_TIMEOUT_MS = 45_000;  // 45s for batch 2+ — container is warm, 5-15s expected
+const BATCH_SIZE = 20;           // Reduced from 30 — smaller batches are more reliable on Modal
 
 // ─── Warmup ────────────────────────────────────────────────────────────────
 
@@ -138,7 +139,8 @@ export async function analyzeAudioWithWav2Vec(
     for (let b = 0; b < batches.length; b++) {
       const batch = batches[b];
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      const batchTimeout = b === 0 ? COLD_TIMEOUT_MS : WARM_TIMEOUT_MS;
+      const timeout = setTimeout(() => controller.abort(), batchTimeout);
 
       const response = await fetch(MODAL_WAV2VEC_ENDPOINT, {
         method: 'POST',

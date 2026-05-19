@@ -1989,13 +1989,25 @@ async function invokeAITool(
   // Tool-specific param mapping from profile
   switch (toolName) {
     case 'add_captions': {
-      // GUARD: If finalize already created captions, don't duplicate them.
+      // GUARD: If finalize already created captions WITH CONTENT, don't duplicate them.
       // Finalize creates basic captions from narration text. Director's job is to
       // ENHANCE existing captions (styling, emphasis), not create duplicates.
+      // BUT: finalize sometimes creates empty placeholder captions (captions: [] or
+      // no words). In that case, let Director replace them with real captions.
       const existingCaptions = overlays.filter(o => o.type === 'caption');
-      if (existingCaptions.length > 0) {
-        console.log(`[Director] add_captions: ${existingCaptions.length} captions already exist (from finalize). Skipping to avoid duplicates.`);
+      const populatedCaptions = existingCaptions.filter(o =>
+        (o as any).captions?.length > 0 || (o as any).content?.length > 10
+      );
+      if (populatedCaptions.length > 0) {
+        console.log(`[Director] add_captions: ${populatedCaptions.length} populated captions already exist (from finalize). Skipping to avoid duplicates.`);
         return 0;
+      }
+      // Remove empty placeholder captions so Director can create real ones
+      if (existingCaptions.length > 0 && populatedCaptions.length === 0) {
+        console.log(`[Director] add_captions: ${existingCaptions.length} empty caption placeholders found — removing so Director can create real captions`);
+        for (let i = overlays.length - 1; i >= 0; i--) {
+          if (overlays[i].type === 'caption') overlays.splice(i, 1);
+        }
       }
 
       // Caption ALL video overlays sequentially
@@ -2185,6 +2197,18 @@ async function invokeAITool(
       params.description = params.description && params.description.length > 10
         ? params.description
         : categoryDesc;
+
+      // Dedup: skip if EDL or another system already placed a graphic at this frame.
+      // Without this, EDL creates a graphic and then Director's profile action creates
+      // a duplicate at the same position.
+      const existingAtFrame = overlays.find((o: any) =>
+        (o.type === 'html-scene' || o.type === 'sticker') &&
+        Math.abs(o.from - (params.start || 0)) <= 30 // within 1 second
+      );
+      if (existingAtFrame) {
+        console.log(`[Director] add_motion_graphic: SKIPPED — existing graphic at frame ${existingAtFrame.from} (within 30 frames of ${params.start})`);
+        return 0;
+      }
 
       console.log(`[Director] add_motion_graphic: category="${params.category}", desc="${(params.description as string).substring(0, 60)}" at frame ${params.start}`);
       break;
