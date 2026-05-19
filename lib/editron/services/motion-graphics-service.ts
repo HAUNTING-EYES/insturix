@@ -372,15 +372,18 @@ export function computeRelevanceScore(
  */
 export async function findBestTemplate(
   query: string,
+  usedTemplateIds?: Set<string>,
 ): Promise<{ template: MotionGraphicTemplate; score: number } | null> {
   const candidates = await searchTemplates(query, 10);
   if (candidates.length === 0) return null;
 
   let bestTemplate = candidates[0];
   let bestScore = computeRelevanceScore(query, bestTemplate);
+  if (usedTemplateIds?.has(bestTemplate.templateId)) bestScore *= 0.3;
 
   for (let i = 1; i < candidates.length; i++) {
-    const score = computeRelevanceScore(query, candidates[i]);
+    let score = computeRelevanceScore(query, candidates[i]);
+    if (usedTemplateIds?.has(candidates[i].templateId)) score *= 0.3;
     if (score > bestScore) {
       bestScore = score;
       bestTemplate = candidates[i];

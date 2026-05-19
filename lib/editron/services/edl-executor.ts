@@ -287,6 +287,7 @@ export async function executeEDL(
 
   let budgetRejected = 0;
   let decisionIndex = 0;
+  const usedGraphicTemplateIds = new Set<string>();
 
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
@@ -297,11 +298,10 @@ export async function executeEDL(
     const isScriptOnScreenText = decision.type === 'graphic'
       && decision.sources?.includes('onScreenText-safety-net');
 
-    // Check budget BEFORE applying (skip for script on-screen text)
-    const budgetResult = isScriptOnScreenText
-      ? { allowed: true }
-      : budget.evaluate(decision as any);
-    if (!budgetResult.allowed) {
+    // Evaluate budget for ALL decisions (including script text) so counters stay accurate.
+    // Script on-screen text is never rejected but IS tracked.
+    const budgetResult = budget.evaluate(decision as any);
+    if (!budgetResult.allowed && !isScriptOnScreenText) {
       result.decisionsSkipped++;
       budgetRejected++;
       console.log(`[EDL-Exec] BUDGET REJECTED: ${decision.type} at frame ${decision.frame} — ${budgetResult.reason} (${budgetResult.ruleId})`);
@@ -383,7 +383,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
+      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, usedGraphicTemplateIds);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -925,6 +925,9 @@ function mapDecisionParamsToSlots(
       if (primaryTextSlot) {
         slots[primaryTextSlot.name] = text;
       }
+      for (const s of template.slots) {
+        if (s.type === 'text' && !slots[s.name]) slots[s.name] = '';
+      }
       break;
     }
   }
@@ -958,7 +961,8 @@ async function applyGraphic(
   canvas: { width: number; height: number },
   idEpoch: number = 0,
   decisionIndex: number = 0,
-): { created: number; modified: number } | null {
+  usedTemplateIds?: Set<string>,
+): Promise<{ created: number; modified: number } | null> {
   const { text, position } = decision.params;
   // Extract graphicType from params (signal executor) or technique (creative brief).
   // Creative brief outputs technique like 'graphic_stat_counter' — convert to 'stat-counter'
@@ -1130,14 +1134,10 @@ async function applyGraphic(
 
     case 'keyword-highlight':
     default: {
-      // Compact pop-up keyword — for emphasis words, topic labels, highlights
-      // Position above captions if they exist, otherwise near bottom
-      const hasCaptionsAtFrame = overlays.some((o: any) =>
-        o.type === 'caption' && o.from <= decision.frame &&
-        (o.from + o.durationInFrames) > decision.frame
-      );
+      // Compact pop-up keyword — positioned in top third to avoid caption zone
+      // CRG constraint:overlay.graphic_in_caption_zone — bottom 15-25% is reserved for captions
       left = isPortrait ? canvas.width * 0.08 : canvas.width * 0.05;
-      top = hasCaptionsAtFrame ? canvas.height * 0.68 : canvas.height * 0.82;
+      top = isPortrait ? canvas.height * 0.12 : canvas.height * 0.10;
       width = Math.min(canvas.width * 0.5, Math.max(200, safeText.length * 14 + 60));
       height = 56;
       html = `
@@ -1161,8 +1161,9 @@ async function applyGraphic(
   // Falls back to the inline CSS html from the switch above if no template matches.
   try {
     const templateSearchQuery = graphicType.replace(/-/g, ' ');
-    const templateMatch = await findBestTemplate(templateSearchQuery);
+    const templateMatch = await findBestTemplate(templateSearchQuery, usedTemplateIds);
     if (templateMatch && templateMatch.score >= 0.15) {
+      usedTemplateIds?.add(templateMatch.template.templateId);
       const slotValues = mapDecisionParamsToSlots(graphicType, decision.params, templateMatch.template);
       html = fillTemplateWithSlotValues(templateMatch.template, slotValues);
       if (templateMatch.template.defaultDuration && !decision.durationFrames) {
