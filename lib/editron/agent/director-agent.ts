@@ -426,6 +426,12 @@ export async function executeDirectorPlan(
               fps: pathEFps,
               audioEnergyCurve: audioEnergyCurve.length > 0 ? audioEnergyCurve : undefined,
               totalDurationMs,
+              // Pass overlays for original-to-cut timeline frame mapping.
+              // Word timestamps reference the original video; overlays are on the cut timeline.
+              overlays: overlays.filter((o: any) => o.type === 'video').map((o: any) => ({
+                from: o.from, durationInFrames: o.durationInFrames,
+                sourceStartFrame: o.sourceStartFrame ?? o.videoStartTime, type: 'video',
+              })),
             });
 
             console.log(`[Director] Path E: Brief Executor — ${briefResult.stats.resolvedToFrame} resolved, ${briefResult.stats.snappedToEnergy} snapped to energy`);

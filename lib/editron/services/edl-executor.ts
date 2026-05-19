@@ -412,9 +412,21 @@ async function applyDecision(
       // consistent grade to ALL clips, matching professional colorist workflow.
       return null;
 
-    case 'caption-emphasis':
-      // Caption emphasis is handled by Director's add_captions step with word-level timing
-      return null;
+    case 'caption-emphasis': {
+      // Create a keyword-highlight graphic overlay for the emphasized word.
+      // The proper fix (per-word styling in caption renderer) requires type system +
+      // renderer changes. For now, route through applyGraphic with the emphasis word
+      // as a visual pop-up overlay — same technique used by keyword-highlight graphics.
+      const emphasisWord = (decision as any).params?.emphasisWord;
+      if (!emphasisWord) return null;
+      // Inject text and graphicType into the decision params for applyGraphic
+      const emphasisDecision = {
+        ...decision,
+        params: { ...decision.params, text: emphasisWord, graphicType: 'keyword-highlight' },
+        durationFrames: 60, // 2s pop
+      };
+      return applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvasDimensions, idEpoch, decisionIndex);
+    }
 
     case 'sfx':
     case 'sfx-trigger': {

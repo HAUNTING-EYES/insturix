@@ -24,6 +24,8 @@ export interface BriefExecutorInput {
   fps: number;
   audioEnergyCurve?: number[];
   totalDurationMs: number;
+  /** Video overlays with sourceStartFrame for original-to-cut timeline mapping */
+  overlays?: { from: number; durationInFrames: number; sourceStartFrame?: number; type?: string }[];
 }
 
 export interface BriefExecutorOutput {
@@ -45,13 +47,21 @@ const TYPE_MAP: Record<string, EditDecision['type']> = { ...TYPE_TO_EDL };
 const ENERGY_SNAP_WINDOW_MS = 500;
 
 export function executeBrief(input: BriefExecutorInput): BriefExecutorOutput {
-  const { brief, transcription, fps, audioEnergyCurve, totalDurationMs } = input;
+  const { brief, transcription, fps, audioEnergyCurve, totalDurationMs, overlays } = input;
+
+  // Build clip map for original-to-cut timeline mapping (Mode 2)
+  const videoClips = (overlays || [])
+    .filter(o => o.type === 'video' || !o.type)
+    .sort((a, b) => (a.sourceStartFrame || 0) - (b.sourceStartFrame || 0));
+  const hasFrameMapping = videoClips.length > 0 && videoClips.some(c => c.sourceStartFrame !== undefined);
 
   const stats = {
     totalDecisions: brief.decisions.length,
     resolvedToFrame: 0,
     skippedOutOfRange: 0,
     snappedToEnergy: 0,
+    mappedToCutTimeline: 0,
+    snappedFromGap: 0,
   };
 
   const decisions: EditDecision[] = [];
@@ -62,6 +72,26 @@ export function executeBrief(input: BriefExecutorInput): BriefExecutorOutput {
     if (resolved === null) {
       stats.skippedOutOfRange++;
       continue;
+    }
+
+    // Map from original-video frame space to cut-timeline frame space.
+    // Word timestamps reference the original video (before silence removal).
+    // Overlays are on the cut timeline (after silence removal).
+    if (hasFrameMapping) {
+      const mapped = mapOriginalFrameToCutTimeline(resolved.editDecision.frame, videoClips, fps);
+      if (mapped === null) {
+        stats.skippedOutOfRange++;
+        console.warn(`[BriefExecutor] Frame ${resolved.editDecision.frame} falls in removed gap (no nearby clip) — SKIPPED (${resolved.editDecision.technique})`);
+        continue;
+      }
+      if (mapped.snapped) {
+        stats.snappedFromGap++;
+        console.log(`[BriefExecutor] Frame ${resolved.editDecision.frame} → ${mapped.frame} (snapped from gap, distance: ${mapped.distance} frames)`);
+      } else {
+        console.log(`[BriefExecutor] Frame ${resolved.editDecision.frame} → ${mapped.frame} (mapped to cut timeline)`);
+      }
+      resolved.editDecision.frame = mapped.frame;
+      stats.mappedToCutTimeline++;
     }
 
     if (resolved.snappedToEnergy) {
@@ -88,7 +118,9 @@ export function executeBrief(input: BriefExecutorInput): BriefExecutorOutput {
 
   console.log(
     `[BriefExecutor] ${stats.resolvedToFrame}/${stats.totalDecisions} resolved to frames ` +
-    `(${stats.snappedToEnergy} snapped to energy peak, ${stats.skippedOutOfRange} out of range)`
+    `(${stats.snappedToEnergy} snapped to energy peak, ${stats.skippedOutOfRange} out of range` +
+    `${stats.mappedToCutTimeline > 0 ? `, ${stats.mappedToCutTimeline} mapped to cut timeline` : ''}` +
+    `${stats.snappedFromGap > 0 ? `, ${stats.snappedFromGap} snapped from gap` : ''})`
   );
 
   return { edl, stats };
@@ -221,4 +253,76 @@ function shouldSnapToEnergy(type: BriefDecisionType): boolean {
 
 function isTransitionType(type: BriefDecisionType): boolean {
   return type.startsWith('transition_');
+}
+
+// ─── Original-to-Cut Timeline Mapping ──────────────────────────────────────
+
+interface FrameMapResult {
+  frame: number;
+  snapped: boolean;
+  distance: number;
+}
+
+/**
+ * Map a frame from original video space to cut-timeline space.
+ *
+ * After silence removal, each video overlay has:
+ *   - `from`: position on the CUT timeline
+ *   - `durationInFrames`: length on the CUT timeline
+ *   - `sourceStartFrame`: position in the ORIGINAL video
+ *
+ * If the original frame falls inside a clip's source range, the mapping is exact.
+ * If it falls in a removed gap, snap to the nearest clip boundary (within tolerance).
+ * If no clip is within tolerance, return null (decision should be skipped).
+ */
+function mapOriginalFrameToCutTimeline(
+  originalFrame: number,
+  clips: { from: number; durationInFrames: number; sourceStartFrame?: number }[],
+  fps: number,
+): FrameMapResult | null {
+  // Exact containment: original frame is inside a clip's source range
+  for (const clip of clips) {
+    const srcStart = clip.sourceStartFrame ?? 0;
+    const srcEnd = srcStart + clip.durationInFrames;
+    if (originalFrame >= srcStart && originalFrame < srcEnd) {
+      const offset = originalFrame - srcStart;
+      return { frame: clip.from + offset, snapped: false, distance: 0 };
+    }
+  }
+
+  // Frame falls in a removed gap. Snap to nearest clip boundary.
+  const SNAP_TOLERANCE = fps * 5; // 5 seconds
+  let bestClip: typeof clips[0] | null = null;
+  let bestDistance = Infinity;
+  let snapToStart = true;
+
+  for (const clip of clips) {
+    const srcStart = clip.sourceStartFrame ?? 0;
+    const srcEnd = srcStart + clip.durationInFrames;
+
+    const distToStart = Math.abs(originalFrame - srcStart);
+    const distToEnd = Math.abs(originalFrame - srcEnd);
+
+    if (distToStart < bestDistance) {
+      bestDistance = distToStart;
+      bestClip = clip;
+      snapToStart = true;
+    }
+    if (distToEnd < bestDistance) {
+      bestDistance = distToEnd;
+      bestClip = clip;
+      snapToStart = false;
+    }
+  }
+
+  if (bestClip && bestDistance <= SNAP_TOLERANCE) {
+    // Snap to the edge of the nearest clip
+    const frame = snapToStart
+      ? bestClip.from // Start of nearest clip
+      : bestClip.from + bestClip.durationInFrames - 1; // End of nearest clip
+    return { frame, snapped: true, distance: bestDistance };
+  }
+
+  // Gap too large — decision was for deeply removed content
+  return null;
 }
