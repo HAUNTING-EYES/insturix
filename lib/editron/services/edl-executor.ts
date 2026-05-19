@@ -17,6 +17,8 @@ import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, audioDescriptionToSearchQuery } from '@/lib/pipeline/sfx-library-service';
+import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
+import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -394,7 +396,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
+      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -425,7 +427,7 @@ async function applyDecision(
         params: { ...decision.params, text: emphasisWord, graphicType: 'keyword-highlight' },
         durationFrames: 60, // 2s pop
       };
-      return applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
+      return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
     }
 
     case 'sfx':
@@ -976,7 +978,77 @@ function applyFade(
   return { created: 0, modified: 1 };
 }
 
-function applyGraphic(
+// ── Template-based graphic rendering helpers ──
+// Maps creative brief decision params to template slot values per graphic type.
+// Rule-based, deterministic, no AI. Each graphic type knows its slot schema.
+function mapDecisionParamsToSlots(
+  graphicType: string,
+  params: Record<string, any>,
+  template: MotionGraphicTemplate,
+): Record<string, string> {
+  const text = params.text || '';
+  const slots: Record<string, string> = {};
+
+  switch (graphicType) {
+    case 'stat-counter': {
+      slots.value = params.endValue ? String(params.endValue) : text;
+      slots.label = params.label || '';
+      slots.prefix = params.prefix || '';
+      slots.suffix = params.suffix || '';
+      break;
+    }
+    case 'lower-third': {
+      const parts = text.split(/[,\-–—]\s*/);
+      slots.name = parts[0]?.trim() || text;
+      slots.title = parts[1]?.trim() || params.title || '';
+      break;
+    }
+    case 'callout': {
+      slots.title = text;
+      slots.body = params.body || '';
+      break;
+    }
+    case 'quote-card': {
+      slots.quote = text;
+      slots.author = params.author || '';
+      break;
+    }
+    case 'logo-reveal': {
+      slots.text = text;
+      break;
+    }
+    case 'keyword-highlight':
+    default: {
+      const primaryTextSlot = template.slots.find(s => s.type === 'text');
+      if (primaryTextSlot) {
+        slots[primaryTextSlot.name] = text;
+      }
+      break;
+    }
+  }
+
+  return slots;
+}
+
+function fillTemplateWithSlotValues(
+  template: MotionGraphicTemplate,
+  slotValues: Record<string, string>,
+): string {
+  let html = template.htmlTemplate;
+  for (const slot of template.slots) {
+    const value = slotValues[slot.name] ?? slot.default;
+    const safeValue = String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
+    html = html.replace(new RegExp(`\\{\\{${slot.name}\\}\\}`, 'g'), safeValue);
+  }
+  return html;
+}
+
+async function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
   projectId: string,
@@ -1017,7 +1089,7 @@ function applyGraphic(
     'logo-reveal': 120,       // 4s — brand moment
     'callout': 75,            // 2.5s — brief label
   };
-  const duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
+  let duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
   // Full HTML entity escaping — prevents XSS if Gemini outputs malicious text
   const safeText = text
     .replace(/&/g, '&amp;')
@@ -1182,6 +1254,24 @@ function applyGraphic(
     }
   }
 
+  // ── Template upgrade: replace inline CSS with curated template if available ──
+  // Runs at pipeline time (Director phase) so async MongoDB access is safe.
+  // Falls back to the inline CSS html from the switch above if no template matches.
+  try {
+    const templateSearchQuery = graphicType.replace(/-/g, ' ');
+    const templateMatch = await findBestTemplate(templateSearchQuery);
+    if (templateMatch && templateMatch.score >= 0.15) {
+      const slotValues = mapDecisionParamsToSlots(graphicType, decision.params, templateMatch.template);
+      html = fillTemplateWithSlotValues(templateMatch.template, slotValues);
+      if (templateMatch.template.defaultDuration && !decision.durationFrames) {
+        duration = templateMatch.template.defaultDuration;
+      }
+      console.log(`[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: template '${templateMatch.template.templateId}' (score: ${templateMatch.score.toFixed(2)})`);
+    }
+  } catch (err) {
+    console.warn(`[EDL-Exec] Template lookup failed for '${graphicType}', using inline CSS:`, (err as Error).message);
+  }
+
   // Snap graphic to nearest containing clip (handles pacing drift).
   // If decision.frame falls in a gap between clips, snap to nearest clip start.
   const graphicClipMatch = findClipAtFrame(decision.frame, overlays, 20);
@@ -1191,7 +1281,6 @@ function applyGraphic(
   }
 
   const graphicOverlay = {
-    // Deterministic ID: stable across render passes, unique per decision index
     id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
     type: 'html-scene' as const,
     from: snappedGraphicFrame,
@@ -1216,6 +1305,7 @@ function applyGraphic(
     metadata: {
       sourceType: 'edl-graphic',
       graphicType,
+      templateUsed: undefined as string | undefined,
       edlSource: decision.source,
       edlReason: decision.reason,
     },
