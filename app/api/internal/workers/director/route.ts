@@ -61,12 +61,18 @@ async function handler(request: NextRequest) {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
 
-    await db.collection('projects').updateOne(
-      { projectId },
-      { $set: { autoEditStatus: 'directing' } },
+    const lockResult = await db.collection('projects').findOneAndUpdate(
+      { projectId, autoEditStatus: { $in: ['analysis_complete', 'directing_queued'] } },
+      { $set: { autoEditStatus: 'directing', updatedAt: new Date() } },
+      { returnDocument: 'after' },
     );
+    if (!lockResult) {
+      const current = await db.collection('projects').findOne({ projectId }, { projection: { autoEditStatus: 1 } });
+      console.log(`[DirectorWorker] Skipping ${projectId}: status is '${current?.autoEditStatus}' (not directing_queued/analysis_complete). Already processed or in progress.`);
+      return NextResponse.json({ success: true, skipped: true, reason: 'already_processed' });
+    }
 
-    const projectDoc = await db.collection('projects').findOne({ projectId });
+    const projectDoc = lockResult;
     if (!projectDoc) {
       throw new Error(`Project ${projectId} not found`);
     }

@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
         headers: {
           'Authorization': `Bearer ${qstashToken}`,
           'Content-Type': 'application/json',
-          'Upstash-Retries': '1',
+          'Upstash-Retries': '0',
         },
         body: JSON.stringify({
           projectId,

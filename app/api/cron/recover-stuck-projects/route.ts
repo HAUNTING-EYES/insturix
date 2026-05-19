@@ -31,6 +31,8 @@ const ACTIVE_STATES: ProjectStatus[] = [
 const ACTIVE_AUTO_EDIT_STATES = [
   'queued',
   'analyzing',
+  'transcribing',
+  'cleaning',
   'computing_params',
   'analyzing_deep',
   'analysis_complete',

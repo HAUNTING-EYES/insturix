@@ -313,11 +313,10 @@ export async function createCaptions(params: {
   );
   
   if (wordsInRange.length === 0) {
-    console.error('[CAPTION-SERVICE] No words found in range. Debug info:', {
+    console.log('[CAPTION-SERVICE] No speech in segment — returning empty (not an error for visual-only segments)', {
       videoStartMs, videoEndMs,
-      allWordRanges: transcription.words.slice(0, 10).map(w => ({ word: w.word, start: w.startMs, end: w.endMs })),
     });
-    throw new Error('No speech found in the selected video segment');
+    return { captions: [], words: [], displayConfig: config.displayConfig };
   }
   
   // Adjust word timestamps to be relative to clip start (0-based for the clip)
