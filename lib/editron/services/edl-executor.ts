@@ -19,6 +19,7 @@ import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, audioDescriptionToSearchQuery } from '@/lib/pipeline/sfx-library-service';
 import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
+import { resolveMotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -1071,7 +1072,7 @@ async function applyGraphic(
   // First one wins — no visual clutter from overlapping graphics.
   const _graphicCheckDur = decision.durationFrames || 90;
   const existingGraphic = overlays.find(o =>
-    (o.type === 'html-scene' || (o as any).type === 'sticker') &&
+    (o.type === 'html-scene' || o.type === 'motion-graphic' || (o as any).type === 'sticker') &&
     o.from <= decision.frame + 15 &&
     (o.from + o.durationInFrames) >= decision.frame - 15
   );
@@ -1280,13 +1281,56 @@ async function applyGraphic(
     console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: snapped to ${snappedGraphicFrame} (drift: ${graphicClipMatch.drift} frames)`);
   }
 
+  // Stat-counter uses the React-rendered MOTION_GRAPHIC path (Structure × Theme).
+  // All other types use html-scene (Shadow DOM) until their structure components exist.
+  if (graphicType === 'stat-counter') {
+    const tokens = resolveMotionTokens(decision.params.signals || {}, decision.params.brand || {});
+    const contentMap: Record<string, string> = {
+      value: decision.params.endValue ? String(decision.params.endValue) : text,
+      prefix: decision.params.prefix || '',
+      suffix: decision.params.suffix || '',
+      label: decision.params.label || '',
+    };
+
+    const motionOverlay = {
+      id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
+      type: 'motion-graphic' as const,
+      from: snappedGraphicFrame,
+      durationInFrames: duration,
+      row: ROW.BGM, // z-idx 90, same as html-scene graphics (see E3 z-index comment)
+      left,
+      top,
+      width,
+      height,
+      isDragging: false,
+      rotation: 0,
+      structureType: 'stat-counter',
+      content: contentMap,
+      resolvedTokens: tokens,
+      styles: {
+        opacity: 1,
+        backgroundColor: 'transparent',
+      },
+      metadata: {
+        sourceType: 'edl-graphic',
+        graphicType,
+        edlSource: decision.source,
+        edlReason: decision.reason,
+      },
+    };
+
+    overlays.push(motionOverlay as any);
+    console.log(`[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: MOTION_GRAPHIC overlay (React-rendered)`);
+    return { created: 1, modified: 0 };
+  }
+
+  // All other graphic types: html-scene overlay (Shadow DOM, template or inline CSS)
   const graphicOverlay = {
     id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
     type: 'html-scene' as const,
     from: snappedGraphicFrame,
     durationInFrames: duration,
     // Row 1 (above video on row 2, below captions-exception at z-index 95).
-    // NOTE: row 1 is canonically BGM but BGM is audio-only (no visual collision).
     // Graphics need z-index above video (row 2 = z-idx 80) and z-idx formula is 100-row*10,
     // so row 1 = z-idx 90. Moving to canonical ROW.MOTION_GRAPHICS (6) would yield z-idx 40
     // which is BELOW video — graphics would be invisible. This is an intentional exception.
@@ -1305,7 +1349,6 @@ async function applyGraphic(
     metadata: {
       sourceType: 'edl-graphic',
       graphicType,
-      templateUsed: undefined as string | undefined,
       edlSource: decision.source,
       edlReason: decision.reason,
     },

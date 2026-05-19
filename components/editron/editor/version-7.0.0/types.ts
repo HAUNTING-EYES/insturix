@@ -18,6 +18,7 @@ export enum OverlayType {
   SFX_LIBRARY = "sfx-library",       // SFX library browse panel (sidebar)
   LOTTIE = "lottie",                 // LottieFiles motion graphics panel (sidebar)
   TRANSITION = "transition",         // Actual transition overlay between clips (timeline item)
+  MOTION_GRAPHIC = "motion-graphic", // React-rendered motion graphics (Structure × Theme system)
 }
 // ─── Keyframe Animation System ───────────────────────────────────
 // Enables per-property animation curves on any overlay.
@@ -373,6 +374,26 @@ export type HtmlSceneOverlay = BaseOverlay & {
   };
 };
 
+// ─── Motion Graphic Overlay (Structure × Theme system) ─────────────
+// React-rendered overlay driven by resolved visual tokens from the
+// signal-based Visual Identity Engine. Coexists with HTML_SCENE
+// (Shadow DOM) for backward compatibility with existing templates.
+export type MotionGraphicOverlay = BaseOverlay & {
+  type: OverlayType.MOTION_GRAPHIC;
+  structureType: string;
+  content: Record<string, string>;
+  resolvedTokens: Record<string, any>;
+  styles: BaseStyles & {
+    backgroundColor?: string;
+  };
+  metadata?: {
+    sourceType: string;
+    graphicType: string;
+    edlSource?: string;
+    edlReason?: string;
+  };
+};
+
 // ─── Transition Overlay ────────────────────────────────────────────
 // A visible tile on the timeline between two clips.
 // The tile IS the visual effect (DaVinci model) — it renders both adjacent
@@ -453,7 +474,8 @@ export type Overlay =
   | StickerOverlay
   | HtmlSceneOverlay
   | HtmlStickerOverlay
-  | TransitionOverlay;
+  | TransitionOverlay
+  | MotionGraphicOverlay;
 
 export type MainProps = {
   readonly overlays: Overlay[];
