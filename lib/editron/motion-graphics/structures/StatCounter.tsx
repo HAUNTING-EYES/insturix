@@ -24,8 +24,8 @@ import { useCurrentFrame, useVideoConfig, interpolate, Easing } from 'remotion';
 import { useMotionTheme } from '../context/MotionThemeContext';
 import type { StatCounterContent, StructureComponentProps } from '../types';
 
-// CRG minimum: constant:typography.stat_counter_min_font = 64px
-const CRG_MIN_STAT_FONT = 64;
+// CRG constraint:overlay.graphic_too_small = 72px @1080p (stricter than constant 64px)
+const CRG_MIN_STAT_FONT = 72;
 
 // Map theme easing names to Remotion Easing functions
 function resolveEasing(easingName: string): ((t: number) => number) {
