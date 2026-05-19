@@ -1,0 +1,2796 @@
+{
+  "version": "1.0.0",
+  "source": "docs/creative-content-knowledge.md",
+  "extractedAt": "2026-05-19",
+  "stats": {
+    "signals": 48,
+    "techniques": 24,
+    "constraints": 26,
+    "platforms": 8,
+    "blocksTotal": 149,
+    "blocksSkipped": 61
+  },
+  "selectionAlgorithm": {
+    "description": "Deterministic scoring: sum(signal_match * weight) for activation conditions. Inhibitors = hard reject (-Infinity). Return top N per category with score > 0.",
+    "priorityRules": [
+      "Part 6 constraints ALWAYS override mappings",
+      "Brand Rulebook (Part 1) overrides technique-suggested vocabulary",
+      "Inhibitors are absolute — one firing kills the technique",
+      "Higher activation score wins ties within same category",
+      "PatternBreak re-runs selection with break-adjusted signal values",
+      "Voice Signature modifies technique EXECUTION, not selection"
+    ],
+    "qualityScoring": {
+      "startScore": 100,
+      "autoReviewThreshold": 70,
+      "belowStandard": 50,
+      "hardReject": 0
+    }
+  },
+  "signals": [
+    {
+      "id": "logos_load",
+      "axis": "RHETORICAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_2",
+      "campaignLockable": false,
+      "primary": true,
+      "anchors": {
+        "0.00": "Pure emotion/story — zero data, zero evidence, zero logic Example: Nike \"Just Do It\" brand anthem — feeling IS the message",
+        "0.25": "Minimal data — one statistic or fact, mostly narrative Example: Charity appeal with \"1 in 5 children...\" opener then all story",
+        "0.50": "Balanced — arguments supported by evidence but wrapped in story Example: TED talk mixing personal anecdote with research citations",
+        "0.75": "Evidence-led — structure built around data, story as seasoning Example: Consulting firm case study: metrics → methodology → results",
+        "1.00": "Pure logic — densely evidenced, no emotional appeals Example: SEC filing, API documentation, research paper abstract"
+      },
+      "grounding": "Aristotle's logos — rational persuasion through logical argument (Rhetoric, ~330 BCE)",
+      "sourceLines": [
+        1351,
+        1370
+      ]
+    },
+    {
+      "id": "pathos_load",
+      "axis": "RHETORICAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_2",
+      "campaignLockable": false,
+      "primary": true,
+      "anchors": {
+        "0.00": "Deliberately unemotional — clinical, procedural, dry by design Example: Legal contract, assembly instructions, tax form guidance",
+        "0.25": "Light emotional coloring — professional warmth without manipulation Example: Corporate annual letter acknowledging team effort",
+        "0.50": "Emotionally engaged — genuine feeling woven through substance Example: Product launch that connects features to human outcomes",
+        "0.75": "Emotion-forward — audience should FEEL before they THINK Example: Nonprofit campaign video, memorial tribute, Nike \"Dream Crazy\"",
+        "1.00": "Raw emotional immersion — tears, rage, euphoria, awe Example: ASPCA Sarah McLachlan spot, grief memoir, war correspondence, charity: water origin film"
+      },
+      "grounding": "Aristotle's pathos — emotional persuasion through audience affect (Rhetoric, ~330 BCE)",
+      "sourceLines": [
+        1373,
+        1392
+      ]
+    },
+    {
+      "id": "ethos_load",
+      "axis": "RHETORICAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_2",
+      "campaignLockable": true,
+      "primary": true,
+      "anchors": {
+        "0.00": "No authority claim — content stands on its own merit Example: Anonymous Reddit post, crowdsourced wiki entry",
+        "0.25": "Implied credibility — brand reputation does the work, no explicit claims Example: Apple product page — authority is assumed, never stated",
+        "0.50": "Moderate credentials — occasional references to expertise or track record Example: Blog post mentioning \"in our 10 years of...\" or citing industry experience",
+        "0.75": "Credential-forward — expertise is a key persuasion lever Example: Doctor explaining a procedure, \"as a Stanford researcher...\"",
+        "1.00": "Authority IS the message — the point is who's saying it Example: Expert testimony, peer-reviewed publication, celebrity endorsement"
+      },
+      "grounding": "Aristotle's ethos — persuasion through speaker credibility (Rhetoric, ~330 BCE)",
+      "sourceLines": [
+        1395,
+        1414
+      ]
+    },
+    {
+      "id": "kairos_pressure",
+      "axis": "RHETORICAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_2",
+      "campaignLockable": true,
+      "primary": false,
+      "anchors": {
+        "0.00": "Timeless — no urgency, no expiration, evergreen relevance Example: Brand manifesto, educational explainer, origin story",
+        "0.25": "Soft relevance — topical but not urgent Example: \"This season's trends\" — relevant now, not panic-inducing",
+        "0.50": "Moderate urgency — clear reason to act soon but not immediately Example: \"Early bird pricing ends this month\" — deadline but distant",
+        "0.75": "High urgency — specific deadline, clear consequence of inaction Example: \"48-hour flash sale\", \"Applications close Friday\"",
+        "1.00": "Extreme pressure — act NOW or lose permanently Example: \"Last 3 tickets\", \"Offer expires at midnight\", crisis communications"
+      },
+      "grounding": "Aristotle's kairos — the opportune moment for persuasion; Cialdini's scarcity principle",
+      "sourceLines": [
+        1417,
+        1436
+      ]
+    },
+    {
+      "id": "elaboration_demand",
+      "axis": "COGNITIVE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Zero thinking required — content is consumed passively Example: Background music playlist description, ambient video caption",
+        "0.25": "Minimal processing — familiar concepts, no new mental models Example: Recipe card, simple how-to, motivational quote card",
+        "0.50": "Moderate engagement — audience follows an argument or learns something Example: Explainer video, product comparison, feature walkthrough",
+        "0.75": "Active thinking — audience must connect ideas, apply frameworks Example: Strategy whitepaper, investment thesis, complex tutorial",
+        "1.00": "Deep cognitive work — audience builds new mental models Example: Academic lecture, philosophy essay, systems architecture doc"
+      },
+      "grounding": "Petty & Cacioppo's Elaboration Likelihood Model — central vs peripheral processing",
+      "sourceLines": [
+        1443,
+        1462
+      ]
+    },
+    {
+      "id": "bloom_level",
+      "axis": "COGNITIVE",
+      "range": {
+        "type": "enum",
+        "values": [
+          "remember",
+          "understand",
+          "apply",
+          "analyze",
+          "evaluate",
+          "create"
+        ]
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "remember": "Audience recalls facts — \"Nike was founded in 1964\"",
+        "understand": "Audience grasps meaning — \"Nike's direct-to-consumer shift changed retail\"",
+        "apply": "Audience uses knowledge — \"Here's how to structure your pitch like Nike\"",
+        "analyze": "Audience breaks down components — \"Why Nike's strategy works: 3 pillars\"",
+        "evaluate": "Audience makes judgments — \"Is Nike's approach right for YOUR brand?\"",
+        "create": "Audience produces something new — \"Design your own brand strategy using this framework\""
+      },
+      "grounding": "Bloom's revised taxonomy (Anderson & Krathwohl 2001)",
+      "sourceLines": [
+        1465,
+        1480
+      ]
+    },
+    {
+      "id": "novelty",
+      "axis": "COGNITIVE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Confirming — audience already knows everything; content validates Example: Brand ad reinforcing existing perception, company values page",
+        "0.25": "Mostly familiar — one new angle on a known topic Example: \"5 things you didn't know about coffee\" (4 are known, 1 is new)",
+        "0.50": "Half new — meaningful new information mixed with context-setting Example: Product launch with both familiar brand + genuinely new features",
+        "0.75": "Mostly new — audience is learning significantly Example: First exposure to a new technology, paradigm-shifting research",
+        "1.00": "Completely new — audience has no prior framework Example: Announcing a category that didn't exist, groundbreaking discovery"
+      },
+      "grounding": "Shannon's information theory — surprise as information content",
+      "sourceLines": [
+        1483,
+        1502
+      ]
+    },
+    {
+      "id": "abstraction_level",
+      "axis": "COGNITIVE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Hyper-concrete — specific things, people, places, actions Example: \"Sarah picked up the 2023 MacBook Air in Midnight and clicked Buy\"",
+        "0.25": "Mostly concrete — tangible examples with occasional generalization Example: Product demo showing specific UI screens and clicks",
+        "0.50": "Mixed — concrete examples illustrating abstract principles Example: \"Innovation means [abstract] — like when we built [concrete example]\"",
+        "0.75": "Mostly abstract — principles and frameworks with sparse examples Example: Strategy document about market positioning",
+        "1.00": "Pure abstraction — concepts, theories, universal principles Example: \"Excellence is the margin between effort and expectation\""
+      },
+      "grounding": "Hayakawa's Abstraction Ladder (Language in Thought and Action, 1949)",
+      "sourceLines": [
+        1505,
+        1524
+      ]
+    },
+    {
+      "id": "visceral_impact",
+      "axis": "EMOTIONAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "No sensory/gut reaction — purely intellectual content Example: Tax filing instructions, API changelog",
+        "0.25": "Mild aesthetic appeal — pleasant but not arresting Example: Airbnb listing description, cafe menu copy",
+        "0.50": "Noticeable impact — audience pauses, reacts physically Example: Apple product reveal slow-mo, \"shot on iPhone\" gallery",
+        "0.75": "Strong visceral hit — sharp intake of breath, goosebumps, flinch Example: Nike \"Dream Crazy\" Kaepernick opening, Volvo truck splits Jean-Claude Van Damme",
+        "1.00": "Overwhelming — shock, awe, visceral discomfort, can't look away Example: Dumb Ways to Die, Thai life insurance ads, \"Most Shocking Second a Day\" (Save the Children)"
+      },
+      "grounding": "Norman's visceral design level (Emotional Design, 2004)",
+      "sourceLines": [
+        1539,
+        1558
+      ]
+    },
+    {
+      "id": "behavioral_utility",
+      "axis": "EMOTIONAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_2",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Zero actionability — content is for feeling or knowing, not doing Example: Brand anthem, origin story, art film",
+        "0.25": "Vague inspiration — \"you should try this\" without specifics Example: Motivational LinkedIn post, TED talk closing call-to-action",
+        "0.50": "Moderate utility — clear takeaways but audience must figure out details Example: \"5 strategies for better sleep\" — direction without prescription",
+        "0.75": "Highly actionable — step-by-step, immediately applicable Example: Notion template walkthrough, HubSpot marketing playbook",
+        "1.00": "Tool-like — content IS the action (template, checklist, calculator) Example: Canva template, ROI calculator landing page, Typeform quiz"
+      },
+      "grounding": "Norman's behavioral design level — usability and function satisfaction",
+      "sourceLines": [
+        1561,
+        1580
+      ]
+    },
+    {
+      "id": "reflective_depth",
+      "axis": "EMOTIONAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "No lasting impression — consumed and forgotten Example: Product spec sheet, shipping notification, weather update",
+        "0.25": "Mild reflection — audience thinks about it briefly after Example: Interesting LinkedIn insight, \"huh, I didn't know that\" blog post",
+        "0.50": "Genuine pause — audience reconsiders an assumption or belief Example: Patagonia \"Don't Buy This Jacket\" — rethinks consumption",
+        "0.75": "Deep impact — content changes how audience sees a topic Example: \"An Inconvenient Truth\", Dove \"Real Beauty Sketches\"",
+        "1.00": "Worldview shift — audience questions fundamental beliefs Example: \"13th\" documentary, \"Pale Blue Dot\" (Carl Sagan)"
+      },
+      "grounding": "Norman's reflective design level — self-image and meaning-making",
+      "sourceLines": [
+        1583,
+        1602
+      ]
+    },
+    {
+      "id": "narrative_transportation",
+      "axis": "EMOTIONAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Zero immersion — audience fully aware they are reading/watching content Example: Terms of service, form instructions, compliance notice",
+        "0.25": "Light engagement — audience follows along but mind wanders Example: Standard corporate blog, routine newsletter",
+        "0.50": "Moderate absorption — audience is engaged, occasionally pulled out Example: Good podcast episode, well-written case study",
+        "0.75": "Deep immersion — audience loses track of time, emotionally invested Example: Serial podcast, Humans of New York stories, long-form New Yorker profile",
+        "1.00": "Complete transportation — audience forgets they are consuming media Example: \"The Bear\" opening sequence, Pixar \"Up\" first 10 minutes, Ira Glass at his best"
+      },
+      "grounding": "Green & Brock's transportation theory (2000) — narrative absorption reduces counter-arguing",
+      "sourceLines": [
+        1605,
+        1624
+      ]
+    },
+    {
+      "id": "emotional_valence",
+      "axis": "EMOTIONAL",
+      "range": {
+        "type": "bipolar",
+        "min": -1,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_2",
+      "campaignLockable": true,
+      "primary": true,
+      "anchors": {
+        "-1.0": "Dark, tragic, grief — \"We lost everything in the fire\"",
+        "-0.5": "Somber, serious, concerned — \"The numbers are alarming\"",
+        "0.0": "Neutral — factual, balanced, neither positive nor negative",
+        "+0.5": "Warm, hopeful, encouraging — \"Things are getting better\"",
+        "+1.0": "Euphoric, celebratory, triumphant — \"We did it! Record-breaking!\""
+      },
+      "grounding": "Russell's circumplex model of affect — valence axis (1980)",
+      "sourceLines": [
+        1627,
+        1641
+      ]
+    },
+    {
+      "id": "emotional_arousal",
+      "axis": "EMOTIONAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_2",
+      "campaignLockable": false,
+      "primary": true,
+      "anchors": {
+        "0.00": "Complete calm — meditative, ASMR, deliberately soporific",
+        "0.25": "Low-key — conversational, relaxed, unhurried",
+        "0.50": "Engaged — alert and interested, normal presentation energy",
+        "0.75": "Intense — elevated heart rate, leaning forward, urgent Example: Product launch countdown, competitive sports narration, crisis update",
+        "1.00": "Peak arousal — fight-or-flight intensity (loud OR quiet: explosive MrBeast energy AND sustained quiet dread of a cancer diagnosis scene both live here. Arousal ≠ volume.) Example: MrBeast \"$1 vs $1,000,000\" reveal (loud peak), Moonlight diner scene (quiet peak)"
+      },
+      "grounding": "Russell's circumplex model — arousal axis, independent of valence",
+      "sourceLines": [
+        1644,
+        1660
+      ]
+    },
+    {
+      "id": "audience_awareness",
+      "axis": "AUDIENCE",
+      "range": {
+        "type": "enum",
+        "values": [
+          "unaware",
+          "problem_aware",
+          "solution_aware",
+          "product_aware",
+          "most_aware"
+        ]
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_2",
+      "campaignLockable": true,
+      "primary": false,
+      "anchors": {
+        "unaware": "Doesn't know the problem exists — need pattern interrupt",
+        "problem_aware": "Knows the problem, not the solution — need education",
+        "solution_aware": "Knows solutions exist, hasn't chosen — need differentiation",
+        "product_aware": "Knows your product, hasn't bought — need conviction",
+        "most_aware": "Existing customer — need retention, upsell, advocacy"
+      },
+      "grounding": "Eugene Schwartz's 5 Levels of Awareness (Breakthrough Advertising, 1966)",
+      "sourceLines": [
+        1668,
+        1682
+      ]
+    },
+    {
+      "id": "assumed_expertise",
+      "axis": "AUDIENCE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_2",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Zero domain knowledge — explain everything, no jargon",
+        "0.25": "Basic familiarity — knows the field exists, needs hand-holding",
+        "0.50": "Working knowledge — can follow industry discussion, skip basics",
+        "0.75": "Expert — deep domain knowledge, skip to advanced concepts",
+        "1.00": "Peer expert — assume complete mastery, use full jargon"
+      },
+      "grounding": "Cognitive load theory — extraneous load from unnecessary explanation",
+      "sourceLines": [
+        1685,
+        1699
+      ]
+    },
+    {
+      "id": "social_proof_reliance",
+      "axis": "AUDIENCE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Zero social proof — content stands on logic/emotion alone",
+        "0.25": "Light social proof — occasional mention of others (\"many companies...\")",
+        "0.50": "Moderate — testimonials, case studies, or numbers woven in",
+        "0.75": "Heavy reliance — \"10,000 customers\", named brands, specific results",
+        "1.00": "Social proof IS the content — entire piece is testimonials/reviews"
+      },
+      "grounding": "Cialdini's social proof principle (Influence, 1984)",
+      "sourceLines": [
+        1702,
+        1716
+      ]
+    },
+    {
+      "id": "in_group_signal",
+      "axis": "AUDIENCE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Universal — zero insider references, accessible to anyone",
+        "0.25": "Light shared context — occasional reference insiders appreciate",
+        "0.50": "Moderate tribalism — \"if you know, you know\" moments",
+        "0.75": "Strong insider language — jargon, references that exclude outsiders",
+        "1.00": "Fully tribal — incomprehensible to non-members, deliberately exclusive"
+      },
+      "grounding": "Social Identity Theory (Tajfel & Turner 1979) — in-group/out-group bonding through shared language",
+      "sourceLines": [
+        1719,
+        1733
+      ]
+    },
+    {
+      "id": "autonomy_grant",
+      "axis": "AUDIENCE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Full direction — \"Do this. Now.\" No choice offered.",
+        "0.25": "Guided — \"We recommend this approach\" — one option with reason",
+        "0.50": "Options — \"Here are three approaches, each with tradeoffs\"",
+        "0.75": "Open — \"Consider these factors and decide what's right for you\"",
+        "1.00": "Full autonomy — \"Here's what we know. You take it from here.\""
+      },
+      "grounding": "Deci & Ryan's Self-Determination Theory (2000) — autonomy as intrinsic motivation driver",
+      "sourceLines": [
+        1736,
+        1750
+      ]
+    },
+    {
+      "id": "pacing_velocity",
+      "axis": "STRUCTURAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_1",
+      "campaignLockable": false,
+      "primary": true,
+      "anchors": {
+        "0.00": "Glacial — one idea explored for minutes, long pauses, meditation pace",
+        "0.25": "Slow — deliberate, each point gets full development, documentary pace",
+        "0.50": "Moderate — conversational flow, natural topic progression",
+        "0.75": "Fast — rapid topic transitions, dense information delivery",
+        "1.00": "Breakneck — idea every 2-3 seconds, no pause, TikTok/Reels pace"
+      },
+      "grounding": "Editing pacing research — cuts/min correlates with perceived energy. Extended to writing via ideas/paragraph density.",
+      "sourceLines": [
+        1758,
+        1772
+      ]
+    },
+    {
+      "id": "tension_arc",
+      "axis": "STRUCTURAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL (DESCRIBES THE PIECE'S OVERALL TRAJECTORY)",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Flat — no tension, no buildup, no release. Informational only.",
+        "0.25": "Gentle slope — mild curiosity, small question answered at end",
+        "0.50": "Standard arc — clear setup, rising action, resolution",
+        "0.75": "Strong arc — significant stakes, delayed payoff, emotional investment",
+        "1.00": "Extreme tension — cliffhanger, unresolved, audience on edge"
+      },
+      "grounding": "Freytag's dramatic structure (Die Technik des Dramas, 1863); Duarte's Sparkline",
+      "sourceLines": [
+        1775,
+        1789
+      ]
+    },
+    {
+      "id": "predictability",
+      "axis": "STRUCTURAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Completely surprising — audience cannot anticipate what comes next",
+        "0.25": "Mostly surprising — occasional familiar patterns, mostly unexpected",
+        "0.50": "Balanced — familiar structure with surprising content (or vice versa)",
+        "0.75": "Mostly predictable — audience knows the shape, enjoys the execution",
+        "1.00": "Fully predictable — template content, audience knows exactly what's coming"
+      },
+      "grounding": "Information theory — surprise as information content. Predictability is not bad — it reduces cognitive load and builds trust. The question is whether the predictability is intentional.",
+      "sourceLines": [
+        1792,
+        1806
+      ]
+    },
+    {
+      "id": "linguistic_complexity",
+      "axis": "STRUCTURAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_1",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Extremely simple — grade 3-4 level, basic vocabulary, short sentences",
+        "0.25": "Simple — grade 6-8, everyday language, clear syntax",
+        "0.50": "Moderate — grade 10-12, some complex sentences, standard vocabulary",
+        "0.75": "Complex — college level, subordinate clauses, technical vocabulary",
+        "1.00": "Highly complex — academic/legal, dense syntax, specialized terminology"
+      },
+      "grounding": "Flesch-Kincaid readability formula. Note: reading level as a single number is an imperfect proxy — it captures syntax complexity but not conceptual difficulty. A Hemingway novel scores grade 4-7 on Flesch-Kincaid (varies by analysis method) but is not grade-school content.",
+      "sourceLines": [
+        1809,
+        1823
+      ]
+    },
+    {
+      "id": "formality",
+      "axis": "VOICE",
+      "range": {
+        "type": "bipolar",
+        "min": -1,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_1",
+      "campaignLockable": true,
+      "primary": true,
+      "anchors": {
+        "-1.0": "Irreverent — slang, broken rules, profanity-adjacent Example: Wendy's Twitter roasts, Cards Against Humanity packaging",
+        "-0.5": "Casual — conversational, contractions, first-name basis Example: Mailchimp emails, Slack notifications",
+        "0.0": "Neutral — neither formal nor casual, professional but approachable Example: Google blog posts, standard SaaS communications",
+        "+0.5": "Formal — proper grammar, measured tone, institutional voice Example: McKinsey reports, university communications",
+        "+1.0": "High formal — legal precision, ceremonial weight Example: Supreme Court opinions, diplomatic communications"
+      },
+      "grounding": "NN/g's 4-dimension tone model — formality axis. Merged with original irreverence signal per Eng review.",
+      "sourceLines": [
+        1837,
+        1856
+      ]
+    },
+    {
+      "id": "humor",
+      "axis": "VOICE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_2",
+      "campaignLockable": true,
+      "primary": true,
+      "anchors": {
+        "0.00": "Zero humor — dead serious, no levity of any kind",
+        "0.25": "Dry wit — occasional clever phrasing, understated amusement",
+        "0.50": "Clearly playful — audience smiles, lighthearted tone throughout",
+        "0.75": "Comedy-forward — laughs are a primary goal alongside the message",
+        "1.00": "Pure comedy — the joke IS the content"
+      },
+      "grounding": "NN/g tone model — humor axis. Humor in writing shares mechanisms with stand-up: setup, misdirection, payoff.",
+      "sourceLines": [
+        1859,
+        1873
+      ]
+    },
+    {
+      "id": "enthusiasm",
+      "axis": "VOICE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_2",
+      "campaignLockable": false,
+      "primary": true,
+      "anchors": {
+        "0.00": "Flat affect — deliberately monotone, matter-of-fact",
+        "0.25": "Measured — controlled energy, professional composure",
+        "0.50": "Warm engagement — genuine interest without over-excitement",
+        "0.75": "Energetic — exclamation marks earned, audible smile",
+        "1.00": "Explosive — MrBeast energy, ALL CAPS justified, maximum hype"
+      },
+      "grounding": "NN/g tone model — enthusiasm axis",
+      "sourceLines": [
+        1876,
+        1890
+      ]
+    },
+    {
+      "id": "warmth",
+      "axis": "VOICE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_2",
+      "campaignLockable": true,
+      "primary": false,
+      "anchors": {
+        "0.00": "Cold professional — deliberate distance, institution speaking Example: Law firm client letter, IRS notice",
+        "0.25": "Polite distance — courteous but impersonal Example: Standard corporate communications",
+        "0.50": "Approachable — \"we're people too\" with professional boundaries Example: Salesforce blog, Notion documentation",
+        "0.75": "Warm — personal, empathetic, mentor-like Example: Headspace copy, Patagonia essays",
+        "1.00": "Intimate — feels like a close friend talking to you Example: Personal newsletter, handwritten founder letter"
+      },
+      "grounding": "Scriptwriter review — distinguishes cold professional (law firm) from warm mentor (Headspace). Not captured by formality alone — formal + warm = possible (university president's commencement speech).",
+      "sourceLines": [
+        1893,
+        1912
+      ]
+    },
+    {
+      "id": "epistemic_stance",
+      "axis": "VOICE",
+      "range": {
+        "type": "enum",
+        "values": [
+          "teacher",
+          "peer",
+          "guide",
+          "oracle",
+          "co-discoverer"
+        ]
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": true,
+      "primary": false,
+      "anchors": {
+        "teacher": "\"I know this and I'll explain it to you\" — Masterclass, Khan Academy",
+        "peer": "\"We're figuring this out together\" — indie newsletters, community posts",
+        "guide": "\"I've been where you are, let me show you the path\" — Headspace, therapy apps",
+        "oracle": "\"Here is truth\" — Kurzgesagt, The Economist, Apple keynotes"
+      },
+      "grounding": "Scriptwriter review — captures the knowledge-relationship between writer and audience. Vox = teacher, Kurzgesagt = oracle, 3Blue1Brown = co-discoverer.",
+      "sourceLines": [
+        1915,
+        1929
+      ]
+    },
+    {
+      "id": "certainty",
+      "axis": "VOICE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": true,
+      "primary": false,
+      "anchors": {
+        "0.00": "Explicitly uncertain — \"we don't know yet\", \"the data is unclear\"",
+        "0.25": "Hedged — \"it appears that\", \"evidence suggests\", \"we believe\"",
+        "0.50": "Balanced — confident claims with acknowledged limitations",
+        "0.75": "Confident — \"this works\", \"here's what you should do\"",
+        "1.00": "Absolute certainty — \"this IS the answer\", zero qualification"
+      },
+      "grounding": "Scriptwriter review — startup pitch (certainty 0.9) vs scientific paper (certainty 0.4) vs Apple keynote (certainty 1.0).",
+      "sourceLines": [
+        1932,
+        1946
+      ]
+    },
+    {
+      "id": "temporal_orientation",
+      "axis": "VOICE",
+      "range": {
+        "type": "enum",
+        "values": [
+          "forward",
+          "present",
+          "backward"
+        ]
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "forward": "\"The future is...\" — startup pitches, innovation content, vision statements",
+        "present": "\"Right now...\" — news, tutorials, product demos, current state descriptions",
+        "backward": "\"We've always...\" — heritage brands, origin stories, nostalgia marketing"
+      },
+      "grounding": "Scriptwriter review — Nike (forward: \"the future of sport\") vs Patagonia (backward: \"we've always believed\") vs Apple (present: \"this changes everything, today\").",
+      "sourceLines": [
+        1949,
+        1961
+      ]
+    },
+    {
+      "id": "power_dynamic",
+      "axis": "VOICE",
+      "range": {
+        "type": "enum",
+        "values": [
+          "command",
+          "invite",
+          "confide",
+          "provoke"
+        ]
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": true,
+      "primary": false,
+      "anchors": {
+        "command": "\"Do this.\" — Nike \"Just Do It\", military recruitment, direct-response CTA",
+        "invite": "\"Join us.\" — Community-building, Patagonia, \"What if we...\"",
+        "confide": "\"Between us...\" — Personal newsletters, behind-the-scenes, vulnerable sharing",
+        "provoke": "\"Are you sure about that?\" — Contrarian takes, challenger brands, thought leadership"
+      },
+      "grounding": "Scriptwriter review — power_dynamic + epistemic_stance together capture the full relationship between writer and audience.",
+      "sourceLines": [
+        1964,
+        1977
+      ]
+    },
+    {
+      "id": "intensity_performance",
+      "axis": "VOICE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Maximum understatement — says less than it means, trusts audience Example: Hemingway prose, Patagonia product descriptions",
+        "0.25": "Restrained — measured delivery, occasional emphasis",
+        "0.50": "Standard — emphasis matches content importance",
+        "0.75": "Amplified — deliberate intensity, theatrical moments",
+        "1.00": "Maximum performance — MrBeast, Gary Vee, preachers, stadium announcers"
+      },
+      "grounding": "Scriptwriter review — MrBeast (1.0) vs Casey Neistat (0.3) share similar enthusiasm but differ radically in intensity_performance.",
+      "sourceLines": [
+        1980,
+        1995
+      ]
+    },
+    {
+      "id": "education_intent",
+      "axis": "PURPOSE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_1",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Zero teaching — pure entertainment, emotion, or persuasion",
+        "0.25": "Incidental learning — audience picks up facts along the way",
+        "0.50": "Balanced — learning is a goal but not the only one",
+        "0.75": "Education-primary — structure exists to teach effectively",
+        "1.00": "Pure education — every sentence advances understanding"
+      },
+      "grounding": "Gagne's 9 Events of Instruction; Mayer's 12 Principles of Multimedia Learning",
+      "sourceLines": [
+        2003,
+        2017
+      ]
+    },
+    {
+      "id": "entertainment_intent",
+      "axis": "PURPOSE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_1",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Zero entertainment value — utility content, compliance, reference",
+        "0.25": "Mildly engaging — readable/watchable but pleasure is not the point",
+        "0.50": "Genuinely enjoyable — audience would choose this over alternatives",
+        "0.75": "Entertainment-primary — audience is here for the experience",
+        "1.00": "Pure entertainment — content exists solely for pleasure/diversion"
+      },
+      "grounding": "Uses and Gratifications Theory (Katz, Blumler & Gurevitch, 1974)",
+      "sourceLines": [
+        2020,
+        2034
+      ]
+    },
+    {
+      "id": "connection_intent",
+      "axis": "PURPOSE",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "No relational goal — content is transactional, one-directional",
+        "0.25": "Light connection — \"follow for more\", mild community nod",
+        "0.50": "Relationship-building — \"we're in this together\", shared values",
+        "0.75": "Deep bonding — vulnerability, shared struggle, we-language",
+        "1.00": "Pure connection — content exists to strengthen the relationship"
+      },
+      "grounding": "Deci & Ryan's relatedness need (SDT, 2000); parasocial relationship theory",
+      "sourceLines": [
+        2037,
+        2051
+      ]
+    },
+    {
+      "id": "temporal_relevance_decay",
+      "axis": "TEMPORAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_2",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Ephemeral — irrelevant within hours/days (trending topic, breaking news)",
+        "0.25": "Short-lived — relevant for weeks (seasonal campaign, product launch)",
+        "0.50": "Medium shelf life — relevant for months (quarterly report, feature release)",
+        "0.75": "Long-lasting — relevant for years (brand manifesto, evergreen tutorial)",
+        "1.00": "Timeless — relevant indefinitely (foundational principles, origin story)"
+      },
+      "grounding": "Content marketing lifecycle models; SEO evergreen vs topical content distinction",
+      "sourceLines": [
+        2065,
+        2079
+      ]
+    },
+    {
+      "id": "scope_breadth",
+      "axis": "TEMPORAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Hyper-narrow — one specific instance, person, or event",
+        "0.25": "Narrow — one product, one company, one situation",
+        "0.50": "Moderate — an industry, a demographic, a trend",
+        "0.75": "Broad — a generation, a society, a movement",
+        "1.00": "Universal — the human condition, nature, existence"
+      },
+      "grounding": "Journalism's scope ladder — from local incident to universal truth",
+      "sourceLines": [
+        2082,
+        2096
+      ]
+    },
+    {
+      "id": "negative_space",
+      "axis": "CRAFT",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "No silence, no pauses, no white space — wall-to-wall content",
+        "0.25": "Minimal breathing room — tight editing, dense but with paragraph breaks",
+        "0.50": "Balanced — deliberate pauses, section breaks, room to digest",
+        "0.75": "Generous space — let the audience sit with ideas, silence after key points",
+        "1.00": "Space IS the content — Patagonia-style 60% silence, haiku minimalism"
+      },
+      "grounding": "Scriptwriter review — \"the taxonomy is entirely additive. Great writing is equally about what to LEAVE OUT.\" Musical rest theory — silence gives notes meaning.",
+      "sourceLines": [
+        2104,
+        2118
+      ]
+    },
+    {
+      "id": "specificity_grain",
+      "axis": "CRAFT",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Generic — \"She drove a car\"",
+        "0.25": "Category-level — \"She drove a hatchback\"",
+        "0.50": "Brand-level — \"She drove a Volvo\"",
+        "0.75": "Model-level — \"She drove a 1987 Volvo 240\"",
+        "1.00": "Hyper-specific — \"She drove a 1987 Volvo 240 with a bobblehead of Ruth Bader Ginsburg on the dash\""
+      },
+      "grounding": "Scriptwriter review — \"single fastest way to make writing feel human.\" Concrete language activates more neural pathways than abstract (Jessen et al., 2000 — fMRI studies of concrete vs abstract words).",
+      "sourceLines": [
+        2121,
+        2135
+      ]
+    },
+    {
+      "id": "rhythmic_variation",
+      "axis": "CRAFT",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Metronomic — every sentence the same length and structure",
+        "0.25": "Low variation — mostly similar with occasional change",
+        "0.50": "Moderate — noticeable rhythm with intentional shifts",
+        "0.75": "High variation — deliberate alternation between short punchy and long flowing",
+        "1.00": "Maximum variation — \"Short. Short. Then a sentence that unfurls like a flag in wind, clause after clause, building to something you didn't see coming.\" Hemingway meets Faulkner."
+      },
+      "grounding": "Scriptwriter review — \"sentence length variation IS the craft.\" Prose rhythm research (Hye-Knudsen 2023 — rhythmic variation correlates with reader engagement).",
+      "sourceLines": [
+        2138,
+        2152
+      ]
+    },
+    {
+      "id": "pivot_intensity",
+      "axis": "CRAFT",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "No pivot — linear progression, no reversals",
+        "0.25": "Gentle turn — subtle shift in perspective or argument",
+        "0.50": "Clear pivot — \"But here's the thing...\" — audience feels the turn",
+        "0.75": "Sharp reversal — \"Everything I just said is wrong\" — attention spike",
+        "1.00": "Whiplash — complete 180, audience gasps, subverts all expectations"
+      },
+      "grounding": "Scriptwriter review — \"every great piece has a moment where it pivots. Not tension_arc (continuous). A discrete hinge.\"",
+      "sourceLines": [
+        2155,
+        2169
+      ]
+    },
+    {
+      "id": "callback_density",
+      "axis": "CRAFT",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "No callbacks — each section is self-contained, no cross-references",
+        "0.25": "Occasional echo — one moment references an earlier one",
+        "0.50": "Regular callbacks — setup/payoff pairs every few sections",
+        "0.75": "Dense callbacks — multiple threads planted and paid off, comedy-writer density",
+        "1.00": "Everything connects — every element is both setup and payoff for something else"
+      },
+      "grounding": "Scriptwriter review — \"plant in minute 1, pay off in minute 8.\" Setup/payoff is fundamental to screenwriting (Robert McKee, Story, 1997).",
+      "sourceLines": [
+        2172,
+        2186
+      ]
+    },
+    {
+      "id": "subtext_depth",
+      "axis": "CRAFT",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Surface only — content means exactly what it says, no layers",
+        "0.25": "Light subtext — occasional implications, mostly explicit",
+        "0.50": "Moderate — surface meaning + an underlying message/theme",
+        "0.75": "Rich subtext — multiple layers of meaning, rewards re-reading",
+        "1.00": "Almost entirely subtextual — surface is a vehicle for deeper meaning"
+      },
+      "grounding": "Scriptwriter review — \"gap between surface meaning and intended meaning. Great writing operates on 2+ levels.\"",
+      "sourceLines": [
+        2189,
+        2203
+      ]
+    },
+    {
+      "id": "implication_reliance",
+      "axis": "CRAFT",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "GLOBAL",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Fully explicit — everything stated directly, nothing left to inference",
+        "0.25": "Mostly explicit — audience fills in small gaps",
+        "0.50": "Balanced — some things said, some implied, audience is trusted",
+        "0.75": "Heavily implied — audience constructs significant meaning",
+        "1.00": "Almost nothing stated — reader does the heavy lifting"
+      },
+      "grounding": "Scriptwriter review — \"great writing trusts the audience to construct meaning.\" Grice's Cooperative Principle and conversational implicature (1975).",
+      "sourceLines": [
+        2206,
+        2220
+      ]
+    },
+    {
+      "id": "transition_craft",
+      "axis": "CRAFT",
+      "range": {
+        "type": "enum",
+        "values": [
+          "hard_cut",
+          "bridge",
+          "callback_bridge",
+          "question_bridge",
+          "tonal_shift",
+          "contradiction",
+          "nested_reveal",
+          "emotional_reset",
+          "parallel_cut",
+          "the_drop",
+          "associative_leap",
+          "the_withhold"
+        ]
+      },
+      "scope": "TRANSITION (BETWEEN SCENES/SECTIONS)",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {},
+      "grounding": "Scriptwriter review + Copywriter review (6 additional types added in verification)",
+      "sourceLines": [
+        2223,
+        2236
+      ]
+    },
+    {
+      "id": "visual_dependency",
+      "axis": "VISUAL-VERBAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_1",
+      "campaignLockable": false,
+      "primary": true,
+      "anchors": {
+        "0.00": "Audio-only friendly — content works with eyes closed Example: Podcast, audiobook, radio ad",
+        "0.25": "Mostly verbal — occasional \"as you can see\" but visuals are supplementary Example: Talking head vlog, keynote with minimal slides",
+        "0.50": "Balanced — narration and visuals carry equal weight Example: Tutorial with screen share, cooking video with voiceover",
+        "0.75": "Visual-led — narration references specific visual elements constantly Example: Product demo, SaaS walkthrough, fashion lookbook",
+        "1.00": "Purely visual — zero narration, visuals ARE the content Example: ASMR cooking, silent cinematic montage, animated infographic"
+      },
+      "grounding": "CEO review — \"suspiciously text-only.\" Directly controls narration volume: low → dense VO, high → minimal/zero VO.",
+      "sourceLines": [
+        2244,
+        2263
+      ]
+    },
+    {
+      "id": "show_tell_ratio",
+      "axis": "VISUAL-VERBAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_2",
+      "campaignLockable": false,
+      "primary": true,
+      "anchors": {
+        "0.00": "All tell — narrator describes everything (\"Picture a golden sunset...\")",
+        "0.25": "Mostly tell — narration carries the story, visuals support",
+        "0.50": "Balanced — narration sets up, visuals pay off",
+        "0.75": "Mostly show — visuals lead, sparse narration punctuates",
+        "1.00": "All show — product speaks for itself, words are minimal"
+      },
+      "grounding": "Screenwriting principle: \"show, don't tell.\" Controls narration density — at 0.0, a 30s script needs ~75 words; at 1.0, it needs ~10 words or zero.",
+      "sourceLines": [
+        2266,
+        2280
+      ]
+    },
+    {
+      "id": "multimodal_counterpoint",
+      "axis": "VISUAL-VERBAL",
+      "range": {
+        "type": "continuous",
+        "min": 0,
+        "max": 1
+      },
+      "scope": "PER_SCENE",
+      "inference": "TIER_3",
+      "campaignLockable": false,
+      "primary": false,
+      "anchors": {
+        "0.00": "Perfect alignment — audio mirrors visual exactly (\"click here\" + arrow)",
+        "0.25": "Complementary — same message, different information per channel",
+        "0.50": "Layered — narration adds context visuals cannot show (backstory, feelings)",
+        "0.75": "Deliberate tension — serene visuals + urgent narration, or vice versa",
+        "1.00": "Full contradiction — channels say opposite things for artistic effect"
+      },
+      "grounding": "CEO review — needed for video company. Film theory: Eisenstein's montage theory (meaning from juxtaposition of contrasting elements). Patagonia brand films routinely use 0.7-0.8.",
+      "sourceLines": [
+        2283,
+        2297
+      ]
+    }
+  ],
+  "techniques": [
+    {
+      "id": "question_hook",
+      "category": "hook",
+      "activation": [
+        {
+          "signal": "elaboration_demand",
+          "min": 0.3,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "audience_awareness",
+          "value": "problem_aware",
+          "weight": 0.4
+        },
+        {
+          "signal": "autonomy_grant",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.2
+        },
+        {
+          "signal": "novelty",
+          "min": 0.3,
+          "max": 0.8,
+          "weight": 0.1
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "certainty",
+          "threshold": 0.9
+        }
+      ],
+      "primary": "Open with a question the audience already has but hasn't articulated. Not a generic question — a SPECIFIC question that proves you understand their situation.",
+      "complements": "Follow with a brief credibility marker (ethos) before answering.",
+      "antiPatterns": [
+        "Generic questions (\"Want to grow your business?\") — too broad, feels like spam",
+        "Questions with obvious answers — insulting to the audience",
+        "Multiple questions stacked — cognitive overload, pick ONE"
+      ],
+      "weightResponse": {
+        "elaboration > 0.7": "philosophical question (\"What if everything you know about X is wrong?\")",
+        "elaboration 0.3-0.7": "practical question (\"How do you handle X when Y happens?\")"
+      },
+      "why": "Questions activate the brain's completion instinct (Zeigarnik effect). An unanswered question creates an open loop that the audience must close by continuing to read/watch.",
+      "example": "\"What happens to your brand when your best copywriter quits?\" — specific, painful, relevant",
+      "sourceLines": [
+        2915,
+        2939
+      ]
+    },
+    {
+      "id": "statistic_hook",
+      "category": "hook",
+      "activation": [
+        {
+          "signal": "logos_load",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.4
+        },
+        {
+          "signal": "novelty",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "assumed_expertise",
+          "min": 0.3,
+          "max": 0.8,
+          "weight": 0.2
+        },
+        {
+          "signal": "visceral_impact",
+          "min": 0.3,
+          "max": 1,
+          "weight": 0.1
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "formality",
+          "threshold": -0.5
+        }
+      ],
+      "primary": "Open with a surprising data point that reframes the audience's understanding. The stat must be COUNTERINTUITIVE — confirming what people already believe is not a hook.",
+      "complements": "Follow with \"...and here's why that matters to you\" (behavioral_utility bridge).",
+      "antiPatterns": [
+        "Made-up or unverifiable statistics — destroys ethos instantly",
+        "Stats without source — feels like LLM fabrication (the #1 anti-AI tell)",
+        "Multiple stats in the hook — one is a hook, three is a data dump"
+      ],
+      "weightResponse": {
+        "logos > 0.8": "lead with the number (\"73% of...\"), source immediately",
+        "logos 0.5-0.8": "embed the stat in a narrative framing (\"Most people assume X. The data says Y.\")"
+      },
+      "why": "Cognitive disruption — a counterintuitive fact creates a prediction error in the brain (Rescorla-Wagner model). The audience stays to resolve the discrepancy between what they believed and what the data shows.",
+      "example": "\"97% of video content gets zero organic reach. Here's what the 3% does differently.\"",
+      "sourceLines": [
+        2942,
+        2968
+      ]
+    },
+    {
+      "id": "story_hook",
+      "category": "hook",
+      "activation": [
+        {
+          "signal": "pathos_load",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "narrative_transportation",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "specificity_grain",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.2
+        },
+        {
+          "signal": "warmth",
+          "min": 0.3,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "pacing_velocity",
+          "threshold": 0.9
+        }
+      ],
+      "primary": "Open in the middle of a specific moment. Not backstory — a vivid, concrete scene that the audience enters immediately. \"It was 3am and the server was on fire.\"",
+      "complements": "Delay context — let the scene breathe before explaining why it matters.",
+      "antiPatterns": [
+        "Starting with backstory (\"Let me tell you about my journey...\") — earned, not given",
+        "Vague scene-setting (\"Imagine a world where...\") — generic, not specific",
+        "Stories that are clearly manufactured for the content — audience detects inauthenticity"
+      ],
+      "weightResponse": {
+        "pathos > 0.8": "start in the most emotionally intense moment (in medias res at the crisis)",
+        "pathos 0.5-0.8": "start at a moment of tension or decision"
+      },
+      "why": "Green & Brock transportation theory — a concrete scene activates narrative absorption, reducing the audience's counter-arguing defenses. They are IN the story before they decide whether to stay.",
+      "example": "\"She stared at the Slack notification. 47 unread messages. All from the same channel.\"",
+      "sourceLines": [
+        2971,
+        2996
+      ]
+    },
+    {
+      "id": "provocation_hook",
+      "category": "hook",
+      "activation": [
+        {
+          "signal": "certainty",
+          "min": 0.6,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "power_dynamic",
+          "value": "provoke",
+          "weight": 0.3
+        },
+        {
+          "signal": "novelty",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.2
+        },
+        {
+          "signal": "pivot_intensity",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "warmth",
+          "threshold": 0.8
+        }
+      ],
+      "primary": "Open with a bold, contrarian claim that challenges conventional wisdom. Must be defensible — not clickbait, but a genuine alternative perspective.",
+      "complements": "Immediately signal that evidence is coming (\"...and I can prove it.\").",
+      "antiPatterns": [
+        "Provocations you can't back up — damages ethos permanently",
+        "Insulting the audience (\"You're doing it wrong\") — provoke their assumptions, not their competence",
+        "Clickbait gap (\"You won't BELIEVE...\") — audience is trained to detect and punish this"
+      ],
+      "weightResponse": {
+        "certainty > 0.8": "absolute statement (\"X is dead. Here's what replaces it.\")",
+        "certainty 0.6-0.8": "qualified provocation (\"The conventional wisdom about X is dangerously wrong.\")"
+      },
+      "why": "Cognitive dissonance — a confident claim that contradicts the audience's beliefs creates discomfort that can only be resolved by engaging with the argument. Berlyne's optimal arousal.",
+      "example": "\"Content calendars are killing your brand. Stop scheduling. Start responding.\"",
+      "sourceLines": [
+        2999,
+        3023
+      ]
+    },
+    {
+      "id": "pattern_interrupt_hook",
+      "category": "hook",
+      "activation": [
+        {
+          "signal": "pacing_velocity",
+          "min": 0.7,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "entertainment_intent",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "visceral_impact",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.2
+        },
+        {
+          "signal": "visual_dependency",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "formality",
+          "threshold": 0.6
+        }
+      ],
+      "primary": "Open with something unexpected that STOPS the scroll — a jarring visual direction, a sentence fragment, a sound, a contradiction. The goal is the 0.4-second stopping reaction, not comprehension. Comprehension comes in the next 3 seconds.",
+      "complements": "Follow immediately with context (within 2 sentences) or audience bounces.",
+      "antiPatterns": [
+        "Shock without substance — stops the scroll but loses the audience at second 4",
+        "Pattern interrupts on every piece — audience builds tolerance fast",
+        "Interrupts that contradict the brand voice — jarring in the wrong way"
+      ],
+      "weightResponse": {
+        "pacing > 0.9": "maximum disruption — fragment, visual, unexpected angle",
+        "pacing 0.7-0.9": "moderate interruption — unexpected opening line, contrast"
+      },
+      "why": "Orienting response (Sokolov 1963) — novel stimuli trigger involuntary attention.",
+      "example": "\"STOP. Before you read another productivity tip.\" (then pivots to a genuine insight)",
+      "sourceLines": [
+        3026,
+        3052
+      ]
+    },
+    {
+      "id": "outcome_hook",
+      "category": "hook",
+      "activation": [
+        {
+          "signal": "behavioral_utility",
+          "min": 0.6,
+          "max": 1,
+          "weight": 0.4
+        },
+        {
+          "signal": "audience_awareness",
+          "value": "solution_aware",
+          "weight": 0.3
+        },
+        {
+          "signal": "kairos_pressure",
+          "min": 0.3,
+          "max": 0.8,
+          "weight": 0.2
+        },
+        {
+          "signal": "certainty",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.1
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "narrative_transportation",
+          "threshold": 0.8
+        }
+      ],
+      "primary": "Open with the RESULT the audience wants, then explain how to get there. \"Here's how we cut our CAC by 40% in 6 weeks.\" — destination first, journey second.",
+      "complements": "Include a specificity marker (the number, the timeframe, the constraint).",
+      "antiPatterns": [
+        "Vague outcomes (\"grow your business\") — no specificity = no hook",
+        "Outcomes the audience doesn't care about — must map to THEIR pain",
+        "Unbelievable outcomes without hedging — \"10x your revenue in a week\" triggers BS detector"
+      ],
+      "weightResponse": {
+        "behavioral > 0.8": "specific number + timeframe + constraint in the hook",
+        "behavioral 0.6-0.8": "outcome statement + credibility marker"
+      },
+      "why": "Outcome-first structure (product demo pattern from Part 5) applied to hooks. The audience evaluates effort-to-outcome ratio — showing the outcome first makes the effort worth evaluating.",
+      "example": "\"We reduced 12-hour video production to 45 minutes. Here's the exact workflow.\"",
+      "sourceLines": [
+        3055,
+        3080
+      ]
+    },
+    {
+      "id": "problem_agitate_solve",
+      "category": "structure",
+      "activation": [
+        {
+          "signal": "behavioral_utility",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "kairos_pressure",
+          "min": 0.3,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "pathos_load",
+          "min": 0.3,
+          "max": 0.8,
+          "weight": 0.2
+        },
+        {
+          "signal": "audience_awareness",
+          "value": "problem_aware",
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "education_intent",
+          "threshold": 0.8
+        }
+      ],
+      "primary": "Problem (name the pain) → Agitate (make it vivid) → Solve (present the answer). Works best under 60 seconds / 300 words. The agitation must be SPECIFIC — not \"this is bad\" but \"here's exactly how this ruins your Tuesday.\"",
+      "antiPatterns": [
+        "Agitation without empathy — making the audience feel stupid for having the problem",
+        "Weak agitation — \"this is a challenge\" instead of vivid, specific pain",
+        "Solution too early — jumping to solve before the audience feels the sting"
+      ],
+      "weightResponse": {
+        "kairos > 0.7": "compressed PAS — problem and agitation in one sentence, jump to solve",
+        "kairos 0.3-0.7": "full PAS — each phase gets development"
+      },
+      "why": "Direct response copywriting's most proven structure (Dan Kennedy, Gary Halbert). Agitation bridges the gap between \"I have a problem\" and \"I need to solve it NOW.\"",
+      "example": "P: \"Your onboarding takes 3 weeks.\" A: \"That's 3 weeks of salary for every hire who can't contribute. 12 hires a year = 36 lost weeks.\" S: \"One playbook. Day-one productive.\"",
+      "sourceLines": [
+        3090,
+        3115
+      ]
+    },
+    {
+      "id": "attention_interest_desire_action",
+      "category": "structure",
+      "activation": [
+        {
+          "signal": "persuasion_intent",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "audience_awareness",
+          "value": "solution_aware",
+          "weight": 0.3
+        },
+        {
+          "signal": "pacing_velocity",
+          "min": 0.3,
+          "max": 0.7,
+          "weight": 0.2
+        },
+        {
+          "signal": "ethos_load",
+          "min": 0.3,
+          "max": 0.8,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [],
+      "primary": "Attention (hook) → Interest (relevance) → Desire (benefits) → Action (CTA). Classic funnel. Works best for 60s-3min content / 300-1000 words. Each stage must EARN the next — attention doesn't guarantee interest.",
+      "antiPatterns": [
+        "Rushing through Interest to get to Desire — audience hasn't bought in yet",
+        "Desire section that is features-list instead of benefits — \"we have X\" vs \"you get Y\"",
+        "CTA disconnected from Desire — the action must feel like the natural next step"
+      ],
+      "weightResponse": {
+        "persuasion > 0.8": "aggressive AIDA — each stage shorter, harder push toward action",
+        "persuasion 0.5-0.8": "balanced AIDA — interest and desire get most of the time"
+      },
+      "why": "St. Elmo Lewis (1898). Still works because it maps to the buyer's psychological journey.",
+      "example": "A: \"Your customers abandon carts 73% of the time.\" I: \"Most recovery emails feel like spam.\" D: \"Imagine a follow-up that sounds like a friend, not a bot.\" A: \"Start your free trial.\"",
+      "sourceLines": [
+        3118,
+        3140
+      ]
+    },
+    {
+      "id": "sparkline_structure",
+      "category": "structure",
+      "activation": [
+        {
+          "signal": "tension_arc",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "reflective_depth",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "emotional_valence",
+          "min": -0.3,
+          "max": 0.8,
+          "weight": 0.2
+        },
+        {
+          "signal": "pacing_velocity",
+          "min": 0.2,
+          "max": 0.6,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "kairos_pressure",
+          "threshold": 0.8
+        }
+      ],
+      "primary": "Alternate between \"what is\" (current reality) and \"what could be\" (vision) throughout the piece. Each swing builds amplitude until the final \"what could be\" becomes irresistible. Duarte's presentation structure.",
+      "antiPatterns": [
+        "\"What could be\" too vague — audience needs to SEE the alternative, not just hear \"imagine better\"",
+        "Equal length swings — vary the rhythm, build amplitude (wider swings toward the end)",
+        "No final resolution — sparkline must end on \"what could be\" as the new reality"
+      ],
+      "weightResponse": {
+        "tension > 0.8": "wide swings between is/could-be, dramatic contrast",
+        "tension 0.5-0.8": "moderate oscillation, clear progression"
+      },
+      "why": "Nancy Duarte's analysis of great presentations (Sparkline, 2010). The oscillation creates sustained engagement because the audience is never settled — always pulled between realities.",
+      "example": "\"Today, a junior designer waits 2 days for brand feedback. Imagine instant guardrails. Today, your brand voice drifts across 5 freelancers. Imagine one system that remembers.\"",
+      "sourceLines": [
+        3143,
+        3168
+      ]
+    },
+    {
+      "id": "inverted_pyramid",
+      "category": "structure",
+      "activation": [
+        {
+          "signal": "logos_load",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "assumed_expertise",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "behavioral_utility",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.2
+        },
+        {
+          "signal": "temporal_relevance_decay",
+          "min": 0,
+          "max": 0.5,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "narrative_transportation",
+          "threshold": 0.7
+        }
+      ],
+      "primary": "Most important information FIRST. Supporting details second. Background last. Reader can stop at any point and has the essential information. Journalism's default. Works for news, announcements, updates, reports.",
+      "antiPatterns": [
+        "Burying the lead — context before conclusion defeats the entire purpose",
+        "Equal weight per paragraph — each paragraph should be LESS important than the one before",
+        "Using inverted pyramid for persuasion — it is a clarity structure, not a conversion structure"
+      ],
+      "weightResponse": {
+        "logos > 0.8": "pure inverted pyramid — headline, lead, details, context",
+        "logos 0.5-0.8": "modified inverted pyramid — lead with takeaway, then evidence, then context"
+      },
+      "why": "AP Stylebook journalism standard. Respects the reader's time and attention. Optimized for scanning — most readers don't finish (Sumo analysis of 650K page hits found only ~20% of readers reach the end; Nielsen found avg reader consumes ~20% of page text).",
+      "example": "\"Shopify expands AI assistant to all merchants. The tool generates product descriptions, ad copy, and email campaigns from a single brief. [details in decreasing importance]\"",
+      "sourceLines": [
+        3171,
+        3196
+      ]
+    },
+    {
+      "id": "narrative_arc",
+      "category": "structure",
+      "activation": [
+        {
+          "signal": "narrative_transportation",
+          "min": 0.6,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "tension_arc",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "pathos_load",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.2
+        },
+        {
+          "signal": "specificity_grain",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "pacing_velocity",
+          "threshold": 0.9
+        },
+        {
+          "signal": "behavioral_utility",
+          "threshold": 0.9
+        }
+      ],
+      "primary": "Setup (world + character + tension) → Confrontation (obstacle + stakes) → Resolution. Freytag's pyramid adapted for content marketing. The \"character\" can be the audience, the brand, a customer, or an idea.",
+      "antiPatterns": [
+        "Setup too long — audience loses patience before the story begins",
+        "Stakes unclear — \"things were hard\" is not stakes, \"she'd lose the account\" is stakes",
+        "Resolution too neat — real stories have rough edges; perfect endings feel fabricated"
+      ],
+      "weightResponse": {
+        "transportation > 0.8": "full three-act — invest in setup, delay resolution, emotional payoff",
+        "transportation 0.6-0.8": "compressed arc — setup in one beat, focus on confrontation + resolution"
+      },
+      "why": "Freytag (1863). Stories are the most natural human information structure — we evolved to pay attention to narratives. Transportation (Green & Brock 2000) reduces counter-arguing.",
+      "example": "\"When Maya launched her bakery, she posted one photo a day. Nobody noticed. Then a food blogger walked in by accident...\" [confrontation + resolution follows]",
+      "sourceLines": [
+        3199,
+        3225
+      ]
+    },
+    {
+      "id": "narration_anchor",
+      "category": "narration_mode",
+      "activation": [
+        {
+          "signal": "visual_dependency",
+          "min": 0,
+          "max": 0.3,
+          "weight": 0.4
+        },
+        {
+          "signal": "show_tell_ratio",
+          "min": 0,
+          "max": 0.3,
+          "weight": 0.4
+        },
+        {
+          "signal": "education_intent",
+          "min": 0.3,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [],
+      "primary": "Narration carries ALL meaning. Visuals are supplementary or absent. Full spoken script with 150 WPM VO density. 150 WPM is the standard voiceover rate (source: National Center for Voice and Speech; confirmed across multiple VO platforms and training resources).",
+      "example": "Podcast script, radio ad, audiobook chapter, narration-heavy documentary.",
+      "sourceLines": [
+        3233,
+        3246
+      ]
+    },
+    {
+      "id": "narration_complement",
+      "category": "narration_mode",
+      "activation": [
+        {
+          "signal": "visual_dependency",
+          "min": 0.3,
+          "max": 0.6,
+          "weight": 0.3
+        },
+        {
+          "signal": "show_tell_ratio",
+          "min": 0.3,
+          "max": 0.6,
+          "weight": 0.3
+        },
+        {
+          "signal": "multimodal_counterpoint",
+          "min": 0,
+          "max": 0.3,
+          "weight": 0.2
+        },
+        {
+          "signal": "education_intent",
+          "min": 0.3,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [],
+      "primary": "Narration and visuals SUPPORT each other — same message, different channels. VO explains while screen shows. ~120 WPM density (slower, breathing room for visuals). 80% of marketing video content uses this mode. This is the most common narration mode in marketing video content.",
+      "example": "Standard explainer, product overview, corporate brand video.",
+      "sourceLines": [
+        3249,
+        3263
+      ]
+    },
+    {
+      "id": "narration_counterpoint",
+      "category": "narration_mode",
+      "activation": [
+        {
+          "signal": "multimodal_counterpoint",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.4
+        },
+        {
+          "signal": "visual_dependency",
+          "min": 0.4,
+          "max": 0.8,
+          "weight": 0.2
+        },
+        {
+          "signal": "reflective_depth",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.2
+        },
+        {
+          "signal": "subtext_depth",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "assumed_expertise",
+          "threshold": 0.3
+        }
+      ],
+      "primary": "Narration and visuals carry DIFFERENT messages that create meaning through juxtaposition. VO tells one story while the screen shows another — the audience constructs the connection. Advanced technique. ~100 WPM density (sparse, each word must earn its place).",
+      "example": "Patagonia brand film: serene nature visuals + urgent climate narration. Documentary: upbeat childhood photos + adult voice recounting trauma.",
+      "sourceLines": [
+        3266,
+        3282
+      ]
+    },
+    {
+      "id": "narration_minimal",
+      "category": "narration_mode",
+      "activation": [
+        {
+          "signal": "visual_dependency",
+          "min": 0.7,
+          "max": 1,
+          "weight": 0.4
+        },
+        {
+          "signal": "show_tell_ratio",
+          "min": 0.7,
+          "max": 1,
+          "weight": 0.4
+        },
+        {
+          "signal": "negative_space",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [],
+      "primary": "Visuals carry the message. Narration is sparse or absent. 0-50 WPM. Each word is a deliberate punctuation mark, not explanation. On-screen text may replace spoken narration.",
+      "example": "Nike \"Just Do It\" anthem, Apple keynote product reveal, ASMR, cooking video.",
+      "sourceLines": [
+        3285,
+        3297
+      ]
+    },
+    {
+      "id": "soft_cta",
+      "category": "cta",
+      "activation": [
+        {
+          "signal": "cta_type",
+          "value": "soft",
+          "weight": 0.5
+        },
+        {
+          "signal": "autonomy_grant",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "warmth",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "kairos_pressure",
+          "threshold": 0.7
+        }
+      ],
+      "primary": "Invitation, not instruction. \"If this resonated, you might enjoy...\" Positioned as a natural next step, not a demand. Often embedded in closing content rather than separated as a distinct CTA block.",
+      "example": "\"Want to see this in action? We'd love to show you.\" / \"Follow for more like this.\"",
+      "sourceLines": [
+        3305,
+        3319
+      ]
+    },
+    {
+      "id": "hard_cta",
+      "category": "cta",
+      "activation": [
+        {
+          "signal": "cta_type",
+          "value": "hard",
+          "weight": 0.5
+        },
+        {
+          "signal": "behavioral_utility",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "certainty",
+          "min": 0.6,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [],
+      "primary": "Clear directive with specific action. \"Start your free trial.\" / \"Book a demo today.\" Explicit value proposition in or immediately before the CTA. One CTA per piece — multiple CTAs reduce conversion. Single CTA increased conversion by 266% vs multiple CTAs (source: Campaign Monitor). Hick's Law: decision time increases with number of choices.",
+      "example": "\"Start editing smarter — free for 14 days. No credit card required.\"",
+      "sourceLines": [
+        3322,
+        3336
+      ]
+    },
+    {
+      "id": "urgent_cta",
+      "category": "cta",
+      "activation": [
+        {
+          "signal": "cta_type",
+          "value": "urgent",
+          "weight": 0.4
+        },
+        {
+          "signal": "kairos_pressure",
+          "min": 0.7,
+          "max": 1,
+          "weight": 0.4
+        },
+        {
+          "signal": "certainty",
+          "min": 0.7,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "formality",
+          "threshold": 0.7
+        },
+        {
+          "signal": "ethos_load",
+          "threshold": 0.8
+        }
+      ],
+      "primary": "Time-bound directive with scarcity. \"Limited spots. Closes Friday.\" Must be REAL scarcity — fabricated urgency destroys trust permanently. Combined with specific consequence of inaction.",
+      "antiPatterns": [
+        "Fake countdown timers — audience knows. Destroys all future credibility.",
+        "\"Act now!\" without a real deadline — generic urgency is noise."
+      ],
+      "example": "\"Early access closes in 48 hours. 200 spots. 140 taken.\"",
+      "sourceLines": [
+        3339,
+        3357
+      ]
+    },
+    {
+      "id": "bridge_transition",
+      "category": "transition",
+      "activation": [
+        {
+          "signal": "pacing_velocity",
+          "min": 0.3,
+          "max": 0.7,
+          "weight": 0.5
+        },
+        {
+          "signal": "predictability",
+          "min": 0.4,
+          "max": 0.8,
+          "weight": 0.3
+        },
+        {
+          "signal": "linguistic_complexity",
+          "min": 0.3,
+          "max": 0.7,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [],
+      "primary": "Connective sentence linking two sections. \"But here's where it gets interesting.\" / \"And that brings us to the real question.\" The default — safe, clear, professional.",
+      "whenToUse": "Most section transitions. When in doubt, bridge.",
+      "sourceLines": [
+        3365,
+        3375
+      ]
+    },
+    {
+      "id": "callback_transition",
+      "category": "transition",
+      "activation": [
+        {
+          "signal": "callback_density",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.4
+        },
+        {
+          "signal": "narrative_transportation",
+          "min": 0.3,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "tension_arc",
+          "min": 0.3,
+          "max": 0.8,
+          "weight": 0.3
+        }
+      ],
+      "inhibitors": [],
+      "primary": "Reference earlier content to connect forward. \"Remember the 12-hour problem we mentioned? Here's why it's actually worse than you think.\" Creates coherence.",
+      "whenToUse": "When setup/payoff structure is active. When the piece has planted seeds.",
+      "sourceLines": [
+        3378,
+        3388
+      ]
+    },
+    {
+      "id": "drop_transition",
+      "category": "transition",
+      "activation": [
+        {
+          "signal": "pivot_intensity",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.4
+        },
+        {
+          "signal": "rhythmic_variation",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "negative_space",
+          "min": 0.3,
+          "max": 0.8,
+          "weight": 0.3
+        }
+      ],
+      "inhibitors": [],
+      "primary": "Strip all ornamentation. After flowing prose, one short declarative sentence. The texture shift IS the emphasis. \"That changed everything.\" Period. New paragraph.",
+      "whenToUse": "At the pivot point. When the piece needs to land a single fact with maximum impact.",
+      "sourceLines": [
+        3391,
+        3401
+      ]
+    },
+    {
+      "id": "withhold_transition",
+      "category": "transition",
+      "activation": [
+        {
+          "signal": "tension_arc",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.4
+        },
+        {
+          "signal": "implication_reliance",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "subtext_depth",
+          "min": 0.3,
+          "max": 0.8,
+          "weight": 0.3
+        }
+      ],
+      "inhibitors": [],
+      "primary": "End the section with an unanswered question or incomplete thought. Force the audience forward through absence. \"And then she opened the envelope.\" [new section starts WITHOUT revealing what was inside — for 2 more paragraphs]",
+      "whenToUse": "When tension is the primary engagement driver. Cliffhanger at section boundary.",
+      "sourceLines": [
+        3404,
+        3415
+      ]
+    },
+    {
+      "id": "recontextualization_reveal",
+      "category": "informational_surprise",
+      "activation": [
+        {
+          "signal": "pivot_intensity",
+          "min": 0.6,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "subtext_depth",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "novelty",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.2
+        },
+        {
+          "signal": "narrative_transportation",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "predictability",
+          "threshold": 0.8
+        }
+      ],
+      "primary": "A reveal that RECONTEXTUALIZES everything the audience has read/watched. All prior content takes on new meaning. This is not a twist — it is a deeper truth that was always there, now visible.",
+      "antiPatterns": [
+        "The reveal must be EARNED — planted seeds must exist earlier in the piece",
+        "The reveal must be TRUE — fabricated revelations feel like manipulation",
+        "Overuse destroys credibility — once per piece maximum, once per campaign is better"
+      ],
+      "why": "Predictive processing violation (Friston 2010) — the brain's prediction model updates retroactively. The emotional impact comes from revising PAST understanding, not just learning something new.",
+      "example": "\"The reason I know this works is because I was that agency owner. The one who edited every video herself. The 12-hour days were mine.\"",
+      "sourceLines": [
+        3423,
+        3446
+      ]
+    },
+    {
+      "id": "meta_break",
+      "category": "informational_surprise",
+      "activation": [
+        {
+          "signal": "humor",
+          "min": 0.4,
+          "max": 1,
+          "weight": 0.3
+        },
+        {
+          "signal": "formality",
+          "min": -1,
+          "max": 0,
+          "weight": 0.3
+        },
+        {
+          "signal": "intensity_performance",
+          "min": 0.3,
+          "max": 0.8,
+          "weight": 0.2
+        },
+        {
+          "signal": "entertainment_intent",
+          "min": 0.5,
+          "max": 1,
+          "weight": 0.2
+        }
+      ],
+      "inhibitors": [
+        {
+          "signal": "formality",
+          "threshold": 0.5
+        },
+        {
+          "signal": "ethos_load",
+          "threshold": 0.8
+        }
+      ],
+      "primary": "Break the fourth wall. Acknowledge the medium. \"Yes, this is a marketing video. Yes, we're trying to sell you something. But here's why you should care anyway.\" Disarms audience defenses through honesty.",
+      "antiPatterns": [
+        "Meta breaks that undermine the entire piece — the break should STRENGTHEN the message",
+        "Multiple meta breaks — one is refreshing, two is a gimmick"
+      ],
+      "why": "Deadpool effect — breaking conventions signals confidence and earns trust through vulnerability.",
+      "example": "\"Look, I know what you're thinking — 'another AI tool.' Stay with me for 30 seconds.\"",
+      "sourceLines": [
+        3449,
+        3472
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "id": "ai_filler_words",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": "match against banned phrase list (600+ patterns)",
+      "autoCorrection": "replace with brand-appropriate alternative or delete",
+      "why": "LLM-generated content has telltale filler: \"In today's fast-paced world\", \"It's important to note that\", \"Let's dive in\", \"At the end of the day\", \"game-changer\", \"leverage\", \"unlock\", \"empower\", \"cutting-edge\", \"seamless\", \"robust\", \"innovative\", \"synergy\", \"circle back\"",
+      "overridable": true,
+      "sourceLines": [
+        3754,
+        3829
+      ],
+      "section": "Anti-AI Constraints"
+    },
+    {
+      "id": "uniform_sentence_length",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": "standard deviation of sentence word-count < 15% of mean over 10+ sentences",
+      "autoCorrection": "flag for rewrite with rhythm variation target",
+      "why": "LLMs produce metronomically uniform sentences. Human writers vary naturally. See Part 2: rhythmic_variation signal.",
+      "overridable": true,
+      "sourceLines": [
+        3754,
+        3829
+      ],
+      "section": "Anti-AI Constraints"
+    },
+    {
+      "id": "formulaic_opener",
+      "severity": "info",
+      "deduction": 1,
+      "detection": "opening matches common LLM patterns: \"In today's...\", \"Have you ever...\", \"What if I told you...\", \"Did you know that...\"",
+      "autoCorrection": "rewrite opener using selected hook technique from Part 4",
+      "why": "Trained audiences (especially marketing professionals) detect these instantly.",
+      "sourceLines": [
+        3754,
+        3829
+      ],
+      "section": "Anti-AI Constraints"
+    },
+    {
+      "id": "paragraph_uniformity",
+      "severity": "info",
+      "deduction": 1,
+      "detection": "all paragraphs within ±20% of same length for 5+ consecutive paragraphs",
+      "autoCorrection": "flag for structural variation",
+      "why": "LLMs produce uniform paragraph blocks. Human writers vary paragraph length deliberately — short punch paragraphs, long development paragraphs.",
+      "sourceLines": [
+        3754,
+        3829
+      ],
+      "section": "Anti-AI Constraints"
+    },
+    {
+      "id": "hedging_overload",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": ">3 hedge phrases per 200 words (\"it seems\", \"perhaps\", \"might\", \"could potentially\")",
+      "autoCorrection": "strengthen claims or remove hedges, per certainty signal",
+      "why": "LLMs over-hedge to seem balanced. Real writers commit to their claims. Exception: certainty < 0.4 (deliberately provisional content is exempt)",
+      "sourceLines": [
+        3754,
+        3829
+      ],
+      "section": "Anti-AI Constraints"
+    },
+    {
+      "id": "list_dependency",
+      "severity": "info",
+      "deduction": 1,
+      "detection": ">40% of content is bulleted/numbered lists",
+      "autoCorrection": "convert some lists to prose",
+      "why": "LLMs default to lists as a crutch. Lists are a valid formatting tool (Part 4 atlas) but content that is MOSTLY lists reads as outline, not finished work.",
+      "sourceLines": [
+        3754,
+        3829
+      ],
+      "section": "Anti-AI Constraints"
+    },
+    {
+      "id": "transition_word_overload",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": ">4 formal transition words per 300 words (\"furthermore\", \"moreover\", \"additionally\", \"consequently\", \"nevertheless\", \"in conclusion\")",
+      "autoCorrection": "remove or replace with natural connective language",
+      "why": "LLMs over-use academic transition words. Real writers use implicit transitions, conjunctions, or white space — not a thesaurus of \"moreover.\"",
+      "sourceLines": [
+        3754,
+        3829
+      ],
+      "section": "Anti-AI Constraints"
+    },
+    {
+      "id": "three_examples_pattern",
+      "severity": "info",
+      "deduction": 1,
+      "detection": "3+ instances of exactly-three-item lists or \"three reasons/tips/steps\" in one piece",
+      "autoCorrection": "flag — vary list lengths (2, 4, 5, 7 are all valid)",
+      "why": "LLMs almost always generate exactly 3 examples. The \"rule of three\" is real but when EVERY list has exactly 3 items, it signals AI generation.",
+      "sourceLines": [
+        3754,
+        3829
+      ],
+      "section": "Anti-AI Constraints"
+    },
+    {
+      "id": "false_balance_hedge",
+      "severity": "info",
+      "deduction": 1,
+      "detection": "pattern: \"While X, it's also true that Y\" or \"On one hand... on the other hand\" appearing 2+ times in one piece",
+      "autoCorrection": "flag for rewrite — commit to a position or acknowledge complexity without formula",
+      "why": "LLMs hedge by presenting both sides in a formulaic pattern. Real writers who genuinely see both sides express it with nuance, not with \"on the other hand.\"",
+      "sourceLines": [
+        3754,
+        3829
+      ],
+      "section": "Anti-AI Constraints"
+    },
+    {
+      "id": "summary_restatement",
+      "severity": "info",
+      "deduction": 1,
+      "detection": "final paragraph restates 3+ key points already made in the piece, using similar phrasing",
+      "autoCorrection": "flag — replace with forward-looking close, CTA, or callback (Part 4 closing techniques)",
+      "why": "The trademark LLM ending: \"In summary, we've covered X, Y, and Z.\" Real writers end with resonance, not recitation. If the reader needs a summary, the piece was too long.",
+      "sourceLines": [
+        3754,
+        3829
+      ],
+      "section": "Anti-AI Constraints"
+    },
+    {
+      "id": "platform_character_limit",
+      "severity": "critical",
+      "deduction": 15,
+      "detection": "content length exceeds platform maximum",
+      "autoCorrection": "trim content, prioritizing removal of lowest-weight scenes/sections",
+      "why": null,
+      "overridable": false,
+      "platforms": "see Part 8 for exact limits per platform",
+      "sourceLines": [
+        3837,
+        3860
+      ],
+      "section": "Platform Constraints"
+    },
+    {
+      "id": "platform_duration_limit",
+      "severity": "critical",
+      "deduction": 15,
+      "detection": "video script duration (word count / WPM) exceeds platform maximum",
+      "autoCorrection": "flag excess scenes for user review",
+      "why": null,
+      "overridable": false,
+      "platforms": "see Part 8 for exact duration limits",
+      "sourceLines": [
+        3837,
+        3860
+      ],
+      "section": "Platform Constraints"
+    },
+    {
+      "id": "hook_within_threshold",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": "first substantive hook element appears after platform-specific threshold TikTok: 3 seconds. Instagram Reels: 3 seconds. YouTube: 10 seconds. LinkedIn: first 210 characters (desktop) / 140 characters (mobile)",
+      "autoCorrection": "restructure to front-load hook",
+      "why": "each platform has a measured attention threshold — content that doesn't hook within it gets zero algorithmic distribution",
+      "overridable": true,
+      "sourceLines": [
+        3837,
+        3860
+      ],
+      "section": "Platform Constraints"
+    },
+    {
+      "id": "wpm_exceeds_format",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": "word count / duration exceeds comfortable WPM for format Video narration: > 170 WPM (uncomfortable VO pace) Presentation: > 160 WPM (speaker can't keep up) Podcast: > 190 WPM (listener fatigue) ⚠️ WPM thresholds are industry standards confirmed across VO training resources. Standard VO: 150 WPM. Fast: 170-180 WPM. Slow: 120-130 WPM.",
+      "autoCorrection": "flag excess words for trim or increase target_length",
+      "why": null,
+      "overridable": true,
+      "sourceLines": [
+        3866,
+        3884
+      ],
+      "section": "Pacing Constraints"
+    },
+    {
+      "id": "information_overload",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": "cognitive_load (derived) > 0.8 AND negative_space < 0.2",
+      "autoCorrection": "add section breaks, whitespace, or simplify language",
+      "why": "Sweller's cognitive load theory — intrinsic load + extraneous load must not exceed working memory capacity. Dense content without breathing room overwhelms.",
+      "overridable": true,
+      "sourceLines": [
+        3866,
+        3884
+      ],
+      "section": "Pacing Constraints"
+    },
+    {
+      "id": "kill_list_violation",
+      "severity": "critical",
+      "deduction": 15,
+      "detection": "deterministic string matching against Brand DNA kill list (Part 1)",
+      "autoCorrection": "replace with preferred alternative from vocabulary hierarchy",
+      "why": null,
+      "overridable": "brand-admin-only",
+      "sourceLines": [
+        3890,
+        3907
+      ],
+      "section": "Brand Safety Constraints"
+    },
+    {
+      "id": "tone_guardrail_breach",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": "output signal values exceed Brand DNA tone guardrails (Part 1)",
+      "autoCorrection": "flag for rewrite with adjusted signal targets",
+      "why": null,
+      "overridable": "brand-admin-only",
+      "sourceLines": [
+        3890,
+        3907
+      ],
+      "section": "Brand Safety Constraints"
+    },
+    {
+      "id": "competitor_mention",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": "named competitor detected in output (requires competitor list in Brand DNA)",
+      "autoCorrection": "remove mention or replace with generic reference per competitor_policy",
+      "why": null,
+      "overridable": true,
+      "sourceLines": [
+        3890,
+        3907
+      ],
+      "section": "Brand Safety Constraints"
+    },
+    {
+      "id": "reading_level_exceeded",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": "Flesch-Kincaid grade level exceeds reading_level_target by > 2 grades",
+      "autoCorrection": "simplify vocabulary and sentence structure",
+      "why": "content that exceeds the audience's reading comfort level gets abandoned. Grade 8 = mass consumer. Grade 12 = professional. Grade 16+ = academic. ⚠️ Flesch-Kincaid is a proxy — it measures syntax complexity, not conceptual difficulty.",
+      "overridable": true,
+      "sourceLines": [
+        3913,
+        3929
+      ],
+      "section": "Readability Constraints"
+    },
+    {
+      "id": "jargon_density",
+      "severity": "info",
+      "deduction": 1,
+      "detection": ">5% of words are domain-specific jargon AND assumed_expertise < 0.5",
+      "autoCorrection": "flag jargon words, suggest plain-language alternatives",
+      "why": "jargon is a barrier for non-expert audiences. It is CORRECT for expert audiences (in_group_signal > 0.7) — this constraint is suppressed when expertise is high.",
+      "overridable": true,
+      "sourceLines": [
+        3913,
+        3929
+      ],
+      "section": "Readability Constraints"
+    },
+    {
+      "id": "missing_required_disclosure",
+      "severity": "critical",
+      "deduction": 15,
+      "detection": "regulatory_profile requires disclosures AND output does not contain them",
+      "autoCorrection": "append required disclosure text (system flags location, human writes disclosure)",
+      "why": null,
+      "overridable": false,
+      "sourceLines": [
+        3939,
+        3960
+      ],
+      "section": "Regulatory Constraints"
+    },
+    {
+      "id": "banned_regulatory_claim",
+      "severity": "critical",
+      "deduction": 15,
+      "detection": "output contains claim type banned by regulatory_profile Pharma: cure/prevent/treat claims without FDA-approved indications Finance: guaranteed returns, specific performance predictions Alcohol: health benefits, targeting minors",
+      "autoCorrection": "remove claim, flag for human rewrite",
+      "why": null,
+      "overridable": false,
+      "sourceLines": [
+        3939,
+        3960
+      ],
+      "section": "Regulatory Constraints"
+    },
+    {
+      "id": "superlative_in_regulated_content",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": "superlatives (\"best\", \"fastest\", \"most effective\", \"#1\") in regulated content",
+      "autoCorrection": "remove superlative, replace with qualified claim",
+      "why": "regulated industries (pharma, finance) ban superlatives unless substantiated",
+      "overridable": false,
+      "sourceLines": [
+        3939,
+        3960
+      ],
+      "section": "Regulatory Constraints"
+    },
+    {
+      "id": "unsourced_statistic",
+      "severity": "critical",
+      "deduction": 15,
+      "detection": "numeric claim (percentage, count, monetary value) without source attribution",
+      "autoCorrection": "flag claim, require user to provide source or remove",
+      "why": "AI-fabricated statistics are the #1 credibility risk. Every number must trace to user-provided material (Part 0, section 0.8).",
+      "overridable": false,
+      "sourceLines": [
+        3966,
+        3988
+      ],
+      "section": "Content Integrity Constraints"
+    },
+    {
+      "id": "fabricated_testimonial",
+      "severity": "critical",
+      "deduction": 15,
+      "detection": "quote attributed to a named person/company not in user-provided materials",
+      "autoCorrection": "remove quote, flag for user",
+      "why": "fabricated testimonials are FTC violations (US) and ASA violations (UK) regardless of industry",
+      "overridable": false,
+      "sourceLines": [
+        3966,
+        3988
+      ],
+      "section": "Content Integrity Constraints"
+    },
+    {
+      "id": "unverifiable_claim",
+      "severity": "warning",
+      "deduction": 5,
+      "detection": "claim that cannot be verified from user-provided materials (e.g., \"industry-leading\", \"best-in-class\", \"revolutionary\")",
+      "autoCorrection": "replace with specific, verifiable claim or remove",
+      "why": null,
+      "overridable": true,
+      "sourceLines": [
+        3966,
+        3988
+      ],
+      "section": "Content Integrity Constraints"
+    }
+  ],
+  "platforms": [
+    {
+      "name": "TikTok",
+      "lastVerified": "2026-05-19",
+      "characterLimits": {
+        "caption": 4000,
+        "bio": 80,
+        "username": 24
+      },
+      "durationLimits": {
+        "minSeconds": 3,
+        "maxSeconds": 3600
+      },
+      "sweetSpots": [
+        "21-34 seconds (entertainment), 45-75 seconds (informative)"
+      ],
+      "raw": "Last verified: 2026-05-19\nSources: flowshorts.app, socialrails.com, TikTok official docs\n\nCharacter limits:\n  Caption: 4,000 characters (expanded from 2,200 in 2024)\n  Bio: 80 characters\n  Username: 24 characters\n\nDuration limits:\n  Minimum: 3 seconds\n  In-app recording: up to 10 minutes\n  Uploaded video: up to 60 minutes\n  Algorithm sweet spot: 21-34 seconds (entertainment), 45-75 seconds (informative)\n  Source: socialrails.com 2026, retensis.com 2026\n\nAspect ratio:\n  Preferred: 9:16 (vertical, full-screen)\n  Accepted: 1:1, 16:9\n  Vertical vs horizontal: 9x completion rate for vertical (source: Snapchat/Kleiner Perkins 2015)\n\nAlgorithm signals (ranked by weight):\n  1. Completion rate (strongest — videos with >50% avg completion get significantly more distribution)\n  2. Rewatch rate\n  3. Share rate (especially DM shares)\n  4. Comment rate\n  5. Like rate (weakest of the engagement signals)\n  Source: socialync.io 2026, various industry analyses\n\nHook threshold: 3 seconds — <60% retention at 3s = minimal algorithmic push",
+      "sourceLines": [
+        4128,
+        4157
+      ]
+    },
+    {
+      "name": "Instagram",
+      "lastVerified": "2026-05-19",
+      "characterLimits": {
+        "feed post caption": 2200
+      },
+      "durationLimits": {
+        "minSeconds": 3,
+        "maxSeconds": 1200
+      },
+      "sweetSpots": [
+        "under 90 seconds for organic discovery",
+        "7-15 seconds (reach), 15-60 seconds (tutorials), 3+ minutes (conversion, followers only)"
+      ],
+      "raw": "Last verified: 2026-05-19\nSources: zeely.ai, heytrendy.app, Instagram official docs\n\nReels duration:\n  Minimum: 3 seconds\n  Maximum: 20 minutes (expanded from 90 seconds in 2024)\n  Algorithm favors: under 90 seconds for organic discovery\n  Sweet spot: 7-15 seconds (reach), 15-60 seconds (tutorials), 3+ minutes (conversion, followers only)\n\nFeed post caption: 2,200 characters\n  Visible before fold: ~125 characters\n  Desktop: ~210 characters before \"more\"\n\nStories: 60 seconds per story (previously 15s segments)\n\nAlgorithm signals:\n  1. DM shares (#1 signal per Instagram head Adam Mosseri)\n  2. Saves\n  3. Comments\n  4. Likes\n  5. Watch time (Reels)\n\nHashtags: max 30, optimal 3-5 (keywords > hashtags in 2026)",
+      "sourceLines": [
+        4162,
+        4185
+      ]
+    },
+    {
+      "name": "LinkedIn",
+      "lastVerified": "2026-05-19",
+      "characterLimits": {
+        "post character limit": 3000,
+        "article character limit": 125000
+      },
+      "durationLimits": {},
+      "sweetSpots": [
+        "30-90 seconds"
+      ],
+      "raw": "Last verified: 2026-05-19\nSources: authoredup.com, connectsafely.ai, LinkedIn official docs\n\nPost character limit: 3,000 characters\n  Optimal engagement: 1,300-1,900 characters (source: analysis of 10,000+ posts, connectsafely.ai)\n  Visible before fold: ~210 characters (desktop), ~140 characters (mobile)\n\nArticle character limit: 125,000 characters (~40,000 words)\n\nVideo duration:\n  Feed: 3 seconds to 10 minutes\n  Optimal: 30-90 seconds\n\nAlgorithm signals:\n  1. Dwell time (time spent reading/viewing)\n  2. Engagement velocity (speed of initial reactions)\n  3. Comment depth (substantive > emoji)\n  4. Shares to network\n  5. Completion rate (video)\n\nCarousel: up to 300 slides (PDF format), optimal 6-10 slides\n  Carousel engagement: 6.6% average (highest format engagement on LinkedIn)",
+      "sourceLines": [
+        4190,
+        4212
+      ]
+    },
+    {
+      "name": "YouTube",
+      "lastVerified": "2026-05-19",
+      "characterLimits": {
+        "title": 100,
+        "description": 5000
+      },
+      "durationLimits": {
+        "maxSeconds": 43200
+      },
+      "sweetSpots": [
+        "30-60 seconds",
+        "8-12 minutes (ad mid-roll eligible at 8 min)"
+      ],
+      "raw": "Last verified: 2026-05-19\n\nShorts:\n  Duration: 3 seconds to 3 minutes\n  Aspect: 9:16 (vertical)\n  Sweet spot: 30-60 seconds\n\nLong-form:\n  Maximum: 12 hours (default), 256 GB file size\n  Sweet spot: 8-12 minutes (ad mid-roll eligible at 8 min)\n\nTitle: 100 characters (optimal 60-70 for full display)\nDescription: 5,000 characters\n\nAlgorithm signals:\n  1. Click-through rate (thumbnail + title)\n  2. Average view duration (watch time)\n  3. Session time (does your video lead to more YouTube watching?)\n  4. Engagement (likes, comments, shares)\n\nThumbnail: 1280x720 pixels, <2MB",
+      "sourceLines": [
+        4217,
+        4238
+      ]
+    },
+    {
+      "name": "Twitter/X",
+      "lastVerified": "2026-05-19",
+      "characterLimits": {
+        "post": 280
+      },
+      "durationLimits": {},
+      "sweetSpots": [
+        "5-7 posts per thread"
+      ],
+      "raw": "Last verified: 2026-05-19\n\nPost: 280 characters (free), 25,000 characters (Premium)\n  Optimal engagement: 71-100 characters (single post)\n\nThread: unlimited posts\n  Optimal: 5-7 posts per thread\n  Threads generate 63% more impressions than single posts\n\nVideo: up to 2 hours 20 minutes (free), up to 4 hours (Premium)\n  ⚠️ Duration limits expanded significantly in 2024-2025. Verify current limits.\n\nAlgorithm signals:\n  1. Reply/conversation\n  2. Repost\n  3. Like\n  4. Bookmark\n  5. Time spent viewing",
+      "sourceLines": [
+        4243,
+        4261
+      ]
+    },
+    {
+      "name": "Email",
+      "lastVerified": null,
+      "characterLimits": {},
+      "durationLimits": {},
+      "sweetSpots": [],
+      "raw": "No platform character limits — inbox rendering varies.\n\nSubject line: optimal 30-50 characters (6-10 words)\n  >50 characters: truncated on mobile\n  Personalized subjects: 26% more likely to be opened (source: Campaign Monitor).\n\nPreview text: 40-130 characters (varies by client)\nBody: optimal 200-300 words for newsletters, 50-125 words for transactional\n\nReading pattern: F-shaped (NN/g eye-tracking research, confirmed across multiple studies)\nMobile open rate: ~60% of all email opens (varies by industry, general industry consensus 2025-2026)",
+      "sourceLines": [
+        4266,
+        4277
+      ]
+    },
+    {
+      "name": "WPM Reference Table",
+      "lastVerified": null,
+      "characterLimits": {},
+      "durationLimits": {},
+      "sweetSpots": [],
+      "raw": "Voiceover (standard):     150 WPM\nVoiceover (fast):         170-180 WPM\nVoiceover (slow/dramatic): 120-130 WPM\nPresentation (live):      130-160 WPM\nPodcast (conversational): 150-170 WPM\nReading (silent):         200-250 WPM (average adult)\nReading (scanning):       400-700 WPM (skimming headers + first sentences)\n\nDuration estimation:\n  30-second script:   65-85 words (at 150 WPM, minus 10% for breathing room)\n  60-second script:   130-170 words\n  3-minute script:    400-500 words\n  10-minute script:   1,300-1,700 words\n\n⚠️ WPM rates are industry standards confirmed across multiple VO training resources\nand presentation coaching materials. Individual variation exists.",
+      "sourceLines": [
+        4284,
+        4300
+      ]
+    },
+    {
+      "name": "Content Length Optimization (Cross-Platform)",
+      "lastVerified": null,
+      "characterLimits": {},
+      "durationLimits": {},
+      "sweetSpots": [],
+      "raw": "Blog article: 1,500-2,500 words (SEO optimal per industry consensus)\n  SEO optimal blog length varies by study. HubSpot (2021): 2,100-2,400 words for most organic traffic.\n  Backlinko (2020): 1,447 words average for page-1 results. Google confirms word count is NOT a ranking factor.\n     Backlinko (2020): 1,447 words average for page-1 results. Use as guidelines, not rules.\n\nNewsletter: 200-500 words (optimal open-to-click)\nCase study: 1,500-3,000 words\nWhite paper: 3,000-8,000 words\nLanding page: 500-1,000 words above the fold, 1,500-3,000 total\nProduct description: 100-300 words (e-commerce), 300-800 words (SaaS feature page)\nPress release: 400-600 words\nPresentation script: 130-160 words per minute of presentation\n  10-minute presentation: ~1,400 words of speaker notes",
+      "sourceLines": [
+        4305,
+        4318
+      ]
+    }
+  ]
+}
