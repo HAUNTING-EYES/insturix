@@ -171,10 +171,6 @@ export class ScriptAuthorAgent extends BaseAgent {
     });
   }
 
-  protected applyGlobalConstraints(prompt: string): string {
-    return prompt;
-  }
-
   // ─── Writing Knowledge Injection ──────────────────────────────────
   private buildWritingKnowledgeBlock(
     signals: Partial<import('../../shared/signals/types').CreativeSignals>,
@@ -183,41 +179,48 @@ export class ScriptAuthorAgent extends BaseAgent {
       const techniqueMap = selectAllTechniques(signals, 2);
       const antiAiConstraints = getConstraints('Anti-AI Constraints');
 
-      if (techniqueMap.size === 0 && antiAiConstraints.length === 0) return '';
+      if (techniqueMap.size === 0 && antiAiConstraints.length === 0) {
+        console.log('[ThinkForge:WritingKnowledge] No techniques or constraints matched. Signals provided:', Object.keys(signals).length);
+        return '';
+      }
 
       const lines: string[] = ['<writing_knowledge>'];
+      let techniqueCount = 0;
 
       techniqueMap.forEach((techniques: TechniqueResult[], category: string) => {
         const top = techniques[0];
         if (!top) return;
-        lines.push(`${category.toUpperCase()} — Use: ${top.id} (score ${top.score.toFixed(2)})`);
-        if (top.primary) lines.push(`  Action: ${top.primary}`);
+        techniqueCount++;
+        lines.push(`${category.toUpperCase()} TECHNIQUE: ${top.id}`);
+        if (top.primary) lines.push(`  DO: ${top.primary}`);
+        if (top.example) lines.push(`  EXAMPLE: ${top.example}`);
+        if (top.why) lines.push(`  WHY IT WORKS: ${top.why}`);
         if (top.antiPatterns && top.antiPatterns.length > 0) {
-          lines.push('  Anti-patterns:');
-          for (const ap of top.antiPatterns.slice(0, 3)) {
-            lines.push(`    - ${ap}`);
-          }
+          lines.push(`  NEVER: ${top.antiPatterns.join(' | ')}`);
         }
         if (top.weightResponse) {
-          const entries: string[] = [];
           for (const [k, v] of Object.entries(top.weightResponse)) {
-            entries.push(`${k}: ${v}`);
+            lines.push(`  IF ${k}: ${v}`);
           }
-          if (entries.length > 0) lines.push(`  Intensity: ${entries[0]}`);
         }
         lines.push('');
       });
 
       if (antiAiConstraints.length > 0) {
-        lines.push('CONSTRAINTS (mandatory — avoid these AI tells):');
-        for (const c of antiAiConstraints.slice(0, 5)) {
-          lines.push(`  - ${c.id.replace(/_/g, ' ')} (${c.severity}): ${c.detection || c.why || ''}`);
+        lines.push('WRITING QUALITY (non-negotiable):');
+        lines.push('  - Every claim needs a SPECIFIC DETAIL. Not "saves time" but "cuts 3-hour edits to 12 minutes."');
+        lines.push('  - Sound like a HUMAN copywriter. If a sentence could appear in any SaaS ad unchanged, rewrite it.');
+        lines.push('  - Vary sentence rhythm. Short punch. Then a longer sentence that builds momentum. Then punch again.');
+        for (const c of antiAiConstraints) {
+          lines.push(`  - ${c.why || c.detection || ''}`);
         }
       }
 
       lines.push('</writing_knowledge>');
+      console.log(`[ThinkForge:WritingKnowledge] Injected ${techniqueCount} techniques + ${antiAiConstraints.length} constraints`);
       return lines.join('\n');
-    } catch {
+    } catch (e) {
+      console.error('[ThinkForge:WritingKnowledge] Failed to build knowledge block:', e);
       return '';
     }
   }

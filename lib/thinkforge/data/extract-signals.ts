@@ -16,13 +16,38 @@ type PartialSignals = Partial<CreativeSignals>;
 
 const DOC_TYPE_DEFAULTS: Record<string, PartialSignals> = {
   video_script: {
+    // Rhetorical (balanced persuasion mix for ads/brand content)
+    logos_load: 0.3,
+    pathos_load: 0.6,
+    ethos_load: 0.5,
+    kairos_pressure: 0.6,
+    // Cognitive
+    elaboration_demand: 0.4,
+    novelty: 0.5,
+    // Engagement
+    visceral_impact: 0.5,
+    behavioral_utility: 0.5,
+    narrative_transportation: 0.5,
+    // Emotional
+    emotional_valence: 0.4,
+    emotional_arousal: 0.6,
+    // Audience
+    assumed_expertise: 0.3,
+    // Temporal
     pacing_velocity: 0.7,
+    tension_arc: 0.5,
+    // Voice
+    formality: -0.2,
+    humor: 0.2,
+    enthusiasm: 0.6,
+    warmth: 0.4,
+    certainty: 0.6,
+    // Craft
     visual_dependency: 0.7,
     show_tell_ratio: 0.6,
-    formality: -0.2,
-    enthusiasm: 0.6,
-    narrative_transportation: 0.5,
-    visceral_impact: 0.5,
+    specificity_grain: 0.6,
+    rhythmic_variation: 0.5,
+    negative_space: 0.3,
   },
   shot_list: {
     visual_dependency: 0.9,
