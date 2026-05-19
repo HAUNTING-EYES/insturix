@@ -168,6 +168,7 @@ export abstract class BaseAgent {
         prompt,
         temperature: gen.temperature,
         maxTokens: gen.maxTokens,
+        seed: 42,
         abortSignal: signal,
       });
 
@@ -277,6 +278,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         prompt,
         temperature: gen.temperature,
         maxTokens: gen.maxTokens,
+        seed: 42,
         abortSignal: signal,
       });
 
@@ -306,6 +308,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           prompt: `${prompt}\n\nReturn ONLY valid JSON that matches this schema (no markdown): ${this.schema.toString()}`,
           temperature: gen.temperature,
           maxTokens: gen.maxTokens,
+          seed: 42,
           abortSignal: signal,
         });
 
