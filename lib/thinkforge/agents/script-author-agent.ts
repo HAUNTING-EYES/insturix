@@ -323,7 +323,7 @@ RULE 1 — CONTENT QUALITY:
 - Documents must be modular and scannable. Prefer short sections over long narrative blocks.
 - Headings are structural anchors, not literary chapter titles.
 - Content must be written for reuse, clarity, and execution.
-- Use this as the H1 title when possible: ${outlineTitle || 'Use a clear, professional title'}
+- Do NOT start with an H1 title heading — the system renders the title separately. Begin directly with the content.
 ${roleProfile.sectionGuidance}
 
 RULE 2 — WHAT NOT TO DO:
