@@ -5,7 +5,7 @@ import type { ScriptOutline } from './script-outline-agent';
 import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { ScriptIntent, type AgentScriptResponse } from '../protocol/intent';
 import { parseAgentJson } from '../protocol/parse-agent-json';
-import { selectAllTechniques, getConstraints, type TechniqueResult } from '../data/writing-graph-query';
+import { selectAllTechniques, selectTechniques, getConstraints, type TechniqueResult } from '../data/writing-graph-query';
 import { extractSignalsFromContext } from '../data/extract-signals';
 
 export interface ScriptAuthorInput extends AgentInput {
@@ -111,17 +111,14 @@ function inferRoleFromContext(projectSummary: string, userPrompt: string, explic
       role: 'a Senior Creative Director and Video Scriptwriter',
       executionTest: 'A video editor should be able to say: "I know exactly what to show, say, and hear in every second."',
       outputFeeling: 'a professional video production script with scene-by-scene direction',
-      sectionGuidance: `- IMPORTANT: Use kind: "scene" blocks (NOT "paragraph") for each video scene.
-- Each scene block MUST include a "scene" field with typed slots:
-  - visualDescription: what the camera shows (a single frozen moment, no motion verbs like "zooms" or "pans")
-  - subjects: array of {name, category} for every person/product/location in the scene. category must be one of: person, product, location, object, brand, other
-  - mood: the emotional tone (e.g. "confident", "urgent", "warm")
-  - onScreenText: array of text strings that appear as graphics/titles on screen (NOT part of narration)
-- The scene block "content" field holds the NARRATION text (what the voiceover says)
-- Use kind: "editorial" blocks for production notes like Emotional Target, Instrumentation, Pacing Notes
-- Use kind: "header" with meta.level: 1 for the script title
-- Use kind: "header" with meta.level: 2 ONLY for act/section boundaries (not for every scene)
-- Do NOT use kind: "paragraph" for scene content — always use kind: "scene"`,
+      sectionGuidance: `- Each scene is a ## heading (e.g., ## Scene 1: The Hook).
+- Within each scene, use bold labels on separate lines for each element.
+- **Visual:** describes what the camera shows — a single frozen moment, no motion verbs.
+- **Narration:** is the voiceover or spoken words — this IS the core script.
+- **Audio:** is music/SFX direction for this scene (modulations from the project-level music brief).
+- **On-Screen Text:** is graphics, titles, or captions that appear on screen.
+- Keep scenes tight. One clear moment per scene. If a scene has two distinct visuals, split it.
+- The output_format block below specifies which labels to use — follow it exactly.`,
       defaultVoice: 'voiceover',
       defaultMedium: 'video_script',
     };
@@ -163,14 +160,10 @@ export class ScriptAuthorAgent extends BaseAgent {
   }
 
   // ─── Writing Knowledge Injection ──────────────────────────────────
-  private buildWritingKnowledgeBlock(params: {
-    documentType?: string;
-    medium?: string;
-    projectSummary?: string;
-    userPrompt?: string;
-  }): string {
+  private buildWritingKnowledgeBlock(
+    signals: Partial<import('../../shared/signals/types').CreativeSignals>,
+  ): string {
     try {
-      const signals = extractSignalsFromContext(params);
       const techniqueMap = selectAllTechniques(signals, 2);
       const antiAiConstraints = getConstraints('Anti-AI Constraints');
 
@@ -211,6 +204,60 @@ export class ScriptAuthorAgent extends BaseAgent {
     } catch {
       return '';
     }
+  }
+
+  // ─── Output Format (RC1+RC2: signal-driven, not hardcoded) ────────
+  private buildOutputFormatBlock(params: {
+    documentType?: string;
+    medium?: string;
+    signals: Partial<import('../../shared/signals/types').CreativeSignals>;
+  }): string {
+    const { documentType, medium, signals } = params;
+    const docType = (documentType || medium || '').toLowerCase();
+
+    const isVideo = /video|film|ad|commercial|reel|short.?form|youtube|tiktok|ugc/i.test(docType);
+    const isShotList = /shot.?list|storyboard|pre.?viz/i.test(docType);
+
+    if (!isVideo && !isShotList) {
+      return `<output_format>
+Return Markdown. Use ## for sections, ### for sub-sections.
+Write as final copy — not a brief, outline, or commentary.
+</output_format>`;
+    }
+
+    if (isShotList) {
+      return `<output_format>
+Return Markdown. Use ## for scene groups, ### for individual shots.
+Labels per shot: **Shot:**, **Camera:**, **Framing:**, **Motion:**, **Audio:**, **Duration:**.
+</output_format>`;
+    }
+
+    const narrationTechniques = selectTechniques(signals, 'narration_mode', 1);
+    const narrationMode = narrationTechniques[0]?.id || 'narration_anchor';
+
+    const labels: string[] = [];
+    if (narrationMode !== 'narration_minimal') {
+      labels.push('**Narration:** (the voiceover / spoken words — this IS the script)');
+    }
+    labels.push('**Visual:** (what the camera shows — a single frozen moment, no motion verbs)');
+    labels.push('**Audio:** (music direction, ambient sound, SFX for this scene)');
+    labels.push('**On-Screen Text:** (graphics, titles, captions that appear on screen)');
+    if (narrationMode === 'narration_minimal') {
+      labels.push('**Text Overlay:** (key messages shown visually — no voiceover in this content)');
+    }
+
+    return `<output_format>
+Return Markdown only. No JSON. No block IDs.
+Use ## for scene headings (e.g., ## Scene 1: The Hook).
+Each scene MUST have these elements, each on its own line:
+${labels.map(l => '  ' + l).join('\n')}
+MUSIC DIRECTION: Write ONE project-level music brief BEFORE the first scene:
+  ## Music Direction
+  **Style:** (genre, mood, reference tracks)
+  **Tempo:** (BPM range or feel)
+  **Arc:** (how music evolves across the piece)
+  Then per-scene, use **Audio:** for scene-specific modulations only.
+</output_format>`;
   }
 
   // ─── Shared prompt core (Rule 35: XML structure, DRY) ─────────────
@@ -420,24 +467,23 @@ Final rule: This must feel like something a professional would use immediately �
       brandBlock,
     });
 
-    const writingBlock = this.buildWritingKnowledgeBlock({
-      documentType: (input as ScriptAuthorInput).documentType,
-      medium: contract?.medium,
+    const documentType = (input as ScriptAuthorInput).documentType;
+    const medium = contract?.medium;
+    const signals = extractSignalsFromContext({
+      documentType,
+      medium,
       projectSummary: context.projectSummary,
       userPrompt,
     });
+
+    const writingBlock = this.buildWritingKnowledgeBlock(signals);
+    const outputFormat = this.buildOutputFormatBlock({ documentType, medium, signals });
 
     return `${core}
 
 ${writingBlock}
 
-<output_format>
-Return Markdown only. No JSON. No block IDs. No schema objects.
-Use ## for major section headings (e.g., ## Scene 1: The Hook).
-Use ### for sub-sections only when needed.
-Use **bold** for labels like **Visual:**, **Audio:**, **Shot 1:**, **On-Screen Text:**.
-Put each element (visual, audio, camera, etc.) on its own line.
-</output_format>`;
+${outputFormat}`;
   }
 
   async writeDocument(
