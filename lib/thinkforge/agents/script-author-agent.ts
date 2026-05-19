@@ -163,7 +163,7 @@ export class ScriptAuthorAgent extends BaseAgent {
       ...config,
       agentType: 'script_author',
       modelName: config?.modelName ?? 'gemini-2.5-flash',
-      maxTokens: config?.maxTokens ?? 2600,
+      maxTokens: config?.maxTokens ?? 4096,
       temperature: config?.temperature ?? 0.7,
     });
   }
@@ -188,30 +188,16 @@ export class ScriptAuthorAgent extends BaseAgent {
         const top = techniques[0];
         if (!top) return;
         techniqueCount++;
-        lines.push(`${category.toUpperCase()} TECHNIQUE: ${top.id}`);
+        lines.push(`${category.toUpperCase()}: ${top.id}`);
         if (top.primary) lines.push(`  DO: ${top.primary}`);
         if (top.example) lines.push(`  EXAMPLE: ${top.example}`);
-        if (top.why) lines.push(`  WHY IT WORKS: ${top.why}`);
         if (top.antiPatterns && top.antiPatterns.length > 0) {
-          lines.push(`  NEVER: ${top.antiPatterns.join(' | ')}`);
+          lines.push(`  NEVER: ${top.antiPatterns.slice(0, 2).join(' | ')}`);
         }
-        if (top.weightResponse) {
-          for (const [k, v] of Object.entries(top.weightResponse)) {
-            lines.push(`  IF ${k}: ${v}`);
-          }
-        }
-        lines.push('');
       });
 
-      if (antiAiConstraints.length > 0) {
-        lines.push('WRITING QUALITY (non-negotiable):');
-        lines.push('  - Every claim needs a SPECIFIC DETAIL. Not "saves time" but "cuts 3-hour edits to 12 minutes."');
-        lines.push('  - Sound like a HUMAN copywriter. If a sentence could appear in any SaaS ad unchanged, rewrite it.');
-        lines.push('  - Vary sentence rhythm. Short punch. Then a longer sentence that builds momentum. Then punch again.');
-        for (const c of antiAiConstraints) {
-          lines.push(`  - ${c.why || c.detection || ''}`);
-        }
-      }
+      lines.push('');
+      lines.push('QUALITY: Be SPECIFIC (not "saves time" but "cuts 3-hour edits to 12 min"). Vary sentence rhythm. No AI filler.');
 
       lines.push('</writing_knowledge>');
       console.log(`[ThinkForge:WritingKnowledge] Injected ${techniqueCount} techniques + ${antiAiConstraints.length} constraints`);
@@ -268,7 +254,9 @@ Labels per shot: **Shot:**, **Camera:**, **Framing:**, **Motion:**, **Audio:**, 
     return `<output_format>
 Return Markdown only. No JSON. No block IDs.
 
-PROCESS: First estimate the total duration from the brief. Then divide into scenes. Then fill every element per scene.
+STEP 1 — Estimate total duration from the brief. Divide into 3-6 scenes with timing.
+STEP 2 — Write the Music Direction section.
+STEP 3 — For EACH scene, write ALL 7 labeled elements. Check: do I have spoken words, visual, audio, text, mood, transition? If any is missing, add it before moving to the next scene.
 
 MUSIC DIRECTION — Write this FIRST, before any scenes:
   ## Music Direction
@@ -276,28 +264,31 @@ MUSIC DIRECTION — Write this FIRST, before any scenes:
   **Tempo:** BPM range or feel
   **Arc:** where it builds, where it drops, where it is ABSENT (silence is a choice)
 
-SCENE FORMAT — Each scene heading includes timing:
+SCENE HEADING FORMAT (mandatory — no exceptions):
   ## [0:00-0:08] Scene 1: The Hook
+  The [start-end] timing bracket is REQUIRED on every scene heading.
 
-EVERY scene MUST have these elements, EACH on its own bold-labeled line:
-  SPOKEN WORDS — choose the right label PER SCENE based on what's happening:
-    **VO (delivery note):** for voiceover narration over footage. e.g., "VO (dry, measured):"
-    **On-Camera (delivery note):** for someone speaking to camera. e.g., "On-Camera (casual, direct):"
-    **Text Overlay:** for scenes with NO spoken words — visuals + text carry the message.
-    A single video can MIX these. Scene 1 might be On-Camera, Scene 2 VO over B-roll, Scene 3 text-only.
-  **Visual:** What the camera SHOWS. Specific ACTION the subject is DOING + shot type (close-up, wide, overhead). NOT feelings ("looks worried") — ACTIONS ("stares at phone, jaw tight").
-  **Audio:** Sound design for this scene — room tone, SFX, silence, OR modulation from music brief. "Silence" and "room tone only" are valid. Not every scene needs music.
-  **Text:** On-screen text/titles/captions. If none needed, write "[none — the image carries it]".
-  **Mood:** One film or scene reference. "Think Whiplash opening." "Social Network deposition energy." This removes ambiguity that adjectives cannot.
-  **Transition:** How this scene ENDS — hard cut | dissolve | hold on black 0.5s | match cut to [what].
+PER-SCENE ELEMENTS (all 7 required on every scene, each on its own bold-labeled line):
 
-RULES:
-  - Visual = ACTIONS not feelings. "Picks up phone" not "feels anxious."
-  - Timing brackets on every scene. Total must approximately match target duration.
-  - NOT every scene needs text overlay — use "[none]" when the image speaks.
-  - NOT every scene needs music — silence and room tone create tension.
-  - Transitions must VARY. All hard-cuts = monotonous. Mix cuts, dissolves, holds.
-  - Be SPECIFIC. Not "a workspace" but "MacBook with 14 Chrome tabs, cold coffee, 2am."
+  1. SPOKEN WORDS — choose the right label PER SCENE:
+     **VO (delivery note):** voiceover over footage. e.g., "VO (dry, measured):"
+     **On-Camera (delivery note):** someone speaking to camera. e.g., "On-Camera (casual, direct):"
+     **Text Overlay:** no spoken words — visuals + text carry the message.
+     A single video can MIX these across scenes.
+  2. **Visual:** camera ACTION + shot type. NOT feelings — ACTIONS. "stares at phone, jaw tight" not "looks worried."
+  3. **Audio:** sound design — room tone, SFX, silence, OR music modulation. Silence is valid.
+  4. **Text:** on-screen text OR "[none — the image carries it]"
+  5. **Mood:** one film/scene reference. "Think Whiplash opening." Removes ambiguity adjectives cannot.
+  6. **Transition:** hard cut | dissolve | hold on black 0.5s | match cut to [what]. VARY these.
+
+BANNED PHRASES (never use, zero tolerance):
+  "let's dive in", "game-changer", "cutting-edge", "seamless", "robust", "innovative",
+  "leverage", "unlock", "empower", "in today's fast-paced world", "at the end of the day",
+  "it's important to note", "work its magic", "circle back", "take it to the next level"
+
+SPECIFICITY: Not "a workspace" but "MacBook with 14 Chrome tabs, cold coffee, 2am."
+
+VERIFY BEFORE OUTPUT: Does every scene have ## [time] heading + all 7 labeled elements? If not, fix it now.
 </output_format>`;
   }
 
