@@ -33,7 +33,21 @@ interface DocumentRoleProfile {
 
 function inferRoleFromContext(projectSummary: string, userPrompt: string, explicitDocType?: string): DocumentRoleProfile {
   const docType = (explicitDocType || '').toLowerCase();
+  const userLower = userPrompt.toLowerCase();
   const combined = `${projectSummary} ${userPrompt}`.toLowerCase();
+
+  // Post/article/text content — check USER PROMPT first (overrides project context).
+  // A user asking "write a LinkedIn post" means a post, even if the project is about video.
+  if (docType === 'post' || docType === 'article' || /\b(linkedin\s*post|twitter\s*post|x\s*post|instagram\s*caption|facebook\s*post|social\s*media\s*post|blog\s*post|article|newsletter|email\s*campaign|email\s*copy|carousel\s*post)\b/i.test(userLower)) {
+    return {
+      role: 'a Senior Content Strategist and Copywriter',
+      executionTest: 'A social media manager should be able to say: "I can publish this immediately — it fits the platform, hooks the audience, and drives the action I need."',
+      outputFeeling: 'a polished, platform-ready post or article — not a brief, not a script, not an outline',
+      sectionGuidance: '- Write the FINAL copy. Not a script. Not production notes. The actual words that will be published.\n- No scene headings. No **Visual:** or **Narration:** labels. This is TEXT content.\n- Use markdown for emphasis (**bold**, *italic*) but keep formatting minimal.\n- Match the platform voice: LinkedIn is professional-conversational, Twitter is punchy, Instagram is visual-first captions.',
+      defaultVoice: 'author',
+      defaultMedium: 'post',
+    };
+  }
 
   if (docType === 'character_bible' || /character|backstor|bible|arc|motivation|relationship/i.test(combined)) {
     return {
@@ -85,28 +99,8 @@ function inferRoleFromContext(projectSummary: string, userPrompt: string, explic
       defaultMedium: 'interview_guide',
     };
   }
-  if (docType === 'score_direction' || /score|music|sound|audio|soundtrack|composer/i.test(combined)) {
-    return {
-      role: 'a Senior Music Supervisor and Score Director',
-      executionTest: 'A composer should be able to say: "I know exactly what emotion and texture each cue needs."',
-      outputFeeling: 'a professional score direction document or music brief',
-      sectionGuidance: '- Use sections like: Scene/Moment, Emotional Target, Genre/Style, Instrumentation, Tempo, Reference Tracks, Transition Notes.',
-      defaultVoice: 'music_director',
-      defaultMedium: 'score_direction',
-    };
-  }
-  if (docType === 'research_brief' || /research|analysis|seo|repurpos|competitor/i.test(combined)) {
-    return {
-      role: 'a Senior Content Strategist and Research Analyst',
-      executionTest: 'A content creator should be able to say: "I know exactly what angles to pursue and why."',
-      outputFeeling: 'a professional research brief, content strategy deck, or competitive analysis',
-      sectionGuidance: '- Use sections like: Executive Summary, Key Findings, Opportunities, Competitive Landscape, Recommendations, Data Sources.',
-      defaultVoice: 'strategist',
-      defaultMedium: 'research_brief',
-    };
-  }
-  // V2: Video script — emit scene blocks with typed slots for Editron pipeline
-  if (docType === 'video_script' || /video|ad|commercial|reel|short[- ]?form|youtube|tiktok|brand[- ]?film|product[- ]?ad|ugc/i.test(combined)) {
+  // Video script BEFORE score_direction — RC6 fix: "video with music" is a video, not a score brief
+  if (docType === 'video_script' || /video\s*(script|ad|reel|brief|content)|commercial\b|product\s*ad|\breel\b|short[- ]?form|youtube\s*(video|script|short)|tiktok|brand[- ]?film|ugc\b/i.test(combined)) {
     return {
       role: 'a Senior Creative Director and Video Scriptwriter',
       executionTest: 'A video editor should be able to say: "I know exactly what to show, say, and hear in every second."',
@@ -131,6 +125,26 @@ function inferRoleFromContext(projectSummary: string, userPrompt: string, explic
       sectionGuidance: '- Use sections like: Shot Number, Description, Camera, Framing, Motion, Duration, Audio, Transition.\n- Use labels like: "Purpose:", "Shot:", "Camera:", "Framing:", "Motion:", "Lighting:", "Audio:", "Timing:", "Feeling:".',
       defaultVoice: 'director',
       defaultMedium: 'visual_plan',
+    };
+  }
+  if (docType === 'score_direction' || /score\s*direction|soundtrack\s*brief|music\s*(brief|supervision|cue)|cue\s*sheet|composer\s*(brief|notes)/i.test(combined)) {
+    return {
+      role: 'a Senior Music Supervisor and Score Director',
+      executionTest: 'A composer should be able to say: "I know exactly what emotion and texture each cue needs."',
+      outputFeeling: 'a professional score direction document or music brief',
+      sectionGuidance: '- Use sections like: Scene/Moment, Emotional Target, Genre/Style, Instrumentation, Tempo, Reference Tracks, Transition Notes.',
+      defaultVoice: 'music_director',
+      defaultMedium: 'score_direction',
+    };
+  }
+  if (docType === 'research_brief' || /research|analysis|seo|repurpos|competitor/i.test(combined)) {
+    return {
+      role: 'a Senior Content Strategist and Research Analyst',
+      executionTest: 'A content creator should be able to say: "I know exactly what angles to pursue and why."',
+      outputFeeling: 'a professional research brief, content strategy deck, or competitive analysis',
+      sectionGuidance: '- Use sections like: Executive Summary, Key Findings, Opportunities, Competitive Landscape, Recommendations, Data Sources.',
+      defaultVoice: 'strategist',
+      defaultMedium: 'research_brief',
     };
   }
 
