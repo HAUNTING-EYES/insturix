@@ -291,20 +291,6 @@ export async function executeEDL(
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
 
-    // ── Single-source transition handling ──
-    // OLD: shouldSuppressAtBoundary() compared 5-Track keyframe colors on either
-    // side of the cut. For talking heads (same camera, same room), Jaccard similarity
-    // was always >0.7 → ALL transitions killed → zero transitions in output.
-    //
-    // WHY REMOVED: In single-source projects (Mode 2 transcript-editor cuts),
-    // transitions are EDITORIAL beat markers (topic shift, time passage, pacing).
-    // They are NOT visual-scene-change indicators. A dissolve between two sections
-    // of a talking head is a standard documentary technique. The intelligence system
-    // and budget (MAX_TRANSITIONS_PER_TYPE=4) already gate what gets placed.
-    // Color similarity is the wrong signal for editorial decisions.
-    //
-    // The intelligence decided WHERE. The budget decides HOW MANY. Color decided NOTHING useful.
-
     // Script-specified on-screen text BYPASSES budget. The user wrote this
     // text in their script — budget should never reject explicit user content.
     // Only LLM-generated graphics are budget-constrained.
@@ -519,91 +505,6 @@ function applyCameraShake(
   video.keyframeTracks.push({ property: 'y', keyframes: yKeyframes });
 
   return { created: 0, modified: 1 };
-}
-
-// OLD: Created HTML overlays (System B) that the editor couldn't display as timeline tiles.
-// NEW: Creates proper TransitionOverlay tiles (System A) with clipAId/clipBId that the
-// editor renders both as timeline tiles AND as visual transitions in the video.
-/**
- * Per-boundary visual similarity check for single-source projects.
- * Compares 5-Track keyframe colors on either side of a transition boundary.
- * Returns true if the transition should be SUPPRESSED (same visual scene).
- *
- * Uses Jaccard similarity on dominant color string sets — pure math, no KB thresholds.
- * ⚠️ Similarity thresholds (0.7 suppress, 0.4 allow) are judgment calls, not verified
- * industry standards. May need tuning after production testing.
- */
-function shouldSuppressAtBoundary(
-  frame: number,
-  videoOverlays: any[],
-  analyses: Map<string, any> | undefined,
-  fps: number = 30,
-): boolean {
-  if (!analyses || analyses.size === 0) return false; // No data → allow (respect intelligence)
-
-  // Find the two adjacent video overlays at this boundary
-  const clipA = videoOverlays.filter(o => o.from + o.durationInFrames <= frame + 15).pop(); // ends near this frame
-  const clipB = videoOverlays.find(o => o.from >= frame - 15); // starts near this frame
-  if (!clipA || !clipB || clipA === clipB) return false; // Can't determine boundary → allow
-
-  const assetId = (clipA as any).assetId;
-  if (!assetId) return false;
-  const analysis = analyses.get(assetId);
-  if (!analysis?.keyframeAnalyses?.length) return false; // No keyframe data → allow
-
-  const allKf = analysis.keyframeAnalyses;
-
-  // Get source time ranges for each clip
-  const aStartSec = ((clipA as any).videoStartTime ?? 0) / fps;
-  const aEndSec = aStartSec + (clipA.durationInFrames / fps);
-  const bStartSec = ((clipB as any).videoStartTime ?? 0) / fps;
-  const bEndSec = bStartSec + (clipB.durationInFrames / fps);
-
-  // Filter keyframes to each clip's source range
-  let kfA = allKf.filter((kf: any) => {
-    const s = (kf.timestampMs ?? 0) / 1000;
-    return s >= aStartSec && s < aEndSec;
-  });
-  let kfB = allKf.filter((kf: any) => {
-    const s = (kf.timestampMs ?? 0) / 1000;
-    return s >= bStartSec && s < bEndSec;
-  });
-
-  // Nearest-neighbor fallback for short segments
-  if (kfA.length === 0) {
-    const mid = (aStartSec + aEndSec) / 2;
-    kfA = [allKf.reduce((best: any, kf: any) =>
-      Math.abs((kf.timestampMs ?? 0) / 1000 - mid) < Math.abs((best.timestampMs ?? 0) / 1000 - mid) ? kf : best
-    )];
-  }
-  if (kfB.length === 0) {
-    const mid = (bStartSec + bEndSec) / 2;
-    kfB = [allKf.reduce((best: any, kf: any) =>
-      Math.abs((kf.timestampMs ?? 0) / 1000 - mid) < Math.abs((best.timestampMs ?? 0) / 1000 - mid) ? kf : best
-    )];
-  }
-
-  // Extract + compare dominant colors (Jaccard similarity)
-  const colorsA = new Set(kfA.flatMap((kf: any) => (kf.dominantColors || []).map((c: string) => c.toLowerCase())));
-  const colorsB = new Set(kfB.flatMap((kf: any) => (kf.dominantColors || []).map((c: string) => c.toLowerCase())));
-
-  if (colorsA.size === 0 || colorsB.size === 0) return false; // No color data → allow
-
-  const intersection = [...colorsA].filter(c => colorsB.has(c));
-  const union = new Set([...colorsA, ...colorsB]);
-  const similarity = union.size > 0 ? intersection.length / union.size : 0.5;
-
-  // ⚠️ Thresholds are judgment calls, not KB values. May need tuning.
-  // >0.7 = most colors shared = visually same scene = suppress transition
-  // <0.4 = most colors different = visual scene change = allow transition
-  // 0.4-0.7 = uncertain = allow (benefit of the doubt, let intelligence decide)
-  if (similarity > 0.7) {
-    console.log(`[EDL-Exec] Single-source boundary at frame ${frame}: SUPPRESSED (color similarity ${similarity.toFixed(2)} > 0.7, same visual scene)`);
-    return true;
-  }
-
-  console.log(`[EDL-Exec] Single-source boundary at frame ${frame}: ALLOWED (color similarity ${similarity.toFixed(2)}, visual change detected)`);
-  return false;
 }
 
 function applyTransition(
