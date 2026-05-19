@@ -243,8 +243,12 @@ export async function executeEDL(
   // per-decision API calls. One Freesound search per unique token.
   const sfxCache = new Map<string, { audioUrl: string; audioAssetId: string; durationMs: number } | null>();
   if (isSFXLibraryAvailable()) {
-    const sfxDecisions = actionable.filter(d => d.type === 'sfx-trigger');
-    const uniqueTokens = new Set(sfxDecisions.map(d => (d as any).params?.sfxType).filter(Boolean));
+    // Resolve SFX from both signal executor ('sfx-trigger' with params.sfxType)
+    // and creative brief ('sfx' with technique name like 'sfx_whoosh' in decision.technique)
+    const sfxDecisions = actionable.filter(d => d.type === 'sfx-trigger' || d.type === 'sfx');
+    const uniqueTokens = new Set(sfxDecisions.map(d => {
+      return (d as any).params?.sfxType || (d as any).technique?.replace('sfx_', '') || 'whoosh';
+    }).filter(Boolean));
     for (const token of uniqueTokens) {
       try {
         const result = await searchAndDownloadSFX(token as string, userId, 3);
@@ -408,9 +412,14 @@ async function applyDecision(
       // Caption emphasis is handled by Director's add_captions step with word-level timing
       return null;
 
+    case 'sfx':
     case 'sfx-trigger': {
-      const sfxType = (decision as any).params?.sfxType as string | undefined;
-      if (!sfxType || !sfxCache) return null;
+      // 'sfx-trigger' from signal executor (Path D) has params.sfxType
+      // 'sfx' from creative brief (Path E) has technique name like 'sfx_whoosh'
+      const sfxType = (decision as any).params?.sfxType
+        || (decision as any).technique?.replace('sfx_', '')
+        || 'whoosh';
+      if (!sfxCache) return null;
       const cached = sfxCache.get(sfxType);
       if (!cached) return null;
 

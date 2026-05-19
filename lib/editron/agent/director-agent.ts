@@ -416,7 +416,10 @@ export async function executeDirectorPlan(
             console.log(`[Director] Path E: Creative Brief generated — ${creativeBrief.decisions.length} decisions, pacing=${creativeBrief.overallPacing}`);
 
             // Brief Executor: resolve word indices → frame numbers
-            const totalDurationMs = (project.durationInFrames || 900) / pathEFps * 1000;
+            // Use ORIGINAL video duration, not post-cut durationInFrames. Word timestamps
+            // reference the original video (up to 1172s). Using clean duration (527s) kills
+            // every decision targeting the second half of the video as "out of range."
+            const totalDurationMs = rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000;
             const briefResult = executeBrief({
               brief: creativeBrief,
               transcription,
@@ -2149,21 +2152,33 @@ async function invokeAITool(
       break;
     }
     case 'add_motion_graphic': {
-      // Use GENERIC template categories that the template matcher can find.
-      // The old approach passed narration text which never matched any template.
-      // Templates are named: "lower-third", "callout", "title-card", "stat-counter" etc.
-      const density = profile.graphicsDensity || 'moderate';
-
-      // Map density to template categories the matcher WILL find
-      const templateCategory = density === 'heavy' ? 'title card with animated text'
-        : density === 'moderate' ? 'lower third label'
-        : 'minimal text label';
-
+      // Template search uses description to match against template tags/names.
+      // Templates are named: "Clean Minimal Lower Third", "Stat Counter", "Subscribe Button" etc.
+      // Description must match template vocabulary, not be generic filler.
       params.category = params.category || 'lower-third';
-      params.description = params.description || templateCategory;
       params.start = params.start || 0;
       params.duration = params.duration || 90;
       params.row = params.row || 1;
+
+      // Map category to template-searchable descriptions
+      const CATEGORY_DESCRIPTIONS: Record<string, string> = {
+        'lower-third': 'clean lower third with name and title',
+        'lower_third': 'clean lower third with name and title',
+        'callout': 'callout box with accent',
+        'title-card': 'title card centered',
+        'title_card': 'title card centered',
+        'stat-counter': 'animated stat counter',
+        'stat_counter': 'animated stat counter',
+        'subscribe': 'subscribe button animated',
+        'quote': 'quote card',
+        'list': 'step by step list',
+        'comparison': 'comparison layout',
+        'notification': 'notification popup',
+      };
+      const categoryDesc = CATEGORY_DESCRIPTIONS[params.category] || 'lower third';
+      params.description = params.description && params.description.length > 10
+        ? params.description
+        : categoryDesc;
 
       console.log(`[Director] add_motion_graphic: category="${params.category}", desc="${(params.description as string).substring(0, 60)}" at frame ${params.start}`);
       break;
