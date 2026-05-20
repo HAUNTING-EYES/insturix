@@ -203,6 +203,8 @@ export async function executeEDL(
   canvasDimensions: { width: number; height: number },
   /** Optional 5-Track analyses keyed by assetId — used to validate zoom placement */
   analyses?: Map<string, any>,
+  /** Profile's graphic density — drives budget guardrails. */
+  graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
 ): Promise<ExecutionResult> {
   const result: ExecutionResult = {
     decisionsExecuted: 0,
@@ -221,7 +223,12 @@ export async function executeEDL(
   const totalDurationMs = overlays
     .filter(o => o.type === 'video' || o.type === 'image')
     .reduce((max, o) => Math.max(max, (o.from + o.durationInFrames) / DEFAULT_CONFIG.timing.fps * 1000), 0);
-  const budget = new DecisionBudget(totalDurationMs || 30000, 30);
+  const densityOverrides: Partial<import('./decision-budget').BudgetLimits> | undefined =
+    graphicsDensity === 'minimal' ? { KEYWORD_GRAPHIC_PER_30S: 3, KEYWORD_MIN_GAP_FRAMES: 180, GRAPHIC_BREATHING_FRAMES: 90 }
+    : graphicsDensity === 'heavy' ? { KEYWORD_GRAPHIC_PER_30S: 9, KEYWORD_MIN_GAP_FRAMES: 60, GRAPHIC_BREATHING_FRAMES: 30 }
+    : graphicsDensity === 'moderate' ? { KEYWORD_GRAPHIC_PER_30S: 5, KEYWORD_MIN_GAP_FRAMES: 120 }
+    : undefined;
+  const budget = new DecisionBudget(totalDurationMs || 30000, 30, densityOverrides);
 
   // Execute decisions at or above confidence threshold (>=0.5)
   // OLD: strict > 0.5 silently killed ~60% of decisions when flat moment weights = 0.5 exactly.
@@ -292,19 +299,16 @@ export async function executeEDL(
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
 
-    // Script-specified on-screen text BYPASSES budget. The user wrote this
-    // text in their script — budget should never reject explicit user content.
-    // Only LLM-generated graphics are budget-constrained.
-    const isScriptOnScreenText = decision.type === 'graphic'
-      && decision.sources?.includes('onScreenText-safety-net');
-
-    // Evaluate budget for ALL decisions (including script text) so counters stay accurate.
-    // Script on-screen text is never rejected but IS tracked.
     const budgetResult = budget.evaluate(decision as any);
-    if (!budgetResult.allowed && !isScriptOnScreenText) {
+    if (!budgetResult.allowed) {
       result.decisionsSkipped++;
       budgetRejected++;
       console.log(`[EDL-Exec] BUDGET REJECTED: ${decision.type} at frame ${decision.frame} — ${budgetResult.reason} (${budgetResult.ruleId})`);
+      if (decision.type === 'graphic') {
+        const gType = decision.params?.graphicType || 'unknown';
+        const gText = (decision.params?.text || '').substring(0, 40);
+        console.log(`[EDL-Exec] EDITORIAL: ${gType} "${gText}" → REJECTED by budget (density: ${graphicsDensity || 'default'})`);
+      }
 
       // Track budget-rejected zooms so post-processing drift-zoom doesn't re-add them
       if (decision.type === 'zoom') {
@@ -329,6 +333,12 @@ export async function executeEDL(
       if (applied) {
         budget.commit(decision as any);
         result.decisionsExecuted++;
+        if (decision.type === 'graphic') {
+          const gType = decision.params?.graphicType || 'unknown';
+          const gText = (decision.params?.text || '').substring(0, 40);
+          const summary = budget.getSummary();
+          console.log(`[EDL-Exec] EDITORIAL: ${gType} "${gText}" → ALLOWED (budget: ${summary.keywordGraphics || 0} used, density: ${graphicsDensity || 'default'})`);
+        }
         if (applied.created) result.overlaysCreated += applied.created;
         if (applied.modified) result.overlaysModified += applied.modified;
         // Track zoomed assets so drift-zoom post-processing skips them

@@ -85,11 +85,13 @@ export function translateCreativeIntentToEDL(
   analyses: Map<string, any>,
   overlays: Array<{ id: number; type: string; from: number; durationInFrames: number; row: number; [k: string]: any }>,
   fps: number = 30,
+  graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
 ): TranslationResult {
   const decisions: TranslatedDecision[] = [];
   const warnings: string[] = [];
   let momentsResolved = 0;
   let momentsFallback = 0;
+  let safetyNetEmitted = 0;
 
   for (const intent of plan.sceneIntents) {
     const sceneCtx = sceneContexts.find(s => s.sceneIndex === intent.sceneIndex);
@@ -192,29 +194,27 @@ export function translateCreativeIntentToEDL(
       }
     }
 
-    // ── Deterministic onScreenText safety net ──
-    // 2026-04-19 (Batch 5): after the LLM's graphicIntents are processed,
-    // cross-check the scene's onScreenText array. Any entry the LLM failed
-    // to emit as a graphic gets a deterministic fallback decision so the
-    // user's script text is GUARANTEED to appear on screen.
-    //
-    // Why this exists: the LLM prompt says "Include ALL onScreenText entries
-    // as separate graphics" but Gemini's output is probabilistic (max 3
-    // graphicIntents per scene, no minimum). Scenes with 4+ onScreenText
-    // entries routinely lost the 4th+ one. And the commit dd758500 (refined
-    // Option 1) removed the caption fallback, making EDL the sole renderer
-    // of standalone on-screen text — so drops here = text vanishes entirely.
-    //
-    // Rule 18N: rule-driven > LLM-probabilistic for mechanical render work.
-    // Rule 8N: script's author explicitly wrote that text, we MUST show it.
+    // ── Density-aware onScreenText safety net ──
+    // Catches script onScreenText entries the LLM didn't cover.
+    // Density-aware: minimal=1, moderate=3, heavy=unlimited fallbacks per video.
+    // The LLM now gets density-aware prompting (max(8) schema, editorial merit
+    // guidance), so the safety net should respect the same density signal
+    // rather than overriding the LLM's editorial judgment.
     const onScreenText = sceneCtx.onScreenText || [];
+    const safetyNetCap = graphicsDensity === 'minimal' ? 1
+      : graphicsDensity === 'moderate' ? 3
+      : 999;
     for (const text of onScreenText) {
       const trimmed = (text || '').trim();
       if (!trimmed) continue;
-      if (emittedGraphicTexts.has(trimmed.toLowerCase())) continue; // LLM already covered it
+      if (emittedGraphicTexts.has(trimmed.toLowerCase())) continue;
+      if (safetyNetEmitted >= safetyNetCap) {
+        warnings.push(
+          `Scene ${intent.sceneIndex}: onScreenText "${trimmed.substring(0, 40)}" skipped — safety-net cap reached (${safetyNetCap} for ${graphicsDensity || 'default'} density)`
+        );
+        continue;
+      }
 
-      // Place at 1/3 into the scene (same default as LLM's fallback trigger
-      // resolution — gives reading time after the scene establishes).
       const fallbackFrame = sceneCtx.fromFrame + Math.round(sceneCtx.durationFrames * 0.33);
       decisions.push({
         type: 'graphic',
@@ -229,9 +229,10 @@ export function translateCreativeIntentToEDL(
         sources: ['onScreenText-safety-net', 'script'],
       });
       emittedGraphicTexts.add(trimmed.toLowerCase());
+      safetyNetEmitted++;
       warnings.push(
         `Scene ${intent.sceneIndex}: onScreenText "${trimmed.substring(0, 40)}${trimmed.length > 40 ? '...' : ''}" ` +
-        `was not in LLM graphicIntents — injected deterministic fallback graphic`
+        `was not in LLM graphicIntents — injected deterministic fallback graphic (${safetyNetEmitted}/${safetyNetCap})`
       );
     }
 

@@ -458,7 +458,7 @@ const SceneIntentSchema = z.object({
     sfxOnEntry: z.string().optional().describe('SFX when scene starts: "whoosh", "riser", "impact", etc.'),
     sfxAtPeak: z.string().optional().describe('SFX at decisive moment: "bass-hit", "ding", "pop", etc.'),
   }).describe('Audio treatment for this scene'),
-  graphicIntents: z.array(GraphicIntentSchema).max(3).describe('Graphics to place in this scene (max 3). Include ALL onScreenText entries as separate graphics.'),
+  graphicIntents: z.array(GraphicIntentSchema).max(8).describe('Graphics to place in this scene. Only include entries that serve a clear editorial purpose for this content type and density level.'),
   shakeIntent: z.enum([
     'none',              // No camera shake
     'subtle-at-peak',    // Light shake at decisive moment (emphasis)
@@ -766,6 +766,12 @@ ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
   if (profileName) {
     prompt += `\nEDIT PROFILE: "${profileName}"\n`;
     prompt += `Target pacing: ${options.targetCutsPerMinute || 10} cuts/min. Graphics density: ${options.graphicDensity || 'moderate'}.\n`;
+    const densityGuidance = options.graphicDensity === 'minimal'
+      ? 'RESTRAINT IS THE AESTHETIC. Only place graphics that are absolutely essential — a name introduction, a thesis statistic, a brand moment. Most scenes should have ZERO graphics. When unsure, omit.'
+      : options.graphicDensity === 'heavy'
+      ? 'This content benefits from visual reinforcement. Use graphics to highlight key data, names, and concepts. Most scenes can have 1-2 graphics if editorially justified.'
+      : 'Place graphics where they serve a clear editorial purpose. Not every scene needs one. Quality over quantity — each graphic must earn its screen time.';
+    prompt += `<graphic_density_rules>\n${densityGuidance}\nConsider the narrative arc: opening moments deserve introductions, climactic moments deserve emphasis, quiet moments deserve breathing room.\n</graphic_density_rules>\n`;
   }
 
   // Narrative arc (same detection as before)
@@ -821,9 +827,8 @@ ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
     if (scene.scriptTransition) prompt += `Script transition: ${scene.scriptTransition.type}\n`;
     if (scene.cameraDirection) prompt += `Camera: ${scene.cameraDirection}\n`;
 
-    // On-screen text (must be reproduced VERBATIM as graphic intents)
     if (scene.onScreenText && scene.onScreenText.length > 0) {
-      prompt += `ON-SCREEN TEXT (create one graphic per entry, use text VERBATIM):\n`;
+      prompt += `ON-SCREEN TEXT (available for graphic use — evaluate each on editorial merit, use text VERBATIM if included):\n`;
       scene.onScreenText.forEach((t, i) => prompt += `  ${i + 1}. "${t}"\n`);
     }
 
@@ -859,7 +864,7 @@ ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
 For EACH scene, provide creative intent using the structured schema.
 - decisiveMoment: describe in WORDS, not frame numbers
 - reasoning: cite Murch's hierarchy or editing principles
-- graphicIntents: include ALL onScreenText entries as separate graphics
+- graphicIntents: only include graphics that serve a clear editorial purpose for this density level
 - The code will resolve your creative descriptions to exact frames using video analysis data
 </output_format>
 `;
@@ -1086,15 +1091,12 @@ OTHER SFX RULES:
     if (scene.motionGraphicCue) {
       prompt += `- **Motion graphic (free-form hint):** ${scene.motionGraphicCue}\n`;
     }
-    // Phase A3.4 — exact verbatim on-screen text from the script. The EDL MUST
-    // produce one graphic decision per entry, with graphicText set to the EXACT string.
-    // No paraphrasing, no truncation, no merging — these are the script author's intent.
     if (scene.onScreenText && scene.onScreenText.length > 0) {
-      prompt += `- **EXACT on-screen text (use VERBATIM as graphicText, do NOT rewrite):**\n`;
+      prompt += `- **On-screen text candidates (use VERBATIM if included, evaluate on editorial merit):**\n`;
       scene.onScreenText.forEach((t, i) => {
         prompt += `    ${i + 1}. "${t}"\n`;
       });
-      prompt += `  → Produce exactly ${scene.onScreenText.length} graphic decision(s) for this scene, one per entry, in order. Use the exact string as graphicText. Use graphicType "keyword-highlight" by default, unless the entry is the brand/product name (then "logo-reveal") or a numeric statistic (then "stat-counter").\n`;
+      prompt += `  → Include only entries that serve a clear editorial purpose at this graphic density level. Use the exact string as graphicText. Choose the most appropriate graphicType for each entry.\n`;
     }
 
     // Detected subjects

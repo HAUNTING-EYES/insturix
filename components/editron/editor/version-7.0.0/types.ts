@@ -175,6 +175,10 @@ export type CaptionWord = {
   startMs: number;
   endMs: number;
   confidence: number;
+  emphasis?: {
+    type: 'keyword' | 'statistic' | 'cta' | 'entity';
+    source: string;
+  };
 };
 
 export type Caption = {

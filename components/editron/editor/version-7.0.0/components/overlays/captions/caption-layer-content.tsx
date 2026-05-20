@@ -181,6 +181,13 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
         baseTransform = `${baseTransform} ${animationStyles.transform}`;
       }
 
+      const hasEmphasis = !!word.emphasis;
+      const emphasisWeight = hasEmphasis ? 700 : (styles.fontWeight || 400);
+      const emphasisScale = hasEmphasis && !isActive ? 'scale(1.05)' : baseTransform;
+      const emphasisBorder = hasEmphasis && !isActive
+        ? { borderBottom: `2px solid ${highlight.color || styles.color}` }
+        : {};
+
       return (
         <span
           key={`${word.word}-${index}`}
@@ -190,11 +197,11 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
             backgroundColor: isActive
               ? highlight.backgroundColor
               : "transparent",
-            opacity: isFaded ? 0.5 : (isActive ? 1 : 0.85),
-            transform: baseTransform,
+            opacity: isFaded ? 0.5 : (isActive ? 1 : hasEmphasis ? 1 : 0.85),
+            transform: isActive ? baseTransform : emphasisScale,
             fontWeight: isActive
               ? highlight.fontWeight || 600
-              : styles.fontWeight || 400,
+              : emphasisWeight,
             textShadow: isActive
               ? highlight.textShadow
               : styles.textShadow,
@@ -203,6 +210,7 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
             margin: "0 2px",
             transition: "color 150ms, background-color 150ms, opacity 150ms",
             ...effectStyles,
+            ...emphasisBorder,
           }}
         >
           {word.word}

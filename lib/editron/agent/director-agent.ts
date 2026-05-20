@@ -465,7 +465,7 @@ export async function executeDirectorPlan(
             const canvas = project.playerDimensions || { width: 1920, height: 1080 };
             const analysesMap = new Map<string, any>();
             for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
-            await executeEDLPathE(briefResult.edl, projectId, userId, overlays, canvas, analysesMap);
+            await executeEDLPathE(briefResult.edl, projectId, userId, overlays, canvas, analysesMap, effectiveProfile.graphicsDensity);
 
             // Update summary for downstream quality review
             edlSummary.totalDecisions = humanizedEdl.decisions.length;
@@ -638,7 +638,7 @@ export async function executeDirectorPlan(
             const canvas = project.playerDimensions || { width: 1920, height: 1080 };
             const analysesMap = new Map<string, any>();
             for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
-            await executeEDLPathD(edl, projectId, userId, overlays, canvas, analysesMap);
+            await executeEDLPathD(edl, projectId, userId, overlays, canvas, analysesMap, effectiveProfile.graphicsDensity);
 
             for (const d of edl.decisions) {
               edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
@@ -738,6 +738,7 @@ export async function executeDirectorPlan(
               analysesMap,
               overlays,
               context.fps,
+              effectiveProfile.graphicsDensity,
             );
 
             if (translation.warnings.length > 0) {
@@ -792,7 +793,7 @@ export async function executeDirectorPlan(
 
           const moments = analyses.flatMap(a => detectCinematicMoments(a));
           const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-          const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas, analysesMap);
+          const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas, analysesMap, effectiveProfile.graphicsDensity);
 
           // Build summary by decision type
           for (const d of edl.decisions) {
