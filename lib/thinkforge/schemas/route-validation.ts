@@ -1,7 +1,31 @@
 import { z } from 'zod';
 
 // ── BrandDNA ────────────────────────────────────────────────────────
-// Matches BrandDNA interface in lib/thinkforge/services/db.ts:187-194
+// Matches BrandDNA interface in lib/thinkforge/services/db.ts
+const VoiceFingerprintSchema = z.object({
+  topBigrams: z.array(z.tuple([z.string(), z.number()])),
+  avgWordsPerSentence: z.number(),
+  sentenceLengthVariance: z.number(),
+  passiveVoiceRatio: z.number(),
+  questionFrequency: z.number(),
+  punctuationProfile: z.record(z.number()),
+  sentenceRhythm: z.array(z.enum(['fragment', 'short', 'medium', 'long'])),
+  openingPattern: z.enum(['question', 'statistic', 'story', 'provocation', 'scene_set', 'direct_claim']),
+  transitionStyle: z.enum(['conjunction', 'implicit', 'question_bridge', 'callback', 'tonal_shift']),
+  closingPattern: z.enum(['cta', 'callback_open', 'reframe', 'cliffhanger', 'landing']),
+  listStyle: z.enum(['numbered', 'bulleted', 'inline', 'none']),
+  extractedFromCount: z.number(),
+}).strict();
+
+const VoiceExemplarSchema = z.object({
+  id: z.string(),
+  text: z.string().max(2000),
+  signalProfile: z.record(z.number()),
+  contentType: z.string(),
+  pinned: z.boolean(),
+  weight: z.number().min(0).max(5),
+}).strict();
+
 export const BrandDNAPatchSchema = z.object({
   voiceLock: z.string().optional(),
   nicheMap: z.string().optional(),
@@ -9,6 +33,8 @@ export const BrandDNAPatchSchema = z.object({
   hookArchetypes: z.array(z.string()).optional(),
   structuralHabits: z.array(z.string()).optional(),
   recurringAssets: z.array(z.string()).optional(),
+  voiceFingerprint: VoiceFingerprintSchema.optional(),
+  voiceExemplars: z.array(VoiceExemplarSchema).max(10).optional(),
 }).passthrough();
 
 // ── ThinkForge Blocks ───────────────────────────────────────────────

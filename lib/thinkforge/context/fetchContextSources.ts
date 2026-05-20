@@ -9,6 +9,7 @@
  * The output is a `RetrievedContext` object consumed by `assembleContext`.
  */
 
+import { serializeFingerprint, serializeExemplars } from '../data/voice-signature';
 import {
   resolveEffectiveBrandDNA,
   getDataBankEntriesByUser,
@@ -391,6 +392,16 @@ export function formatSystemBrief(ctx: RetrievedContext): string {
   if (dna.structuralHabits?.length) dnaLines.push(`Structure: ${dna.structuralHabits.join(', ')}`);
   if (dnaLines.length > 0) {
     parts.push(`## Brand DNA\n${dnaLines.join('\n')}`);
+  }
+
+  // Layer 2: Voice Fingerprint (statistical patterns from reference samples)
+  if (dna.voiceFingerprint) {
+    parts.push(serializeFingerprint(dna.voiceFingerprint));
+  }
+
+  // Layer 3: Voice Exemplars (signal-aware few-shot)
+  if (dna.voiceExemplars?.length) {
+    parts.push(serializeExemplars(dna.voiceExemplars));
   }
 
   if (ctx.projectFacts.length > 0) {
