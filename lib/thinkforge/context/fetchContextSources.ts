@@ -9,6 +9,7 @@
  * The output is a `RetrievedContext` object consumed by `assembleContext`.
  */
 
+import { serializeFingerprint, serializeExemplars } from '../data/voice-signature';
 import {
   resolveEffectiveBrandDNA,
   getDataBankEntriesByUser,
@@ -20,7 +21,7 @@ import {
   type ThinkForgeEvent,
   type EventType,
 } from '../services/db';
-import { getVectorIndex } from '../services/embedding-service';
+import { queryRelevantFacts } from '../services/embedding-service';
 
 // ==================== Types ====================
 
@@ -98,6 +99,17 @@ function extractKeywords(text: string, maxKeywords: number = 15): string[] {
     .map(([word]) => word);
 }
 
+// ==================== Timeout Helper ====================
+
+const TIER_TIMEOUT_MS = 3000;
+
+function withTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), TIER_TIMEOUT_MS)),
+  ]);
+}
+
 // ==================== Cold Tier: BrandDNA ====================
 
 async function fetchColdContext(
@@ -157,8 +169,6 @@ async function fetchGlobalContext(
   }
 }
 
-const SIMILARITY_THRESHOLD = 0.35;
-
 async function fetchWarmVectorContext(
   userId: string,
   queryText: string,
@@ -168,28 +178,18 @@ async function fetchWarmVectorContext(
   if (!queryText.trim()) return [];
 
   try {
-    const index = getVectorIndex();
-    const filter = scope ? `userId = '${userId}' AND scope = '${scope}'` : `userId = '${userId}'`;
-    
-    const results = await index.query({
-      data: queryText,
-      topK: maxFacts,
-      filter,
-      includeMetadata: true,
-    });
+    const vectorResults = await queryRelevantFacts(userId, queryText, maxFacts, scope);
+    if (vectorResults.length === 0) return [];
 
-    if (results.length === 0) return [];
-
-    const matchedIds = results.map(r => r.id.toString());
+    const matchedIds = vectorResults.map((r) => r.id);
     const entries = await getDataBankEntriesByIds(matchedIds, userId);
 
-    // Map results back to order returned by Vector DB
     const entryMap = new Map<string, DataBankEntry>();
     for (const e of entries) entryMap.set(e._id.toString(), e);
 
-    const orderedEntries = results
-      .filter(r => entryMap.has(r.id.toString()) && r.score >= SIMILARITY_THRESHOLD)
-      .map(r => entryMap.get(r.id.toString())!);
+    const orderedEntries = vectorResults
+      .filter((r) => entryMap.has(r.id))
+      .map((r) => entryMap.get(r.id)!);
 
     return orderedEntries.map((entry) => ({
       id: entry._id.toString(),
@@ -352,10 +352,18 @@ export async function fetchContextSources(
 
   const [brandDNA, projectFacts, globalFacts, interactionPatterns] = await Promise.all([
     fetchColdContext(userId, projectId),
-    // SECOND BRAIN DISABLED: returning empty arrays for facts and interactions
-    Promise.resolve([]), // sessionId ? fetchProjectContext(userId, sessionId, maxFacts) : Promise.resolve([]),
-    Promise.resolve([]), // fetchGlobalContext(userId, keywords, maxFacts, combinedText),
-    Promise.resolve([]), // fetchHotContext(userId, interactionWindowDays, projectId),
+    withTimeout(
+      sessionId ? fetchProjectContext(userId, sessionId, maxFacts) : Promise.resolve([]),
+      [],
+    ),
+    withTimeout(
+      fetchGlobalContext(userId, keywords, maxFacts, combinedText),
+      [],
+    ),
+    withTimeout(
+      fetchHotContext(userId, interactionWindowDays, projectId),
+      [],
+    ),
   ]);
 
   return {
@@ -384,6 +392,16 @@ export function formatSystemBrief(ctx: RetrievedContext): string {
   if (dna.structuralHabits?.length) dnaLines.push(`Structure: ${dna.structuralHabits.join(', ')}`);
   if (dnaLines.length > 0) {
     parts.push(`## Brand DNA\n${dnaLines.join('\n')}`);
+  }
+
+  // Layer 2: Voice Fingerprint (statistical patterns from reference samples)
+  if (dna.voiceFingerprint) {
+    parts.push(serializeFingerprint(dna.voiceFingerprint));
+  }
+
+  // Layer 3: Voice Exemplars (signal-aware few-shot)
+  if (dna.voiceExemplars?.length) {
+    parts.push(serializeExemplars(dna.voiceExemplars));
   }
 
   if (ctx.projectFacts.length > 0) {

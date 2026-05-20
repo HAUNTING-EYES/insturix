@@ -15,7 +15,7 @@ async function handler(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { taskId, userId } = body;
+    const { taskId, userId, editronProjectId } = body;
     currentTaskId = taskId;
     currentUserId = userId;
 
@@ -192,6 +192,51 @@ async function handler(request: NextRequest) {
           }
         }
       );
+
+      // Write analysis results back to Editron project (fail-open)
+      if (editronProjectId && analysisResults) {
+        try {
+          const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+          const editronDb = await getDatabase();
+          await editronDb.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId: editronProjectId },
+            {
+              $set: {
+                alyzitronAnalysis: {
+                  taskId,
+                  overallScore: analysisResults.overall_score ?? null,
+                  category: analysisResults.category ?? null,
+                  strengths: analysisResults.strengths ?? [],
+                  weaknesses: analysisResults.weaknesses ?? [],
+                  completedAt: new Date(),
+                },
+                qualityScore: analysisResults.overall_score ?? null,
+                updatedAt: new Date(),
+              },
+            },
+          );
+          logger.info('[Alyzitron] Results written to Editron project', { data: { editronProjectId, taskId } });
+        } catch (writeErr: any) {
+          logger.error('[Alyzitron] Failed to write results to Editron project (non-blocking)', { data: { editronProjectId, error: writeErr.message } });
+        }
+      }
+
+      try {
+        const { emitBrandEvent } = await import('@/lib/shared/brand-events');
+        emitBrandEvent({
+          userId,
+          service: 'alyzitron',
+          type: 'analysis_complete',
+          payload: {
+            taskId,
+            editronProjectId: editronProjectId || undefined,
+            hasTranscription: !!transcriptResult,
+            wordCount: transcriptResult?.wordCount ?? 0,
+          },
+        }).catch((e: unknown) => logger.warn('[Alyzitron] Brand event failed', { data: { error: String(e) } }));
+      } catch {
+        // brand event emission is best-effort
+      }
 
       return NextResponse.json({ success: true, taskId, status: "completed" });
 

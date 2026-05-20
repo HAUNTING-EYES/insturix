@@ -7,7 +7,7 @@ const OutlineSectionSchema = z.object({
   id: z.string(),
   title: z.string(),
   goal: z.string(),
-  beat: z.enum(['Setup', 'Tension', 'Turn', 'Resolution', 'Aftermath']),
+  beat: z.enum(['Setup', 'Tension', 'Turn', 'Resolution', 'Aftermath', 'Hook', 'Problem', 'Solution', 'CTA', 'Bridge']),
   level: z.enum(['act', 'beat']).default('act'),
   parent_id: z.string().optional(),
   tone: z.string().optional(),
@@ -25,14 +25,13 @@ export class ScriptOutlineAgent extends StructuredAgent<ScriptOutline> {
   protected schema = ScriptOutlineSchema;
 
   constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
-    const modelName = 'gemini-2.5-flash-lite';
     super({
       ...config,
       agentType: 'script_outline',
-      modelName,
+      modelName: config?.modelName ?? 'gemini-2.5-flash',
       maxTokens: config?.maxTokens ?? 500,
-      temperature: config?.temperature ?? 0.2,
-      modelTier: ModelTier.Structural,
+      temperature: config?.temperature ?? 0.5,
+      modelTier: ModelTier.Reasoning,
     });
   }
 
@@ -46,6 +45,8 @@ User request: ${userPrompt}
 Create 3–5 major sections or beats total. Prefer fewer, stronger sections. This outline is for internal steering only.
 
 Adapt the structure to the project type:
+- For video scripts/ads/reels (short-form, under 90s): use PAS structure — Hook, Problem, Solution, CTA (3-4 sections)
+- For video scripts/brand films (long-form, 90s+): use AIDA or Narrative Arc — Hook, Setup, Tension, Turn, Resolution, CTA (4-6 sections)
 - For screenplays/narratives: use dramatic beats (Setup, Tension, Turn, Resolution, Aftermath)
 - For technical documents (VFX briefs, budgets): use logical sections (Overview, Breakdown, Details, Summary, Contingency)
 - For character/world bibles: use encyclopedic sections (Introduction, Core Details, Relationships, Evolution, Edge Cases)
@@ -56,7 +57,7 @@ Per section:
 - id: S1, S2, ... (stable)
 - title: short label (2–4 words)
 - goal: one sentence describing the purpose or intent of this section
-- beat: Setup | Tension | Turn | Resolution | Aftermath (use the closest conceptual match even for non-narrative docs)
+- beat: choose from Setup | Tension | Turn | Resolution | Aftermath | Hook | Problem | Solution | CTA | Bridge (use the best match for the content type)
 - level: act | beat (acts have no parent; beats parent an act)
 - parent_id: id of parent when level is beat
 - tone: optional one-word tone tag (e.g., "authoritative", "analytical", "tense", "practical")

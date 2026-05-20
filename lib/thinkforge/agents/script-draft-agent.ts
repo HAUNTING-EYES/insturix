@@ -20,6 +20,8 @@ import type { SessionState } from '../state/types';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
+import { scoreContent } from '../data/quality-scorer';
+import { StylistAgent } from './stylist-agent';
 
 function compactOutline(outline: ScriptOutline): ScriptOutline {
   const capped = outline.sections.slice(0, 5);
@@ -36,6 +38,9 @@ export interface ScriptDraftResult {
   sections: SectionOutput[];
   status?: 'ok' | 'error';
   reason?: string;
+  qualityScore?: number;
+  qualityViolations?: string[];
+  stylistFlags?: string[];
 }
 
 export interface ScriptDraftCallbacks {
@@ -51,11 +56,11 @@ export class ScriptDraftAgent {
   constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
     this.outlineAgent = new ScriptOutlineAgent({
       maxTokens: config?.maxTokens ?? 500,
-      temperature: 0.2,
+      temperature: 0.5,
     });
     this.contractAgent = new ScriptContractAgent({
       maxTokens: 400,
-      temperature: 0.2,
+      temperature: 0.4,
     });
     this.authorAgent = new ScriptAuthorAgent({
       maxTokens: 2600,
@@ -140,7 +145,7 @@ export class ScriptDraftAgent {
     }
 
     const parsedBlocks = parseMarkdownToBlocks(markdown);
-    const blocks = validateThinkForgeBlocks(
+    let blocks = validateThinkForgeBlocks(
       parsedBlocks.length > 0
         ? parsedBlocks
         : [
@@ -151,8 +156,70 @@ export class ScriptDraftAgent {
             },
           ]
     );
-    const content = markdown.trim();
-    
+    let content = markdown.trim();
+
+    // ─── Post-generation: Quality Scoring + Stylist Review ────────
+    let qualityScore = 100;
+    let qualityViolations: string[] = [];
+    try {
+      const score = scoreContent(content);
+      qualityScore = score.score;
+      qualityViolations = score.violations.map(v => v.message);
+      if (score.violations.length > 0) {
+        console.log(`[ThinkForge:Quality] Score: ${score.score}/100 (${score.status}). Violations: ${score.violations.map(v => v.constraintId).join(', ')}`);
+      }
+    } catch (e) {
+      console.error('[ThinkForge:Quality] Scoring failed:', e);
+    }
+
+    let stylistFlags: string[] = [];
+    if (qualityScore < 90) {
+      try {
+        if (callbacks?.onProgress) {
+          await callbacks.onProgress({ progress: 0.9, message: 'Reviewing voice quality' });
+        }
+        const stylist = new StylistAgent();
+        const review = await stylist.checkVoice({
+          context: modeAwareInput.context,
+          userPrompt: content,
+        });
+        stylistFlags = review.flags.filter(f => f.severity === 'high').map(f => `${f.issue}: ${f.suggestion}`);
+        console.log(`[ThinkForge:Stylist] Score: ${review.overallScore}/100. Flags: ${review.flags.length} (${stylistFlags.length} high).`);
+
+        // V2: Auto-rewrite flagged sections
+        if (qualityViolations.length > 0 || stylistFlags.length > 0) {
+          if (callbacks?.onProgress) {
+            await callbacks.onProgress({ progress: 0.95, message: 'Rewriting flagged sections' });
+          }
+          const rewritten = await stylist.rewriteFlagged({
+            content,
+            violations: qualityViolations,
+            flags: stylistFlags,
+            brandContext: modeAwareInput.context.systemBrief,
+          });
+          if (rewritten) {
+            const newScore = scoreContent(rewritten);
+            if (newScore.score > qualityScore) {
+              console.log(`[ThinkForge:Stylist] Rewrite improved quality: ${qualityScore} → ${newScore.score}`);
+              content = rewritten;
+              const newParsed = parseMarkdownToBlocks(rewritten);
+              blocks = validateThinkForgeBlocks(
+                newParsed.length > 0
+                  ? newParsed
+                  : [{ id: ensureThinkForgeBlockId(), kind: 'paragraph', content: normalizeThinkForgeRichText([{ type: 'text', text: rewritten, styles: {} }]) }]
+              );
+              qualityScore = newScore.score;
+              qualityViolations = newScore.violations.map(v => v.message);
+            } else {
+              console.log(`[ThinkForge:Stylist] Rewrite did not improve (${qualityScore} → ${newScore.score}), keeping original`);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[ThinkForge:Stylist] Review failed:', e);
+      }
+    }
+
     // Convert to Tiptap JSON AST
     const richText = thinkForgeBlocksToTiptapJSON(blocks);
 
@@ -176,6 +243,9 @@ export class ScriptDraftAgent {
       draft: true,
       outline,
       sections: [],
+      qualityScore,
+      qualityViolations,
+      stylistFlags,
     };
   }
 }

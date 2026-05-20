@@ -1,0 +1,1159 @@
+{
+  "part": 4,
+  "name": "Compositional Constraints",
+  "sourceLines": [4702, 5145],
+  "description": "Deterministic compositional constraints. The Anti-Pattern Detector rulebook. Each constraint has detection logic, threshold, auto-correction, and severity. Quality Score System: 100 - sum(deductions). Critical=-15, Warning=-5, Info=-1.",
+  "nodes": [
+    {
+      "id": "constraint:temporal.cut_mid_word",
+      "type": "Constraint",
+      "category": "temporal",
+      "name": "Cut Mid-Word",
+      "summary": "Never cut within a word's timestamp range when face is present. Breaks lip sync — most noticeable editing error.",
+      "details": {
+        "rule": "cut point falls within a word's timestamp range (word_start < cut_time < word_end) AND face_present = true (on-camera speech)",
+        "detection": "cut point falls within a word's timestamp range (word_start < cut_time < word_end) AND face_present = true (on-camera speech)",
+        "threshold": "any occurrence",
+        "autoCorrection": "shift cut to nearest word boundary (gap between words). Prefer the gap AFTER the word (let the word complete)",
+        "severity": "blocker",
+        "appliesTo": ["cut_point", "lip_sync", "on_camera_speech"],
+        "rationale": "cutting mid-word breaks lip sync. The viewer sees the mouth stop mid-syllable. It's the single most noticeable editing error — even non-editors catch it instantly. Voiceover content (face not visible) is exempt — VO audio continues across cuts.",
+        "overridable": false,
+        "deduction": -15
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4738, 4745]
+    },
+    {
+      "id": "constraint:temporal.pacing_monotony",
+      "type": "Constraint",
+      "category": "temporal",
+      "name": "Pacing Monotony",
+      "summary": "Last 5 shots must vary > 10% in duration. Metronomic timing creates robotic drum-machine feel.",
+      "details": {
+        "rule": "standard deviation of shot durations for last 5 consecutive shots < 10% of mean",
+        "detection": "standard deviation of shot durations for last 5 consecutive shots < 10% of mean",
+        "threshold": "5+ shots with < 10% duration variance",
+        "autoCorrection": "vary next 2-3 shot holds by ±15-20% from current mean",
+        "severity": "warning",
+        "appliesTo": ["shot_duration", "pacing", "rhythm"],
+        "rationale": "metronomic shot timing creates a robotic 'drum machine' feel. Human editors naturally vary ±10-20%. Pearlman: rhythm follows breath, not metronome",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [4747, 4752]
+    },
+    {
+      "id": "constraint:temporal.shot_overheld",
+      "type": "Constraint",
+      "category": "temporal",
+      "name": "Shot Overheld",
+      "summary": "Shot held > 1.5x pacing tolerance without narrative pressure. Attention diminishes per second in static shot.",
+      "details": {
+        "rule": "time_since_last_cut > pacing_tolerance × 1.5 AND narrative_pressure < 0.5",
+        "detection": "time_since_last_cut > pacing_tolerance × 1.5 AND narrative_pressure < 0.5",
+        "threshold": "pacing_tolerance × 1.5 (e.g., if pacing_tolerance = 4s, flag at 6s)",
+        "autoCorrection": "find nearest viable cut point and execute",
+        "severity": "warning",
+        "appliesTo": ["shot_duration", "pacing_tolerance", "narrative_pressure"],
+        "rationale": "attention diminishes per second within a static shot. Exceeding tolerance without narrative justification = viewer waiting for new information. Suppressed when narrative_pressure > 0.5 (charged silence protection overrides)",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [4754, 4760]
+    },
+    {
+      "id": "constraint:temporal.shot_underheld",
+      "type": "Constraint",
+      "category": "temporal",
+      "name": "Shot Underheld",
+      "summary": "Shot < 0.8s outside montage is subliminal — viewer registers flash but can't process content.",
+      "details": {
+        "rule": "shot duration < 0.8s AND NOT montage_mode",
+        "detection": "shot duration < 0.8s AND NOT montage_mode",
+        "threshold": "< 0.8s outside montage",
+        "autoCorrection": "extend to 0.8s minimum or merge with adjacent shot",
+        "severity": "info",
+        "appliesTo": ["shot_duration", "montage_mode"],
+        "rationale": "shots under 0.8s are subliminal — the viewer registers a flash but can't process content. Only appropriate in montage (where the rhythm IS the content, not comprehension)",
+        "deduction": -1
+      },
+      "tags": [],
+      "sourceLines": [4762, 4767]
+    },
+    {
+      "id": "constraint:temporal.metronomic_beat_sync",
+      "type": "Constraint",
+      "category": "temporal",
+      "name": "Metronomic Beat Sync",
+      "summary": "6+ consecutive cuts within ±1 frame of beat = strongest 'AI edited this' tell. Apply humanize jitter.",
+      "details": {
+        "rule": "6+ consecutive cuts within ±1 frame of beat positions",
+        "detection": "6+ consecutive cuts within ±1 frame of beat positions",
+        "threshold": "6 consecutive",
+        "autoCorrection": "apply humanize jitter ±2-3 frames (seeded by projectId) on next 3 cuts, skip one beat alignment",
+        "severity": "warning",
+        "appliesTo": ["beat_sync", "cut_timing", "music_alignment"],
+        "rationale": "perfect machine-locked cuts are the strongest 'AI edited this' tell. Human rhythm breathes. Pearlman's pulse theory — syncopation is life, metronomic precision is death",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [4769, 4774]
+    },
+    {
+      "id": "constraint:transition.dissolve_color_clash",
+      "type": "Constraint",
+      "category": "transition",
+      "name": "Dissolve Color Clash",
+      "summary": "Dissolve with > 1000K color temp delta creates ugly muddy middle. Switch to hard cut or dip-to-black.",
+      "details": {
+        "rule": "color_temperature delta > 1000K between last 10 frames of outgoing clip and first 10 frames of incoming clip AND transition_type = dissolve",
+        "detection": "color_temperature delta > 1000K between last 10 frames of outgoing clip and first 10 frames of incoming clip AND transition_type = dissolve",
+        "threshold": "> 1000K delta with dissolve",
+        "autoCorrection": "switch transition to hard_cut (if delta 1000-1500K) or dip_to_black (if delta > 1500K)",
+        "severity": "blocker",
+        "appliesTo": ["dissolve", "color_temperature", "transition_choice"],
+        "rationale": "dissolve blends two images simultaneously. Clashing color temperatures create an ugly muddy middle — neither warm nor cool, just wrong. Albers' simultaneous contrast makes this especially visible",
+        "deduction": -15
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4781, 4786]
+    },
+    {
+      "id": "constraint:transition.transition_repetition",
+      "type": "Constraint",
+      "category": "transition",
+      "name": "Transition Repetition",
+      "summary": "3+ identical non-hard-cut transitions in a row feels like default setting, not intentional.",
+      "details": {
+        "rule": "3+ identical non-hard-cut transition types in consecutive sequence",
+        "detection": "3+ identical non-hard-cut transition types in consecutive sequence",
+        "threshold": "3 consecutive same type",
+        "autoCorrection": "replace the third instance with hard_cut or a different transition type",
+        "severity": "warning",
+        "appliesTo": ["transition_variety", "non_hard_cut_transitions"],
+        "rationale": "repeated special transitions feel like a default setting rather than an intentional choice. Variation signals 'someone thought about each transition'. Exception: montage_mode — uniform transitions within montage are intentional and REQUIRED",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [4788, 4794]
+    },
+    {
+      "id": "constraint:transition.transition_overuse",
+      "type": "Constraint",
+      "category": "transition",
+      "name": "Transition Overuse",
+      "summary": "More than 5 special transitions per minute. Hard cuts should be 80-90% of all cuts.",
+      "details": {
+        "rule": "non-hard-cut transitions > 5 per minute of content",
+        "detection": "non-hard-cut transitions > 5 per minute of content",
+        "threshold": "> 5 special transitions per minute",
+        "autoCorrection": "convert least-motivated special transitions back to hard cuts",
+        "severity": "warning",
+        "appliesTo": ["transition_density", "hard_cut_ratio"],
+        "rationale": "hard cuts should be 80-90% of all cuts. When every cut is a dissolve or wipe, nothing is special. Transition effects are exclamation marks — a paragraph of exclamation marks is exhausting",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [4796, 4801]
+    },
+    {
+      "id": "constraint:transition.transition_during_speech",
+      "type": "Constraint",
+      "category": "transition",
+      "name": "Transition During Speech",
+      "summary": "Transitions during speech (energy > 0.3) split attention from words. Shift to nearest speech gap.",
+      "details": {
+        "rule": "transition effect (dissolve, wipe, flash, whip-pan) begins while speech_energy > 0.3",
+        "detection": "transition effect (dissolve, wipe, flash, whip-pan) begins while speech_energy > 0.3",
+        "threshold": "any occurrence during active speech",
+        "autoCorrection": "shift transition to nearest speech gap (silence > 200ms)",
+        "severity": "warning",
+        "appliesTo": ["dissolve", "wipe", "flash", "whip_pan", "speech_energy"],
+        "rationale": "transition effects are visually distracting. During speech, the viewer should be focused on the speaker's message. A dissolve or wipe splits attention between the visual effect and the words. Exception: J-cut and L-cut are exempt (they're specifically about audio crossing the transition boundary)",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4803, 4809]
+    },
+    {
+      "id": "constraint:transition.fade_to_black_overuse",
+      "type": "Constraint",
+      "category": "transition",
+      "name": "Fade-to-Black Overuse",
+      "summary": "More than 3 fade-to-black per video makes content feel fragmented and episodic.",
+      "details": {
+        "rule": "fade_to_black count > 3 per video",
+        "detection": "fade_to_black count > 3 per video",
+        "threshold": "> 3",
+        "autoCorrection": "convert the least-motivated fade_to_black to hard_cut or dissolve",
+        "severity": "info",
+        "appliesTo": ["fade_to_black", "chapter_endings"],
+        "rationale": "each fade-to-black is a 'chapter ending.' More than 3 chapters in a single video makes the content feel fragmented and episodic",
+        "deduction": -1
+      },
+      "tags": [],
+      "sourceLines": [4811, 4816]
+    },
+    {
+      "id": "constraint:transition.missing_transition_sound",
+      "type": "Constraint",
+      "category": "transition",
+      "name": "Missing Transition Sound",
+      "summary": "Non-hard-cut transition without paired SFX violates Chion synchresis. Insert default SFX.",
+      "details": {
+        "rule": "non-hard-cut, non-match-cut transition without paired SFX within ±3 frames",
+        "detection": "non-hard-cut, non-match-cut transition without paired SFX within ±3 frames",
+        "threshold": "any non-hard-cut transition without sound",
+        "autoCorrection": "insert default SFX for the transition type (per Part 3 transition-sound pairing table)",
+        "severity": "warning",
+        "appliesTo": ["transition", "sfx", "synchresis"],
+        "rationale": "Chion's synchresis — a visual transition without its sound partner feels incomplete. The viewer doesn't think 'there's no sound' — they think 'that transition felt off'",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4818, 4823]
+    },
+    {
+      "id": "constraint:audio.true_silence",
+      "type": "Constraint",
+      "category": "audio",
+      "name": "True Silence",
+      "summary": "All channels < -60dB for > 0.3s. Brain interprets as 'audio broke'. Insert room tone -30 to -35dB.",
+      "details": {
+        "rule": "all audio channels below -60dB for > 0.3s AND narrative_pressure < 0.5",
+        "detection": "all audio channels below -60dB for > 0.3s AND narrative_pressure < 0.5",
+        "threshold": "> 0.3s of true digital silence",
+        "autoCorrection": "insert room tone / ambient bed at -30 to -35dB",
+        "severity": "blocker",
+        "appliesTo": ["ambient", "silence", "room_tone"],
+        "rationale": "true digital silence doesn't exist in nature. The brain interprets it as 'the audio broke.' Even in the quietest real environment, there's room tone, HVAC, distant sounds. Minimum: -35dB ambient. Exception: narrative_pressure > 0.5 — strategic silence is allowed but must still have ambient at -40dB minimum",
+        "deduction": -15
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4830, 4836]
+    },
+    {
+      "id": "constraint:audio.audio_clipping",
+      "type": "Constraint",
+      "category": "audio",
+      "name": "Audio Clipping",
+      "summary": "True peak > -1.0 dBTP creates audible distortion and platform rejection. Apply peak limiter.",
+      "details": {
+        "rule": "true peak exceeds -1.0 dBTP at any point",
+        "detection": "true peak exceeds -1.0 dBTP at any point",
+        "threshold": "> -1.0 dBTP",
+        "autoCorrection": "apply peak limiter at -1.0 dBTP",
+        "severity": "blocker",
+        "appliesTo": ["peak_audio", "platform_delivery", "loudness"],
+        "rationale": "clipping creates audible distortion. Platform delivery specs universally require < -1.0 dBTP. Exceeding causes rejection on some platforms",
+        "deduction": -15
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4838, 4844]
+    },
+    {
+      "id": "constraint:audio.loudness_deviation",
+      "type": "Constraint",
+      "category": "audio",
+      "name": "Loudness Deviation",
+      "summary": "Integrated loudness > 2 LUFS from platform target (typ -14 LUFS). Normalize to target.",
+      "details": {
+        "rule": "integrated loudness deviates > 2 LUFS from platform target",
+        "detection": "integrated loudness deviates > 2 LUFS from platform target",
+        "threshold": "> 2 LUFS from target (target: -14 LUFS for most platforms)",
+        "autoCorrection": "normalize to target LUFS",
+        "severity": "warning",
+        "appliesTo": ["loudness_normalization", "platform_target_lufs"],
+        "rationale": "too loud = distortion/platform rejection. Too quiet = viewer can't hear / appears unprofessional next to other content",
+        "deduction": -5
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4846, 4852]
+    },
+    {
+      "id": "constraint:audio.music_speech_competition",
+      "type": "Constraint",
+      "category": "audio",
+      "name": "Music-Speech Competition",
+      "summary": "Music > -15dB during speech without ducking masks speech 200Hz-4kHz. Activate ducking.",
+      "details": {
+        "rule": "music level > -15dB AND speech_energy > 0.3 simultaneously without audio ducking active",
+        "detection": "music level > -15dB AND speech_energy > 0.3 simultaneously without audio ducking active",
+        "threshold": "music and speech both audible without ducking for > 1s",
+        "autoCorrection": "activate music ducking with standard parameters (Part 3 music_duck)",
+        "severity": "blocker",
+        "appliesTo": ["music_duck", "speech_intelligibility", "frequency_masking"],
+        "rationale": "frequency masking — speech and music compete in the 200Hz-4kHz range. Without ducking, the viewer can't clearly hear the words. Speech intelligibility is non-negotiable",
+        "deduction": -15
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4854, 4859]
+    },
+    {
+      "id": "constraint:audio.sfx_timing_drift",
+      "type": "Constraint",
+      "category": "audio",
+      "name": "SFX Timing Drift",
+      "summary": "SFX > 3 frames (100ms @30fps) from visual event breaks Chion synchresis. Align within ±1 frame.",
+      "details": {
+        "rule": "SFX trigger point is > 3 frames (100ms at 30fps) from its visual event",
+        "detection": "SFX trigger point is > 3 frames (100ms at 30fps) from its visual event",
+        "threshold": "> 3 frames offset",
+        "autoCorrection": "shift SFX to align within ±1 frame of visual event",
+        "severity": "warning",
+        "appliesTo": ["sfx", "av_sync", "synchresis"],
+        "rationale": "Chion's synchresis: temporal binding window is ~200ms (research), but 3 frames (100ms at 30fps) is a conservative engineering target. At 3+ frames, sync feels loose — the tighter the better for impact SFX",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4861, 4866]
+    },
+    {
+      "id": "constraint:audio.ambient_discontinuity",
+      "type": "Constraint",
+      "category": "audio",
+      "name": "Ambient Discontinuity",
+      "summary": "> 6dB ambient jump at cut without crossfade creates pumping effect. Apply 0.1-0.3s crossfade.",
+      "details": {
+        "rule": "ambient audio level changes > 6dB at a cut boundary without crossfade",
+        "detection": "ambient audio level changes > 6dB at a cut boundary without crossfade",
+        "threshold": "> 6dB jump at cut",
+        "autoCorrection": "apply ambient crossfade 0.1-0.3s straddling the cut",
+        "severity": "warning",
+        "appliesTo": ["ambient", "crossfade", "cut_boundary"],
+        "rationale": "ambient is the audio 'floor.' Sudden jumps in the floor level create a pumping effect that sounds like a technical error",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4868, 4873]
+    },
+    {
+      "id": "constraint:audio.music_mood_mismatch",
+      "type": "Constraint",
+      "category": "audio",
+      "name": "Music-Mood Mismatch",
+      "summary": "Music energy contradicts emotional valence > 5s. Conflicting signals — flag for review.",
+      "details": {
+        "rule": "music_energy > 0.7 (high energy, positive) AND emotional_valence = negative for > 5s simultaneously, OR music_energy < 0.3 (low, somber) AND emotional_valence = positive for > 5s",
+        "detection": "music_energy > 0.7 (high energy, positive) AND emotional_valence = negative for > 5s simultaneously, OR music_energy < 0.3 (low, somber) AND emotional_valence = positive for > 5s",
+        "threshold": "sustained mismatch > 5 seconds",
+        "autoCorrection": "flag for review. If music was system-selected: suggest mood change. If user-selected: flag only",
+        "severity": "warning",
+        "appliesTo": ["music_energy", "emotional_valence", "mood_alignment"],
+        "rationale": "when music mood contradicts content emotion, the viewer's brain receives conflicting signals. The music says 'happy' while the content says 'sad' — unless this is deliberately ironic, it reads as a mistake",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4875, 4880]
+    },
+    {
+      "id": "constraint:audio.missing_ambient",
+      "type": "Constraint",
+      "category": "audio",
+      "name": "Missing Ambient",
+      "summary": "> 2s segment without ambient audio. Speech/music float in void. Critical for AI footage.",
+      "details": {
+        "rule": "any video segment > 2s with no ambient audio layer (only music and/or speech, no room tone or environmental sound)",
+        "detection": "any video segment > 2s with no ambient audio layer (only music and/or speech, no room tone or environmental sound)",
+        "threshold": "> 2s without ambient",
+        "autoCorrection": "insert matching ambient bed (room tone for indoor, environmental for outdoor)",
+        "severity": "blocker",
+        "appliesTo": ["ambient", "room_tone", "ai_footage"],
+        "rationale": "ambient creates 'place.' Without it, speech and music float in a void. The subconscious reads 'this exists nowhere.' Critical for AI footage which has zero natural audio",
+        "deduction": -15
+      },
+      "tags": [],
+      "sourceLines": [4882, 4887]
+    },
+    {
+      "id": "constraint:visual.shot_scale_monotony",
+      "type": "Constraint",
+      "category": "visual",
+      "name": "Shot Scale Monotony",
+      "summary": "3+ consecutive shots at same scale create visual monotone. Suggest different scale.",
+      "details": {
+        "rule": "same shot_scale for 3+ consecutive shots",
+        "detection": "same shot_scale for 3+ consecutive shots",
+        "threshold": "3+ consecutive",
+        "autoCorrection": "flag for next shot selection — suggest different scale",
+        "severity": "info",
+        "appliesTo": ["shot_scale", "shot_variety", "spatial_processing"],
+        "rationale": "three identical scales create visual monotone. The viewer's spatial processing habituates",
+        "deduction": -1
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [4894, 4899]
+    },
+    {
+      "id": "constraint:visual.color_grade_inconsistency",
+      "type": "Constraint",
+      "category": "visual",
+      "name": "Color Grade Inconsistency",
+      "summary": "Luma/color/sat differ > 15% between consecutive shots at hard cut. Apply subtle correction.",
+      "details": {
+        "rule": "avg luminance, color balance (R/G/B), or saturation differ > 15% between consecutive shots AT a hard cut (not at intentional grade_shift transitions)",
+        "detection": "avg luminance, color balance (R/G/B), or saturation differ > 15% between consecutive shots AT a hard cut (not at intentional grade_shift transitions)",
+        "threshold": "> 15% on any color metric at hard cut",
+        "autoCorrection": "apply subtle correction on incoming shot (80% original + 20% adjustment toward outgoing)",
+        "severity": "warning",
+        "appliesTo": ["color_grade", "luminance", "saturation", "color_balance"],
+        "rationale": "inconsistent grade between cuts looks like the footage came from different cameras/sources. Creates 'assembled from pieces' feel instead of 'unified production'. Exception: intentional grade_shift (Part 2 mapping) is exempt. montage_mode exempt (rapid cuts forgive variation)",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4901, 4907]
+    },
+    {
+      "id": "constraint:visual.eye_trace_jump",
+      "type": "Constraint",
+      "category": "visual",
+      "name": "Eye Trace Jump",
+      "summary": "Eye trace position shift > 30% of frame diagonal at cut. Murch Rule #4 — 200-400ms 'where am I?'.",
+      "details": {
+        "rule": "distance between eye_trace_position in outgoing final frame and incoming first frame > 0.3 normalized diagonal",
+        "detection": "distance between eye_trace_position in outgoing final frame and incoming first frame > 0.3 normalized diagonal",
+        "threshold": "> 30% of frame diagonal",
+        "autoCorrection": "if Mode 1 (controllable): adjust incoming shot composition. If Mode 2 (fixed): flag. If whip-pan or flash is at this cut: exempt (these reset eye trace)",
+        "severity": "info",
+        "appliesTo": ["eye_trace", "composition", "cut_continuity"],
+        "rationale": "Murch Rule #4 (7%). Eye jumping > 30% of frame at cut = 200-400ms of 'where am I?' instead of absorbing content",
+        "deduction": -1
+      },
+      "tags": [],
+      "sourceLines": [4909, 4914]
+    },
+    {
+      "id": "constraint:visual.screen_direction_violation",
+      "type": "Constraint",
+      "category": "visual",
+      "name": "Screen Direction Violation (180-degree rule)",
+      "summary": "Unmotivated screen direction flip in dialogue/interview disorients viewer's spatial map.",
+      "details": {
+        "rule": "screen_direction flips between consecutive shots without motivated camera movement bridging them AND content is dialogue or interview (has_multiple_speakers)",
+        "detection": "screen_direction flips between consecutive shots without motivated camera movement bridging them AND content is dialogue or interview (has_multiple_speakers)",
+        "threshold": "any unmotivated flip in dialogue/interview content",
+        "autoCorrection": "Mode 1: adjust incoming shot prompt for correct direction. Mode 2: insert wide buffer shot or flag",
+        "severity": "warning",
+        "appliesTo": ["screen_direction", "180_degree_rule", "dialogue", "interview"],
+        "rationale": "180-degree rule. Direction flip in dialogue disorients the viewer's spatial map. They momentarily lose track of who is where. Less critical in montage and single-speaker content (spatial continuity matters less)",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4916, 4922]
+    },
+    {
+      "id": "constraint:visual.empty_frames",
+      "type": "Constraint",
+      "category": "visual",
+      "name": "Empty Frames",
+      "summary": "> 2 frames pure black between clips not part of intentional fade is a visible glitch blink.",
+      "details": {
+        "rule": "> 2 frames of pure black (all pixels below threshold) between clips that are not part of an intentional fade_to_black",
+        "detection": "> 2 frames of pure black (all pixels below threshold) between clips that are not part of an intentional fade_to_black",
+        "threshold": "> 2 unintentional black frames",
+        "autoCorrection": "close the gap (extend adjacent clips to fill) or insert crossfade",
+        "severity": "blocker",
+        "appliesTo": ["black_frames", "clip_assembly", "render_pipeline"],
+        "rationale": "black frames flash on screen as a visible glitch. Even 2-3 frames of unintentional black are noticeable. The viewer sees a 'blink' that shouldn't be there",
+        "deduction": -15
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4924, 4929]
+    },
+    {
+      "id": "constraint:visual.missing_hook",
+      "type": "Constraint",
+      "category": "visual",
+      "name": "Missing Hook",
+      "summary": "First 2s with no face/motion/text or starts on black/static card — 20-30% leave in 5s.",
+      "details": {
+        "rule": "first 2 seconds of video contain: no face, no motion (motion_intensity < 0.1), no text, AND/OR first frame is black or a static title card",
+        "detection": "first 2 seconds of video contain: no face, no motion (motion_intensity < 0.1), no text, AND/OR first frame is black or a static title card",
+        "threshold": "first 2s with no visual interest",
+        "autoCorrection": "flag. Suggest rearranging content to front-load a stronger visual",
+        "severity": "warning",
+        "appliesTo": ["opening_hook", "first_2s", "retention", "viewer_drop_off"],
+        "rationale": "20-30% of viewers leave within 5 seconds. The first frame and first 2 seconds must earn the viewer's attention. A black frame or static card is the fastest way to lose them",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [4931, 4936]
+    },
+    {
+      "id": "constraint:overlay.visual_clutter",
+      "type": "Constraint",
+      "category": "overlay",
+      "name": "Visual Clutter",
+      "summary": "More than 2 non-caption overlays > 1s. Gestalt figure-ground — viewer reads NONE.",
+      "details": {
+        "rule": "active_overlays_count > 2 (excluding captions) simultaneously for > 1 second",
+        "detection": "active_overlays_count > 2 (excluding captions) simultaneously for > 1 second",
+        "threshold": "> 2 non-caption overlays for > 1s",
+        "autoCorrection": "stagger overlays — delay newest entrance until oldest exits + 0.3s. If staggering impossible: remove lowest-priority overlay (priority: caption > stat > lower-third > callout > keyword > other)",
+        "severity": "warning",
+        "appliesTo": ["overlays", "graphics", "stats", "lower_third", "callout", "keyword"],
+        "rationale": "Gestalt figure-ground. 3+ items competing for attention = the viewer reads NONE effectively. One clear focus element at a time",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [4943, 4948]
+    },
+    {
+      "id": "constraint:overlay.graphic_in_caption_zone",
+      "type": "Constraint",
+      "category": "overlay",
+      "name": "Graphic In Caption Zone",
+      "summary": "Graphic position overlaps caption zone (bottom 15-25%). Two reading tasks = neither read.",
+      "details": {
+        "rule": "graphic overlay position overlaps with active caption position (typically bottom 15-25% of safe zone)",
+        "detection": "graphic overlay position overlaps with active caption position (typically bottom 15-25% of safe zone)",
+        "threshold": "any spatial overlap between graphic and caption",
+        "autoCorrection": "reposition graphic to non-overlapping region (upper area or center). If no space: delay graphic until caption group completes",
+        "severity": "warning",
+        "appliesTo": ["graphic_position", "caption_zone", "spatial_layout"],
+        "rationale": "two text elements in the same screen region = viewer reads neither. Captions and graphics are both 'reading tasks' — they can't overlap",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4950, 4955]
+    },
+    {
+      "id": "constraint:overlay.graphic_too_small",
+      "type": "Constraint",
+      "category": "overlay",
+      "name": "Graphic Too Small",
+      "summary": "Text < 72px @1080p is unreadable on mobile. Scale up or flag for redesign.",
+      "details": {
+        "rule": "text within graphic overlay rendered at < 72px font size at 1080p output resolution (or equivalent ratio at other resolutions)",
+        "detection": "text within graphic overlay rendered at < 72px font size at 1080p output resolution (or equivalent ratio at other resolutions)",
+        "threshold": "< 72px at 1080p",
+        "autoCorrection": "scale graphic up until minimum font size is met. If scaling breaks layout: flag for redesign",
+        "severity": "warning",
+        "appliesTo": ["graphic_text_size", "mobile_readability", "1080p"],
+        "rationale": "text below 72px at 1080p is unreadable on mobile devices (the primary viewing context for social content). If the viewer can't read it, it shouldn't be there",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4957, 4962]
+    },
+    {
+      "id": "constraint:overlay.caption_timing_drift",
+      "type": "Constraint",
+      "category": "overlay",
+      "name": "Caption Timing Drift",
+      "summary": "Caption > 0.5s before speech or > 1.0s after. Realign to speech timestamps.",
+      "details": {
+        "rule": "caption appears > 0.5s before corresponding speech onset OR disappears > 1.0s after corresponding speech ends",
+        "detection": "caption appears > 0.5s before corresponding speech onset OR disappears > 1.0s after corresponding speech ends",
+        "threshold": "> 0.5s early or > 1.0s late",
+        "autoCorrection": "realign caption to speech timestamps (appear 0.25s before speech, disappear 0.25-0.5s after)",
+        "severity": "warning",
+        "appliesTo": ["caption", "speech_timestamps", "av_sync"],
+        "rationale": "captions that don't match speech timing create a 'dubbed' feel — the viewer sees text that doesn't match what they're hearing. Early captions spoil what's about to be said. Late captions linger distractingly",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4964, 4969]
+    },
+    {
+      "id": "constraint:overlay.caption_unsafe_zone",
+      "type": "Constraint",
+      "category": "overlay",
+      "name": "Caption Unsafe Zone",
+      "summary": "Caption in top 10% or bottom 20% covered by platform UI. Reposition to center 70% safe zone.",
+      "details": {
+        "rule": "caption text positioned in top 10% or bottom 20% of frame",
+        "detection": "caption text positioned in top 10% or bottom 20% of frame",
+        "threshold": "any caption in unsafe zone",
+        "autoCorrection": "reposition to center 70% safe zone",
+        "severity": "warning",
+        "appliesTo": ["caption_position", "platform_safe_zone", "ui_overlap"],
+        "rationale": "platform UI elements (navigation bars, controls, comments) cover the top 10% and bottom 20%. Captions placed there are covered and unreadable",
+        "deduction": -5
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [4971, 4977]
+    },
+    {
+      "id": "constraint:overlay.caption_spans_cut",
+      "type": "Constraint",
+      "category": "overlay",
+      "name": "Caption Spans Cut",
+      "summary": "Caption straddling hard cut creates disconnect. End 0.1s before, start 0.1s after.",
+      "details": {
+        "rule": "a single caption group (word or phrase) starts before a hard cut and continues after it",
+        "detection": "a single caption group (word or phrase) starts before a hard cut and continues after it",
+        "threshold": "caption straddles a hard cut",
+        "autoCorrection": "end caption 0.1s before cut, start new caption 0.1s after cut",
+        "severity": "info",
+        "appliesTo": ["caption", "cut_boundary", "edit_continuity"],
+        "rationale": "captions should respect edit boundaries. A caption that continues across a visual cut creates a disconnect — the picture changed but the text didn't, briefly confusing the 'where am I?' spatial sense",
+        "deduction": -1
+      },
+      "tags": [],
+      "sourceLines": [4979, 4984]
+    },
+    {
+      "id": "constraint:overlay.overlay_spatial_overlap",
+      "type": "Constraint",
+      "category": "overlay",
+      "name": "Overlay Spatial Overlap",
+      "summary": "Two overlays > 20% area overlap = visual noise. Reposition or stagger timing.",
+      "details": {
+        "rule": "two overlay bounding boxes overlap by > 20% of either overlay's area",
+        "detection": "two overlay bounding boxes overlap by > 20% of either overlay's area",
+        "threshold": "> 20% area overlap",
+        "autoCorrection": "reposition the lower-priority overlay. If both are same priority: stagger timing",
+        "severity": "warning",
+        "appliesTo": ["overlay", "spatial_layout", "bounding_box"],
+        "rationale": "overlapping overlays create visual noise. Each overlay needs its own clear screen region",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [4986, 4991]
+    },
+    {
+      "id": "constraint:overlay.graphic_animation_inconsistency",
+      "type": "Constraint",
+      "category": "overlay",
+      "name": "Graphic Animation Inconsistency",
+      "summary": "Mixed animation styles feels like different editors per part. Standardize to most-used.",
+      "details": {
+        "rule": "different animation entrance styles used on graphic overlays within the same video (e.g., first graphic uses fade-in, second uses scale-pop, third uses slide-in)",
+        "detection": "different animation entrance styles used on graphic overlays within the same video (e.g., first graphic uses fade-in, second uses scale-pop, third uses slide-in)",
+        "threshold": "> 1 animation style across all graphics in video",
+        "autoCorrection": "standardize all graphics to the most-used animation style, or to formality-appropriate default (Part 3 animation consistency rule)",
+        "severity": "info",
+        "appliesTo": ["graphic_animation", "entrance_style", "visual_consistency"],
+        "rationale": "consistent animation style creates visual coherence. Mixed styles feel like different editors worked on different parts. Professional productions maintain visual system consistency",
+        "deduction": -1
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [4993, 4998]
+    },
+    {
+      "id": "constraint:continuity.thirty_degree_rule",
+      "type": "Constraint",
+      "category": "continuity",
+      "name": "30-Degree Rule",
+      "summary": "Same-subject cuts < 30° angle change cause subject 'twitch' jump. Add zoom offset or change angle.",
+      "details": {
+        "rule": "consecutive shots of the same subject with camera angle change < 30° (detected from composition similarity + subject position)",
+        "detection": "consecutive shots of the same subject with camera angle change < 30° (detected from composition similarity + subject position)",
+        "threshold": "< 30° angle change on same subject",
+        "autoCorrection": "if Mode 1: adjust incoming shot composition for > 30° difference. If Mode 2: add zoom offset (±7% scale) to create visual distinction",
+        "severity": "info",
+        "appliesTo": ["camera_angle", "same_subject_cuts", "jump_cut"],
+        "rationale": "cuts between nearly-identical angles create a 'jump' — the subject appears to twitch in place. The 30° minimum ensures enough visual change that the cut reads as intentional, not accidental",
+        "deduction": -1
+      },
+      "tags": [],
+      "sourceLines": [5005, 5010]
+    },
+    {
+      "id": "constraint:continuity.ambient_type_mismatch",
+      "type": "Constraint",
+      "category": "continuity",
+      "name": "Ambient Type Mismatch",
+      "summary": "Scene type changes but ambient doesn't. Outdoor ambient on indoor scene breaks immersion.",
+      "details": {
+        "rule": "scene_type changes (e.g., indoor → outdoor) but ambient_type doesn't change correspondingly",
+        "detection": "scene_type changes (e.g., indoor → outdoor) but ambient_type doesn't change correspondingly",
+        "threshold": "any scene_type change without matching ambient change",
+        "autoCorrection": "switch ambient bed to match new scene_type with crossfade at transition",
+        "severity": "warning",
+        "appliesTo": ["ambient", "scene_type", "indoor_outdoor"],
+        "rationale": "outdoor ambient on an indoor scene (or vice versa) breaks immersion instantly. The eye accepts the new location but the ear is still in the old one. Audio-visual environment must match",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [5012, 5017]
+    },
+    {
+      "id": "constraint:continuity.skin_tone_deviation",
+      "type": "Constraint",
+      "category": "continuity",
+      "name": "Skin Tone Deviation",
+      "summary": "Skin > 5° from vectorscope I-line (~123°) makes people look sickly/alien. Reduce grade.",
+      "details": {
+        "rule": "skin tone samples deviate > 5° from vectorscope I-line (~123°) after color grading",
+        "detection": "skin tone samples deviate > 5° from vectorscope I-line (~123°) after color grading",
+        "threshold": "> 5° deviation from I-line",
+        "autoCorrection": "reduce grade intensity until skin tones return within 5° of I-line",
+        "severity": "blocker",
+        "appliesTo": ["skin_tone", "color_grade", "vectorscope_i_line"],
+        "rationale": "skin tone is the most sensitive color element in any frame. Viewers are evolutionarily tuned to detect skin color abnormalities. Even slight deviation makes people look 'off' — sickly, alien, or artificial. Skin accuracy trumps creative grading, always",
+        "deduction": -15
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [5019, 5025]
+    },
+    {
+      "id": "constraint:ai-specific.ai_footage_overheld",
+      "type": "Constraint",
+      "category": "ai-specific",
+      "name": "AI Footage Overheld",
+      "summary": "AI clip > 5s without narrative pressure. Models degrade after 3-4s — face drift, hand morph, warp.",
+      "details": {
+        "rule": "AI-generated clip held > 5s AND narrative_pressure < 0.8",
+        "detection": "AI-generated clip held > 5s AND narrative_pressure < 0.8",
+        "threshold": "> 5s without narrative justification",
+        "autoCorrection": "find cut point within next 1s and execute. Prefer speech boundary or motion peak",
+        "severity": "warning",
+        "appliesTo": ["ai_generated", "clip_duration", "temporal_consistency"],
+        "rationale": "AI video models maintain temporal consistency for 3-4s, then degrade (face drift, hand morphing, background warp). Cutting before degradation becomes visible is preventive quality control",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN", "AI_GEN_ONLY"],
+      "sourceLines": [5032, 5037]
+    },
+    {
+      "id": "constraint:ai-specific.ai_footage_slowmo",
+      "type": "Constraint",
+      "category": "ai-specific",
+      "name": "AI Footage Slow-Motion",
+      "summary": "Never slow-mo AI footage. Doubles frames showing morphing. Restore to 100% speed.",
+      "details": {
+        "rule": "speed < 100% applied to any AI-generated clip",
+        "detection": "speed < 100% applied to any AI-generated clip",
+        "threshold": "any slow motion on AI footage",
+        "autoCorrection": "remove slow motion effect, restore to 100% speed",
+        "severity": "blocker",
+        "appliesTo": ["ai_generated", "slow_motion", "speed_ramp"],
+        "rationale": "slow motion amplifies temporal artifacts. Face drift at 50% speed has twice as many frames to show the morphing. Hands melting in slow motion is one of the most visible AI tells. Never slow-mo AI footage",
+        "deduction": -15
+      },
+      "tags": ["DETERMINISTIC", "AI_GEN_ONLY"],
+      "sourceLines": [5039, 5044]
+    },
+    {
+      "id": "constraint:ai-specific.ai_text_in_frame",
+      "type": "Constraint",
+      "category": "ai-specific",
+      "name": "AI Text In Frame",
+      "summary": "AI hallucinates text — gibberish, misspelled, evolving letters. Crop, cover, or regenerate.",
+      "details": {
+        "rule": "OCR or text detection finds readable text in AI-generated footage frames",
+        "detection": "OCR or text detection finds readable text in AI-generated footage frames",
+        "threshold": "any readable text in AI-generated frames",
+        "autoCorrection": "flag for review. Options: crop to exclude text area, add overlay to cover, re-generate clip with 'no text, no signage' in negative prompt",
+        "severity": "warning",
+        "appliesTo": ["ai_generated", "ocr", "hallucinated_text", "negative_prompt"],
+        "rationale": "AI models hallucinate text — gibberish characters, misspelled words, evolving letters. Visible AI text is an immediate credibility destroyer. All readable text should be added as graphic overlays in post, never generated in the video itself",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN", "AI_GEN_ONLY"],
+      "sourceLines": [5046, 5051]
+    },
+    {
+      "id": "constraint:ai-specific.ai_artifact_visible",
+      "type": "Constraint",
+      "category": "ai-specific",
+      "name": "AI Artifact Visible",
+      "summary": "ai_artifact_risk > 0.7 destroys suspension of disbelief. Speed-ramp, recut, or regenerate.",
+      "details": {
+        "rule": "ai_artifact_risk > 0.7 in any frame of the final output",
+        "detection": "ai_artifact_risk > 0.7 in any frame of the final output",
+        "threshold": "> 0.7 artifact risk score in final render",
+        "autoCorrection": "if single frame: speed-ramp past it. If sustained: re-cut to shorten the clip. If no good cut point: re-generate the clip",
+        "severity": "warning",
+        "appliesTo": ["ai_generated", "ai_artifact_risk", "face_morphing", "hand_melting", "object_phasing"],
+        "rationale": "visible AI artifacts (face morphing, hand melting, object phasing) destroy the viewer's suspension of disbelief. Once they see it, they stop watching the content and start watching for more artifacts",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN", "AI_GEN_ONLY"],
+      "sourceLines": [5053, 5058]
+    },
+    {
+      "id": "constraint:rhythm.energy_mismatch",
+      "type": "Constraint",
+      "category": "rhythm",
+      "name": "Energy Mismatch",
+      "summary": "Music energy and edit density move opposite > 10s. Viewer feels pushed and pulled simultaneously.",
+      "details": {
+        "rule": "visual edit_density (cuts per minute) and music_energy moving in opposite directions for > 10 seconds. E.g., music energy rising but edit density falling, or music energy falling but edit density increasing",
+        "detection": "visual edit_density (cuts per minute) and music_energy moving in opposite directions for > 10 seconds",
+        "threshold": "> 10s of sustained opposite trajectories",
+        "autoCorrection": "adjust edit density to track music energy direction. If music is user-selected and unchangeable: flag for review",
+        "severity": "warning",
+        "appliesTo": ["edit_density", "music_energy", "rhythm_alignment"],
+        "rationale": "music and visual pacing should generally move together. Rising music with static visuals = unfulfilled tension. Falling music with accelerating cuts = conflicting signals. The viewer feels both 'pushed' and 'pulled' simultaneously",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [5065, 5070]
+    },
+    {
+      "id": "constraint:rhythm.build_without_payoff",
+      "type": "Constraint",
+      "category": "rhythm",
+      "name": "Build Without Payoff",
+      "summary": "Rising energy > 20s with no peak/drop/plateau. Build becomes anxiety, not engagement.",
+      "details": {
+        "rule": "rising energy (speech_energy + music_energy + edit_density all increasing) sustained for > 20s without a cinematic_moment, music_drop, or energy plateau",
+        "detection": "rising energy (speech_energy + music_energy + edit_density all increasing) sustained for > 20s without a cinematic_moment, music_drop, or energy plateau",
+        "threshold": "> 20s of continuous build with no peak",
+        "autoCorrection": "flag. If system-controlled content: insert a peak moment (zoom punch, graphic emphasis, or pacing climax). If user content: flag that the build needs a payoff",
+        "severity": "warning",
+        "appliesTo": ["energy_curve", "cinematic_moment", "music_drop", "tension_release"],
+        "rationale": "building energy creates a promise to the viewer: 'something is coming.' After 20s without delivery, the viewer feels cheated. The build becomes tension without release — anxiety, not engagement. Pearlman: inhale must be followed by exhale",
+        "deduction": -5
+      },
+      "tags": [],
+      "sourceLines": [5072, 5077]
+    },
+    {
+      "id": "constraint:rhythm.peak_without_decompression",
+      "type": "Constraint",
+      "category": "rhythm",
+      "name": "Peak Without Decompression",
+      "summary": "Cinematic moment (peak > 0.7) with no relaxation in 5s. Activate post-peak decompression.",
+      "details": {
+        "rule": "cinematic_moment (peak_score > 0.7) with no decrease in edit density, no zoom pull-back, no graphic reduction in the following 5 seconds",
+        "detection": "cinematic_moment (peak_score > 0.7) with no decrease in edit density, no zoom pull-back, no graphic reduction in the following 5 seconds",
+        "threshold": "5s after peak with no relaxation",
+        "autoCorrection": "activate post_peak_decompression mapping (lengthen holds, pull back zoom, reduce overlays)",
+        "severity": "info",
+        "appliesTo": ["cinematic_moment", "peak_score", "post_peak_decompression"],
+        "rationale": "Pearlman's breath model. After every inhale (peak), the body must exhale (decompress). Content that goes from peak to peak without breathing room is exhausting. The decompression makes the NEXT peak possible",
+        "deduction": -1
+      },
+      "tags": [],
+      "sourceLines": [5079, 5084]
+    },
+    {
+      "id": "constraint:rhythm.identical_zoom_targets",
+      "type": "Constraint",
+      "category": "rhythm",
+      "name": "Identical Zoom Targets",
+      "summary": "3+ identical zoom scales feels like default. Vary by ±2-3%.",
+      "details": {
+        "rule": "3+ zoom decisions with identical target scale (e.g., three consecutive zoom_pushes all to exactly 1.1x)",
+        "detection": "3+ zoom decisions with identical target scale (e.g., three consecutive zoom_pushes all to exactly 1.1x)",
+        "threshold": "3+ identical zoom scales",
+        "autoCorrection": "vary zoom targets by ±2-3% (e.g., 1.08x, 1.11x, 1.09x)",
+        "severity": "info",
+        "appliesTo": ["zoom_target", "zoom_push", "zoom_variation"],
+        "rationale": "identical zoom levels feel like a default setting, not intentional choices. Subtle variation (within 5%) creates the impression that each zoom was calibrated to its specific moment",
+        "deduction": -1
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [5086, 5091]
+    },
+    {
+      "id": "constraint:budget.zoom_budget_exceeded",
+      "type": "Constraint",
+      "category": "budget",
+      "name": "Zoom Budget Exceeded",
+      "summary": "Total zooms > zoom_budget. Over-zooming = #1 AI editing tell. Suppress remaining zooms.",
+      "details": {
+        "rule": "total zoom decisions > zoom_budget (from genre_parameters)",
+        "detection": "total zoom decisions > zoom_budget (from genre_parameters)",
+        "threshold": "count > budget",
+        "autoCorrection": "suppress all future zoom triggers for remaining video. Exception: moment_weight > 0.9 can override once",
+        "severity": "warning",
+        "appliesTo": ["zoom", "zoom_budget", "genre_parameters", "moment_weight"],
+        "rationale": "over-zooming is the most common AI editing tell. Budget enforcement forces selectivity. Scarcity = impact",
+        "deduction": -5
+      },
+      "tags": ["ANTI_PATTERN"],
+      "sourceLines": [5098, 5103]
+    },
+    {
+      "id": "constraint:budget.graphic_density_exceeded",
+      "type": "Constraint",
+      "category": "budget",
+      "name": "Graphic Density Exceeded",
+      "summary": "Graphics per minute > 130% of target. Too many graphics = presentation, not video.",
+      "details": {
+        "rule": "graphics per minute > graphic_density target × 1.3 (30% over target)",
+        "detection": "graphics per minute > graphic_density target × 1.3 (30% over target)",
+        "threshold": "> 130% of target",
+        "autoCorrection": "remove lowest-weight graphic decisions until within target",
+        "severity": "info",
+        "appliesTo": ["graphic_density", "graphic_budget", "graphics_per_minute"],
+        "rationale": "too many graphics makes the video feel like a presentation, not a video. Each graphic should earn its place",
+        "deduction": -1
+      },
+      "tags": [],
+      "sourceLines": [5105, 5110]
+    },
+    {
+      "id": "constraint:accessibility.flash_rate_violation",
+      "type": "Constraint",
+      "category": "accessibility",
+      "name": "Flash Rate Violation",
+      "summary": "More than 3 flashes/sec (luma > 20 cd/m²) — photosensitive epilepsy risk. Non-negotiable.",
+      "details": {
+        "rule": "> 3 flashes (luminance change > 20 cd/m²) per second",
+        "detection": "> 3 flashes (luminance change > 20 cd/m²) per second",
+        "threshold": "> 3 per second [DETERMINISTIC — WCAG accessibility requirement]",
+        "autoCorrection": "remove or reduce flash effects until < 3 per second",
+        "severity": "blocker",
+        "appliesTo": ["flash_effect", "luminance_change", "wcag", "photosensitive_epilepsy"],
+        "rationale": "photosensitive epilepsy risk. This is a legal and ethical requirement, not a creative preference. Non-negotiable",
+        "overridable": false,
+        "deduction": -15
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY"],
+      "sourceLines": [5112, 5118]
+    },
+    {
+      "id": "constraint:accessibility.flash_area_violation",
+      "type": "Constraint",
+      "category": "accessibility",
+      "name": "Flash Area Violation",
+      "summary": "Flash > 25% area for > 3 consecutive flashes — photosensitive epilepsy risk. Non-negotiable.",
+      "details": {
+        "rule": "flashing content covers > 25% of screen area for > 3 consecutive flashes",
+        "detection": "flashing content covers > 25% of screen area for > 3 consecutive flashes",
+        "threshold": "> 25% area [DETERMINISTIC — WCAG]",
+        "autoCorrection": "reduce flash area or remove flash",
+        "severity": "blocker",
+        "appliesTo": ["flash_effect", "screen_area", "wcag", "photosensitive_epilepsy"],
+        "rationale": "photosensitive epilepsy. Large-area flashes are more dangerous than small ones. Non-negotiable",
+        "overridable": false,
+        "deduction": -15
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY"],
+      "sourceLines": [5120, 5126]
+    },
+    {
+      "id": "constraint:accessibility.text_contrast_failure",
+      "type": "Constraint",
+      "category": "accessibility",
+      "name": "Text Contrast Failure",
+      "summary": "Text/bg contrast < 4.5:1 normal or < 3:1 large. WCAG AA — unreadable on mobile/sunlight.",
+      "details": {
+        "rule": "text overlay contrast ratio against its background < 4.5:1 (WCAG AA normal text) or < 3:1 (WCAG AA large text, > 18pt)",
+        "detection": "text overlay contrast ratio against its background < 4.5:1 (WCAG AA normal text) or < 3:1 (WCAG AA large text, > 18pt)",
+        "threshold": "< 4.5:1 normal, < 3:1 large [DETERMINISTIC — WCAG]",
+        "autoCorrection": "add or darken text background (semi-transparent box), increase outline weight, or change text color to meet ratio",
+        "severity": "blocker",
+        "appliesTo": ["text_overlay", "contrast_ratio", "wcag_aa", "readability"],
+        "rationale": "low contrast text is unreadable, especially on mobile, in sunlight, or for visually impaired viewers. Accessibility requirement",
+        "deduction": -5
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY"],
+      "sourceLines": [5128, 5133]
+    },
+    {
+      "id": "constraint:accessibility.missing_captions_sound_off_platform",
+      "type": "Constraint",
+      "category": "accessibility",
+      "name": "Missing Captions on Sound-Off Platform",
+      "summary": "Speech without captions on TikTok/Reels/LinkedIn/Facebook. 60-85% view without sound.",
+      "details": {
+        "rule": "target_platform is tiktok | reels | linkedin | facebook AND video has speech AND no captions present",
+        "detection": "target_platform is tiktok | reels | linkedin | facebook AND video has speech AND no captions present",
+        "threshold": "speech present + no captions + sound-off platform",
+        "autoCorrection": "activate caption generation",
+        "severity": "blocker",
+        "appliesTo": ["captions", "speech", "tiktok", "reels", "linkedin", "facebook", "sound_off_viewing"],
+        "rationale": "60-85% of social platform viewing is without sound. Speech without captions means 60-85% of viewers miss the content entirely. On these platforms, captions aren't accessibility — they're functional necessity",
+        "deduction": -5
+      },
+      "tags": ["ACCESSIBILITY"],
+      "sourceLines": [5135, 5140]
+    }
+  ],
+  "edges": [
+    {
+      "from": "constraint:temporal.shot_overheld",
+      "to": "constraint:temporal.shot_underheld",
+      "type": "composes_with",
+      "label": "duration bounds — both define holding limits",
+      "sourceLines": [4754, 4767]
+    },
+    {
+      "from": "constraint:temporal.shot_overheld",
+      "to": "constraint:audio.true_silence",
+      "type": "composes_with",
+      "label": "both suppressed by narrative_pressure > 0.5 (charged silence)",
+      "sourceLines": [4760, 4836]
+    },
+    {
+      "from": "constraint:temporal.metronomic_beat_sync",
+      "to": "constraint:temporal.pacing_monotony",
+      "type": "implies",
+      "label": "metronomic cuts also imply duration uniformity",
+      "sourceLines": [4769, 4774]
+    },
+    {
+      "from": "constraint:transition.dissolve_color_clash",
+      "to": "constraint:transition.transition_overuse",
+      "type": "implies",
+      "label": "fewer dissolves reduces clash risk",
+      "sourceLines": [4781, 4801]
+    },
+    {
+      "from": "constraint:transition.transition_repetition",
+      "to": "constraint:transition.transition_overuse",
+      "type": "composes_with",
+      "label": "both enforce transition variety/rarity",
+      "sourceLines": [4788, 4801]
+    },
+    {
+      "from": "constraint:transition.missing_transition_sound",
+      "to": "constraint:audio.sfx_timing_drift",
+      "type": "composes_with",
+      "label": "synchresis — sound presence + sound timing both required",
+      "sourceLines": [4818, 4866]
+    },
+    {
+      "from": "constraint:audio.true_silence",
+      "to": "constraint:audio.missing_ambient",
+      "type": "implies",
+      "label": "true silence implies missing ambient",
+      "sourceLines": [4830, 4887]
+    },
+    {
+      "from": "constraint:audio.audio_clipping",
+      "to": "constraint:audio.loudness_deviation",
+      "type": "composes_with",
+      "label": "both enforce platform delivery loudness specs",
+      "sourceLines": [4838, 4852]
+    },
+    {
+      "from": "constraint:audio.music_speech_competition",
+      "to": "constraint:audio.loudness_deviation",
+      "type": "composes_with",
+      "label": "ducking affects integrated loudness measurement",
+      "sourceLines": [4846, 4859]
+    },
+    {
+      "from": "constraint:audio.missing_ambient",
+      "to": "constraint:continuity.ambient_type_mismatch",
+      "type": "implies",
+      "label": "ambient must exist before its type can match scene",
+      "sourceLines": [4882, 5017]
+    },
+    {
+      "from": "constraint:visual.color_grade_inconsistency",
+      "to": "constraint:continuity.skin_tone_deviation",
+      "type": "supersedes",
+      "label": "skin tone accuracy trumps grade consistency — skin protected even if grade differs",
+      "sourceLines": [4901, 5025]
+    },
+    {
+      "from": "constraint:visual.empty_frames",
+      "to": "constraint:transition.fade_to_black_overuse",
+      "type": "composes_with",
+      "label": "fade-to-black is intentional; empty frames are accidental",
+      "sourceLines": [4811, 4929]
+    },
+    {
+      "from": "constraint:overlay.visual_clutter",
+      "to": "constraint:overlay.overlay_spatial_overlap",
+      "type": "composes_with",
+      "label": "both manage overlay competition — count and spatial",
+      "sourceLines": [4943, 4991]
+    },
+    {
+      "from": "constraint:overlay.graphic_in_caption_zone",
+      "to": "constraint:overlay.overlay_spatial_overlap",
+      "type": "implies",
+      "label": "caption-zone overlap is a specific spatial overlap case",
+      "sourceLines": [4950, 4991]
+    },
+    {
+      "from": "constraint:overlay.caption_unsafe_zone",
+      "to": "constraint:overlay.graphic_in_caption_zone",
+      "type": "composes_with",
+      "label": "caption position rules — center 70% safe zone",
+      "sourceLines": [4950, 4977]
+    },
+    {
+      "from": "constraint:overlay.caption_timing_drift",
+      "to": "constraint:overlay.caption_spans_cut",
+      "type": "composes_with",
+      "label": "both manage caption temporal alignment",
+      "sourceLines": [4964, 4984]
+    },
+    {
+      "from": "constraint:overlay.graphic_too_small",
+      "to": "constraint:accessibility.text_contrast_failure",
+      "type": "composes_with",
+      "label": "both protect text readability — size and contrast",
+      "sourceLines": [4957, 5133]
+    },
+    {
+      "from": "constraint:ai-specific.ai_footage_overheld",
+      "to": "constraint:ai-specific.ai_artifact_visible",
+      "type": "implies",
+      "label": "overheld AI clips lead to visible artifacts after 3-4s",
+      "sourceLines": [5032, 5058]
+    },
+    {
+      "from": "constraint:ai-specific.ai_footage_slowmo",
+      "to": "constraint:ai-specific.ai_artifact_visible",
+      "type": "implies",
+      "label": "slow motion amplifies AI artifacts",
+      "sourceLines": [5039, 5058]
+    },
+    {
+      "from": "constraint:rhythm.energy_mismatch",
+      "to": "constraint:rhythm.build_without_payoff",
+      "type": "composes_with",
+      "label": "both manage energy curve coherence",
+      "sourceLines": [5065, 5077]
+    },
+    {
+      "from": "constraint:rhythm.build_without_payoff",
+      "to": "constraint:rhythm.peak_without_decompression",
+      "type": "composes_with",
+      "label": "Pearlman breath cycle — build, peak, decompress",
+      "sourceLines": [5072, 5084]
+    },
+    {
+      "from": "constraint:rhythm.identical_zoom_targets",
+      "to": "constraint:budget.zoom_budget_exceeded",
+      "type": "composes_with",
+      "label": "both enforce zoom selectivity and intentionality",
+      "sourceLines": [5086, 5103]
+    },
+    {
+      "from": "constraint:accessibility.flash_rate_violation",
+      "to": "constraint:accessibility.flash_area_violation",
+      "type": "composes_with",
+      "label": "WCAG flash rules — rate AND area",
+      "sourceLines": [5112, 5126]
+    },
+    {
+      "from": "constraint:accessibility.text_contrast_failure",
+      "to": "constraint:overlay.graphic_too_small",
+      "type": "composes_with",
+      "label": "text readability composite — contrast + size",
+      "sourceLines": [4957, 5133]
+    },
+    {
+      "from": "constraint:accessibility.missing_captions_sound_off_platform",
+      "to": "constraint:overlay.caption_unsafe_zone",
+      "type": "implies",
+      "label": "if captions are required, they must be in safe zone",
+      "sourceLines": [4971, 5140]
+    },
+    {
+      "from": "constraint:visual.missing_hook",
+      "to": "constraint:visual.empty_frames",
+      "type": "composes_with",
+      "label": "first 2s must have content — black frames especially destructive at start",
+      "sourceLines": [4924, 4936]
+    },
+    {
+      "from": "constraint:transition.transition_during_speech",
+      "to": "constraint:transition.transition_overuse",
+      "type": "composes_with",
+      "label": "both reduce transition disruption to viewer attention",
+      "sourceLines": [4796, 4809]
+    },
+    {
+      "from": "constraint:visual.screen_direction_violation",
+      "to": "constraint:continuity.thirty_degree_rule",
+      "type": "composes_with",
+      "label": "both enforce spatial continuity — direction and angle",
+      "sourceLines": [4916, 5010]
+    }
+  ]
+}

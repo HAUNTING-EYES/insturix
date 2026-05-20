@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { runQualityReview } from '@/lib/editron/services/quality-review-service';
 import { projectService } from '@/lib/editron/services/project-service';
+import { emitBrandEvent } from '@/lib/shared/brand-events';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -24,17 +25,24 @@ export async function POST(req: NextRequest) {
     const project = await projectService.loadProject(userId, projectId);
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
 
-    const report = runQualityReview(project.overlays, project.durationInFrames, project.fps || 30);
+    const report = runQualityReview(project.overlays, project.fps || 30, project.durationInFrames);
 
-    // Write score + stage back to the project document directly
-    // (saveProject only handles editor state fields, not metadata)
+    emitBrandEvent({
+      userId,
+      projectId,
+      service: 'editron',
+      type: 'quality_reviewed',
+      payload: {
+        score: report.overallScore,
+        issueCount: report.issues?.length ?? 0,
+        autoFixableCount: report.autoFixable?.length ?? 0,
+      },
+    }).catch((err) => console.error('[quality-review] Brand event failed:', err));
+
+    // Write score back to the project document (quality review is metadata, not a stage change)
     await projectService.updateProjectMetadata(projectId, {
       qualityScore: report.overallScore,
-      pipelineStage: 'analyze',
     });
-
-    // Refresh derived project status after stage change
-    await projectService.refreshProjectStatus(projectId);
 
     return NextResponse.json({
       success: true,

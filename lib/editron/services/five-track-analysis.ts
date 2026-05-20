@@ -20,6 +20,29 @@
 
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 
+// ─── Gemini 429 Retry ───────────────────────────────────────────
+// Gemini rate limits are transient. Exponential backoff (2s, 4s, 8s) recovers
+// in ~14s worst case. Without this, 5/7 analyses fail in Mode 1 tests.
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries: number = 3,
+): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED');
+      if (!is429 || attempt === maxRetries) throw err;
+      const delayMs = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+      console.warn(`[Analysis] ${label}: 429 rate limit, retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  throw new Error('unreachable');
+}
+
 // ─── Types ───────────────────────────────────────────────────────
 
 /** Layer 1: Shot boundaries */
@@ -236,6 +259,8 @@ export async function saveAnalysis(analysis: AssetAnalysis): Promise<void> {
  * Downloads from GCS signed URL → uploads to Gemini → returns fileUri.
  * Files are retained for 48 hours by Google.
  */
+const GEMINI_EXTERNAL_URL_LIMIT = 100 * 1024 * 1024; // 100MB — Gemini fetches directly from URL
+
 async function uploadToGeminiFiles(
   videoUrl: string,
   assetId: string,
@@ -248,37 +273,79 @@ async function uploadToGeminiFiles(
   }
 
   try {
-    // Download video from GCS signed URL
-    console.log(`[GeminiFiles] Downloading video ${assetId} (${Math.round(durationMs / 1000)}s)...`);
-    const response = await fetch(videoUrl);
-    if (!response.ok) {
-      console.error(`[GeminiFiles] Download failed: ${response.status}`);
+    // Check file size via HEAD request (no download needed)
+    const headResp = await fetch(videoUrl, { method: 'HEAD' });
+    const contentLength = Number(headResp.headers.get('content-length') || 0);
+    const sizeMb = Math.round(contentLength / 1024 / 1024);
+
+    // ── PATH A: External URL (≤100MB) ─────────────────────────────────
+    // Gemini generateContent accepts public HTTPS URLs as file_uri.
+    // Zero download, zero /tmp, zero upload. Gemini fetches directly.
+    if (contentLength > 0 && contentLength <= GEMINI_EXTERNAL_URL_LIMIT) {
+      console.log(`[GeminiFiles] External URL path: ${sizeMb}MB ≤ 100MB — passing CDN URL directly to Gemini (no download/upload)`);
+      return videoUrl;
+    }
+
+    // ── PATH B: Files API upload (>100MB or unknown size) ─────────────
+    // Stream to /tmp → upload to Gemini Files API → poll for ACTIVE.
+    // CRITICAL: Stream instead of buffer to avoid OOM on 2048MB serverless functions.
+    console.log(`[GeminiFiles] Files API path: ${sizeMb > 0 ? sizeMb + 'MB' : 'unknown size'} — streaming to disk + uploading to Gemini`);
+
+    if (contentLength > 2 * 1024 * 1024 * 1024) {
+      console.warn(`[GeminiFiles] Video too large (${sizeMb}MB), max 2GB`);
       return null;
     }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const sizeKb = Math.round(buffer.length / 1024);
-    console.log(`[GeminiFiles] Downloaded ${sizeKb}KB, uploading to Gemini...`);
-
-    // Skip videos > 50MB (Gemini free tier practical limit for video)
-    if (buffer.length > 50 * 1024 * 1024) {
-      console.warn(`[GeminiFiles] Video too large (${sizeKb}KB), skipping`);
-      return null;
-    }
-
-    // Upload via @google/generative-ai SDK — more reliable than manual multipart
     const { GoogleAIFileManager } = await import('@google/generative-ai/server');
     const fileManager = new GoogleAIFileManager(apiKey);
 
-    // Write buffer to temp file (SDK needs a file path)
     const os = await import('os');
     const path = await import('path');
     const fs = await import('fs');
+
+    // Clean ALL video temp files — both gemini_* AND vu_* (from video-understanding-service).
+    try {
+      const tmpDir = os.tmpdir();
+      const now = Date.now();
+      for (const f of fs.readdirSync(tmpDir)) {
+        if ((f.startsWith('gemini_') || f.startsWith('vu_')) && f.endsWith('.mp4')) {
+          try {
+            const stat = fs.statSync(path.join(tmpDir, f));
+            if (now - stat.mtimeMs > 60000) fs.unlinkSync(path.join(tmpDir, f));
+          } catch {}
+        }
+      }
+    } catch {}
+
     const tmpPath = path.join(os.tmpdir(), `gemini_${assetId}_${Date.now()}.mp4`);
 
     try {
-      fs.writeFileSync(tmpPath, buffer);
-      console.log(`[GeminiFiles] Wrote temp file: ${tmpPath} (${sizeKb}KB)`);
+      // Stream download to disk — uses getReader() for Node 18+ compat
+      // (Readable.fromWeb not available in all Vercel Node builds)
+      const response = await fetch(videoUrl);
+      if (!response.ok || !response.body) {
+        console.error(`[GeminiFiles] Download failed: ${response.status}`);
+        return null;
+      }
+
+      const writeStream = fs.createWriteStream(tmpPath);
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          writeStream.write(Buffer.from(value));
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      await new Promise<void>((resolve, reject) => {
+        writeStream.end(() => resolve());
+        writeStream.on('error', reject);
+      });
+
+      const fileSize = fs.statSync(tmpPath).size;
+      console.log(`[GeminiFiles] Streamed ${Math.round(fileSize / 1024)}KB to disk, uploading to Gemini...`);
 
       const uploadResult = await fileManager.uploadFile(tmpPath, {
         mimeType: 'video/mp4',
@@ -289,43 +356,42 @@ async function uploadToGeminiFiles(
       const fileName = uploadResult?.file?.name;
 
       if (!fileUri) {
-        console.error('[GeminiFiles] No URI in upload response:', JSON.stringify(uploadResult).substring(0, 300));
+        console.error('[GeminiFiles] No URI in upload response');
         return null;
       }
 
       console.log(`[GeminiFiles] Uploaded: ${fileUri.substring(0, 80)}...`);
 
-      // Wait for ACTIVE state (Gemini processes the video)
+      // Wait for ACTIVE state — large files need more time
       let fileState = uploadResult?.file?.state;
       let retries = 0;
-      while (fileState !== 'ACTIVE' && retries < 15) {
-        await new Promise(r => setTimeout(r, 2000));
+      while (fileState !== 'ACTIVE' && retries < 30) {
+        await new Promise(r => setTimeout(r, 3000));
         try {
           const checkResult = await fileManager.getFile(fileName!);
           fileState = checkResult?.state;
-        } catch {} // Ignore check errors, keep polling
+        } catch {}
         retries++;
       }
 
       if (fileState !== 'ACTIVE') {
-        console.error(`[GeminiFiles] File not ACTIVE after ${retries * 2}s (state: ${fileState}). Aborting.`);
+        console.error(`[GeminiFiles] Not ACTIVE after ${retries * 3}s (state: ${fileState})`);
         return null;
       }
 
       return fileUri;
     } finally {
-      // Clean up temp file
       try { fs.unlinkSync(tmpPath); } catch {}
     }
   } catch (err: any) {
-    console.error(`[GeminiFiles] Upload failed: ${err.message}`);
+    console.error(`[GeminiFiles] Failed: ${err.message}`);
     return null;
   }
 }
 
 // ─── Layer 1: Shot Detection ─────────────────────────────────────
 
-async function detectShots(videoUrl: string, durationMs: number, fps: number): Promise<Shot[]> {
+async function _detectShots(videoUrl: string, durationMs: number, fps: number): Promise<Shot[]> {
   // Use Gemini Vision to detect scene changes (server-side PySceneDetect not available on Vercel)
   // This gives ~90% accuracy vs pixel-diff algorithms
   try {
@@ -338,10 +404,17 @@ async function detectShots(videoUrl: string, durationMs: number, fps: number): P
 
     const result = await model.generateContent([
       {
-        text: `Detect ALL shot/scene boundaries in this ${Math.round(durationMs / 1000)}s video at ${fps}fps.
-A "shot" = continuous camera take between two cuts.
-Return ONLY a JSON array of objects: [{"startFrame": 0, "endFrame": 150}, ...]
-Be precise — every visual cut, dissolve, or transition is a boundary.`,
+        text: `<role>You are a professional video editor detecting shot boundaries.</role>
+
+<task>Detect ALL shot/scene boundaries in this ${Math.round(durationMs / 1000)}s video at ${fps}fps.</task>
+
+<rules>
+RULE 1 — A "shot" = continuous camera take between two cuts.
+RULE 2 — Be precise — every visual cut, dissolve, or transition is a boundary.
+RULE 3 — Return ONLY a JSON array of objects, no markdown, no explanation.
+</rules>
+
+<output_format>[{"startFrame": 0, "endFrame": 150}, ...]</output_format>`,
       },
       { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
@@ -391,8 +464,19 @@ async function analyzeVideoComprehensive(
     const fps = 30;
     const totalFrames = Math.round((durationMs / 1000) * fps);
 
-    const prompt = `Analyze this video comprehensively. Return a JSON object with exactly these three sections:
+    const prompt = `<role>You are a professional video analyst performing comprehensive multi-track video analysis.</role>
 
+<task>Analyze this ${Math.round(durationMs / 1000)}s video at ${fps}fps across three tracks: motion, keyframes, and subjects. Analyze 1 keyframe per second (${Math.max(3, Math.ceil(durationMs / 1000))} keyframes at timestamps: ${Array.from({ length: Math.max(3, Math.ceil(durationMs / 1000)) }, (_, i) => `${i}s`).join(', ')}).</task>
+
+<rules>
+RULE 1 — For each keyframe provide: frame number (at ${fps}fps), timestamp in milliseconds, description of what's visible, subjects with bounding boxes and confidence, shot type, camera angle, dominant colors, brightness (0-1), mood score (-1 to 1), energy level (0-1), and whether it's a natural cut point with a brief reason WHY.
+RULE 2 — Identify all visible subjects with normalized bounding boxes (0-1 range).
+RULE 3 — Detect camera motion type and intensity per segment.
+RULE 4 — Mark motion intensity peaks (frames where motion changes significantly).
+RULE 5 — Return ONLY valid JSON, no markdown.
+</rules>
+
+<output_format>
 {
   "motion": {
     "segments": [
@@ -430,13 +514,15 @@ async function analyzeVideoComprehensive(
     }
   ]
 }
+</output_format>`;
 
-Analyze 1 keyframe per second of video (for a ${Math.round(durationMs / 1000)}s video at ${fps}fps, that's ${Math.max(3, Math.ceil(durationMs / 1000))} keyframes at timestamps: ${Array.from({ length: Math.max(3, Math.ceil(durationMs / 1000)) }, (_, i) => `${i}s`).join(', ')}). For each keyframe provide frame number (at ${fps}fps), timestamp in milliseconds, description of what's visible, subjects with bounding boxes and confidence, shot type, camera angle, dominant colors, brightness (0-1), mood score (-1 to 1), energy level (0-1), and whether it's a natural cut point with a brief reason WHY it would be a good cut point. Also identify all visible subjects with normalized bounding boxes (0-1 range). Detect camera motion type and intensity per segment. Mark motion intensity peaks (frames where motion changes significantly). Return ONLY valid JSON, no markdown.`;
-
-    const result = await model.generateContent([
-      { fileData: { fileUri, mimeType: 'video/mp4' } },
-      { text: prompt },
-    ]);
+    const result = await withRetry(
+      () => model.generateContent([
+        { fileData: { fileUri, mimeType: 'video/mp4' } },
+        { text: prompt },
+      ]),
+      'merged_vision',
+    );
 
     const text = result.response.text();
     // Extract JSON from response (may be wrapped in ```json ... ```)
@@ -507,18 +593,22 @@ async function analyzeMotion(videoUrl: string, shots: Shot[], durationMs: number
 
     const result = await model.generateContent([
       {
-        text: `Analyze camera motion for each shot in this ${Math.round(durationMs / 1000)}s video.
-There are ${shots.length} shots. For each shot, classify:
-- motionIntensity: 0.0-1.0 (0=static, 1=rapid motion)
-- cameraMotion: static/pan-left/pan-right/tilt-up/tilt-down/zoom-in/zoom-out/tracking/handheld/dolly
+        text: `<role>You are a professional video analyst specializing in camera motion detection.</role>
 
-Also identify the top 5 frames with highest motion intensity (motion peaks).
+<task>Analyze camera motion for each of the ${shots.length} shots in this ${Math.round(durationMs / 1000)}s video.</task>
 
-Return ONLY JSON:
+<rules>
+RULE 1 — For each shot, classify motionIntensity (0.0-1.0, where 0=static, 1=rapid motion) and cameraMotion (static/pan-left/pan-right/tilt-up/tilt-down/zoom-in/zoom-out/tracking/handheld/dolly).
+RULE 2 — Identify the top 5 frames with highest motion intensity (motion peaks).
+RULE 3 — Return ONLY valid JSON, no markdown, no explanation.
+</rules>
+
+<output_format>
 {
   "segments": [{"startFrame": 0, "endFrame": 150, "motionIntensity": 0.3, "cameraMotion": "static"}, ...],
   "peaks": [47, 180, 320, ...]
-}`,
+}
+</output_format>`,
       },
       { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
@@ -721,25 +811,29 @@ export async function classifySpeech(
     const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
     const model = await getAnalysisModel();
 
-    const result = await model.generateContent(`Classify this video transcript into segments. Each segment is a continuous stretch of speech with the same content type.
+    const result = await model.generateContent(`<role>You are a professional transcript analyst specializing in content classification for video editing.</role>
 
+<task>Classify this video transcript into segments. Each segment is a continuous stretch of speech with the same content type.</task>
+
+<rules>
+RULE 1 — For each segment return: startMs, endMs (approximate from word positions), text (the segment text), contentType, entities, suggestedGraphicType, suggestedGraphicData, confidence (0-1), and keywordHighlights.
+RULE 2 — contentType must be one of: statistic, claim, question, step_instruction, story_moment, cta, transition_phrase, emphasis, comparison, social_proof, definition, neutral.
+RULE 3 — entities: [{type: "number"|"percentage"|"currency"|"name"|"product"|"concept"|"action"|"emotion", value: "...", unit?: "x"|"%"|"$", isGrowth?: true/false}].
+RULE 4 — suggestedGraphicType: what visual should appear (animated-growth-chart, counter-animation, step-label, definition-card, cta-button, bold-statement-card, question-card, side-by-side-comparison, kinetic-text-highlight, or "none").
+RULE 5 — suggestedGraphicData: {key: value} data for the graphic template.
+RULE 6 — keywordHighlights: [{word, importance: "normal"|"keyword"|"emphasis"|"stat"|"name"}] — the 3-5 most important words.
+RULE 7 — Return ONLY a JSON array, no markdown, no explanation.
+</rules>
+
+<output_format>[{startMs, endMs, text, contentType, entities, suggestedGraphicType, suggestedGraphicData, confidence, keywordHighlights}, ...]</output_format>
+
+<input_data>
 TRANSCRIPT:
 "${transcript}"
 
-For each segment return:
-- startMs, endMs (approximate from word positions)
-- text: the segment text
-- contentType: one of [statistic, claim, question, step_instruction, story_moment, cta, transition_phrase, emphasis, comparison, social_proof, definition, neutral]
-- entities: [{type: "number"|"percentage"|"currency"|"name"|"product"|"concept"|"action"|"emotion", value: "...", unit?: "x"|"%"|"$", isGrowth?: true/false}]
-- suggestedGraphicType: what visual should appear (animated-growth-chart, counter-animation, step-label, definition-card, cta-button, bold-statement-card, question-card, side-by-side-comparison, kinetic-text-highlight, or "none")
-- suggestedGraphicData: {key: value} data for the graphic template
-- confidence: 0-1
-- keywordHighlights: [{word, importance: "normal"|"keyword"|"emphasis"|"stat"|"name"}] — the 3-5 most important words
-
 Word timestamps for reference:
 ${words.slice(0, 50).map(w => `"${w.word}" ${w.startMs}ms`).join(', ')}${words.length > 50 ? '...' : ''}
-
-Return ONLY a JSON array: [...]`);
+</input_data>`);
 
     const text = result.response.text();
     const jsonMatch = text.match(/\[[\s\S]*\]/);
@@ -942,9 +1036,11 @@ export async function runFullAnalysis(
     /** 'ai-generated' skips shot detection, uses storyboard metadata.
      *  'real-footage' runs full pipeline including clip matching. */
     sourceType?: 'ai-generated' | 'real-footage';
+    /** Pre-existing Gemini file URI from VideoUnderstanding — avoids redundant CDN download + upload */
+    geminiFileUri?: string;
   },
 ): Promise<AssetAnalysis> {
-  const { videoUrl, audioUrl, durationMs, transcript, words, storyboardScene, sourceType = 'ai-generated' } = options;
+  const { videoUrl, audioUrl, durationMs, transcript, words, storyboardScene, sourceType = 'ai-generated', geminiFileUri: preloadedFileUri } = options;
 
   const isAIVideo = sourceType === 'ai-generated';
   const analysisStartMs = Date.now();
@@ -1004,19 +1100,23 @@ export async function runFullAnalysis(
       } else {
         t0.ok();
 
-        // Upload video to Gemini Files API
+        // Upload video to Gemini Files API (skip if VU already uploaded)
         const t1 = traceStep('gemini_upload');
-        let geminiFileUri: string | null = null;
-        try {
-          geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
-          if (geminiFileUri) {
-            t1.ok(`uri=${geminiFileUri.substring(0, 60)}...`);
-          } else {
-            t1.fail('returned null — check GCS URL accessibility or Gemini API key');
+        let geminiFileUri: string | null = preloadedFileUri || null;
+        if (geminiFileUri) {
+          t1.ok(`reused VU uri=${geminiFileUri.substring(0, 60)}...`);
+        } else {
+          try {
+            geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
+            if (geminiFileUri) {
+              t1.ok(`uri=${geminiFileUri.substring(0, 60)}...`);
+            } else {
+              t1.fail('returned null — check GCS URL accessibility or Gemini API key');
+            }
+          } catch (uploadErr: any) {
+            t1.fail(uploadErr.message);
+            console.error(`[Analysis] Upload failed:`, uploadErr.message);
           }
-        } catch (uploadErr: any) {
-          t1.fail(uploadErr.message);
-          console.error(`[Analysis] Upload failed:`, uploadErr.message);
         }
 
         if (geminiFileUri && !isOverBudget()) {

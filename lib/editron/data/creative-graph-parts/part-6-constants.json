@@ -1,0 +1,4244 @@
+{
+  "part": 6,
+  "name": "Technical Constants",
+  "sourceLines": [5467, 5838],
+  "nodes": [
+    {
+      "id": "constant:meta.override_principle",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Override Principle",
+      "summary": "All Part 6 values are overridable by the user — system defaults correctly, warns on unusual overrides, complies without fighting.",
+      "details": {
+        "value": "Warnings are informative ('Platform may reject files above -1.0 dBTP'), not blocking",
+        "units": "policy",
+        "appliesTo": ["all Part 6 constants"],
+        "rationale": "User authority over deterministic defaults; system advises rather than blocks",
+        "source": "Part 6 introduction",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["OVERRIDABLE"],
+      "sourceLines": [5471, 5474]
+    },
+
+    {
+      "id": "constant:platform.youtube_aspect_ratio",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube Aspect Ratio",
+      "summary": "YouTube primary aspect ratio for landscape content.",
+      "details": {
+        "value": "16:9",
+        "units": "aspect ratio",
+        "appliesTo": ["YouTube landscape videos"],
+        "rationale": "Standard widescreen viewing",
+        "source": "YouTube spec",
+        "platform": "youtube",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5481, 5481]
+    },
+    {
+      "id": "constant:platform.youtube_resolution",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube Resolution",
+      "summary": "YouTube standard delivery resolution; 4K preferred.",
+      "details": {
+        "value": "1920x1080 (4K preferred)",
+        "units": "pixels",
+        "appliesTo": ["YouTube"],
+        "rationale": "Standard HD baseline; 4K and 1440p trigger higher quality tier (VP9)",
+        "source": "YouTube spec",
+        "platform": "youtube",
+        "minMax": {},
+        "alternatives": "4K preferred, 1440p triggers VP9 quality boost"
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5481, 5481]
+    },
+    {
+      "id": "constant:platform.youtube_max_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube Max Duration",
+      "summary": "Maximum allowed video duration on YouTube.",
+      "details": {
+        "value": "12 hours",
+        "units": "hours",
+        "appliesTo": ["YouTube long-form"],
+        "rationale": "Platform technical limit",
+        "source": "YouTube spec",
+        "platform": "youtube",
+        "minMax": { "max": "12 hours" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5481, 5481]
+    },
+    {
+      "id": "constant:platform.youtube_optimal_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube Optimal Duration",
+      "summary": "Optimal duration range for YouTube algorithm performance.",
+      "details": {
+        "value": "8-15 min",
+        "units": "minutes",
+        "appliesTo": ["YouTube long-form"],
+        "rationale": "Watch time > view count for algorithm",
+        "source": "YouTube best practice",
+        "platform": "youtube",
+        "minMax": { "min": "8 min", "max": "15 min" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5481, 5481]
+    },
+    {
+      "id": "constant:platform.youtube_max_size",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube Max File Size",
+      "summary": "Upload size cap for YouTube.",
+      "details": {
+        "value": "256 GB",
+        "units": "GB",
+        "appliesTo": ["YouTube"],
+        "rationale": "Platform upload limit",
+        "source": "YouTube spec",
+        "platform": "youtube",
+        "minMax": { "max": "256 GB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5481, 5481]
+    },
+    {
+      "id": "constant:platform.youtube_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "YouTube Accepted Codecs",
+      "summary": "Video codecs accepted by YouTube.",
+      "details": {
+        "value": "H.264 / VP9 / AV1",
+        "units": "codec",
+        "appliesTo": ["YouTube"],
+        "rationale": "VP9 triggers higher quality tier at 1440p+; H.264 universal default",
+        "source": "YouTube spec",
+        "platform": "youtube",
+        "minMax": {},
+        "alternatives": "VP9 preferred for quality boost"
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5481, 5481]
+    },
+
+    {
+      "id": "constant:platform.youtube_shorts_aspect_ratio",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube Shorts Aspect Ratio",
+      "summary": "YouTube Shorts vertical aspect ratio.",
+      "details": {
+        "value": "9:16",
+        "units": "aspect ratio",
+        "appliesTo": ["YouTube Shorts"],
+        "rationale": "Vertical mobile-first format",
+        "source": "YouTube Shorts spec",
+        "platform": "youtube",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5482, 5482]
+    },
+    {
+      "id": "constant:platform.youtube_shorts_resolution",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube Shorts Resolution",
+      "summary": "YouTube Shorts standard vertical resolution.",
+      "details": {
+        "value": "1080x1920",
+        "units": "pixels",
+        "appliesTo": ["YouTube Shorts"],
+        "rationale": "Vertical HD",
+        "source": "YouTube Shorts spec",
+        "platform": "youtube",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5482, 5482]
+    },
+    {
+      "id": "constant:platform.youtube_shorts_max_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube Shorts Max Duration",
+      "summary": "Maximum allowed Shorts duration.",
+      "details": {
+        "value": "3 min",
+        "units": "minutes",
+        "appliesTo": ["YouTube Shorts"],
+        "rationale": "Format limit",
+        "source": "YouTube Shorts spec",
+        "platform": "youtube",
+        "minMax": { "max": "3 min" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5482, 5482]
+    },
+    {
+      "id": "constant:platform.youtube_shorts_optimal_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube Shorts Optimal Duration",
+      "summary": "Optimal duration for Shorts engagement.",
+      "details": {
+        "value": "30-60s",
+        "units": "seconds",
+        "appliesTo": ["YouTube Shorts"],
+        "rationale": "Algorithm sweet spot",
+        "source": "YouTube best practice",
+        "platform": "youtube",
+        "minMax": { "min": "30s", "max": "60s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5482, 5482]
+    },
+    {
+      "id": "constant:platform.youtube_shorts_max_size",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube Shorts Max File Size",
+      "summary": "Upload size cap for Shorts.",
+      "details": {
+        "value": "256 GB",
+        "units": "GB",
+        "appliesTo": ["YouTube Shorts"],
+        "rationale": "Platform upload limit",
+        "source": "YouTube spec",
+        "platform": "youtube",
+        "minMax": { "max": "256 GB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5482, 5482]
+    },
+    {
+      "id": "constant:platform.youtube_shorts_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "YouTube Shorts Codec",
+      "summary": "Video codec accepted for Shorts.",
+      "details": {
+        "value": "H.264",
+        "units": "codec",
+        "appliesTo": ["YouTube Shorts"],
+        "rationale": "Universal compatibility",
+        "source": "YouTube Shorts spec",
+        "platform": "youtube",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5482, 5482]
+    },
+
+    {
+      "id": "constant:platform.instagram_reels_aspect_ratio",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Reels Aspect Ratio",
+      "summary": "Instagram Reels vertical aspect ratio.",
+      "details": {
+        "value": "9:16",
+        "units": "aspect ratio",
+        "appliesTo": ["Instagram Reels"],
+        "rationale": "Vertical mobile format",
+        "source": "Instagram Reels spec",
+        "platform": "instagram",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5483, 5483]
+    },
+    {
+      "id": "constant:platform.instagram_reels_resolution",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Reels Resolution",
+      "summary": "Instagram Reels resolution.",
+      "details": {
+        "value": "1080x1920",
+        "units": "pixels",
+        "appliesTo": ["Instagram Reels"],
+        "rationale": "Vertical HD",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5483, 5483]
+    },
+    {
+      "id": "constant:platform.instagram_reels_max_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Reels Max Duration",
+      "summary": "Maximum Reels duration.",
+      "details": {
+        "value": "3 min (in-app), 20 min (upload)",
+        "units": "minutes",
+        "appliesTo": ["Instagram Reels"],
+        "rationale": "Instagram expanded Reels to 20 min uploads in 2024-2025. In-app recording capped at 3 min.",
+        "source": "Instagram spec (updated 2025)",
+        "platform": "instagram",
+        "minMax": { "max": "20 min (upload)" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5483, 5483]
+    },
+    {
+      "id": "constant:platform.instagram_reels_optimal_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Reels Optimal Duration",
+      "summary": "Optimal Reels duration.",
+      "details": {
+        "value": "15-30s",
+        "units": "seconds",
+        "appliesTo": ["Instagram Reels"],
+        "rationale": "Algorithm and engagement sweet spot",
+        "source": "Instagram best practice",
+        "platform": "instagram",
+        "minMax": { "min": "15s", "max": "30s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5483, 5483]
+    },
+    {
+      "id": "constant:platform.instagram_reels_max_size",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Reels Max File Size",
+      "summary": "Upload size cap for Reels.",
+      "details": {
+        "value": "4 GB",
+        "units": "GB",
+        "appliesTo": ["Instagram Reels"],
+        "rationale": "Platform upload limit",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": { "max": "4 GB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5483, 5483]
+    },
+    {
+      "id": "constant:platform.instagram_reels_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "Instagram Reels Codec",
+      "summary": "Codec for Reels.",
+      "details": {
+        "value": "H.264",
+        "units": "codec",
+        "appliesTo": ["Instagram Reels"],
+        "rationale": "Universal compatibility",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5483, 5483]
+    },
+
+    {
+      "id": "constant:platform.instagram_story_aspect_ratio",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Story Aspect Ratio",
+      "summary": "Instagram Story vertical aspect ratio.",
+      "details": {
+        "value": "9:16",
+        "units": "aspect ratio",
+        "appliesTo": ["Instagram Story"],
+        "rationale": "Vertical mobile format",
+        "source": "Instagram Story spec",
+        "platform": "instagram",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5484, 5484]
+    },
+    {
+      "id": "constant:platform.instagram_story_resolution",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Story Resolution",
+      "summary": "Instagram Story resolution.",
+      "details": {
+        "value": "1080x1920",
+        "units": "pixels",
+        "appliesTo": ["Instagram Story"],
+        "rationale": "Vertical HD",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5484, 5484]
+    },
+    {
+      "id": "constant:platform.instagram_story_max_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Story Max Duration",
+      "summary": "Maximum Story duration per segment.",
+      "details": {
+        "value": "60s/segment",
+        "units": "seconds",
+        "appliesTo": ["Instagram Story"],
+        "rationale": "Story segments are limited",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": { "max": "60s per segment" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5484, 5484]
+    },
+    {
+      "id": "constant:platform.instagram_story_optimal_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Story Optimal Duration",
+      "summary": "Optimal Story duration.",
+      "details": {
+        "value": "15s",
+        "units": "seconds",
+        "appliesTo": ["Instagram Story"],
+        "rationale": "Maximum tap-through retention",
+        "source": "Instagram best practice",
+        "platform": "instagram",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5484, 5484]
+    },
+    {
+      "id": "constant:platform.instagram_story_max_size",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Story Max File Size",
+      "summary": "Upload size cap for Stories.",
+      "details": {
+        "value": "4 GB",
+        "units": "GB",
+        "appliesTo": ["Instagram Story"],
+        "rationale": "Platform upload limit",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": { "max": "4 GB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5484, 5484]
+    },
+    {
+      "id": "constant:platform.instagram_story_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "Instagram Story Codec",
+      "summary": "Codec for Stories.",
+      "details": {
+        "value": "H.264",
+        "units": "codec",
+        "appliesTo": ["Instagram Story"],
+        "rationale": "Universal compatibility",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5484, 5484]
+    },
+
+    {
+      "id": "constant:platform.instagram_feed_aspect_ratio",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Feed Aspect Ratio",
+      "summary": "Instagram Feed accepted aspect ratios.",
+      "details": {
+        "value": "1:1 / 4:5",
+        "units": "aspect ratio",
+        "appliesTo": ["Instagram Feed"],
+        "rationale": "Square or portrait for feed visibility",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": {},
+        "alternatives": "1:1 (square) or 4:5 (portrait)"
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5485, 5485]
+    },
+    {
+      "id": "constant:platform.instagram_feed_resolution",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Feed Resolution",
+      "summary": "Instagram Feed minimum resolution.",
+      "details": {
+        "value": "1080+",
+        "units": "pixels",
+        "appliesTo": ["Instagram Feed"],
+        "rationale": "Quality floor",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": { "min": "1080" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5485, 5485]
+    },
+    {
+      "id": "constant:platform.instagram_feed_max_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Feed Max Duration",
+      "summary": "Maximum Feed video duration.",
+      "details": {
+        "value": "60 min",
+        "units": "minutes",
+        "appliesTo": ["Instagram Feed"],
+        "rationale": "Long-form video allowed",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": { "max": "60 min" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5485, 5485]
+    },
+    {
+      "id": "constant:platform.instagram_feed_optimal_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Feed Optimal Duration",
+      "summary": "Optimal Feed video duration.",
+      "details": {
+        "value": "30-90s",
+        "units": "seconds",
+        "appliesTo": ["Instagram Feed"],
+        "rationale": "Engagement sweet spot",
+        "source": "Instagram best practice",
+        "platform": "instagram",
+        "minMax": { "min": "30s", "max": "90s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5485, 5485]
+    },
+    {
+      "id": "constant:platform.instagram_feed_max_size",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Feed Max File Size",
+      "summary": "Upload size cap for Feed.",
+      "details": {
+        "value": "4 GB",
+        "units": "GB",
+        "appliesTo": ["Instagram Feed"],
+        "rationale": "Platform upload limit",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": { "max": "4 GB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5485, 5485]
+    },
+    {
+      "id": "constant:platform.instagram_feed_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "Instagram Feed Codec",
+      "summary": "Codec for Feed.",
+      "details": {
+        "value": "H.264",
+        "units": "codec",
+        "appliesTo": ["Instagram Feed"],
+        "rationale": "Universal compatibility",
+        "source": "Instagram spec",
+        "platform": "instagram",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5485, 5485]
+    },
+
+    {
+      "id": "constant:platform.tiktok_aspect_ratio",
+      "type": "Constant",
+      "category": "platform",
+      "name": "TikTok Aspect Ratio",
+      "summary": "TikTok vertical aspect ratio.",
+      "details": {
+        "value": "9:16",
+        "units": "aspect ratio",
+        "appliesTo": ["TikTok"],
+        "rationale": "Vertical mobile-first",
+        "source": "TikTok spec",
+        "platform": "tiktok",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5486, 5486]
+    },
+    {
+      "id": "constant:platform.tiktok_resolution",
+      "type": "Constant",
+      "category": "platform",
+      "name": "TikTok Resolution",
+      "summary": "TikTok standard resolution.",
+      "details": {
+        "value": "1080x1920",
+        "units": "pixels",
+        "appliesTo": ["TikTok"],
+        "rationale": "Vertical HD",
+        "source": "TikTok spec",
+        "platform": "tiktok",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5486, 5486]
+    },
+    {
+      "id": "constant:platform.tiktok_max_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "TikTok Max Duration",
+      "summary": "Maximum TikTok video duration.",
+      "details": {
+        "value": "10 min (in-app), 60 min (upload)",
+        "units": "minutes",
+        "appliesTo": ["TikTok"],
+        "rationale": "TikTok allows up to 60 min for uploads, 10 min for in-app recording. Gradually rolling out.",
+        "source": "TikTok spec (updated 2025)",
+        "platform": "tiktok",
+        "minMax": { "max": "60 min (upload)" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5486, 5486]
+    },
+    {
+      "id": "constant:platform.tiktok_optimal_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "TikTok Optimal Duration",
+      "summary": "Optimal TikTok video duration.",
+      "details": {
+        "value": "15-60s",
+        "units": "seconds",
+        "appliesTo": ["TikTok"],
+        "rationale": "Algorithm and replay reward sweet spot",
+        "source": "TikTok best practice",
+        "platform": "tiktok",
+        "minMax": { "min": "15s", "max": "60s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5486, 5486]
+    },
+    {
+      "id": "constant:platform.tiktok_max_size",
+      "type": "Constant",
+      "category": "platform",
+      "name": "TikTok Max File Size",
+      "summary": "Upload size cap for TikTok.",
+      "details": {
+        "value": "10 GB",
+        "units": "GB",
+        "appliesTo": ["TikTok"],
+        "rationale": "TikTok increased upload limit. Web uploads support up to 10 GB.",
+        "source": "TikTok spec (updated 2025)",
+        "platform": "tiktok",
+        "minMax": { "max": "10 GB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5486, 5486]
+    },
+    {
+      "id": "constant:platform.tiktok_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "TikTok Codec",
+      "summary": "Codec for TikTok.",
+      "details": {
+        "value": "H.264",
+        "units": "codec",
+        "appliesTo": ["TikTok"],
+        "rationale": "Universal compatibility",
+        "source": "TikTok spec",
+        "platform": "tiktok",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5486, 5486]
+    },
+
+    {
+      "id": "constant:platform.linkedin_aspect_ratio",
+      "type": "Constant",
+      "category": "platform",
+      "name": "LinkedIn Aspect Ratio",
+      "summary": "LinkedIn accepted aspect ratios.",
+      "details": {
+        "value": "16:9 / 1:1",
+        "units": "aspect ratio",
+        "appliesTo": ["LinkedIn"],
+        "rationale": "Landscape or square for feed",
+        "source": "LinkedIn spec",
+        "platform": "linkedin",
+        "minMax": {},
+        "alternatives": "16:9 landscape, 1:1 square"
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5487, 5487]
+    },
+    {
+      "id": "constant:platform.linkedin_resolution",
+      "type": "Constant",
+      "category": "platform",
+      "name": "LinkedIn Resolution",
+      "summary": "LinkedIn standard resolution.",
+      "details": {
+        "value": "1920x1080",
+        "units": "pixels",
+        "appliesTo": ["LinkedIn"],
+        "rationale": "HD baseline",
+        "source": "LinkedIn spec",
+        "platform": "linkedin",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5487, 5487]
+    },
+    {
+      "id": "constant:platform.linkedin_max_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "LinkedIn Max Duration",
+      "summary": "Maximum LinkedIn video duration.",
+      "details": {
+        "value": "10 min",
+        "units": "minutes",
+        "appliesTo": ["LinkedIn"],
+        "rationale": "Platform format limit",
+        "source": "LinkedIn spec",
+        "platform": "linkedin",
+        "minMax": { "max": "10 min" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5487, 5487]
+    },
+    {
+      "id": "constant:platform.linkedin_optimal_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "LinkedIn Optimal Duration",
+      "summary": "Optimal LinkedIn video duration.",
+      "details": {
+        "value": "30s-3 min",
+        "units": "seconds-minutes",
+        "appliesTo": ["LinkedIn"],
+        "rationale": "Educational/insight content sweet spot",
+        "source": "LinkedIn best practice",
+        "platform": "linkedin",
+        "minMax": { "min": "30s", "max": "3 min" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5487, 5487]
+    },
+    {
+      "id": "constant:platform.linkedin_max_size",
+      "type": "Constant",
+      "category": "platform",
+      "name": "LinkedIn Max File Size",
+      "summary": "Upload size cap for LinkedIn.",
+      "details": {
+        "value": "5 GB",
+        "units": "GB",
+        "appliesTo": ["LinkedIn"],
+        "rationale": "Platform upload limit",
+        "source": "LinkedIn spec",
+        "platform": "linkedin",
+        "minMax": { "max": "5 GB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5487, 5487]
+    },
+    {
+      "id": "constant:platform.linkedin_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "LinkedIn Codec",
+      "summary": "Codec for LinkedIn.",
+      "details": {
+        "value": "H.264",
+        "units": "codec",
+        "appliesTo": ["LinkedIn"],
+        "rationale": "Universal compatibility",
+        "source": "LinkedIn spec",
+        "platform": "linkedin",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5487, 5487]
+    },
+
+    {
+      "id": "constant:platform.x_aspect_ratio",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Twitter/X Aspect Ratio",
+      "summary": "Twitter/X accepted aspect ratios.",
+      "details": {
+        "value": "16:9 / 1:1",
+        "units": "aspect ratio",
+        "appliesTo": ["Twitter/X"],
+        "rationale": "Landscape or square for timeline",
+        "source": "Twitter/X spec",
+        "platform": "x",
+        "minMax": {},
+        "alternatives": "16:9 landscape, 1:1 square"
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5488, 5488]
+    },
+    {
+      "id": "constant:platform.x_resolution",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Twitter/X Resolution",
+      "summary": "Twitter/X standard resolution.",
+      "details": {
+        "value": "1920x1080",
+        "units": "pixels",
+        "appliesTo": ["Twitter/X"],
+        "rationale": "HD baseline",
+        "source": "Twitter/X spec",
+        "platform": "x",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5488, 5488]
+    },
+    {
+      "id": "constant:platform.x_max_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Twitter/X Max Duration",
+      "summary": "Maximum Twitter/X video duration.",
+      "details": {
+        "value": "2:20 (free), 4 hr (Premium web/iOS), 10 min (Premium Android)",
+        "units": "minutes",
+        "appliesTo": ["Twitter/X"],
+        "rationale": "Free tier 140s. Premium subscribers up to 4hr on web/iOS (16GB, 1080p), 10 min on Android.",
+        "source": "Twitter/X spec (updated 2025)",
+        "platform": "x",
+        "minMax": { "max": "4 hr (Premium)" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5488, 5488]
+    },
+    {
+      "id": "constant:platform.x_optimal_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Twitter/X Optimal Duration",
+      "summary": "Optimal Twitter/X video duration.",
+      "details": {
+        "value": "15-45s",
+        "units": "seconds",
+        "appliesTo": ["Twitter/X"],
+        "rationale": "Under 45s is optimal — auto-muted in feed",
+        "source": "Twitter/X best practice",
+        "platform": "x",
+        "minMax": { "min": "15s", "max": "45s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5488, 5488]
+    },
+    {
+      "id": "constant:platform.x_max_size",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Twitter/X Max File Size",
+      "summary": "Upload size cap for Twitter/X.",
+      "details": {
+        "value": "512 MB",
+        "units": "MB",
+        "appliesTo": ["Twitter/X"],
+        "rationale": "Platform upload limit",
+        "source": "Twitter/X spec",
+        "platform": "x",
+        "minMax": { "max": "512 MB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5488, 5488]
+    },
+    {
+      "id": "constant:platform.x_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "Twitter/X Codec",
+      "summary": "Codec for Twitter/X.",
+      "details": {
+        "value": "H.264",
+        "units": "codec",
+        "appliesTo": ["Twitter/X"],
+        "rationale": "Universal compatibility",
+        "source": "Twitter/X spec",
+        "platform": "x",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5488, 5488]
+    },
+
+    {
+      "id": "constant:platform.facebook_feed_aspect_ratio",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Feed Aspect Ratio",
+      "summary": "Facebook Feed accepted aspect ratios.",
+      "details": {
+        "value": "1:1 / 4:5",
+        "units": "aspect ratio",
+        "appliesTo": ["Facebook Feed"],
+        "rationale": "1:1 or 4:5 > 16:9 for feed visibility",
+        "source": "Facebook spec",
+        "platform": "facebook",
+        "minMax": {},
+        "alternatives": "1:1 square, 4:5 portrait"
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5489, 5489]
+    },
+    {
+      "id": "constant:platform.facebook_feed_resolution",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Feed Resolution",
+      "summary": "Facebook Feed minimum resolution.",
+      "details": {
+        "value": "1080+",
+        "units": "pixels",
+        "appliesTo": ["Facebook Feed"],
+        "rationale": "Quality floor",
+        "source": "Facebook spec",
+        "platform": "facebook",
+        "minMax": { "min": "1080" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5489, 5489]
+    },
+    {
+      "id": "constant:platform.facebook_feed_max_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Feed Max Duration",
+      "summary": "Maximum Facebook Feed video duration.",
+      "details": {
+        "value": "240 min",
+        "units": "minutes",
+        "appliesTo": ["Facebook Feed"],
+        "rationale": "Long-form video allowed",
+        "source": "Facebook spec",
+        "platform": "facebook",
+        "minMax": { "max": "240 min" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5489, 5489]
+    },
+    {
+      "id": "constant:platform.facebook_feed_optimal_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Feed Optimal Duration",
+      "summary": "Optimal Facebook Feed video duration.",
+      "details": {
+        "value": "1-3 min",
+        "units": "minutes",
+        "appliesTo": ["Facebook Feed"],
+        "rationale": "Engagement sweet spot",
+        "source": "Facebook best practice",
+        "platform": "facebook",
+        "minMax": { "min": "1 min", "max": "3 min" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5489, 5489]
+    },
+    {
+      "id": "constant:platform.facebook_feed_max_size",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Feed Max File Size",
+      "summary": "Upload size cap for Facebook Feed.",
+      "details": {
+        "value": "10 GB",
+        "units": "GB",
+        "appliesTo": ["Facebook Feed"],
+        "rationale": "Platform upload limit",
+        "source": "Facebook spec",
+        "platform": "facebook",
+        "minMax": { "max": "10 GB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5489, 5489]
+    },
+    {
+      "id": "constant:platform.facebook_feed_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "Facebook Feed Codec",
+      "summary": "Codec for Facebook Feed.",
+      "details": {
+        "value": "H.264",
+        "units": "codec",
+        "appliesTo": ["Facebook Feed"],
+        "rationale": "Universal compatibility",
+        "source": "Facebook spec",
+        "platform": "facebook",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5489, 5489]
+    },
+
+    {
+      "id": "constant:platform.facebook_reels_aspect_ratio",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Reels Aspect Ratio",
+      "summary": "Facebook Reels vertical aspect ratio.",
+      "details": {
+        "value": "9:16",
+        "units": "aspect ratio",
+        "appliesTo": ["Facebook Reels"],
+        "rationale": "Vertical mobile format",
+        "source": "Facebook spec",
+        "platform": "facebook",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5490, 5490]
+    },
+    {
+      "id": "constant:platform.facebook_reels_resolution",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Reels Resolution",
+      "summary": "Facebook Reels resolution.",
+      "details": {
+        "value": "1080x1920",
+        "units": "pixels",
+        "appliesTo": ["Facebook Reels"],
+        "rationale": "Vertical HD",
+        "source": "Facebook spec",
+        "platform": "facebook",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5490, 5490]
+    },
+    {
+      "id": "constant:platform.facebook_reels_max_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Reels Max Duration",
+      "summary": "Maximum Facebook Reels duration.",
+      "details": {
+        "value": "90s",
+        "units": "seconds",
+        "appliesTo": ["Facebook Reels"],
+        "rationale": "Platform format limit",
+        "source": "Facebook spec",
+        "platform": "facebook",
+        "minMax": { "max": "90s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5490, 5490]
+    },
+    {
+      "id": "constant:platform.facebook_reels_optimal_duration",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Reels Optimal Duration",
+      "summary": "Optimal Facebook Reels duration.",
+      "details": {
+        "value": "15-30s",
+        "units": "seconds",
+        "appliesTo": ["Facebook Reels"],
+        "rationale": "Engagement sweet spot",
+        "source": "Facebook best practice",
+        "platform": "facebook",
+        "minMax": { "min": "15s", "max": "30s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5490, 5490]
+    },
+    {
+      "id": "constant:platform.facebook_reels_max_size",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Reels Max File Size",
+      "summary": "Upload size cap for Facebook Reels.",
+      "details": {
+        "value": "4 GB",
+        "units": "GB",
+        "appliesTo": ["Facebook Reels"],
+        "rationale": "Platform upload limit",
+        "source": "Facebook spec",
+        "platform": "facebook",
+        "minMax": { "max": "4 GB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5490, 5490]
+    },
+    {
+      "id": "constant:platform.facebook_reels_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "Facebook Reels Codec",
+      "summary": "Codec for Facebook Reels.",
+      "details": {
+        "value": "H.264",
+        "units": "codec",
+        "appliesTo": ["Facebook Reels"],
+        "rationale": "Universal compatibility",
+        "source": "Facebook spec",
+        "platform": "facebook",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5490, 5490]
+    },
+
+    {
+      "id": "constant:platform.youtube_first_30s_retention_cliff",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube First 30s Retention Cliff",
+      "summary": "YouTube algorithm-critical retention threshold in opening 30 seconds.",
+      "details": {
+        "value": "30s",
+        "units": "seconds",
+        "appliesTo": ["YouTube long-form"],
+        "rationale": "First 30s = retention cliff. Watch time > view count for algorithm.",
+        "source": "YouTube best practice",
+        "platform": "youtube",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5496, 5497]
+    },
+    {
+      "id": "constant:platform.youtube_preferred_quality_tier",
+      "type": "Constant",
+      "category": "platform",
+      "name": "YouTube VP9 Quality Tier Trigger",
+      "summary": "Resolution that triggers YouTube VP9 quality boost.",
+      "details": {
+        "value": "1440p",
+        "units": "pixels",
+        "appliesTo": ["YouTube"],
+        "rationale": "1440p+ unlocks VP9 quality tier",
+        "source": "YouTube best practice",
+        "platform": "youtube",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5497, 5497]
+    },
+    {
+      "id": "constant:platform.instagram_reels_hook_window",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Instagram Reels Hook Window",
+      "summary": "Time window in which Reels must hook the viewer.",
+      "details": {
+        "value": "1.0s",
+        "units": "seconds",
+        "appliesTo": ["Instagram Reels"],
+        "rationale": "Hook in 1.0s. Keep text in center 80%. Trending audio boosts reach.",
+        "source": "Instagram best practice",
+        "platform": "instagram",
+        "minMax": { "max": "1.0s" },
+        "alternatives": ""
+      },
+      "tags": ["PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5498, 5499]
+    },
+    {
+      "id": "constant:platform.tiktok_hook_window",
+      "type": "Constant",
+      "category": "platform",
+      "name": "TikTok Hook Window",
+      "summary": "Time window in which TikTok must hook the viewer.",
+      "details": {
+        "value": "0.5-1.0s",
+        "units": "seconds",
+        "appliesTo": ["TikTok"],
+        "rationale": "Hook in 0.5-1.0s. Trending sounds. Raw > polished aesthetic.",
+        "source": "TikTok best practice",
+        "platform": "tiktok",
+        "minMax": { "min": "0.5s", "max": "1.0s" },
+        "alternatives": ""
+      },
+      "tags": ["PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5500, 5501]
+    },
+    {
+      "id": "constant:platform.linkedin_muted_view_pct",
+      "type": "Constant",
+      "category": "platform",
+      "name": "LinkedIn Muted View Percentage",
+      "summary": "Percentage of LinkedIn views that occur with audio muted — captions are mandatory.",
+      "details": {
+        "value": "80%",
+        "units": "percent",
+        "appliesTo": ["LinkedIn"],
+        "rationale": "80% viewed muted — captions MANDATORY. Native video gets 5x reach vs links.",
+        "source": "LinkedIn best practice",
+        "platform": "linkedin",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["PLATFORM_SPECIFIC", "ACCESSIBILITY", "OVERRIDABLE"],
+      "sourceLines": [5502, 5503]
+    },
+    {
+      "id": "constant:platform.facebook_muted_view_pct",
+      "type": "Constant",
+      "category": "platform",
+      "name": "Facebook Muted View Percentage",
+      "summary": "Percentage of Facebook views with audio muted.",
+      "details": {
+        "value": "85%",
+        "units": "percent",
+        "appliesTo": ["Facebook"],
+        "rationale": "85% viewed muted. 1:1 or 4:5 > 16:9 for feed visibility. Live gets 6x engagement vs pre-recorded.",
+        "source": "Facebook best practice",
+        "platform": "facebook",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["PLATFORM_SPECIFIC", "ACCESSIBILITY", "OVERRIDABLE"],
+      "sourceLines": [5505, 5506]
+    },
+
+    {
+      "id": "constant:audio.youtube_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "YouTube Loudness Target",
+      "summary": "Integrated loudness target for YouTube delivery.",
+      "details": {
+        "value": "-14",
+        "units": "LUFS",
+        "appliesTo": ["YouTube"],
+        "rationale": "Platform normalizes to this level; mixing here avoids re-normalization",
+        "source": "ITU-R BS.1770 / YouTube spec",
+        "platform": "youtube",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5516, 5516]
+    },
+    {
+      "id": "constant:audio.instagram_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Instagram Loudness Target",
+      "summary": "Integrated loudness target for Instagram delivery.",
+      "details": {
+        "value": "-14",
+        "units": "LUFS",
+        "appliesTo": ["Instagram"],
+        "rationale": "Platform loudness normalization",
+        "source": "ITU-R BS.1770 / Instagram spec",
+        "platform": "instagram",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5517, 5517]
+    },
+    {
+      "id": "constant:audio.tiktok_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "TikTok Loudness Target",
+      "summary": "Integrated loudness target for TikTok delivery.",
+      "details": {
+        "value": "-14",
+        "units": "LUFS",
+        "appliesTo": ["TikTok"],
+        "rationale": "Platform loudness normalization",
+        "source": "ITU-R BS.1770 / TikTok spec",
+        "platform": "tiktok",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5518, 5518]
+    },
+    {
+      "id": "constant:audio.facebook_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Facebook Loudness Target",
+      "summary": "Integrated loudness target for Facebook delivery.",
+      "details": {
+        "value": "-14",
+        "units": "LUFS",
+        "appliesTo": ["Facebook"],
+        "rationale": "Platform loudness normalization",
+        "source": "ITU-R BS.1770 / Facebook spec",
+        "platform": "facebook",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5519, 5519]
+    },
+    {
+      "id": "constant:audio.linkedin_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "LinkedIn Loudness Target",
+      "summary": "Integrated loudness target for LinkedIn delivery.",
+      "details": {
+        "value": "-14",
+        "units": "LUFS",
+        "appliesTo": ["LinkedIn"],
+        "rationale": "Platform loudness normalization",
+        "source": "ITU-R BS.1770 / LinkedIn spec",
+        "platform": "linkedin",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5520, 5520]
+    },
+    {
+      "id": "constant:audio.x_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Twitter/X Loudness Target",
+      "summary": "Integrated loudness target for Twitter/X delivery.",
+      "details": {
+        "value": "-14",
+        "units": "LUFS",
+        "appliesTo": ["Twitter/X"],
+        "rationale": "Platform loudness normalization",
+        "source": "ITU-R BS.1770 / Twitter/X spec",
+        "platform": "x",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5521, 5521]
+    },
+    {
+      "id": "constant:audio.apple_music_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Apple Music Loudness Target",
+      "summary": "Integrated loudness target for Apple Music delivery.",
+      "details": {
+        "value": "-16",
+        "units": "LUFS",
+        "appliesTo": ["Apple Music"],
+        "rationale": "Apple Sound Check normalization target",
+        "source": "Apple Music spec",
+        "platform": "apple_music",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5522, 5522]
+    },
+    {
+      "id": "constant:audio.podcast_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Podcast Loudness Target",
+      "summary": "Integrated loudness range for podcast delivery.",
+      "details": {
+        "value": "-16 to -18",
+        "units": "LUFS",
+        "appliesTo": ["Podcast"],
+        "rationale": "Podcast platform standard range",
+        "source": "Podcast industry standard",
+        "platform": "podcast",
+        "minMax": { "min": "-18", "max": "-16" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5523, 5523]
+    },
+    {
+      "id": "constant:audio.broadcast_ebu_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Broadcast EBU Loudness Target",
+      "summary": "EBU R128 broadcast loudness standard.",
+      "details": {
+        "value": "-23",
+        "units": "LUFS",
+        "appliesTo": ["European broadcast"],
+        "rationale": "EBU R128 mandatory standard for European broadcast",
+        "source": "EBU R128",
+        "platform": "broadcast",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5524, 5524]
+    },
+    {
+      "id": "constant:audio.broadcast_atsc_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Broadcast ATSC Loudness Target",
+      "summary": "ATSC A/85 (CALM Act) broadcast loudness standard.",
+      "details": {
+        "value": "-24",
+        "units": "LUFS",
+        "appliesTo": ["US broadcast"],
+        "rationale": "ATSC A/85 mandatory standard for US broadcast",
+        "source": "ATSC A/85 (CALM Act)",
+        "platform": "broadcast",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5525, 5525]
+    },
+    {
+      "id": "constant:audio.true_peak_max",
+      "type": "Constant",
+      "category": "audio",
+      "name": "True Peak Maximum (Universal)",
+      "summary": "Maximum allowed true peak level for most platforms (avoid inter-sample clipping).",
+      "details": {
+        "value": "-1.0",
+        "units": "dBTP",
+        "appliesTo": ["YouTube", "Instagram", "TikTok", "Facebook", "LinkedIn", "Twitter/X", "Apple Music", "Podcast", "Broadcast EBU"],
+        "rationale": "Prevents inter-sample peak clipping when codec converts; platform may reject above -1.0",
+        "source": "ITU-R BS.1770 / EBU R128",
+        "platform": "all",
+        "minMax": { "max": "-1.0 dBTP" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5516, 5524]
+    },
+    {
+      "id": "constant:audio.broadcast_atsc_true_peak",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Broadcast ATSC True Peak Maximum",
+      "summary": "Stricter true peak limit for ATSC broadcast.",
+      "details": {
+        "value": "-2.0",
+        "units": "dBTP",
+        "appliesTo": ["US broadcast"],
+        "rationale": "ATSC A/85 stricter peak headroom requirement",
+        "source": "ATSC A/85",
+        "platform": "broadcast",
+        "minMax": { "max": "-2.0 dBTP" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5525, 5525]
+    },
+    {
+      "id": "constant:audio.universal_safe_default_lufs",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Universal Safe Default Loudness",
+      "summary": "Default loudness target when platform is unknown or output is multi-platform.",
+      "details": {
+        "value": "-14 LUFS, -1.0 dBTP",
+        "units": "LUFS / dBTP",
+        "appliesTo": ["all social/web delivery"],
+        "rationale": "Compatible with all major social platforms",
+        "source": "Editron default",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5527, 5527]
+    },
+
+    {
+      "id": "constant:audio.sample_rate",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Audio Sample Rate",
+      "summary": "Standard sample rate for production and delivery.",
+      "details": {
+        "value": "48",
+        "units": "kHz",
+        "appliesTo": ["all production and delivery"],
+        "rationale": "Industry standard for video/film audio",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5532, 5532]
+    },
+    {
+      "id": "constant:audio.bit_depth_production",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Audio Bit Depth (Production)",
+      "summary": "Bit depth for production work.",
+      "details": {
+        "value": "24",
+        "units": "bit",
+        "appliesTo": ["production"],
+        "rationale": "Headroom for processing without quantization noise",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": "16-bit acceptable for delivery"
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5533, 5533]
+    },
+    {
+      "id": "constant:audio.bit_depth_delivery",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Audio Bit Depth (Delivery)",
+      "summary": "Acceptable bit depth for delivery.",
+      "details": {
+        "value": "16",
+        "units": "bit",
+        "appliesTo": ["delivery"],
+        "rationale": "Compact final delivery while remaining indistinguishable from 24-bit",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": "24-bit for production"
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5533, 5533]
+    },
+    {
+      "id": "constant:audio.codec",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Audio Codec",
+      "summary": "Standard audio codec for delivery.",
+      "details": {
+        "value": "AAC-LC",
+        "units": "codec",
+        "appliesTo": ["all delivery"],
+        "rationale": "Universal compatibility, MP4 container default",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5534, 5534]
+    },
+    {
+      "id": "constant:audio.bitrate",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Audio Bitrate",
+      "summary": "Audio bitrate range with default.",
+      "details": {
+        "value": "128-256 kbps (192 default)",
+        "units": "kbps",
+        "appliesTo": ["all delivery"],
+        "rationale": "192 kbps is transparent for stereo AAC",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": { "min": "128 kbps", "max": "256 kbps" },
+        "alternatives": "192 kbps default"
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5535, 5535]
+    },
+    {
+      "id": "constant:audio.channels",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Audio Channels",
+      "summary": "Standard audio channel count.",
+      "details": {
+        "value": "Stereo",
+        "units": "channels",
+        "appliesTo": ["all delivery"],
+        "rationale": "Most viewing devices are stereo; surround mixes require platform-specific encoding",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": "Mono compatibility check required"
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5536, 5536]
+    },
+
+    {
+      "id": "constant:audio.dialogue_level_range",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Dialogue / Voiceover Level Range",
+      "summary": "Mix hierarchy: dialogue/VO peak level range.",
+      "details": {
+        "value": "-12 to -6",
+        "units": "dB",
+        "appliesTo": ["dialogue", "voiceover"],
+        "rationale": "Highest priority layer; intelligibility critical",
+        "source": "Editron mix hierarchy",
+        "platform": "all",
+        "minMax": { "min": "-12 dB", "max": "-6 dB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5544, 5544]
+    },
+    {
+      "id": "constant:audio.sfx_level_range",
+      "type": "Constant",
+      "category": "audio",
+      "name": "SFX (Spot/Foley) Level Range",
+      "summary": "Mix hierarchy: SFX peak level range.",
+      "details": {
+        "value": "-15 to -9",
+        "units": "dB",
+        "appliesTo": ["SFX", "spot effects", "Foley"],
+        "rationale": "High priority but below dialogue",
+        "source": "Editron mix hierarchy",
+        "platform": "all",
+        "minMax": { "min": "-15 dB", "max": "-9 dB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5545, 5545]
+    },
+    {
+      "id": "constant:audio.music_solo_level_range",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Music Solo Level Range",
+      "summary": "Mix hierarchy: music level when no speech is present.",
+      "details": {
+        "value": "-12 to -6",
+        "units": "dB",
+        "appliesTo": ["music", "no speech overlap"],
+        "rationale": "Music can occupy full range when no dialogue competes",
+        "source": "Editron mix hierarchy",
+        "platform": "all",
+        "minMax": { "min": "-12 dB", "max": "-6 dB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5546, 5546]
+    },
+    {
+      "id": "constant:audio.music_under_speech_level_range",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Music Under Speech Level Range",
+      "summary": "Mix hierarchy: music level when ducked under speech.",
+      "details": {
+        "value": "-24 to -18",
+        "units": "dB",
+        "appliesTo": ["music", "under dialogue/VO"],
+        "rationale": "Must remain present but not interfere with dialogue intelligibility",
+        "source": "Editron mix hierarchy",
+        "platform": "all",
+        "minMax": { "min": "-24 dB", "max": "-18 dB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5547, 5547]
+    },
+    {
+      "id": "constant:audio.ambient_bed_level_range",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Ambient Bed Level Range",
+      "summary": "Mix hierarchy: ambient/atmosphere bed level range.",
+      "details": {
+        "value": "-30 to -20",
+        "units": "dB",
+        "appliesTo": ["ambient bed", "atmosphere"],
+        "rationale": "Lowest priority — provides texture without competing",
+        "source": "Editron mix hierarchy",
+        "platform": "all",
+        "minMax": { "min": "-30 dB", "max": "-20 dB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5548, 5548]
+    },
+
+    {
+      "id": "constant:audio.duck_amount",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Audio Duck Amount",
+      "summary": "Sidechain ducking attenuation amount.",
+      "details": {
+        "value": "-3 to -12",
+        "units": "dB relative",
+        "appliesTo": ["sidechain ducking"],
+        "rationale": "Professional practice: -3dB for transparent ducking (Gearspace pros recommend 1-3dB max for subtlety), up to -12dB for aggressive cinema-style. Default -6dB for web video.",
+        "source": "Professional mixing practice (Gearspace, iZotope)",
+        "platform": "all",
+        "minMax": { "min": "-3 dB", "max": "-12 dB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5558, 5558]
+    },
+    {
+      "id": "constant:audio.duck_attack",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Audio Duck Attack Time",
+      "summary": "Time for ducking to reach target attenuation.",
+      "details": {
+        "value": "50-400",
+        "units": "ms",
+        "appliesTo": ["sidechain ducking"],
+        "rationale": "50ms for responsive feel (iZotope recommendation), up to 400ms for subtle broadcast ducking. 200ms is a safe middle ground.",
+        "source": "Professional mixing practice (iZotope, Gearspace)",
+        "platform": "all",
+        "minMax": { "min": "50 ms", "max": "400 ms" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5559, 5559]
+    },
+    {
+      "id": "constant:audio.duck_release",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Audio Duck Release Time",
+      "summary": "Time for music to return to full level after speech ends.",
+      "details": {
+        "value": "400-800",
+        "units": "ms",
+        "appliesTo": ["sidechain ducking"],
+        "rationale": "Slower release feels natural; faster release sounds choppy",
+        "source": "Editron audio standards",
+        "platform": "all",
+        "minMax": { "min": "400 ms", "max": "800 ms" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5560, 5560]
+    },
+    {
+      "id": "constant:audio.duck_lookahead",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Audio Duck Look-ahead",
+      "summary": "Look-ahead time so duck triggers before speech onset.",
+      "details": {
+        "value": "100-200",
+        "units": "ms",
+        "appliesTo": ["sidechain ducking"],
+        "rationale": "Prevents first syllable being masked",
+        "source": "Editron audio standards",
+        "platform": "all",
+        "minMax": { "min": "100 ms", "max": "200 ms" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5561, 5561]
+    },
+
+    {
+      "id": "constant:audio.frequency_low_range",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Low Frequency Range",
+      "summary": "Bass / sub-bass frequency band.",
+      "details": {
+        "value": "20-200",
+        "units": "Hz",
+        "appliesTo": ["frequency analysis", "EQ"],
+        "rationale": "Bass, sub-bass, power, physical rumble",
+        "source": "Audio engineering reference",
+        "platform": "all",
+        "minMax": { "min": "20 Hz", "max": "200 Hz" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [5568, 5568]
+    },
+    {
+      "id": "constant:audio.frequency_mid_range",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Mid Frequency Range",
+      "summary": "Midrange frequency band.",
+      "details": {
+        "value": "200-2000",
+        "units": "Hz",
+        "appliesTo": ["frequency analysis", "EQ", "ducking"],
+        "rationale": "Dialogue fundamental, instruments, warmth",
+        "source": "Audio engineering reference",
+        "platform": "all",
+        "minMax": { "min": "200 Hz", "max": "2000 Hz" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [5569, 5569]
+    },
+    {
+      "id": "constant:audio.frequency_high_range",
+      "type": "Constant",
+      "category": "audio",
+      "name": "High Frequency Range",
+      "summary": "Treble / high frequency band.",
+      "details": {
+        "value": "2000-20000",
+        "units": "Hz",
+        "appliesTo": ["frequency analysis", "EQ"],
+        "rationale": "Sparkle, air, detail, sibilance, presence",
+        "source": "Audio engineering reference",
+        "platform": "all",
+        "minMax": { "min": "2000 Hz", "max": "20000 Hz" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [5570, 5570]
+    },
+    {
+      "id": "constant:audio.dialogue_intelligibility_band",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Dialogue Intelligibility Band",
+      "summary": "Frequency range critical for speech intelligibility.",
+      "details": {
+        "value": "1-4",
+        "units": "kHz",
+        "appliesTo": ["dialogue clarity", "EQ"],
+        "rationale": "The 'intelligibility' band — clarity depends on this range",
+        "source": "Audio engineering reference",
+        "platform": "all",
+        "minMax": { "min": "1 kHz", "max": "4 kHz" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [5572, 5572]
+    },
+    {
+      "id": "constant:audio.music_dialogue_competition_range",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Music-Dialogue Competition Range",
+      "summary": "Frequency range where music and dialogue compete most.",
+      "details": {
+        "value": "200 Hz - 4 kHz",
+        "units": "Hz",
+        "appliesTo": ["mixing", "EQ", "ducking decisions"],
+        "rationale": "Duck music MIDS specifically, not just overall level",
+        "source": "Audio engineering reference",
+        "platform": "all",
+        "minMax": { "min": "200 Hz", "max": "4000 Hz" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC"],
+      "sourceLines": [5573, 5573]
+    },
+
+    {
+      "id": "constant:safe_zone.action_safe",
+      "type": "Constant",
+      "category": "safe-zone",
+      "name": "Action Safe",
+      "summary": "Region where subject action should occur to be visible on all platforms.",
+      "details": {
+        "value": "center 93%",
+        "units": "% of frame (3.5% margins)",
+        "appliesTo": ["all platforms"],
+        "rationale": "Updated SMPTE ST 2046-1 (2009). Old CRT-era SMPTE RP 13 was 90%. Modern LCD/OLED displays need less margin.",
+        "source": "SMPTE ST 2046-1",
+        "platform": "all",
+        "minMax": { "max": "93% of frame" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5588, 5588]
+    },
+    {
+      "id": "constant:safe_zone.title_safe",
+      "type": "Constant",
+      "category": "safe-zone",
+      "name": "Title Safe",
+      "summary": "Region where critical text/titles should remain to survive all platform crops.",
+      "details": {
+        "value": "center 90%",
+        "units": "% of frame (5% margins)",
+        "appliesTo": ["all platforms"],
+        "rationale": "Updated SMPTE ST 2046-1 (2009). Old CRT-era SMPTE RP 8 was 80%. Modern displays need less margin.",
+        "source": "SMPTE ST 2046-1",
+        "platform": "all",
+        "minMax": { "max": "90% of frame" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5587, 5587]
+    },
+    {
+      "id": "constant:safe_zone.top_unsafe",
+      "type": "Constant",
+      "category": "safe-zone",
+      "name": "Top Unsafe Zone",
+      "summary": "Top region of frame typically obscured by platform UI.",
+      "details": {
+        "value": "0-10% from top",
+        "units": "% of frame",
+        "appliesTo": ["all platforms"],
+        "rationale": "Platform navigation, status bar",
+        "source": "Editron safe-zone standard",
+        "platform": "all",
+        "minMax": { "max": "10% from top" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5583, 5583]
+    },
+    {
+      "id": "constant:safe_zone.center_safe",
+      "type": "Constant",
+      "category": "safe-zone",
+      "name": "Center Safe Zone",
+      "summary": "Central region safe for all critical content.",
+      "details": {
+        "value": "10-80% from top",
+        "units": "% of frame",
+        "appliesTo": ["all platforms"],
+        "rationale": "All critical content here",
+        "source": "Editron safe-zone standard",
+        "platform": "all",
+        "minMax": { "min": "10%", "max": "80%" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5584, 5584]
+    },
+    {
+      "id": "constant:safe_zone.bottom_unsafe",
+      "type": "Constant",
+      "category": "safe-zone",
+      "name": "Bottom Unsafe Zone",
+      "summary": "Bottom region typically obscured by platform controls and captions.",
+      "details": {
+        "value": "80-100% from top",
+        "units": "% of frame",
+        "appliesTo": ["all platforms"],
+        "rationale": "Platform controls, comments, captions",
+        "source": "Editron safe-zone standard",
+        "platform": "all",
+        "minMax": { "min": "80%", "max": "100%" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5585, 5585]
+    },
+    {
+      "id": "constant:safe_zone.tiktok_right_buttons",
+      "type": "Constant",
+      "category": "safe-zone",
+      "name": "TikTok Right Side Buttons Unsafe",
+      "summary": "Region occluded by TikTok like/comment/share buttons.",
+      "details": {
+        "value": "right 15%",
+        "units": "% of frame width",
+        "appliesTo": ["TikTok"],
+        "rationale": "Avoid right 15% for graphics — like/comment/share buttons",
+        "source": "TikTok UI",
+        "platform": "tiktok",
+        "minMax": { "max": "15% from right" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5591, 5591]
+    },
+    {
+      "id": "constant:safe_zone.instagram_caption_zone",
+      "type": "Constant",
+      "category": "safe-zone",
+      "name": "Instagram Caption Unsafe Zone",
+      "summary": "Region occluded by Instagram caption area.",
+      "details": {
+        "value": "bottom 25%",
+        "units": "% of frame height",
+        "appliesTo": ["Instagram"],
+        "rationale": "Avoid bottom 25% — caption area",
+        "source": "Instagram UI",
+        "platform": "instagram",
+        "minMax": { "max": "25% from bottom" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5592, 5592]
+    },
+    {
+      "id": "constant:safe_zone.youtube_zones",
+      "type": "Constant",
+      "category": "safe-zone",
+      "name": "YouTube UI Zones",
+      "summary": "YouTube uses standard top/bottom zones — progress bar at bottom, title at top.",
+      "details": {
+        "value": "standard zones apply",
+        "units": "% of frame",
+        "appliesTo": ["YouTube"],
+        "rationale": "Progress bar at bottom, title overlay at top",
+        "source": "YouTube UI",
+        "platform": "youtube",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5593, 5593]
+    },
+
+    {
+      "id": "constant:caption.max_lines_per_frame",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Max Lines Per Frame",
+      "summary": "Maximum simultaneous caption lines on screen.",
+      "details": {
+        "value": "2",
+        "units": "lines",
+        "appliesTo": ["all captions"],
+        "rationale": "Reading load limit",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "max": "2" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5603, 5603]
+    },
+    {
+      "id": "constant:caption.max_chars_per_line",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Max Characters Per Line",
+      "summary": "Maximum character count per caption line.",
+      "details": {
+        "value": "37-42",
+        "units": "characters",
+        "appliesTo": ["all captions"],
+        "rationale": "Comfortable reading width",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "min": "37", "max": "42" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "OVERRIDABLE"],
+      "sourceLines": [5604, 5604]
+    },
+    {
+      "id": "constant:caption.adult_reading_speed",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Adult Reading Speed (Captions)",
+      "summary": "Target words-per-minute for caption pacing.",
+      "details": {
+        "value": "160-180",
+        "units": "WPM",
+        "appliesTo": ["all captions"],
+        "rationale": "Adult comfortable reading speed; 250 WPM absolute maximum",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "min": "160", "max": "250" },
+        "alternatives": "250 WPM absolute maximum"
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "OVERRIDABLE"],
+      "sourceLines": [5605, 5605]
+    },
+    {
+      "id": "constant:caption.min_display_duration",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Min Display Duration",
+      "summary": "Minimum on-screen time for any caption.",
+      "details": {
+        "value": "1.0",
+        "units": "seconds",
+        "appliesTo": ["all captions"],
+        "rationale": "Minimum time to read",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "min": "1.0s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5606, 5606]
+    },
+    {
+      "id": "constant:caption.max_display_duration",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Max Display Duration",
+      "summary": "Maximum on-screen time before caption should be replaced.",
+      "details": {
+        "value": "7.0",
+        "units": "seconds",
+        "appliesTo": ["all captions"],
+        "rationale": "Beyond 7s viewer attention drifts",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "max": "7.0s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5607, 5607]
+    },
+    {
+      "id": "constant:caption.min_gap_between",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Minimum Gap",
+      "summary": "Minimum gap between consecutive captions.",
+      "details": {
+        "value": "0.08",
+        "units": "seconds",
+        "appliesTo": ["all captions"],
+        "rationale": "2-3 frames at 30fps — visual reset between lines",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "min": "0.08s" },
+        "alternatives": "2-3 frames at 30fps"
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5608, 5608]
+    },
+    {
+      "id": "constant:caption.pre_display_lead",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Pre-Display Lead",
+      "summary": "Time captions appear before speech onset.",
+      "details": {
+        "value": "0.25-0.5",
+        "units": "seconds",
+        "appliesTo": ["all captions"],
+        "rationale": "Reader has time to begin before audio starts",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "min": "0.25s", "max": "0.5s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5609, 5609]
+    },
+    {
+      "id": "constant:caption.post_display_linger",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Post-Display Linger",
+      "summary": "Time captions remain after speech ends.",
+      "details": {
+        "value": "0.25-0.5",
+        "units": "seconds",
+        "appliesTo": ["all captions"],
+        "rationale": "Reader can finish reading after audio stops",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "min": "0.25s", "max": "0.5s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5610, 5610]
+    },
+    {
+      "id": "constant:caption.position",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Position",
+      "summary": "Where captions are placed within frame.",
+      "details": {
+        "value": "within 80% title-safe zone",
+        "units": "% of frame",
+        "appliesTo": ["all captions"],
+        "rationale": "Stays visible across platform crops",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5611, 5611]
+    },
+    {
+      "id": "constant:caption.min_font_size",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Minimum Font Size",
+      "summary": "Minimum caption font size at 1080p.",
+      "details": {
+        "value": "48",
+        "units": "px (at 1080p)",
+        "appliesTo": ["captions", "subtitles"],
+        "rationale": "BBC 2022 minimum is 22px for HD broadcast. Facebook Reels recommends 48px for mobile. 48px balances readability and screen space. Previous 72px was overly conservative.",
+        "source": "BBC Subtitle Guidelines 2022, Facebook Reels spec, legibility.info mobile research",
+        "platform": "all",
+        "minMax": { "min": "72px at 1080p" },
+        "alternatives": "scales proportionally"
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5612, 5612]
+    },
+    {
+      "id": "constant:caption.no_span_hard_cut",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Cut Rule",
+      "summary": "Captions must never span hard cuts.",
+      "details": {
+        "value": "end before cut, start after cut",
+        "units": "rule",
+        "appliesTo": ["all captions"],
+        "rationale": "Caption survives mismatch with new shot context",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5614, 5614]
+    },
+
+    {
+      "id": "constant:caption.bg_semi_transparent_box_opacity",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Semi-Transparent Box Opacity",
+      "summary": "Opacity for the most-readable caption background.",
+      "details": {
+        "value": "60-80%",
+        "units": "% black opacity",
+        "appliesTo": ["captions"],
+        "rationale": "Most readable background style",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "min": "60%", "max": "80%" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "OVERRIDABLE"],
+      "sourceLines": [5619, 5619]
+    },
+    {
+      "id": "constant:caption.bg_text_outline_thickness",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Text Outline Thickness",
+      "summary": "Stroke thickness for outlined captions.",
+      "details": {
+        "value": "2-3",
+        "units": "px black",
+        "appliesTo": ["captions"],
+        "rationale": "Clean modern look; readable against varied backgrounds",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "min": "2px", "max": "3px" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5620, 5620]
+    },
+    {
+      "id": "constant:caption.bg_drop_shadow_offset",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Caption Drop Shadow Offset",
+      "summary": "Drop shadow offset for caption text.",
+      "details": {
+        "value": "3-5px offset, 80% black",
+        "units": "px / % opacity",
+        "appliesTo": ["captions"],
+        "rationale": "Subtle background separation",
+        "source": "Caption standard",
+        "platform": "all",
+        "minMax": { "min": "3px", "max": "5px" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5621, 5621]
+    },
+
+    {
+      "id": "constant:caption.pause_comma",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Comma Pause Duration",
+      "summary": "Pause duration for comma in TTS / caption timing.",
+      "details": {
+        "value": "0.2-0.3",
+        "units": "seconds",
+        "appliesTo": ["TTS", "caption timing"],
+        "rationale": "Natural prosody",
+        "source": "Linguistic standard",
+        "platform": "all",
+        "minMax": { "min": "0.2s", "max": "0.3s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5629, 5629]
+    },
+    {
+      "id": "constant:caption.pause_period",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Period Pause Duration",
+      "summary": "Pause duration for period in TTS / caption timing.",
+      "details": {
+        "value": "0.4-0.6",
+        "units": "seconds",
+        "appliesTo": ["TTS", "caption timing"],
+        "rationale": "Sentence end natural pause",
+        "source": "Linguistic standard",
+        "platform": "all",
+        "minMax": { "min": "0.4s", "max": "0.6s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5630, 5630]
+    },
+    {
+      "id": "constant:caption.pause_em_dash",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Em-Dash Pause Duration",
+      "summary": "Pause duration for em-dash.",
+      "details": {
+        "value": "0.3-0.5",
+        "units": "seconds",
+        "appliesTo": ["TTS", "caption timing"],
+        "rationale": "Mid-sentence break",
+        "source": "Linguistic standard",
+        "platform": "all",
+        "minMax": { "min": "0.3s", "max": "0.5s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5631, 5631]
+    },
+    {
+      "id": "constant:caption.pause_ellipsis",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Ellipsis Pause Duration",
+      "summary": "Pause duration for ellipsis.",
+      "details": {
+        "value": "0.5-0.8",
+        "units": "seconds",
+        "appliesTo": ["TTS", "caption timing"],
+        "rationale": "Trailing thought / hesitation",
+        "source": "Linguistic standard",
+        "platform": "all",
+        "minMax": { "min": "0.5s", "max": "0.8s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5632, 5632]
+    },
+    {
+      "id": "constant:caption.pause_question",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Question Mark Pause Duration",
+      "summary": "Pause duration for question mark.",
+      "details": {
+        "value": "0.4-0.6",
+        "units": "seconds",
+        "appliesTo": ["TTS", "caption timing"],
+        "rationale": "Sentence end with rising intonation",
+        "source": "Linguistic standard",
+        "platform": "all",
+        "minMax": { "min": "0.4s", "max": "0.6s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5633, 5633]
+    },
+    {
+      "id": "constant:caption.pause_exclamation",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Exclamation Pause Duration",
+      "summary": "Pause duration for exclamation mark.",
+      "details": {
+        "value": "0.3-0.5",
+        "units": "seconds",
+        "appliesTo": ["TTS", "caption timing"],
+        "rationale": "Sentence end with emphasis",
+        "source": "Linguistic standard",
+        "platform": "all",
+        "minMax": { "min": "0.3s", "max": "0.5s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5634, 5634]
+    },
+    {
+      "id": "constant:caption.pause_paragraph",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Paragraph Break Pause",
+      "summary": "Pause duration between paragraphs.",
+      "details": {
+        "value": "0.8-1.2",
+        "units": "seconds",
+        "appliesTo": ["TTS", "caption timing"],
+        "rationale": "Topic shift / structural break",
+        "source": "Linguistic standard",
+        "platform": "all",
+        "minMax": { "min": "0.8s", "max": "1.2s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5635, 5635]
+    },
+    {
+      "id": "constant:caption.pause_colon",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Colon Pause Duration",
+      "summary": "Pause duration for colon.",
+      "details": {
+        "value": "0.3-0.4",
+        "units": "seconds",
+        "appliesTo": ["TTS", "caption timing"],
+        "rationale": "List/explanation introduction",
+        "source": "Linguistic standard",
+        "platform": "all",
+        "minMax": { "min": "0.3s", "max": "0.4s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5636, 5636]
+    },
+
+    {
+      "id": "constant:caption.pacing_dramatic",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Dramatic Voice Pacing",
+      "summary": "WPM range for dramatic / slow / weighted delivery.",
+      "details": {
+        "value": "100-120",
+        "units": "WPM",
+        "appliesTo": ["TTS", "content classification"],
+        "rationale": "Slow, deliberate, weighted",
+        "source": "TTS / VO standard",
+        "platform": "all",
+        "minMax": { "min": "100", "max": "120" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5643, 5643]
+    },
+    {
+      "id": "constant:caption.pacing_narration",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Narration Voice Pacing",
+      "summary": "WPM range for narration / authoritative delivery.",
+      "details": {
+        "value": "130-150",
+        "units": "WPM",
+        "appliesTo": ["TTS", "content classification"],
+        "rationale": "Measured, authoritative",
+        "source": "TTS / VO standard",
+        "platform": "all",
+        "minMax": { "min": "130", "max": "150" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5644, 5644]
+    },
+    {
+      "id": "constant:caption.pacing_conversational",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Conversational Voice Pacing",
+      "summary": "WPM range for conversational tone.",
+      "details": {
+        "value": "140-160",
+        "units": "WPM",
+        "appliesTo": ["TTS", "content classification"],
+        "rationale": "Natural, engaging",
+        "source": "TTS / VO standard",
+        "platform": "all",
+        "minMax": { "min": "140", "max": "160" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5645, 5645]
+    },
+    {
+      "id": "constant:caption.pacing_energetic",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Energetic Voice Pacing",
+      "summary": "WPM range for energetic / high-momentum delivery.",
+      "details": {
+        "value": "160-180",
+        "units": "WPM",
+        "appliesTo": ["TTS", "content classification"],
+        "rationale": "Fast, excited, momentum",
+        "source": "TTS / VO standard",
+        "platform": "all",
+        "minMax": { "min": "160", "max": "180" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5646, 5646]
+    },
+    {
+      "id": "constant:caption.pacing_rapid_fire",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Rapid-Fire Voice Pacing",
+      "summary": "WPM range for rapid-fire / aggressive social-native delivery.",
+      "details": {
+        "value": "180-200",
+        "units": "WPM",
+        "appliesTo": ["TTS", "content classification"],
+        "rationale": "Aggressive, social-native",
+        "source": "TTS / VO standard",
+        "platform": "all",
+        "minMax": { "min": "180", "max": "200" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5647, 5647]
+    },
+    {
+      "id": "constant:caption.pause_between_sentences",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Inter-Sentence Pause",
+      "summary": "Pause between sentences in TTS.",
+      "details": {
+        "value": "0.3-0.5",
+        "units": "seconds",
+        "appliesTo": ["TTS"],
+        "rationale": "Sentence boundary pause",
+        "source": "TTS standard",
+        "platform": "all",
+        "minMax": { "min": "0.3s", "max": "0.5s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5649, 5649]
+    },
+    {
+      "id": "constant:caption.pause_between_clauses",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Inter-Clause Pause",
+      "summary": "Pause between clauses in TTS.",
+      "details": {
+        "value": "0.1-0.2",
+        "units": "seconds",
+        "appliesTo": ["TTS"],
+        "rationale": "Clause boundary breath",
+        "source": "TTS standard",
+        "platform": "all",
+        "minMax": { "min": "0.1s", "max": "0.2s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5650, 5650]
+    },
+    {
+      "id": "constant:caption.keyword_emphasis",
+      "type": "Constant",
+      "category": "caption",
+      "name": "Keyword Emphasis Parameters",
+      "summary": "Volume + duration boost for emphasized keywords in TTS.",
+      "details": {
+        "value": "+1-2 dB, 110-120% duration stretch",
+        "units": "dB / %",
+        "appliesTo": ["TTS keyword emphasis"],
+        "rationale": "Subtle but audible emphasis",
+        "source": "TTS standard",
+        "platform": "all",
+        "minMax": { "min": "+1 dB / 110%", "max": "+2 dB / 120%" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5651, 5651]
+    },
+
+    {
+      "id": "constant:typography.captions_min_font",
+      "type": "Constant",
+      "category": "typography",
+      "name": "Captions/Subtitles Min Font Size",
+      "summary": "Minimum caption / subtitle font size at 1080p.",
+      "details": {
+        "value": "72",
+        "units": "px",
+        "appliesTo": ["captions", "subtitles"],
+        "rationale": "Mobile readability floor",
+        "source": "Editron typography standard",
+        "platform": "all",
+        "minMax": { "min": "72px" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "OVERRIDABLE"],
+      "sourceLines": [5662, 5662]
+    },
+    {
+      "id": "constant:typography.lower_third_name_min_font",
+      "type": "Constant",
+      "category": "typography",
+      "name": "Lower Third Name Min Font",
+      "summary": "Minimum font size for name in lower third graphic.",
+      "details": {
+        "value": "48",
+        "units": "px",
+        "appliesTo": ["lower thirds"],
+        "rationale": "Primary identifier readability",
+        "source": "Editron typography standard",
+        "platform": "all",
+        "minMax": { "min": "48px" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5663, 5663]
+    },
+    {
+      "id": "constant:typography.lower_third_title_min_font",
+      "type": "Constant",
+      "category": "typography",
+      "name": "Lower Third Title Min Font",
+      "summary": "Minimum font size for title in lower third graphic.",
+      "details": {
+        "value": "36",
+        "units": "px",
+        "appliesTo": ["lower thirds"],
+        "rationale": "Secondary text — smaller than name",
+        "source": "Editron typography standard",
+        "platform": "all",
+        "minMax": { "min": "36px" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5664, 5664]
+    },
+    {
+      "id": "constant:typography.stat_counter_min_font",
+      "type": "Constant",
+      "category": "typography",
+      "name": "Stat Counter Min Font",
+      "summary": "Minimum font size for stat counter numbers.",
+      "details": {
+        "value": "64",
+        "units": "px",
+        "appliesTo": ["stat counter"],
+        "rationale": "Hero number — large for impact",
+        "source": "Editron typography standard",
+        "platform": "all",
+        "minMax": { "min": "64px" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5665, 5665]
+    },
+    {
+      "id": "constant:typography.keyword_highlight_min_font",
+      "type": "Constant",
+      "category": "typography",
+      "name": "Keyword Highlight Min Font",
+      "summary": "Minimum font size for keyword highlight overlays.",
+      "details": {
+        "value": "48",
+        "units": "px",
+        "appliesTo": ["keyword highlight"],
+        "rationale": "Readable above caption baseline",
+        "source": "Editron typography standard",
+        "platform": "all",
+        "minMax": { "min": "48px" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5666, 5666]
+    },
+    {
+      "id": "constant:typography.quote_card_min_font",
+      "type": "Constant",
+      "category": "typography",
+      "name": "Quote Card Min Font",
+      "summary": "Minimum font size for quote card text.",
+      "details": {
+        "value": "42",
+        "units": "px",
+        "appliesTo": ["quote card"],
+        "rationale": "Long-form text readability",
+        "source": "Editron typography standard",
+        "platform": "all",
+        "minMax": { "min": "42px" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5667, 5667]
+    },
+    {
+      "id": "constant:typography.callout_label_min_font",
+      "type": "Constant",
+      "category": "typography",
+      "name": "Callout Label Min Font",
+      "summary": "Minimum font size for callout labels.",
+      "details": {
+        "value": "36",
+        "units": "px",
+        "appliesTo": ["callout label"],
+        "rationale": "Annotation level — secondary info",
+        "source": "Editron typography standard",
+        "platform": "all",
+        "minMax": { "min": "36px" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5668, 5668]
+    },
+    {
+      "id": "constant:typography.legal_min_font",
+      "type": "Constant",
+      "category": "typography",
+      "name": "Legal/Disclaimer Min Font",
+      "summary": "Absolute minimum font size for legal/disclaimer text.",
+      "details": {
+        "value": "24",
+        "units": "px",
+        "appliesTo": ["legal", "disclaimer"],
+        "rationale": "Absolute minimum — readability borderline",
+        "source": "Editron typography standard",
+        "platform": "all",
+        "minMax": { "min": "24px (absolute minimum)" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "OVERRIDABLE"],
+      "sourceLines": [5669, 5669]
+    },
+
+    {
+      "id": "constant:typography.wcag_aa_normal_contrast",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "WCAG AA Normal Text Contrast",
+      "summary": "WCAG AA contrast ratio for normal text.",
+      "details": {
+        "value": "4.5:1",
+        "units": "contrast ratio",
+        "appliesTo": ["normal text"],
+        "rationale": "WCAG AA accessibility minimum",
+        "source": "WCAG AA",
+        "platform": "all",
+        "minMax": { "min": "4.5:1" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5676, 5676]
+    },
+    {
+      "id": "constant:typography.wcag_aa_large_contrast",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "WCAG AA Large Text Contrast",
+      "summary": "WCAG AA contrast ratio for large text (>18pt or >14pt bold).",
+      "details": {
+        "value": "3:1",
+        "units": "contrast ratio",
+        "appliesTo": ["large text >18pt or >14pt bold"],
+        "rationale": "WCAG AA accessibility minimum for large text",
+        "source": "WCAG AA",
+        "platform": "all",
+        "minMax": { "min": "3:1" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5676, 5676]
+    },
+    {
+      "id": "constant:typography.wcag_aaa_normal_contrast",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "WCAG AAA Normal Text Contrast",
+      "summary": "WCAG AAA contrast ratio for normal text (preferred).",
+      "details": {
+        "value": "7:1",
+        "units": "contrast ratio",
+        "appliesTo": ["normal text"],
+        "rationale": "Preferred for body text when possible",
+        "source": "WCAG AAA",
+        "platform": "all",
+        "minMax": { "min": "7:1" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "OVERRIDABLE"],
+      "sourceLines": [5677, 5677]
+    },
+    {
+      "id": "constant:typography.wcag_aaa_large_contrast",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "WCAG AAA Large Text Contrast",
+      "summary": "WCAG AAA contrast ratio for large text.",
+      "details": {
+        "value": "4.5:1",
+        "units": "contrast ratio",
+        "appliesTo": ["large text"],
+        "rationale": "Preferred for large text",
+        "source": "WCAG AAA",
+        "platform": "all",
+        "minMax": { "min": "4.5:1" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "OVERRIDABLE"],
+      "sourceLines": [5677, 5677]
+    },
+
+    {
+      "id": "constant:animation.icon_pop",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Icon Pop Animation Timing",
+      "summary": "Enter/hold/exit duration for icon pop overlay.",
+      "details": {
+        "value": "enter 0.2-0.3s, hold 1.5-3.0s, exit 0.15-0.2s",
+        "units": "seconds",
+        "appliesTo": ["icon pop"],
+        "rationale": "Quick attention spike",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5690, 5690]
+    },
+    {
+      "id": "constant:animation.stat_counter",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Stat Counter Animation Timing",
+      "summary": "Enter/hold/exit duration for stat counter overlay.",
+      "details": {
+        "value": "enter 0.5-1.0s, hold 1.5-2.5s, exit 0.2-0.3s",
+        "units": "seconds",
+        "appliesTo": ["stat counter"],
+        "rationale": "Slower entrance reads as 'counting up'; quick exit",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5691, 5691]
+    },
+    {
+      "id": "constant:animation.lower_third",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Lower Third Animation Timing",
+      "summary": "Enter/hold/exit duration for lower third graphic.",
+      "details": {
+        "value": "enter 0.3-0.5s, hold 3.0-5.0s, exit 0.2-0.4s",
+        "units": "seconds",
+        "appliesTo": ["lower third"],
+        "rationale": "Long hold for reading speaker info",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5692, 5692]
+    },
+    {
+      "id": "constant:animation.full_title_card",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Full Title Card Animation Timing",
+      "summary": "Enter/hold/exit duration for full title card.",
+      "details": {
+        "value": "enter 0.3-0.5s, hold 1.5-3.0s, exit 0.3-0.5s",
+        "units": "seconds",
+        "appliesTo": ["full title card"],
+        "rationale": "Full-screen card needs symmetric timing",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5693, 5693]
+    },
+    {
+      "id": "constant:animation.caption_word",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Caption Word Animation Timing",
+      "summary": "Enter/hold/exit duration for individual caption word.",
+      "details": {
+        "value": "enter 0.05-0.1s, hold (speech duration), exit 0.05-0.1s",
+        "units": "seconds",
+        "appliesTo": ["caption word"],
+        "rationale": "Pop-on style — fast in/out, hold matches word duration",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5694, 5694]
+    },
+    {
+      "id": "constant:animation.chapter_card",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Chapter Card Animation Timing",
+      "summary": "Enter/hold/exit duration for chapter card.",
+      "details": {
+        "value": "enter 0.3-0.5s, hold 1.5-3.0s, exit 0.3-0.5s",
+        "units": "seconds",
+        "appliesTo": ["chapter card"],
+        "rationale": "Section transition card",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5695, 5695]
+    },
+    {
+      "id": "constant:animation.transition_graphic",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Transition Graphic Animation Timing",
+      "summary": "Enter/hold/exit duration for transition graphic (passthrough).",
+      "details": {
+        "value": "enter 0.2-0.4s, hold 0s (passthrough), exit 0.2-0.4s",
+        "units": "seconds",
+        "appliesTo": ["transition graphic"],
+        "rationale": "Pure passthrough — no hold",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5696, 5696]
+    },
+    {
+      "id": "constant:animation.quote_card",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Quote Card Animation Timing",
+      "summary": "Enter/hold/exit duration for quote card.",
+      "details": {
+        "value": "enter 0.3-0.5s, hold 3.0-5.0s, exit 0.3-0.5s",
+        "units": "seconds",
+        "appliesTo": ["quote card"],
+        "rationale": "Long hold for reading text content",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5697, 5697]
+    },
+    {
+      "id": "constant:animation.keyword_highlight",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Keyword Highlight Animation Timing",
+      "summary": "Enter/hold/exit duration for keyword highlight overlay.",
+      "details": {
+        "value": "enter 0.2-0.3s, hold 1.5-2.5s, exit 0.15-0.2s",
+        "units": "seconds",
+        "appliesTo": ["keyword highlight"],
+        "rationale": "Quick emphasis pop",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5698, 5698]
+    },
+    {
+      "id": "constant:animation.logo_intro",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Logo Intro Animation Timing",
+      "summary": "Enter/hold/exit duration for logo at intro.",
+      "details": {
+        "value": "enter 0.3-0.5s, hold 0.5-1.5s, exit 0.2-0.3s",
+        "units": "seconds",
+        "appliesTo": ["logo intro"],
+        "rationale": "Brief brand reveal at video start",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5699, 5699]
+    },
+    {
+      "id": "constant:animation.logo_outro",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Logo Outro Animation Timing",
+      "summary": "Enter/hold/exit duration for logo at outro.",
+      "details": {
+        "value": "enter 0.3-0.5s, hold 1.5-3.5s, exit 0.3-0.5s",
+        "units": "seconds",
+        "appliesTo": ["logo outro"],
+        "rationale": "Longer hold at end for brand recall",
+        "source": "Editron animation standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5700, 5700]
+    },
+    {
+      "id": "constant:animation.exit_speed_rule",
+      "type": "Constant",
+      "category": "animation",
+      "name": "Exit Speed Rule",
+      "summary": "Exit duration relative to entrance duration.",
+      "details": {
+        "value": "exit duration = entrance duration x 0.8",
+        "units": "ratio",
+        "appliesTo": ["all overlays"],
+        "rationale": "Engineering heuristic inspired by Disney's ease-in principle (exits accelerate away). The 0.8 ratio is NOT from a published standard — it is a tunable Editron design choice. Disney's 12 principles describe the concept (ease-in on exit) but assign no specific ratio.",
+        "source": "Editron design choice (inspired by Disney ease-in principle)",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": "0.6-0.9 range would all feel natural"
+      },
+      "tags": ["LEARNING_TARGET", "OVERRIDABLE"],
+      "sourceLines": [5702, 5702]
+    },
+
+    {
+      "id": "constant:logo.clear_space",
+      "type": "Constant",
+      "category": "logo",
+      "name": "Logo Clear Space",
+      "summary": "Required exclusion zone around logo.",
+      "details": {
+        "value": "height of tallest letter on all sides",
+        "units": "logo-relative",
+        "appliesTo": ["all logo placement"],
+        "rationale": "Brand integrity — prevents visual interference",
+        "source": "Brand standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5712, 5712]
+    },
+    {
+      "id": "constant:logo.min_size",
+      "type": "Constant",
+      "category": "logo",
+      "name": "Logo Minimum Size",
+      "summary": "Minimum width for logo to remain readable.",
+      "details": {
+        "value": "48",
+        "units": "px wide",
+        "appliesTo": ["logo placement"],
+        "rationale": "Below this size logo becomes illegible",
+        "source": "Brand standard",
+        "platform": "all",
+        "minMax": { "min": "48px" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5713, 5713]
+    },
+    {
+      "id": "constant:logo.aspect_ratio_rule",
+      "type": "Constant",
+      "category": "logo",
+      "name": "Logo Aspect Ratio Rule",
+      "summary": "Logo aspect ratio must be preserved.",
+      "details": {
+        "value": "NEVER distort — maintain original",
+        "units": "rule",
+        "appliesTo": ["logo placement"],
+        "rationale": "Brand integrity — distortion is unacceptable",
+        "source": "Brand standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5714, 5714]
+    },
+    {
+      "id": "constant:logo.contrast",
+      "type": "Constant",
+      "category": "logo",
+      "name": "Logo Contrast Minimum",
+      "summary": "Minimum contrast ratio between logo and background.",
+      "details": {
+        "value": "3:1",
+        "units": "contrast ratio",
+        "appliesTo": ["logo placement"],
+        "rationale": "Logo must remain visible against background",
+        "source": "WCAG / Brand standard",
+        "platform": "all",
+        "minMax": { "min": "3:1" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5715, 5715]
+    },
+    {
+      "id": "constant:logo.animation_style",
+      "type": "Constant",
+      "category": "logo",
+      "name": "Logo Animation Style",
+      "summary": "Allowed logo animation styles.",
+      "details": {
+        "value": "fade-in or scale-up ONLY",
+        "units": "rule",
+        "appliesTo": ["logo animation"],
+        "rationale": "No rotation, bounce, or complex motion — preserves brand dignity",
+        "source": "Brand standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": "fade-in, scale-up"
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5716, 5716]
+    },
+    {
+      "id": "constant:logo.intro_duration",
+      "type": "Constant",
+      "category": "logo",
+      "name": "Logo Intro Duration",
+      "summary": "Maximum logo intro duration.",
+      "details": {
+        "value": "1-2",
+        "units": "seconds",
+        "appliesTo": ["logo intro"],
+        "rationale": "Brief enough not to slow opening hook",
+        "source": "Brand standard",
+        "platform": "all",
+        "minMax": { "max": "2s" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5717, 5717]
+    },
+    {
+      "id": "constant:logo.outro_duration",
+      "type": "Constant",
+      "category": "logo",
+      "name": "Logo Outro Duration",
+      "summary": "Recommended logo outro duration.",
+      "details": {
+        "value": "2-4",
+        "units": "seconds",
+        "appliesTo": ["logo outro"],
+        "rationale": "Long enough for brand recall; minimum 2s",
+        "source": "Brand standard",
+        "platform": "all",
+        "minMax": { "min": "2s", "max": "4s" },
+        "alternatives": "minimum 2s preferred"
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5717, 5717]
+    },
+    {
+      "id": "constant:logo.placement",
+      "type": "Constant",
+      "category": "logo",
+      "name": "Logo Placement Rules",
+      "summary": "Where logos should be placed in frame.",
+      "details": {
+        "value": "lower-right or center for end cards, lower-left or upper-left for watermarks",
+        "units": "position",
+        "appliesTo": ["logo placement"],
+        "rationale": "Standard placements that don't conflict with platform UI",
+        "source": "Brand standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5718, 5718]
+    },
+    {
+      "id": "constant:logo.source_rule",
+      "type": "Constant",
+      "category": "logo",
+      "name": "Logo Source Rule",
+      "summary": "Logo must come from uploaded brand assets only.",
+      "details": {
+        "value": "uploaded brand asset ONLY — NEVER AI-generated",
+        "units": "rule",
+        "appliesTo": ["logo source"],
+        "rationale": "Trademark integrity — AI-generated logos are unreliable and legally risky",
+        "source": "Brand standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5719, 5719]
+    },
+
+    {
+      "id": "constant:color_space.srgb",
+      "type": "Constant",
+      "category": "color-space",
+      "name": "sRGB Color Space",
+      "summary": "Standard color space for web/social delivery.",
+      "details": {
+        "value": "sRGB",
+        "units": "color space",
+        "appliesTo": ["web", "social delivery"],
+        "rationale": "DEFAULT for all Editron output — universal compatibility",
+        "source": "IEC 61966-2-1",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5729, 5729]
+    },
+    {
+      "id": "constant:color_space.rec709",
+      "type": "Constant",
+      "category": "color-space",
+      "name": "Rec.709 Color Space",
+      "summary": "Color space for broadcast / traditional TV.",
+      "details": {
+        "value": "Rec.709",
+        "units": "color space",
+        "appliesTo": ["broadcast", "traditional TV"],
+        "rationale": "Broadcast TV standard",
+        "source": "ITU-R BT.709",
+        "platform": "broadcast",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5730, 5730]
+    },
+    {
+      "id": "constant:color_space.dci_p3",
+      "type": "Constant",
+      "category": "color-space",
+      "name": "DCI-P3 Color Space",
+      "summary": "Wide-gamut color space for modern displays / Apple ecosystem.",
+      "details": {
+        "value": "DCI-P3",
+        "units": "color space",
+        "appliesTo": ["modern wide-gamut displays", "Apple ecosystem"],
+        "rationale": "Apple displays default to DCI-P3 — wider gamut than sRGB",
+        "source": "DCI standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5731, 5731]
+    },
+    {
+      "id": "constant:color_space.rec2020",
+      "type": "Constant",
+      "category": "color-space",
+      "name": "Rec.2020 Color Space",
+      "summary": "Wide-gamut color space for HDR / future-proofing.",
+      "details": {
+        "value": "Rec.2020",
+        "units": "color space",
+        "appliesTo": ["HDR content", "future-proofing"],
+        "rationale": "Largest gamut — for HDR delivery",
+        "source": "ITU-R BT.2020",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5732, 5732]
+    },
+    {
+      "id": "constant:color_space.skin_tone_reference",
+      "type": "Constant",
+      "category": "color-space",
+      "name": "Skin Tone Vectorscope Reference",
+      "summary": "Vectorscope reference angle for skin tones (all races).",
+      "details": {
+        "value": "I-line at ~123 degrees",
+        "units": "degrees",
+        "appliesTo": ["color grading", "skin tone correction"],
+        "rationale": "All skin tones across all races align on this vector",
+        "source": "Color grading standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5735, 5735]
+    },
+    {
+      "id": "constant:color_space.white_balance_candlelight",
+      "type": "Constant",
+      "category": "color-space",
+      "name": "Candlelight White Balance",
+      "summary": "Color temperature for candlelight reference.",
+      "details": {
+        "value": "2700",
+        "units": "K",
+        "appliesTo": ["white balance"],
+        "rationale": "Warm light reference",
+        "source": "Color science standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5736, 5736]
+    },
+    {
+      "id": "constant:color_space.white_balance_daylight_neutral",
+      "type": "Constant",
+      "category": "color-space",
+      "name": "Daylight Neutral White Balance",
+      "summary": "Color temperature for neutral daylight reference.",
+      "details": {
+        "value": "5600",
+        "units": "K",
+        "appliesTo": ["white balance"],
+        "rationale": "Neutral daylight reference",
+        "source": "Color science standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5736, 5736]
+    },
+    {
+      "id": "constant:color_space.white_balance_cool_shade",
+      "type": "Constant",
+      "category": "color-space",
+      "name": "Cool Shade White Balance",
+      "summary": "Color temperature for cool shade reference.",
+      "details": {
+        "value": "7500+",
+        "units": "K",
+        "appliesTo": ["white balance"],
+        "rationale": "Cool/blue light reference (overcast/shade)",
+        "source": "Color science standard",
+        "platform": "all",
+        "minMax": { "min": "7500K" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5736, 5736]
+    },
+
+    {
+      "id": "constant:codec.h264_1080p_bitrate",
+      "type": "Constant",
+      "category": "codec",
+      "name": "H.264 1080p Bitrate",
+      "summary": "Recommended bitrate range for H.264 at 1080p.",
+      "details": {
+        "value": "8-15",
+        "units": "Mbps",
+        "appliesTo": ["H.264 at 1080p"],
+        "rationale": "Quality vs file size tradeoff",
+        "source": "Codec standard",
+        "platform": "all",
+        "minMax": { "min": "8 Mbps", "max": "15 Mbps" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5746, 5746]
+    },
+    {
+      "id": "constant:codec.h264_4k_bitrate",
+      "type": "Constant",
+      "category": "codec",
+      "name": "H.264 4K Bitrate",
+      "summary": "Recommended bitrate range for H.264 at 4K.",
+      "details": {
+        "value": "25-45",
+        "units": "Mbps",
+        "appliesTo": ["H.264 at 4K"],
+        "rationale": "Higher bitrate needed for 4K detail",
+        "source": "Codec standard",
+        "platform": "all",
+        "minMax": { "min": "25 Mbps", "max": "45 Mbps" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5746, 5746]
+    },
+    {
+      "id": "constant:codec.h265_1080p_bitrate",
+      "type": "Constant",
+      "category": "codec",
+      "name": "H.265 1080p Bitrate",
+      "summary": "Recommended bitrate range for H.265 at 1080p.",
+      "details": {
+        "value": "4-8",
+        "units": "Mbps",
+        "appliesTo": ["H.265 at 1080p"],
+        "rationale": "50% smaller than H.264 at equivalent quality",
+        "source": "Codec standard",
+        "platform": "all",
+        "minMax": { "min": "4 Mbps", "max": "8 Mbps" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5747, 5747]
+    },
+    {
+      "id": "constant:codec.h265_4k_bitrate",
+      "type": "Constant",
+      "category": "codec",
+      "name": "H.265 4K Bitrate",
+      "summary": "Recommended bitrate range for H.265 at 4K.",
+      "details": {
+        "value": "12-20",
+        "units": "Mbps",
+        "appliesTo": ["H.265 at 4K"],
+        "rationale": "50% smaller than H.264 at equivalent quality",
+        "source": "Codec standard",
+        "platform": "all",
+        "minMax": { "min": "12 Mbps", "max": "20 Mbps" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5747, 5747]
+    },
+    {
+      "id": "constant:codec.vp9_1080p_bitrate",
+      "type": "Constant",
+      "category": "codec",
+      "name": "VP9 1080p Bitrate",
+      "summary": "Recommended bitrate range for VP9 at 1080p.",
+      "details": {
+        "value": "4-8",
+        "units": "Mbps",
+        "appliesTo": ["VP9 at 1080p"],
+        "rationale": "YouTube optimized — 50% smaller than H.264",
+        "source": "Codec standard",
+        "platform": "youtube",
+        "minMax": { "min": "4 Mbps", "max": "8 Mbps" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5748, 5748]
+    },
+    {
+      "id": "constant:codec.vp9_4k_bitrate",
+      "type": "Constant",
+      "category": "codec",
+      "name": "VP9 4K Bitrate",
+      "summary": "Recommended bitrate range for VP9 at 4K.",
+      "details": {
+        "value": "12-20",
+        "units": "Mbps",
+        "appliesTo": ["VP9 at 4K"],
+        "rationale": "YouTube optimized at 4K",
+        "source": "Codec standard",
+        "platform": "youtube",
+        "minMax": { "min": "12 Mbps", "max": "20 Mbps" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5748, 5748]
+    },
+    {
+      "id": "constant:codec.av1_1080p_bitrate",
+      "type": "Constant",
+      "category": "codec",
+      "name": "AV1 1080p Bitrate",
+      "summary": "Recommended bitrate range for AV1 at 1080p.",
+      "details": {
+        "value": "3-6",
+        "units": "Mbps",
+        "appliesTo": ["AV1 at 1080p"],
+        "rationale": "Best compression — slow encode",
+        "source": "Codec standard",
+        "platform": "all",
+        "minMax": { "min": "3 Mbps", "max": "6 Mbps" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5749, 5749]
+    },
+    {
+      "id": "constant:codec.av1_4k_bitrate",
+      "type": "Constant",
+      "category": "codec",
+      "name": "AV1 4K Bitrate",
+      "summary": "Recommended bitrate range for AV1 at 4K.",
+      "details": {
+        "value": "8-15",
+        "units": "Mbps",
+        "appliesTo": ["AV1 at 4K"],
+        "rationale": "Best compression at 4K — growing support",
+        "source": "Codec standard",
+        "platform": "all",
+        "minMax": { "min": "8 Mbps", "max": "15 Mbps" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5749, 5749]
+    },
+    {
+      "id": "constant:codec.default_codec",
+      "type": "Constant",
+      "category": "codec",
+      "name": "Default Video Codec",
+      "summary": "Default codec for universal export.",
+      "details": {
+        "value": "H.264 High Profile",
+        "units": "codec",
+        "appliesTo": ["all default exports"],
+        "rationale": "Universal compatibility",
+        "source": "Editron default",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": "VP9 preferred for YouTube"
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5751, 5751]
+    },
+
+    {
+      "id": "constant:codec.export_container",
+      "type": "Constant",
+      "category": "codec",
+      "name": "Universal Export Container",
+      "summary": "Default container format.",
+      "details": {
+        "value": "MP4",
+        "units": "container",
+        "appliesTo": ["all exports"],
+        "rationale": "Universal compatibility",
+        "source": "Editron default",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5759, 5759]
+    },
+    {
+      "id": "constant:codec.export_resolution_landscape",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "Universal Export Resolution (Landscape)",
+      "summary": "Default landscape export resolution.",
+      "details": {
+        "value": "1920x1080",
+        "units": "pixels",
+        "appliesTo": ["landscape exports"],
+        "rationale": "HD baseline",
+        "source": "Editron default",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5761, 5761]
+    },
+    {
+      "id": "constant:codec.export_resolution_portrait",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "Universal Export Resolution (Portrait)",
+      "summary": "Default portrait export resolution.",
+      "details": {
+        "value": "1080x1920",
+        "units": "pixels",
+        "appliesTo": ["portrait exports"],
+        "rationale": "Vertical HD",
+        "source": "Editron default",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5761, 5761]
+    },
+    {
+      "id": "constant:codec.export_frame_rate_default",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "Universal Export Frame Rate",
+      "summary": "Default export frame rate.",
+      "details": {
+        "value": "30",
+        "units": "fps",
+        "appliesTo": ["all exports"],
+        "rationale": "Standard digital — match source if 24/25/60fps",
+        "source": "Editron default",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": "match source if 24/25/60fps"
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5762, 5762]
+    },
+    {
+      "id": "constant:codec.export_video_bitrate",
+      "type": "Constant",
+      "category": "codec",
+      "name": "Universal Export Video Bitrate",
+      "summary": "Default video bitrate for export.",
+      "details": {
+        "value": "10-12",
+        "units": "Mbps VBR 2-pass",
+        "appliesTo": ["all exports"],
+        "rationale": "Quality vs file size sweet spot at 1080p H.264",
+        "source": "Editron default",
+        "platform": "all",
+        "minMax": { "min": "10 Mbps", "max": "12 Mbps" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5763, 5763]
+    },
+    {
+      "id": "constant:codec.export_min_resolution",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "Minimum Export Resolution",
+      "summary": "Lower bound for export resolution.",
+      "details": {
+        "value": "1080p",
+        "units": "pixels",
+        "appliesTo": ["all exports"],
+        "rationale": "Below 1080p degrades on modern displays",
+        "source": "Editron default",
+        "platform": "all",
+        "minMax": { "min": "1080p" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5773, 5773]
+    },
+    {
+      "id": "constant:codec.frame_rate_no_mix_rule",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "Frame Rate Mix Rule",
+      "summary": "Frame rates must be converted before mixing.",
+      "details": {
+        "value": "NEVER mix frame rates without conversion",
+        "units": "rule",
+        "appliesTo": ["all timelines"],
+        "rationale": "Mixed frame rates produce stutter/judder",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "NOT_OVERRIDABLE"],
+      "sourceLines": [5772, 5772]
+    },
+
+    {
+      "id": "constant:resolution.frame_rate_24fps",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "Cinematic Frame Rate (24fps)",
+      "summary": "Frame rate for cinematic / film look.",
+      "details": {
+        "value": "24",
+        "units": "fps",
+        "appliesTo": ["cinematic content"],
+        "rationale": "Film look, motion blur",
+        "source": "Cinema standard",
+        "platform": "cinema",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5785, 5785]
+    },
+    {
+      "id": "constant:resolution.frame_rate_25fps",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "PAL Frame Rate (25fps)",
+      "summary": "Frame rate for PAL regions (Europe, Australia).",
+      "details": {
+        "value": "25",
+        "units": "fps",
+        "appliesTo": ["PAL broadcast (Europe, Australia)"],
+        "rationale": "PAL broadcast standard",
+        "source": "PAL standard",
+        "platform": "broadcast",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "PLATFORM_SPECIFIC", "OVERRIDABLE"],
+      "sourceLines": [5786, 5786]
+    },
+    {
+      "id": "constant:resolution.frame_rate_30fps",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "Standard Digital Frame Rate (30fps)",
+      "summary": "Standard digital frame rate (default).",
+      "details": {
+        "value": "30",
+        "units": "fps",
+        "appliesTo": ["all digital content"],
+        "rationale": "DEFAULT for digital delivery",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5787, 5787]
+    },
+    {
+      "id": "constant:resolution.frame_rate_60fps",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "High-Motion Frame Rate (60fps)",
+      "summary": "Frame rate for sports / gaming / high-motion.",
+      "details": {
+        "value": "60",
+        "units": "fps",
+        "appliesTo": ["sports", "gaming", "high-motion"],
+        "rationale": "Smooth high-motion playback",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5788, 5788]
+    },
+    {
+      "id": "constant:resolution.frame_rate_120fps",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "Slow Motion Source Frame Rate (120fps)",
+      "summary": "Source frame rate for slow motion (renders at 30fps at 25% speed).",
+      "details": {
+        "value": "120",
+        "units": "fps",
+        "appliesTo": ["slow motion source"],
+        "rationale": "120fps source -> 25% speed -> smooth 30fps output",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5789, 5789]
+    },
+    {
+      "id": "constant:resolution.slow_motion_30fps_source",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "30fps Source Slow Motion Limit",
+      "summary": "Minimum slow motion speed when source is 30fps.",
+      "details": {
+        "value": "50% speed minimum (= 15fps, borderline acceptable)",
+        "units": "% / fps",
+        "appliesTo": ["30fps source"],
+        "rationale": "Below 50% becomes choppy",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": { "min": "50%" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5794, 5794]
+    },
+    {
+      "id": "constant:resolution.slow_motion_60fps_source",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "60fps Source Slow Motion Limit",
+      "summary": "Smooth slow motion when source is 60fps.",
+      "details": {
+        "value": "50% speed = smooth 30fps output",
+        "units": "%",
+        "appliesTo": ["60fps source"],
+        "rationale": "Slows to 50% = 30fps",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5795, 5795]
+    },
+    {
+      "id": "constant:resolution.slow_motion_120fps_source",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "120fps Source Slow Motion Limit",
+      "summary": "Smooth slow motion when source is 120fps.",
+      "details": {
+        "value": "25% speed = smooth 30fps output",
+        "units": "%",
+        "appliesTo": ["120fps source"],
+        "rationale": "Slows to 25% = 30fps",
+        "source": "Industry standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5796, 5796]
+    },
+    {
+      "id": "constant:resolution.ai_footage_fps",
+      "type": "Constant",
+      "category": "resolution",
+      "name": "AI-Generated Footage Frame Rate",
+      "summary": "Typical frame rate of AI-generated footage.",
+      "details": {
+        "value": "24-30",
+        "units": "fps",
+        "appliesTo": ["AI-generated footage"],
+        "rationale": "Do not assume higher — most models output 24-30fps",
+        "source": "AI video model standards",
+        "platform": "all",
+        "minMax": { "min": "24", "max": "30" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5797, 5797]
+    },
+
+    {
+      "id": "constant:accessibility.silence_threshold",
+      "type": "Constant",
+      "category": "audio",
+      "name": "Silence Threshold",
+      "summary": "Audio level below which content is considered silent.",
+      "details": {
+        "value": "-60",
+        "units": "dB",
+        "appliesTo": ["silence detection"],
+        "rationale": "Standard noise floor — content below considered silent",
+        "source": "Audio standard",
+        "platform": "all",
+        "minMax": { "max": "-60 dB" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "OVERRIDABLE"],
+      "sourceLines": [5510, 5575]
+    },
+
+    {
+      "id": "constant:accessibility.flash_max_per_second",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "General Flash Limit",
+      "summary": "Maximum flashes per second to avoid photosensitive seizures.",
+      "details": {
+        "value": "3",
+        "units": "flashes per second",
+        "appliesTo": ["all video"],
+        "rationale": "Legal requirement, non-overridable — photosensitive epilepsy prevention",
+        "source": "WCAG / TRACE PEAT",
+        "platform": "all",
+        "minMax": { "max": "3 flashes/sec" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5807, 5807]
+    },
+    {
+      "id": "constant:accessibility.flash_screen_coverage_max",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Flash Screen Coverage Maximum",
+      "summary": "Maximum flash screen coverage area per flash.",
+      "details": {
+        "value": "25%",
+        "units": "% of screen area per flash",
+        "appliesTo": ["all video"],
+        "rationale": "Legal requirement — photosensitive epilepsy prevention",
+        "source": "WCAG / TRACE PEAT",
+        "platform": "all",
+        "minMax": { "max": "25% per flash" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5808, 5808]
+    },
+    {
+      "id": "constant:accessibility.red_flash_rule",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Red Flash Rule",
+      "summary": "Stricter rule for red flashing (avoid entirely if possible).",
+      "details": {
+        "value": "stricter — avoid entirely if possible",
+        "units": "rule",
+        "appliesTo": ["all video"],
+        "rationale": "Red flashes carry highest seizure risk",
+        "source": "WCAG / TRACE PEAT",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5809, 5809]
+    },
+    {
+      "id": "constant:accessibility.brightness_change_max",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Sustained Brightness Change Limit",
+      "summary": "Maximum sustained brightness change rate.",
+      "details": {
+        "value": "20",
+        "units": "cd/m^2",
+        "appliesTo": ["all video"],
+        "rationale": "Avoid sustained brightness changes that exceed 20 cd/m^2 change rate",
+        "source": "WCAG / TRACE PEAT",
+        "platform": "all",
+        "minMax": { "max": "20 cd/m^2" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5810, 5810]
+    },
+    {
+      "id": "constant:accessibility.flash_verification_tool",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Photosensitivity Verification Tool",
+      "summary": "Tool used to verify content for photosensitivity hazards.",
+      "details": {
+        "value": "TRACE PEAT (Photosensitive Epilepsy Analysis Tool)",
+        "units": "tool",
+        "appliesTo": ["accessibility verification"],
+        "rationale": "Industry standard analysis tool",
+        "source": "TRACE PEAT",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY"],
+      "sourceLines": [5812, 5812]
+    },
+
+    {
+      "id": "constant:accessibility.caption_coverage",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Caption Coverage Requirement",
+      "summary": "Required caption coverage of speech content.",
+      "details": {
+        "value": "100%",
+        "units": "% of speech content",
+        "appliesTo": ["accessibility"],
+        "rationale": "Captions must cover all speech for accessibility compliance",
+        "source": "Accessibility standard",
+        "platform": "all",
+        "minMax": { "min": "100%" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5821, 5821]
+    },
+    {
+      "id": "constant:accessibility.caption_accuracy",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Caption Accuracy Requirement",
+      "summary": "Required word-level accuracy for captions.",
+      "details": {
+        "value": "99%+",
+        "units": "% word accuracy",
+        "appliesTo": ["accessibility"],
+        "rationale": "Below 99% degrades comprehension",
+        "source": "Accessibility standard",
+        "platform": "all",
+        "minMax": { "min": "99%" },
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5822, 5822]
+    },
+    {
+      "id": "constant:accessibility.speaker_id_required",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Speaker Identification Required",
+      "summary": "Speaker ID required for multi-speaker content.",
+      "details": {
+        "value": "required for multi-speaker content",
+        "units": "rule",
+        "appliesTo": ["accessibility", "multi-speaker"],
+        "rationale": "Hearing-impaired viewers must know who is speaking",
+        "source": "Accessibility standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5823, 5823]
+    },
+    {
+      "id": "constant:accessibility.sound_descriptions",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Sound Description Requirement",
+      "summary": "Sound descriptions required for significant non-speech audio.",
+      "details": {
+        "value": "required for significant non-speech audio",
+        "units": "rule",
+        "appliesTo": ["accessibility"],
+        "rationale": "Conveys non-speech audio context to hearing-impaired viewers",
+        "source": "Accessibility standard",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5824, 5824]
+    },
+
+    {
+      "id": "constant:accessibility.deuteranopia_prevalence",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Deuteranopia Prevalence",
+      "summary": "Population prevalence of deuteranopia (red-green confusion).",
+      "details": {
+        "value": "6% of males",
+        "units": "% prevalence",
+        "appliesTo": ["accessibility"],
+        "rationale": "Most common colorblindness — design must not depend on red-green distinction",
+        "source": "Colorblindness epidemiology",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY"],
+      "sourceLines": [5831, 5831]
+    },
+    {
+      "id": "constant:accessibility.protanopia_prevalence",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Protanopia Prevalence",
+      "summary": "Population prevalence of protanopia (red appears dark).",
+      "details": {
+        "value": "2% of males",
+        "units": "% prevalence",
+        "appliesTo": ["accessibility"],
+        "rationale": "Red appears dark — affects red-only signals",
+        "source": "Colorblindness epidemiology",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY"],
+      "sourceLines": [5832, 5832]
+    },
+    {
+      "id": "constant:accessibility.tritanopia_prevalence",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Tritanopia Prevalence",
+      "summary": "Population prevalence of tritanopia (blue-yellow confusion).",
+      "details": {
+        "value": "<1%",
+        "units": "% prevalence",
+        "appliesTo": ["accessibility"],
+        "rationale": "Rare — blue-yellow confusion",
+        "source": "Colorblindness epidemiology",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": ""
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY"],
+      "sourceLines": [5833, 5833]
+    },
+    {
+      "id": "constant:accessibility.color_only_rule",
+      "type": "Constant",
+      "category": "accessibility",
+      "name": "Color-Only Information Rule",
+      "summary": "Never use color as the only way to convey information.",
+      "details": {
+        "value": "NEVER use color as the ONLY way to convey information",
+        "units": "rule",
+        "appliesTo": ["accessibility"],
+        "rationale": "Always pair color with shape, text, or pattern — for colorblind viewers",
+        "source": "WCAG accessibility principle",
+        "platform": "all",
+        "minMax": {},
+        "alternatives": "Pair with shape, text, or pattern"
+      },
+      "tags": ["DETERMINISTIC", "ACCESSIBILITY", "NOT_OVERRIDABLE"],
+      "sourceLines": [5835, 5836]
+    }
+  ],
+
+  "edges": [
+    {"from": "constant:audio.youtube_lufs", "to": "constant:audio.tiktok_lufs", "type": "varies_by_platform", "label": "same value (-14) across YouTube and TikTok", "sourceLines": [5516, 5518]},
+    {"from": "constant:audio.youtube_lufs", "to": "constant:audio.instagram_lufs", "type": "varies_by_platform", "label": "same value across social", "sourceLines": [5516, 5517]},
+    {"from": "constant:audio.youtube_lufs", "to": "constant:audio.facebook_lufs", "type": "varies_by_platform", "label": "same value across social", "sourceLines": [5516, 5519]},
+    {"from": "constant:audio.youtube_lufs", "to": "constant:audio.linkedin_lufs", "type": "varies_by_platform", "label": "same value across social", "sourceLines": [5516, 5520]},
+    {"from": "constant:audio.youtube_lufs", "to": "constant:audio.x_lufs", "type": "varies_by_platform", "label": "same value across social", "sourceLines": [5516, 5521]},
+    {"from": "constant:audio.youtube_lufs", "to": "constant:audio.apple_music_lufs", "type": "varies_by_platform", "label": "music platform stricter (-16 vs -14)", "sourceLines": [5516, 5522]},
+    {"from": "constant:audio.youtube_lufs", "to": "constant:audio.podcast_lufs", "type": "varies_by_platform", "label": "podcast quieter (-16 to -18)", "sourceLines": [5516, 5523]},
+    {"from": "constant:audio.youtube_lufs", "to": "constant:audio.broadcast_ebu_lufs", "type": "varies_by_platform", "label": "broadcast much quieter (-23)", "sourceLines": [5516, 5524]},
+    {"from": "constant:audio.broadcast_ebu_lufs", "to": "constant:audio.broadcast_atsc_lufs", "type": "varies_by_platform", "label": "EBU vs ATSC differ by 1 LUFS", "sourceLines": [5524, 5525]},
+    {"from": "constant:audio.true_peak_max", "to": "constant:audio.broadcast_atsc_true_peak", "type": "varies_by_platform", "label": "ATSC stricter (-2.0 vs -1.0)", "sourceLines": [5516, 5525]},
+
+    {"from": "constant:platform.youtube_max_duration", "to": "constant:platform.youtube_shorts_max_duration", "type": "varies_by_platform", "label": "long-form 12h vs Shorts 3min", "sourceLines": [5481, 5482]},
+    {"from": "constant:platform.youtube_max_duration", "to": "constant:platform.tiktok_max_duration", "type": "varies_by_platform", "label": "12h vs 10min", "sourceLines": [5481, 5486]},
+    {"from": "constant:platform.tiktok_max_duration", "to": "constant:platform.instagram_reels_max_duration", "type": "varies_by_platform", "label": "10min vs 90s", "sourceLines": [5486, 5483]},
+    {"from": "constant:platform.tiktok_max_duration", "to": "constant:platform.facebook_reels_max_duration", "type": "varies_by_platform", "label": "10min vs 90s", "sourceLines": [5486, 5490]},
+    {"from": "constant:platform.tiktok_max_duration", "to": "constant:platform.x_max_duration", "type": "varies_by_platform", "label": "10min vs 2:20", "sourceLines": [5486, 5488]},
+
+    {"from": "constant:platform.youtube_resolution", "to": "constant:platform.youtube_shorts_resolution", "type": "varies_by_platform", "label": "horizontal 1920x1080 vs vertical 1080x1920", "sourceLines": [5481, 5482]},
+    {"from": "constant:platform.tiktok_resolution", "to": "constant:platform.instagram_reels_resolution", "type": "varies_by_platform", "label": "same vertical resolution across short-form", "sourceLines": [5486, 5483]},
+    {"from": "constant:platform.tiktok_resolution", "to": "constant:platform.facebook_reels_resolution", "type": "varies_by_platform", "label": "same vertical resolution", "sourceLines": [5486, 5490]},
+
+    {"from": "constant:platform.youtube_max_size", "to": "constant:platform.tiktok_max_size", "type": "varies_by_platform", "label": "YouTube 256GB vs TikTok 500MB", "sourceLines": [5481, 5486]},
+    {"from": "constant:platform.youtube_max_size", "to": "constant:platform.x_max_size", "type": "varies_by_platform", "label": "YouTube 256GB vs X 512MB", "sourceLines": [5481, 5488]},
+    {"from": "constant:platform.facebook_feed_max_size", "to": "constant:platform.linkedin_max_size", "type": "varies_by_platform", "label": "FB 10GB vs LinkedIn 5GB", "sourceLines": [5489, 5487]},
+
+    {"from": "constant:platform.youtube_codec", "to": "constant:platform.tiktok_codec", "type": "varies_by_platform", "label": "YouTube accepts H.264/VP9/AV1; TikTok H.264 only", "sourceLines": [5481, 5486]},
+    {"from": "constant:codec.default_codec", "to": "constant:codec.vp9_1080p_bitrate", "type": "varies_by_platform", "label": "VP9 preferred for YouTube", "sourceLines": [5751, 5752]},
+
+    {"from": "constant:safe_zone.title_safe", "to": "constant:safe_zone.action_safe", "type": "implies", "label": "title safe (90%) is stricter subset of action safe (93%) per SMPTE ST 2046-1", "sourceLines": [5587, 5588]},
+    {"from": "constant:safe_zone.bottom_unsafe", "to": "constant:safe_zone.instagram_caption_zone", "type": "varies_by_platform", "label": "Instagram tighter than universal", "sourceLines": [5585, 5592]},
+    {"from": "constant:safe_zone.bottom_unsafe", "to": "constant:safe_zone.tiktok_right_buttons", "type": "varies_by_platform", "label": "TikTok adds right-side exclusion", "sourceLines": [5585, 5591]},
+    {"from": "constant:caption.position", "to": "constant:safe_zone.title_safe", "type": "implies", "label": "captions live within title-safe zone", "sourceLines": [5611, 5587]},
+
+    {"from": "constant:typography.wcag_aaa_normal_contrast", "to": "constant:typography.wcag_aa_normal_contrast", "type": "supersedes", "label": "AAA exceeds AA threshold", "sourceLines": [5677, 5676]},
+    {"from": "constant:accessibility.flash_max_per_second", "to": "constant:meta.override_principle", "type": "supersedes", "label": "legal accessibility supersedes override principle", "sourceLines": [5807, 5471]},
+    {"from": "constant:accessibility.brightness_change_max", "to": "constant:meta.override_principle", "type": "supersedes", "label": "legal accessibility non-overridable", "sourceLines": [5810, 5471]},
+    {"from": "constant:accessibility.color_only_rule", "to": "constant:color_space.srgb", "type": "supersedes", "label": "color-only rule applies regardless of color space", "sourceLines": [5835, 5729]},
+
+    {"from": "constant:caption.min_font_size", "to": "constant:typography.captions_min_font", "type": "implies", "label": "same value, redundant for cross-section reference", "sourceLines": [5612, 5662]},
+    {"from": "constant:caption.adult_reading_speed", "to": "constant:caption.pacing_energetic", "type": "implies", "label": "energetic VO matches reading speed ceiling", "sourceLines": [5605, 5646]},
+
+    {"from": "constant:resolution.frame_rate_60fps", "to": "constant:codec.h264_1080p_bitrate", "type": "implies", "label": "60fps demands top of bitrate range", "sourceLines": [5788, 5746]},
+    {"from": "constant:resolution.frame_rate_120fps", "to": "constant:resolution.frame_rate_30fps", "type": "implies", "label": "120fps source -> 25% speed -> 30fps output", "sourceLines": [5789, 5787]},
+    {"from": "constant:codec.frame_rate_no_mix_rule", "to": "constant:resolution.frame_rate_30fps", "type": "supersedes", "label": "mix rule supersedes default frame rate", "sourceLines": [5772, 5787]},
+
+    {"from": "constant:audio.duck_amount", "to": "constant:audio.music_under_speech_level_range", "type": "implies", "label": "ducking achieves the under-speech music range", "sourceLines": [5558, 5547]},
+    {"from": "constant:audio.music_dialogue_competition_range", "to": "constant:audio.frequency_mid_range", "type": "implies", "label": "competition lives mostly in mids", "sourceLines": [5573, 5569]},
+
+    {"from": "constant:logo.contrast", "to": "constant:typography.wcag_aa_large_contrast", "type": "implies", "label": "logo 3:1 = WCAG AA large", "sourceLines": [5715, 5676]},
+    {"from": "constant:logo.source_rule", "to": "constant:meta.override_principle", "type": "supersedes", "label": "logo source non-overridable for trademark integrity", "sourceLines": [5719, 5471]},
+
+    {"from": "constant:platform.linkedin_muted_view_pct", "to": "constant:caption.adult_reading_speed", "type": "implies", "label": "muted views make captions essential", "sourceLines": [5502, 5605]},
+    {"from": "constant:platform.facebook_muted_view_pct", "to": "constant:caption.adult_reading_speed", "type": "implies", "label": "muted views make captions essential", "sourceLines": [5505, 5605]},
+
+    {"from": "constant:codec.export_video_bitrate", "to": "constant:codec.h264_1080p_bitrate", "type": "implies", "label": "export bitrate sits within H.264 1080p range", "sourceLines": [5763, 5746]},
+    {"from": "constant:codec.export_min_resolution", "to": "constant:platform.facebook_feed_resolution", "type": "implies", "label": "1080p floor matches FB minimum", "sourceLines": [5773, 5489]},
+
+    {"from": "constant:accessibility.caption_coverage", "to": "constant:caption.no_span_hard_cut", "type": "implies", "label": "100% coverage requires careful cut handling", "sourceLines": [5821, 5614]},
+    {"from": "constant:accessibility.caption_accuracy", "to": "constant:accessibility.caption_coverage", "type": "implies", "label": "accuracy + coverage together define caption quality", "sourceLines": [5822, 5821]}
+  ]
+}

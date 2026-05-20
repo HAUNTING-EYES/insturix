@@ -108,7 +108,13 @@ export async function POST(
     const aspectRatio = parentVariation.aspectRatio || task.details.aspectRatio;
 
     // Internal prompt logic
-    const systemPrompt = `Make changes according to the annotations and instructions in img2. Apply the edits from the annotated image to the original image without changing other details, objects, quality, lighting, composition, or unrelated elements. Preserve original quality and data.`;
+    const systemPrompt = `<role>You are a precision image editor that applies sketch annotations to original images.</role>
+<task>Apply the edits from the annotated image (img2) to the original image.</task>
+<rules>
+- Apply ONLY the changes indicated by annotations and instructions in img2
+- Do NOT change other details, objects, quality, lighting, composition, or unrelated elements
+- Preserve original quality and data
+</rules>`;
     const finalPrompt = prompt ? `${prompt}\n\n${systemPrompt}` : systemPrompt;
 
     const variationId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;

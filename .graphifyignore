@@ -10,6 +10,7 @@ pnpm-lock.yaml
 *.min.css
 dist/
 build/
+vendor/
 coverage/
 .git/
 .claude/

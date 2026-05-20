@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getRenderProgress } from '@remotion/lambda/client';
-import { 
-  updateJobProgress, 
-  completeJob, 
-  failJob 
+import {
+  updateJobProgress,
+  completeJob,
+  failJob
 } from '@/lib/editron/services/render-job-service';
+import { addVideoToLink } from '@/lib/shared/project-links';
 
 export async function GET(request: Request) {
   try {
@@ -44,10 +45,46 @@ export async function GET(request: Request) {
     if (progress.done) {
       // Update database with completion status
       await completeJob(
-        renderId, 
-        progress.outputFile || '', 
+        renderId,
+        progress.outputFile || '',
         progress.outputSizeInBytes || 0
       );
+
+      // Brand Intelligence: emit video_rendered + transition status
+      try {
+        const { getDatabase } = await import('@/lib/editron/db/mongodb');
+        const db = await getDatabase();
+        const renderJob = await db.collection('editron_render_jobs').findOne({ _id: renderId } as any);
+        if (renderJob?.userId && renderJob?.projectId) {
+          const { emitBrandEvent } = await import('@/lib/shared/brand-events');
+          const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+
+          await transitionProjectStatus(renderJob.projectId, renderJob.userId, 'rendered', 'render_complete');
+
+          emitBrandEvent({
+            userId: renderJob.userId,
+            projectId: renderJob.projectId,
+            service: 'editron',
+            type: 'video_rendered',
+            payload: {
+              outputSize: progress.outputSizeInBytes || 0,
+              renderId,
+            },
+          }).catch((e) => console.warn('[RenderProgress] Brand event failed:', e));
+
+          // Project link: wire rendered video
+          try {
+            const linked = await addVideoToLink(renderJob.userId, renderJob.projectId, renderId);
+            if (linked) {
+              console.log(`[render/progress] Project link updated: project ${renderJob.projectId} → video ${renderId}`);
+            }
+          } catch (linkErr: any) {
+            console.error(`[render/progress] Project link update failed: ${linkErr.message}`);
+          }
+        }
+      } catch (brandErr: any) {
+        console.warn(`[RenderProgress] Brand intelligence wiring failed: ${brandErr.message}`);
+      }
 
       return NextResponse.json({
         type: 'success',
@@ -73,7 +110,23 @@ export async function GET(request: Request) {
       
       // Update database with error status
       await failJob(renderId, errorMessage);
-      
+
+      // Brand Intelligence: transition to failed
+      try {
+        const { getDatabase } = await import('@/lib/editron/db/mongodb');
+        const db = await getDatabase();
+        const renderJob = await db.collection('editron_render_jobs').findOne({ _id: renderId } as any);
+        if (renderJob?.userId && renderJob?.projectId) {
+          const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+          await transitionProjectStatus(
+            renderJob.projectId, renderJob.userId, 'failed', 'render_error',
+            { message: errorMessage, service: 'editron' },
+          );
+        }
+      } catch (brandErr: any) {
+        console.warn(`[RenderProgress] Brand failure wiring failed: ${brandErr.message}`);
+      }
+
       console.error('Render fatal error:', JSON.stringify(progress.errors, null, 2));
       return NextResponse.json({
         type: 'error',

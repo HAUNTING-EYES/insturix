@@ -1,11 +1,21 @@
 import React from "react";
-import { Download, Loader2, Bell, Save, X, Layers, Info } from "lucide-react";
+import { Download, Loader2, Bell, Save, X, Layers, Info, BarChart3, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { formatDistanceToNow } from "date-fns";
 
 /**
@@ -68,8 +78,77 @@ const RenderControls: React.FC<RenderControlsProps> = ({
   // Track if there are new renders
   const [hasNewRender, setHasNewRender] = React.useState(false);
 
+  // Quality gate: warn before render when score < 40
+  const QUALITY_WARN_THRESHOLD = 40; // ← Plan decision: "Score < 40 shows dialog"
+  const [qualityDialogOpen, setQualityDialogOpen] = React.useState(false);
+  const [qualityScore, setQualityScore] = React.useState<number | null>(null);
+  const [qualityIssueCount, setQualityIssueCount] = React.useState(0);
+  const [qualityChecking, setQualityChecking] = React.useState(false);
+
+  const handleRenderWithQualityCheck = React.useCallback(async () => {
+    if (!projectId || renderType !== "lambda") {
+      handleRender();
+      return;
+    }
+
+    setQualityChecking(true);
+    try {
+      const res = await fetch("/api/services/editron/quality-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const score = data.overallScore ?? 100;
+        const issues = data.issues?.length ?? 0;
+
+        if (score < QUALITY_WARN_THRESHOLD) {
+          setQualityScore(score);
+          setQualityIssueCount(issues);
+          setQualityDialogOpen(true);
+          setQualityChecking(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("[RenderControls] Quality check failed, proceeding:", err);
+    }
+
+    setQualityChecking(false);
+    handleRender();
+  }, [projectId, renderType, handleRender]);
+
   // Check if rendering is disabled via environment variable
   const isRenderDisabled = process.env.NEXT_PUBLIC_DISABLE_RENDER === "true";
+
+  // Alyzitron analysis state
+  const [analyzingId, setAnalyzingId] = React.useState<string | null>(null);
+  const [postRenderDialog, setPostRenderDialog] = React.useState<{ url: string } | null>(null);
+
+  const handleAnalyze = async (url: string, renderId?: string) => {
+    if (!projectId || analyzingId) return;
+    setAnalyzingId(renderId || 'dialog');
+    try {
+      const res = await fetch('/api/services/alyzitron/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          video_url: url,
+          editronProjectId: projectId,
+          metadata: { mimeType: 'video/mp4' },
+          storage: url.includes('storage.googleapis.com') ? 'gcs' : 'external',
+        }),
+      });
+      if (!res.ok) throw new Error(`Analysis failed: ${res.status}`);
+    } catch (err: any) {
+      console.error('[RenderControls] Analyze failed:', err.message);
+    } finally {
+      setAnalyzingId(null);
+      setPostRenderDialog(null);
+    }
+  };
 
   // Fetch render history on mount (for persistence across refreshes)
   React.useEffect(() => {
@@ -99,7 +178,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
     fetchHistory();
   }, [projectId, renderType]);
 
-  // Add new render to the list when completed
+  // Add new render to the list when completed + show post-render dialog
   React.useEffect(() => {
     if (state.status === "done") {
       setRenders((prev) => [
@@ -112,6 +191,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
         ...prev,
       ]);
       setHasNewRender(true);
+      if (state.url) setPostRenderDialog({ url: state.url });
     } else if (state.status === "error") {
       setRenders((prev) => [
         {
@@ -265,14 +345,28 @@ const RenderControls: React.FC<RenderControlsProps> = ({
                       return isExpired ? (
                         <span className="text-[10px] text-muted-foreground px-1.5">Expired</span>
                       ) : (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="text-zinc-200 hover:text-gray-800 h-6 w-6"
-                          onClick={() => handleDownload(render.url!)}
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </Button>
+                        <div className="flex items-center gap-0.5">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-zinc-200 hover:text-gray-800 h-6 w-6"
+                            onClick={() => handleAnalyze(render.url!, render.id)}
+                            disabled={analyzingId === render.id}
+                            title="Analyze with Alyzitron"
+                          >
+                            {analyzingId === render.id
+                              ? <Loader2 className="w-3 h-3 animate-spin" />
+                              : <BarChart3 className="w-3 h-3" />}
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-zinc-200 hover:text-gray-800 h-6 w-6"
+                            onClick={() => handleDownload(render.url!)}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       );
                     })()
                   )}
@@ -284,15 +378,20 @@ const RenderControls: React.FC<RenderControlsProps> = ({
       </Popover>
 
       <Button
-        onClick={handleRender}
+        onClick={handleRenderWithQualityCheck}
         size="sm"
         variant="outline"
-        disabled={state.status === "rendering" || state.status === "invoking" || isRenderDisabled}
+        disabled={state.status === "rendering" || state.status === "invoking" || isRenderDisabled || qualityChecking}
         className={`bg-gray-800 text-white border-gray-700 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50 ${isRenderDisabled ? "cursor-not-allowed" : ""}`}
         title={isRenderDisabled ? "Rendering is currently disabled" : undefined}
       >
         {isRenderDisabled ? (
           "Render Video"
+        ) : qualityChecking ? (
+          <>
+            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+            Checking quality...
+          </>
         ) : state.status === "rendering" ? (
           <>
             <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
@@ -307,6 +406,37 @@ const RenderControls: React.FC<RenderControlsProps> = ({
           `Render Video`
         )}
       </Button>
+
+      <AlertDialog open={qualityDialogOpen} onOpenChange={setQualityDialogOpen}>
+        <AlertDialogContent className="bg-zinc-900 border-zinc-700 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-400">
+              <AlertTriangle className="w-5 h-5" />
+              Low Quality Score: {qualityScore}/100
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-300">
+              Quality review found {qualityIssueCount} issue{qualityIssueCount !== 1 ? 's' : ''}.
+              Rendering with a low quality score may produce a video with visible problems.
+              You can still render — this is a warning, not a block.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-zinc-800 text-zinc-300 border-zinc-600 hover:bg-zinc-700">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-600 text-white hover:bg-amber-500"
+              onClick={() => {
+                setQualityDialogOpen(false);
+                setQualityChecking(false);
+                handleRender();
+              }}
+            >
+              Render Anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Cancel button — visible only during rendering */}
       {(state.status === "rendering" || state.status === "invoking") && handleCancel && (
@@ -354,6 +484,44 @@ const RenderControls: React.FC<RenderControlsProps> = ({
           <span>Chapter render (parallel)</span>
         </div>
       )}
+
+      {/* Post-render dialog: Download or Analyze */}
+      <AlertDialog open={!!postRenderDialog} onOpenChange={(open) => !open && setPostRenderDialog(null)}>
+        <AlertDialogContent className="bg-zinc-900 border-zinc-700 text-white max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base">Your video is ready</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400 text-sm">
+              Download your rendered video or send it to Alyzitron for quality analysis, engagement scoring, and improvement suggestions.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
+            <AlertDialogAction
+              className="bg-zinc-700 text-white hover:bg-zinc-600 w-full"
+              onClick={() => {
+                if (postRenderDialog?.url) handleDownload(postRenderDialog.url);
+                setPostRenderDialog(null);
+              }}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download Video
+            </AlertDialogAction>
+            <AlertDialogAction
+              className="bg-[#D4A652] text-zinc-900 hover:bg-[#c49542] w-full font-semibold"
+              disabled={analyzingId === 'dialog'}
+              onClick={() => {
+                if (postRenderDialog?.url) handleAnalyze(postRenderDialog.url);
+              }}
+            >
+              {analyzingId === 'dialog'
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending...</>
+                : <><BarChart3 className="w-4 h-4 mr-2" />Analyze with Alyzitron</>}
+            </AlertDialogAction>
+            <AlertDialogCancel className="bg-transparent border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white w-full mt-0">
+              Close
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };

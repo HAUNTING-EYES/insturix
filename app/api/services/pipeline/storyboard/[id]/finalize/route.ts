@@ -12,6 +12,7 @@ import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getAnalysis, selectBestSegment } from '@/lib/editron/services/five-track-analysis';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
+import { addProjectToLink } from '@/lib/shared/project-links';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -36,7 +37,7 @@ export async function POST(
 
     const { id } = await params;
     const body = await req.json();
-    const { aspectRatio = '16:9', includeVoiceover = true, includeCaptions = true } = body;
+    const { aspectRatio = '16:9', includeVoiceover = true, includeCaptions = true, brandId } = body;
 
     const storyboard = await getStoryboard(id, userId);
     if (!storyboard) {
@@ -688,9 +689,23 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // Create Editron project then save overlays + settings
+    // Reuse existing script-stage project (created at ThinkForge session time) or create new.
+    // storyboard.projectId is the ThinkForge sessionId (confusing name — legacy schema).
     const projectName = storyboard.title || 'Storyboard Video';
-    const project = await projectService.createProject(userId, projectName);
+    const existingProject = storyboard.projectId
+      ? await projectService.findProjectBySessionId(userId, storyboard.projectId)
+      : null;
+
+    const project = existingProject || await projectService.createProject(userId, projectName, { brandId });
+
+    // Update name + stage on reused project (it was created with a possibly-different title)
+    if (existingProject) {
+      const db2 = await getDatabase();
+      await db2.collection(COLLECTIONS.PROJECTS).updateOne(
+        { projectId: project.projectId },
+        { $set: { name: projectName, pipelineStage: 'edit', brandId: brandId || undefined, updatedAt: new Date() } },
+      );
+    }
 
     await projectService.saveProject(userId, project.projectId, {
       overlays,
@@ -725,6 +740,71 @@ export async function POST(
         },
       },
     );
+
+    // ─── Update project link with new projectId (fail-open) ────────
+    try {
+      const linked = await addProjectToLink(userId, id, project.projectId);
+      if (linked) {
+        console.log(`[finalize] Project link updated: storyboard ${id} → project ${project.projectId}`);
+      } else {
+        console.warn(`[finalize] No project link found for storyboard ${id} — link may not have been created at generate time`);
+      }
+    } catch (linkErr: any) {
+      console.error(`[finalize] Project link update failed: ${linkErr.message}`);
+    }
+
+    // ─── Graph sync: create Project + Scene nodes in Neo4j ────────
+    try {
+      if (process.env.QSTASH_TOKEN) {
+        const graphSyncUrl = (() => {
+          const base = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+          return `${base}/api/internal/workers/graph-sync`;
+        })();
+        const qstashGraph = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
+
+        await qstashGraph.publishJSON({
+          url: graphSyncUrl,
+          body: {
+            action: 'project_created',
+            data: {
+              projectId: project.projectId,
+              userId,
+              contentType: (storyboard as any).suggestedProfileCategory || 'brand-ad',
+              sceneCount: storyboard.scenes.length,
+              durationSec: currentFrame / fps,
+            },
+          },
+          retries: 3,
+        });
+
+        const sceneInputs = storyboard.scenes.map((s: any, idx: number) => ({
+          sceneIndex: idx,
+          mood: s.mood || null,
+          sceneType: s.sceneType || 'continuous',
+          contentSummary: (s.visualDescription || '').slice(0, 200),
+          subjects: (s.subjects || []).slice(0, 10),
+        }));
+
+        await qstashGraph.publishJSON({
+          url: graphSyncUrl,
+          body: {
+            action: 'scene_batch',
+            data: {
+              projectId: project.projectId,
+              version: 1,
+              scenes: sceneInputs,
+            },
+          },
+          retries: 3,
+        });
+
+        console.log(`[Finalize] Graph sync dispatched: project + ${sceneInputs.length} scenes`);
+      }
+    } catch (graphErr: any) {
+      console.warn(`[Finalize] Graph sync dispatch failed: ${graphErr.message}`);
+    }
 
     // ─── Dispatch BGM + SFX workers via QStash (fire-and-forget) ────
     // These run asynchronously AFTER the project is created. Each worker
@@ -1027,7 +1107,28 @@ export async function POST(
         suggestedProfileCategory: (storyboard as any).suggestedProfileCategory || undefined,
       };
       // Use embedding-enhanced detection (async, Gemini API). Falls back to keyword-only if unavailable.
-      const { profile: detectedProfile, autoSelected, detection } = await getAutoSelectedProfileWithEmbeddings(thinkforgeMetadata).catch(() => getAutoSelectedProfile(thinkforgeMetadata));
+      let { profile: detectedProfile, autoSelected, detection } = await getAutoSelectedProfileWithEmbeddings(thinkforgeMetadata).catch(() => getAutoSelectedProfile(thinkforgeMetadata));
+
+      // Phase 4b: Graphiti preference boost (server-side only)
+      try {
+        const { searchGraphitiFacts } = await import('@/lib/editron/services/graph-service');
+        const facts = await searchGraphitiFacts(
+          'What editing profile does this user prefer or override to?',
+          userId,
+          3,
+        );
+        if (facts.length > 0) {
+          const { EDIT_PROFILES } = await import('@/lib/editron/data/edit-profiles');
+          const profileIds = Object.keys(EDIT_PROFILES);
+          const preferred = profileIds.find(id => facts.some(f => f.includes(id)));
+          if (preferred && preferred !== detectedProfile.profileId) {
+            console.log(`[Finalize] Graphiti suggests profile ${preferred} over detected ${detectedProfile.profileId}`);
+            detectedProfile = EDIT_PROFILES[preferred as keyof typeof EDIT_PROFILES];
+            detection = { ...detection, confidence: Math.min(1.0, detection.confidence + 0.15), reasoning: [...detection.reasoning, `Graphiti: user historically prefers ${preferred}`] };
+          }
+        }
+      } catch { /* Graphiti unavailable */ }
+
       console.log(`[Finalize] Profile detection: ${detectedProfile.profileId} confidence=${detection.confidence.toFixed(2)} auto=${autoSelected} reasoning=[${detection.reasoning.slice(0, 3).join('; ')}]`);
       const profileId = detectedProfile.profileId;
       // Store on project so video worker can dispatch Director with correct profile
@@ -1044,6 +1145,29 @@ export async function POST(
     // Log pipeline warning summary
     if (pipelineWarnings.hasErrors() || pipelineWarnings.count().warnings > 0) {
       console.log(`[Finalize] ${pipelineWarnings.getSummary()}`);
+    }
+
+    // ─── Brand Intelligence: emit project_created + set status to generating ───
+    try {
+      const { emitBrandEvent } = await import('@/lib/shared/brand-events');
+      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+
+      await transitionProjectStatus(project.projectId, userId, 'generating', 'pipeline_finalize');
+
+      emitBrandEvent({
+        userId,
+        projectId: project.projectId,
+        service: 'pipeline',
+        type: 'project_created',
+        payload: {
+          overlayCount: overlays.length,
+          durationFrames: currentFrame,
+          sceneCount: storyboard.scenes?.length ?? 0,
+          warningCount: warnings.length,
+        },
+      }).catch((e) => console.warn('[Finalize] Brand event failed:', e));
+    } catch (brandErr: any) {
+      console.warn(`[Finalize] Brand intelligence wiring failed: ${brandErr.message}`);
     }
 
     return NextResponse.json({

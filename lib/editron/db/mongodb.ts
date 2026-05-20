@@ -66,8 +66,10 @@ export const COLLECTIONS = {
   CHECKPOINTS: 'checkpoints',
   CHAT_SESSIONS: 'chatSessions',
   MEDIA_ASSETS: 'mediaAssets',
+  MEDIA_UPLOADS: 'mediaUploads',
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
   STYLE_PROFILES: 'styleProfiles',
+  PROJECT_LINKS: 'project_links',
 } as const;
 
 /**
@@ -82,6 +84,8 @@ export async function initializeIndexes(): Promise<void> {
     { key: { projectId: 1 }, name: 'projectId_unique', unique: true },
     { key: { userId: 1, createdAt: -1 }, name: 'userId_createdAt' },
     { key: { userId: 1, updatedAt: -1 }, name: 'userId_updatedAt' },
+    { key: { status: 1, updatedAt: -1 }, name: 'status_updatedAt' },
+    { key: { brandId: 1, status: 1 }, name: 'brandId_status' },
   ]);
 
   // Checkpoints indexes with TTL
@@ -106,6 +110,26 @@ export async function initializeIndexes(): Promise<void> {
     { key: { userId: 1, uploadedAt: -1 }, name: 'userId_uploadedAt' },
     { key: { projectId: 1 }, name: 'projectId' },
     { key: { assetId: 1, userId: 1 }, name: 'assetId_userId', unique: true },
+  ]);
+
+  // Media uploads tracking (multipart) — TTL on lastActivityAt so active slow uploads survive
+  await db.collection(COLLECTIONS.MEDIA_UPLOADS).createIndexes([
+    { key: { assetId: 1, userId: 1 }, name: 'assetId_userId', unique: true },
+    {
+      key: { lastActivityAt: 1 },
+      name: 'ttl_lastActivity',
+      expireAfterSeconds: 604800, // 7 days
+    },
+  ]);
+
+  // Project links indexes (cross-service content lineage)
+  await db.collection(COLLECTIONS.PROJECT_LINKS).createIndexes([
+    { key: { universalId: 1 }, name: 'universalId_unique', unique: true },
+    { key: { userId: 1, brandId: 1 }, name: 'userId_brandId' },
+    { key: { userId: 1, sessionId: 1 }, name: 'userId_sessionId' },
+    { key: { userId: 1, storyboardIds: 1 }, name: 'userId_storyboardIds' },
+    { key: { userId: 1, projectIds: 1 }, name: 'userId_projectIds' },
+    { key: { userId: 1, videoIds: 1 }, name: 'userId_videoIds' },
   ]);
 
   console.log('Database indexes initialized successfully');

@@ -42,8 +42,9 @@ export async function generateBackgroundMusic(
 
   const assetId = `bgm_${nanoid(12)}`;
 
-  // Build a music-specific prompt (instrumental, no vocals for BGM)
-  const musicPrompt = `${prompt}, instrumental only, no vocals, background music for video`.substring(0, 300);
+  // Prompt already built by buildMusicPrompt w/ structure+key+tempo tags.
+  // 500 chars to accommodate song structure arc (was 300 → truncated structure).
+  const musicPrompt = prompt.substring(0, 500);
 
   console.log(`[BGM] Generating with MiniMax Music v2: prompt="${musicPrompt.substring(0, 100)}", targetDuration=${durationSec}s`);
 
@@ -121,30 +122,124 @@ export function buildMusicPrompt(
   // Prefer musicDescription (new, music-only), fall back to audioDescription (old, mixed)
   const musicDescriptions = scenes.map(s => s.musicDescription || s.audioDescription).filter(Boolean) as string[];
   const moods = [...new Set(scenes.map(s => s.mood).filter(Boolean))] as string[];
-  const hasFast = scenes.some(s => s.editDirections?.pacing === 'fast');
+  const pacingValues = scenes.map(s => s.editDirections?.pacing).filter(Boolean);
+  const isFast = pacingValues.some(p => p === 'fast' || p === 'beat-synced' || p === 'building');
+  const isSlow = pacingValues.some(p => p === 'slow');
+
+  // Determine BPM tier (0-6) based on pacing and mood
+  const bpmTiers = [
+    { range: '40-60 BPM', prompt: 'meditative, somber, ambient, drone, memorials, meditation' },
+    { range: '60-80 BPM', prompt: 'calm, nostalgic, lo-fi, brand story, testimonial' },
+    { range: '80-100 BPM', prompt: 'moderate, conversational, pop ballad, jazz, corporate, tutorial' },
+    { range: '100-120 BPM', prompt: 'upbeat, motivational, pop, indie, product launch, SaaS' },
+    { range: '120-140 BPM', prompt: 'energetic, driving, EDM, house, hype reel, fitness' },
+    { range: '140-160 BPM', prompt: 'intense, aggressive, D&B, dubstep, action, gaming' },
+    { range: '160+ BPM', prompt: 'extreme, chaotic, hardcore, extreme sports, comedy fast-forward' },
+  ];
+
+  let tierIndex = 2; // Default: 80-100 BPM
+  if (isFast) {
+    tierIndex = 4; // 120-140
+    if (moods.includes('energetic')) tierIndex = 5; // 140-160
+    if (moods.includes('energetic') && scenes.length > 5) tierIndex = 6; // 160+
+  } else if (isSlow) {
+    tierIndex = 1; // 60-80
+    if (moods.includes('calm') || moods.includes('mysterious')) tierIndex = 0; // 40-60
+  } else {
+    // Medium pacing
+    if (moods.includes('energetic')) tierIndex = 4;
+    else if (moods.includes('inspirational') || moods.includes('playful')) tierIndex = 3;
+    else if (moods.includes('calm')) tierIndex = 1;
+  }
+
+  const selectedBpm = bpmTiers[tierIndex];
   const hasVO = scenes.some(s => (s.narration?.length || 0) > 0);
   const duration = totalDurationSeconds || scenes.length * 5;
 
-  // If ThinkForge provided detailed per-scene music direction, use it as energy arc
+  // Map moods to specific musical Key & Mode
+  const keyModeMap: Record<string, string> = {
+    happy: 'Major (Happy, triumphant)',
+    triumphant: 'Major (Happy, triumphant)',
+    inspirational: 'Major (Happy, triumphant)',
+    playful: 'Major (Happy, triumphant)',
+    energetic: 'Major (Happy, triumphant)',
+    sad: 'Minor (Sad, dramatic)',
+    dramatic: 'Minor (Sad, dramatic)',
+    somber: 'Minor (Sad, dramatic)',
+    tense: 'Minor (Sad, dramatic)',
+    sophisticated: 'Dorian (Sophisticated, jazzy)',
+    jazzy: 'Dorian (Sophisticated, jazzy)',
+    bluesy: 'Mixolydian (Bluesy, warm)',
+    warm: 'Mixolydian (Bluesy, warm)',
+    dreamy: 'Lydian (Dreamy, ethereal)',
+    ethereal: 'Lydian (Dreamy, ethereal)',
+    mysterious: 'Lydian (Dreamy, ethereal)',
+    simple: 'Pentatonic Major (Simple, universal, folk)',
+    universal: 'Pentatonic Major (Simple, universal, folk)',
+    folk: 'Pentatonic Major (Simple, universal, folk)',
+    calm: 'Pentatonic Major (Simple, universal, folk)',
+    nostalgic: 'Pentatonic Major (Simple, universal, folk)',
+    moody: 'Pentatonic Minor (Moody, powerful)',
+    powerful: 'Pentatonic Minor (Moody, powerful)',
+    intense: 'Pentatonic Minor (Moody, powerful)',
+    // Fix 28: Non-Western music systems
+    devotional: 'Raga Bhairavi (Indian devotional, morning raga, meditative)',
+    spiritual: 'Raga Yaman (Indian evening raga, serene, ascending)',
+    festive: 'Raga Bilawal (Indian festive, bright, celebratory)',
+    arabic: 'Maqam Hijaz (Arabic/Middle Eastern, ornamental, evocative)',
+    middleeastern: 'Maqam Bayati (Arabic warm, conversational)',
+    african: 'Polyrhythmic pattern (African cross-rhythm, layered percussion)',
+    latin: 'Clave-based rhythm (Latin, syncopated, danceable)',
+    celtic: 'Mixolydian/Dorian (Celtic, modal folk, drone-based)',
+  };
+  const mappedMode = moods.map(m => keyModeMap[m.toLowerCase()]).find(Boolean);
+  if (!mappedMode && moods.length > 0) {
+    console.warn(`[BGM] No key/mode mapping for moods: ${moods.join(', ')}. Defaulting to Major.`);
+  }
+  const selectedKeyMode = mappedMode || 'Major';
+
+  // Combined structure: percentage timing (adaptive to video length) + bar descriptions (musical intent).
+  // Merged from our Fix 19 (percentages) + Prateek's commit 99572355 (bar descriptions).
+  const structure = scenes.length > 4
+    ? [
+        'INTRO (0-10%, 2-4 bars): sparse, sets mood, matches opening',
+        'BUILD (10-40%, 4-8 bars): layers add, tension increases',
+        'PEAK (40-65%, 2-4 bars): full impact climax',
+        'SUSTAIN (65-85%): energy holds',
+        'RESOLVE (85-100%, 2-4 bars): settles, fadeout',
+      ].join(' | ')
+    : scenes.length > 2
+      ? [
+          'INTRO (0-15%): sparse, sets mood',
+          'BUILD (15-50%): layers add',
+          'PEAK (50-75%): climax',
+          'RESOLVE (75-100%): settles, fadeout',
+        ].join(' | ')
+      : 'ambient bed, steady energy, gentle fadeout final 3s';
+
+  // If ThinkForge provided per-scene music direction → use as energy arc
   if (musicDescriptions.length > 0) {
     return [
+      `structure: ${structure}`,
       `Per-scene energy arc: ${musicDescriptions.join(' → ')}`,
       `${duration} seconds`,
-      'instrumental only, no vocals, no lyrics, no humming',
+      `key/mode: ${selectedKeyMode}`,
+      'instrumental only, no vocals, background music for video',
       hasVO ? 'leave mid-range clear for speech' : 'full-range mix OK',
       'clean production, gentle fade-out in final 3 seconds',
     ].join(', ');
   }
 
-  // Fallback: infer from moods and pacing
+  // Fallback: infer from moods + pacing
   return [
     moods.length > 0 ? `${moods.join(' and ')} mood` : 'cinematic ambient',
+    `structure: ${structure}`,
     `${duration} seconds`,
-    `energy: ${scenes.length > 4 ? 'builds to peak at 70% then resolves' : 'steady'}`,
-    hasFast ? 'tempo 120-140 BPM, driving rhythm' : 'tempo 80-100 BPM, relaxed',
-    'instrumental only, no vocals, no lyrics, no humming',
+    `key/mode: ${selectedKeyMode}`,
+    `tempo ${selectedBpm.range}, ${selectedBpm.prompt}`,
+    'instrumental only, no vocals, background music for video',
     hasVO ? 'leave mid-range clear for speech' : 'full-range mix OK',
-    'clean production, gentle fade-out in final 3 seconds',
+    'clean production',
   ].join(', ');
 }
 

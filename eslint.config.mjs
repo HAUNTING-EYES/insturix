@@ -15,6 +15,7 @@ const eslintConfig = [
       "app/api/services/thinkforge/**",
       "app/dashboard/thinkforge/**",
       "components/dashboard/ThinkForge/**",
+      "lib/thinkforge/**",
       "lib/middleware/services/thinkforge.ts",
       "./lib/utils/thinkforgeSession.ts",
       "./lib/utils/sessionMetadata.ts",
@@ -27,7 +28,7 @@ const eslintConfig = [
   {
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
-      "@typescript-eslint/no-unused-vars": "warn",
+      "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
       "react-hooks/rules-of-hooks": "warn",
       "react-hooks/exhaustive-deps": "warn",
       "react/no-unescaped-entities": "warn",

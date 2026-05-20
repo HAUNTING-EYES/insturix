@@ -1,0 +1,160 @@
+{
+  "script_id": "mcdonalds_brand_ad",
+  "script_text": "",
+  "expected_scenes": [
+    {
+      "title": "The Alarm",
+      "narration": "Every morning starts the same way...",
+      "visualDescription": "Close-up of a phone alarm going off at 6:30 AM on a nightstand, soft morning light filtering through curtains",
+      "musicDescription": "Soft fingerpicked acoustic guitar, gentle and warm",
+      "sfxDescription": "Phone alarm chime, sheets rustling",
+      "durationSeconds": 4,
+      "mood": "calm",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": [],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "The Drive",
+      "narration": "The same route. The same anticipation.",
+      "visualDescription": "A red sedan driving through quiet suburban streets at dawn, golden hour light streaking across the windshield",
+      "musicDescription": "Guitar continues, light percussion enters",
+      "sfxDescription": "Car engine hum, birds chirping",
+      "durationSeconds": 4,
+      "mood": "calm",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": {"type": "soft-cut", "durationMs": 500},
+        "onScreenText": [],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "The Golden Arches",
+      "narration": "Until that first glimpse of gold.",
+      "visualDescription": "The iconic McDonald's golden arches sign glowing against a pink-orange sunrise sky, shot from the car approaching the drive-through",
+      "musicDescription": "Music lifts, add strings, tempo increases slightly",
+      "sfxDescription": "",
+      "durationSeconds": 4,
+      "mood": "inspirational",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": {"type": "dissolve", "durationMs": 500},
+        "onScreenText": ["The Golden Standard"],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "The Order",
+      "narration": "Fresh. Warm. Exactly what you needed.",
+      "visualDescription": "Extreme close-up of a hand reaching through the drive-through window receiving a warm McDonald's bag, steam rising from the bag, worker smiling in the background",
+      "musicDescription": "Full band kicks in, drums, bass, bright pop feel",
+      "sfxDescription": "Paper bag crinkling, cash register beep",
+      "durationSeconds": 4,
+      "mood": "energetic",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": {"type": "hard-cut", "durationMs": 0},
+        "onScreenText": [],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "The Unwrap",
+      "narration": "The McMuffin. The hash brown. The coffee. The moment.",
+      "visualDescription": "Hands unwrapping an Egg McMuffin on the car dashboard, cheese stretching",
+      "musicDescription": "Upbeat pop at full energy, syncopated rhythm",
+      "sfxDescription": "Wrapper crinkling, crispy crunch, coffee pour",
+      "durationSeconds": 6,
+      "mood": "energetic",
+      "sceneType": "montage",
+      "editDirections": {
+        "transition": {"type": "zoom-punch", "durationMs": 270},
+        "onScreenText": [],
+        "pacing": "fast"
+      },
+      "subShots": [
+        {
+          "description": "Hands unwrapping an Egg McMuffin on the car dashboard, cheese stretching",
+          "independentGeneration": true
+        },
+        {
+          "description": "Close-up of crispy hash brown being bitten, crunch visible",
+          "independentGeneration": true
+        },
+        {
+          "description": "Hot coffee cup with steam swirling, McDonald's logo visible",
+          "independentGeneration": true
+        },
+        {
+          "description": "Person taking first bite, eyes closing in satisfaction",
+          "independentGeneration": true
+        }
+      ]
+    },
+    {
+      "title": "The Smile",
+      "narration": "This isn't just breakfast.",
+      "visualDescription": "Medium shot of the driver sitting in the parked car, morning sunlight on their face, genuine smile while chewing, dashboard breakfast spread visible",
+      "musicDescription": "Music sustains at peak energy",
+      "sfxDescription": "",
+      "durationSeconds": 4,
+      "mood": "inspirational",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": {"type": "flash", "durationMs": 270},
+        "onScreenText": [],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "Logo Reveal",
+      "narration": "I'm lovin' it.",
+      "visualDescription": "McDonald's golden arches logo on a clean warm-toned background with the tagline",
+      "musicDescription": "Iconic ba da ba ba baa jingle",
+      "sfxDescription": "Signature McDonald's jingle notes",
+      "durationSeconds": 2,
+      "mood": "playful",
+      "sceneType": "logo-reveal",
+      "editDirections": {
+        "transition": {"type": "dip-to-black", "durationMs": 600},
+        "onScreenText": ["i'm lovin' it"],
+        "pacing": null
+      },
+      "subShots": null
+    },
+    {
+      "title": "End Card",
+      "narration": "",
+      "visualDescription": "Text card with app download CTA on McDonald's red background",
+      "musicDescription": "Jingle fades out",
+      "sfxDescription": "",
+      "durationSeconds": 2,
+      "mood": "neutral",
+      "sceneType": "text-card",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": ["Order ahead on the McDonald's app", "#MorningRitual"],
+        "pacing": null
+      },
+      "subShots": null
+    }
+  ],
+  "expected_global": {
+    "overallMusicPrompt": "Soft acoustic guitar building to upbeat pop with iconic McDonald's jingle",
+    "suggestedProfileCategory": "industry-vertical",
+    "globalEditDirections": {
+      "pacing": "building"
+    }
+  },
+  "target_duration": 30,
+  "art_style": ""
+}

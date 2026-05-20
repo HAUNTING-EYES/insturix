@@ -272,6 +272,7 @@ export function useThinkForgeSession() {
     sessionId,
     preferences,
     projectMeta,
+    setProjectMeta,
     isHydrating,
     hydrate,
     closeSession,

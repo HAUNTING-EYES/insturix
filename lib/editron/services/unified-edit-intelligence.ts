@@ -57,10 +57,16 @@ export interface UnifiedContext {
   colorPalette?: string[];
   environmentNotes?: string;
   editProfileName?: string;
+
+  /** True when project is Mode 2 raw footage with transcript-driven scenes */
+  isRawFootage?: boolean;
+  /** Detected content type from transcript analysis */
+  rawFootageContentType?: string;
 }
 
 export interface SceneContext {
   sceneIndex: number;
+  assetId?: string;
   fromFrame: number;
   durationFrames: number;
 
@@ -239,6 +245,7 @@ export async function assembleUnifiedContext(
 
     scenes.push({
       sceneIndex: i,
+      assetId: (vo as any).assetId || '',
       fromFrame: vo.from,
       durationFrames: vo.durationInFrames,
       title: descriptor.title || `Scene ${i + 1}`,
@@ -355,6 +362,28 @@ export async function assembleUnifiedContext(
 
   console.log(`[UnifiedIntel] Anchors: ${mergedAnchors.length} total (${mergedAnchors.filter(a => a.isCompound).length} compound), from ${anchors.length} raw sources`);
 
+  // Detect raw footage mode
+  const rfa = project.rawFootageAnalysis;
+  const isRawFootage = !!(rfa?.segments?.length > 0);
+
+  // For raw footage: enrich scenes with emphasis word positions as natural cut points
+  if (isRawFootage && rfa.transcription?.words) {
+    for (const scene of scenes) {
+      if (scene.voiceoverWords?.length > 0) continue; // Already has VO words
+      // Find transcript words that fall within this scene's time range
+      const sceneStartMs = (scene.fromFrame / fps) * 1000;
+      const sceneEndMs = ((scene.fromFrame + scene.durationFrames) / fps) * 1000;
+      const wordsInScene = rfa.transcription.words.filter(
+        (w: any) => w.startMs >= sceneStartMs && w.endMs <= sceneEndMs,
+      );
+      if (wordsInScene.length > 0) {
+        scene.voiceoverWords = wordsInScene.map((w: any) => ({
+          word: w.word, startMs: w.startMs - sceneStartMs, endMs: w.endMs - sceneStartMs,
+        }));
+      }
+    }
+  }
+
   return {
     projectId,
     fps,
@@ -366,6 +395,8 @@ export async function assembleUnifiedContext(
     overallMusicPrompt,
     colorPalette,
     environmentNotes,
+    isRawFootage,
+    rawFootageContentType: rfa?.contentTypeDetection?.contentType,
   };
 }
 
@@ -427,7 +458,7 @@ const SceneIntentSchema = z.object({
     sfxOnEntry: z.string().optional().describe('SFX when scene starts: "whoosh", "riser", "impact", etc.'),
     sfxAtPeak: z.string().optional().describe('SFX at decisive moment: "bass-hit", "ding", "pop", etc.'),
   }).describe('Audio treatment for this scene'),
-  graphicIntents: z.array(GraphicIntentSchema).max(3).describe('Graphics to place in this scene (max 3). Include ALL onScreenText entries as separate graphics.'),
+  graphicIntents: z.array(GraphicIntentSchema).max(8).describe('Graphics for this scene. Only include entries matching the GRAPHIC RULES conditions for this density level. Default: empty.'),
   shakeIntent: z.enum([
     'none',              // No camera shake
     'subtle-at-peak',    // Light shake at decisive moment (emphasis)
@@ -613,12 +644,14 @@ export async function generateCreativeIntentPlan(
 
   const model = google(DEFAULT_CONFIG.aiModels.unifiedIntelligenceModel);
 
-  const { object } = await generateObject({
+  const { geminiRetry } = await import('@/lib/pipeline/gemini-retry');
+  const { object } = await geminiRetry(() => generateObject({
     model,
     schema: CreativeIntentPlanSchema,
     prompt: contextSummary,
     temperature: DEFAULT_CONFIG.aiModels.editingTemperature,
-  });
+    seed: 1, // Rule 35: deterministic edit decisions for same project. Temperature 0.3 alone is not enough.
+  }));
 
   // Defensive: Vercel AI SDK's generateObject can return undefined for nested
   // arrays/objects when Gemini omits optional fields. Guard every access.
@@ -670,21 +703,30 @@ function buildCreativeIntentPrompt(
     graphicDensity?: string;
     style?: string;
     assetBriefings?: Map<string, { promptText: string; slopFlags: Array<{ startFrame: number; endFrame: number; description: string }> }>;
+    brandBlock?: string; // XML brand context from buildBrandContextBlock()
   },
 ): string {
   const fps = context.fps;
   const totalSec = Math.round(context.totalDurationMs / 1000);
 
   // Start with the same proven creative principles, but reframed for intent output
-  let prompt = `You are the Creative Director for a ${totalSec}-second video. You make WHAT and WHY decisions for each scene. You NEVER specify frame numbers — code handles precision.
+  // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+  // Restructured from markdown ## headers to XML tags for better LLM
+  // instruction-following. Data (scenes) appended LAST.
+  let prompt = `<role>
+You are the Creative Director for a ${totalSec}-second video. You make WHAT and WHY decisions for each scene. You NEVER specify frame numbers — code handles precision.
+</role>
 
-## YOUR JOB
+<task>
 For each scene, describe:
 1. What is THE decisive moment (in words, not frames)
 2. What edit decisions serve that moment (zoom, transition, pacing, audio, graphics)
 3. WHY — which editing principle justifies each choice
+</task>
 
-## MURCH'S RULE OF SIX (your decision hierarchy)
+${options.brandBlock || ''}
+<rules>
+RULE 1 — MURCH'S RULE OF SIX (your decision hierarchy):
 1. EMOTION (51%) — Does this make the viewer FEEL something?
 2. STORY (23%) — Does this advance the narrative?
 3. RHYTHM (10%) — Does this maintain or break the pacing pattern intentionally?
@@ -693,24 +735,24 @@ For each scene, describe:
 6. 3D CONTINUITY (4%) — Does spatial continuity make sense?
 A technically perfect decision that kills emotion is a BAD decision.
 
-## DECISIVE MOMENT PRINCIPLE
-Each scene has ONE peak. ALL decisions serve it:
-- Before peak: build (slower, tighter, rising energy)
-- AT peak: maximum emphasis
-- After peak: release (wider, dissolve, softer)
+RULE 2 — DECISIVE MOMENT PRINCIPLE:
+Each scene has ONE peak. ALL decisions serve it.
+Before peak: build (slower, tighter, rising energy). AT peak: maximum emphasis. After peak: release (wider, dissolve, softer).
 
-## CONTRAST CREATES IMPACT
+RULE 3 — CONTRAST CREATES IMPACT:
 Fast only feels fast after slow. A punch-zoom hits only after a static shot.
 After high-intensity, the next scene MUST be low-intensity.
 
-## HARD BUDGETS (${totalSec}s video)
+RULE 4 — HARD BUDGETS (${totalSec}s video):
 - Punch-zooms: MAX ${Math.round(3 * totalSec / 30)}
 - Camera shakes: MAX ${Math.round(2 * totalSec / 30)}
 - Graphics: MAX ${Math.round(7 * totalSec / 30)}, minimum 3s apart
 - "Loud" decisions (punch, shake, flash): MAX 2-3 total. Everything else "quiet."
 - Flashy transitions: NEVER two consecutive
 
-## PROJECT: ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
+RULE 5 — PROJECT CONTEXT:
+${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
+</rules>
 `;
 
   // Global context (same as before)
@@ -724,6 +766,24 @@ After high-intensity, the next scene MUST be low-intensity.
   if (profileName) {
     prompt += `\nEDIT PROFILE: "${profileName}"\n`;
     prompt += `Target pacing: ${options.targetCutsPerMinute || 10} cuts/min. Graphics density: ${options.graphicDensity || 'moderate'}.\n`;
+    const densityGuidance = options.graphicDensity === 'minimal'
+      ? `GRAPHIC RULES (minimal density):
+- At most 1 graphic per 5 scenes. Most scenes: graphicIntents should contain only {type: "none"}.
+- ONLY place a graphic if the scene contains: (a) first appearance of a named person → lower-third, (b) brand/logo at opening or closing scene → logo-reveal.
+- Default for all other scenes: no graphics.
+- onScreenText entries: skip unless they match condition (a) or (b) above.`
+      : options.graphicDensity === 'heavy'
+      ? `GRAPHIC RULES (heavy density):
+- Up to 2 graphics per scene.
+- Place graphics for: all named people, statistics, key terms, CTAs, brand mentions.
+- Use the most specific graphic type for each entry.
+- onScreenText entries: include all that are relevant.`
+      : `GRAPHIC RULES (moderate density):
+- At most 1 graphic per 2 scenes. Many scenes should have no graphics.
+- ONLY place a graphic if the scene contains: (a) first appearance of a named person → lower-third, (b) a specific number (percentage, dollar amount, count) → stat-counter, (c) brand/logo at opening or closing → logo-reveal, (d) a direct quote → quote-card.
+- Default for scenes without a matching condition: no graphics.
+- onScreenText entries: include only if they match a condition above.`;
+    prompt += `<graphic_density_rules>\n${densityGuidance}\nNarrative arc: opening scenes get introductions, closing scenes get brand moments, middle scenes only get graphics if content matches a condition above.\n</graphic_density_rules>\n`;
   }
 
   // Narrative arc (same detection as before)
@@ -756,10 +816,10 @@ After high-intensity, the next scene MUST be low-intensity.
     prompt += `Narration: "${scene.narration || '(silent)'}"\n`;
     prompt += `Mood: ${scene.mood}\n`;
 
-    // Use compressed asset briefing if available, otherwise fall back to raw data
-    // Asset briefings are keyed by assetId — find the matching one for this scene's video
-    const briefing = options.assetBriefings?.values()
-      ? Array.from(options.assetBriefings.values()).find((_, idx) => idx === scene.sceneIndex)
+    // Use compressed asset briefing if available, otherwise fall back to raw data.
+    // Briefings Map is keyed by assetId. Match via scene.assetId (added to context).
+    const briefing = scene.assetId && options.assetBriefings
+      ? options.assetBriefings.get(scene.assetId) || null
       : null;
 
     if (briefing) {
@@ -779,9 +839,8 @@ After high-intensity, the next scene MUST be low-intensity.
     if (scene.scriptTransition) prompt += `Script transition: ${scene.scriptTransition.type}\n`;
     if (scene.cameraDirection) prompt += `Camera: ${scene.cameraDirection}\n`;
 
-    // On-screen text (must be reproduced VERBATIM as graphic intents)
     if (scene.onScreenText && scene.onScreenText.length > 0) {
-      prompt += `ON-SCREEN TEXT (create one graphic per entry, use text VERBATIM):\n`;
+      prompt += `ON-SCREEN TEXT (candidates — include only entries matching a graphic density rule above, use text VERBATIM):\n`;
       scene.onScreenText.forEach((t, i) => prompt += `  ${i + 1}. "${t}"\n`);
     }
 
@@ -813,12 +872,13 @@ After high-intensity, the next scene MUST be low-intensity.
     prompt += '\n';
   }
 
-  prompt += `## OUTPUT
-For EACH scene, provide creative intent using the structured schema. Remember:
+  prompt += `<output_format>
+For EACH scene, provide creative intent using the structured schema.
 - decisiveMoment: describe in WORDS, not frame numbers
 - reasoning: cite Murch's hierarchy or editing principles
-- graphicIntents: include ALL onScreenText entries as separate graphics
+- graphicIntents: only include entries matching the GRAPHIC RULES for this density level (see above)
 - The code will resolve your creative descriptions to exact frames using video analysis data
+</output_format>
 `;
 
   return prompt;
@@ -833,10 +893,12 @@ function buildContextSummary(
   const fps = context.fps;
   const totalSec = Math.round(context.totalDurationMs / 1000);
 
-  let prompt = `You are an expert video editor operating under the Director Knowledge Base — a professional film editing intelligence system.
+  let prompt = `<role>You are an expert video editor operating under the Director Knowledge Base — a professional film editing intelligence system.</role>
 
+<task>Generate edit decisions for a ${totalSec}s video at ${fps}fps with ${context.scenes.length} scenes. Every decision must serve Murch's Rule of Six hierarchy. When rules conflict, higher criteria win.</task>
+
+<rules>
 ## CORE PHILOSOPHY (Murch's Rule of Six)
-Every decision must serve this hierarchy. When rules conflict, higher criteria win:
 1. EMOTION (51%) — Does this make the viewer FEEL something?
 2. STORY (23%) — Does this advance the narrative?
 3. RHYTHM (10%) — Does this maintain or intentionally break the pacing pattern?
@@ -884,8 +946,9 @@ Track your previous decision intensity. After a high-intensity decision (zoom-pu
 | Energetic | Punch-in | Zoom-punch, flash | Impact | High-contrast |
 | Nostalgic/Warm | Drift zoom | Dissolve, film-burn | None | Vintage-film |
 | Professional | Minimal push | Hard-cut, dissolve | None | Minimal-grade |
+</rules>
 
-## PROJECT: ${totalSec}s video, ${fps}fps, ${context.scenes.length} scenes
+<output_format>Edit decisions per scene with Murch reasoning: zoom, transition, shake, filter, graphics, pacing — each justified by which Rule of Six criterion it serves.</output_format>
 
 `;
 
@@ -990,13 +1053,31 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
   This is the Hormozi signature: freeze → stat-counter animates → hold → unfreeze.
 - S-002: AI-generated video: NEVER below 0.5x speed (artifacts become obvious).\n`;
 
+  // ─── Part 8: Eisenstein Montage Vocabulary (Fix 21) ─────────
+  prompt += `\n## MONTAGE METHODS (Sergei Eisenstein — select the most appropriate for each scene's pacing):
+- **METRIC**: Fixed rhythmic cutting. Every N beats = a cut. For: music-driven montages, lyric videos, product reveals timed to BPM.
+- **RHYTHMIC**: Content-driven rhythm. Cut length follows the ACTION in frame (fast action = short cut, slow action = long cut). For: sports highlights, cooking, dance.
+- **TONAL**: Emotional tone determines cut timing. Sad = long holds, joyful = quick cuts, tense = accelerating. For: brand stories, testimonials, documentaries.
+- **OVERTONAL**: Multiple signals layered — motion + color + composition + sound all influence cuts simultaneously. For: cinematic trailers, luxury brand films, music videos.
+- **INTELLECTUAL**: Contrasting images juxtaposed to create NEW meaning neither has alone. For: social commentary, before/after, problem-solution ads.
+
+Select ONE method per scene based on content type and mood. Default to RHYTHMIC for most content.\n`;
+
   // ─── Part 9: SFX Pairing Rules ────────────────────────────────
-  prompt += `\n## SFX PAIRING RULES:
-- A-002: Zoom-punch and flash transitions MUST have impact-hit SFX (bass thud)
-- A-010: Before major reveals, add a riser SFX (1.5-2.0s ascending tone)
-- A-020: Graphic entrances get a subtle pop/notification SFX
-- A-021: Stat-counter completion gets a click SFX when landing on final number
-- A-032: Dramatic pause in voiceover → silence-beat (drop ALL audio for 0.5-0.8s)\n`;
+  prompt += `\n## SFX PAIRING TABLE (transition type → sound):
+| Transition | SFX | Volume | Rule |
+|------------|-----|--------|------|
+| dissolve, wipe-*, iris-wipe, blur, slide-* | whoosh (subtle swoosh) | -10dB | A-001 |
+| zoom-punch, flash, glitch | impact (bass thud) | -5dB | A-002 |
+| whip-pan | whoosh (fast) | -8dB | A-001 |
+| dip-to-black, dip-to-white, soft-cut | SILENCE (intentional) | — | — |
+| film-burn | NONE (crackle IS the transition) | — | — |
+
+OTHER SFX RULES:
+- A-010: Before major reveals → riser SFX (1.5-2.0s ascending tone)
+- A-020: Graphic entrance → subtle pop/notification
+- A-021: Stat-counter landing → click SFX
+- A-032: Dramatic VO pause → silence-beat (drop ALL audio 0.5-0.8s)\n`;
 
   prompt += `\n## SCENES (with ALL available context):\n\n`;
 
@@ -1022,15 +1103,12 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
     if (scene.motionGraphicCue) {
       prompt += `- **Motion graphic (free-form hint):** ${scene.motionGraphicCue}\n`;
     }
-    // Phase A3.4 — exact verbatim on-screen text from the script. The EDL MUST
-    // produce one graphic decision per entry, with graphicText set to the EXACT string.
-    // No paraphrasing, no truncation, no merging — these are the script author's intent.
     if (scene.onScreenText && scene.onScreenText.length > 0) {
-      prompt += `- **EXACT on-screen text (use VERBATIM as graphicText, do NOT rewrite):**\n`;
+      prompt += `- **On-screen text candidates (include only if matching a GRAPHIC RULE condition, use VERBATIM):**\n`;
       scene.onScreenText.forEach((t, i) => {
         prompt += `    ${i + 1}. "${t}"\n`;
       });
-      prompt += `  → Produce exactly ${scene.onScreenText.length} graphic decision(s) for this scene, one per entry, in order. Use the exact string as graphicText. Use graphicType "keyword-highlight" by default, unless the entry is the brand/product name (then "logo-reveal") or a numeric statistic (then "stat-counter").\n`;
+      prompt += `  → Apply the GRAPHIC RULES for this density level. Only include entries matching a condition (named person, specific number, brand, direct quote). Use the exact string as graphicText. Choose the most appropriate graphicType.\n`;
     }
 
     // Detected subjects

@@ -326,11 +326,53 @@ export function ExportToEditronDialog({
     setError('');
 
     try {
+      // ─── Hydrate fresh script data from server ────────────────
+      // The in-memory blocks prop may be stale (Tiptap editor stores content
+      // in richText, not blocks). Fetch the latest from the DB so the export
+      // has access to content/plainText even if blocks are empty.
+      let exportBlocks = blocks;
+      let exportPlainText = plainText || '';
+      if (sessionId) {
+        try {
+          const freshRes = await fetch(
+            `/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(scriptId || 'default')}`,
+            { cache: 'no-store' },
+          );
+          if (freshRes.ok) {
+            const fresh = await freshRes.json();
+            if (fresh.content && fresh.content.trim().length > 0) {
+              exportPlainText = fresh.content;
+            }
+            if (Array.isArray(fresh.blocks) && fresh.blocks.length > 0) {
+              exportBlocks = fresh.blocks;
+            }
+          }
+        } catch {
+          // Fall through to props data
+        }
+      }
+
+      // ─── Fetch Brand DNA for the export payload ────────────────
+      // Brand DNA (voice, niche, kill-list, etc.) travels with the export so the
+      // pipeline can use it for profile detection, color grading, and graphics.
+      let brandDNA: Record<string, unknown> | undefined;
+      try {
+        const dnaRes = await fetch('/api/services/thinkforge/brand-dna', { cache: 'no-store' });
+        if (dnaRes.ok) {
+          const dnaData = await dnaRes.json();
+          if (dnaData?.brandDNA && Object.keys(dnaData.brandDNA).length > 0) {
+            brandDNA = dnaData.brandDNA;
+          }
+        }
+      } catch {
+        // Brand DNA is optional — export proceeds without it
+      }
+
       // ─── Step 1: Parse script into scenes ─────────────────────
       const exportRes = await fetch('/api/services/thinkforge/script/export-for-editron', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blocks, plainText, sessionId, scriptId, aspectRatio, artStyle }),
+        body: JSON.stringify({ blocks: exportBlocks, plainText: exportPlainText, sessionId, scriptId, aspectRatio, artStyle, brandDNA }),
       });
 
       if (!exportRes.ok) {
@@ -1803,6 +1845,12 @@ export function ExportToEditronDialog({
               {error && (
                 <p className="text-[11px] text-[#D4A652] text-center mt-1">{error}</p>
               )}
+              <div className="flex justify-center pt-2">
+                <Button variant="ghost" size="sm" onClick={reset} className="text-zinc-500 hover:text-zinc-300 text-xs">
+                  <X className="h-3 w-3 mr-1" />
+                  Cancel Export
+                </Button>
+              </div>
             </motion.div>
           )}
 

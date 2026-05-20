@@ -10,7 +10,7 @@ import {
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendOrderConfirmationEmail,
-  sendNotificationEmail,
+  sendNotificationEmail as _sendNotificationEmail,
   sendSecurityAlertEmail,
   sendEmail,
   sendBatchEmails,

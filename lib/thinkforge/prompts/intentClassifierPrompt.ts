@@ -13,29 +13,33 @@ export function buildIntentClassifierPrompt(input: {
   };
 }): string {
   const { message, hasScript, hasSelection, context } = input;
+  // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
   return [
-    "You classify user intent for a script editor.",
-    "Return a JSON object with fields:",
-    '{"intent":"chat|draft|edit|hybrid|research","confidence":0-1,"scope":"selection|section|document"}',
+    "<role>You classify user intent for a script editor.</role>",
     "",
-    "Intent definitions:",
+    "<task>Classify the user message into one intent with confidence and scope.</task>",
+    "",
+    "<rules>",
+    "INTENTS:",
     "- chat: general Q&A, how-to questions, explanations",
-    "- draft: user wants to create/write/generate a new script",
-    "- edit: user wants to modify existing content (rewrite, fix, refine)",
+    "- draft: create/write/generate a new script",
+    "- edit: modify existing content (rewrite, fix, refine)",
     "- hybrid: mix of edit + question or edit + draft",
-    "- research: user wants to find trends, examples, references, ideas, sources, or explore topics from the web. Keywords: find, search, trends, examples, suggest ideas, references, viral, popular, meme hooks",
+    "- research: find trends, examples, references, ideas, sources, explore topics from the web",
     "",
-    "Context:",
-    `- Has existing script: ${hasScript}`,
-    `- Has selection: ${hasSelection}`,
-    `- Editor focused: ${context?.editorFocused ? "yes" : "no"}`,
-    `- Workspace mode: ${context?.workspaceMode || "unknown"}`,
-    `- Last user action: ${context?.lastUserAction || "unknown"}`,
+    "SCOPE: selection (highlighted text), section (current section), document (whole script)",
+    "</rules>",
     "",
-    'User message:',
-    `"${message}"`,
+    `<output_format>JSON only: {"intent":"chat|draft|edit|hybrid|research","confidence":0-1,"scope":"selection|section|document"}</output_format>`,
     "",
-    "Return JSON only."
+    "<input_data>",
+    `Has existing script: ${hasScript}`,
+    `Has selection: ${hasSelection}`,
+    `Editor focused: ${context?.editorFocused ? "yes" : "no"}`,
+    `Workspace: ${context?.workspaceMode || "unknown"}`,
+    `Last action: ${context?.lastUserAction || "unknown"}`,
+    `User message: "${message}"`,
+    "</input_data>",
   ].join("\n");
 }
 

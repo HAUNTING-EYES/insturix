@@ -12,16 +12,31 @@ import * as db from '@/lib/thinkforge/services/db';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import { appendEvent } from '@/lib/thinkforge/services/event-log';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
+import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { parseMarkdownToBlocks } from '@/lib/thinkforge/normalization/markdown-parser';
 import { validateThinkForgeBlocks } from '@/lib/thinkforge/schemas/thinkforge-block';
 import { thinkForgeBlocksToTiptapJSON } from '@/lib/thinkforge/mappers/thinkforge-to-tiptap';
 import crypto from 'crypto';
+import { z } from 'zod';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-type SidecarAction = 'deconstruct' | 'storyboard' | 'refine_voice' | 'summon_specialist' | 'detect_scope' | 'discover_blueprint' | 'initialize_blueprint';
+const SidecarSchema = z.object({
+  action: z.enum(['deconstruct', 'storyboard', 'refine_voice', 'summon_specialist', 'detect_scope', 'discover_blueprint', 'initialize_blueprint']),
+  sessionId: z.string().min(1),
+  content: z.string().optional(),
+  scriptId: z.string().optional(),
+  specialistRequest: z.string().optional(),
+  threadId: z.string().default('default'),
+  artifacts: z.array(z.object({
+    type: z.string(),
+    label: z.string(),
+    description: z.string().optional(),
+    priority: z.string().optional(),
+  }).passthrough()).optional(),
+}).passthrough();
 
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -29,34 +44,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let action: SidecarAction | undefined;
-  let sessionId: string | undefined;
-  let content: string | undefined;
-  let scriptId: string | undefined;
-  let specialistRequest: string | undefined;
-  let threadId: string | undefined;
-  let blueprintArtifacts: Array<{ type: string; label: string; description?: string; priority?: string }> | undefined;
-
+  let raw: unknown;
   try {
-    const body = await req.json();
-    action = body?.action;
-    sessionId = body?.sessionId ? String(body.sessionId) : undefined;
-    content = body?.content ? String(body.content) : undefined;
-    scriptId = body?.scriptId ? String(body.scriptId) : undefined;
-    specialistRequest = body?.specialistRequest ? String(body.specialistRequest) : undefined;
-    threadId = body?.threadId || 'default';
-    blueprintArtifacts = Array.isArray(body?.artifacts) ? body.artifacts : undefined;
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  if (!action) {
-    return NextResponse.json({ error: 'Missing action' }, { status: 400 });
+  const parsed = SidecarSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request body', details: parsed.error.issues }, { status: 400 });
   }
+  const { action, sessionId, content, scriptId, specialistRequest, threadId, artifacts: blueprintArtifacts } = parsed.data;
 
-  if (!sessionId) {
-    return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
-  }
+  const creditCheck = await checkCredits(userId, 'thinkforge', 'document_creation', { taskId: sessionId });
+  if (!creditCheck.allowed) return creditCheck.errorResponse;
+  await creditCheck.deduct();
 
   const session = await db.getSession(sessionId, userId);
   if (!session) {
@@ -310,6 +313,7 @@ export async function POST(req: Request) {
     }
   } catch (error: any) {
     console.error('[ThinkForge Sidecar] Error:', error);
+    await creditCheck.refund(error?.message || 'Sidecar action failed');
     const normalized = toThinkForgeErrorResponse(error);
     return NextResponse.json(normalized.body, { status: normalized.status });
   }

@@ -9,6 +9,7 @@ import { assetResolver } from './asset-resolver';
 import type { Overlay, AspectRatio } from '@/components/editron/editor/version-7.0.0/types';
 import { nanoid } from 'nanoid';
 import { orgMemberService } from '@/lib/services/orgMemberService';
+import { removeProjectFromLinks } from '@/lib/shared/project-links';
 
 export interface EditorState {
   overlays: Overlay[];
@@ -39,14 +40,19 @@ export interface Project {
   updatedAt: Date;
   lastAutosaveAt?: Date;
   // Organization support
-  orgId?: string;              // null = personal project, set = org project
-  sharedWith?: string[];       // explicit user IDs for sharing
-  visibility: 'private' | 'org' | 'shared';  // access level
+  orgId?: string;
+  sharedWith?: string[];
+  visibility: 'private' | 'org' | 'shared';
   // Dashboard fields (added for production floor dashboard)
-  brand?: string | null;       // Client/brand name (e.g., "Chaayos"). null = personal project.
+  brand?: string | null;
   pipelineStage?: 'script' | 'edit' | 'analyze' | 'thumbnails' | 'publish' | 'complete';
-  qualityScore?: number | null; // Alyzitron score 0-100. null = not yet analyzed.
+  qualityScore?: number | null;
   projectStatus?: 'active' | 'needs-attention' | 'complete' | 'failed';
+  // Brand Intelligence + Project Tracking
+  status?: import('@/lib/shared/project-status').ProjectStatus;
+  statusHistory?: import('@/lib/shared/project-status').StatusTransition[];
+  brandId?: string;
+  lastError?: import('@/lib/shared/project-status').ProjectError;
 }
 
 export interface ProjectListItem {
@@ -61,6 +67,8 @@ export interface ProjectListItem {
   pipelineStage?: 'script' | 'edit' | 'analyze' | 'thumbnails' | 'publish' | 'complete';
   qualityScore?: number | null;
   projectStatus?: 'active' | 'needs-attention' | 'complete' | 'failed';
+  // Cross-service linkage
+  sourceSessionId?: string;
 }
 
 export class ProjectService {
@@ -88,9 +96,9 @@ export class ProjectService {
   /**
    * Create new personal project
    */
-  async createProject(userId: string, name: string, templateId?: string): Promise<Project> {
+  async createProject(userId: string, name: string, options?: { templateId?: string; brandId?: string }): Promise<Project> {
     const projectId = `proj_${nanoid(12)}`;
-    
+
     const project: Project = {
       projectId,
       userId,
@@ -106,6 +114,7 @@ export class ProjectService {
       visibility: 'private',
       pipelineStage: 'edit',
       projectStatus: 'active',
+      ...(options?.brandId ? { brandId: options.brandId } : {}),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -150,6 +159,65 @@ export class ProjectService {
     await db.collection(COLLECTIONS.PROJECTS).insertOne(project);
 
     return project;
+  }
+
+  /**
+   * Create a lightweight project at "script" stage for ThinkForge sessions.
+   * This makes the session visible on the Production Floor dashboard before
+   * storyboard generation or finalize runs.
+   * Returns null if a project already exists for this sessionId (idempotent).
+   */
+  async createScriptStageProject(
+    userId: string,
+    sessionId: string,
+    name: string,
+    options?: { brandId?: string; orgId?: string }
+  ): Promise<Project | null> {
+    const db = await getDatabase();
+
+    // Idempotent: skip if a project already exists for this session
+    const existing = await db.collection(COLLECTIONS.PROJECTS).findOne({
+      userId,
+      sourceSessionId: sessionId,
+    }) as unknown as Project | null;
+    if (existing) return null;
+
+    const projectId = `proj_${nanoid(12)}`;
+
+    const project: Project = {
+      projectId,
+      userId,
+      name,
+      overlays: [],
+      aspectRatio: '16:9',
+      playerDimensions: { width: 1920, height: 1080 },
+      fps: 30,
+      durationInFrames: 0,
+      visibility: options?.orgId ? 'org' : 'private',
+      pipelineStage: 'script',
+      projectStatus: 'active',
+      ...(options?.brandId ? { brandId: options.brandId } : {}),
+      ...(options?.orgId ? { orgId: options.orgId } : {}),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Store sourceSessionId as an extra field for linkage
+    const doc = { ...project, sourceSessionId: sessionId };
+    await db.collection(COLLECTIONS.PROJECTS).insertOne(doc);
+
+    return project;
+  }
+
+  /**
+   * Find existing project by source session ID (for reuse during finalize).
+   */
+  async findProjectBySessionId(userId: string, sessionId: string): Promise<Project | null> {
+    const db = await getDatabase();
+    return db.collection(COLLECTIONS.PROJECTS).findOne({
+      userId,
+      sourceSessionId: sessionId,
+    }) as unknown as Project | null;
   }
 
   /**
@@ -398,6 +466,13 @@ export class ProjectService {
     // Delete associated chat sessions
     await db.collection(COLLECTIONS.CHAT_SESSIONS).deleteMany({ projectId });
 
+    // Clean up project links (fail-open — link cleanup failure must not block delete)
+    try {
+      await removeProjectFromLinks(userId, projectId);
+    } catch (linkErr: any) {
+      console.error(`[deleteProject] Link cleanup failed for ${projectId}: ${linkErr.message}`);
+    }
+
     // Note: We don't delete media assets as they might be shared across projects
   }
 
@@ -437,6 +512,7 @@ export class ProjectService {
         pipelineStage: 1,
         qualityScore: 1,
         projectStatus: 1,
+        sourceSessionId: 1,
       })
       .sort(sortOrder)
       .skip(skip)

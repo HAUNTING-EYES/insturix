@@ -16,14 +16,11 @@
 
 import type { AssetAnalysis, FrameAnalysis } from './five-track-analysis';
 import type {
-  SceneIntent,
   CreativeIntentPlan,
   ZoomIntent,
-  PacingIntent,
   TransitionIntent,
-  ShakeIntent,
 } from './unified-edit-intelligence';
-import { snapToClipBoundary, findClipAtFrame } from './edl-executor';
+import { snapToClipBoundary } from './edl-executor';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -88,11 +85,13 @@ export function translateCreativeIntentToEDL(
   analyses: Map<string, any>,
   overlays: Array<{ id: number; type: string; from: number; durationInFrames: number; row: number; [k: string]: any }>,
   fps: number = 30,
+  graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
 ): TranslationResult {
   const decisions: TranslatedDecision[] = [];
   const warnings: string[] = [];
   let momentsResolved = 0;
   let momentsFallback = 0;
+  let safetyNetEmitted = 0;
 
   for (const intent of plan.sceneIntents) {
     const sceneCtx = sceneContexts.find(s => s.sceneIndex === intent.sceneIndex);
@@ -195,29 +194,27 @@ export function translateCreativeIntentToEDL(
       }
     }
 
-    // ── Deterministic onScreenText safety net ──
-    // 2026-04-19 (Batch 5): after the LLM's graphicIntents are processed,
-    // cross-check the scene's onScreenText array. Any entry the LLM failed
-    // to emit as a graphic gets a deterministic fallback decision so the
-    // user's script text is GUARANTEED to appear on screen.
-    //
-    // Why this exists: the LLM prompt says "Include ALL onScreenText entries
-    // as separate graphics" but Gemini's output is probabilistic (max 3
-    // graphicIntents per scene, no minimum). Scenes with 4+ onScreenText
-    // entries routinely lost the 4th+ one. And the commit dd758500 (refined
-    // Option 1) removed the caption fallback, making EDL the sole renderer
-    // of standalone on-screen text — so drops here = text vanishes entirely.
-    //
-    // Rule 18N: rule-driven > LLM-probabilistic for mechanical render work.
-    // Rule 8N: script's author explicitly wrote that text, we MUST show it.
+    // ── Density-aware onScreenText safety net ──
+    // Catches script onScreenText entries the LLM didn't cover.
+    // Density-aware: minimal=1, moderate=3, heavy=unlimited fallbacks per video.
+    // The LLM now gets density-aware prompting (max(8) schema, editorial merit
+    // guidance), so the safety net should respect the same density signal
+    // rather than overriding the LLM's editorial judgment.
     const onScreenText = sceneCtx.onScreenText || [];
+    const safetyNetCap = graphicsDensity === 'minimal' ? 1
+      : graphicsDensity === 'moderate' ? 3
+      : 999;
     for (const text of onScreenText) {
       const trimmed = (text || '').trim();
       if (!trimmed) continue;
-      if (emittedGraphicTexts.has(trimmed.toLowerCase())) continue; // LLM already covered it
+      if (emittedGraphicTexts.has(trimmed.toLowerCase())) continue;
+      if (safetyNetEmitted >= safetyNetCap) {
+        warnings.push(
+          `Scene ${intent.sceneIndex}: onScreenText "${trimmed.substring(0, 40)}" skipped — safety-net cap reached (${safetyNetCap} for ${graphicsDensity || 'default'} density)`
+        );
+        continue;
+      }
 
-      // Place at 1/3 into the scene (same default as LLM's fallback trigger
-      // resolution — gives reading time after the scene establishes).
       const fallbackFrame = sceneCtx.fromFrame + Math.round(sceneCtx.durationFrames * 0.33);
       decisions.push({
         type: 'graphic',
@@ -232,9 +229,10 @@ export function translateCreativeIntentToEDL(
         sources: ['onScreenText-safety-net', 'script'],
       });
       emittedGraphicTexts.add(trimmed.toLowerCase());
+      safetyNetEmitted++;
       warnings.push(
         `Scene ${intent.sceneIndex}: onScreenText "${trimmed.substring(0, 40)}${trimmed.length > 40 ? '...' : ''}" ` +
-        `was not in LLM graphicIntents — injected deterministic fallback graphic`
+        `was not in LLM graphicIntents — injected deterministic fallback graphic (${safetyNetEmitted}/${safetyNetCap})`
       );
     }
 
@@ -295,17 +293,19 @@ export function translateCreativeIntentToEDL(
 
 interface ResolvedMoment {
   frame: number;
-  method: 'vo-word' | 'subject' | 'subject-track' | 'motion-peak' | 'energy' | 'temporal' | 'fallback';
+  method: 'emotion' | 'vo-word' | 'subject' | 'subject-track' | 'motion-peak' | 'energy' | 'temporal' | 'fallback';
 }
 
 /**
  * Resolve a natural-language decisive moment description to an exact frame.
  *
  * Waterfall strategy (first match wins):
- * 1. VO word match — quoted words or keywords found in voiceover timing
- * 2. Motion peak — if description mentions motion/action, use nearest peak
- * 3. Temporal position — "beginning", "middle", "end" mapped to percentages
- * 4. Fallback — scene midpoint
+ * Fix 25: Murch's Rule of Six priority order (emotion-first resolution).
+ * OLD: VO word → motion peak → temporal → subject → energy → fallback
+ * NEW: emotion/energy → subject (story) → motion (rhythm) → VO word → temporal → fallback
+ *
+ * Walter Murch's hierarchy: Emotion > Story > Rhythm > Eye-trace > 2D plane > 3D space
+ * The decisive moment should land where it FEELS right, not where a keyword matches.
  */
 function resolveDecisiveMoment(
   description: string,
@@ -315,45 +315,26 @@ function resolveDecisiveMoment(
 ): ResolvedMoment {
   const desc = description.toLowerCase();
 
-  // ── Strategy 1: VO word match ──
-  // Look for quoted words or key phrases in voiceover timing
-  const quotedWords = description.match(/"([^"]+)"/g)?.map(w => w.replace(/"/g, '').toLowerCase()) || [];
-  const allSearchTerms = [
-    ...quotedWords,
-    ...description.split(/\s+/).filter(w => w.length > 5).map(w => w.toLowerCase()),
-  ];
-
-  for (const term of allSearchTerms) {
-    const match = scene.voiceoverWords.find(w =>
-      w.word.toLowerCase().includes(term) || term.includes(w.word.toLowerCase())
-    );
-    if (match) {
-      const frame = scene.fromFrame + Math.round((match.startMs / 1000) * fps);
-      return { frame, method: 'vo-word' };
+  // ── Strategy 1 (Murch #1: EMOTION): Expression/energy peak ──
+  // Emotion is the highest-priority reason to cut. Find the frame with
+  // the strongest emotional signal (expression keywords → highest energy keyframe).
+  const expressionWords = ['smile', 'laugh', 'cry', 'expression', 'emotion', 'reaction', 'surprise', 'joy', 'tears', 'fear', 'anger', 'love', 'hug', 'embrace'];
+  if (expressionWords.some(w => desc.includes(w))) {
+    for (const [, analysis] of analyses) {
+      const kfs = (analysis as AssetAnalysis).keyframeAnalyses || [];
+      const inRange = kfs.filter((kf: FrameAnalysis) =>
+        kf.frame >= 0 && kf.frame <= scene.durationFrames
+      );
+      if (inRange.length > 0) {
+        const best = inRange.sort((a: FrameAnalysis, b: FrameAnalysis) =>
+          b.energyLevel - a.energyLevel
+        )[0];
+        return { frame: scene.fromFrame + best.frame, method: 'emotion' };
+      }
     }
   }
 
-  // ── Strategy 2: Motion peak ──
-  // If description mentions movement/action words, find the strongest motion peak
-  const motionWords = ['movement', 'action', 'motion', 'peak', 'impact', 'burst', 'dramatic', 'climax', 'energy'];
-  if (motionWords.some(w => desc.includes(w)) && scene.motionPeaks && scene.motionPeaks.length > 0) {
-    // Use the highest motion peak (they're relative to scene start)
-    const peakRelative = scene.motionPeaks[0]; // Already sorted by intensity in 5-Track
-    return { frame: scene.fromFrame + peakRelative, method: 'motion-peak' };
-  }
-
-  // ── Strategy 3: Temporal position ──
-  if (desc.includes('beginning') || desc.includes('start') || desc.includes('opening')) {
-    return { frame: scene.fromFrame + Math.round(scene.durationFrames * 0.15), method: 'temporal' };
-  }
-  if (desc.includes('end') || desc.includes('closing') || desc.includes('final') || desc.includes('resolution')) {
-    return { frame: scene.fromFrame + Math.round(scene.durationFrames * 0.85), method: 'temporal' };
-  }
-  if (desc.includes('middle') || desc.includes('center') || desc.includes('midpoint')) {
-    return { frame: scene.fromFrame + Math.round(scene.durationFrames * 0.5), method: 'temporal' };
-  }
-
-  // ── Strategy 4: Subject tracking match ──
+  // ── Strategy 2 (Murch #2: STORY): Subject tracking match ──
   // 5-Track has per-frame bounding boxes for subjects (person, product, logo,
   // etc.). If the LLM description mentions a subject category or label, find
   // the frame where that subject is most prominent (largest bounding box area).
@@ -385,22 +366,40 @@ function resolveDecisiveMoment(
     }
   }
 
-  // ── Strategy 5: Smile/expression keywords → check keyframe analysis ──
-  const expressionWords = ['smile', 'laugh', 'cry', 'expression', 'emotion', 'reaction', 'surprise'];
-  if (expressionWords.some(w => desc.includes(w))) {
-    // Find keyframe with highest energy level (proxy for expression peak)
-    for (const [, analysis] of analyses) {
-      const kfs = (analysis as AssetAnalysis).keyframeAnalyses || [];
-      const inRange = kfs.filter((kf: FrameAnalysis) =>
-        kf.frame >= 0 && kf.frame <= scene.durationFrames
-      );
-      if (inRange.length > 0) {
-        const best = inRange.sort((a: FrameAnalysis, b: FrameAnalysis) =>
-          b.energyLevel - a.energyLevel
-        )[0];
-        return { frame: scene.fromFrame + best.frame, method: 'energy' };
-      }
+  // ── Strategy 3 (Murch #3: RHYTHM): Motion peak ──
+  // Movement and action — find the frame with strongest visual motion.
+  const motionWords = ['movement', 'action', 'motion', 'peak', 'impact', 'burst', 'dramatic', 'climax', 'energy'];
+  if (motionWords.some(w => desc.includes(w)) && scene.motionPeaks && scene.motionPeaks.length > 0) {
+    const peakRelative = scene.motionPeaks[0]; // Already sorted by intensity in 5-Track
+    return { frame: scene.fromFrame + peakRelative, method: 'motion-peak' };
+  }
+
+  // ── Strategy 4: VO word match ──
+  // Align with spoken narration — secondary to emotion/story/rhythm.
+  const quotedWords = description.match(/"([^"]+)"/g)?.map(w => w.replace(/"/g, '').toLowerCase()) || [];
+  const allSearchTerms = [
+    ...quotedWords,
+    ...description.split(/\s+/).filter(w => w.length > 5).map(w => w.toLowerCase()),
+  ];
+  for (const term of allSearchTerms) {
+    const match = scene.voiceoverWords.find(w =>
+      w.word.toLowerCase().includes(term) || term.includes(w.word.toLowerCase())
+    );
+    if (match) {
+      const frame = scene.fromFrame + Math.round((match.startMs / 1000) * fps);
+      return { frame, method: 'vo-word' };
     }
+  }
+
+  // ── Strategy 5: Temporal position ──
+  if (desc.includes('beginning') || desc.includes('start') || desc.includes('opening')) {
+    return { frame: scene.fromFrame + Math.round(scene.durationFrames * 0.15), method: 'temporal' };
+  }
+  if (desc.includes('end') || desc.includes('closing') || desc.includes('final') || desc.includes('resolution')) {
+    return { frame: scene.fromFrame + Math.round(scene.durationFrames * 0.85), method: 'temporal' };
+  }
+  if (desc.includes('middle') || desc.includes('center') || desc.includes('midpoint')) {
+    return { frame: scene.fromFrame + Math.round(scene.durationFrames * 0.5), method: 'temporal' };
   }
 
   // ── Fallback: scene midpoint ──

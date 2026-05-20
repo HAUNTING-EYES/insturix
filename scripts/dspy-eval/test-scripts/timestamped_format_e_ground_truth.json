@@ -1,0 +1,129 @@
+{
+  "script_id": "timestamped_format_e",
+  "script_text": "",
+  "expected_scenes": [
+    {
+      "title": "Vineyard Sunrise",
+      "narration": "",
+      "visualDescription": "Aerial shot of a vineyard at sunrise, rolling green hills covered in neat rows of grapevines, mist hovering between the rows",
+      "durationSeconds": 3,
+      "mood": "calm",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Three Generations",
+      "narration": "For three generations, we've done one thing.",
+      "visualDescription": "Vineyard landscape or heritage imagery evoking generational legacy, warm tones",
+      "durationSeconds": 3,
+      "mood": "serious",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Grape Harvest",
+      "narration": "",
+      "visualDescription": "Close-up of weathered hands gently picking a cluster of dark purple grapes from the vine, morning dew glistening on the fruit",
+      "durationSeconds": 4,
+      "mood": "calm",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Listening to the Land",
+      "narration": "We've listened to the land.",
+      "visualDescription": "Vineyard or earth imagery evoking connection to the land, natural textures",
+      "durationSeconds": 3,
+      "mood": "serious",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "The Cellar",
+      "narration": "",
+      "visualDescription": "Wide shot of the cellar with oak barrels stacked floor to ceiling in a cool stone room, warm amber light from a single hanging bulb, a winemaker walking slowly between the rows",
+      "durationSeconds": 4,
+      "mood": "mysterious",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Barrel Stories",
+      "narration": "Every barrel tells a story. Every vintage, a chapter.",
+      "visualDescription": "Oak barrel close-up or cellar detail, aged wood texture, storytelling mood",
+      "durationSeconds": 3,
+      "mood": "dramatic",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "The Pour",
+      "narration": "",
+      "visualDescription": "Extreme close-up of red wine being poured into a crystal glass, deep ruby and garnet tones swirling, the wine catching the light",
+      "durationSeconds": 4,
+      "mood": "dramatic",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Crafted with Patience",
+      "narration": "Villa Serena. Crafted with patience.",
+      "visualDescription": "Wine glass being raised in a toast or winery estate exterior, golden light",
+      "durationSeconds": 2,
+      "mood": "calm",
+      "sceneType": "continuous",
+      "editDirections": {
+        "transition": null,
+        "onScreenText": []
+      },
+      "subShots": null
+    },
+    {
+      "title": "Villa Serena Logo",
+      "narration": "",
+      "visualDescription": "Villa Serena logo on aged parchment texture, tagline appearing below",
+      "durationSeconds": 4,
+      "mood": "calm",
+      "sceneType": "logo-reveal",
+      "editDirections": {
+        "transition": {"type": "dissolve", "durationMs": 500},
+        "onScreenText": ["Villa Serena", "Patience in Every Pour"]
+      },
+      "subShots": null
+    }
+  ],
+  "expected_global": {
+    "overallMusicPrompt": "Gentle acoustic guitar with soft strings, warm and organic, slow tempo, vineyard and heritage mood",
+    "suggestedProfileCategory": "cinematic-style"
+  },
+  "target_duration": 30,
+  "art_style": ""
+}

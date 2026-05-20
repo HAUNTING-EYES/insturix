@@ -8,6 +8,7 @@ import {
   deleteUploaderXObject,
   uploadUploaderXObject,
 } from "@/lib/uploaderx-storage";
+import { addVideoToLink, removeVideoFromLinks } from "@/lib/shared/project-links";
 
 export async function POST(req: Request) {
   try {
@@ -71,6 +72,16 @@ export async function POST(req: Request) {
       } catch (e) {
         console.warn("[uploaderx] Failed to update project stage:", e);
       }
+
+      // Wire video into project link chain (fail-open)
+      try {
+        const linked = await addVideoToLink(session.userId, editronProjectId, video.videoUuid);
+        if (linked) {
+          console.log(`[uploaderx/videos] Project link updated: project ${editronProjectId} → video ${video.videoUuid}`);
+        }
+      } catch (linkErr: any) {
+        console.error(`[uploaderx/videos] Project link update failed: ${linkErr.message}`);
+      }
     }
 
     return NextResponse.json({
@@ -133,6 +144,13 @@ export async function DELETE(request: Request) {
       await deleteUploaderXObject(deleted.gcsPath);
     } catch (err) {
       console.warn("R2 deletion failed:", err);
+    }
+
+    // Clean up project link references (fail-open)
+    try {
+      await removeVideoFromLinks(session.userId, videoUuid);
+    } catch (linkErr: any) {
+      console.error(`[uploaderx/videos] Link cleanup failed for video ${videoUuid}: ${linkErr.message}`);
     }
 
     return NextResponse.json({ success: true, message: "Video deleted" });

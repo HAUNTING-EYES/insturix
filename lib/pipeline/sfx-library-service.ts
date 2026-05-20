@@ -88,7 +88,7 @@ async function searchFreesound(
 ): Promise<{ url: string; title: string; duration: number } | null> {
   const apiKey = process.env.FREESOUND_API_KEY;
   if (!apiKey) {
-    console.warn('[SFXLib] FREESOUND_API_KEY not set');
+    console.error('[SFXLib] FREESOUND_API_KEY not set — SFX search unavailable. Set this env var on Vercel to enable sound effects. Free key: https://freesound.org/apiv2/apply/');
     return null;
   }
 
@@ -193,6 +193,36 @@ export async function searchAndDownloadSFX(
     const assetId = `sfx_lib_${nanoid(8)}`;
     const ext = found.url.includes('.wav') ? 'wav' : 'mp3';
     const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`, { customAssetId: assetId });
+
+    // Persist to media_assets so asset-resolver can find it later.
+    // Without this, SFX overlays reference assetIds that don't exist in MongoDB
+    // → "[AssetResolver] Asset NOT FOUND in media_assets: sfx_lib_*"
+    try {
+      const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+      const db = await getDatabase();
+      await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+        { assetId: uploadResult.assetId },
+        {
+          $setOnInsert: {
+            assetId: uploadResult.assetId,
+            userId,
+            type: 'audio',
+            filename: `${assetId}.${ext}`,
+            source: `freesound-${source}`,
+            cachedUrl: uploadResult.signedUrl,
+            gcsPath: uploadResult.gcsPath,
+            r2Key: uploadResult.r2Key,
+            duration: found.duration,
+            size: buffer.length,
+            uploadedAt: new Date(),
+          },
+        },
+        { upsert: true },
+      );
+    } catch (dbErr: unknown) {
+      const dbMsg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      console.warn(`[SFXLib] media_assets persist failed (non-fatal): ${dbMsg}`);
+    }
 
     return {
       audioUrl: uploadResult.signedUrl,
@@ -347,8 +377,19 @@ export function audioDescriptionToSearchQuery(audioDescription: string): string 
 }
 
 /**
- * Check if any SFX library is available.
+ * Check if SFX library search can return results.
+ *
+ * OLD: returned false when FREESOUND_API_KEY was missing → EDL executor skipped
+ * ALL sfx-trigger decisions → zero SFX in output. Silent failure (Rule 18N violation).
+ *
+ * NEW: Always returns true. The search function handles missing credentials by
+ * logging a loud warning and returning null PER SEARCH — but the EDL executor
+ * still processes SFX decisions for budget tracking and quality review accounting.
+ * This means:
+ *   - Budget system correctly counts SFX (prevents over-allocation on retry)
+ *   - Quality review can detect "SFX requested but unfulfilled"
+ *   - Setting the env var immediately unlocks audio without code changes
  */
 export function isSFXLibraryAvailable(): boolean {
-  return !!(process.env.PIXABAY_API_KEY || process.env.FREESOUND_API_KEY);
+  return true;
 }

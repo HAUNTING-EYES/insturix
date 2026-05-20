@@ -7,7 +7,8 @@
  * - AI chat: find relevant assets
  * - Asset Library panel: search UI
  *
- * Falls back to tag-based search when embeddings aren't available.
+ * Primary path: Neo4j graph-filtered vector search (penalize-not-exclude).
+ * Fallback: MongoDB tag + embedding search (if Neo4j is unavailable).
  */
 
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
@@ -27,21 +28,121 @@ export interface AssetSearchResult {
 
 /**
  * Search user's media library by natural language query.
- * Returns ranked results with relevance scores.
+ * Tries Neo4j graph search first (relationship-aware, penalize-not-exclude),
+ * falls back to MongoDB if Neo4j is unavailable.
  */
 export async function searchUserAssets(
   userId: string,
   query: string,
   options: {
     type?: 'video' | 'audio' | 'image';
+    moods?: string[];
+    brandId?: string;
     minScore?: number;
     limit?: number;
   } = {},
 ): Promise<AssetSearchResult[]> {
-  const { type, minScore = 0.4, limit = 5 } = options;
+  const { type, moods, brandId, minScore = 0.4, limit = 5 } = options;
+
+  // Embed the query (needed for both Neo4j and MongoDB paths)
+  const queryEmbedding = await embedQuery(query);
+
+  // ─── Try Neo4j graph search first ────────────────────────────
+  if (queryEmbedding) {
+    try {
+      const { searchAssets, isNeo4jAvailable } = await import('./graph-service');
+      const available = await isNeo4jAvailable();
+
+      if (available) {
+        const graphHits = await searchAssets(userId, queryEmbedding, {
+          moods: moods as any,
+          brandId,
+          limit,
+          minSemanticScore: minScore,
+        });
+
+        if (graphHits.length > 0) {
+          const enriched = await enrichGraphHits(userId, graphHits, type);
+          if (enriched.length > 0) return enriched;
+        }
+      }
+    } catch {
+      // Neo4j failed — fall through to MongoDB
+    }
+  }
+
+  // ─── Fallback: MongoDB search ────────────────────────────────
+  return searchViaMongoDB(userId, query, queryEmbedding, { type, minScore, limit });
+}
+
+/**
+ * Check if user has existing footage matching a scene description.
+ * Used by Director to avoid regenerating video when suitable footage exists.
+ */
+export async function findMatchingFootage(
+  userId: string,
+  sceneDescription: string,
+  minConfidence: number = 0.75,
+): Promise<AssetSearchResult | null> {
+  const results = await searchUserAssets(userId, sceneDescription, {
+    type: 'video',
+    minScore: minConfidence,
+    limit: 1,
+  });
+  return results[0] || null;
+}
+
+// ─── Neo4j helpers ──────────────────────────────────────────────
+
+async function enrichGraphHits(
+  userId: string,
+  hits: Array<{ assetId: string; briefing: string | null; finalScore: number }>,
+  typeFilter?: 'video' | 'audio' | 'image',
+): Promise<AssetSearchResult[]> {
+  const db = await getDatabase();
+  const assetIds = hits.map(h => h.assetId);
+
+  const filter: Record<string, unknown> = { userId, assetId: { $in: assetIds } };
+  if (typeFilter) filter.type = typeFilter;
+
+  const assets = await db
+    .collection(COLLECTIONS.MEDIA_ASSETS)
+    .find(filter)
+    .toArray() as unknown as MediaAsset[];
+
+  const assetMap = new Map(assets.map(a => [a.assetId, a]));
+  const scoreMap = new Map(hits.map(h => [h.assetId, h.finalScore]));
+
+  return hits
+    .filter(h => assetMap.has(h.assetId))
+    .map(h => {
+      const a = assetMap.get(h.assetId)!;
+      return {
+        assetId: a.assetId,
+        filename: a.filename,
+        type: a.type,
+        url: a.cachedUrl || '',
+        thumbnail: a.thumbnail,
+        duration: a.duration,
+        dimensions: a.dimensions,
+        tags: (a as any).tags || [],
+        score: scoreMap.get(h.assetId) ?? 0,
+      };
+    });
+}
+
+// ─── MongoDB fallback ───────────────────────────────────────────
+
+async function searchViaMongoDB(
+  userId: string,
+  query: string,
+  queryEmbedding: number[] | null,
+  options: { type?: string; minScore: number; limit: number },
+): Promise<AssetSearchResult[]> {
+  const { type, minScore, limit } = options;
   const db = await getDatabase();
 
-  const filter: any = { userId, analysisStatus: 'complete' };
+  const filter: Record<string, unknown> = { userId, analysisStatus: 'complete' };
   if (type) filter.type = type;
 
   const assets = await db
@@ -53,18 +154,6 @@ export async function searchUserAssets(
 
   if (assets.length === 0) return [];
 
-  // Embed query
-  let queryEmbedding: number[] | null = null;
-  try {
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
-    const embModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
-    const embResult = await embModel.embedContent(query);
-    queryEmbedding = embResult.embedding?.values || null;
-  } catch {
-    // Fall back to tag search
-  }
-
   const queryLower = query.toLowerCase();
   const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
   const results: AssetSearchResult[] = [];
@@ -72,12 +161,10 @@ export async function searchUserAssets(
   for (const asset of assets) {
     let score = 0;
 
-    // Semantic similarity
     if (queryEmbedding && asset.semanticEmbedding?.length) {
       score = cosineSimilarity(queryEmbedding, asset.semanticEmbedding);
     }
 
-    // Tag matching
     if (asset.tags?.length) {
       const tagMatches = asset.tags.filter(tag =>
         queryWords.some(w => tag.toLowerCase().includes(w)) ||
@@ -106,23 +193,20 @@ export async function searchUserAssets(
   return results.slice(0, limit);
 }
 
-/**
- * Check if user has existing footage matching a scene description.
- * Used by Director to avoid regenerating video when suitable footage exists.
- *
- * @returns Best matching video asset, or null if nothing scores above threshold
- */
-export async function findMatchingFootage(
-  userId: string,
-  sceneDescription: string,
-  minConfidence: number = 0.75,
-): Promise<AssetSearchResult | null> {
-  const results = await searchUserAssets(userId, sceneDescription, {
-    type: 'video',
-    minScore: minConfidence,
-    limit: 1,
-  });
-  return results[0] || null;
+// ─── Shared utilities ───────────────────────────────────────────
+
+async function embedQuery(text: string): Promise<number[] | null> {
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
+    if (!apiKey) return null;
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    const result = await model.embedContent(text);
+    return result.embedding?.values ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {

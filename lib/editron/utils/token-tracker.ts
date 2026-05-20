@@ -18,7 +18,7 @@ export class TokenTracker {
   private outputTokens = 0;
   private model: string;
 
-  constructor(model: string = 'gemini-2.5-flash') {
+  constructor(model: string = 'gemini-3.1-flash-lite-preview') {
     this.model = model;
   }
 

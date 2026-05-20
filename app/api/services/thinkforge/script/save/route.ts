@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import * as db from '@/lib/thinkforge/services/db';
+import { SaveScriptSchema } from '@/lib/thinkforge/schemas/route-validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,24 +23,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let sessionId: string | undefined;
-  let script: any | undefined;
-  let scriptId: string | undefined;
-  let baseVersion: number | undefined;
-
+  let raw: unknown;
   try {
-    const body = await req.json();
-    sessionId = body?.sessionId ? String(body.sessionId) : undefined;
-    script = body?.script;
-    scriptId = body?.scriptId ? String(body.scriptId) : undefined;
-    baseVersion = typeof body?.baseVersion === 'number' ? body.baseVersion : undefined;
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  if (!sessionId) {
-    return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
+  const parsed = SaveScriptSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request body', details: parsed.error.issues }, { status: 400 });
   }
+  const { sessionId, scriptId, baseVersion, script } = parsed.data;
 
   try {
     let effectiveBaseVersion = typeof baseVersion === 'number' ? baseVersion : undefined;

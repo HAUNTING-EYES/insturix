@@ -1,0 +1,1364 @@
+{
+  "scene_parser": {
+    "score": 0.956,
+    "status": "previously_scored"
+  },
+  "transcript_editor": {
+    "score": 1.0,
+    "status": "previously_scored"
+  },
+  "editorial_intent": {
+    "score": 0.867,
+    "status": "previously_scored"
+  },
+  "holistic_editor": {
+    "score": 1.0,
+    "status": "previously_scored"
+  },
+  "intent_classifier": {
+    "score": 1.0,
+    "status": "previously_scored"
+  },
+  "scope_detector": {
+    "score": 1.0,
+    "status": "previously_scored"
+  },
+  "tf_intent": {
+    "score": 1.0,
+    "status": "previously_scored"
+  },
+  "argument_protector": {
+    "score": 1.0,
+    "status": "previously_scored"
+  },
+  "ideas_agent": {
+    "score": 0.333,
+    "details": [
+      [
+        "response is valid JSON",
+        true
+      ],
+      [
+        "has 'ideas' key",
+        false
+      ],
+      [
+        "exactly 4 ideas",
+        false
+      ]
+    ],
+    "status": "ok"
+  },
+  "architect_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has 'title'",
+        true
+      ],
+      [
+        "has 'totalDuration'",
+        true
+      ],
+      [
+        "has 'shots' array",
+        true
+      ],
+      [
+        "shots non-empty",
+        true
+      ],
+      [
+        "shot 1 has description",
+        true
+      ],
+      [
+        "shot 1 has duration",
+        true
+      ],
+      [
+        "shot 2 has description",
+        true
+      ],
+      [
+        "shot 2 has duration",
+        true
+      ],
+      [
+        "shot 3 has description",
+        true
+      ],
+      [
+        "shot 3 has duration",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "discovery_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has greeting",
+        true
+      ],
+      [
+        "has artifacts array",
+        true
+      ],
+      [
+        "artifacts non-empty",
+        true
+      ],
+      [
+        "artifacts <= 6",
+        true
+      ],
+      [
+        "artifact has type",
+        true
+      ],
+      [
+        "artifact has label",
+        true
+      ],
+      [
+        "artifact has description",
+        true
+      ],
+      [
+        "artifact has valid priority",
+        true
+      ],
+      [
+        "artifact has type",
+        true
+      ],
+      [
+        "artifact has label",
+        true
+      ],
+      [
+        "artifact has description",
+        true
+      ],
+      [
+        "artifact has valid priority",
+        true
+      ],
+      [
+        "artifact has type",
+        true
+      ],
+      [
+        "artifact has label",
+        true
+      ],
+      [
+        "artifact has description",
+        true
+      ],
+      [
+        "artifact has valid priority",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "ingestor_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has atomicFacts",
+        true
+      ],
+      [
+        "5-12 atomic facts",
+        true
+      ],
+      [
+        "has viralHooks",
+        true
+      ],
+      [
+        "3-6 viral hooks",
+        true
+      ],
+      [
+        "fact has 'fact' field",
+        true
+      ],
+      [
+        "fact has 'fact' field",
+        true
+      ],
+      [
+        "fact has 'fact' field",
+        true
+      ],
+      [
+        "hook has 'hook' field",
+        true
+      ],
+      [
+        "hook has 'hook' field",
+        true
+      ],
+      [
+        "hook has 'hook' field",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "stylist_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has overallScore",
+        true
+      ],
+      [
+        "score 0-100",
+        true
+      ],
+      [
+        "has flags array",
+        true
+      ],
+      [
+        "has patternInterrupts",
+        true
+      ],
+      [
+        "has toneAnalysis",
+        true
+      ],
+      [
+        "flag has issue type",
+        true
+      ],
+      [
+        "flag has suggestion",
+        true
+      ],
+      [
+        "toneAnalysis has alignment",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "supervisor_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has persona",
+        true
+      ],
+      [
+        "has systemPrompt",
+        true
+      ],
+      [
+        "has documentStyle",
+        true
+      ],
+      [
+        "has documentType",
+        true
+      ],
+      [
+        "has title",
+        true
+      ],
+      [
+        "has scope object",
+        true
+      ],
+      [
+        "scope has readDatabank",
+        true
+      ],
+      [
+        "scope has readCurrentScript",
+        true
+      ],
+      [
+        "scope has readAllDocuments",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "thinking_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "has bullet lines",
+        true
+      ],
+      [
+        "3-6 bullets",
+        true
+      ],
+      [
+        "no numbered lines",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "chat_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "uses markdown",
+        true
+      ],
+      [
+        "no script_update tags",
+        true
+      ],
+      [
+        "provides actual hooks",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "research_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "has Key Findings section",
+        true
+      ],
+      [
+        "has Trends section",
+        true
+      ],
+      [
+        "has Ideas section",
+        true
+      ],
+      [
+        "has Examples section",
+        true
+      ],
+      [
+        "no obviously fabricated URLs",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "script_coherence_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "detects duplicate section",
+        true
+      ],
+      [
+        "uses bullet format",
+        true
+      ],
+      [
+        "does NOT rewrite content",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "script_refinement_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has patches array",
+        true
+      ],
+      [
+        "patches non-empty",
+        true
+      ],
+      [
+        "patch has blockId",
+        true
+      ],
+      [
+        "patch has text or content",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "script_section_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has sectionId",
+        true
+      ],
+      [
+        "has blocks array",
+        true
+      ],
+      [
+        "8-18 blocks",
+        true
+      ],
+      [
+        "blocks non-empty",
+        true
+      ],
+      [
+        "block has id",
+        true
+      ],
+      [
+        "block has kind",
+        true
+      ],
+      [
+        "block has id",
+        true
+      ],
+      [
+        "block has kind",
+        true
+      ],
+      [
+        "block has id",
+        true
+      ],
+      [
+        "block has kind",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "script_author_agent": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "has ## headers",
+        true
+      ],
+      [
+        "has multiple sections",
+        true
+      ],
+      [
+        "contains script content",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "post_mortem_agent": {
+    "score": 0.25,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has projectSummary",
+        false
+      ],
+      [
+        "has lessons array",
+        false
+      ],
+      [
+        "lessons non-empty",
+        false
+      ]
+    ],
+    "status": "ok"
+  },
+  "url_brief_agent": {
+    "score": 0.857,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has summary",
+        true
+      ],
+      [
+        "has keyTopics array",
+        true
+      ],
+      [
+        "keyTopics 2-6 items",
+        false
+      ],
+      [
+        "has suggestedAngles",
+        true
+      ],
+      [
+        "has platform",
+        true
+      ],
+      [
+        "has contentType",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "subject_extractor": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has hero array",
+        true
+      ],
+      [
+        "has suggested array",
+        true
+      ],
+      [
+        "hero non-empty",
+        true
+      ],
+      [
+        "subject has name",
+        true
+      ],
+      [
+        "subject has category",
+        true
+      ],
+      [
+        "subject has name",
+        true
+      ],
+      [
+        "subject has category",
+        true
+      ],
+      [
+        "subject has name",
+        true
+      ],
+      [
+        "subject has category",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "video_prompt_master": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "80-150 words",
+        true
+      ],
+      [
+        "single paragraph",
+        true
+      ],
+      [
+        "no banned words",
+        true
+      ],
+      [
+        "descriptive content",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "reference_image_service": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "no BAD examples",
+        true
+      ],
+      [
+        "mentions isolation/background",
+        true
+      ],
+      [
+        "concise",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "consistency_pairwise": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has colorConsistency",
+        true
+      ],
+      [
+        "has subjectConsistency",
+        true
+      ],
+      [
+        "has lightingConsistency",
+        true
+      ],
+      [
+        "has styleConsistency",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "consistency_video_quality": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has motionQuality",
+        true
+      ],
+      [
+        "has faceQuality",
+        true
+      ],
+      [
+        "has textQuality",
+        true
+      ],
+      [
+        "has artifactLevel",
+        true
+      ],
+      [
+        "has overallQuality",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "unified_edit_intelligence": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has sceneIntents array",
+        true
+      ],
+      [
+        "sceneIntents non-empty",
+        true
+      ],
+      [
+        "scene 0 has decisiveMoment",
+        true
+      ],
+      [
+        "scene 0 has zoomIntent",
+        true
+      ],
+      [
+        "scene 0 has reasoning",
+        true
+      ],
+      [
+        "scene 1 has decisiveMoment",
+        true
+      ],
+      [
+        "scene 1 has zoomIntent",
+        true
+      ],
+      [
+        "scene 1 has reasoning",
+        true
+      ],
+      [
+        "scene 2 has decisiveMoment",
+        true
+      ],
+      [
+        "scene 2 has zoomIntent",
+        true
+      ],
+      [
+        "scene 2 has reasoning",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "style_transfer_edit_dna": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has pacingSignature",
+        true
+      ],
+      [
+        "has transitionVocabulary",
+        true
+      ],
+      [
+        "has colorGradeProfile",
+        true
+      ],
+      [
+        "has motionPhilosophy",
+        true
+      ],
+      [
+        "has audioEditingStyle",
+        true
+      ],
+      [
+        "has graphicDensity",
+        true
+      ],
+      [
+        "has narrativeStructure",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "reference_content_extractor": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has editDNA",
+        true
+      ],
+      [
+        "has contentMap",
+        true
+      ],
+      [
+        "editDNA has pacing",
+        true
+      ],
+      [
+        "editDNA has colorGrade",
+        true
+      ],
+      [
+        "contentMap has scenes",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "video_understanding": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has contentType",
+        true
+      ],
+      [
+        "has visualSetup",
+        true
+      ],
+      [
+        "visualSetup has environment",
+        true
+      ],
+      [
+        "visualSetup has subjectCount",
+        true
+      ],
+      [
+        "visualSetup has hasFace",
+        true
+      ],
+      [
+        "visualSetup has productionQuality",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "motion_graphics_slot_filler": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has headline",
+        true
+      ],
+      [
+        "headline max 6 words",
+        true
+      ],
+      [
+        "has subheadline",
+        true
+      ],
+      [
+        "has cta_text",
+        true
+      ],
+      [
+        "has accent_color",
+        true
+      ],
+      [
+        "has animation_style",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "five_track_shot_detection": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "is array",
+        true
+      ],
+      [
+        "has shot entries",
+        true
+      ],
+      [
+        "shot has startFrame",
+        true
+      ],
+      [
+        "shot has endFrame",
+        true
+      ],
+      [
+        "shot has startFrame",
+        true
+      ],
+      [
+        "shot has endFrame",
+        true
+      ],
+      [
+        "shot has startFrame",
+        true
+      ],
+      [
+        "shot has endFrame",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "five_track_comprehensive": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has motionSegments",
+        true
+      ],
+      [
+        "has keyframes",
+        true
+      ],
+      [
+        "has subjects",
+        true
+      ],
+      [
+        "motionSegment has startFrame",
+        true
+      ],
+      [
+        "motionSegment has motionType",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "five_track_motion_fallback": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has cameraMotionTypes",
+        true
+      ],
+      [
+        "has motionPeaks",
+        true
+      ],
+      [
+        "cameraMotion has type",
+        true
+      ],
+      [
+        "cameraMotion has startFrame",
+        true
+      ],
+      [
+        "motionPeak has frame",
+        true
+      ],
+      [
+        "motionPeak has intensity",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "five_track_transcript_classifier": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has primaryCategory",
+        true
+      ],
+      [
+        "has confidence",
+        true
+      ],
+      [
+        "has indicators",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "media_analysis_audio": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has silences array",
+        true
+      ],
+      [
+        "has fillers array",
+        true
+      ],
+      [
+        "silence has startMs",
+        true
+      ],
+      [
+        "silence has endMs",
+        true
+      ],
+      [
+        "filler has word",
+        true
+      ],
+      [
+        "filler has startMs",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "media_analysis_video": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has sceneChanges array",
+        true
+      ],
+      [
+        "has deadRanges array",
+        true
+      ],
+      [
+        "sceneChange has frame",
+        true
+      ],
+      [
+        "sceneChange has type",
+        true
+      ],
+      [
+        "deadRange has startFrame",
+        true
+      ],
+      [
+        "deadRange has reason",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "agent_graph_chat": {
+    "score": 1.0,
+    "details": [
+      [
+        "produces response",
+        true
+      ],
+      [
+        "contains tool call or overlay mention",
+        true
+      ],
+      [
+        "has tool field",
+        true
+      ],
+      [
+        "tool is add_overlay",
+        true
+      ],
+      [
+        "has params",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "tools_motion_graphics_bg": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "contains HTML",
+        true
+      ],
+      [
+        "has style/CSS",
+        true
+      ],
+      [
+        "has animation",
+        true
+      ],
+      [
+        "no external resources",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "tools_sticker": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "contains HTML",
+        true
+      ],
+      [
+        "has animation",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "tools_placement_planner": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "is array",
+        true
+      ],
+      [
+        "has placement entries",
+        true
+      ],
+      [
+        "placement has name",
+        true
+      ],
+      [
+        "placement has x/y",
+        true
+      ],
+      [
+        "placement has purpose or alignment",
+        true
+      ],
+      [
+        "placement has name",
+        true
+      ],
+      [
+        "placement has x/y",
+        true
+      ],
+      [
+        "placement has purpose or alignment",
+        true
+      ],
+      [
+        "placement has name",
+        true
+      ],
+      [
+        "placement has x/y",
+        true
+      ],
+      [
+        "placement has purpose or alignment",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "kinetic_typography": {
+    "score": 0.75,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "contains HTML",
+        true
+      ],
+      [
+        "has data attributes",
+        false
+      ],
+      [
+        "has animation",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "enhance_prompt_image_gen": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "more detailed than input",
+        true
+      ],
+      [
+        "enhanced with details",
+        true
+      ],
+      [
+        "under 200 words",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "enhance_prompt_image_edit": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "describes end result",
+        true
+      ],
+      [
+        "is a clear description",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "sketch_to_edit": {
+    "score": 1.0,
+    "details": [
+      [
+        "non-empty response",
+        true
+      ],
+      [
+        "preserves annotation context",
+        true
+      ],
+      [
+        "mentions the edit action",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "alyzitron_analysis": {
+    "score": 1.0,
+    "details": [
+      [
+        "valid JSON",
+        true
+      ],
+      [
+        "has overview",
+        true
+      ],
+      [
+        "has key_moments",
+        true
+      ],
+      [
+        "has quality_scores",
+        true
+      ],
+      [
+        "quality_score production is 1-10",
+        true
+      ],
+      [
+        "quality_score storytelling is 1-10",
+        true
+      ],
+      [
+        "quality_score engagement is 1-10",
+        true
+      ],
+      [
+        "quality_score audio is 1-10",
+        true
+      ]
+    ],
+    "status": "ok"
+  },
+  "context_manager_summary": {
+    "score": 0.5,
+    "details": [
+      [
+        "non-empty response",
+        false
+      ],
+      [
+        "concise summary",
+        true
+      ],
+      [
+        "captures key details",
+        false
+      ],
+      [
+        "is a summary, not a conversation",
+        true
+      ]
+    ],
+    "status": "ok"
+  }
+}

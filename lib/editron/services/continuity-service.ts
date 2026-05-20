@@ -27,8 +27,33 @@ export interface ScenePairAnalysis {
   sceneA: number; // Scene index
   sceneB: number;
   score: ContinuityScore;
-  /** Recommended transition based on score */
-  recommendedTransition: 'hard-cut' | 'soft-cut' | 'dip-to-black' | 'dissolve' | 'match-cut';
+  /** Recommended transition based on score — full vocabulary from transition-templates.ts */
+  recommendedTransition:
+    // Editorial cuts (no visual overlay)
+    | 'hard-cut'      // High continuity, same energy — let the cut breathe
+    | 'match-cut'     // Compositions align visually — cut on the alignment
+    | 'jump-cut'      // Same angle, time skip — intentional discontinuity
+    | 'cut-on-action'  // Motion carries across the cut
+    | 'smash-cut'     // Maximum energy contrast — shock value
+    // Gentle bridges (low visual disruption)
+    | 'soft-cut'      // Slight blur/fade — softer than hard-cut
+    | 'dissolve'      // Passage of time, reflection, connection between scenes
+    | 'blur-transition' // Motion blur bridge — movement between shots
+    // Section markers (clear visual boundary)
+    | 'dip-to-black'  // New chapter/section/topic — reset signal
+    | 'dip-to-white'  // Dreamy, heavenly, or flashback transition
+    // Energy transitions (match high-energy moments)
+    | 'whip-pan'      // Fast energy, excitement — simulates camera movement
+    | 'zoom-punch'    // Impact, emphasis — punches into next scene
+    | 'flash'         // Reveal, impact burst — bright attention grab
+    | 'glitch'        // Digital, tech, edgy aesthetic
+    // Stylistic (when content calls for specific aesthetic)
+    | 'film-burn'     // Organic, vintage, analog feel
+    | 'iris-wipe'     // Retro, theatrical, nostalgic
+    | 'wipe-left'     // Classic directional transition
+    | 'wipe-right'
+    | 'slide-up'      // Push transition — spatial movement
+    | 'slide-down';
   /** Should human review this pair? */
   flagForReview: boolean;
 }
@@ -154,15 +179,60 @@ export function analyzeAllScenePairs(scenes: SceneData[]): ScenePairAnalysis[] {
     let recommendedTransition: ScenePairAnalysis['recommendedTransition'];
     let flagForReview = false;
 
-    // Match-cut: high visual similarity + reasonable continuity
+    // ── Transition selection: editorial rules based on continuity signals ──
+    //
+    // Priority order (highest editorial confidence first):
+    //   1. Match-cut: visual compositions align — rare, intentional, powerful
+    //   2. High continuity (>0.70): same energy, same visual — hard-cut
+    //   3. Medium continuity (0.40-0.70): energy or visual shift — gentle bridge
+    //   4. Low continuity (<0.40): scene change — clear boundary marker
+    //
+    // Within each tier, energy direction (rising/falling/stable) selects
+    // the specific type. This gives variety without randomness — each
+    // transition is MOTIVATED by what's happening between the scenes.
+
+    const energyA = MOOD_ENERGY[scenes[i].mood || 'neutral'] ?? 0.5;
+    const energyB = MOOD_ENERGY[scenes[i + 1].mood || 'neutral'] ?? 0.5;
+    const energyDelta = energyB - energyA;  // positive = energy rising
+    const isHighEnergy = energyB > 0.65;
+
     if (score.visualSimilarity > 0.7 && score.overall > 0.5) {
+      // Tier 1: Compositions align — match-cut candidate
       recommendedTransition = 'match-cut';
     } else if (score.overall > 0.70) {
-      recommendedTransition = 'hard-cut';
+      // Tier 2: High continuity — scenes flow naturally, minimal disruption
+      // Same energy, same look → hard-cut (let the content carry the transition)
+      // Slightly different energy → soft-cut (gentle acknowledgment of shift)
+      recommendedTransition = Math.abs(energyDelta) < 0.15 ? 'hard-cut' : 'soft-cut';
     } else if (score.overall > 0.40) {
-      recommendedTransition = 'soft-cut';
+      // Tier 3: Medium continuity — noticeable shift, needs a bridge
+      if (energyDelta > 0.25 && isHighEnergy) {
+        // Energy rising sharply → whip-pan (momentum matches energy)
+        recommendedTransition = 'whip-pan';
+      } else if (energyDelta < -0.25) {
+        // Energy dropping sharply → dissolve (deceleration, reflection)
+        recommendedTransition = 'dissolve';
+      } else if (score.colorMatch < 0.3) {
+        // Color palette shift → dip-to-black (reset visual palette cleanly)
+        // CRG constraint:transition.dissolve_color_clash — dissolve through
+        // clashing colors creates muddy middle frame
+        recommendedTransition = 'dip-to-black';
+      } else {
+        // Moderate shift, no strong signal → soft-cut (safe, professional)
+        recommendedTransition = 'soft-cut';
+      }
     } else {
-      recommendedTransition = 'dip-to-black';
+      // Tier 4: Low continuity — clear scene change
+      if (energyDelta > 0.3 && isHighEnergy) {
+        // Low continuity + energy spike → smash-cut (shock, contrast)
+        recommendedTransition = 'smash-cut';
+      } else if (score.energyMatch < 0.3) {
+        // Mood contrast → dip-to-black (clean section break)
+        recommendedTransition = 'dip-to-black';
+      } else {
+        // General scene change → dip-to-black (universal section marker)
+        recommendedTransition = 'dip-to-black';
+      }
       flagForReview = true;
     }
 

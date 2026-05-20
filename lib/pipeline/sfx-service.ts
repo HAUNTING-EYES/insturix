@@ -63,9 +63,13 @@ export async function generateSFX(
   const duration = Math.min(Math.max(durationSec, 1), 35);
   const assetId = `sfx_${nanoid(12)}`;
 
-  // Use sfxCue as primary (explicit script direction), audioDescription as fallback (ambient context)
+  // Fix 20: Three-layer SFX prompt — ambient bed + spot effects in a single clip.
+  // Feature SFX (whooshes, impacts) are handled separately by transition-sfx-placer.
+  // The sfxDescription from the parser already categorizes into:
+  //   "Ambient bed: X. Spot SFX: Y. Feature SFX: Z."
+  // We include ambient + spot in the prompt so the AI generates a rich layered mix.
   const sfxPrompt = sfxCue || audioDescription;
-  const ambientContext = sfxCue ? audioDescription : ''; // Keep ambient for mixing context
+  const ambientContext = sfxCue ? audioDescription : '';
 
   console.log(
     `[SFX] Generating: sfxCue="${(sfxCue || '').substring(0, 60)}", desc="${audioDescription.substring(0, 60)}", duration=${duration}s`,
@@ -147,9 +151,17 @@ export async function generateSFX(
   // Only reached if library had no match AND mirelo failed/unavailable.
   // $0.02/min, 10-180s, reliable (unlike beatoven which queues forever)
   try {
+    // Fix 20: Request layered audio — ambient bed underneath + spot effects on top.
+    // CassetteAI handles this via prompt engineering (single generation call).
+    const layeredPrompt = [
+      audioDescription,
+      'layered audio design: continuous ambient bed underneath',
+      'with spot sound effects at natural moments on top',
+      'atmospheric, immersive, clean recording, no vocals, no music',
+    ].join(', ');
     result = await fal.subscribe('cassetteai/music-generator', {
       input: {
-        prompt: `${audioDescription}, ambient sound effects, atmospheric audio, no vocals`,
+        prompt: layeredPrompt,
         duration: Math.min(Math.max(Math.round(duration), 10), 180),
       },
       logs: true,

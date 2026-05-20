@@ -21,6 +21,7 @@ function saveLocal(sessionId: string, scriptId: string, data: Partial<{ script: 
 
 export function useThinkForgeScript(sessionId: string | null, scriptId: string | null) {
   const [script, setScript] = useState<ScriptModel | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -53,6 +54,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
     scriptIdRef.current = scriptId;
     if (!sessionId) {
       setScript(null);
+      setIsLoading(false);
       lastSavedSnapshotRef.current = "";
       resetPendingSaves();
       return;
@@ -60,6 +62,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
 
     // Clear stale script immediately when switching
     setScript(null);
+    setIsLoading(true);
     lastSavedSnapshotRef.current = "";
     resetPendingSaves();
 
@@ -74,6 +77,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
         const cached = JSON.parse(raw);
         if (cached?.script && cached.script.title && cached.script.title !== 'Untitled Script') {
           setScript(cached.script);
+          setIsLoading(false);
           lastSavedSnapshotRef.current = JSON.stringify(cached.script);
           foundLocal = true;
         }
@@ -106,6 +110,8 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
           saveLocal(sessionId, effectiveScriptId, { script: serverScript });
         } catch {
           // Silent - ScriptEditor will also try to load from API
+        } finally {
+          if (!cancelled) setIsLoading(false);
         }
       })();
       return () => { cancelled = true; };
@@ -290,6 +296,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
   const resetSessionState = useCallback(() => {
     resetPendingSaves();
     setScript(null);
+    setIsLoading(true);
     lastSavedSnapshotRef.current = "";
     setSaveError(null);
     setRetryCount(0);
@@ -378,6 +385,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
 
   return {
     script,
+    isLoading,
     isSaving,
     saveError,
     retryCount,

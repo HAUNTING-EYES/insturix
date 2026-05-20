@@ -33,6 +33,7 @@ export interface ProjectMeta {
   platform?: string;
   tone?: string;
   sessionName?: string;
+  brandId?: string;
   preferences?: Record<string, any>;
 }
 

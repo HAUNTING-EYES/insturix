@@ -1,0 +1,1007 @@
+{
+  "part": 1,
+  "name": "Signal Dictionary",
+  "sourceLines": [384, 1041],
+  "nodes": [
+    {
+      "id": "signal:speech.energy",
+      "type": "Signal",
+      "category": "speech",
+      "name": "speech_energy",
+      "summary": "How intensely the speaker is delivering. 0.8+ = emphatic/passionate. 0.3- = reflective/quiet.",
+      "details": {
+        "detection": "RMS amplitude normalized to speaker's range, smoothed over 500ms window. Future: Wav2Vec-BERT energy embedding (semantic energy, not just volume).",
+        "output": "0.0-1.0 (continuous)",
+        "thresholds": "0.8+ = emphatic/passionate; 0.3- = reflective/quiet; mid-word edit point flag at 0.4-0.6 rising",
+        "rationale": "Vocal intensity correlates with perceived importance (Scherer 2003 affect prosody)",
+        "implementsIn": ["lib/editron/services/five-track-analysis.ts"],
+        "qualityGate": "If speech_energy at an edit point is mid-word (0.4-0.6 and rising), the cut landed badly"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [429, 437]
+    },
+    {
+      "id": "signal:speech.energy_delta",
+      "type": "Signal",
+      "category": "speech",
+      "name": "speech_energy_delta",
+      "summary": "Whether the speaker is building up (positive) or winding down (negative).",
+      "details": {
+        "detection": "Derivative of speech_energy over 2s sliding window. Future: Wav2Vec-BERT temporal features capture energy trajectory natively.",
+        "output": "-1.0 to 1.0 (rate of change per second)",
+        "thresholds": "Rising delta = building (cut feels premature); falling delta = releasing",
+        "rationale": "Pearlman's breath model — rising energy = inhale (building), falling = exhale (releasing)",
+        "implementsIn": ["Computed from speech_energy time series"],
+        "qualityGate": "A cut during rising delta (speaker building toward something) feels premature"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [440, 448]
+    },
+    {
+      "id": "signal:speech.speaking_rate_wpm",
+      "type": "Signal",
+      "category": "speech",
+      "name": "speaking_rate_wpm",
+      "summary": "How fast the speaker is talking relative to their own baseline.",
+      "details": {
+        "detection": "Word count / duration from Whisper timestamps, smoothed over 10s. Future: Grok provides more accurate word-level timestamps.",
+        "output": "80-220 WPM (typical human range)",
+        "thresholds": "> 180 WPM → readability issue (captions can't keep up)",
+        "rationale": "Rate acceleration signals excitement or urgency; deceleration signals emphasis or gravity",
+        "implementsIn": ["lib/editron/services/transcription-service.ts"],
+        "qualityGate": "If captions can't keep up with speaking_rate (> 180 WPM), flag readability issue"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [451, 459]
+    },
+    {
+      "id": "signal:speech.pitch_contour",
+      "type": "Signal",
+      "category": "speech",
+      "name": "pitch_contour",
+      "summary": "Intonation pattern. Rising = question/uncertainty. Falling = statement/finality. Rising-falling = emphasis.",
+      "details": {
+        "detection": "F0 extraction from audio, classified over phrase boundaries. Future: Wav2Vec-BERT captures pitch embedding directly.",
+        "output": "enum — rising | falling | flat | rising-falling | falling-rising",
+        "thresholds": null,
+        "rationale": "Universal intonation patterns across languages (Bolinger 1978, Gussenhoven 2004)",
+        "implementsIn": ["lib/editron/services/five-track-analysis.ts"],
+        "qualityGate": "N/A (informational signal, not a quality metric)"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [462, 470]
+    },
+    {
+      "id": "signal:speech.silence_duration_ms",
+      "type": "Signal",
+      "category": "speech",
+      "name": "silence_duration_ms",
+      "summary": "How long since speech stopped. Context-dependent meaning ranging from natural breath pause to dramatic pause to dead air.",
+      "details": {
+        "detection": "Gap between word-level timestamps from Whisper. Future: Grok + Wav2Vec-BERT distinguish intentional pauses from dead air.",
+        "output": "0-10000+ ms",
+        "thresholds": "< 300ms = natural breath pause (ignore); 300-800ms = clause boundary or emphasis pause; 800-2000ms = topic boundary or dramatic pause; > 2000ms = potential dead air (check narrative_pressure before removing)",
+        "rationale": "Event segmentation theory — pauses > 800ms treated as topic boundaries (engineering default, not from Zacks 2007 — Zacks researches event segmentation at seconds-to-minutes scale)",
+        "implementsIn": ["Computed from transcription-service.ts word timestamps"],
+        "qualityGate": "silence > silence_tolerance AND narrative_pressure < 0.5 → flag as dead air"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [473, 485]
+    },
+    {
+      "id": "signal:speech.emphasis_word",
+      "type": "Signal",
+      "category": "speech",
+      "name": "emphasis_word",
+      "summary": "Which specific words the speaker is stressing. These are natural zoom/graphic anchor points.",
+      "details": {
+        "detection": "Volume spike > 1.5x local average + duration stretch > 110% on specific word. Future: Wav2Vec-BERT stress detection identifies emphasized words semantically.",
+        "output": "boolean per word + intensity 0-1",
+        "thresholds": "Volume spike > 1.5x local average; duration stretch > 110%",
+        "rationale": "Prosodic prominence correlates with information focus (Ladd 2008 intonational phonology)",
+        "implementsIn": ["Computed from Whisper word timestamps + audio amplitude analysis"],
+        "qualityGate": "If a zoom or graphic lands on a non-emphasized word, the system is off-target"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [488, 496]
+    },
+    {
+      "id": "signal:speech.filler_detected",
+      "type": "Signal",
+      "category": "speech",
+      "name": "filler_detected",
+      "summary": "Non-content speech (um, uh, like, you_know, so, basically). Removal candidates in raw footage; should be gone in polished content.",
+      "details": {
+        "detection": "Whisper transcript + regex pattern matching + confidence threshold. Future: Wav2Vec-BERT classifies fillers with higher accuracy than text matching.",
+        "output": "boolean per instance + type (um | uh | like | you_know | so | basically)",
+        "thresholds": "filler_count > 0 in final output AND formality > 0.5 → flag",
+        "rationale": "Fillers reduce perceived speaker competence (Brennan & Williams 1995)",
+        "implementsIn": ["lib/editron/services/raw-footage-processor.ts"],
+        "qualityGate": "filler_count > 0 in final output AND formality > 0.5 → flag"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [499, 507]
+    },
+    {
+      "id": "signal:speech.emotional_valence",
+      "type": "Signal",
+      "category": "speech",
+      "name": "emotional_valence",
+      "summary": "The emotional charge of what's being said/how it's being said. Voice-level detection catches mismatches between text and tone.",
+      "details": {
+        "detection": "Sentiment analysis on transcript text (limited — misses vocal tone). Future: Wav2Vec-BERT reads emotional valence from VOICE, not just words. 'I'm fine' in text = positive. 'I'm fine' said through tears = negative.",
+        "output": "enum — positive | negative | neutral | mixed",
+        "thresholds": null,
+        "rationale": "Vocal affect is cross-culturally recognized (Scherer 2003, Sauter et al. 2010)",
+        "implementsIn": ["Currently transcript-only. Future: Wav2Vec-BERT emotion classifier on fal.ai"],
+        "qualityGate": "If music_energy is high-positive AND emotional_valence is negative → mood mismatch"
+      },
+      "tags": ["NEEDS_INFRA"],
+      "sourceLines": [510, 519]
+    },
+    {
+      "id": "signal:speech.speaker_change",
+      "type": "Signal",
+      "category": "speech",
+      "name": "speaker_change",
+      "summary": "A different person is now speaking. Enables interview editing, multi-speaker content.",
+      "details": {
+        "detection": "Not available (no diarization). Approximated from long pauses + content shift. Future: Grok speaker diarization — precise speaker boundaries with speaker labels.",
+        "output": "boolean + new_speaker_id",
+        "thresholds": null,
+        "rationale": "Speaker changes are natural event boundaries (event segmentation theory)",
+        "implementsIn": ["Future: Grok on fal.ai. Current: heuristic from transcript gaps"],
+        "qualityGate": "If speaker_change detected but no visual change (still showing previous speaker) → flag"
+      },
+      "tags": ["NEEDS_INFRA"],
+      "sourceLines": [522, 530]
+    },
+    {
+      "id": "signal:speech.formality",
+      "type": "Signal",
+      "category": "speech",
+      "name": "speech_formality",
+      "summary": "How formal the speech is. Affects caption style, graphic style, overall tone matching.",
+      "details": {
+        "detection": "Vocabulary analysis + sentence structure + filler rate from transcript. Future: Combined transcript + Wav2Vec-BERT vocal register analysis.",
+        "output": "enum — formal | conversational | casual | scripted",
+        "thresholds": null,
+        "rationale": "Register mismatch between audio and visual treatment creates cognitive dissonance",
+        "implementsIn": ["Classifier on transcript features (avg sentence length, vocabulary tier, filler rate)"],
+        "qualityGate": "If speech_formality = casual AND formality genre_parameter > 0.7 → flag style mismatch"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [533, 541]
+    },
+    {
+      "id": "signal:entity.number",
+      "type": "Signal",
+      "category": "entity",
+      "name": "entity_number",
+      "summary": "Speaker made a quantitative claim (count, percentage, currency, duration, comparison). Natural stat-graphic anchor points.",
+      "details": {
+        "detection": "NER + regex for numeric patterns in transcript. Future: Same (text-based signal, doesn't benefit from V-JEPA).",
+        "output": "boolean per instance + value + type (count | percentage | currency | duration | comparison)",
+        "thresholds": "If entity_number detected but no visual reinforcement AND moment_weight > 0.5 → missed opportunity",
+        "rationale": "Dual-coding theory (Paivio 1971) — visual + auditory encoding of same data → 2x retention",
+        "implementsIn": ["NER pipeline on transcription output"],
+        "qualityGate": "If entity_number detected but no visual reinforcement AND moment_weight > 0.5 → missed opportunity"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [549, 558]
+    },
+    {
+      "id": "signal:entity.cta",
+      "type": "Signal",
+      "category": "entity",
+      "name": "entity_CTA",
+      "summary": "The speaker is asking the viewer to DO something. Almost always a high-weight moment.",
+      "details": {
+        "detection": "Imperative verb + action noun in final 25% of transcript. Future: Same (text-based).",
+        "output": "boolean per instance + CTA_type (visit | subscribe | buy | download | contact | learn_more)",
+        "thresholds": "Final 25% of transcript",
+        "rationale": "CTA placement in final quarter correlates with higher conversion (Wistia data shows 16% avg CTA conversion rate; specific multiplier varies by content type)",
+        "implementsIn": ["Sentence classifier on transcript"],
+        "qualityGate": "If entity_CTA detected but no visual treatment (no lower-third, no zoom) → missed CTA"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [561, 569]
+    },
+    {
+      "id": "signal:entity.rhetorical_question",
+      "type": "Signal",
+      "category": "entity",
+      "name": "rhetorical_question",
+      "summary": "Speaker asks a question they'll answer themselves. Creates an open loop — viewer's brain NEEDS the answer (Zeigarnik Effect).",
+      "details": {
+        "detection": "Question mark in transcript + no answer within 3s + speech_energy rising. Future: Wav2Vec-BERT can distinguish genuine questions (rising terminal pitch) from rhetorical.",
+        "output": "boolean per instance",
+        "thresholds": "No answer within 3s",
+        "rationale": "Zeigarnik Effect — unresolved questions create cognitive tension that drives retention",
+        "implementsIn": ["Sentence classifier + prosody analysis"],
+        "qualityGate": "N/A (informational signal for technique triggering)"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [572, 581]
+    },
+    {
+      "id": "signal:entity.topic_boundary",
+      "type": "Signal",
+      "category": "entity",
+      "name": "topic_boundary",
+      "summary": "The speaker shifted topics. Event segmentation theory says the brain WANTS a perceptual reset at these boundaries.",
+      "details": {
+        "detection": "Cosine similarity between embedding of sentence N and sentence N+1. If delta > 0.3 (threshold), flag as topic boundary. Future: Same approach but with better embeddings from context-aware models.",
+        "output": "boolean at each sentence boundary + confidence 0-1",
+        "thresholds": "Cosine similarity delta > 0.3 between consecutive sentences",
+        "rationale": "Event segmentation theory (Zacks & Swallow 2007) — semantic shifts = natural edit points",
+        "implementsIn": ["Gemini embedding on transcript sentences, cosine delta computation"],
+        "qualityGate": "If topic_boundary detected but no visual change within ±1s → flat edit"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [584, 594]
+    },
+    {
+      "id": "signal:entity.claim_strength",
+      "type": "Signal",
+      "category": "entity",
+      "name": "claim_strength",
+      "summary": "How confidently the speaker states something. Assertive claims deserve emphasis. Hedged claims should not get stat graphics.",
+      "details": {
+        "detection": "Linguistic analysis — modal verbs ('might,' 'could' = hedged), superlatives ('best,' 'fastest' = assertive), citations ('studies show' = factual). Future: Same (text-based).",
+        "output": "enum — assertive | hedged | speculative | factual",
+        "thresholds": null,
+        "rationale": "Perceived credibility correlates with visual emphasis alignment (Petty & Cacioppo ELM)",
+        "implementsIn": ["Sentence classifier on transcript"],
+        "qualityGate": "If claim_strength = hedged AND stat_graphic applied → visual overpromise"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [597, 605]
+    },
+    {
+      "id": "signal:entity.narrative_phase",
+      "type": "Signal",
+      "category": "entity",
+      "name": "narrative_phase",
+      "summary": "Where we are in the story arc. Every narrative — even a 30s ad — has phases.",
+      "details": {
+        "detection": "Composite of position_in_video + speech_energy curve + topic_boundary count. First 15% = opening. energy rising = build. energy peak = climax. energy falling = resolve. Final 15% = closing/CTA. Future: LLM reads transcript and assigns phases semantically (more accurate for non-linear structures).",
+        "output": "enum — opening | setup | build | climax | resolve | cta | closing",
+        "thresholds": "First 15% = opening; final 15% = closing/CTA",
+        "rationale": "Vonnegut's story shapes — every narrative is a curve on a good-fortune axis",
+        "implementsIn": ["Computed from speech_energy time series + position + entity_CTA detection"],
+        "qualityGate": "If narrative_phase = climax AND edit_density is LOWER than build phase → anticlimax"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [608, 618]
+    },
+    {
+      "id": "signal:visual.motion_intensity",
+      "type": "Signal",
+      "category": "visual",
+      "name": "motion_intensity",
+      "summary": "How much visual change is happening. 0.8+ = fast action/camera movement. 0.2- = static/talking head.",
+      "details": {
+        "detection": "Optical flow magnitude averaged across frame, normalized. Future: V-JEPA 2 motion features — understands not just 'something moved' but 'what kind of movement'.",
+        "output": "0.0-1.0 (continuous)",
+        "thresholds": "0.8+ = fast action; 0.2- = static",
+        "rationale": "Visual motion is the strongest driver of attentional capture (Abrams & Christ 2003)",
+        "implementsIn": ["lib/editron/services/five-track-analysis.ts"],
+        "qualityGate": "motion_intensity spike at a cut point = cut-on-action (good). Spike 3 frames before cut = premature"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [626, 634]
+    },
+    {
+      "id": "signal:visual.motion_type",
+      "type": "Signal",
+      "category": "visual",
+      "name": "motion_type",
+      "summary": "Whether the subject or the camera (or both) is creating the motion.",
+      "details": {
+        "detection": "Heuristic from optical flow distribution (uniform = camera, localized = subject). Future: V-JEPA 2 distinguishes subject action from camera motion natively.",
+        "output": "enum — subject_moving | camera_moving | both | static",
+        "thresholds": null,
+        "rationale": "Blain Brown's motivated camera — camera movement must have a WHY. Subject movement is inherent",
+        "implementsIn": ["Computed from optical flow analysis"],
+        "qualityGate": "camera_moving without motivated cause = unmotivated movement (flag if formality > 0.6)"
+      },
+      "tags": ["NEEDS_INFRA"],
+      "sourceLines": [637, 645]
+    },
+    {
+      "id": "signal:visual.action_type",
+      "type": "Signal",
+      "category": "visual",
+      "name": "action_type",
+      "summary": "What the subject is physically doing. Determines appropriate shot duration, cut timing, and SFX.",
+      "details": {
+        "detection": "Gemini Vision keyframe description (text-based, imprecise). Future: V-JEPA 2 action recognition — 'person picks up cup' not 'person near cup.' 39.7 recall@5 on Epic-Kitchens action anticipation.",
+        "output": "enum — talking | walking | gesturing | demonstrating | eating | writing | still | interacting_with_object | other",
+        "thresholds": null,
+        "rationale": "Action boundaries are the strongest natural cut points (event segmentation theory)",
+        "implementsIn": ["Currently Gemini Vision. Future: V-JEPA 2 on fal.ai"],
+        "qualityGate": "If action_type = demonstrating AND shot_scale = EWS → subject too small to see demo"
+      },
+      "tags": ["NEEDS_INFRA"],
+      "sourceLines": [648, 657]
+    },
+    {
+      "id": "signal:visual.shot_scale",
+      "type": "Signal",
+      "category": "visual",
+      "name": "shot_scale",
+      "summary": "How close we are to the subject. Determines emotional intimacy of the shot.",
+      "details": {
+        "detection": "Face detection bounding box size relative to frame. Face > 60% of frame height = ECU. 40-60% = CU. 25-40% = MCU. 15-25% = MS. < 15% = WS. No face detected = WS or EWS (use scene complexity to distinguish). Future: V-JEPA 2 + face detection provides more nuanced scale classification.",
+        "output": "enum — ECU | CU | MCU | MS | MWS | WS | EWS",
+        "thresholds": "Face > 60% frame height = ECU; 40-60% = CU; 25-40% = MCU; 15-25% = MS; < 15% = WS",
+        "rationale": "Close-up frequency correlates with mental state attribution (Bálint et al. 2020)",
+        "implementsIn": ["Face detection bounding box analysis"],
+        "qualityGate": "3+ consecutive shots at same scale → visual monotony flag"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [660, 670]
+    },
+    {
+      "id": "signal:visual.shot_composition",
+      "type": "Signal",
+      "category": "visual",
+      "name": "shot_composition",
+      "summary": "Where the subject is placed in the frame. Affects transition planning (eye-trace continuity).",
+      "details": {
+        "detection": "Subject position relative to frame grid (face centroid or largest region centroid). Future: V-JEPA 2 subject localization provides more reliable centroid.",
+        "output": "enum — center | rule_of_thirds | off_center | symmetric | dutch",
+        "thresholds": null,
+        "rationale": "Gestalt principle of figure-ground — composition determines what reads as 'subject' vs 'background'",
+        "implementsIn": ["Computed from face detection or saliency map"],
+        "qualityGate": "Subject at frame-right in shot A → subject at frame-left in shot B = good eye-trace flow (Murch #4)"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [673, 681]
+    },
+    {
+      "id": "signal:visual.face_present",
+      "type": "Signal",
+      "category": "visual",
+      "name": "face_present",
+      "summary": "Whether a face is visible, where it is, how large. Faces are the strongest attention magnets.",
+      "details": {
+        "detection": "Face detection model (MTCNN or similar). Future: V-JEPA 2 multi-person tracking with persistent identity.",
+        "output": "boolean + position (x,y normalized 0-1) + size (fraction of frame) + count",
+        "thresholds": "Unsafe zone: top 10% or bottom 20%",
+        "rationale": "Faces activate fusiform face area — fastest attentional capture in human vision (Hershler & Hochstein 2005)",
+        "implementsIn": ["Face detection pipeline"],
+        "qualityGate": "If face_present AND face is in unsafe zone (top 10% or bottom 20%) → composition issue"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [684, 692]
+    },
+    {
+      "id": "signal:visual.face_emotion",
+      "type": "Signal",
+      "category": "visual",
+      "name": "face_emotion",
+      "summary": "What the face is expressing. Informs color treatment, music mood, and cut timing.",
+      "details": {
+        "detection": "Facial expression classifier on detected face. Future: V-JEPA 2 reads emotional dynamics (transition from neutral to happy), not just static expression.",
+        "output": "enum — happy | sad | angry | surprised | fearful | disgusted | neutral | contempt",
+        "thresholds": null,
+        "rationale": "Facial expressions are cross-culturally recognized (Ekman 1992, with cultural modifiers)",
+        "implementsIn": ["Emotion classification model on face crop"],
+        "qualityGate": "If face_emotion = sad AND music_energy = high-positive → mood mismatch"
+      },
+      "tags": ["NEEDS_INFRA"],
+      "sourceLines": [695, 703]
+    },
+    {
+      "id": "signal:visual.eye_contact",
+      "type": "Signal",
+      "category": "visual",
+      "name": "eye_contact",
+      "summary": "Whether the subject is looking at the camera (= at the viewer). Direct address vs observation.",
+      "details": {
+        "detection": "Gaze direction estimation from face landmarks. Future: V-JEPA 2 provides temporal gaze tracking (when eye contact begins/ends).",
+        "output": "boolean (looking at camera vs. looking away) + confidence 0-1",
+        "thresholds": null,
+        "rationale": "Direct gaze activates social cognition networks (Senju & Johnson 2009). Feels like being 'spoken to'",
+        "implementsIn": ["Gaze estimation from face detection pipeline"],
+        "qualityGate": "If eye_contact = true AND shot_composition = off_center → the subject is looking at nothing (recompose)"
+      },
+      "tags": ["NEEDS_INFRA"],
+      "sourceLines": [706, 714]
+    },
+    {
+      "id": "signal:visual.color_temperature",
+      "type": "Signal",
+      "category": "visual",
+      "name": "color_temperature",
+      "summary": "The warmth or coolness of the visual. Affects mood, grade decisions, transition compatibility.",
+      "details": {
+        "detection": "Average color temperature from frame histogram analysis. Future: Per-region color analysis for more nuanced temperature mapping.",
+        "output": "integer Kelvin estimate (2700-9000K) + enum (warm | neutral | cool)",
+        "thresholds": "Color temperature delta > 1500K between consecutive scenes AND dissolve → ugly blend",
+        "rationale": "Color-emotion associations (warm = comfort/nostalgia, cool = professional/melancholy) — Valdez & Mehrabian 1994",
+        "implementsIn": ["Frame color analysis in five-track pipeline"],
+        "qualityGate": "color_temperature delta > 1500K between consecutive scenes AND dissolve transition → ugly blend"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [717, 725]
+    },
+    {
+      "id": "signal:visual.visual_complexity",
+      "type": "Signal",
+      "category": "visual",
+      "name": "visual_complexity",
+      "summary": "How much visual information is in the frame. Fast cuts on complex frames = cognitive overload. Slow cuts on simple frames = boredom.",
+      "details": {
+        "detection": "Edge density + color histogram entropy, normalized. Future: V-JEPA 2 scene understanding provides semantic complexity (not just edge count).",
+        "output": "0.0-1.0 (continuous)",
+        "thresholds": "visual_complexity > 0.7 AND time_since_last_cut < 1.5s → information overload",
+        "rationale": "Cognitive load theory — working memory can hold 4±1 items (Cowan 2001, not Sweller 1988). Complex frames use more slots",
+        "implementsIn": ["Computed from edge detection + histogram analysis"],
+        "qualityGate": "If visual_complexity > 0.7 AND time_since_last_cut < 1.5s → information overload flag"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [728, 737]
+    },
+    {
+      "id": "signal:visual.screen_direction",
+      "type": "Signal",
+      "category": "visual",
+      "name": "screen_direction",
+      "summary": "Which direction the subject faces or moves. Critical for continuity editing.",
+      "details": {
+        "detection": "Face orientation from face detection + subject position in frame. Future: V-JEPA 2 subject tracking with directional understanding.",
+        "output": "enum — facing_left | facing_right | facing_camera | ambiguous",
+        "thresholds": null,
+        "rationale": "180-degree rule — screen direction must be consistent across cuts or viewer loses spatial orientation",
+        "implementsIn": ["Face detection + optical flow direction"],
+        "qualityGate": "screen_direction flips between cuts without motivated camera movement → continuity break"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [740, 748]
+    },
+    {
+      "id": "signal:visual.scene_type",
+      "type": "Signal",
+      "category": "visual",
+      "name": "scene_type",
+      "summary": "The environment. Affects ambient sound design, color treatment expectations, shot duration norms.",
+      "details": {
+        "detection": "Scene classification from Gemini Vision. Future: V-JEPA 2 scene understanding with environmental semantics.",
+        "output": "enum — indoor | outdoor | studio | abstract | graphic_only | screencast | mixed",
+        "thresholds": null,
+        "rationale": "Environmental context sets viewer expectations (indoor = intimate, outdoor = expansive)",
+        "implementsIn": ["Scene classifier on keyframes"],
+        "qualityGate": "If scene_type changes but ambient_bed doesn't → audio-visual environment mismatch"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [751, 759]
+    },
+    {
+      "id": "signal:visual.ai_artifact_risk",
+      "type": "Signal",
+      "category": "visual",
+      "name": "ai_artifact_risk",
+      "summary": "How likely the current frame window contains AI generation artifacts. Used to trigger preventive cuts before artifacts appear.",
+      "details": {
+        "detection": "Frame-to-frame diff analysis. High temporal inconsistency (flicker, morphing) scores high. Specific checks: face consistency (landmark drift), hand integrity (topology check), background stability. Future: V-JEPA 2 temporal consistency features — predicts what SHOULD happen next, high prediction error on actual frames = artifact.",
+        "output": "0.0-1.0 (continuous, per-frame window)",
+        "thresholds": "ai_artifact_risk > 0.6 AND shot held > 3s → immediate cut. Temporal consistency degrades after ~3-4s in current models",
+        "rationale": "AI-specific signal. No traditional film theory equivalent. Temporal consistency degrades after ~3-4s in current models",
+        "implementsIn": ["Frame diff analysis + specific artifact detectors (face landmark drift, edge stability)"],
+        "qualityGate": "If ai_artifact_risk > 0.6 AND shot has been held > 3s → immediate cut recommended"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [762, 772]
+    },
+    {
+      "id": "signal:audio.music_energy",
+      "type": "Signal",
+      "category": "audio",
+      "name": "music_energy",
+      "summary": "Overall intensity of the music. Determines visual energy matching.",
+      "details": {
+        "detection": "Spectral analysis — weighted RMS across frequency bands. Future: Same approach, potentially enhanced with music understanding models.",
+        "output": "0.0-1.0 (continuous)",
+        "thresholds": null,
+        "rationale": "Cross-modal correspondence — auditory intensity maps to visual intensity (Spence 2011)",
+        "implementsIn": ["lib/editron/services/five-track-analysis.ts"],
+        "qualityGate": "If music_energy and visual edit_density move in opposite directions → energy mismatch"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [781, 789]
+    },
+    {
+      "id": "signal:audio.music_beat",
+      "type": "Signal",
+      "category": "audio",
+      "name": "music_beat",
+      "summary": "Where the musical beats fall. Natural edit sync points — cuts feel 'right' on beats.",
+      "details": {
+        "detection": "Spectral flux onset detection, classified by metric position. Future: Same, potentially with music structure model for more accurate downbeat detection.",
+        "output": "array of timestamps (ms) + beat_type (downbeat | upbeat | offbeat)",
+        "thresholds": "4+ consecutive cuts on exact beat positions → metronomic flag",
+        "rationale": "Neural entrainment — the brain synchronizes to rhythmic stimuli (Large & Palmer 2002)",
+        "implementsIn": ["lib/editron/services/beat-sync-service.ts"],
+        "qualityGate": "If cuts are beat-synced AND all on exact beat positions for 4+ consecutive cuts → metronomic flag"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [792, 800]
+    },
+    {
+      "id": "signal:audio.music_section",
+      "type": "Signal",
+      "category": "audio",
+      "name": "music_section",
+      "summary": "Where we are in the song structure. Sections map to edit density and transition types.",
+      "details": {
+        "detection": "Energy curve + repetition analysis + spectral change points. Future: Music structure analysis model (more accurate section boundaries).",
+        "output": "enum — intro | verse | pre_chorus | chorus | drop | bridge | breakdown | outro | transition",
+        "thresholds": "intro = sparse edits; chorus/drop = peak edit density; breakdown = pull back; outro = resolve",
+        "rationale": "Musical form creates expectation patterns — chorus = energy peak is culturally universal in pop music",
+        "implementsIn": ["lib/editron/services/five-track-analysis.ts"],
+        "qualityGate": "If music_section = chorus AND edit_density < build_section density → anticlimax"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [803, 812]
+    },
+    {
+      "id": "signal:audio.music_key",
+      "type": "Signal",
+      "category": "audio",
+      "name": "music_key",
+      "summary": "Musical key and mode. Major = happy/triumphant. Minor = sad/dramatic. Lydian = dreamy.",
+      "details": {
+        "detection": "Chroma analysis → key estimation. Future: Same approach.",
+        "output": "note (C-B) + mode (major | minor | dorian | mixolydian | lydian | pentatonic_major | pentatonic_minor)",
+        "thresholds": null,
+        "rationale": "Mode-emotion associations are culturally robust in Western music (Hevner 1935, updated)",
+        "implementsIn": ["Chroma analysis in audio pipeline"],
+        "qualityGate": "N/A (informational for creative decisions, not quality metric)"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [815, 823]
+    },
+    {
+      "id": "signal:audio.music_bpm",
+      "type": "Signal",
+      "category": "audio",
+      "name": "music_bpm",
+      "summary": "Tempo. Directly determines edit rhythm when beat-syncing.",
+      "details": {
+        "detection": "Autocorrelation on onset detection function. Future: Same approach.",
+        "output": "integer (40-200+ BPM)",
+        "thresholds": "40-60 = meditative; 80-100 = moderate; 120-140 = energetic; 160+ = intense; BPM > 140 AND pacing_tolerance > 5s → mismatch",
+        "rationale": "Tempo-arousal correlation is one of the strongest in music psychology (Husain et al. 2002)",
+        "implementsIn": ["lib/editron/services/beat-sync-service.ts"],
+        "qualityGate": "If BPM > 140 AND pacing_tolerance > 5s → music wants fast cuts, genre wants slow — mismatch"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [826, 835]
+    },
+    {
+      "id": "signal:audio.ambient_type",
+      "type": "Signal",
+      "category": "audio",
+      "name": "ambient_type",
+      "summary": "Background environmental sound. Critical for continuity — ambient should not abruptly change at cuts.",
+      "details": {
+        "detection": "Audio classification on non-speech segments. Future: Wav2Vec-BERT environmental audio classification.",
+        "output": "enum — room_tone | outdoor_wind | outdoor_city | crowd | nature | mechanical | silent | music_only",
+        "thresholds": null,
+        "rationale": "Chion's ambient bed theory — 'true silence = technical error.' Environment is always present",
+        "implementsIn": ["Audio classifier on non-speech segments"],
+        "qualityGate": "If ambient_type changes at a hard cut without fade → ambient discontinuity"
+      },
+      "tags": ["NEEDS_INFRA"],
+      "sourceLines": [838, 846]
+    },
+    {
+      "id": "signal:structural.position_in_video",
+      "type": "Signal",
+      "category": "structural",
+      "name": "position_in_video",
+      "summary": "Where we are in the overall timeline. Affects moment_weight expectations.",
+      "details": {
+        "detection": "frame_number / total_frames",
+        "output": "0.0-1.0 (percentage through total duration)",
+        "thresholds": "0.0-0.1 = hook zone (high energy, grab attention); 0.8-1.0 = CTA/closing zone",
+        "rationale": "Hook zone in opening 10% drives retention; closing zone is CTA territory",
+        "implementsIn": ["Direct computation from timeline state"],
+        "qualityGate": "If position 0.0-0.05 AND no strong visual hook → retention risk"
+      },
+      "tags": ["AVAILABLE", "DETERMINISTIC"],
+      "sourceLines": [854, 861]
+    },
+    {
+      "id": "signal:structural.time_since_last_cut",
+      "type": "Signal",
+      "category": "structural",
+      "name": "time_since_last_cut",
+      "summary": "How long the current shot has been held. Compared against pacing_tolerance.",
+      "details": {
+        "detection": "Current frame timestamp - last edit point timestamp",
+        "output": "0.0-∞ seconds",
+        "thresholds": "time_since_last_cut > pacing_tolerance × 1.5 → 'overheld' flag",
+        "rationale": "Shots held too long create boredom; under pacing_tolerance creates anxiety",
+        "implementsIn": ["Computed from EDL state"],
+        "qualityGate": "time_since_last_cut > pacing_tolerance × 1.5 → 'overheld' flag"
+      },
+      "tags": ["AVAILABLE", "DETERMINISTIC"],
+      "sourceLines": [864, 870]
+    },
+    {
+      "id": "signal:structural.time_since_last_zoom",
+      "type": "Signal",
+      "category": "structural",
+      "name": "time_since_last_zoom",
+      "summary": "Prevents zoom clustering. Two zooms too close feels amateur.",
+      "details": {
+        "detection": "Current frame timestamp - last zoom decision timestamp",
+        "output": "0.0-∞ seconds",
+        "thresholds": "time_since_last_zoom < 2.0s → zoom too soon flag",
+        "rationale": "Two zooms in close proximity feels amateur",
+        "implementsIn": ["Computed from EDL state"],
+        "qualityGate": "time_since_last_zoom < 2.0s → zoom too soon flag"
+      },
+      "tags": ["AVAILABLE", "DETERMINISTIC"],
+      "sourceLines": [873, 879]
+    },
+    {
+      "id": "signal:structural.time_since_last_graphic",
+      "type": "Signal",
+      "category": "structural",
+      "name": "time_since_last_graphic",
+      "summary": "Prevents graphic overload. Graphics need breathing room.",
+      "details": {
+        "detection": "Current frame timestamp - last graphic overlay timestamp",
+        "output": "0.0-∞ seconds",
+        "thresholds": "time_since_last_graphic < 3.0s AND graphic_density > genre target → clutter flag",
+        "rationale": "Graphics need breathing room to be readable and not feel overloaded",
+        "implementsIn": ["Computed from overlay state"],
+        "qualityGate": "time_since_last_graphic < 3.0s AND graphic_density > genre target → clutter flag"
+      },
+      "tags": ["AVAILABLE", "DETERMINISTIC"],
+      "sourceLines": [882, 888]
+    },
+    {
+      "id": "signal:structural.active_overlays_count",
+      "type": "Signal",
+      "category": "structural",
+      "name": "active_overlays_count",
+      "summary": "Visual clutter level. More than 2 simultaneous overlays (excluding captions) is usually too many.",
+      "details": {
+        "detection": "Count of currently visible overlays on timeline",
+        "output": "0-∞ integer",
+        "thresholds": "active_overlays_count > 3 → visual overload flag",
+        "rationale": "Too many overlays compete for attention and create cognitive overload",
+        "implementsIn": ["Computed from overlay state at current frame"],
+        "qualityGate": "active_overlays_count > 3 → visual overload flag"
+      },
+      "tags": ["AVAILABLE", "DETERMINISTIC"],
+      "sourceLines": [891, 897]
+    },
+    {
+      "id": "signal:structural.cumulative_edit_density",
+      "type": "Signal",
+      "category": "structural",
+      "name": "cumulative_edit_density",
+      "summary": "Overall edit intensity. Compared against transition_density genre parameter.",
+      "details": {
+        "detection": "Total edit decisions / video duration so far",
+        "output": "0.0-∞ edits per minute",
+        "thresholds": "cumulative_edit_density diverges > 30% from genre target → density mismatch",
+        "rationale": "Edit intensity should match genre expectations",
+        "implementsIn": ["Computed from EDL state"],
+        "qualityGate": "If cumulative_edit_density diverges > 30% from genre target → density mismatch"
+      },
+      "tags": ["AVAILABLE", "DETERMINISTIC"],
+      "sourceLines": [900, 906]
+    },
+    {
+      "id": "signal:structural.scene_index",
+      "type": "Signal",
+      "category": "structural",
+      "name": "scene_index",
+      "summary": "Which scene we're in. Useful for scene-level decisions (first scene = establish, last scene = resolve).",
+      "details": {
+        "detection": "From scene parser output",
+        "output": "0 to N (integer, scene number)",
+        "thresholds": null,
+        "rationale": "Scene position drives establishment vs resolution treatment",
+        "implementsIn": ["From finalize scene list"],
+        "qualityGate": "N/A (structural reference)"
+      },
+      "tags": ["AVAILABLE", "DETERMINISTIC"],
+      "sourceLines": [909, 915]
+    },
+    {
+      "id": "signal:composite.narrative_pressure",
+      "type": "Signal",
+      "category": "composite",
+      "name": "narrative_pressure",
+      "summary": "Is this a 'charged' silence? When narrative_pressure is HIGH, the system should NOT cut — the silence IS the content.",
+      "details": {
+        "detection": "Weighted combination of: position_in_video > 0.8 (contributes 0.3 if true) + silence_after_question (contributes 0.2 if true) + silence_after_strong_claim (contributes 0.2 if true) + speech_energy_delta sharply negative (contributes 0.3 × |delta|) + claim_strength = assertive in previous sentence (contributes 0.1). Future: V-JEPA prediction gap (expected motion - actual motion) feeds directly into this. JEPA World Model predicts emotional impact of holding vs cutting.",
+        "output": "0.0-1.0 (continuous, composite)",
+        "thresholds": "narrative_pressure > 0.6 AND system removed the silence → quality degradation",
+        "rationale": "Tarkovsky's time-pressure — a shot's pressure comes from accumulated narrative context, not from visual activity. The Nolan spinning top, scaled for commercial content.",
+        "implementsIn": ["Computed from other signals, new composite function"],
+        "qualityGate": "If narrative_pressure > 0.6 AND system removed the silence → quality degradation"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [923, 941]
+    },
+    {
+      "id": "signal:composite.reaction_moment",
+      "type": "Signal",
+      "category": "composite",
+      "name": "reaction_moment",
+      "summary": "The moment where cutting to the LISTENER's reaction is more powerful than staying on the speaker. Fincher's deposition, K-drama reaction holds.",
+      "details": {
+        "detection": "Current: Limited. speech_ends + face_present + pause > 500ms (approximation). Future: Grok speaker boundary (person A stops speaking) + V-JEPA face detection on non-speaker (person B visible) + face_emotion shift on person B (neutral → surprised, or neutral → moved). Intensity = magnitude of emotion shift on listener's face.",
+        "output": "boolean + intensity 0-1 (composite)",
+        "thresholds": "pause > 500ms required; LOW CONFIDENCE until Phase 2 — should only suggest, never auto-apply",
+        "rationale": "Mirror neuron response — viewers empathize with faces they see reacting, not speaking (Gallese & Guerra 2012)",
+        "implementsIn": ["Future: composite of Grok + V-JEPA multi-person tracking"],
+        "qualityGate": "If reaction_moment fires but no cut-to-listener within 1s → missed reaction opportunity"
+      },
+      "tags": ["NEEDS_INFRA"],
+      "sourceLines": [944, 959]
+    },
+    {
+      "id": "signal:composite.montage_mode",
+      "type": "Signal",
+      "category": "composite",
+      "name": "montage_mode",
+      "summary": "The content has entered a montage section — music-driven, visually rhythmic, no continuous speech. Edgar Wright territory: the cuts ARE the content.",
+      "details": {
+        "detection": "All of the following simultaneously: music_section = chorus | drop + consecutive shots < 2s for 3+ shots + speech_energy < 0.3 (music is dominant, not speech) + music_energy > 0.6",
+        "output": "boolean (composite)",
+        "thresholds": "music_section in {chorus, drop}; consecutive shots < 2s for 3+ shots; speech_energy < 0.3; music_energy > 0.6",
+        "rationale": "Eisenstein's metric montage — cuts at fixed intervals create mechanical tension and energy",
+        "implementsIn": ["Composite of music analysis + shot duration tracking + speech analysis"],
+        "qualityGate": "If montage_mode AND transition types are varied (3+ different types in 10s) → indecisive flag"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [962, 975]
+    },
+    {
+      "id": "signal:composite.cinematic_moment",
+      "type": "Signal",
+      "category": "composite",
+      "name": "cinematic_moment",
+      "summary": "A moment where multiple dimensions align — speaker hits key point while music builds and camera pushes in. Natural climax points.",
+      "details": {
+        "detection": "Multi-track peak correlation from 5-Track analysis. 2+ tracks peak within 500ms = cinematic moment. Tracks: speech energy, motion, audio energy, beat. Future: V-JEPA temporal features + Wav2Vec-BERT emphasis detection for more accurate correlation.",
+        "output": "boolean + peak_score 0-1 (composite)",
+        "thresholds": "2+ tracks peak within 500ms = cinematic moment",
+        "rationale": "Cross-modal reinforcement — aligned multi-sensory peaks create stronger emotional response",
+        "implementsIn": ["lib/editron/services/five-track-analysis.ts"],
+        "qualityGate": "If cinematic_moment detected AND no editing emphasis applied → wasted peak"
+      },
+      "tags": ["AVAILABLE"],
+      "sourceLines": [978, 988]
+    },
+    {
+      "id": "signal:composite.eye_trace_position",
+      "type": "Signal",
+      "category": "composite",
+      "name": "eye_trace_position",
+      "summary": "Where the viewer is LOOKING right now. Murch's Rule #4 (eye-trace, 7% weight). Cuts that force gaze jumps > 30% of frame width are perceptible and disruptive.",
+      "details": {
+        "detection": "Composite heuristic: 1. If face_present: eye_trace is at the face (faces are the strongest gaze attractor). 2. Else if motion detected: eye_trace follows the motion (gaze tracks moving objects). 3. Else: eye_trace is at the highest-contrast or brightest region of the frame. 4. If text on screen: eye_trace is at the text (reading overrides all other attractors). Weight: face > text > motion > contrast > brightness > center bias. Future: V-JEPA saliency maps provide per-frame attention prediction directly.",
+        "output": "(x, y) normalized 0-1 coordinates — estimated position of viewer's gaze focus",
+        "thresholds": "Distance between outgoing last frame and incoming first frame > 0.3 (normalized frame diagonal) → eye-trace discontinuity. Gaze jump > 30% of frame width is perceptible.",
+        "rationale": "Tim Smith's DIEM project — professional editors achieve 80%+ gaze convergence (nearly everyone looks at the same spot). Viewers make ~20 fixations per average shot, attending to < 4% of screen area.",
+        "implementsIn": ["Composite computation from face detection, optical flow, saliency map"],
+        "qualityGate": "At each cut: if distance between eye_trace_position of outgoing last frame and incoming first frame > 0.3 (normalized frame diagonal) → eye-trace discontinuity flag"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [998, 1017]
+    },
+    {
+      "id": "signal:composite.movement_phrase_phase",
+      "type": "Signal",
+      "category": "composite",
+      "name": "movement_phrase_phase",
+      "summary": "Where we are in a physical movement phrase — like a musical phrase but for visual motion. Pearlman's kinesthetic rhythm.",
+      "details": {
+        "detection": "Computed from motion_intensity trajectory over 3-5s window: motion_intensity rising steadily → building; motion_intensity at local maximum → peak; motion_intensity falling after peak → releasing; motion_intensity stable and low (< 0.2) → rest. Future: V-JEPA temporal features capture movement phrase structure natively.",
+        "output": "enum — building | peak | releasing | rest",
+        "thresholds": "motion_intensity stable and low (< 0.2) → rest",
+        "rationale": "Karen Pearlman's Cutting Rhythms — editing has phrase structure like music and dance. Viewers physically empathize with on-screen movement (kinesthetic empathy / mirror neurons). Cutting at the wrong phase of a movement phrase creates physical discomfort in the viewer. Cutting at peak = cut-on-action (invisible). Cutting during build = premature. Cutting during release = comfortable resolution. Cutting during rest = neutral.",
+        "implementsIn": ["Computed from motion_intensity time series trajectory analysis"],
+        "qualityGate": "Cuts during 'building' phase (motion rising but hasn't peaked) → flag as premature cut"
+      },
+      "tags": ["NEEDS_CODE"],
+      "sourceLines": [1020, 1037]
+    }
+  ],
+  "edges": [
+    {
+      "from": "signal:speech.energy_delta",
+      "to": "signal:speech.energy",
+      "type": "derives_from",
+      "label": "Derivative of speech_energy over 2s sliding window",
+      "sourceLines": [442, 442]
+    },
+    {
+      "from": "signal:entity.narrative_phase",
+      "to": "signal:structural.position_in_video",
+      "type": "composes_from",
+      "label": "First 15% = opening; Final 15% = closing/CTA",
+      "sourceLines": [610, 611]
+    },
+    {
+      "from": "signal:entity.narrative_phase",
+      "to": "signal:speech.energy",
+      "type": "composes_from",
+      "label": "Energy rising = build; energy peak = climax; energy falling = resolve",
+      "sourceLines": [610, 611]
+    },
+    {
+      "from": "signal:entity.narrative_phase",
+      "to": "signal:entity.topic_boundary",
+      "type": "composes_from",
+      "label": "topic_boundary count contributes to phase classification",
+      "sourceLines": [610, 611]
+    },
+    {
+      "from": "signal:entity.narrative_phase",
+      "to": "signal:entity.cta",
+      "type": "composes_from",
+      "label": "entity_CTA detection drives closing/CTA phase",
+      "sourceLines": [616, 616]
+    },
+    {
+      "from": "signal:composite.narrative_pressure",
+      "to": "signal:structural.position_in_video",
+      "type": "composes_from",
+      "label": "position_in_video > 0.8 contributes 0.3 if true",
+      "sourceLines": [926, 926]
+    },
+    {
+      "from": "signal:composite.narrative_pressure",
+      "to": "signal:speech.silence_duration_ms",
+      "type": "composes_from",
+      "label": "silence_after_question / silence_after_strong_claim contribute 0.2 each",
+      "sourceLines": [927, 928]
+    },
+    {
+      "from": "signal:composite.narrative_pressure",
+      "to": "signal:entity.rhetorical_question",
+      "type": "composes_from",
+      "label": "silence_after_question contributes 0.2 if true",
+      "sourceLines": [927, 927]
+    },
+    {
+      "from": "signal:composite.narrative_pressure",
+      "to": "signal:entity.claim_strength",
+      "type": "composes_from",
+      "label": "silence_after_strong_claim and assertive claim previous sentence contribute",
+      "sourceLines": [928, 930]
+    },
+    {
+      "from": "signal:composite.narrative_pressure",
+      "to": "signal:speech.energy_delta",
+      "type": "composes_from",
+      "label": "speech_energy_delta sharply negative contributes 0.3 × |delta|",
+      "sourceLines": [929, 929]
+    },
+    {
+      "from": "signal:composite.reaction_moment",
+      "to": "signal:speech.speaker_change",
+      "type": "composes_from",
+      "label": "Grok speaker boundary (person A stops speaking)",
+      "sourceLines": [948, 948]
+    },
+    {
+      "from": "signal:composite.reaction_moment",
+      "to": "signal:visual.face_present",
+      "type": "composes_from",
+      "label": "V-JEPA face detection on non-speaker (person B visible)",
+      "sourceLines": [949, 949]
+    },
+    {
+      "from": "signal:composite.reaction_moment",
+      "to": "signal:visual.face_emotion",
+      "type": "composes_from",
+      "label": "face_emotion shift on person B (neutral → surprised/moved). Intensity = magnitude of emotion shift",
+      "sourceLines": [950, 951]
+    },
+    {
+      "from": "signal:composite.reaction_moment",
+      "to": "signal:speech.silence_duration_ms",
+      "type": "composes_from",
+      "label": "Pause > 500ms required (approximation in current detection)",
+      "sourceLines": [946, 946]
+    },
+    {
+      "from": "signal:composite.montage_mode",
+      "to": "signal:audio.music_section",
+      "type": "composes_from",
+      "label": "music_section = chorus | drop required",
+      "sourceLines": [965, 965]
+    },
+    {
+      "from": "signal:composite.montage_mode",
+      "to": "signal:structural.time_since_last_cut",
+      "type": "composes_from",
+      "label": "Consecutive shots < 2s for 3+ shots required",
+      "sourceLines": [966, 966]
+    },
+    {
+      "from": "signal:composite.montage_mode",
+      "to": "signal:speech.energy",
+      "type": "composes_from",
+      "label": "speech_energy < 0.3 required (music dominant, not speech)",
+      "sourceLines": [967, 967]
+    },
+    {
+      "from": "signal:composite.montage_mode",
+      "to": "signal:audio.music_energy",
+      "type": "composes_from",
+      "label": "music_energy > 0.6 required",
+      "sourceLines": [968, 968]
+    },
+    {
+      "from": "signal:composite.cinematic_moment",
+      "to": "signal:speech.energy",
+      "type": "composes_from",
+      "label": "Multi-track peak correlation — speech energy as one of 4 tracks",
+      "sourceLines": [981, 981]
+    },
+    {
+      "from": "signal:composite.cinematic_moment",
+      "to": "signal:visual.motion_intensity",
+      "type": "composes_from",
+      "label": "Multi-track peak correlation — motion as one of 4 tracks",
+      "sourceLines": [981, 981]
+    },
+    {
+      "from": "signal:composite.cinematic_moment",
+      "to": "signal:audio.music_energy",
+      "type": "composes_from",
+      "label": "Multi-track peak correlation — audio energy as one of 4 tracks",
+      "sourceLines": [981, 981]
+    },
+    {
+      "from": "signal:composite.cinematic_moment",
+      "to": "signal:audio.music_beat",
+      "type": "composes_from",
+      "label": "Multi-track peak correlation — beat as one of 4 tracks",
+      "sourceLines": [981, 981]
+    },
+    {
+      "from": "signal:composite.eye_trace_position",
+      "to": "signal:visual.face_present",
+      "type": "composes_from",
+      "label": "If face_present: eye_trace is at the face (highest-weight attractor)",
+      "sourceLines": [1000, 1000]
+    },
+    {
+      "from": "signal:composite.eye_trace_position",
+      "to": "signal:visual.motion_intensity",
+      "type": "composes_from",
+      "label": "Else if motion detected: eye_trace follows the motion",
+      "sourceLines": [1001, 1001]
+    },
+    {
+      "from": "signal:composite.eye_trace_position",
+      "to": "signal:visual.visual_complexity",
+      "type": "composes_from",
+      "label": "Else: eye_trace at highest-contrast or brightest region",
+      "sourceLines": [1002, 1002]
+    },
+    {
+      "from": "signal:composite.movement_phrase_phase",
+      "to": "signal:visual.motion_intensity",
+      "type": "derives_from",
+      "label": "Computed from motion_intensity trajectory over 3-5s window",
+      "sourceLines": [1022, 1026]
+    }
+  ]
+}

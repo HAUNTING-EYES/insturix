@@ -356,6 +356,11 @@ export default function ThinkForgeLanding() {
 					});
 					if (!res.ok) {
 						console.error('Failed to persist session meta:', res.status, res.statusText);
+					} else {
+						// Keep hook state in sync so projectMeta consumers
+						// (patch effect, StoryboardingMode, etc.) see the update
+						// without waiting for a full re-hydrate.
+						session.setProjectMeta(projectMetaPayload);
 					}
 
 					// Update local session cache so subsequent hydrations reflect the change
@@ -744,6 +749,7 @@ export default function ThinkForgeLanding() {
 				scriptId={activeScriptId}
 				tabsRefreshTrigger={tabsRefreshCounter}
 				script={scriptFromHook}
+				isScriptLoading={scriptHook.isLoading}
 				isSaving={scriptHook.isSaving}
 				onApplyEdit={handleApplyEdit}
 				onRunEdit={handleRunEdit}

@@ -172,14 +172,12 @@ export interface MusicConfig {
 
 // ─── AI Models ─────────────────────────────────────────────────────
 
-// Models known to work with the Google generativelanguage.googleapis.com API.
-// Models verified to work with Google generativelanguage.googleapis.com API.
-// NOTE: 3.1 models use -preview suffix (e.g., gemini-3.1-pro-preview, NOT gemini-3.1-pro).
+// Models verified working on Google generativelanguage.googleapis.com API.
+// VERIFIED 2026-05-16: gemini-3.1-flash and gemini-3.1-pro DO NOT EXIST (404).
+// Only -preview suffix variants are valid for the 3.1 family.
 const VALID_GOOGLE_AI_MODELS = [
-  'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
-  'gemini-2.0-flash', 'gemini-2.0-flash-exp',
   'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview',
-  'gemma-4-31b-it', 'gemma-4-26b-a4b-it',
+  'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
 ];
 
 /** Validate a model ID and fallback to default if invalid.
@@ -201,7 +199,7 @@ export interface AIModelConfig {
   referencePromptModel: string;
   /** Model for unified intelligence (env: LLM_INTELLIGENCE_MODEL) */
   unifiedIntelligenceModel: string;
-  /** Model for 5-Track analysis — LOCKED to gemini-2.5-flash (uses Files API) */
+  /** Model for 5-Track analysis (uses Files API for real footage) */
   analysisModel: string;
   /** Temperature for editing decisions */
   editingTemperature: number;
@@ -273,6 +271,32 @@ export interface ProfileDetectionConfig {
   fallbackConfidence: number;
 }
 
+// ─── Raw Footage Processing (Mode 2) ─────────────────────────────
+
+export interface RawFootageConfig {
+  /** Minimum segment duration after cuts, in SECONDS (computed to frames at runtime via clip fps).
+   * NOT hardcoded frames — user footage can be 24fps, 29.97fps, 30fps, 60fps. */
+  minSegmentAfterCutSeconds: number;
+  /** Silence removal thresholds by content type (from creative doc v2 §3).
+   * Each entry: { removeAboveMs, shortenRangeMs: [min, max], shortenTargetMs } */
+  silenceThresholdByContentType: Record<string, {
+    removeAboveMs: number;
+    shortenRangeMs: [number, number];
+    shortenTargetMs: number;
+  }>;
+  /** Filler removal mode. 'all-above-threshold' removes all fillers when rate exceeds threshold.
+   * 'boundary-only' only removes fillers at segment boundaries. */
+  fillerRemovalMode: 'all-above-threshold' | 'boundary-only';
+  /** Filler rate above this triggers "casual" content detection + aggressive filler removal. */
+  casualFillerRateThreshold: number;
+  /** Transcript coverage above this indicates "speech-heavy" content. */
+  speechHeavyCoverageThreshold: number;
+  /** Segment boundary pause threshold in ms. Pauses longer than this start a new segment. */
+  segmentPauseThresholdMs: number;
+  /** Best-take detection: Jaccard similarity threshold for "repeated phrase" detection. */
+  bestTakeJaccardThreshold: number;
+}
+
 // ─── The Full Config ───────────────────────────────────────────────
 
 export interface EditronConfig {
@@ -285,6 +309,7 @@ export interface EditronConfig {
   music: MusicConfig;
   aiModels: AIModelConfig;
   profileDetection: ProfileDetectionConfig;
+  rawFootage: RawFootageConfig;
 }
 
 // ─── Default Values ────────────────────────────────────────────────
@@ -421,11 +446,9 @@ export const DEFAULT_CONFIG: EditronConfig = {
     subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
-    // OLD: gemma-4-31b-it — does NOT support audio input modality. Seedance videos
-    // have native audio baked in, causing 400 "Audio input modality is not enabled"
-    // on EVERY analysis call. All 5-Track data was empty/fallback.
-    // NEW: gemini-3.1-flash-lite-preview — supports video+audio multimodal, cheapest 3.1 model.
-    // Verified against Google AI API docs: name is "gemini-3.1-flash-lite-preview" (NOT "gemini-3.1-flash").
+    // REVERTED 2026-05-15: gemini-3.1-flash / gemini-3.1-pro are NOT valid model IDs.
+    // Google API returns 404: "models/gemini-3.1-pro is not found for API version v1beta".
+    // The -preview suffix IS required. Keeping verified-working models.
     analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
@@ -446,6 +469,26 @@ export const DEFAULT_CONFIG: EditronConfig = {
     // Fall-back threshold — below this, G-01 Universal Clean is used + project flagged
     // for manual profile review in UI.
     fallbackConfidence: 0.40,
+  },
+  rawFootage: {
+    minSegmentAfterCutSeconds: 1.5,
+    silenceThresholdByContentType: {
+      'talking-head':  { removeAboveMs: 1500, shortenRangeMs: [800, 1500],  shortenTargetMs: 300  },
+      'tutorial':      { removeAboveMs: 1500, shortenRangeMs: [800, 1500],  shortenTargetMs: 300  },
+      'vlog':          { removeAboveMs: 1200, shortenRangeMs: [600, 1200],  shortenTargetMs: 250  },
+      'interview':     { removeAboveMs: 2500, shortenRangeMs: [1000, 2500], shortenTargetMs: 500  },
+      'documentary':   { removeAboveMs: 4000, shortenRangeMs: [2000, 4000], shortenTargetMs: 800  },
+      'comedy':        { removeAboveMs: 6000, shortenRangeMs: [3000, 6000], shortenTargetMs: 1500 },
+      'cinematic':     { removeAboveMs: 4000, shortenRangeMs: [2000, 4000], shortenTargetMs: 800  },
+      'ad':            { removeAboveMs: 1000, shortenRangeMs: [500, 1000],  shortenTargetMs: 200  },
+      'product-demo':  { removeAboveMs: 1000, shortenRangeMs: [500, 1000],  shortenTargetMs: 200  },
+      'corporate':     { removeAboveMs: 2000, shortenRangeMs: [800, 2000],  shortenTargetMs: 400  },
+    },
+    fillerRemovalMode: 'all-above-threshold',
+    casualFillerRateThreshold: 0.05,
+    speechHeavyCoverageThreshold: 0.80,
+    segmentPauseThresholdMs: 1000,
+    bestTakeJaccardThreshold: 0.6,
   },
 };
 

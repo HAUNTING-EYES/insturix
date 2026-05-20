@@ -7,6 +7,7 @@ import { checkCredits } from "@/lib/services/creditsMiddleware";
 import { getCollections } from "../utils/mongodb";
 import { ObjectId } from "mongodb";
 import { Client } from "@upstash/qstash";
+import { projectService } from "@/lib/editron/services/project-service";
 
 function getGcsUrl(gcsPath: string): string {
   const bucketName = process.env.GCS_BUCKET_NAME;
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
 
     const { userId, orgId } = session;
     const body = await request.json();
-    const { video_url, context, metadata, storage } = body; // Added storage field
+    const { video_url, context, metadata, storage, editronProjectId } = body;
 
     if (!video_url) return NextResponse.json({ error: "Missing required field: video_url" }, { status: 400 });
 
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
         metadata: {
           ...metadata,
           mimeType: isImageFile ? (metadata?.mimeType || 'image/jpeg') : (metadata?.mimeType || 'video/mp4'),
-          storage: backend, // Track which storage backend was used
+          storage: backend,
           storageBackend: backend
         },
         status: "listed",
@@ -126,7 +127,18 @@ export async function POST(request: Request) {
         updatedAt: new Date(),
         videoDuration: isImageFile ? 0 : videoDuration,
         usageMinutes,
+        ...(editronProjectId ? { editronProjectId } : {}),
       });
+
+      // If triggered from Editron, move project to "analyze" stage (fail-open)
+      if (editronProjectId) {
+        try {
+          await projectService.updateProjectMetadata(editronProjectId, { pipelineStage: 'analyze' });
+          console.log(`[Alyzitron] Project ${editronProjectId} moved to analyze stage`);
+        } catch (stageErr: any) {
+          console.error(`[Alyzitron] Failed to update project stage (non-blocking): ${stageErr.message}`);
+        }
+      }
 
       const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -137,7 +149,8 @@ export async function POST(request: Request) {
           userId,
           videoUrl: finalVideoUrl,
           context,
-          metadata: { ...metadata, storage: backend, storageBackend: backend }
+          metadata: { ...metadata, storage: backend, storageBackend: backend },
+          ...(editronProjectId ? { editronProjectId } : {}),
         },
         retries: 3,
         timeout: 120,

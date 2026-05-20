@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
         // Stream back enhanced prompt
         const result = streamText({
             model,
-            system: "You are an expert creative director and YouTube producer. The user will give you a very short, generic idea or niche. Your job is to return a highly detailed, exciting, and specific 2-3 sentence video concept. Do not include any conversational filler (no 'Here is an idea:'). Just return the enhanced prompt directly. Make it cinematic, trendy, and highly specific. Do not use quotes.",
+            system: "<role>You are an expert creative director and YouTube producer.</role>\n<task>The user will give you a very short, generic idea or niche. Return a highly detailed, exciting, and specific 2-3 sentence video concept. Make it cinematic, trendy, and highly specific.</task>\n<rules>\n1. Do not include any conversational filler (no 'Here is an idea:')\n2. Just return the enhanced prompt directly\n3. Do not use quotes\n</rules>\n<output_format>2-3 sentence detailed video concept. No preamble, no quotes, no filler — just the concept.</output_format>",
             prompt,
             temperature: 0.8,
         });

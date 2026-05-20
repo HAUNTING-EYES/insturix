@@ -2,7 +2,7 @@ export function promotionalEmailTemplate(
   name?: string,
   registrationLink?: string
 ): { html: string; text: string } {
-  const safeName = name || 'Valued User';
+  const _safeName = name || 'Valued User';
   const registerUrl = registrationLink ?? 'https://www.insturix.com/ics25';
 
   const html = `

@@ -67,13 +67,33 @@ function mapTransitionStyleToSFX(style: string): SFXPlacementSpec | null {
     case 'slide-push':
       return { token: 'whoosh', volume: 0.30, rule: 'A-001' };
 
+    // slide-up / slide-down — directional motion, whoosh
+    case 'slide-up':
+    case 'slide-down':
+      return { token: 'whoosh', volume: 0.30, rule: 'A-001' };
+
+    // film-burn — organic, no SFX (the crackle IS the sound)
+    case 'film-burn':
+      return null;
+
+    // glitch — percussive digital artifact
+    case 'glitch':
+      return { token: 'impact', volume: 0.40, rule: 'A-002' };
+
+    // whip-pan — fast directional motion
+    case 'whip-pan':
+      return { token: 'whoosh', volume: 0.40, rule: 'A-001' };
+
+    // soft-cut — gentle, no SFX (barely visible transition)
+    case 'soft-cut':
+      return null;
+
     // A-002: percussive transitions — impact
     case 'zoom-punch':
     case 'flash':
       return { token: 'impact', volume: 0.55, rule: 'A-002' };
 
     // Silence wins — dip-to-black is end-of-chapter, dip-to-white is flashbulb
-    // (both expect the silence to be the effect, NOT a whoosh to fight it)
     case 'dip-to-black':
     case 'dip-to-white':
       return null;

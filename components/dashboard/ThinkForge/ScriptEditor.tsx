@@ -271,8 +271,7 @@ export default function ScriptEditor({
         prevCharCountRef.current = currentLen;
 
         // Observer pipeline: schedule background extraction on typing lull
-        // SECOND BRAIN DISABLED
-        if (false && sessionId && currentLen >= OBSERVER_MIN_CHARS) {
+        if (sessionId && currentLen >= OBSERVER_MIN_CHARS) {
           if (observerTimerRef.current) clearTimeout(observerTimerRef.current);
           observerTimerRef.current = setTimeout(() => {
             const fullText = editor.state.doc.textContent;

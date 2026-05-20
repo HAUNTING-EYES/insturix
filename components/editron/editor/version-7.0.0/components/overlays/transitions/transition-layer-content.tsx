@@ -1,92 +1,304 @@
-import React from "react";
-import { useCurrentFrame, interpolate, Easing } from "remotion";
-import { TransitionOverlay, TransitionStyle } from "../../../types";
-import { useAllOverlays } from "../../../contexts/rendering-context";
+import React, { useMemo } from "react";
+import { useCurrentFrame, interpolate, Easing, OffthreadVideo, Video } from "remotion";
+import { TransitionOverlay, TransitionStyle, ClipOverlay } from "../../../types";
+import { useAllOverlays, useIsRendering } from "../../../contexts/rendering-context";
+import { toAbsoluteUrl } from "../../../utils/url-helper";
 
 /**
- * TransitionLayerContent — renders the visual effect of a transition.
+ * TransitionLayerContent — DaVinci-style transition renderer.
  *
- * Instead of being a separate visual element, this component modifies
- * the opacity/transform of the adjacent clips (clipA and clipB) via
- * CSS variables that the Layer component reads.
+ * The tile IS the visual effect. It renders both adjacent clips internally
+ * and composites them using CSS (opacity, clip-path, transform, filter).
+ * The original clips beneath are covered by the tile's higher z-index.
  *
- * For the timeline, it renders a small visual indicator (gradient/icon).
- * For the player, it renders the actual blend effect.
+ * Each transition type has its own compositing logic:
+ * - dissolve: cross-fade via opacity
+ * - dip-to-black/white: three-layer fade through solid color
+ * - wipe-*: clip-path reveal
+ * - slide-push: transform push
+ * - zoom-punch: scale + reveal
+ * - iris-wipe: circular clip-path
+ * - blur-transition: filter blur crossfade
+ * - flash: quick opacity burst
  */
 export const TransitionLayerContent: React.FC<{
   overlay: TransitionOverlay;
 }> = ({ overlay }) => {
   const frame = useCurrentFrame();
   const allOverlays = useAllOverlays();
-  const { transitionStyle, durationInFrames } = overlay;
+  const isRendering = useIsRendering();
+  const { transitionStyle, durationInFrames, clipAId, clipBId, easing } = overlay;
 
-  // Progress through the transition (0 = start, 1 = end)
+  const easingFn = getEasingFunction(easing);
   const progress = interpolate(frame, [0, durationInFrames], [0, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
+    easing: easingFn,
   });
 
-  // Get the blend visualization based on transition type
-  const blendStyle = getBlendVisualization(transitionStyle, progress);
+  const clipA = useMemo(() => allOverlays.find(o => o.id === clipAId) as ClipOverlay | undefined, [allOverlays, clipAId]);
+  const clipB = useMemo(() => allOverlays.find(o => o.id === clipBId) as ClipOverlay | undefined, [allOverlays, clipBId]);
 
-  // Render a subtle visual indicator (the actual blending is done via
-  // keyframes on the adjacent clips — see Layer component)
+  const clipASrc = resolveVideoSrc(clipA);
+  const clipBSrc = resolveVideoSrc(clipB);
+
+  if (!clipASrc && !clipBSrc) {
+    return <div style={{ width: '100%', height: '100%', backgroundColor: '#000' }} />;
+  }
+
+  const clipAStartFrom = clipA
+    ? ((clipA as any).videoStartTime || 0) + (overlay.from - clipA.from)
+    : 0;
+  const clipBStartFrom = clipB
+    ? ((clipB as any).videoStartTime || 0) + Math.max(0, overlay.from - clipB.from)
+    : 0;
+
+  const VideoComponent = isRendering ? OffthreadVideo : Video;
+
+  const videoPropsA = {
+    src: clipASrc || '',
+    startFrom: clipAStartFrom,
+    style: { width: '100%', height: '100%', objectFit: 'cover' as const },
+    ...(isRendering ? { toneMapped: false } : { pauseWhenBuffering: false }),
+  };
+
+  const videoPropsB = {
+    src: clipBSrc || '',
+    startFrom: clipBStartFrom,
+    style: { width: '100%', height: '100%', objectFit: 'cover' as const },
+    ...(isRendering ? { toneMapped: false } : { pauseWhenBuffering: false }),
+  };
+
   return (
-    <div
-      style={{
-        width: '100%',
-        height: '100%',
-        ...blendStyle,
-        pointerEvents: 'none',
-      }}
-    />
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
+      {renderTransition(transitionStyle, progress, VideoComponent, videoPropsA, videoPropsB, clipASrc, clipBSrc)}
+    </div>
   );
 };
 
-/**
- * Get CSS for the transition blend visualization.
- * This is what the user sees during playback — the actual transition effect.
- */
-function getBlendVisualization(
+function getEasingFunction(easing: string | undefined): ((t: number) => number) | undefined {
+  switch (easing) {
+    case 'ease-in': return Easing.bezier(0.42, 0, 1, 1);
+    case 'ease-out': return Easing.bezier(0, 0, 0.58, 1);
+    case 'ease-in-out': return Easing.bezier(0.42, 0, 0.58, 1);
+    default: return undefined;
+  }
+}
+
+function resolveVideoSrc(clip: ClipOverlay | undefined): string | null {
+  if (!clip) return null;
+  const src = clip.src || clip.content || '';
+  if (!src) return null;
+  if (src.startsWith('/')) return toAbsoluteUrl(src);
+  return src;
+}
+
+const ABS: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%' };
+
+function renderTransition(
   style: TransitionStyle,
   progress: number,
-): React.CSSProperties {
+  VideoComp: typeof OffthreadVideo | typeof Video,
+  propsA: any,
+  propsB: any,
+  srcA: string | null,
+  srcB: string | null,
+): React.ReactNode {
   switch (style) {
-    case 'dip-to-black': {
-      // Black overlay that peaks at 50% progress
-      const opacity = progress < 0.5
-        ? interpolate(progress, [0, 0.5], [0, 1])
-        : interpolate(progress, [0.5, 1], [1, 0]);
-      return { backgroundColor: '#000', opacity };
-    }
+    case 'dissolve':
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, opacity: 1 - progress }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: progress }} volume={0} />}
+        </>
+      );
 
-    case 'dip-to-white': {
-      const opacity = progress < 0.5
-        ? interpolate(progress, [0, 0.5], [0, 1])
-        : interpolate(progress, [0.5, 1], [1, 0]);
-      return { backgroundColor: '#fff', opacity };
-    }
+    case 'dip-to-black':
+      return renderDipTransition(progress, VideoComp, propsA, propsB, srcA, srcB, '#000');
+
+    case 'dip-to-white':
+      return renderDipTransition(progress, VideoComp, propsA, propsB, srcA, srcB, '#fff');
 
     case 'flash': {
-      // Quick white flash
-      const opacity = progress < 0.3
-        ? interpolate(progress, [0, 0.15], [0, 1])
-        : interpolate(progress, [0.3, 1], [1, 0]);
-      return { backgroundColor: '#fff', opacity: Math.max(0, opacity) };
+      const flashOpacity = progress < 0.3
+        ? interpolate(progress, [0, 0.15], [0, 1], { extrapolateRight: 'clamp' })
+        : interpolate(progress, [0.3, 1], [1, 0], { extrapolateLeft: 'clamp' });
+      const showB = progress > 0.2;
+      return (
+        <>
+          {!showB && srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style }} volume={0} />}
+          {showB && srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style }} volume={0} />}
+          <div style={{ ...ABS, backgroundColor: '#fff', opacity: Math.max(0, flashOpacity), pointerEvents: 'none' }} />
+        </>
+      );
     }
 
-    case 'dissolve':
-    case 'zoom-punch':
-    case 'blur-transition':
-    case 'iris-wipe':
     case 'wipe-left':
+      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, `inset(0 ${(1 - progress) * 100}% 0 0)`);
+
     case 'wipe-right':
+      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, `inset(0 0 0 ${(1 - progress) * 100}%)`);
+
     case 'wipe-up':
+      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, `inset(0 0 ${(1 - progress) * 100}% 0)`);
+
     case 'wipe-down':
-    case 'slide-push':
+      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, `inset(${(1 - progress) * 100}% 0 0 0)`);
+
+    case 'soft-cut':
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, opacity: 1 - progress, filter: `blur(${progress * 3}px)` }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: progress, filter: `blur(${(1 - progress) * 3}px)` }} volume={0} />}
+        </>
+      );
+
+    case 'whip-pan': {
+      const blurAmount = Math.sin(progress * Math.PI) * 30;
+      const offsetA = -progress * 120;
+      const offsetB = (1 - progress) * 120;
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateX(${offsetA}%)`, filter: `blur(${blurAmount}px)`, opacity: 1 - progress }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateX(${offsetB}%)`, filter: `blur(${blurAmount}px)`, opacity: progress }} volume={0} />}
+        </>
+      );
+    }
+
+    case 'slide-up': {
+      const offsetUp = (1 - progress) * 100;
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateY(${-progress * 100}%)` }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateY(${offsetUp}%)` }} volume={0} />}
+        </>
+      );
+    }
+
+    case 'slide-down': {
+      const offsetDown = -(1 - progress) * 100;
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateY(${progress * 100}%)` }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateY(${offsetDown}%)` }} volume={0} />}
+        </>
+      );
+    }
+
+    case 'glitch': {
+      const glitchOffset = Math.sin(progress * Math.PI * 6) * 5;
+      const showB = progress > 0.4;
+      const rgbShift = Math.sin(progress * Math.PI) * 8;
+      return (
+        <>
+          {!showB && srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateX(${glitchOffset}px)` }} volume={0} />}
+          {showB && srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateX(${-glitchOffset}px)` }} volume={0} />}
+          <div style={{ ...ABS, background: `rgba(255,0,0,${Math.abs(rgbShift) * 0.02})`, mixBlendMode: 'screen', transform: `translateX(${rgbShift}px)`, pointerEvents: 'none' }} />
+        </>
+      );
+    }
+
+    case 'film-burn': {
+      const burnOpacity = Math.sin(progress * Math.PI) * 0.6;
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, opacity: 1 - progress, filter: `brightness(${1 + progress * 0.5}) saturate(${1 + progress * 0.3})` }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: progress, filter: `brightness(${1 + (1 - progress) * 0.5}) saturate(${1 + (1 - progress) * 0.3})` }} volume={0} />}
+          <div style={{ ...ABS, background: `radial-gradient(circle at ${50 + progress * 20}% ${50 - progress * 10}%, rgba(255,140,0,${burnOpacity}), transparent 70%)`, mixBlendMode: 'screen', pointerEvents: 'none' }} />
+        </>
+      );
+    }
+
+    // Editorial cuts — no visual effect. The cut IS the transition.
+    // Return null so the tile is invisible. The original clips handle the boundary.
+    case 'hard-cut':
+    case 'smash-cut':
+    case 'match-cut':
+    case 'jump-cut':
+    case 'cut-on-action':
+      return null;
+
+    case 'zoom-punch': {
+      const scaleA = 1 + progress * 0.3;
+      const showB = progress > 0.5;
+      return (
+        <>
+          {!showB && srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `scale(${scaleA})`, opacity: 1 - progress }} volume={0} />}
+          {showB && srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: interpolate(progress, [0.5, 1], [0, 1]) }} volume={0} />}
+        </>
+      );
+    }
+
+    case 'iris-wipe': {
+      const radius = progress * 75;
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, clipPath: `circle(${radius}% at 50% 50%)` }} volume={0} />}
+        </>
+      );
+    }
+
+    case 'blur-transition': {
+      const blurA = progress * 20;
+      const blurB = (1 - progress) * 20;
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, filter: `blur(${blurA}px)`, opacity: 1 - progress }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, filter: `blur(${blurB}px)`, opacity: progress }} volume={0} />}
+        </>
+      );
+    }
+
     default:
-      // These transitions are done via keyframes on the clips themselves
-      // No additional overlay element needed
-      return { opacity: 0 };
+      return (
+        <>
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, opacity: 1 - progress }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: progress }} volume={0} />}
+        </>
+      );
   }
+}
+
+function renderDipTransition(
+  progress: number,
+  VideoComp: typeof OffthreadVideo | typeof Video,
+  propsA: any,
+  propsB: any,
+  srcA: string | null,
+  srcB: string | null,
+  color: string,
+): React.ReactNode {
+  const colorOpacity = progress < 0.5
+    ? interpolate(progress, [0, 0.5], [0, 1])
+    : interpolate(progress, [0.5, 1], [1, 0]);
+  const showA = progress < 0.6;
+  const showB = progress > 0.4;
+  const opacityA = showA ? interpolate(progress, [0, 0.5], [1, 0], { extrapolateRight: 'clamp' }) : 0;
+  const opacityB = showB ? interpolate(progress, [0.5, 1], [0, 1], { extrapolateLeft: 'clamp' }) : 0;
+
+  return (
+    <>
+      {showA && srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, opacity: opacityA }} volume={0} />}
+      {showB && srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: opacityB }} volume={0} />}
+      <div style={{ ...ABS, backgroundColor: color, opacity: colorOpacity, pointerEvents: 'none' }} />
+    </>
+  );
+}
+
+function renderWipe(
+  progress: number,
+  VideoComp: typeof OffthreadVideo | typeof Video,
+  propsA: any,
+  propsB: any,
+  srcA: string | null,
+  srcB: string | null,
+  clipPath: string,
+): React.ReactNode {
+  return (
+    <>
+      {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style }} volume={0} />}
+      {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, clipPath }} volume={0} />}
+    </>
+  );
 }

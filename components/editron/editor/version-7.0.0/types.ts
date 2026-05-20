@@ -18,6 +18,7 @@ export enum OverlayType {
   SFX_LIBRARY = "sfx-library",       // SFX library browse panel (sidebar)
   LOTTIE = "lottie",                 // LottieFiles motion graphics panel (sidebar)
   TRANSITION = "transition",         // Actual transition overlay between clips (timeline item)
+  MOTION_GRAPHIC = "motion-graphic", // React-rendered motion graphics (Structure × Theme system)
 }
 // ─── Keyframe Animation System ───────────────────────────────────
 // Enables per-property animation curves on any overlay.
@@ -174,6 +175,10 @@ export type CaptionWord = {
   startMs: number;
   endMs: number;
   confidence: number;
+  emphasis?: {
+    type: 'keyword' | 'statistic' | 'cta' | 'entity';
+    source: string;
+  };
 };
 
 export type Caption = {
@@ -373,16 +378,48 @@ export type HtmlSceneOverlay = BaseOverlay & {
   };
 };
 
+// ─── Motion Graphic Overlay (Structure × Theme system) ─────────────
+// React-rendered overlay driven by resolved visual tokens from the
+// signal-based Visual Identity Engine. Coexists with HTML_SCENE
+// (Shadow DOM) for backward compatibility with existing templates.
+export type MotionGraphicOverlay = BaseOverlay & {
+  type: OverlayType.MOTION_GRAPHIC;
+  structureType: string;
+  content: Record<string, string>;
+  resolvedTokens: Record<string, any>;
+  styles: BaseStyles & {
+    backgroundColor?: string;
+  };
+  metadata?: {
+    sourceType: string;
+    graphicType: string;
+    edlSource?: string;
+    edlReason?: string;
+  };
+};
+
 // ─── Transition Overlay ────────────────────────────────────────────
 // A visible tile on the timeline between two clips.
-// Sits on the SAME row as video clips, overlapping both adjacent clips.
-// When rendered, applies keyframe opacity/scale/position to both clips.
+// The tile IS the visual effect (DaVinci model) — it renders both adjacent
+// clips internally and composites them using CSS.
+//
+// CANONICAL TYPE LIST — all other systems (continuity-service, director,
+// tools.ts, SFX placer, EDL executor) should reference this type.
+// Updated 2026-05-15: consolidated from 3 inconsistent type systems.
 
 export type TransitionStyle =
-  | 'dissolve' | 'dip-to-black' | 'dip-to-white'
-  | 'wipe-left' | 'wipe-right' | 'wipe-up' | 'wipe-down'
-  | 'zoom-punch' | 'iris-wipe' | 'blur-transition'
-  | 'flash' | 'slide-push';
+  // Blend transitions (clips crossfade/overlay)
+  | 'dissolve' | 'soft-cut' | 'blur-transition'
+  // Color transitions (fade through solid color)
+  | 'dip-to-black' | 'dip-to-white' | 'flash'
+  // Wipe transitions (clip-path reveal)
+  | 'wipe-left' | 'wipe-right' | 'wipe-up' | 'wipe-down' | 'iris-wipe'
+  // Motion transitions (transform-based)
+  | 'zoom-punch' | 'whip-pan' | 'slide-up' | 'slide-down'
+  // Stylistic transitions (special effects)
+  | 'glitch' | 'film-burn'
+  // Editorial cuts (no visual overlay — the cut IS the transition)
+  | 'hard-cut' | 'smash-cut' | 'match-cut' | 'jump-cut' | 'cut-on-action';
 
 export type TransitionOverlay = BaseOverlay & {
   type: OverlayType.TRANSITION;
@@ -441,7 +478,8 @@ export type Overlay =
   | StickerOverlay
   | HtmlSceneOverlay
   | HtmlStickerOverlay
-  | TransitionOverlay;
+  | TransitionOverlay
+  | MotionGraphicOverlay;
 
 export type MainProps = {
   readonly overlays: Overlay[];

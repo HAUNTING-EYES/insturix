@@ -65,12 +65,15 @@ interface Project {
   stage: StageKey;
   score: number | null;
   status: "active" | "needs_attention" | "complete";
+  // Cross-service linkage
+  sourceSessionId: string | null;
 }
 
 /* ── Map API response to dashboard Project ── */
 function enrichProject(raw: ApiProject): Project {
   // Use real fields from backend, fallback for old documents that lack them
-  const stage: StageKey = (raw as any).pipelineStage || "edit";
+  const rawStage = (raw as any).pipelineStage || "edit";
+  const stage: StageKey = rawStage;
   const brand: string | null = (raw as any).brand ?? null;
   const score: number | null = (raw as any).qualityScore ?? null;
   const rawStatus = (raw as any).projectStatus;
@@ -90,6 +93,7 @@ function enrichProject(raw: ApiProject): Project {
     stage,
     score,
     status,
+    sourceSessionId: (raw as any).sourceSessionId ?? null,
   };
 }
 
@@ -608,18 +612,46 @@ function BoardView({ groups }: { groups: { key: string; label: string; color: st
 /* ── Board card ── */
 
 function BoardCard({ project, stageColor }: { project: Project; stageColor: string }) {
+  const isPipeline = !!project.sourceSessionId;
+  const cardColor = isPipeline ? stageColor : C.dim;
   const bg = project.thumbnail || thumbGradient(project.name);
   const isUrl = project.thumbnail && (project.thumbnail.startsWith("http") || project.thumbnail.startsWith("/"));
+  const scoreColor = project.score !== null
+    ? project.score > 75 ? C.green : project.score >= 50 ? C.accent : C.red
+    : null;
 
   return (
     <div style={{
       background: C.deeper, border: `1px solid ${C.border}`,
       borderRadius: 8, padding: 10, cursor: "pointer",
       transition: "border-color 0.25s ease",
+      position: "relative",
     }}
       onMouseEnter={(e) => e.currentTarget.style.borderColor = C.borderL}
       onMouseLeave={(e) => e.currentTarget.style.borderColor = C.border}
     >
+      {/* Quality score indicator */}
+      {scoreColor && (
+        <div
+          title={`Quality: ${project.score}/100`}
+          style={{
+            position: "absolute", top: 6, right: 6,
+            display: "flex", alignItems: "center", gap: 4,
+            padding: "2px 6px", borderRadius: 4,
+            background: `${scoreColor}18`,
+            cursor: "pointer",
+          }}
+        >
+          <div style={{
+            width: 6, height: 6, borderRadius: 3,
+            background: scoreColor,
+          }} />
+          <span className="dh-mono" style={{
+            fontSize: 10, fontWeight: 500, color: scoreColor,
+          }}>{project.score}</span>
+        </div>
+      )}
+
       {/* Thumbnail */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
         <div style={{
@@ -647,8 +679,8 @@ function BoardCard({ project, stageColor }: { project: Project; stageColor: stri
       {/* Meta row */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <div style={{ width: 3, height: 10, borderRadius: 1, background: stageColor }} />
-          <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>
+          <div style={{ width: 3, height: 10, borderRadius: 1, background: cardColor }} />
+          <span className="dh-mono" style={{ fontSize: 11, color: isPipeline ? C.dim : C.faint }}>
             {STAGES.find((s) => s.key === project.stage)?.label ?? project.stage}
           </span>
         </div>
@@ -725,7 +757,8 @@ function ListView({
         )}
         {projects.map((p, i) => {
           const stage = STAGES.find((s) => s.key === p.stage);
-          const stageColor = stage?.color ?? C.dim;
+          const isPL = !!p.sourceSessionId;
+          const sc = isPL ? (stage?.color ?? C.dim) : C.dim;
           return (
             <div key={p.id} style={{
               display: "grid", gridTemplateColumns: gridCols,
@@ -745,12 +778,12 @@ function ListView({
               <span style={{ fontSize: 11, color: C.muted }}>{p.brand || "Personal"}</span>
               {/* Stage */}
               <span className="dh-mono" style={{
-                fontSize: 11, fontWeight: 500, color: stageColor,
-                padding: "3px 8px", background: `${stageColor}12`,
+                fontSize: 11, fontWeight: 500, color: sc,
+                padding: "3px 8px", background: `${sc}12`,
                 borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 5,
                 width: "fit-content",
               }}>
-                <div style={{ width: 3, height: 10, borderRadius: 1, background: stageColor }} />
+                <div style={{ width: 3, height: 10, borderRadius: 1, background: sc }} />
                 {stage?.label ?? p.stage}
               </span>
               {/* Status */}
@@ -877,7 +910,8 @@ function SplitView({
 
 function SplitDetail({ project }: { project: Project }) {
   const stage = STAGES.find((s) => s.key === project.stage);
-  const stageColor = stage?.color ?? C.dim;
+  const isPipeline = !!project.sourceSessionId;
+  const stageColor = isPipeline ? (stage?.color ?? C.dim) : C.dim;
   const bg = project.thumbnail || thumbGradient(project.name);
   const isUrl = project.thumbnail && (project.thumbnail.startsWith("http") || project.thumbnail.startsWith("/"));
 
@@ -934,12 +968,19 @@ function SplitDetail({ project }: { project: Project }) {
           </div>
         )}
       </div>
-      <Link href={`/dashboard/editron?project=${project.id}`} style={{ textDecoration: "none" }}>
+      <Link
+        href={
+          project.stage === "script" && project.sourceSessionId
+            ? `/dashboard/thinkforge?session=${project.sourceSessionId}`
+            : `/dashboard/editron?project=${project.id}`
+        }
+        style={{ textDecoration: "none" }}
+      >
         <button style={{
           background: C.accent, color: C.bg, border: "none",
           padding: "10px 28px", borderRadius: 7, fontSize: 13, fontWeight: 800,
           cursor: "pointer", fontFamily: "inherit",
-        }}>Open project</button>
+        }}>{project.stage === "script" ? "Open script" : "Open project"}</button>
       </Link>
     </div>
   );
@@ -1009,12 +1050,19 @@ function CinematicView({
                 <span style={{ color: C.faint }}>&middot;</span>
                 <span>{timeAgo(focus.updatedAt)}</span>
               </div>
-              <Link href={`/dashboard/editron?project=${focus.id}`} style={{ textDecoration: "none" }}>
+              <Link
+                href={
+                  focus.stage === "script" && focus.sourceSessionId
+                    ? `/dashboard/thinkforge?session=${focus.sourceSessionId}`
+                    : `/dashboard/editron?project=${focus.id}`
+                }
+                style={{ textDecoration: "none" }}
+              >
                 <button style={{
                   background: C.accent, color: C.bg, border: "none",
                   padding: "10px 28px", borderRadius: 7, fontSize: 13, fontWeight: 800,
                   cursor: "pointer", fontFamily: "inherit",
-                }}>Open</button>
+                }}>{focus.stage === "script" ? "Open script" : "Open"}</button>
               </Link>
             </div>
           ) : (
@@ -1034,6 +1082,8 @@ function CinematicView({
         }}>
           {projects.map((p) => {
             const stage = STAGES.find((s) => s.key === p.stage)!;
+            const isPL = !!p.sourceSessionId;
+            const sc = isPL ? (stage?.color ?? C.dim) : C.dim;
             const isSel = focusId === p.id;
             const pBg = p.thumbnail || thumbGradient(p.name);
             const pIsUrl = p.thumbnail && (p.thumbnail.startsWith("http") || p.thumbnail.startsWith("/"));
@@ -1062,7 +1112,7 @@ function CinematicView({
                   <div style={{
                     position: "absolute", bottom: 0, left: 0,
                     width: "100%", height: 2,
-                    background: stage?.color ?? C.dim,
+                    background: sc,
                     opacity: isSel ? 1 : 0.25,
                   }} />
                 </div>
@@ -1072,7 +1122,7 @@ function CinematicView({
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>{p.name}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span className="dh-mono" style={{ fontSize: 11, color: stage?.color ?? C.dim }}>
+                    <span className="dh-mono" style={{ fontSize: 11, color: sc }}>
                       {stage?.label ?? p.stage}
                     </span>
                     <span className="dh-mono" style={{ fontSize: 11, color: C.faint }}>{timeAgo(p.updatedAt)}</span>

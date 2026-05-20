@@ -28,13 +28,13 @@ export async function runThinkingAgent(input: ThinkingInput): Promise<string> {
     ? `Document type: ${documentType}${documentTitle ? ` — "${documentTitle}"` : ''}`
     : '';
 
-  const prompt = `You are a creative strategist preparing to write a document. Given the request below, output 3-6 SHORT reasoning bullets that describe your approach. Each bullet is one line starting with "•". No preamble, no summary, no numbering — only bullets.
-
+  // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+  const prompt = `<role>You are a creative strategist preparing to write a document.</role>
+<task>Output 3-6 SHORT reasoning bullets describing your approach to the request below.</task>
+<rules>Each bullet starts with "•". No preamble, no summary, no numbering — only bullets.</rules>
 ${contextBlock}
 ${docBlock}
-Request: ${userPrompt}
-
-Output bullets now:`;
+<input_data>Request: ${userPrompt}</input_data>`;
 
   try {
     const model = createModelByTier(ModelTier.Structural);

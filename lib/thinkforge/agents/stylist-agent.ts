@@ -10,6 +10,7 @@
  */
 
 import { StructuredAgent, type AgentConfig } from './base-agent';
+import { generateText } from 'ai';
 import type { AgentInput } from './types';
 import { z } from 'zod';
 
@@ -57,32 +58,28 @@ export class StylistAgent extends StructuredAgent<StylistResult> {
   buildPrompt(input: AgentInput): string {
     const { context, userPrompt } = input;
 
-    return `You are the Stylist, a voice and brand guardian for a creative studio tool.
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    return `<role>You are the Stylist, a voice and brand guardian for a creative studio tool. Your mission: protect the creator's authentic voice and ensure output doesn't read like "AI slop."</role>
 
-Your mission: protect the creator's authentic voice and ensure the output doesn't read like "AI slop."
+<task>
+1. Voice Flags: find sentences that sound robotic, overly formal, generic, or off-brand. Tag each with issue type + specific rewrite.
+2. Pattern Interrupts: suggest 2-5 places for unexpected elements (joke, slang, rhythm break) to humanize the script.
+3. Tone Analysis: compare detected tone vs target tone.
+4. Overall Score: 0-100 authenticity. 90+ = sounds human. 60-89 = needs tweaks. <60 = AI slop.
+</task>
 
-${context.systemBrief ? `## Brand DNA / Voice Profile\n${context.systemBrief}\n` : '## Brand DNA\n(No brand profile loaded. Analyze the writing style in the draft itself.)\n'}
-${context.projectSummary ? `Project context: ${context.projectSummary}\n` : ''}
+<rules>
+- Be specific. Not "add more personality" — say exactly what to add and where.
+- Pattern interrupts must match the creator's brand, not generic humor.
+- If no brand DNA loaded, infer voice from the draft itself.
+- Every flag must have a concrete suggestion. Return valid JSON matching the schema.
+</rules>
 
-## Draft to Analyze
-${userPrompt}
-
-## Your Tasks
-1. **Voice Flags**: Find sentences that sound robotic, overly formal, generic, or off-brand.
-   Tag each with an issue type and suggest a specific rewrite.
-2. **Pattern Interrupts**: Suggest 2-5 places where inserting an unexpected element
-   (joke, slang, micro-imperfection, rhetorical question, rhythm break) would make
-   the script feel more human and engaging.
-3. **Tone Analysis**: Compare detected tone vs. target tone.
-4. **Overall Score**: 0-100 authenticity score. 90+ = sounds human. 60-89 = needs tweaks. <60 = AI slop.
-
-## Rules
-- Be specific. Don't say "add more personality." Say exactly what to add and where.
-- Pattern interrupts should match the creator's brand, not generic humor.
-- If no brand DNA is loaded, infer the intended voice from the draft itself.
-- Keep flags actionable: every flag must have a concrete suggestion.
-
-Return valid JSON matching the schema.`;
+<input_data>
+${context.systemBrief ? `Brand DNA / Voice Profile: ${context.systemBrief}` : 'Brand DNA: (none loaded — analyze the draft style)'}
+${context.projectSummary ? `Project context: ${context.projectSummary}` : ''}
+Draft to analyze: ${userPrompt}
+</input_data>`;
   }
 
   async checkVoice(
@@ -91,6 +88,66 @@ Return valid JSON matching the schema.`;
   ): Promise<StylistResult> {
     const { result } = await this.runStructured(input, overrides);
     return result;
+  }
+
+  async rewriteFlagged(input: {
+    content: string;
+    violations: string[];
+    flags: string[];
+    brandContext?: string;
+  }): Promise<string | null> {
+    const { content, violations, flags, brandContext } = input;
+
+    const allIssues = [...violations, ...flags];
+    if (allIssues.length === 0) return null;
+
+    const issueList = allIssues.map((v, i) => `${i + 1}. ${v}`).join('\n');
+
+    const prompt = `<role>You are a copy editor making targeted fixes to a draft.</role>
+
+<task>
+Rewrite the draft below, fixing ONLY the listed issues.
+Output the COMPLETE rewritten draft — not a diff, not a summary, the full text.
+</task>
+
+<rules>
+- Fix each listed issue by rewriting the specific sentence or phrase.
+- Replace AI-sounding phrases with natural, specific alternatives.
+- Do NOT change sentences that are not related to the listed issues.
+- Do NOT introduce new filler words (leverage, seamless, robust, elevate, foster, empower, landscape, tapestry, etc.)
+- Preserve all markdown formatting, headings, scene headers, hashtags, and structure.
+- Preserve the overall section order and flow.
+</rules>
+
+<issues_to_fix>
+${issueList}
+</issues_to_fix>
+
+${brandContext ? `<brand_context>\n${brandContext}\n</brand_context>\n\n` : ''}<draft_to_fix>
+${content}
+</draft_to_fix>`;
+
+    try {
+      const result = await generateText({
+        model: this.model,
+        prompt,
+        temperature: 0.3,
+        maxTokens: 2600,
+        seed: 42,
+      });
+
+      const rewritten = result.text.trim();
+      if (rewritten.length < content.length * 0.5) {
+        console.warn(`[ThinkForge:Stylist] Rewrite too short (${rewritten.length} vs ${content.length}), discarding`);
+        return null;
+      }
+
+      console.log(`[ThinkForge:Stylist] Rewrite complete: ${allIssues.length} issues targeted, ${content.length} → ${rewritten.length} chars`);
+      return rewritten;
+    } catch (e) {
+      console.error('[ThinkForge:Stylist] Rewrite failed:', e);
+      return null;
+    }
   }
 }
 

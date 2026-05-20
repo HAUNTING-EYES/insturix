@@ -26,7 +26,7 @@ type NewTrackInput = Record<string, any>;
 type TrackPatch = Record<string, any>;
 
 /** Fallback system prompt — replace with proper import when module exists */
-const systemPrompt = 'You are Editron AI, an intelligent video editing assistant.';
+const systemPrompt = '<role>You are Editron AI, an intelligent video editing assistant.</role>';
 
 // ============================================================================
 // Configuration
@@ -40,7 +40,7 @@ function getGoogleApiKey(): string {
   return key;
 }
 
-const MODEL_NAME = 'gemini-2.5-flash'; // Production model
+const MODEL_NAME = 'gemini-3.1-flash-lite-preview'; // Production model — verified against Google API 2026-05-15
 const MAX_TURNS = 5; // Maximum function calling iterations
 
 // ============================================================================

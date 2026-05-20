@@ -18,7 +18,7 @@ export function ticketConfirmationEmailTemplate(
   eventDetails?: string,
   timeUntilEvent?: string
 ): { html: string; text: string; subject: string } {
-  const safeName = name || 'Valued User';
+  const _safeName = name || 'Valued User';
   const ticketNumber = ticketId ?? 'N/A';
   const details = eventDetails ?? 'Insturix Creator\'s Summit 2025';
   const confirmationLink = 'https://www.insturix.com/checkout/ics25/confirmation';

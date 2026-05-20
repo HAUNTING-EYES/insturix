@@ -150,13 +150,13 @@ export function useStoryboard(storyboardId: string) {
 
   // Generate voiceover for all scenes
   const generateVoiceover = useCallback(
-    async (voice: string = "aura-asteria-en") => {
+    async (voice: string = "aura-asteria-en", contentType?: string) => {
       setIsVoiceoverGenerating(true);
       try {
         const res = await fetch(`${BASE}/voiceover`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ voice }),
+          body: JSON.stringify({ voice, contentType }),
         });
         if (res.ok) {
           await fetchStoryboard();

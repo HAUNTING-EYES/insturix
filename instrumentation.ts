@@ -10,5 +10,12 @@ export async function register() {
       dns.setDefaultResultOrder('ipv4first');
       console.log('✅ [Instrumentation] DNS resolution order set to ipv4first');
     }
+
+    // Brand Intelligence: ensure indexes on brand_events collection
+    import('@/lib/shared/brand-events').then(({ ensureBrandEventsIndexes }) =>
+      ensureBrandEventsIndexes()
+        .then(() => console.log('✅ [Instrumentation] Brand events indexes ensured'))
+        .catch((err) => console.error('[Instrumentation] Brand events indexes failed:', err))
+    );
   }
 }

@@ -17,15 +17,26 @@ import type { z } from 'zod';
 import { createThinkForgeModel, ModelTier, validateTierForTask } from './model-factory';
 import { parseJsonLenient } from '@/lib/thinkforge/json';
 
-// Global constraints for SCRIPT agents (document authoring — must be structured)
-const SCRIPT_OPERATION_CONSTRAINTS = [
-  'Manual-only output; produce a professional, execution-ready document.',
+// Global constraints for SCRIPT agents — adapted by document type.
+// Technical docs (VFX briefs, budgets, shot lists) get strict mechanical constraints.
+// Creative docs (video scripts, character bibles, brand films) get voice-preserving guidance.
+const SCRIPT_CONSTRAINTS_TECHNICAL = [
+  'Produce a professional, execution-ready document.',
   'No conversational framing (e.g., "In this section", "Let us").',
-  'No inspirational or motivational language.',
   'No summaries unless they add new constraints, steps, or decisions.',
   'Prefer lists, tables, and structured blocks over paragraphs.',
   'Remove any sentence that does not introduce actionable value.',
 ].join('\n- ');
+
+const SCRIPT_CONSTRAINTS_CREATIVE = [
+  'Write with personality and voice. The output should sound like a talented human wrote it, not a template.',
+  'No conversational framing directed at the reader (e.g., "In this section", "Let us").',
+  'Narration is the core product — write spoken words with rhythm, punch, and conversational cadence. Visual direction supports the narration, not the other way around.',
+  'Be specific and concrete. Replace generic claims with exact details, real examples, and vivid language.',
+  'Every sentence should earn its place — cut filler, but keep emotion and energy.',
+].join('\n- ');
+
+const TECHNICAL_DOC_TYPES = new Set(['vfx_brief', 'budget', 'shot_list', 'research']);
 
 // Light constraints for CREATIVE agents (chat, research, ideas)
 const CREATIVE_OPERATION_CONSTRAINTS = [
@@ -69,6 +80,8 @@ export interface AgentConfig {
   agentType: AgentType;
   /** Model tier for routing and validation */
   modelTier?: ModelTier;
+  /** Document type — determines creative vs technical constraints */
+  documentType?: string;
 }
 
 /**
@@ -92,6 +105,8 @@ export abstract class BaseAgent {
       temperature: config.temperature ?? 0.7,
       maxTokens: config.maxTokens ?? 4096,
       agentType: config.agentType,
+      modelTier: config.modelTier ?? ModelTier.Reasoning,
+      documentType: config.documentType ?? '',
     };
     this.modelTier = config.modelTier;
     this.model = createThinkForgeModel(this.config.modelName);
@@ -119,7 +134,12 @@ export abstract class BaseAgent {
    */
   protected applyGlobalConstraints(prompt: string): string {
     const isScriptAgent = SCRIPT_AGENT_TYPES.has(this.config.agentType);
-    const constraints = isScriptAgent ? SCRIPT_OPERATION_CONSTRAINTS : CREATIVE_OPERATION_CONSTRAINTS;
+    if (!isScriptAgent) {
+      const constraintBlock = `## Global Constraints (mandatory)\n- ${CREATIVE_OPERATION_CONSTRAINTS}`;
+      return `${prompt}\n\n${constraintBlock}`;
+    }
+    const isTechnical = TECHNICAL_DOC_TYPES.has(this.config.documentType || '');
+    const constraints = isTechnical ? SCRIPT_CONSTRAINTS_TECHNICAL : SCRIPT_CONSTRAINTS_CREATIVE;
     const constraintBlock = `## Global Constraints (mandatory)\n- ${constraints}`;
     return `${prompt}\n\n${constraintBlock}`;
   }
@@ -148,6 +168,7 @@ export abstract class BaseAgent {
         prompt,
         temperature: gen.temperature,
         maxTokens: gen.maxTokens,
+        seed: 42,
         abortSignal: signal,
       });
 
@@ -257,6 +278,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         prompt,
         temperature: gen.temperature,
         maxTokens: gen.maxTokens,
+        seed: 42,
         abortSignal: signal,
       });
 
@@ -286,6 +308,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           prompt: `${prompt}\n\nReturn ONLY valid JSON that matches this schema (no markdown): ${this.schema.toString()}`,
           temperature: gen.temperature,
           maxTokens: gen.maxTokens,
+          seed: 42,
           abortSignal: signal,
         });
 

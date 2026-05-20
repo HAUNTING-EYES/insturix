@@ -219,6 +219,13 @@ function buildFalVideoInput(
   referenceImageUrls?: Array<{ url: string; weight?: number }>,
   options?: { hasVoiceover?: boolean },
 ): Record<string, any> {
+  // Fix 14: Veo 3.1 degrades with prompts > 300 chars. Enforce trim.
+  // The LLM prompt already requests 150-300 chars, but Gemini sometimes exceeds it.
+  if (modelKey === 'veo-3.1' && prompt.length > 300) {
+    const original = prompt;
+    prompt = prompt.substring(0, 297) + '...';
+    console.log(`[VideoGen] Veo prompt trimmed: ${original.length} → ${prompt.length} chars`);
+  }
   const config = getVideoModelConfig(modelKey);
   return buildVideoInputFromConfig(
     config,

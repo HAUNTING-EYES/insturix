@@ -48,10 +48,10 @@ import { extractEditDNA, applyEditDNA, loadProfile } from "../services/style-tra
 // NEW: getLLMModel(temperature) → shared singleton
 const _llmModelCache: Record<string, ChatGoogleGenerativeAI> = {};
 function getLLMModel(temperature: number): ChatGoogleGenerativeAI {
-  const key = `gemini-2.5-flash-t${temperature}`;
+  const key = `gemini-3.1-flash-lite-preview-t${temperature}`;
   if (!_llmModelCache[key]) {
     _llmModelCache[key] = new ChatGoogleGenerativeAI({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite-preview',
       apiKey: process.env.GEMINI_API_KEY,
       temperature,
     });
@@ -1350,73 +1350,70 @@ TYPE-SPECIFIC FIELDS:
 
         const durationSeconds = Math.round(input.duration / 30);
         
-        const systemPrompt = `You are a world-class motion graphics designer creating AESTHETIC VIDEO BACKGROUNDS.
-Generate a self-contained HTML/CSS/JS fragment for video production.
+        const systemPrompt = `<role>You are a world-class motion graphics designer creating aesthetic video backgrounds.</role>
 
-═══════════════════════════════════════════════════════════════════
-CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '16:9'} | Duration: ~${durationSeconds}s
-═══════════════════════════════════════════════════════════════════
+<task>Generate a self-contained HTML/CSS/JS fragment for a video background. Canvas: ${safeWidth}x${safeHeight}px, aspect ratio: ${project.aspectRatio || '16:9'}, duration: ~${durationSeconds}s.</task>
 
-▸ DESIGN PHILOSOPHY (CRITICAL):
-  • Create SEAMLESS, PROFESSIONAL backgrounds that enhance video content
-  • Subtle, non-distracting motion - the background supports, not competes
-  • Harmonious 2-3 color palette max (use HSL for sophisticated colors)
-  • SOFT gradients, blur effects, and organic movement
+<rules>
+DESIGN PHILOSOPHY:
+- Create SEAMLESS, PROFESSIONAL backgrounds that enhance video content
+- Subtle, non-distracting motion — the background supports, not competes
+- Harmonious 2-3 color palette max (use HSL for sophisticated colors)
+- SOFT gradients, blur effects, and organic movement
 
-▸ PREFERRED STYLES (pick one or combine):
-  ✓ Smooth multi-stop gradients (linear, radial, conic) with subtle animation
-  ✓ Soft-blurred floating shapes (circles, blobs with filter:blur)
-  ✓ Grid/dot patterns (subtle, low opacity)
-  ✓ SVG mesh gradient effects
-  ✓ Glassmorphism with backdrop-blur
-  ✓ Noise/grain texture overlays
-  ✓ Particle systems with glow (small, blurred, slow-moving)
+PREFERRED STYLES (pick one or combine):
+- Smooth multi-stop gradients (linear, radial, conic) with subtle animation
+- Soft-blurred floating shapes (circles, blobs with filter:blur)
+- Grid/dot patterns (subtle, low opacity)
+- SVG mesh gradient effects
+- Glassmorphism with backdrop-blur
+- Noise/grain texture overlays
+- Particle systems with glow (small, blurred, slow-moving)
 
-▸ AVOID:
-  ✗ Sharp-edged random shapes without blur (looks cheap)
-  ✗ Too many colors (overwhelming)
-  ✗ Fast, distracting animations
-  ✗ Overly complex patterns
-  ✗ Harsh color contrasts
+AVOID:
+- Sharp-edged random shapes without blur (looks cheap)
+- Too many colors (overwhelming)
+- Fast, distracting animations
+- Overly complex patterns
+- Harsh color contrasts
 
-▸ LAYOUT RULES (CRITICAL):
-  • Outer wrapper: \`position:absolute; inset:0; width:100%; height:100%; overflow:hidden;\`
-  • NO viewport units (\`vw\`, \`vh\`, \`vmin\`, \`vmax\`) - they break in video render
-  • Use \`%\` for layout, \`px\` for fixed elements scaled to ${safeWidth}×${safeHeight}
+LAYOUT RULES:
+- Outer wrapper: \`position:absolute; inset:0; width:100%; height:100%; overflow:hidden;\`
+- NO viewport units (\`vw\`, \`vh\`, \`vmin\`, \`vmax\`) — they break in video render
+- Use \`%\` for layout, \`px\` for fixed elements scaled to ${safeWidth}x${safeHeight}
 
-▸ ANIMATION SYNC:
-  • CSS variables available: \`--time\` (seconds), \`--progress\` (0→1), \`--duration\`
-  • Use CSS @keyframes - host controls timing via animation-delay
-  • For looping backgrounds: \`animation: x ${durationSeconds}s linear infinite;\`
+ANIMATION SYNC:
+- CSS variables available: \`--time\` (seconds), \`--progress\` (0-1), \`--duration\`
+- Use CSS @keyframes — host controls timing via animation-delay
+- For looping backgrounds: \`animation: x ${durationSeconds}s linear infinite;\`
 
-▸ ALLOWED CDN RESOURCES:
-  ✓ Google Fonts: \`<link href="https://fonts.googleapis.com/css2?family=...">\`
-  ✓ Heroicons/Lucide SVGs: \`<img src="https://unpkg.com/lucide-static@latest/icons/...">\`
-  ✓ Placeholder images: \`https://picsum.photos/800/600\` or \`https://placehold.co/\`
-  ✓ Lottie animations: \`https://unpkg.com/@lottiefiles/lottie-player@latest\`
-  ✓ Simple utility libs: GSAP from \`https://cdnjs.cloudflare.com/ajax/libs/gsap/\`
+ALLOWED CDN RESOURCES:
+- Google Fonts: \`<link href="https://fonts.googleapis.com/css2?family=...">\`
+- Heroicons/Lucide SVGs: \`<img src="https://unpkg.com/lucide-static@latest/icons/...">\`
+- Placeholder images: \`https://picsum.photos/800/600\` or \`https://placehold.co/\`
+- Lottie animations: \`https://unpkg.com/@lottiefiles/lottie-player@latest\`
+- Simple utility libs: GSAP from \`https://cdnjs.cloudflare.com/ajax/libs/gsap/\`
 
-▸ AVOID:
-  ✗ Three.js / heavy 3D libraries (performance issues in render)
-  ✗ External API calls / fetch requests
-  ✗ User input elements (forms, buttons with handlers)
-  ✗ Audio elements (handled by separate audio tracks)
-  ✗ localStorage / cookies / IndexedDB
-  ✗ \`document.addEventListener("DOMContentLoaded")\` - code runs immediately
-  ✗ Complex/detailed SVG graphics (low rendering accuracy - keep SVGs simple)
+FORBIDDEN:
+- Three.js / heavy 3D libraries (performance issues in render)
+- External API calls / fetch requests
+- User input elements (forms, buttons with handlers)
+- Audio elements (handled by separate audio tracks)
+- localStorage / cookies / IndexedDB
+- \`document.addEventListener("DOMContentLoaded")\` — code runs immediately
+- Complex/detailed SVG graphics (low rendering accuracy — keep SVGs simple)
 
-▸ CAPABILITIES:
-  • Simple inline SVG graphics (basic icons, shapes - NOT complex illustrations)
-  • CSS gradients, masks, clip-paths, filters, backdrop-blur
-  • Keyframe animations, transitions, transforms
-  • Text effects (gradients, shadows, animations)
-  • Pseudo-elements (::before, ::after)
-  • Google Fonts for typography
-  • Great for: backgrounds, title cards, lower thirds, simple infographics
+CAPABILITIES:
+- Simple inline SVG graphics (basic icons, shapes — NOT complex illustrations)
+- CSS gradients, masks, clip-paths, filters, backdrop-blur
+- Keyframe animations, transitions, transforms
+- Text effects (gradients, shadows, animations)
+- Pseudo-elements (::before, ::after)
+- Google Fonts for typography
+- Great for: backgrounds, title cards, lower thirds, simple infographics
+</rules>
 
-▸ OUTPUT FORMAT:
-  Return ONLY the raw HTML string starting with \`<\`. 
-  NO markdown fences. NO explanations. NO comments outside code.`;
+<output_format>Return ONLY the raw HTML string starting with \`<\`. NO markdown fences. NO explanations. NO comments outside code.</output_format>`;
 
         const result = await model.invoke([
           new SystemMessage(systemPrompt),
@@ -1584,61 +1581,39 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
         //   temperature: 0.8, // Higher creativity for stickers
         // });
         
-        const systemPrompt = `You are a creative motion graphics designer creating ANIMATED STICKER ELEMENTS.
-Generate a SELF-CONTAINED HTML/CSS sticker with LOOPING ANIMATION.
+        const systemPrompt = `<role>You are a creative motion graphics designer creating animated sticker elements for video overlays.</role>
 
-═══════════════════════════════════════════════════════════════════
-STICKER CONTAINER: ${stickerWidth}×${stickerHeight}px${input.width && input.height ? '' : ' (default size - adjust if needed)'} | Duration: ~${durationSeconds}s
-═══════════════════════════════════════════════════════════════════
+<task>Generate a self-contained HTML/CSS sticker with looping animation. Container: ${stickerWidth}x${stickerHeight}px${input.width && input.height ? '' : ' (default size)'}. Duration: ~${durationSeconds}s.</task>
 
-▸ LAYOUT RULES (CRITICAL):
-  • Outer wrapper: \`position: absolute; inset: 0; width: 100%; height: 100%; background: transparent;\`
-  • Use \`display: flex; justify-content: center; align-items: center;\` for centering
-  • Main content: size at 60-80% of container for breathing room
-  • Glow/shadow CAN extend beyond bounds (no overflow:hidden)
+<rules>
+LAYOUT:
+- Outer wrapper: \`position: absolute; inset: 0; width: 100%; height: 100%; background: transparent;\`
+- Use \`display: flex; justify-content: center; align-items: center;\` for centering
+- Main content: size at 60-80% of container for breathing room
+- Glow/shadow CAN extend beyond bounds (no overflow:hidden)
 
-▸ ANIMATION IS MANDATORY ❗
-  • EVERY sticker MUST have a looping idle animation
-  • Use CSS @keyframes with \`animation: name 2-3s ease-in-out infinite;\`
-  • Animation ideas: pulse, glow, float, wiggle, spin, breathe, flicker
-  • Host handles entry (\`${enterAnim}\`) and exit (\`${exitAnim}\`) - YOU handle IDLE loop
+ANIMATION (MANDATORY):
+- EVERY sticker MUST have a looping idle animation
+- Use CSS @keyframes with \`animation: name 2-3s ease-in-out infinite;\`
+- Animation ideas: pulse, glow, float, wiggle, spin, breathe, flicker
+- Host handles entry (\`${enterAnim}\`) and exit (\`${exitAnim}\`) — YOU handle IDLE loop
 
-▸ WHEN TO USE WHAT (IMPORTANT):
-  📝 EMOJI CHARACTERS (best for reactions):
-     • Use actual emoji: 🔥 ✨ 💯 🎉 👍 etc.
-     • Style with: font-size, text-shadow, filter:drop-shadow
-     • Always add animation (pulse, bounce, glow)
-     • Example: \`<span style="font-size: 80px; animation: pulse 2s infinite;">🔥</span>\`
-  
-  🎨 CSS SHAPES (best for badges, bubbles, abstract):
-     • Use div + border-radius, gradients, shadows
-     • Great for: badges, callouts, circles, rectangles
-     • Use pseudo-elements (::before, ::after) for layered effects
-     • Example: Subscribe badge, Like button, notification bubble
-  
-  ✏️ SIMPLE SVG (best for icons, symbols, custom shapes):
-     • Use for: arrows, checkmarks, stars, simple icons
-     • Keep SVG paths simple (< 10 path commands)
-     • Animate with CSS (transform, opacity, stroke-dashoffset)
-     • Inline SVG only, NOT external files
-  
-  🖼️ LUCIDE ICONS (best for UI elements):
-     • URL: \`https://unpkg.com/lucide-static@latest/icons/{name}.svg\`
-     • Names: heart, star, thumbs-up, check, x, play, pause, etc.
-     • Load as img, style with CSS filters for color
-     • Example: \`<img src="https://unpkg.com/lucide-static@latest/icons/heart.svg" style="filter: invert(1);">\`
+TECHNIQUE SELECTION:
+- EMOJI CHARACTERS (best for reactions): Use actual emoji (fire, sparkles, etc.). Style with font-size, text-shadow, filter:drop-shadow. Always add animation (pulse, bounce, glow).
+- CSS SHAPES (best for badges, bubbles, abstract): Use div + border-radius, gradients, shadows. Great for badges, callouts, circles, rectangles. Use pseudo-elements for layered effects.
+- SIMPLE SVG (best for icons, symbols, custom shapes): Use for arrows, checkmarks, stars, simple icons. Keep SVG paths simple (< 10 path commands). Animate with CSS (transform, opacity, stroke-dashoffset). Inline SVG only, NOT external files.
+- LUCIDE ICONS (best for UI elements): URL \`https://unpkg.com/lucide-static@latest/icons/{name}.svg\`. Names: heart, star, thumbs-up, check, x, play, pause, etc. Load as img, style with CSS filters for color.
 
-▸ DO NOT USE:
-  ✗ Complex SVGs (break rendering)
-  ✗ External fonts (slow loading)
-  ✗ Three.js / heavy libraries
-  ✗ Fixed pixel sizes (use % for scalability)
-  ✗ Viewport units (vw, vh)
-  ✗ Static content with no animation
+FORBIDDEN:
+- Complex SVGs (break rendering)
+- External fonts (slow loading)
+- Three.js / heavy libraries
+- Fixed pixel sizes (use % for scalability)
+- Viewport units (vw, vh)
+- Static content with no animation
+</rules>
 
-▸ OUTPUT:
-  Return ONLY raw HTML starting with \`<\`.
-  NO markdown. NO explanation.`;
+<output_format>Return ONLY raw HTML starting with \`<\`. NO markdown. NO explanation.</output_format>`;
 
         // PERF FIX: Reuse cached model instance instead of constructing a new one each call.
         // OLD: const model = new ChatGoogleGenerativeAI({ model: 'gemini-2.5-flash', apiKey: ..., temperature: 0.8 });
@@ -2092,7 +2067,21 @@ Use this to understand what exists. Then decide what to do based on user intent.
           return !(oEnd <= videoFrom || o.from >= videoEnd);
         });
 
-        // If voiceover exists, use its assetId for transcription instead of the silent video
+        // If voiceover exists, use its assetId for transcription instead of the silent video.
+        // If NO voiceover overlaps AND video is pipeline-generated (AI clip = no real speech),
+        // skip gracefully. User-uploaded footage (no generationUnitId) still falls through
+        // to video-based transcription for talking heads / lectures / interviews.
+        if (!voiceoverOverlay) {
+          const isPipelineGenerated = (overlay as any).metadata?.generationUnitId != null;
+          if (isPipelineGenerated) {
+            console.log(`[add_captions] Skipping AI-gen video ${overlay.id}: no voiceover in time range [${videoFrom}-${videoEnd}], AI videos have no captionable speech`);
+            return JSON.stringify({
+              status: 'skipped',
+              data: null,
+              message: `No voiceover covers this video's time range. AI-generated videos have no captionable speech.`,
+            });
+          }
+        }
         const transcriptionAssetId = voiceoverOverlay?.assetId || overlay.assetId;
         console.log(`[add_captions] Using ${voiceoverOverlay ? 'voiceover' : 'video'} asset for transcription: ${transcriptionAssetId}`);
 
@@ -3631,31 +3620,30 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
 
         const { GoogleGenerativeAI } = await import('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite-preview' });
 
         const densityGuide = input.density === 'minimal' ? '1-2 total' : input.density === 'heavy' ? 'one per scene' : '2-3 total';
 
-        const result = await model.generateContent(`You are a video editor adding motion graphics to a ${videoOverlays.length}-scene video.
+        const result = await model.generateContent(`<role>You are a video editor adding motion graphics to a ${videoOverlays.length}-scene video.</role>
 
-Scene narrations:
-${sceneContext}
+<task>Plan ${densityGuide} motion graphic placements across the scenes. For each, return: scene (1-based), offsetSec (seconds into scene), durationSec (2-4 seconds typical), description (what to show).</task>
 
-Add ${densityGuide} motion graphics. For each, return:
-- scene: scene number (1-based)
-- offsetSec: seconds into that scene to show (e.g., 1.0)
-- durationSec: how long to show (2-4 seconds typical)
-- description: what to show (product feature callout, stat, title, etc.)
-
-Rules:
-- Match graphics to what's being said in the narration at that moment
+<rules>
+- Match graphics to what is being said in the narration at that moment
 - Use clear, simple descriptions (not jargon like "lower third")
 - For product ads: highlight features, stats, product name
 - For educational: highlight key terms, steps, definitions
 - Place graphics 1-2 seconds after the relevant narration starts
 - Never place in first 0.5s or last 0.5s of a scene
+</rules>
 
-Return ONLY a JSON array:
-[{"scene":1,"offsetSec":2.0,"durationSec":3.0,"description":"Product name: Nova Speaker"}]`);
+<output_format>Return ONLY a JSON array:
+[{"scene":1,"offsetSec":2.0,"durationSec":3.0,"description":"Product name: Nova Speaker"}]</output_format>
+
+<input_data>
+Scene narrations:
+${sceneContext}
+</input_data>`);
 
         const text = result.response.text()?.trim() || '[]';
         let jsonStr = text;
@@ -4538,13 +4526,18 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         await projectService.addOverlay(userId, projectId, newOverlay as any);
 
+        // OLD: match!.template crashed when match was null (Lottie 404 → CSS fallback path).
+        // Overlay was already saved at line 4527 but response envelope crashed the Director step.
+        const templateId = match?.template?.templateId ?? 'css-fallback';
+        const templateName = match?.template?.name ?? 'CSS Overlay';
+        const templateScore = match ? Math.round(match.score * 100) / 100 : 0;
         return successEnvelope({
           id,
-          templateUsed: match!.template.templateId,
-          templateName: match!.template.name,
-          score: Math.round(match!.score * 100) / 100,
+          templateUsed: templateId,
+          templateName,
+          score: templateScore,
           metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
-          message: `Added motion graphic "${match!.template.name}" for "${input.description}". Duration: ${duration} frames. (Code hidden from chat log)`,
+          message: `Added motion graphic "${templateName}" for "${input.description}". Duration: ${duration} frames.`,
         });
       } catch (e: any) {
         console.error('[MOTION-GRAPHIC] Error:', e);
@@ -5380,6 +5373,66 @@ All Pixabay content is free for commercial use.`,
     },
   );
 
+  // ─── Mode 3: Use Matching Footage ───────────────────────────────
+  const useMatchingFootageSchema = z.object({
+    sceneIndex: z.coerce.number().describe("Scene index to replace with user footage"),
+    assetId: z.string().describe("Asset ID of user footage to use (from media library)"),
+  });
+
+  const useMatchingFootage = tool(
+    async (rawInput: z.infer<typeof useMatchingFootageSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const project = await loadProject();
+
+        // Find video overlay for this scene.
+        // metadata.sceneIndex is set by scene-to-editron.ts on pipeline-generated overlays.
+        // Cast needed: base Overlay type doesn't include metadata (it's on the MongoDB doc, not the TS interface).
+        const sceneOverlays = project.overlays.filter(
+          (o: any) => o.type === 'video' && (o.metadata?.sceneIndex === input.sceneIndex)
+        );
+        if (sceneOverlays.length === 0) {
+          return JSON.stringify({ status: 'error', message: `No video overlay found for scene ${input.sceneIndex}` });
+        }
+
+        // Resolve new asset URL
+        const newUrl = await assetResolver.resolveAssetUrl(input.assetId, userId);
+        if (!newUrl) {
+          return JSON.stringify({ status: 'error', message: `Asset ${input.assetId} not found or URL unresolvable` });
+        }
+
+        // Swap: update overlay's src + assetId, keep timing/position
+        const overlay = sceneOverlays[0];
+        await projectService.updateOverlay(userId, projectId, overlay.id, {
+          src: newUrl,
+          assetId: input.assetId,
+          metadata: { ...(overlay as any).metadata, swappedFrom: overlay.assetId, swapSource: 'user_footage' },
+        });
+
+        return JSON.stringify({
+          status: 'success',
+          data: {
+            sceneIndex: input.sceneIndex,
+            oldAssetId: overlay.assetId,
+            newAssetId: input.assetId,
+            message: `Scene ${input.sceneIndex} now uses your footage (${input.assetId})`,
+          },
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'use_matching_footage',
+      description: `Replace an AI-generated video in a scene with user's own footage from the media library.
+Use when user says "use my video for scene X" or "replace scene X with my footage".
+The footage must already be uploaded to the asset library.
+
+Example: use_matching_footage({ sceneIndex: 2, assetId: "a_Xk7pqR2m" })`,
+      schema: useMatchingFootageSchema,
+    },
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -5426,6 +5479,7 @@ All Pixabay content is free for commercial use.`,
     addSFX,               // NEW: Add SFX from Freesound (search + download + place)
     batchEditCaptions,    // NEW: Edit all captions at once for consistency
     searchStockFootage,   // NEW: Search Pixabay for stock videos/images
+    useMatchingFootage,   // Mode 3: Swap AI video with user footage per scene
   ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };

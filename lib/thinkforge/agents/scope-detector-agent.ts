@@ -43,29 +43,28 @@ export class ScopeDetectorAgent extends StructuredAgent<ScopeResult> {
   buildPrompt(input: AgentInput): string {
     const { context, userPrompt } = input;
 
-    return `You are a Production Scale Analyzer for a creative studio tool called ThinkForge.
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    return `<role>You are a Production Scale Analyzer for ThinkForge, a creative studio tool.</role>
 
-Given a project description, determine its complexity level and domain.
+<task>Analyze the project description and determine its complexity level and domain.</task>
 
-## Complexity Levels
-- **solo_ugc**: Solo creator content (reels, shorts, ads, social posts). Usually <60s, one person.
-- **brand_doc**: Brand documentary or commercial. Interview-based, narrative arc, 2-10 min.
-- **short_film**: Short film or high-end branded content. Multi-crew, 5-30 min.
-- **feature_film**: Feature-length production. Full crew, 60-120+ min, multiple acts.
-- **epic**: Multi-project universe (e.g., franchise, series). Multiple interconnected scripts.
+<rules>
+COMPLEXITY LEVELS:
+- solo_ugc: Solo creator content (reels, shorts, ads). Usually <60s, one person.
+- brand_doc: Brand documentary or commercial. Interview-based, 2-10 min.
+- short_film: Short film or high-end branded content. Multi-crew, 5-30 min.
+- feature_film: Feature-length production. Full crew, 60-120+ min.
+- epic: Multi-project universe (franchise, series). Multiple interconnected scripts.
+</rules>
 
-## Your Task
-Analyze the following project description and return a structured JSON result:
+<output_format>
+JSON: { complexity, domain (e.g. "tech_review", "lifestyle", "corporate"), estimatedDuration, recommendedArtifacts: [{ type, label, reason }], summary: "one sentence" }
+</output_format>
 
-${context.projectSummary ? `Project context: ${context.projectSummary}\n` : ''}
-User's project description: ${userPrompt}
-
-Return JSON with:
-- complexity: one of the levels above
-- domain: the content domain (e.g., "tech_review", "sci_fi", "lifestyle", "corporate", "education")
-- estimatedDuration: rough duration estimate if applicable
-- recommendedArtifacts: array of { type, label, reason } for documents this project needs
-- summary: one-sentence description of the project scope`;
+<input_data>
+${context.projectSummary ? `Project context: ${context.projectSummary}` : ''}
+User's project: ${userPrompt}
+</input_data>`;
   }
 
   async detectScope(

@@ -49,6 +49,8 @@ interface ExtractedSignals {
   title: string;
   sceneCount: number;
   totalDurationSec: number;
+  /** Fix 29: Cultural context detected from script content (indian/arabic/japanese/etc.) */
+  culturalContext: string;
 }
 
 interface ThinkForgeMetadata {
@@ -91,6 +93,33 @@ interface ThinkForgeMetadata {
   suggestedProfileCategory?: string;
 }
 
+// Fix 29: Detect cultural context from script text → influences profile selection.
+// Returns region hint string used as a signal field for keyword matching.
+function detectCulturalContext(text: string): string {
+  const t = text.toLowerCase();
+  const signals: string[] = [];
+
+  // Indian
+  if (/\b(diwali|namaste|bollywood|hindi|rupee|chai|rangoli|holi|puja|mandir|saree|kurta)\b/.test(t))
+    signals.push('indian');
+  // East Asian
+  if (/\b(anime|manga|sakura|samurai|kimono|kanji|zen|torii|matcha|hanami|origami)\b/.test(t))
+    signals.push('japanese');
+  if (/\b(k-pop|kpop|korean|hanbok|kimchi|seoul|hallyu)\b/.test(t))
+    signals.push('korean');
+  // Arabic / Middle Eastern
+  if (/\b(ramadan|eid|mosque|arabic|halal|souk|medina|hijab|abaya)\b/.test(t))
+    signals.push('arabic');
+  // Latin American
+  if (/\b(fiesta|quinceañera|salsa|reggaeton|carnaval|telenovela|mariachi)\b/.test(t))
+    signals.push('latin');
+  // African
+  if (/\b(afrobeat|jollof|dashiki|safari|ubuntu|kente|highlife)\b/.test(t))
+    signals.push('african');
+
+  return signals.join(' ');
+}
+
 function extractSignals(metadata: ThinkForgeMetadata): ExtractedSignals {
   const scenes = metadata.scenes || [];
 
@@ -126,6 +155,11 @@ function extractSignals(metadata: ThinkForgeMetadata): ExtractedSignals {
     title: (metadata.title || '').toLowerCase(),
     sceneCount: scenes.length,
     totalDurationSec: scenes.reduce((sum, s: any) => sum + (s.durationSeconds || 5), 0),
+    // Fix 29: Cultural context signal — detect region/language hints from content.
+    // Script text mentioning cultural keywords → boosts matching profiles.
+    culturalContext: detectCulturalContext(
+      scenes.map(s => s.narration || '').join(' ') + ' ' + (metadata.title || ''),
+    ),
   };
 }
 
@@ -351,6 +385,38 @@ export function getAutoSelectedProfile(metadata: ThinkForgeMetadata): {
     autoSelected: top.confidence >= DETECTION.autoSelectConfidence,
     suggestionsNeeded: top.confidence < DETECTION.autoSelectConfidence,
   };
+}
+
+// ─── Raw Footage Profile Mapping (Mode 2) ────────────────────────
+
+/**
+ * Deterministic profile mapping for raw footage based on content type.
+ * Bypasses keyword scoring entirely — content-type-detector already classified.
+ */
+export function getProfileForRawFootage(
+  contentType: string,
+  platform?: string,
+): { profile: EditProfile; profileId: string } {
+  // Import content-type → profile mapping (same as content-type-detector.ts)
+  const MAPPING: Record<string, Record<string, string>> = {
+    'talking-head': { default: 'C-08', youtube: 'A-01', linkedin: 'C-01', tiktok: 'A-04', instagram: 'A-03' },
+    'tutorial':     { default: 'C-02' },
+    'interview':    { default: 'C-05' },
+    'vlog':         { default: 'C-08', tiktok: 'A-04', instagram: 'A-03' },
+    'corporate':    { default: 'C-01' },
+    'podcast':      { default: 'C-09' },
+    'ad':           { default: 'E-01', instagram: 'A-03', tiktok: 'A-04' },
+    'product-demo': { default: 'E-01' },
+    'documentary':  { default: 'C-03' },
+    'comedy':       { default: 'C-08' },
+  };
+
+  const platformMap = MAPPING[contentType] || {};
+  const profileId = (platform && platformMap[platform]) || platformMap['default'] || 'G-01';
+  const profile = EDIT_PROFILES[profileId as keyof typeof EDIT_PROFILES] || EDIT_PROFILES['G-01'];
+
+  console.log(`[ProfileDetection] Raw footage: ${contentType} + ${platform || 'default'} → ${profileId}`);
+  return { profile, profileId };
 }
 
 // ─── Semantic Embedding Functions ────────────────────────────────

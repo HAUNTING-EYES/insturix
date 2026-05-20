@@ -16,12 +16,16 @@ import { Extension } from '@tiptap/core';
 import { ActionBlock } from './action-block';
 import { WhyBlock } from './why-block';
 import { ExampleBlock } from './example-block';
+import { SceneBlock } from './scene-block';
+import { EditorialBlock } from './editorial-block';
 import { BlockIdExtension } from './block-id';
 
 // Re-export custom extensions
 export { ActionBlock } from './action-block';
 export { WhyBlock } from './why-block';
 export { ExampleBlock } from './example-block';
+export { SceneBlock } from './scene-block';
+export { EditorialBlock } from './editorial-block';
 
 // =============================================================================
 // EXTENSION CONFIGURATION
@@ -163,6 +167,19 @@ export function getThinkForgeExtensions(options: ThinkForgeEditorOptions = {}): 
     ExampleBlock.configure({
       HTMLAttributes: {
         class: 'thinkforge-example-block',
+      },
+    }),
+
+    // V2: Editron-ready structured blocks
+    SceneBlock.configure({
+      HTMLAttributes: {
+        class: 'thinkforge-scene-block',
+      },
+    }),
+
+    EditorialBlock.configure({
+      HTMLAttributes: {
+        class: 'thinkforge-editorial-block',
       },
     }),
   ] as Extension[];

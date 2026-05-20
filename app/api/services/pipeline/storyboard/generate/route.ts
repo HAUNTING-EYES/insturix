@@ -41,6 +41,7 @@ import type {
   Storyboard,
 } from '@/lib/pipeline/schemas/storyboard';
 import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
+import { createProjectLink, findLinkBySessionId, addStoryboardToLink } from '@/lib/shared/project-links';
 
 export const runtime = 'nodejs';
 // This route now only VALIDATES + DISPATCHES. Should complete in <30s even for
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest) {
       consistencyThreshold,
       globalEditDirections,
       suggestedProfileCategory,
+      brandId,
     }: {
       scenes: SceneDescriptor[];
       styleGuide?: StyleGuide;
@@ -123,6 +125,7 @@ export async function POST(request: NextRequest) {
       consistencyThreshold?: number;
       globalEditDirections?: any;
       suggestedProfileCategory?: string;
+      brandId?: string;
     } = body;
 
     const warnings: string[] = [];
@@ -265,6 +268,30 @@ export async function POST(request: NextRequest) {
       updatedAt: now,
     };
     await saveStoryboard(storyboard);
+
+    // ─── Project link: reuse existing (from session creation) or create new ──
+    // Phase 1 of Big Integration creates a project_link at ThinkForge session time.
+    // If that link exists, add the storyboardId to it. Otherwise create fresh
+    // (backward compat for direct-to-storyboard without ThinkForge session).
+    try {
+      const existingLink = projectId ? await findLinkBySessionId(userId, projectId) : null;
+      if (existingLink) {
+        await addStoryboardToLink(userId, existingLink.universalId, storyboardId);
+        console.log(`[storyboard/generate] Added storyboard ${storyboardId} to existing link ${existingLink.universalId}`);
+      } else {
+        await createProjectLink(userId, {
+          sessionId: projectId,
+          sourceScriptId,
+          storyboardId,
+          brandId,
+        });
+        console.log(`[storyboard/generate] Project link created for storyboard ${storyboardId}`);
+      }
+    } catch (linkErr: any) {
+      const linkWarn = `Project link operation failed: ${linkErr.message}. Storyboard generated without link — reconciliation will fix.`;
+      console.error(`[storyboard/generate] ${linkWarn}`);
+      warnings.push(linkWarn);
+    }
 
     // Create batch + job docs (tracked in MongoDB, polled by frontend)
     const sceneIndices = scenes.map((s) => s.sceneIndex);

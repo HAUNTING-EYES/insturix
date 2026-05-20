@@ -11,13 +11,15 @@
  */
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
-import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
-import { projectService } from '@/lib/editron/services/project-service';
+import { DEFAULT_TRANSITION_FRAMES, createTrueDissolve } from '@/lib/editron/data/transition-templates';
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
-import { searchAndDownloadSFX, isSFXLibraryAvailable } from '@/lib/pipeline/sfx-library-service';
+import { searchAndDownloadSFX, isSFXLibraryAvailable, audioDescriptionToSearchQuery } from '@/lib/pipeline/sfx-library-service';
+import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
+import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
+import { resolveMotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -80,6 +82,12 @@ export function snapToClipBoundary(
     .filter(o => o.type === 'video' || o.type === 'image')
     .sort((a, b) => a.from - b.from);
 
+  // Post-silence-removal projects have many small clips with potential tiny gaps.
+  // Increase tolerance to account for frame rounding gaps between consecutive clips.
+  const effectiveTolerance = visualOverlays.length > 20
+    ? Math.max(maxTolerance, 60)
+    : maxTolerance;
+
   let best: ClipBoundaryMatch | null = null;
 
   for (let i = 0; i < visualOverlays.length - 1; i++) {
@@ -88,7 +96,7 @@ export function snapToClipBoundary(
     const boundary = a.from + a.durationInFrames;
     const drift = Math.abs(boundary - decisionFrame);
 
-    if (drift <= maxTolerance && (!best || drift < best.drift)) {
+    if (drift <= effectiveTolerance && (!best || drift < best.drift)) {
       best = { boundaryFrame: boundary, clipA: a, clipB: b, drift };
     }
   }
@@ -106,13 +114,29 @@ export function findClipAtFrame(
   overlays: Overlay[],
   tolerance: number = 15,
 ): { clip: Overlay; snappedFrame: number; drift: number } | null {
-  // Try exact containment first
+  // Try exact containment first (timeline position)
   const exact = overlays.find(o =>
     o.type === 'video' &&
     o.from <= decisionFrame &&
     o.from + o.durationInFrames > decisionFrame,
   );
   if (exact) return { clip: exact, snappedFrame: decisionFrame, drift: 0 };
+
+  // Mode 2 fallback: decision frames may be in pre-removal source timeline.
+  // After silence removal, overlay.from positions shifted but videoStartTime
+  // still references the original source. Match against source frame range.
+  const sourceMatch = overlays.find(o => {
+    if (o.type !== 'video') return false;
+    const srcStart = (o as any).videoStartTime || 0;
+    const srcEnd = srcStart + o.durationInFrames;
+    return decisionFrame >= srcStart && decisionFrame < srcEnd;
+  });
+  if (sourceMatch) {
+    const srcStart = (sourceMatch as any).videoStartTime || 0;
+    const localOffset = decisionFrame - srcStart;
+    const snapped = sourceMatch.from + localOffset;
+    return { clip: sourceMatch, snappedFrame: snapped, drift: 0 };
+  }
 
   // Try with tolerance — find nearest clip that contains decisionFrame ± tolerance
   let bestClip: Overlay | null = null;
@@ -179,6 +203,8 @@ export async function executeEDL(
   canvasDimensions: { width: number; height: number },
   /** Optional 5-Track analyses keyed by assetId — used to validate zoom placement */
   analyses?: Map<string, any>,
+  /** Profile's graphic density — drives budget guardrails. */
+  graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
 ): Promise<ExecutionResult> {
   const result: ExecutionResult = {
     decisionsExecuted: 0,
@@ -197,20 +223,27 @@ export async function executeEDL(
   const totalDurationMs = overlays
     .filter(o => o.type === 'video' || o.type === 'image')
     .reduce((max, o) => Math.max(max, (o.from + o.durationInFrames) / DEFAULT_CONFIG.timing.fps * 1000), 0);
-  const budget = new DecisionBudget(totalDurationMs || 30000, 30);
+  const densityOverrides: Partial<import('./decision-budget').BudgetLimits> | undefined =
+    graphicsDensity === 'minimal' ? { KEYWORD_GRAPHIC_PER_30S: 3, KEYWORD_MIN_GAP_FRAMES: 180, GRAPHIC_BREATHING_FRAMES: 90 }
+    : graphicsDensity === 'heavy' ? { KEYWORD_GRAPHIC_PER_30S: 9, KEYWORD_MIN_GAP_FRAMES: 60, GRAPHIC_BREATHING_FRAMES: 30 }
+    : graphicsDensity === 'moderate' ? { KEYWORD_GRAPHIC_PER_30S: 5, KEYWORD_MIN_GAP_FRAMES: 120 }
+    : undefined;
+  const budget = new DecisionBudget(totalDurationMs || 30000, 30, densityOverrides);
 
-  // Only execute high-confidence decisions (>0.5)
+  // Execute decisions at or above confidence threshold (>=0.5)
+  // OLD: strict > 0.5 silently killed ~60% of decisions when flat moment weights = 0.5 exactly.
+  // FIX: inclusive >= lets budget system be the gatekeeper (as designed).
   const minConfidence = DEFAULT_CONFIG.analysis.minConfidenceForDecisions;
-  const actionable = edl.decisions.filter(d => d.confidence > minConfidence);
+  const actionable = edl.decisions.filter(d => d.confidence >= minConfidence);
 
-  // Sort by confidence DESCENDING so the best decisions survive budget limits.
-  // Previously: first-come-first-served (iteration order) meant a mediocre
-  // zoom at frame 10 consumed the budget, rejecting a better zoom at frame 200.
-  // Now: highest-confidence decisions always commit first. Budget becomes a
-  // quality FILTER (keeps top-K) not a position GATE (keeps first-K).
-  actionable.sort((a, b) => b.confidence - a.confidence);
+  // Keep decisions in frame-first order (as produced by signal executor / reactive engine).
+  // OLD: sorted by confidence descending — a high-confidence zoom at minute 8 consumed
+  // budget before a medium-confidence zoom at minute 1. The viewer watches linearly;
+  // budget consumption should be linear. Confidence is for tie-breaking within the
+  // same frame window, which the signal executor already handles (deduplicateDecisions).
+  actionable.sort((a, b) => a.frame - b.frame || b.confidence - a.confidence);
 
-  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement, sorted by confidence`);
+  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement, sorted by frame`);
 
   // Deterministic epoch for overlay IDs — stable within this Director run, unique across runs.
   // Derived from projectId hash so the same EDL on the same project always produces the same IDs.
@@ -220,13 +253,21 @@ export async function executeEDL(
   // per-decision API calls. One Freesound search per unique token.
   const sfxCache = new Map<string, { audioUrl: string; audioAssetId: string; durationMs: number } | null>();
   if (isSFXLibraryAvailable()) {
-    const sfxDecisions = actionable.filter(d => d.type === 'sfx-trigger');
-    const uniqueTokens = new Set(sfxDecisions.map(d => (d as any).params?.sfxType).filter(Boolean));
+    // Resolve SFX from both signal executor ('sfx-trigger' with params.sfxType)
+    // and creative brief ('sfx' with technique name like 'sfx_whoosh' in decision.technique)
+    const sfxDecisions = actionable.filter(d => d.type === 'sfx-trigger' || d.type === 'sfx');
+    const uniqueTokens = new Set(sfxDecisions.map(d => {
+      return (d as any).params?.sfxType || (d as any).technique?.replace('sfx_', '') || undefined;
+    }).filter(Boolean));
     for (const token of uniqueTokens) {
       try {
-        const result = await searchAndDownloadSFX(token as string, userId, 3);
+        // Normalize raw technique names to atomic Freesound search terms via KB token mapping.
+        // Without this, "audio_bed_select" searches Freesound literally → "Coin Pickup SFX".
+        // With this, "audio_bed_select" → audioDescriptionToSearchQuery → "ambient" → proper results.
+        const searchQuery = audioDescriptionToSearchQuery(token as string);
+        const result = await searchAndDownloadSFX(searchQuery, userId, 3);
         sfxCache.set(token as string, result ? { audioUrl: result.audioUrl, audioAssetId: result.audioAssetId, durationMs: result.durationMs } : null);
-        console.log(`[EDL-Exec] SFX pre-resolve: "${token}" → ${result ? 'found' : 'null'}`);
+        console.log(`[EDL-Exec] SFX pre-resolve: "${token}" → query="${searchQuery}" → ${result ? 'found' : 'null'}`);
       } catch (err: any) {
         sfxCache.set(token as string, null);
         console.warn(`[EDL-Exec] SFX pre-resolve failed for "${token}": ${err.message}`);
@@ -234,26 +275,40 @@ export async function executeEDL(
     }
   }
 
+  // ── Single-source detection: per-boundary visual similarity check ──
+  // OLD: blanket-killed ALL transition/sfx decisions when overlays share one assetId.
+  // This was wrong — a vlog with 3 locations IS single-source but SHOULD get
+  // transitions at location changes. Blanket approach was tried and reverted
+  // in commit a42a358d ("single-source doesn't mean single-scene").
+  //
+  // NEW: for single-source projects, each transition/sfx decision is checked
+  // individually during the execution loop. We compare 5-Track keyframe colors
+  // on either side of the boundary. Same colors = same scene = suppress.
+  // Different colors = visual change = allow. No data = allow (respect intelligence).
+  const videoOverlaysForSourceCheck = overlays.filter(o => o.type === 'video').sort((a: any, b: any) => a.from - b.from);
+  const uniqueSourceAssets = new Set(
+    videoOverlaysForSourceCheck.map(o => (o as any).assetId).filter(Boolean)
+  );
+  const isSingleSource = uniqueSourceAssets.size === 1 && videoOverlaysForSourceCheck.length > 1;
+  const singleSourceAssetId = isSingleSource ? uniqueSourceAssets.values().next().value as string : null;
+
   let budgetRejected = 0;
   let decisionIndex = 0;
+  const usedGraphicTemplateIds = new Set<string>();
 
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
 
-    // Script-specified on-screen text BYPASSES budget. The user wrote this
-    // text in their script — budget should never reject explicit user content.
-    // Only LLM-generated graphics are budget-constrained.
-    const isScriptOnScreenText = decision.type === 'graphic'
-      && decision.sources?.includes('onScreenText-safety-net');
-
-    // Check budget BEFORE applying (skip for script on-screen text)
-    const budgetResult = isScriptOnScreenText
-      ? { allowed: true }
-      : budget.evaluate(decision as any);
+    const budgetResult = budget.evaluate(decision as any);
     if (!budgetResult.allowed) {
       result.decisionsSkipped++;
       budgetRejected++;
       console.log(`[EDL-Exec] BUDGET REJECTED: ${decision.type} at frame ${decision.frame} — ${budgetResult.reason} (${budgetResult.ruleId})`);
+      if (decision.type === 'graphic') {
+        const gType = decision.params?.graphicType || 'unknown';
+        const gText = (decision.params?.text || '').substring(0, 40);
+        console.log(`[EDL-Exec] EDITORIAL: ${gType} "${gText}" → REJECTED by budget (density: ${graphicsDensity || 'default'})`);
+      }
 
       // Track budget-rejected zooms so post-processing drift-zoom doesn't re-add them
       if (decision.type === 'zoom') {
@@ -265,23 +320,11 @@ export async function executeEDL(
         }
       }
 
-      // If budget suggests an alternative, try that instead
-      if (budgetResult.alternative) {
-        const altDecision = { ...decision, ...budgetResult.alternative };
-        const altBudgetResult = budget.evaluate(altDecision as any);
-        if (altBudgetResult.allowed) {
-          try {
-            const applied = await applyDecision(altDecision as EditDecision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex + 100000, sfxCache);
-            if (applied) {
-              budget.commit(altDecision as any);
-              result.decisionsExecuted++;
-              if (applied.created) result.overlaysCreated += applied.created;
-              if (applied.modified) result.overlaysModified += applied.modified;
-              console.log(`[EDL-Exec] BUDGET ALTERNATIVE: ${altDecision.type} at frame ${altDecision.frame} (replaced ${decision.type})`);
-            }
-          } catch {}
-        }
-      }
+      // Budget rejected = skip. No substitution.
+      // OLD: budget suggested alternatives (e.g., caption-emphasis when zoom was rejected).
+      // This broke the signal→mapping→technique chain — the intelligence chose zoom
+      // because a specific graph mapping fired on motion intensity. Caption emphasis
+      // has nothing to do with motion intensity. Budget should FILTER, not INVENT.
       continue;
     }
 
@@ -290,6 +333,12 @@ export async function executeEDL(
       if (applied) {
         budget.commit(decision as any);
         result.decisionsExecuted++;
+        if (decision.type === 'graphic') {
+          const gType = decision.params?.graphicType || 'unknown';
+          const gText = (decision.params?.text || '').substring(0, 40);
+          const summary = budget.getSummary();
+          console.log(`[EDL-Exec] EDITORIAL: ${gType} "${gText}" → ALLOWED (budget: ${summary.keywordGraphics || 0} used, density: ${graphicsDensity || 'default'})`);
+        }
         if (applied.created) result.overlaysCreated += applied.created;
         if (applied.modified) result.overlaysModified += applied.modified;
         // Track zoomed assets so drift-zoom post-processing skips them
@@ -344,7 +393,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
+      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, usedGraphicTemplateIds);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -362,13 +411,34 @@ async function applyDecision(
       // consistent grade to ALL clips, matching professional colorist workflow.
       return null;
 
-    case 'caption-emphasis':
-      // Caption emphasis is handled by Director's add_captions step with word-level timing
-      return null;
+    case 'caption-emphasis': {
+      // Create a keyword-highlight graphic overlay for the emphasized word.
+      // The proper fix (per-word styling in caption renderer) requires type system +
+      // renderer changes. For now, route through applyGraphic with the emphasis word
+      // as a visual pop-up overlay — same technique used by keyword-highlight graphics.
+      const emphasisWord = (decision as any).params?.emphasisWord;
+      if (!emphasisWord) return null;
+      // Inject text and graphicType into the decision params for applyGraphic
+      const emphasisDecision = {
+        ...decision,
+        params: { ...decision.params, text: emphasisWord, graphicType: 'keyword-highlight' },
+        durationFrames: 60, // 2s pop
+      };
+      return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
+    }
 
+    case 'sfx':
     case 'sfx-trigger': {
-      const sfxType = (decision as any).params?.sfxType as string | undefined;
-      if (!sfxType || !sfxCache) return null;
+      // 'sfx-trigger' from signal executor (Path D) has params.sfxType
+      // 'sfx' from creative brief (Path E) has technique name like 'sfx_whoosh'
+      const sfxType = (decision as any).params?.sfxType
+        || (decision as any).technique?.replace('sfx_', '')
+        || undefined;
+      if (!sfxType) {
+        console.warn(`[EDL-Exec] SFX at frame ${decision.frame}: no sfxType or technique — SKIPPED (not guessing)`);
+        return null;
+      }
+      if (!sfxCache) return null;
       const cached = sfxCache.get(sfxType);
       if (!cached) return null;
 
@@ -387,7 +457,7 @@ async function applyDecision(
         content: cached.audioUrl,
         src: cached.audioUrl,
         assetId: cached.audioAssetId,
-        styles: { volume: 0.25, opacity: 1 },
+        styles: { volume: DEFAULT_CONFIG.audio.defaultSfxVolume, opacity: 1 },
         metadata: { source: 'edl-sfx-trigger', sfxType },
       } as any);
 
@@ -447,9 +517,6 @@ function applyCameraShake(
   return { created: 0, modified: 1 };
 }
 
-// OLD: Created HTML overlays (System B) that the editor couldn't display as timeline tiles.
-// NEW: Creates proper TransitionOverlay tiles (System A) with clipAId/clipBId that the
-// editor renders both as timeline tiles AND as visual transitions in the video.
 function applyTransition(
   decision: EditDecision,
   overlays: Overlay[],
@@ -460,7 +527,12 @@ function applyTransition(
   decisionIndex: number = 0,
 ): { created: number; modified: number } | null {
   const transType = (decision.params.transitionType || 'soft-cut') as string;
-  const durationFrames = decision.durationFrames || (DEFAULT_TRANSITION_FRAMES as any)[transType] || 15;
+  let durationFrames = decision.durationFrames || (DEFAULT_TRANSITION_FRAMES as any)[transType] || 15;
+  // Dissolve needs minimum duration to feel like a real crossfade, not a flash.
+  // Intelligence layer often sets 15 frames (0.5s) → too fast. Clamp to 30+ (1s).
+  if (transType === 'dissolve' && durationFrames < 30) {
+    durationFrames = Math.max(durationFrames, DEFAULT_TRANSITION_FRAMES['dissolve'] || 36);
+  }
 
   // hard-cut and editorial cuts don't produce visual transitions
   if (['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
@@ -532,12 +604,28 @@ function applyTransition(
     metadata: {
       isTransition: true,
       transitionType: transType,
+      keyframeBased: transType === 'dissolve',
       source: 'edl',
       edlReason: decision.reason,
     },
   };
 
   overlays.push(transitionOverlay as any);
+
+  // For dissolve: apply keyframe-based opacity crossfade to the two clips.
+  // The Remotion renderer (transition-layer-content.tsx:78-90) already returns
+  // { opacity: 0 } for dissolve — the visual comes from clip opacity keyframes,
+  // not an HTML overlay. The transition tile exists for timeline visualization only.
+  if (transType === 'dissolve') {
+    const { outgoing, incoming } = createTrueDissolve(clipA, clipB, durationFrames);
+    // Apply keyframe tracks back to the live overlays
+    clipA.keyframeTracks = outgoing.keyframeTracks;
+    clipB.keyframeTracks = incoming.keyframeTracks;
+    clipB.from = incoming.from;
+    clipB.durationInFrames = incoming.durationInFrames;
+    console.log(`[EDL-Exec] True dissolve applied: clipA opacity fade-out over ${durationFrames} frames, clipB overlap + fade-in`);
+    return { created: 1, modified: 2 };
+  }
 
   // Clean up clip-overlap opacity keyframes that edit-direction-applier may
   // have placed on the adjacent clips at this boundary. Without this, both
@@ -605,6 +693,38 @@ function applyZoom(
     console.log(`[EDL-Exec] Zoom at frame ${decision.frame}: snapped to clip at ${clipMatch.clip.from} (drift: ${clipMatch.drift} frames)`);
   }
   const videoOverlay = clipMatch.clip;
+
+  // Guard: hook zone — creative graph mapping:structural.hook_zone_treatment
+  // says first 5% of VIDEO needs strong visual opening without jarring zooms.
+  //
+  // OLD: blocked zooms in first 30 frames of EACH CLIP. Wrong for Mode 2
+  // single-source projects where clips are editorial transcript cuts of continuous
+  // footage. The viewer is watching the same camera — there's no "new shot
+  // orientation" at each cut. This killed 53% of zoom decisions.
+  //
+  // NEW: Only apply hook zone guard at the start of the OVERALL VIDEO (first 5%
+  // of total duration per creative graph) OR for multi-source projects where each
+  // clip is genuinely a different visual (new shot = viewer needs orientation).
+  const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
+  const isFirstClipInTimeline = videoOverlays.length > 0 && videoOverlay === videoOverlays[0];
+  const uniqueAssets = new Set(videoOverlays.map(o => (o as any).assetId).filter(Boolean));
+  const isMultiSource = uniqueAssets.size > 1;
+
+  const shouldApplyHookZone = isMultiSource
+    ? decision.frame <= videoOverlay.from + 30  // Multi-source: per-clip (new shot)
+    : isFirstClipInTimeline && decision.frame <= videoOverlay.from + 30; // Single-source: only first clip
+
+  if (shouldApplyHookZone) {
+    const analysis = videoOverlay.assetId ? analyses?.get(videoOverlay.assetId) : undefined;
+    const peaks = (analysis as any)?.motionPeaks || [];
+    if (peaks.length > 0 && peaks[0] > 30) {
+      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} in hook zone — shifted to first motion peak at frame ${videoOverlay.from + peaks[0]}`);
+      decision.frame = videoOverlay.from + peaks[0];
+    } else {
+      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} in hook zone — SKIPPED (no suitable motion peak)`);
+      return null;
+    }
+  }
 
   // Validate zoom placement against 5-Track motion data when available.
   // Reject zoom decisions not near a motion peak or natural cut point (±10 frames).
@@ -770,7 +890,80 @@ function applyFade(
   return { created: 0, modified: 1 };
 }
 
-function applyGraphic(
+// ── Template-based graphic rendering helpers ──
+// Maps creative brief decision params to template slot values per graphic type.
+// Rule-based, deterministic, no AI. Each graphic type knows its slot schema.
+function mapDecisionParamsToSlots(
+  graphicType: string,
+  params: Record<string, any>,
+  template: MotionGraphicTemplate,
+): Record<string, string> {
+  const text = params.text || '';
+  const slots: Record<string, string> = {};
+
+  switch (graphicType) {
+    case 'stat-counter': {
+      slots.value = params.endValue ? String(params.endValue) : text;
+      slots.label = params.label || '';
+      slots.prefix = params.prefix || '';
+      slots.suffix = params.suffix || '';
+      break;
+    }
+    case 'lower-third': {
+      const parts = text.split(/[,\-–—]\s*/);
+      slots.name = parts[0]?.trim() || text;
+      slots.title = parts[1]?.trim() || params.title || '';
+      break;
+    }
+    case 'callout': {
+      slots.title = text;
+      slots.body = params.body || '';
+      break;
+    }
+    case 'quote-card': {
+      slots.quote = text;
+      slots.author = params.author || '';
+      break;
+    }
+    case 'logo-reveal': {
+      slots.text = text;
+      break;
+    }
+    case 'keyword-highlight':
+    default: {
+      const primaryTextSlot = template.slots.find(s => s.type === 'text');
+      if (primaryTextSlot) {
+        slots[primaryTextSlot.name] = text;
+      }
+      for (const s of template.slots) {
+        if (s.type === 'text' && !slots[s.name]) slots[s.name] = '';
+      }
+      break;
+    }
+  }
+
+  return slots;
+}
+
+function fillTemplateWithSlotValues(
+  template: MotionGraphicTemplate,
+  slotValues: Record<string, string>,
+): string {
+  let html = template.htmlTemplate;
+  for (const slot of template.slots) {
+    const value = slotValues[slot.name] ?? slot.default;
+    const safeValue = String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
+    html = html.replace(new RegExp(`\\{\\{${slot.name}\\}\\}`, 'g'), safeValue);
+  }
+  return html;
+}
+
+async function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
   projectId: string,
@@ -778,16 +971,23 @@ function applyGraphic(
   canvas: { width: number; height: number },
   idEpoch: number = 0,
   decisionIndex: number = 0,
-): { created: number; modified: number } | null {
-  const { graphicType, text, position } = decision.params;
+  usedTemplateIds?: Set<string>,
+): Promise<{ created: number; modified: number } | null> {
+  const { text, position } = decision.params;
+  // Extract graphicType from params (signal executor) or technique (creative brief).
+  // Creative brief outputs technique like 'graphic_stat_counter' — convert to 'stat-counter'
+  // which matches the switch cases and GRAPHIC_DURATIONS keys.
+  const graphicType = decision.params.graphicType
+    || (decision as any).technique?.replace('graphic_', '').replace(/_/g, '-')
+    || 'keyword-highlight';
   if (!text) return null;
 
   // DEDUP: Don't create graphic if one already exists at this frame range.
   // Multiple systems (finalize, EDL, Director, chat) can create graphics.
   // First one wins — no visual clutter from overlapping graphics.
-  const graphicCheckDur = decision.durationFrames || 90;
+  const _graphicCheckDur = decision.durationFrames || 90;
   const existingGraphic = overlays.find(o =>
-    (o.type === 'html-scene' || (o as any).type === 'sticker') &&
+    (o.type === 'html-scene' || o.type === 'motion-graphic' || (o as any).type === 'sticker') &&
     o.from <= decision.frame + 15 &&
     (o.from + o.durationInFrames) >= decision.frame - 15
   );
@@ -805,7 +1005,7 @@ function applyGraphic(
     'logo-reveal': 120,       // 4s — brand moment
     'callout': 75,            // 2.5s — brief label
   };
-  const duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
+  let duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
   // Full HTML entity escaping — prevents XSS if Gemini outputs malicious text
   const safeText = text
     .replace(/&/g, '&amp;')
@@ -816,7 +1016,7 @@ function applyGraphic(
 
   // Aspect-ratio-aware positioning
   const isPortrait = canvas.height > canvas.width;
-  const isSquare = Math.abs(canvas.width - canvas.height) < 100;
+  const _isSquare = Math.abs(canvas.width - canvas.height) < 100;
   const safeMargin = canvas.width * 0.05;
 
   // Position + dimensions per graphic type (responsive)
@@ -944,14 +1144,10 @@ function applyGraphic(
 
     case 'keyword-highlight':
     default: {
-      // Compact pop-up keyword — for emphasis words, topic labels, highlights
-      // Position above captions if they exist, otherwise near bottom
-      const hasCaptionsAtFrame = overlays.some((o: any) =>
-        o.type === 'caption' && o.from <= decision.frame &&
-        (o.from + o.durationInFrames) > decision.frame
-      );
+      // Compact pop-up keyword — positioned in top third to avoid caption zone
+      // CRG constraint:overlay.graphic_in_caption_zone — bottom 15-25% is reserved for captions
       left = isPortrait ? canvas.width * 0.08 : canvas.width * 0.05;
-      top = hasCaptionsAtFrame ? canvas.height * 0.68 : canvas.height * 0.82;
+      top = isPortrait ? canvas.height * 0.12 : canvas.height * 0.10;
       width = Math.min(canvas.width * 0.5, Math.max(200, safeText.length * 14 + 60));
       height = 56;
       html = `
@@ -970,6 +1166,25 @@ function applyGraphic(
     }
   }
 
+  // ── Template upgrade: replace inline CSS with curated template if available ──
+  // Runs at pipeline time (Director phase) so async MongoDB access is safe.
+  // Falls back to the inline CSS html from the switch above if no template matches.
+  try {
+    const templateSearchQuery = graphicType.replace(/-/g, ' ');
+    const templateMatch = await findBestTemplate(templateSearchQuery, usedTemplateIds);
+    if (templateMatch && templateMatch.score >= 0.15) {
+      usedTemplateIds?.add(templateMatch.template.templateId);
+      const slotValues = mapDecisionParamsToSlots(graphicType, decision.params, templateMatch.template);
+      html = fillTemplateWithSlotValues(templateMatch.template, slotValues);
+      if (templateMatch.template.defaultDuration && !decision.durationFrames) {
+        duration = templateMatch.template.defaultDuration;
+      }
+      console.log(`[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: template '${templateMatch.template.templateId}' (score: ${templateMatch.score.toFixed(2)})`);
+    }
+  } catch (err) {
+    console.warn(`[EDL-Exec] Template lookup failed for '${graphicType}', using inline CSS:`, (err as Error).message);
+  }
+
   // Snap graphic to nearest containing clip (handles pacing drift).
   // If decision.frame falls in a gap between clips, snap to nearest clip start.
   const graphicClipMatch = findClipAtFrame(decision.frame, overlays, 20);
@@ -978,14 +1193,56 @@ function applyGraphic(
     console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: snapped to ${snappedGraphicFrame} (drift: ${graphicClipMatch.drift} frames)`);
   }
 
+  // Stat-counter uses the React-rendered MOTION_GRAPHIC path (Structure × Theme).
+  // All other types use html-scene (Shadow DOM) until their structure components exist.
+  if (graphicType === 'stat-counter') {
+    const tokens = resolveMotionTokens(decision.params.signals || {}, decision.params.brand || {});
+    const contentMap: Record<string, string> = {
+      value: decision.params.endValue ? String(decision.params.endValue) : text,
+      prefix: decision.params.prefix || '',
+      suffix: decision.params.suffix || '',
+      label: decision.params.label || '',
+    };
+
+    const motionOverlay = {
+      id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
+      type: 'motion-graphic' as const,
+      from: snappedGraphicFrame,
+      durationInFrames: duration,
+      row: ROW.BGM, // z-idx 90, same as html-scene graphics (see E3 z-index comment)
+      left,
+      top,
+      width,
+      height,
+      isDragging: false,
+      rotation: 0,
+      structureType: 'stat-counter',
+      content: contentMap,
+      resolvedTokens: tokens,
+      styles: {
+        opacity: 1,
+        backgroundColor: 'transparent',
+      },
+      metadata: {
+        sourceType: 'edl-graphic',
+        graphicType,
+        edlSource: decision.source,
+        edlReason: decision.reason,
+      },
+    };
+
+    overlays.push(motionOverlay as any);
+    console.log(`[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: MOTION_GRAPHIC overlay (React-rendered)`);
+    return { created: 1, modified: 0 };
+  }
+
+  // All other graphic types: html-scene overlay (Shadow DOM, template or inline CSS)
   const graphicOverlay = {
-    // Deterministic ID: stable across render passes, unique per decision index
     id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
     type: 'html-scene' as const,
     from: snappedGraphicFrame,
     durationInFrames: duration,
     // Row 1 (above video on row 2, below captions-exception at z-index 95).
-    // NOTE: row 1 is canonically BGM but BGM is audio-only (no visual collision).
     // Graphics need z-index above video (row 2 = z-idx 80) and z-idx formula is 100-row*10,
     // so row 1 = z-idx 90. Moving to canonical ROW.MOTION_GRAPHICS (6) would yield z-idx 40
     // which is BELOW video — graphics would be invisible. This is an intentional exception.
@@ -1038,7 +1295,7 @@ function applyAudioDuck(
   return { created: 0, modified: 1 };
 }
 
-function applyFilterChange(
+function _applyFilterChange(
   decision: EditDecision,
   overlays: Overlay[],
 ): { created: number; modified: number } | null {

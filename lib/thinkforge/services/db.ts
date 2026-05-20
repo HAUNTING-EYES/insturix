@@ -184,6 +184,36 @@ export interface ChatMessageDoc {
   createdAt: Date;
 }
 
+export type SentenceLength = 'fragment' | 'short' | 'medium' | 'long';
+export type OpeningPattern = 'question' | 'statistic' | 'story' | 'provocation' | 'scene_set' | 'direct_claim';
+export type TransitionStyle = 'conjunction' | 'implicit' | 'question_bridge' | 'callback' | 'tonal_shift';
+export type ClosingPattern = 'cta' | 'callback_open' | 'reframe' | 'cliffhanger' | 'landing';
+export type ListStyle = 'numbered' | 'bulleted' | 'inline' | 'none';
+
+export interface VoiceFingerprint {
+  topBigrams: [string, number][];
+  avgWordsPerSentence: number;
+  sentenceLengthVariance: number;
+  passiveVoiceRatio: number;
+  questionFrequency: number;
+  punctuationProfile: Record<string, number>;
+  sentenceRhythm: SentenceLength[];
+  openingPattern: OpeningPattern;
+  transitionStyle: TransitionStyle;
+  closingPattern: ClosingPattern;
+  listStyle: ListStyle;
+  extractedFromCount: number;
+}
+
+export interface VoiceExemplar {
+  id: string;
+  text: string;
+  signalProfile: Record<string, number>;
+  contentType: string;
+  pinned: boolean;
+  weight: number;
+}
+
 export interface BrandDNA {
   voiceLock?: string;
   nicheMap?: string;
@@ -191,6 +221,8 @@ export interface BrandDNA {
   hookArchetypes?: string[];
   structuralHabits?: string[];
   recurringAssets?: string[];
+  voiceFingerprint?: VoiceFingerprint;
+  voiceExemplars?: VoiceExemplar[];
 }
 
 export interface UserPreferences {

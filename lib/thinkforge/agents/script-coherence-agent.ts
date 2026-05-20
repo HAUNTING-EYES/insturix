@@ -31,31 +31,31 @@ export class ScriptCoherenceAgent extends BaseAgent {
       .map((s) => `${s.id}: ${s.title} — beat=${(s as any).beat || 'NA'} | level=${(s as any).level || 'act'} | tone=${(s as any).tone || 'NA'}`)
       .join('\n');
     const forbidden = contract.forbidden?.join(', ') || 'none';
-    return `You are a validator, not a rewriter. Operate only on headers and transitions.
+    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    return `<role>You are a validator, not a rewriter. Operate only on headers and transitions.</role>
 
 ${DOCUMENT_AUTHORING_CONTRACT}
 
-## Contract
-Medium: ${contract.medium}
-Narrator voice: ${contract.narrator_voice}
-Tone: ${contract.tone}
-Forbidden: ${forbidden}
-Allowed metaphors: ${(contract.allowed_metaphors || []).join(', ') || 'minimal, consistent'}
-Style notes: ${(contract.style_notes || []).join('; ')}
+<task>Validate the document structure against the contract and outline below. Check ordering, duplication, heading hierarchy, and transitions. Do NOT rewrite content.</task>
 
-## Outline (order locked)
+<rules>
+RULE 1 — Check ordering and duplication (exactly one H1, no duplicated headings per DOCUMENT_AUTHORING_CONTRACT).
+RULE 2 — Suggest transition fixes between consecutive sections.
+RULE 3 — Validate heading hierarchy: H1 → H2 → H3, no duplicates, proper separation.
+RULE 4 — Do NOT rewrite paragraphs. Do NOT add examples. Do NOT expand content.
+RULE 5 — Keep output under 900 tokens.
+</rules>
+
+<output_format>
+Plain text bullet list: ordering issues, duplicate/overlapping sections, one-line transition suggestions.
+</output_format>
+
+<input_data>
+Contract: medium=${contract.medium}, voice=${contract.narrator_voice}, tone=${contract.tone}, forbidden=${forbidden}, metaphors=${(contract.allowed_metaphors || []).join(', ') || 'minimal, consistent'}, style=${(contract.style_notes || []).join('; ')}
+
+Outline (order locked):
 ${sectionList}
-
-## Validator Task
-- Check ordering and duplication of sections (validate against DOCUMENT_AUTHORING_CONTRACT: exactly one H1, no duplicated headings).
-- Suggest transition fixes between sections in one short list.
-- Remove or flag redundancy in section headings only.
-- Validate structure compliance: ensure headings follow proper hierarchy (H1 → H2 → H3), no duplicate headings, proper separation.
-- Do NOT rewrite paragraphs; do NOT add examples; do NOT expand content.
-- Keep output under 900 tokens.
-
-## Return format
-Plain text bullet list of: any ordering issues, any duplicate/overlapping sections, and one-line transition suggestions between consecutive sections.`;
+</input_data>`;
   }
 
   async improve(input: CoherenceInput): Promise<CoherenceOutput> {

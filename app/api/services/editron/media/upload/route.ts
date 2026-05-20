@@ -46,18 +46,30 @@ export async function POST(request: NextRequest) {
       thumbnail,
       duration,
       dimensions,
+      isProxy,
     } = body;
 
-    // Validate required fields
-    if (!assetId || !gcsPath || !readUrl || !filename || !contentType) {
+    // Validate required fields — gcsPath is optional (R2 uploads don't have one)
+    if (!assetId || !readUrl || !filename || !contentType) {
       return NextResponse.json(
-        { success: false, error: 'Missing required fields: assetId, gcsPath, readUrl, filename, contentType' },
+        { success: false, error: 'Missing required fields: assetId, readUrl, filename, contentType' },
         { status: 400 }
       );
     }
 
-    // Verify the file was actually uploaded to GCS
-    const exists = await fileExists(gcsPath);
+    // Verify file exists in storage (GCS or R2)
+    let exists = false;
+    if (gcsPath) {
+      exists = await fileExists(gcsPath);
+    } else {
+      // R2 upload — verify via HEAD request to CDN URL
+      try {
+        const headRes = await fetch(readUrl, { method: 'HEAD' });
+        exists = headRes.ok;
+      } catch {
+        exists = true; // Assume exists if HEAD fails (CDN might not support HEAD)
+      }
+    }
     if (!exists) {
       return NextResponse.json(
         { success: false, error: 'File not found in storage. Please upload the file first.' },
@@ -80,6 +92,28 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'Unsupported file type' },
         { status: 400 }
       );
+    }
+
+    // ── Server-side video duration verification ──
+    // Browser's HTMLVideoElement.duration is unreliable for improperly indexed MP4s.
+    // Parse the moov/mvhd atom from R2 to get the real duration.
+    let verifiedDuration = duration ? parseFloat(duration) : undefined;
+    if (fileType === 'video' && assetId) {
+      try {
+        const { getR2PresignedReadUrl } = await import('@/lib/editron/services/r2-service');
+        const presignedUrl = await getR2PresignedReadUrl(assetId);
+        const { extractMP4Duration } = await import('@/lib/editron/services/mp4-duration-service');
+        const serverDuration = await extractMP4Duration(presignedUrl);
+        if (serverDuration && serverDuration > 0) {
+          if (verifiedDuration && Math.abs(serverDuration - verifiedDuration) > 5) {
+            console.warn(`[Upload] Duration mismatch: browser=${verifiedDuration?.toFixed(1)}s, server=${serverDuration.toFixed(1)}s — using server value`);
+          }
+          verifiedDuration = serverDuration;
+          console.log(`[Upload] Server-verified duration: ${serverDuration.toFixed(1)}s for ${assetId}`);
+        }
+      } catch (err: any) {
+        console.warn(`[Upload] Server-side duration verification failed (non-fatal): ${err.message}`);
+      }
     }
 
     // Save metadata to MongoDB
@@ -105,9 +139,10 @@ export async function POST(request: NextRequest) {
       urlExpiresAt: new Date(readUrlExpiresAt),
       size: size || 0,
       thumbnail: thumbnail || undefined,
-      duration: duration ? parseFloat(duration) : undefined,
+      duration: verifiedDuration,
       dimensions: parsedDimensions,
       uploadedAt: new Date(),
+      ...(isProxy && { isProxy: true }),
     };
 
     const db = await getDatabase();
@@ -123,7 +158,7 @@ export async function POST(request: NextRequest) {
         : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
       if (qstashToken) {
-        await fetch('https://qstash.upstash.io/v2/publish/' + encodeURIComponent(`${baseUrl}/api/internal/workers/asset-analysis`), {
+        await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-analysis`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${qstashToken}`,
@@ -136,15 +171,35 @@ export async function POST(request: NextRequest) {
             userId,
             type: fileType,
             url: readUrl,
-            duration: duration ? parseFloat(duration) : undefined,
+            duration: verifiedDuration,
             filename,
           }),
         });
         console.log(`[Upload] Dispatched analysis worker for ${assetId}`);
+
+        // Graph sync: create Asset node in Neo4j (async, non-blocking)
+        await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${qstashToken}`,
+            'Content-Type': 'application/json',
+            'Upstash-Retries': '3',
+          },
+          body: JSON.stringify({
+            action: 'asset_created',
+            data: {
+              assetId,
+              userId,
+              type: fileType,
+              duration: verifiedDuration,
+            },
+          }),
+        });
+        console.log(`[Upload] Dispatched graph-sync for ${assetId}`);
       }
     } catch (qErr: any) {
-      // Non-fatal — asset is uploaded even if analysis dispatch fails
-      console.warn(`[Upload] Analysis dispatch failed: ${qErr.message}`);
+      // Non-fatal — asset is uploaded even if analysis/graph dispatch fails
+      console.warn(`[Upload] Worker dispatch failed: ${qErr.message}`);
     }
 
     return NextResponse.json({

@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { generateIdeas } from '@/lib/thinkforge/agents/ideas-agent';
+import { createIdeasAgent } from '@/lib/thinkforge/agents/ideas-agent';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
+import { fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,7 +35,19 @@ export async function POST(req: Request) {
 		// Deduct credits before processing
 		await creditCheck.deduct();
 
-		const ideas = await generateIdeas(prompt);
+		// Fetch brand context so ideas are grounded in the user's brand
+		let systemBrief = '';
+		try {
+			const ctx = await fetchContextSources({
+				userId,
+				currentPrompt: prompt,
+				maxFacts: 3,
+			});
+			systemBrief = formatSystemBrief(ctx);
+		} catch { /* ideas still work without brand context */ }
+
+		const agent = createIdeasAgent();
+		const ideas = await agent.generateIdeas(prompt, systemBrief || undefined);
 		return NextResponse.json({ ideas });
 	} catch (error: any) {
 		// Refund on failure
