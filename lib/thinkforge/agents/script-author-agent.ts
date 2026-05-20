@@ -213,7 +213,7 @@ const PLATFORM_CONFIGS: Record<PlatformType, PlatformConfig> = {
   },
 };
 
-export function detectPlatform(userPrompt: string, docType?: string): PlatformType {
+export function detectPlatform(userPrompt: string, docType?: string, projectSummary?: string): PlatformType {
   const lower = userPrompt.toLowerCase();
   if (/\blinkedin\b/.test(lower)) return 'linkedin';
   if (/\btwitter\b|\btweet\b|\bx\s+post\b|\bx\s+thread\b/.test(lower)) return 'twitter';
@@ -224,6 +224,12 @@ export function detectPlatform(userPrompt: string, docType?: string): PlatformTy
   if (dt.includes('twitter') || dt.includes('tweet')) return 'twitter';
   if (dt.includes('instagram')) return 'instagram';
   if (dt.includes('facebook')) return 'facebook';
+  // Check project summary for platform set via UI picker
+  const ps = (projectSummary || '').toLowerCase();
+  if (/platform:\s*linkedin/i.test(ps)) return 'linkedin';
+  if (/platform:\s*(twitter|x)/i.test(ps)) return 'twitter';
+  if (/platform:\s*instagram/i.test(ps)) return 'instagram';
+  if (/platform:\s*facebook/i.test(ps)) return 'facebook';
   if (/post|social/i.test(dt)) return 'linkedin';
   return 'generic';
 }
@@ -286,8 +292,9 @@ export class ScriptAuthorAgent extends BaseAgent {
     medium?: string;
     signals: Partial<import('../../shared/signals/types').CreativeSignals>;
     userPrompt?: string;
+    projectSummary?: string;
   }): string {
-    const { documentType, medium, signals, userPrompt } = params;
+    const { documentType, medium, signals, userPrompt, projectSummary } = params;
     const docType = (documentType || medium || '').toLowerCase();
 
     const isVideo = /video|film|ad|commercial|reel|short.?form|youtube|tiktok|ugc/i.test(docType);
@@ -296,7 +303,7 @@ export class ScriptAuthorAgent extends BaseAgent {
       /\b(linkedin|twitter|tweet|instagram|facebook|post)\b/i.test(userPrompt || '');
 
     if (!isVideo && !isShotList && isPost) {
-      const platform = detectPlatform(userPrompt || '', docType);
+      const platform = detectPlatform(userPrompt || '', docType, projectSummary);
       const config = PLATFORM_CONFIGS[platform];
       console.log(`[ThinkForge:Platform] Detected: ${platform} from ${userPrompt ? 'userPrompt' : 'docType'}`);
 
@@ -642,7 +649,7 @@ Final rule: This must feel like something a professional would use immediately â
     });
 
     const writingBlock = this.buildWritingKnowledgeBlock(signals);
-    const outputFormat = this.buildOutputFormatBlock({ documentType, medium, signals, userPrompt });
+    const outputFormat = this.buildOutputFormatBlock({ documentType, medium, signals, userPrompt, projectSummary: context.projectSummary });
 
     return `${writingBlock}
 
