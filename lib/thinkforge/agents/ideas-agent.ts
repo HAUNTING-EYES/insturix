@@ -85,11 +85,23 @@ export class IdeasAgent extends StructuredAgent<IdeasOutput> {
         ? 'RULE 2 — Think in video trends: duets, POV, day-in-the-life, storytime, tutorials, reaction videos, explainers. Use video platforms: YouTube, TikTok, Instagram.'
         : 'RULE 2 — Think in trends. Match the format to the user\'s intent. Mix text and video platforms if the request is open-ended.';
 
-    const platformList = isPostIntent && !isVideoIntent
-      ? 'LinkedIn|Twitter/X|Medium|Blog|Newsletter|Reddit|Facebook'
-      : isVideoIntent && !isPostIntent
-        ? 'YouTube|TikTok|Instagram|Facebook'
-        : 'YouTube|Instagram|TikTok|LinkedIn|Twitter/X|Reddit|Medium|Blog|Podcast|Newsletter|Facebook|Pinterest';
+    // If user named a specific platform, lock ALL ideas to it
+    const platformMap: Record<string, string> = {
+      linkedin: 'LinkedIn', twitter: 'Twitter/X', tweet: 'Twitter/X',
+      instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube',
+      medium: 'Medium', reddit: 'Reddit', facebook: 'Facebook',
+      pinterest: 'Pinterest', newsletter: 'Newsletter', blog: 'Blog',
+    };
+    const specificMatch = lower.match(/\b(linkedin|twitter|tweet|instagram|tiktok|youtube|medium|reddit|facebook|pinterest|newsletter|blog)\b/);
+    const lockedPlatform = specificMatch ? platformMap[specificMatch[1]] : null;
+
+    const platformList = lockedPlatform
+      ? lockedPlatform
+      : isPostIntent && !isVideoIntent
+        ? 'LinkedIn|Twitter/X|Medium|Blog|Newsletter|Reddit|Facebook'
+        : isVideoIntent && !isPostIntent
+          ? 'YouTube|TikTok|Instagram|Facebook'
+          : 'YouTube|Instagram|TikTok|LinkedIn|Twitter/X|Reddit|Medium|Blog|Podcast|Newsletter|Facebook|Pinterest';
 
     // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
     return `<role>
@@ -105,11 +117,12 @@ RULE 3 — Each idea = different angle. One controversial, one educational, one 
 RULE 4 — Purpose must sell it. WHY this angle resonates with the target audience RIGHT NOW.
 RULE 5 — Titles must be scroll-stoppers. Real content titles, not corporate briefs.
 RULE 6 — If the user mentions a brand, company, product, or URL: every idea MUST be about that brand's specific domain. Infer what the company does from its name, URL, and any context provided.
+RULE 7 — Separate TOPIC from STRATEGY. Words like "FOMO", "urgency", "subtle", "not salesy", "authentic", "bold" describe HOW to write — they are creative direction. The TOPIC is the brand/product/audience. Generate ideas about the TOPIC using the STRATEGY as the approach. Do NOT make the strategy word the topic itself.
 </rules>
 
 <output_format>
 Per idea: { id: "idea_1"-"idea_4", idea: "scroll-stopping title (max 80 chars)", purpose: "why it works NOW (1-2 sentences)", style: "visual/editorial approach", format: "deliverable type", platform: "${platformList}", tone: "white|red|black|yellow|green|blue" }
-Platform must be one of the listed options. NEVER use a brand name, URL, or website as platform.
+Platform must be one of the listed options. NEVER use a brand name, URL, or website as platform.${lockedPlatform ? ` ALL 4 ideas must use platform: ${lockedPlatform}.` : ''}
 </output_format>
 
 <input_data>
