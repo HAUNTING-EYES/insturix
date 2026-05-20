@@ -79,12 +79,6 @@ export class IdeasAgent extends StructuredAgent<IdeasOutput> {
     const isPostIntent = /\b(post|article|blog|essay|thread|newsletter|write|linkedin|twitter|tweet|medium)\b/.test(lower);
     const isVideoIntent = /\b(video|reel|short|tiktok|youtube|vlog|film|clip|skit)\b/.test(lower);
 
-    const formatRule = isPostIntent && !isVideoIntent
-      ? 'RULE 2 — Think in text content trends: hot takes, myth-busting, unpopular opinions, carousel threads, data breakdowns, personal essays, listicles, how-to guides. Use text platforms: LinkedIn, Twitter/X, Medium, Blog, Newsletter, Reddit.'
-      : isVideoIntent && !isPostIntent
-        ? 'RULE 2 — Think in video trends: duets, POV, day-in-the-life, storytime, tutorials, reaction videos, explainers. Use video platforms: YouTube, TikTok, Instagram.'
-        : 'RULE 2 — Think in trends. Match the format to the user\'s intent. Mix text and video platforms if the request is open-ended.';
-
     // If user named a specific platform, lock ALL ideas to it
     const platformMap: Record<string, string> = {
       linkedin: 'LinkedIn', twitter: 'Twitter/X', tweet: 'Twitter/X',
@@ -95,38 +89,44 @@ export class IdeasAgent extends StructuredAgent<IdeasOutput> {
     const specificMatch = lower.match(/\b(linkedin|twitter|tweet|instagram|tiktok|youtube|medium|reddit|facebook|pinterest|newsletter|blog)\b/);
     const lockedPlatform = specificMatch ? platformMap[specificMatch[1]] : null;
 
+    // Post wins when both match — consistent with code-level enforcement
     const platformList = lockedPlatform
       ? lockedPlatform
-      : isPostIntent && !isVideoIntent
+      : isPostIntent
         ? 'LinkedIn|Twitter/X|Medium|Blog|Newsletter|Reddit|Facebook'
-        : isVideoIntent && !isPostIntent
+        : isVideoIntent
           ? 'YouTube|TikTok|Instagram|Facebook'
           : 'YouTube|Instagram|TikTok|LinkedIn|Twitter/X|Reddit|Medium|Blog|Podcast|Newsletter|Facebook|Pinterest';
 
-    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
+    // ─── Prompt: Rule 35 methodology (XML, data-last, rules not examples) ──
+    const platformInstruction = lockedPlatform
+      ? `ALL 4 ideas must use platform: ${lockedPlatform}.`
+      : `Platform must be one of: ${platformList}.`;
+
     return `<role>
-You are a viral content strategist who lives and breathes the internet. The person creators DM when they need an idea that will blow up. You think like a creator, not an agency.
+You are a content strategist who generates scroll-stopping content ideas for specific brands and audiences.
 </role>
 
-<task>Generate exactly 4 content ideas that make the user say "holy shit, I never thought of that." Insider knowledge angles a top creator in this niche would use but hasn't done yet.</task>
+<task>
+Generate exactly 4 content ideas directly relevant to the brand, product, or topic in the request below.
+</task>
 
 <rules>
-RULE 1 — Be specific and surprising. "Fitness tips" is garbage. "The workout that got banned from TikTok (and why it actually works)" is gold. Every idea must stop scrolling. NEVER use placeholder letters like X, Y, or Z in titles. Use the ACTUAL topic name from the user's request.
-${formatRule}
-RULE 3 — Each idea = different angle. One controversial, one educational, one emotional, one humorous. Not 4 variations of one bland concept.
-RULE 4 — Purpose must sell it. WHY this angle resonates with the target audience RIGHT NOW.
-RULE 5 — Titles must be scroll-stoppers. Real content titles, not corporate briefs.
-RULE 6 — If the user mentions a brand, company, product, or URL: every idea MUST be about that brand's specific domain. Infer what the company does from its name, URL, and any context provided.
-RULE 7 — Separate TOPIC from STRATEGY. The user's request contains WHAT to write about (brand, product, audience) and HOW to write it (tone, approach, emotion to evoke). Generate ideas about the WHAT. Apply the HOW as creative direction. Never make the creative direction the headline or subject.
+- Titles must reference the specific brand or topic by name. Generic titles are rejected.
+- 4 different angles: one controversial, one educational, one emotional, one humorous.
+- Creative direction in the request (tone, strategy, emotion) describes HOW to write, not the subject. Apply it as the approach to the content, not the content itself.
+- Deliverable format must match the platform type.
+- Only use platforms from the allowed list in the output_format section. No other platforms.
 </rules>
 
 <output_format>
-Per idea: { id: "idea_1"-"idea_4", idea: "scroll-stopping title (max 80 chars)", purpose: "why it works NOW (1-2 sentences)", style: "visual/editorial approach", format: "deliverable type", platform: "${platformList}", tone: "white|red|black|yellow|green|blue" }
-Platform must be one of the listed options. NEVER use a brand name, URL, or website as platform.${lockedPlatform ? ` ALL 4 ideas must use platform: ${lockedPlatform}.` : ''}
+Return exactly 4 JSON objects:
+{ id: "idea_1" to "idea_4", idea: "title max 80 chars", purpose: "why now 1-2 sentences", style: "editorial approach", format: "deliverable type", platform: "from allowed list", tone: "white|red|black|yellow|green|blue" }
+${platformInstruction}
 </output_format>
 
 <input_data>
-User's request: "${userPrompt}"
+${userPrompt}
 ${projectHint}${databankHint}
 </input_data>`;
   }
@@ -138,6 +138,43 @@ ${projectHint}${databankHint}
     };
 
     const { result } = await this.runStructured(input);
+
+    // Code-level platform enforcement — Zod enum accepts all platforms,
+    // but intent detection restricts which ones are allowed. Replace any
+    // disallowed platform with the first allowed one.
+    const lower = prompt.toLowerCase();
+    const isPostIntent = /\b(post|article|blog|essay|thread|newsletter|write|linkedin|twitter|tweet|medium)\b/.test(lower);
+    const isVideoIntent = /\b(video|reel|short|tiktok|youtube|vlog|film|clip|skit)\b/.test(lower);
+
+    const platformMap: Record<string, string> = {
+      linkedin: 'LinkedIn', twitter: 'Twitter/X', tweet: 'Twitter/X',
+      instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube',
+      medium: 'Medium', reddit: 'Reddit', facebook: 'Facebook',
+      pinterest: 'Pinterest', newsletter: 'Newsletter', blog: 'Blog',
+    };
+    const specificMatch = lower.match(/\b(linkedin|twitter|tweet|instagram|tiktok|youtube|medium|reddit|facebook|pinterest|newsletter|blog)\b/);
+    const lockedPlatform = specificMatch ? platformMap[specificMatch[1]] : null;
+
+    const textPlatforms = new Set(['LinkedIn', 'Twitter/X', 'Medium', 'Blog', 'Newsletter', 'Reddit', 'Facebook']);
+    const videoPlatforms = new Set(['YouTube', 'TikTok', 'Instagram', 'Facebook']);
+
+    // Post wins when both match — "post for a video editing tool" is a post, not a video
+    const allowedPlatforms = lockedPlatform
+      ? new Set([lockedPlatform])
+      : isPostIntent
+        ? textPlatforms
+        : isVideoIntent
+          ? videoPlatforms
+          : null; // null = all allowed
+
+    if (allowedPlatforms) {
+      const fallback = [...allowedPlatforms][0];
+      return result.ideas.map(idea => ({
+        ...idea,
+        platform: allowedPlatforms.has(idea.platform) ? idea.platform : fallback,
+      }));
+    }
+
     return result.ideas;
   }
 }
