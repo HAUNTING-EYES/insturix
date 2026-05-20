@@ -2,86 +2,75 @@
 
 /**
  * Organization Dashboard Page
- * 
- * Main org view showing team members and activity.
+ *
+ * Constellation-style org view with star-field hero, stats bar, and member table.
  * Note: Projects are created from individual services (Editron, etc.)
  * when in org context, not from this page.
  */
 
-import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useOrganizationDetail } from '@/hooks/useOrganization';
-import { MemberList } from '@/components/org';
-import { cn } from '@/lib/utils';
+import { OrgDashboard } from '@/components/dashboard/Org';
 
 export default function OrgDashboardPage() {
   const params = useParams();
-  const router = useRouter();
   const orgId = params.orgId as string;
-  
+
   const { data: orgData, isLoading: orgLoading } = useOrganizationDetail(orgId);
 
+  // Loading skeleton (dark theme consistent)
   if (orgLoading) {
     return (
-      <div className="p-6 md:p-8 max-w-4xl mx-auto animate-pulse">
-        <div className="h-8 bg-white/10 rounded w-48 mb-2" />
-        <div className="h-4 bg-white/5 rounded w-32" />
+      <div style={{ background: '#0B0B0A', minHeight: '100vh' }}>
+        <div
+          className="w-full animate-pulse"
+          style={{
+            height: 600,
+            background: '#0F0F0E',
+            borderBottom: '1px solid #1C1B19',
+          }}
+        />
+        <div className="max-w-[1100px] mx-auto px-10 pt-10">
+          <div className="grid grid-cols-4 gap-4 mb-9">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-24 rounded-xl animate-pulse"
+                style={{ background: '#0F0F0E', border: '1px solid #1C1B19' }}
+              />
+            ))}
+          </div>
+          <div
+            className="rounded-[14px] animate-pulse"
+            style={{
+              background: '#0F0F0E',
+              border: '1px solid #1C1B19',
+              height: 300,
+            }}
+          />
+        </div>
       </div>
     );
   }
 
   if (!orgData) {
     return (
-      <div className="p-6 md:p-8 max-w-4xl mx-auto">
-        <p className="text-white/40">Organization not found</p>
+      <div
+        className="flex items-center justify-center"
+        style={{ background: '#0B0B0A', minHeight: '100vh', color: '#7A776E' }}
+      >
+        <p className="text-sm">Organization not found</p>
       </div>
     );
   }
 
   const { organization, userRole } = orgData;
-  const canManage = userRole === 'owner' || userRole === 'admin';
 
   return (
-    <div className="p-6 md:p-8 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold text-white">
-              {organization.name}
-            </h1>
-            <p className="text-sm text-white/40 mt-1">
-              {organization.memberCount} member{organization.memberCount !== 1 ? 's' : ''} · You're {userRole === 'owner' ? 'the owner' : `a${userRole === 'admin' ? 'n admin' : ' member'}`}
-            </p>
-          </div>
-
-          {canManage && (
-            <button
-              onClick={() => router.push(`/dashboard/org/${orgId}/settings`)}
-              className="px-3 py-1.5 text-sm text-white/60 hover:text-white/80 transition-colors"
-            >
-              Settings
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Info */}
-      <div className="mb-8 p-4 rounded-lg border border-white/[0.06] bg-white/[0.02]">
-        <p className="text-sm text-white/60">
-          Switch to this organization using the org switcher in the sidebar. 
-          All work done while in org context (Editron, Alyzitron, etc.) will be shared with team members.
-        </p>
-      </div>
-
-      {/* Members */}
-      <div>
-        <h2 className="text-lg font-medium text-white mb-4">Team Members</h2>
-        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
-          <MemberList orgId={orgId} />
-        </div>
-      </div>
-    </div>
+    <OrgDashboard
+      orgId={orgId}
+      orgName={organization.name}
+      userRole={userRole}
+    />
   );
 }
-

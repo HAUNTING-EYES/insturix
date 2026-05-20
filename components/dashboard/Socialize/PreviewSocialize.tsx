@@ -2,7 +2,7 @@
 import { ProfileContent } from "./ProfileContent";
 import { SocializeUser } from "@/lib/socialize/main";
 import type { SocializeLink, BannerConfig } from "@/schemas/Socialize";
-import { getExpiresAtFromDuration } from "@/lib/utils/notification";
+
 
 interface SocializePreviewProps {
   logo: string | null;
@@ -10,6 +10,9 @@ interface SocializePreviewProps {
   bio: string;
   links: SocializeLink[];
   banner?: BannerConfig;
+  status?: string;
+  accentColor?: string;
+  notifications?: Array<{message: string; duration: number; timestamp?: string; expiresAt?: string}>;
 }
 
 export function SocializePreview({
@@ -18,40 +21,10 @@ export function SocializePreview({
   bio,
   links,
   banner,
+  status,
+  accentColor,
+  notifications,
 }: SocializePreviewProps) {
-  // --- Updated Logic for Preview Data (Fixed Types) ---
-
-  // 1️⃣ Expired update (should NOT show)
-  const expiredTime = new Date();
-  expiredTime.setDate(expiredTime.getDate() - 2);
-
-  const expiredUpdate = {
-    message: "⚠️ This update expired 2 days ago and should be hidden.",
-    duration: 1,
-    timestamp: expiredTime.toISOString(), // ✅ ISO string
-    expiresAt: expiredTime.toISOString(), // ✅ ISO string
-  };
-
-  // 2️⃣ Active update (should be visible)
-  const activeUpdateDuration = 10; // hours
-  const now = new Date();
-
-  const activeUpdate = {
-    message: "✨ This update is active (Expires in 10 hours).",
-    duration: activeUpdateDuration,
-    timestamp: now.toISOString(), // ✅ ISO string
-    expiresAt: getExpiresAtFromDuration(activeUpdateDuration), // ✅ Already ISO string
-  };
-
-  // 3️⃣ Permanent update (always visible)
-  const permanentUpdate = {
-    message: "📢 This is a permanent announcement.",
-    duration: 0,
-    timestamp: now.toISOString(), // ✅ ISO string
-  };
-
-  // --- End of Updated Logic ---
-
   const socializeData: SocializeUser = {
     profileImage: logo || "",
     username: profileTitle,
@@ -59,25 +32,48 @@ export function SocializePreview({
     bio,
     links,
     banner,
+    status: status || "Creating something new",
+    accentColor: accentColor || "gold",
     clerkUserId: "preview-user-id",
-    notifications: [activeUpdate, expiredUpdate, permanentUpdate],
+    notifications: notifications || [],
     createdAt: new Date(),
     updatedAt: new Date(),
   };
 
   return (
-    <section className="relative w-full max-w-[500px] h-[40rem] p-8 hidden md:block mx-auto">
-      <div className="absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 bg-[#13131a] rounded-3xl p-4 border-[#2d2d36] border-2 flex flex-col items-center shadow-xl overflow-hidden">
-        <div className="w-[300px] h-[580px] bg-[#0e1117] rounded-2xl overflow-hidden relative flex flex-col justify-start items-center z-10">
-          <div className="w-full h-full overflow-y-auto p-4">
-            <ProfileContent
-              socializeData={socializeData}
-              uniqueUsername={profileTitle}
-              isPreview={true}
-            />
-          </div>
+    <div
+      style={{
+        background: "#131312",
+        borderRadius: 32,
+        padding: 10,
+        border: "2px solid #282724",
+        boxShadow: "0 20px 60px rgba(0,0,0,.5), 0 0 80px rgba(212,166,82,.04)",
+        width: 420,
+        overflow: "hidden",
+        position: "relative",
+      }}
+    >
+      {/* Notch */}
+      <div style={{ width: 100, height: 22, background: "#0B0B0A", borderRadius: "0 0 14px 14px", margin: "0 auto" }} />
+      {/* Screen */}
+      <div
+        style={{
+          borderRadius: 22,
+          overflow: "hidden",
+          background: "#0B0B0A",
+          maxHeight: 560,
+          overflowY: "auto",
+        }}
+        className="scrollbar-none"
+      >
+        <div style={{ padding: "0 12px 16px" }}>
+          <ProfileContent
+            socializeData={socializeData}
+            uniqueUsername={profileTitle}
+            isPreview={true}
+          />
         </div>
       </div>
-    </section>
+    </div>
   );
 }

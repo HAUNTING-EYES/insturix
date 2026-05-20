@@ -6,7 +6,7 @@ import { FileText, MessageSquare, X, Video } from "lucide-react";
 import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { KnowledgePanel } from "@/components/dashboard/ThinkForge/KnowledgePanel";
-import { ExportToEditronDialog } from "@/components/dashboard/ThinkForge/ExportToEditronDialog";
+import { ExportToEditronDialog } from "@/components/dashboard/ThinkForge/export/ExportToEditronDialog";
 import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import { Script } from "@/app/dashboard/thinkforge/types";
 import SessionMetadataSettings from "./SessionMetadataSettings";

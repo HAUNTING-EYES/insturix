@@ -4,6 +4,8 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
+export const maxDuration = 300;
+
 export async function POST(req: Request) {
   try {
     const session = await auth();
@@ -38,12 +40,11 @@ export async function POST(req: Request) {
 
     const ig = user.instagramTokens as any;
     const accounts = ig.accounts || [];
-    const pageTokens = ig.pageTokens || [];
     if (accounts.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          error: "No Instagram Business accounts found. You need at least one connected account.",
+          error: "No Instagram accounts connected. Please connect your Instagram account first.",
         },
         { status: 400 }
       );
@@ -60,19 +61,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // Get the corresponding page access token for this Instagram account
-    const pageTokenEntry = pageTokens.find(
-      (pt: any) => pt.instagramAccountId === targetAccount.instagramAccountId
-    );
+    // Instagram Login flow: use the user access token directly (no Page token needed)
+    const igUserAccessToken = ig.userAccessToken;
 
-    if (!pageTokenEntry) {
+    if (!igUserAccessToken) {
       return NextResponse.json(
-        { success: false, error: "No Page Access Token found for this Instagram account. Please reconnect." },
+        { success: false, error: "Instagram access token missing. Please reconnect your account." },
         { status: 400 }
       );
     }
-
-    const igUserAccessToken = pageTokenEntry.pageAccessToken;
     let finalCaption = title || "";
     let finalDescription = description || "";
     let videoDoc = null;
@@ -113,7 +110,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const createContainerUrl = `https://graph.facebook.com/v21.0/${igAccountId}/media`;
+    const createContainerUrl = `https://graph.instagram.com/v21.0/me/media`;
     const containerParams = new URLSearchParams();
     containerParams.set(isVideo ? "video_url" : "image_url", mediaUrl);
     if (isVideo) {
@@ -148,16 +145,17 @@ export async function POST(req: Request) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
         attempts++;
 
-        const statusUrl = `https://graph.facebook.com/v21.0/${containerId}?fields=status_code,status_message&access_token=${igUserAccessToken}`;
+        const statusUrl = `https://graph.instagram.com/v21.0/${containerId}?fields=status_code&access_token=${igUserAccessToken}`;
         const statusRes = await fetch(statusUrl);
         const statusData = await statusRes.json();
+        console.log(`[IG] Poll attempt ${attempts}:`, JSON.stringify(statusData));
         containerStatus = statusData.status_code;
 
         if (containerStatus === "ERROR") {
           return NextResponse.json(
             {
               success: false,
-              error: `Instagram processing error: ${statusData.status_message || "Unknown error"}`,
+              error: `Instagram processing error: ${statusData.error?.message || "Unknown error"}`,
             },
             { status: 500 }
           );
@@ -172,7 +170,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const publishUrl = `https://graph.facebook.com/v21.0/${igAccountId}/media_publish`;
+    const publishUrl = `https://graph.instagram.com/v21.0/me/media_publish`;
     const publishParams = new URLSearchParams();
     publishParams.set("creation_id", containerId);
     publishParams.set("access_token", igUserAccessToken);

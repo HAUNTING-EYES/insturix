@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Credits Dashboard — The Energy Grid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0B0B0A; --surface: #0F0F0E; --raised: #131312; --well: #1B1A18;
+    --border-1: #1C1B19; --border-2: #282724;
+    --text-primary: #ECE9E1; --text-secondary: #B5B2A8; --text-muted: #7A776E; --text-dim: #5F5E5A;
+    --gold: #D4A652; --green: #5EC97E; --red: #D46A5C; --cyan: #5CB8CC;
+    --ease: cubic-bezier(.16,1,.3,1);
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  .container {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 48px 24px;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 48px;
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+  .header h1 span { color: var(--cyan); }
+  .plan-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, rgba(212,166,82,0.15), rgba(212,166,82,0.05));
+    border: 1px solid rgba(212,166,82,0.3);
+    border-radius: 100px;
+    padding: 8px 20px;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--gold);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .plan-badge .dot {
+    width: 8px; height: 8px;
+    background: var(--gold);
+    border-radius: 50%;
+    animation: pulse-dot 2s ease infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(212,166,82,0.4); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(212,166,82,0); }
+  }
+
+  /* Energy Pool */
+  .pool-section {
+    margin-bottom: 48px;
+  }
+  .pool-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .pool-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  .pool-stats {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .pool-stats strong {
+    color: var(--text-primary);
+    font-size: 18px;
+  }
+  .pool-bar-outer {
+    width: 100%;
+    height: 32px;
+    background: var(--well);
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid var(--border-1);
+  }
+  .pool-bar-fill {
+    height: 100%;
+    border-radius: 16px;
+    position: relative;
+    width: 0%;
+    transition: width 2s var(--ease);
+    display: flex;
+  }
+  .pool-sub {
+    height: 100%;
+    background: linear-gradient(90deg, #D4A652, #c49a44);
+    position: relative;
+    border-radius: 16px 0 0 16px;
+  }
+  .pool-top {
+    height: 100%;
+    background: linear-gradient(90deg, #4aad66, #5EC97E);
+    border-radius: 0 16px 16px 0;
+    position: relative;
+  }
+  .pool-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 3s linear infinite;
+    border-radius: 16px;
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  .pool-legend {
+    display: flex;
+    gap: 24px;
+    margin-top: 10px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+
+  /* Plan Info Bar */
+  .plan-bar {
+    background: var(--surface);
+    border: 1px solid var(--border-1);
+    border-radius: 14px;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 40px;
+  }
+  .plan-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .plan-icon {
+    font-size: 20px;
+  }
+  .plan-name {
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .plan-detail {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .plan-price {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--gold);
+  }
+  .plan-price span {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+
+  /* Service Grid */
+  .grid-section {
+    margin-bottom: 48px;
+  }
+  .section-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 20px;
+  }
+  .service-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+  }
+  .service-node {
+    background: var(--surface);
+    border: 1px solid var(--border-1);
+    border-radius: 16px;
+    padding: 24px 16px;
+    text-align: center;
+    position: relative;
+    transition: all 0.3s var(--ease);
+    overflow: hidden;
+  }
+  .service-node:hover {
+    border-color: var(--border-2);
+    transform: translateY(-4px);
+  }
+  .service-node.active {
+    border-color: var(--node-color, var(--border-2));
+    box-shadow: 0 0 24px rgba(var(--node-rgb), 0.1);
+  }
+
+  /* Glow ring behind icon */
+  .node-icon {
+    width: 56px; height: 56px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    margin: 0 auto 12px;
+    position: relative;
+    background: var(--well);
+  }
+  .service-node.active .node-icon {
+    box-shadow: 0 0 20px rgba(var(--node-rgb), 0.2);
+  }
+  .node-name {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .node-rate {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  /* Flow line from pool */
+  .node-flow {
+    position: absolute;
+    top: -1px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 0px;
+    opacity: 0;
+  }
+  .service-node.active .node-flow {
+    height: 16px;
+    opacity: 1;
+    animation: flow-drip 1.5s ease infinite;
+  }
+  @keyframes flow-drip {
+    0% { background: var(--node-color, var(--gold)); opacity: 0.3; }
+    50% { opacity: 1; }
+    100% { background: var(--node-color, var(--gold)); opacity: 0.3; }
+  }
+
+  /* Status dot */
+  .node-status {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+  }
+  .service-node.active .node-status {
+    background: var(--green);
+    animation: status-pulse 2s ease infinite;
+  }
+  @keyframes status-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(94,201,126,0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(94,201,126,0); }
+  }
+
+  /* Energy Streams */
+  .streams {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+  .stream {
+    background: var(--surface);
+    border: 1px solid var(--border-1);
+    border-radius: 16px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .stream-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .stream-type {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+  .stream-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 100px;
+  }
+  .stream-tag.exp {
+    background: rgba(212,166,82,0.12);
+    color: var(--gold);
+  }
+  .stream-tag.perm {
+    background: rgba(94,201,126,0.12);
+    color: var(--green);
+  }
+  .stream-bar-outer {
+    width: 100%;
+    height: 8px;
+    background: var(--well);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .stream-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    width: 0%;
+    transition: width 1.8s var(--ease);
+    position: relative;
+  }
+  .stream-bar-fill.sub { background: linear-gradient(90deg, #D4A652, #c49a44); }
+  .stream-bar-fill.top { background: linear-gradient(90deg, #4aad66, #5EC97E); }
+  .stream-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; width: 20px; height: 100%;
+    background: rgba(255,255,255,0.2);
+    border-radius: 0 4px 4px 0;
+    animation: bar-pulse 2s ease infinite;
+  }
+  @keyframes bar-pulse {
+    0%, 100% { opacity: 0.2; }
+    50% { opacity: 0.5; }
+  }
+  .stream-stats {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .stream-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .stream-unit {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  /* Energy Log */
+  .log {
+    background: var(--surface);
+    border: 1px solid var(--border-1);
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 32px;
+  }
+  .log-entry {
+    display: grid;
+    grid-template-columns: 40px 1fr auto auto;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border-1);
+    transition: background 0.2s var(--ease);
+    opacity: 0;
+    transform: translateY(6px);
+    animation: slide-in 0.4s var(--ease) forwards;
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-entry:hover { background: var(--raised); }
+  @keyframes slide-in {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .log-icon {
+    width: 36px; height: 36px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    background: var(--well);
+  }
+  .log-service {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .log-action {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+  .log-amount {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: right;
+  }
+  .log-amount.debit { color: var(--red); }
+  .log-amount.credit { color: var(--green); }
+  .log-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: right;
+    min-width: 60px;
+  }
+
+  /* Actions */
+  .actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 24px;
+    border-radius: 12px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s var(--ease);
+  }
+  .btn-recharge {
+    background: linear-gradient(135deg, var(--cyan), #4a9fb5);
+    color: #0B0B0A;
+  }
+  .btn-recharge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(92,184,204,0.3);
+  }
+  .btn-upgrade {
+    background: var(--raised);
+    border: 1px solid var(--border-2);
+    color: var(--text-primary);
+  }
+  .btn-upgrade:hover {
+    border-color: var(--cyan);
+    color: var(--cyan);
+    transform: translateY(-2px);
+  }
+  .btn-icon { font-size: 18px; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .service-grid { grid-template-columns: repeat(3, 1fr); }
+    .streams { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 480px) {
+    .service-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <h1><span>Energy</span> Grid</h1>
+    <div class="plan-badge">
+      <div class="dot"></div>
+      PRO
+    </div>
+  </div>
+
+  <!-- Energy Pool -->
+  <div class="pool-section">
+    <div class="pool-header">
+      <span class="pool-label">Total Energy Pool</span>
+      <span class="pool-stats"><strong id="poolTotal">0</strong> / 445 credits</span>
+    </div>
+    <div class="pool-bar-outer">
+      <div class="pool-bar-fill" id="poolFill">
+        <div class="pool-sub" style="width: 87.4%;"></div>
+        <div class="pool-top" style="width: 12.6%;"></div>
+      </div>
+    </div>
+    <div class="pool-legend">
+      <div class="legend-item">
+        <div class="legend-dot" style="background: var(--gold);"></div>
+        <span>Subscription (312)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background: var(--green);"></div>
+        <span>Top-up (45)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Plan Bar -->
+  <div class="plan-bar">
+    <div class="plan-info">
+      <span class="plan-icon">&#9733;</span>
+      <div>
+        <div class="plan-name">Pro Plan</div>
+        <div class="plan-detail">400 credits/mo &middot; renews Jun 1</div>
+      </div>
+    </div>
+    <div class="plan-price">$49<span>/mo</span></div>
+  </div>
+
+  <!-- Service Nodes -->
+  <div class="grid-section">
+    <div class="section-label">Service Nodes</div>
+    <div class="service-grid">
+      <div class="service-node active" style="--node-color: #5CB8CC; --node-rgb: 92,184,204;">
+        <div class="node-status"></div>
+        <div class="node-flow"></div>
+        <div class="node-icon">&#128161;</div>
+        <div class="node-name">ThinkForge</div>
+        <div class="node-rate">1 cr/session</div>
+      </div>
+      <div class="service-node active" style="--node-color: #D4A652; --node-rgb: 212,166,82;">
+        <div class="node-status"></div>
+        <div class="node-flow"></div>
+        <div class="node-icon">&#127909;</div>
+        <div class="node-name">Editron</div>
+        <div class="node-rate">3 cr/gen</div>
+      </div>
+      <div class="service-node active" style="--node-color: #5EC97E; --node-rgb: 94,201,126;">
+        <div class="node-status"></div>
+        <div class="node-flow"></div>
+        <div class="node-icon">&#127925;</div>
+        <div class="node-name">Musitron</div>
+        <div class="node-rate">8 cr/gen</div>
+      </div>
+      <div class="service-node" style="--node-color: #D46A5C; --node-rgb: 212,106,92;">
+        <div class="node-status"></div>
+        <div class="node-flow"></div>
+        <div class="node-icon">&#128433;</div>
+        <div class="node-name">Clickatron</div>
+        <div class="node-rate">2 cr/gen</div>
+      </div>
+      <div class="service-node" style="--node-color: #9B7FD4; --node-rgb: 155,127,212;">
+        <div class="node-status"></div>
+        <div class="node-flow"></div>
+        <div class="node-icon">&#128300;</div>
+        <div class="node-name">Alyzitron</div>
+        <div class="node-rate">5 cr/analysis</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Energy Streams -->
+  <div class="section-label">Energy Streams</div>
+  <div class="streams">
+    <div class="stream">
+      <div class="stream-header">
+        <span class="stream-type">Subscription Stream</span>
+        <span class="stream-tag exp" id="streamCountdown">18d left</span>
+      </div>
+      <div class="stream-bar-outer">
+        <div class="stream-bar-fill sub" id="subBar"></div>
+      </div>
+      <div class="stream-stats">
+        <span class="stream-value mono" style="color: var(--gold);" id="subVal">0</span>
+        <span class="stream-unit">of 400 credits</span>
+      </div>
+    </div>
+    <div class="stream">
+      <div class="stream-header">
+        <span class="stream-type">Top-up Reserve</span>
+        <span class="stream-tag perm">&#8734; persistent</span>
+      </div>
+      <div class="stream-bar-outer">
+        <div class="stream-bar-fill top" id="topBar"></div>
+      </div>
+      <div class="stream-stats">
+        <span class="stream-value mono" style="color: var(--green);" id="topVal">0</span>
+        <span class="stream-unit">credits banked</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Energy Log -->
+  <div class="section-label">Energy Log</div>
+  <div class="log">
+    <div class="log-entry" style="animation-delay: 0.1s;">
+      <div class="log-icon" style="color: #5EC97E;">&#127925;</div>
+      <div>
+        <div class="log-service">Musitron</div>
+        <div class="log-action">Music generation</div>
+      </div>
+      <div class="log-amount debit mono">-8</div>
+      <div class="log-time mono">2m ago</div>
+    </div>
+    <div class="log-entry" style="animation-delay: 0.2s;">
+      <div class="log-icon" style="color: #D4A652;">&#127909;</div>
+      <div>
+        <div class="log-service">Editron</div>
+        <div class="log-action">Video generation</div>
+      </div>
+      <div class="log-amount debit mono">-3</div>
+      <div class="log-time mono">1h ago</div>
+    </div>
+    <div class="log-entry" style="animation-delay: 0.3s;">
+      <div class="log-icon" style="color: #5CB8CC;">&#128161;</div>
+      <div>
+        <div class="log-service">ThinkForge</div>
+        <div class="log-action">Chat session</div>
+      </div>
+      <div class="log-amount debit mono">-1</div>
+      <div class="log-time mono">3h ago</div>
+    </div>
+    <div class="log-entry" style="animation-delay: 0.4s;">
+      <div class="log-icon">&#128176;</div>
+      <div>
+        <div class="log-service">Subscription</div>
+        <div class="log-action">Monthly grant &middot; Pro</div>
+      </div>
+      <div class="log-amount credit mono">+400</div>
+      <div class="log-time mono">May 14</div>
+    </div>
+    <div class="log-entry" style="animation-delay: 0.5s;">
+      <div class="log-icon">&#9889;</div>
+      <div>
+        <div class="log-service">Top-up</div>
+        <div class="log-action">Credit purchase</div>
+      </div>
+      <div class="log-amount credit mono">+100</div>
+      <div class="log-time mono">May 10</div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn btn-recharge" onclick="this.style.transform='scale(0.97)';setTimeout(()=>this.style.transform='',150)">
+      <span class="btn-icon">&#9889;</span>
+      Recharge Grid
+    </button>
+    <button class="btn btn-upgrade" onclick="this.style.transform='scale(0.97)';setTimeout(()=>this.style.transform='',150)">
+      <span class="btn-icon">&#8593;</span>
+      Upgrade Capacity
+    </button>
+  </div>
+</div>
+
+<script>
+  function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+  function animateCounter(el, target, dur, delay) {
+    setTimeout(() => {
+      let start = null;
+      function step(ts) {
+        if (!start) start = ts;
+        const p = Math.min((ts - start) / dur, 1);
+        el.textContent = Math.round(easeOut(p) * target);
+        if (p < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }, delay);
+  }
+
+  // Pool bar
+  setTimeout(() => {
+    document.getElementById('poolFill').style.width = '80.2%'; // 357/445
+  }, 200);
+
+  // Pool total
+  animateCounter(document.getElementById('poolTotal'), 357, 2000, 200);
+
+  // Stream bars + values
+  setTimeout(() => {
+    document.getElementById('subBar').style.width = '78%';
+    document.getElementById('topBar').style.width = '100%';
+  }, 400);
+  animateCounter(document.getElementById('subVal'), 312, 1500, 500);
+  animateCounter(document.getElementById('topVal'), 45, 1500, 700);
+
+  // Service node interaction
+  document.querySelectorAll('.service-node').forEach(node => {
+    node.addEventListener('click', () => {
+      node.classList.toggle('active');
+    });
+  });
+</script>
+</body>
+</html>

@@ -1188,11 +1188,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       {...fadeIn}
       className="fixed inset-0 bg-[#0B0B0A] flex flex-row gap-0 overflow-hidden h-screen"
     >
-      {/* Left Sidebar - Variations Gallery - Hidden on mobile */}
+      {/* Left Sidebar - Variations + AI Features + Tools */}
       <div
-        className="hidden md:flex flex-col h-full flex-shrink-0 w-80 bg-[#131312] border-r border-[#282724]/80 relative z-10"
+        className="hidden md:flex flex-col h-full flex-shrink-0 w-[260px] bg-[#131312] border-r border-[#282724]/80 relative z-10 overflow-y-auto"
         style={{ marginLeft: "64px" }}
       >
+        {/* Variations Gallery */}
         <VariationsGallery
           variations={variations}
           activeVariationId={localActiveVariation}
@@ -1201,8 +1202,125 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           onNewVariation={handleNewVariation}
           onDuplicateVariation={handleDuplicateVariation}
           onDeleteVariation={handleDeleteVariation}
-          className="flex-1"
+          className=""
         />
+
+        {/* Divider */}
+        <div className="mx-3 my-1 border-t border-[#282724]/60" />
+
+        {/* AI Features */}
+        <div className="px-3 py-3">
+          <div className="text-[10px] font-medium text-[#D4A652] tracking-widest uppercase mb-2 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#D4A652]" />
+            AI Features
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                setInputMode("sketchToEdit");
+                setActiveTool("sketch");
+                setSketchTool("pencil");
+              }}
+              className={`flex flex-col items-start gap-1.5 p-3 rounded-lg border transition-all text-left ${
+                inputMode === "sketchToEdit"
+                  ? "border-[#D4A652]/30 bg-[#D4A652]/8"
+                  : "border-[#282724] bg-[#0F0F0E] hover:border-[#454340]"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <Pencil className="h-3.5 w-3.5 text-[#D4A652]" />
+                <span className="text-[10px] font-medium tracking-wide text-[#D4A652] uppercase">Draw</span>
+              </div>
+              <span className="text-[11px] text-[#7A776E] leading-tight">Sketch to Edit</span>
+              <span className="text-[9px] text-[#454340]">Draw on canvas to guide AI</span>
+            </button>
+            <button
+              onClick={() => handleGenerativeFillToggle(undefined)}
+              className={`flex flex-col items-start gap-1.5 p-3 rounded-lg border transition-all text-left ${
+                isSelectionActive
+                  ? "border-[#D4A652]/30 bg-[#D4A652]/8"
+                  : "border-[#282724] bg-[#0F0F0E] hover:border-[#454340]"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <Square className="h-3.5 w-3.5 text-[#D4A652]" />
+                <span className="text-[10px] font-medium tracking-wide text-[#D4A652] uppercase">Beta</span>
+              </div>
+              <span className="text-[11px] text-[#7A776E] leading-tight">Gen Fill</span>
+              <span className="text-[9px] text-[#454340]">Select region for AI fill</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="mx-3 my-1 border-t border-[#282724]/60" />
+
+        {/* Tools */}
+        <div className="px-3 py-3">
+          <div className="text-[10px] font-medium text-[#7A776E] tracking-widest uppercase mb-2">Tools</div>
+          <div className="flex gap-1.5 flex-wrap">
+            {([
+              { tool: "pencil" as const, label: "Pencil", icon: "✏️" },
+              { tool: "eraser" as const, label: "Eraser", icon: "◯" },
+            ] as const).map(({ tool, label, icon }) => (
+              <button
+                key={tool}
+                onClick={() => {
+                  setInputMode("sketchToEdit");
+                  setActiveTool("sketch");
+                  setSketchTool(tool);
+                }}
+                className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg border text-[10px] transition-all ${
+                  sketchTool === tool && inputMode === "sketchToEdit"
+                    ? "border-[#D4A652]/30 bg-[#D4A652]/8 text-[#ECE9E1]"
+                    : "border-[#282724] bg-[#0F0F0E] text-[#7A776E] hover:border-[#454340]"
+                }`}
+              >
+                <span className="text-sm">{icon}</span>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Size & Opacity */}
+          {inputMode === "sketchToEdit" && (
+            <div className="mt-3 space-y-2">
+              <div className="text-[10px] font-medium text-[#7A776E] tracking-widest uppercase">Size & Opacity</div>
+              <div className="flex items-center gap-1.5">
+                {([8, 16, 24, 36] as const).map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => setEraserSize(size === 8 ? "small" : size === 16 ? "small" : size === 24 ? "medium" : "large")}
+                    className="w-6 h-6 rounded-full border border-[#282724] bg-[#0F0F0E] flex items-center justify-center hover:border-[#454340] transition-all"
+                  >
+                    <span className="rounded-full bg-[#ECE9E1]" style={{ width: size / 4, height: size / 4 }} />
+                  </button>
+                ))}
+              </div>
+
+              {/* Color palette */}
+              <div className="text-[10px] font-medium text-[#7A776E] tracking-widest uppercase mt-2">Color</div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {([
+                  { color: "black" as const, hex: "#0B0B0A" },
+                  { color: "red" as const, hex: "#D46A5C" },
+                  { color: "blue" as const, hex: "#5CB8CC" },
+                  { color: "green" as const, hex: "#5EC97E" },
+                  { color: "yellow" as const, hex: "#D4A652" },
+                ] as const).map(({ color, hex }) => (
+                  <button
+                    key={color}
+                    onClick={() => setPencilColor(color)}
+                    className={`w-6 h-6 rounded-full border-2 transition-all ${
+                      pencilColor === color ? "border-white scale-110" : "border-[#282724] hover:border-[#454340]"
+                    }`}
+                    style={{ background: hex }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Main Canvas Area */}

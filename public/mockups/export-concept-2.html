@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Export Concept 2 — Film Strip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+  :root {
+    --bg: #0B0B0A;
+    --surface: #0F0F0E;
+    --raised: #131312;
+    --well: #1B1A18;
+    --border: #1C1B19;
+    --borderL: #282724;
+    --text: #ECE9E1;
+    --soft: #B5B2A8;
+    --muted: #7A776E;
+    --dim: #5F5E5A;
+    --faint: #454340;
+    --gold: #D4A652;
+    --goldDark: #C49840;
+    --green: #5EC97E;
+    --red: #D46A5C;
+    --cyan: #5CB8CC;
+    --sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', 'SF Mono', monospace;
+    --ease: cubic-bezier(.16,1,.3,1);
+    --film: #131312;
+    --sprocket: #1B1A18;
+    --frameBorder: rgba(212,166,82,0.25);
+  }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 20px 80px;
+  }
+
+  .page-title {
+    text-align: center;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .page-subtitle {
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 48px;
+  }
+
+  .stage-section {
+    max-width: 600px;
+    margin: 0 auto 56px;
+  }
+  .stage-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 12px;
+    padding-left: 2px;
+  }
+  .stage-label span {
+    color: var(--faint);
+    font-weight: 400;
+    margin-left: 6px;
+  }
+
+  /* ════════════════════════════════════════════════
+     SIGNATURE ELEMENT: FILM STRIP MOTIF
+     Sprocket holes on left/right edges of the dialog.
+     Pipeline bar is a horizontal mini-strip.
+     All content sits inside "frames."
+     ════════════════════════════════════════════════ */
+
+  /* ── Film Dialog Shell ── */
+  .dialog {
+    background: var(--film);
+    border: 1px solid var(--borderL);
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Left and right sprocket strips */
+  .dialog::before,
+  .dialog::after {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 18px;
+    z-index: 20;
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(
+        to bottom,
+        transparent 0px,
+        transparent 8px,
+        var(--sprocket) 8px,
+        var(--sprocket) 14px,
+        transparent 14px,
+        transparent 22px
+      );
+  }
+  .dialog::before { left: 0; border-right: 1px solid var(--border); }
+  .dialog::after { right: 0; border-left: 1px solid var(--border); }
+
+  /* Inner content area (inset from sprockets) */
+  .film-inner {
+    margin: 0 18px;
+    position: relative;
+    z-index: 10;
+  }
+
+  /* ── Dialog Header ── */
+  .dialog-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dialog-header svg { color: var(--soft); flex-shrink: 0; }
+  .dialog-title { font-size: 15px; font-weight: 600; color: var(--text); }
+  .dialog-close {
+    margin-left: auto;
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--raised);
+    color: var(--muted);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .dialog-desc { font-size: 12px; color: var(--muted); padding: 0 16px; margin-bottom: 4px; }
+
+  /* ── Film Strip Pipeline Bar ── */
+  .film-pipeline {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .film-pipeline-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 10px;
+  }
+
+  .film-strip-bar {
+    position: relative;
+    background: var(--well);
+    border: 1px solid var(--borderL);
+    border-radius: 3px;
+    padding: 0;
+  }
+  /* Mini sprocket holes top and bottom of pipeline bar */
+  .strip-sprockets {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 8px;
+    height: 6px;
+    align-items: center;
+  }
+  .mini-sprocket {
+    width: 6px; height: 3px;
+    border-radius: 1px;
+    background: var(--faint);
+    flex-shrink: 0;
+  }
+  .strip-frames {
+    display: flex;
+    gap: 0;
+    padding: 0 3px;
+  }
+  .strip-frame {
+    flex: 1;
+    position: relative;
+    padding: 3px;
+  }
+  .strip-frame::after {
+    content: '';
+    position: absolute;
+    top: 3px; right: 0; bottom: 3px;
+    width: 1px;
+    background: var(--border);
+  }
+  .strip-frame:last-child::after { display: none; }
+  .strip-frame-inner {
+    aspect-ratio: 1 / 0.6;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    background: var(--well);
+    transition: all 0.3s var(--ease);
+    position: relative;
+    overflow: hidden;
+  }
+  .strip-frame.done .strip-frame-inner {
+    background: linear-gradient(135deg, rgba(94,201,126,0.06), rgba(94,201,126,0.1));
+    border-color: rgba(94,201,126,0.25);
+  }
+  .strip-frame.done .strip-frame-inner::before {
+    content: '';
+    position: absolute; inset: 2px;
+    border-radius: 1px;
+    background: linear-gradient(45deg, rgba(94,201,126,0.08) 25%, transparent 25%), linear-gradient(-45deg, rgba(94,201,126,0.08) 25%, transparent 25%);
+    opacity: 0.6;
+  }
+  .strip-frame.active .strip-frame-inner {
+    border-color: var(--gold);
+    box-shadow: 0 0 6px rgba(212,166,82,0.15), inset 0 0 12px rgba(212,166,82,0.04);
+    animation: developFrame 3s ease-in-out infinite;
+  }
+  @keyframes developFrame {
+    0%,100% { background: linear-gradient(135deg, rgba(212,166,82,0.03), var(--well), rgba(212,166,82,0.05)); }
+    50% { background: linear-gradient(135deg, rgba(212,166,82,0.07), rgba(212,166,82,0.02), var(--well)); }
+  }
+  .strip-frame.active .strip-frame-inner::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%; width: 60%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(212,166,82,0.06), rgba(212,166,82,0.1), rgba(212,166,82,0.06), transparent);
+    animation: exposureSweep 3s ease-in-out infinite;
+  }
+  @keyframes exposureSweep { 0% { left: -60%; } 100% { left: 120%; } }
+  .strip-frame.future .strip-frame-inner { background: rgba(11,11,10,0.5); border-color: var(--border); }
+  .strip-icon { font-size: 10px; line-height: 1; position: relative; z-index: 2; }
+  .strip-frame.done .strip-icon { color: var(--green); }
+  .strip-frame.active .strip-icon { color: var(--gold); animation: iconPulse 2s ease-in-out infinite; }
+  @keyframes iconPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+  .strip-frame.future .strip-icon { color: var(--faint); opacity: 0.5; }
+  .strip-name {
+    font-family: var(--mono);
+    font-size: 7px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+    text-align: center;
+    position: relative; z-index: 2;
+  }
+  .strip-frame.done .strip-name { color: var(--muted); }
+  .strip-frame.active .strip-name { color: var(--gold); }
+  .strip-frame.future .strip-name { color: var(--faint); }
+
+  /* ── Dialog body ── */
+  .dialog-body { padding: 14px 16px; }
+
+  /* ── Film frame containers for content ── */
+  .film-frame-container {
+    border: 1px solid var(--frameBorder);
+    border-radius: 3px;
+    padding: 12px;
+    margin-bottom: 10px;
+    position: relative;
+    background: rgba(212,166,82,0.015);
+  }
+  /* Tiny frame number in corner, like film frame counting */
+  .film-frame-container::before {
+    content: attr(data-frame);
+    position: absolute;
+    top: 3px; right: 6px;
+    font-family: var(--mono);
+    font-size: 7px;
+    color: var(--faint);
+    letter-spacing: 0.06em;
+  }
+
+  /* ── Form elements ── */
+  .form-label {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--dim); display: block; margin-bottom: 4px;
+  }
+  .form-input, .form-select {
+    width: 100%; height: 34px; padding: 0 12px;
+    background: var(--well); border: 1px solid var(--borderL);
+    border-radius: 4px; color: var(--text);
+    font-family: var(--sans); font-size: 13px;
+    outline: none; appearance: none;
+  }
+  .form-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%237A776E' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px;
+  }
+  .form-group { margin-bottom: 10px; }
+  .form-group.indent { padding-left: 24px; }
+
+  /* ── Toggle cards ── */
+  .toggle-card {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px; border-radius: 4px; border: 1px solid; margin-bottom: 8px;
+  }
+  .toggle-card.on-green { background: rgba(94,201,126,0.06); border-color: rgba(94,201,126,0.2); }
+  .toggle-card.on-gold { background: rgba(212,166,82,0.06); border-color: rgba(212,166,82,0.2); }
+  .toggle-card-icon { width: 16px; height: 16px; flex-shrink: 0; }
+  .toggle-card-body { flex: 1; }
+  .toggle-card-title { font-size: 13px; font-weight: 500; color: var(--text); }
+  .toggle-card-sub { font-size: 10px; color: var(--dim); margin-top: 1px; }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 7px 14px; border-radius: 4px;
+    font-family: var(--sans); font-size: 13px; font-weight: 600;
+    cursor: pointer; border: none; transition: background 0.15s;
+  }
+  .btn-gold { background: var(--gold); color: var(--bg); }
+  .btn-gold:hover { background: var(--goldDark); }
+  .btn-ghost { background: transparent; border: 1px solid var(--borderL); color: var(--muted); }
+  .btn-ghost:hover { border-color: var(--gold); color: var(--gold); }
+  .btn-outline-gold { background: transparent; border: 1px solid rgba(212,166,82,0.3); color: var(--gold); }
+  .btn-full { width: 100%; }
+
+  .footer {
+    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+    padding-top: 12px; border-top: 1px solid var(--border); margin-top: 12px;
+  }
+
+  /* ── Profile card (film frame style) ── */
+  .profile-frame {
+    border: 1px solid var(--frameBorder);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .profile-frame-header {
+    padding: 10px 12px;
+    background: rgba(212,166,82,0.03);
+    border-bottom: 1px solid rgba(212,166,82,0.1);
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .profile-name { font-size: 14px; font-weight: 500; color: var(--text); }
+  .profile-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .profile-reason { font-size: 10px; color: var(--dim); margin-top: 3px; }
+  .badge { font-size: 10px; padding: 2px 7px; border-radius: 3px; font-family: var(--mono); }
+  .badge-green { background: rgba(94,201,126,0.2); color: var(--green); }
+
+  .profile-frame-body { padding: 8px 12px; }
+  .profile-list {
+    max-height: 110px; overflow-y: auto;
+    border: 1px solid var(--borderL); border-radius: 3px;
+    background: var(--surface); margin-top: 6px;
+  }
+  .profile-list::-webkit-scrollbar { width: 3px; }
+  .profile-list::-webkit-scrollbar-thumb { background: var(--borderL); border-radius: 2px; }
+  .profile-cat { padding: 3px 8px; font-family: var(--mono); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); background: rgba(27,26,24,0.5); position: sticky; top: 0; }
+  .profile-item { display: block; width: 100%; text-align: left; padding: 5px 10px; font-size: 11px; color: var(--soft); background: transparent; border: none; cursor: pointer; }
+  .profile-item:hover { background: var(--well); }
+  .profile-item.selected { background: rgba(212,166,82,0.08); color: var(--gold); }
+
+  .brief-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  .brief-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); display: block; margin-bottom: 2px; }
+  .brief-select { width: 100%; height: 26px; padding: 0 8px; font-size: 11px; background: var(--surface); border: 1px solid var(--borderL); border-radius: 3px; color: var(--soft); outline: none; appearance: none; }
+
+  /* ── Subject grid (film frame cards) ── */
+  .subject-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .subject-film-frame {
+    border: 1px solid var(--frameBorder);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+  /* Mini sprockets on top and bottom of each subject frame */
+  .subject-film-frame .mini-sprockets {
+    display: flex; justify-content: space-between;
+    padding: 0 6px; height: 5px; align-items: center;
+    background: var(--raised);
+  }
+  .subject-film-frame .mini-sprockets .ms {
+    width: 4px; height: 2.5px; border-radius: 1px; background: var(--faint);
+  }
+  .subject-image {
+    aspect-ratio: 1; background: var(--well);
+    position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .subject-image .grad { position: absolute; inset: 0; }
+  .subject-approve {
+    position: absolute; top: 5px; right: 5px;
+    width: 20px; height: 20px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: none; background: var(--green); color: var(--text); cursor: pointer;
+  }
+  .subject-info { padding: 6px 8px; background: var(--raised); }
+  .subject-name { font-size: 11px; font-weight: 500; color: var(--text); }
+  .subject-meta { font-size: 9px; color: var(--dim); margin-top: 1px; }
+
+  .suggested-section { margin-top: 10px; }
+  .suggested-header { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
+  .suggested-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .suggested-chip {
+    display: flex; align-items: center; gap: 5px;
+    padding: 4px 8px; border-radius: 3px;
+    border: 1px solid var(--border); background: var(--raised);
+    font-size: 10px; color: var(--soft); cursor: pointer;
+  }
+  .suggested-chip:hover { border-color: rgba(212,166,82,0.4); background: rgba(212,166,82,0.06); }
+  .chip-plus { font-size: 9px; color: var(--dim); }
+  .chip-cat { font-size: 8px; color: var(--faint); }
+
+  /* ── Scene grid (film frames -- MOST NATURAL FIT) ── */
+  .scene-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .scene-film-frame {
+    border: 1px solid var(--frameBorder);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .scene-film-frame .sfm-sprockets {
+    display: flex; justify-content: space-between;
+    padding: 0 5px; height: 5px; align-items: center;
+    background: var(--raised);
+  }
+  .scene-film-frame .sfm-sprockets .sms {
+    width: 4px; height: 2px; border-radius: 1px; background: var(--faint);
+  }
+  .scene-image { aspect-ratio: 16/9; background: var(--well); position: relative; overflow: hidden; }
+  .scene-image .grad { position: absolute; inset: 0; }
+  .scene-badge {
+    position: absolute; top: 3px; left: 3px;
+    background: rgba(0,0,0,0.6); font-size: 9px; color: var(--soft);
+    padding: 1px 4px; border-radius: 2px; font-family: var(--mono);
+  }
+  .scene-info { padding: 4px 6px; background: var(--raised); }
+  .scene-title { font-size: 10px; font-weight: 500; color: var(--text); }
+  .scene-status { font-size: 9px; color: var(--dim); }
+
+  .panel-header { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+  .panel-header-title { font-size: 13px; font-weight: 500; color: var(--text); }
+  .panel-sub { font-size: 11px; color: var(--dim); margin-bottom: 10px; }
+
+  /* ── Processing: Viewfinder (inside film frame) ── */
+  .viewfinder-container {
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px 0 14px;
+    position: relative;
+  }
+  .viewfinder {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    border: 2px solid var(--gold);
+    position: relative;
+    box-shadow: 0 0 0 4px var(--film), 0 0 0 5px var(--borderL),
+                0 0 20px rgba(212,166,82,0.1);
+    overflow: hidden;
+    background: var(--well);
+  }
+  /* Crosshairs */
+  .viewfinder::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 0; right: 0;
+    height: 0.5px;
+    background: rgba(212,166,82,0.3);
+    z-index: 3;
+  }
+  .viewfinder::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 0; bottom: 0;
+    width: 0.5px;
+    background: rgba(212,166,82,0.3);
+    z-index: 3;
+  }
+  /* Corner brackets */
+  .vf-corner {
+    position: absolute;
+    width: 10px; height: 10px;
+    z-index: 4;
+  }
+  .vf-corner::before, .vf-corner::after {
+    content: '';
+    position: absolute;
+    background: rgba(212,166,82,0.5);
+  }
+  .vf-corner.tl { top: 6px; left: 6px; }
+  .vf-corner.tl::before { top: 0; left: 0; width: 8px; height: 1px; }
+  .vf-corner.tl::after { top: 0; left: 0; width: 1px; height: 8px; }
+  .vf-corner.tr { top: 6px; right: 6px; }
+  .vf-corner.tr::before { top: 0; right: 0; width: 8px; height: 1px; }
+  .vf-corner.tr::after { top: 0; right: 0; width: 1px; height: 8px; }
+  .vf-corner.bl { bottom: 6px; left: 6px; }
+  .vf-corner.bl::before { bottom: 0; left: 0; width: 8px; height: 1px; }
+  .vf-corner.bl::after { bottom: 0; left: 0; width: 1px; height: 8px; }
+  .vf-corner.br { bottom: 6px; right: 6px; }
+  .vf-corner.br::before { bottom: 0; right: 0; width: 8px; height: 1px; }
+  .vf-corner.br::after { bottom: 0; right: 0; width: 1px; height: 8px; }
+  /* Progress ring inside viewfinder */
+  .vf-progress {
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    border-top-color: var(--gold);
+    border-right-color: var(--gold);
+    animation: vfSpin 2s linear infinite;
+    z-index: 2;
+  }
+  @keyframes vfSpin { to { transform: rotate(360deg); } }
+  .vf-center-text {
+    position: absolute;
+    inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 5;
+  }
+  .vf-pct {
+    font-family: var(--mono); font-size: 16px; font-weight: 700;
+    color: var(--gold);
+  }
+  .vf-label {
+    font-family: var(--mono); font-size: 7px;
+    color: var(--dim); text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  /* REC indicator */
+  .vf-rec {
+    position: absolute;
+    top: 3px; right: 0;
+    display: flex; align-items: center; gap: 4px;
+    font-family: var(--mono); font-size: 8px;
+    color: var(--red); letter-spacing: 0.06em;
+  }
+  .vf-rec-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--red);
+    animation: recBlink 1.5s ease-in-out infinite;
+  }
+  @keyframes recBlink {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.2; }
+  }
+
+  .processing-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .spinner { width: 14px; height: 14px; border: 2px solid var(--well); border-top-color: var(--gold); border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .processing-text { font-size: 13px; font-weight: 500; color: var(--text); }
+  .processing-count { font-family: var(--mono); font-size: 12px; color: var(--gold); margin-left: auto; }
+
+  .step-list { display: flex; flex-direction: column; gap: 5px; }
+  .step { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px; font-size: 12px; }
+  .step.done { color: var(--muted); }
+  .step.done .step-icon { color: var(--green); }
+  .step.active { background: rgba(212,166,82,0.04); border: 1px solid rgba(212,166,82,0.08); color: var(--text); }
+  .step.active .step-icon { color: var(--gold); }
+  .step.pending { color: var(--dim); }
+  .step.pending .step-icon { color: var(--faint); }
+  .step-icon { width: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-name { flex: 1; }
+  .step-time { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .step.active .step-time { color: var(--gold); opacity: 0.7; }
+
+  /* ── Complete: Clapperboard aesthetic ── */
+  .clapper-card {
+    border: 1.5px solid var(--frameBorder);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .clapper-top {
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--raised) 0px, var(--raised) 8px,
+      var(--well) 8px, var(--well) 16px
+    );
+    padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 2px solid var(--gold);
+  }
+  .clapper-top-text { font-family: var(--mono); font-size: 10px; font-weight: 600; color: var(--gold); letter-spacing: 0.06em; text-transform: uppercase; }
+  .clapper-body {
+    padding: 14px;
+    background: var(--raised);
+  }
+  .clapper-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .clapper-row:last-child { border-bottom: none; }
+  .clapper-label { font-family: var(--mono); font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .clapper-value { font-size: 12px; font-weight: 500; color: var(--text); }
+  .clapper-value.gold { color: var(--gold); }
+  .clapper-value.green { color: var(--green); }
+
+  .success-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px; border-radius: 4px;
+    background: rgba(94,201,126,0.06); border: 1px solid rgba(94,201,126,0.18);
+    margin-bottom: 12px;
+  }
+  .success-icon { width: 22px; height: 22px; color: var(--green); flex-shrink: 0; }
+  .success-title { font-size: 13px; font-weight: 500; color: var(--text); }
+  .success-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  .audio-indicator {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px; border-radius: 4px;
+    background: rgba(92,184,204,0.06); border: 1px solid rgba(92,184,204,0.12);
+    margin-top: 10px;
+  }
+  .audio-indicator svg { color: var(--cyan); animation: spin 1.5s linear infinite; }
+  .audio-title { font-size: 10px; font-weight: 500; color: var(--cyan); }
+  .audio-sub { font-size: 9px; color: rgba(92,184,204,0.55); margin-top: 1px; }
+
+  .preview-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }
+  .preview-thumb { aspect-ratio: 16/9; background: var(--well); border-radius: 3px; overflow: hidden; position: relative; border: 1px solid var(--frameBorder); }
+  .preview-thumb .grad { position: absolute; inset: 0; }
+  .preview-thumb-label {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(0,0,0,0.55); font-size: 9px; color: var(--soft);
+    padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .credit-row { display: flex; justify-content: space-between; padding: 0 2px; margin-bottom: 10px; }
+  .credit-row .label { font-size: 10px; color: var(--dim); }
+  .credit-row .value { font-family: var(--mono); font-size: 10px; font-weight: 500; color: var(--gold); }
+  .checkbox-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .checkbox-row input { width: 13px; height: 13px; accent-color: var(--gold); }
+  .cb-label { font-size: 11px; color: var(--muted); }
+  .cb-note { font-size: 9px; color: var(--faint); }
+  .voice-row { display: flex; gap: 6px; align-items: center; }
+  .voice-select { flex: 1; }
+  .voice-btn {
+    width: 34px; height: 34px;
+    border: 1px solid var(--borderL); border-radius: 4px;
+    background: transparent; color: var(--soft);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 12px; flex-shrink: 0;
+  }
+
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--borderL); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">Concept 2 — Film Strip</h1>
+<p class="page-subtitle">The entire dialog has a film strip motif -- sprocket holes, frame borders, and film aesthetic throughout.</p>
+
+
+<!-- ═══════════════════════════════════════════════
+     STAGE 01: CONFIGURE
+     Form inputs are in "film frames." Sprocket holes on dialog edges.
+     ═══════════════════════════════════════════════ -->
+<section class="stage-section">
+  <div class="stage-label">01 <span>Configure</span></div>
+  <div class="dialog">
+    <div class="film-inner">
+      <div class="dialog-header">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+        <div class="dialog-close"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="3" x2="11" y2="11"/><line x1="11" y1="3" x2="3" y2="11"/></svg></div>
+      </div>
+      <div class="dialog-desc">Configure your AI video project</div>
+
+      <!-- Film Strip Pipeline -->
+      <div class="film-pipeline">
+        <div class="film-pipeline-label">Production Pipeline</div>
+        <div class="film-strip-bar">
+          <div class="strip-sprockets">
+            <div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div>
+          </div>
+          <div class="strip-frames">
+            <div class="strip-frame active"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M3.8 3.8l1 1M11.2 11.2l1 1M3.8 12.2l1-1M11.2 4.8l1-1"/></svg></div><div class="strip-name">Config</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="8" cy="6" r="2.5"/><path d="M3.5 13.5c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4"/></svg></div><div class="strip-name">Profile</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="3" y="3" width="10" height="10" rx="1.5"/><path d="M3 11l3-3 2 2 2.5-2.5L14 11"/></svg></div><div class="strip-name">Refs</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="2.5" y="3" width="5" height="4" rx="0.8"/><rect x="8.5" y="3" width="5" height="4" rx="0.8"/><rect x="2.5" y="9" width="5" height="4" rx="0.8"/><rect x="8.5" y="9" width="5" height="4" rx="0.8"/></svg></div><div class="strip-name">Board</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><polygon points="5.5,3 12.5,8 5.5,13"/></svg></div><div class="strip-name">Gen</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Done</div></div></div>
+          </div>
+          <div class="strip-sprockets">
+            <div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog-body">
+        <div class="film-frame-container" data-frame="FRM 001">
+          <div class="form-group">
+            <label class="form-label">Project Title</label>
+            <input class="form-input" type="text" value="iPhone 17 Pro — Launch Ad" readonly />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Aspect Ratio</label>
+            <select class="form-select"><option selected>16:9 (YouTube)</option></select>
+          </div>
+        </div>
+
+        <div class="film-frame-container" data-frame="FRM 002">
+          <div class="toggle-card on-green">
+            <svg class="toggle-card-icon" viewBox="0 0 24 24" fill="none" stroke="#5EC97E" stroke-width="2" stroke-linecap="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+            <div class="toggle-card-body">
+              <div class="toggle-card-title">Generate Storyboard</div>
+              <div class="toggle-card-sub">AI images (2 credits/scene)</div>
+            </div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5EC97E" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="form-group indent">
+            <label class="form-label">Art Style</label>
+            <select class="form-select"><option selected>Cinematic / Film</option></select>
+          </div>
+          <div class="toggle-card on-gold">
+            <svg class="toggle-card-icon" viewBox="0 0 24 24" fill="none" stroke="#D4A652" stroke-width="2" stroke-linecap="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
+            <div class="toggle-card-body">
+              <div class="toggle-card-title">Generate AI Videos</div>
+              <div class="toggle-card-sub">Animate storyboard (3 credits/scene)</div>
+            </div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D4A652" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="form-group indent">
+            <label class="form-label">Video Model</label>
+            <select class="form-select"><option selected>Kling 2.1 Pro</option></select>
+          </div>
+        </div>
+
+        <div class="film-frame-container" data-frame="FRM 003">
+          <div class="form-group">
+            <label class="form-label">Narrator Voice</label>
+            <div class="voice-row">
+              <select class="form-select voice-select"><option selected>Kokoro Heart -- warm, natural</option></select>
+              <button class="voice-btn">&#9654;</button>
+            </div>
+          </div>
+          <div class="credit-row">
+            <span class="label">Estimated cost</span>
+            <span class="value">~24 credits</span>
+          </div>
+        </div>
+
+        <div class="footer">
+          <button class="btn btn-ghost">Cancel</button>
+          <button class="btn btn-gold">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+            Export to Editor
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════
+     STAGE 02: PROFILE SELECTION
+     Profile cards styled as film frames
+     ═══════════════════════════════════════════════ -->
+<section class="stage-section">
+  <div class="stage-label">02 <span>Profile Selection</span></div>
+  <div class="dialog">
+    <div class="film-inner">
+      <div class="dialog-header">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+        <div class="dialog-close"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="3" x2="11" y2="11"/><line x1="11" y1="3" x2="3" y2="11"/></svg></div>
+      </div>
+      <div class="dialog-desc">Select an editing profile</div>
+
+      <div class="film-pipeline">
+        <div class="film-pipeline-label">Production Pipeline</div>
+        <div class="film-strip-bar">
+          <div class="strip-sprockets"><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div></div>
+          <div class="strip-frames">
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Config</div></div></div>
+            <div class="strip-frame active"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="8" cy="6" r="2.5"/><path d="M3.5 13.5c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4"/></svg></div><div class="strip-name">Profile</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="3" y="3" width="10" height="10" rx="1.5"/></svg></div><div class="strip-name">Refs</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="2.5" y="3" width="5" height="4" rx="0.8"/><rect x="8.5" y="3" width="5" height="4" rx="0.8"/><rect x="2.5" y="9" width="5" height="4" rx="0.8"/><rect x="8.5" y="9" width="5" height="4" rx="0.8"/></svg></div><div class="strip-name">Board</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><polygon points="5.5,3 12.5,8 5.5,13"/></svg></div><div class="strip-name">Gen</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Done</div></div></div>
+          </div>
+          <div class="strip-sprockets"><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div></div>
+        </div>
+      </div>
+
+      <div class="dialog-body">
+        <div class="profile-frame">
+          <div class="profile-frame-header">
+            <div>
+              <div class="profile-name">Cinematic</div>
+              <div class="profile-desc">Film-grade pacing, wide shots, slow motion</div>
+            </div>
+            <span class="badge badge-green">87% match</span>
+          </div>
+          <div class="profile-frame-body">
+            <div class="profile-reason">&#8594; Strong visual descriptions with camera cues</div>
+            <div class="profile-reason">&#8594; Narrative voiceover with emotional arc</div>
+            <input class="form-input" type="text" placeholder="Search profiles..." style="width:100%;margin-top:6px;height:26px;font-size:11px;" />
+            <div class="profile-list" style="margin-top:6px;">
+              <div class="profile-cat">Commercial</div>
+              <button class="profile-item">Professional -- Clean corporate</button>
+              <button class="profile-item">Energetic -- Fast cuts, upbeat</button>
+              <button class="profile-item selected">Cinematic -- Film-grade pacing</button>
+              <div class="profile-cat">Editorial</div>
+              <button class="profile-item">Minimal -- Restrained editing</button>
+              <button class="profile-item">Emotional -- Mood-first</button>
+            </div>
+          </div>
+        </div>
+        <div class="brief-grid">
+          <div><label class="brief-label">Platform</label><select class="brief-select"><option>YouTube</option></select></div>
+          <div><label class="brief-label">Tone</label><select class="brief-select"><option>Cinematic</option></select></div>
+          <div><label class="brief-label">Captions</label><select class="brief-select"><option>Auto</option></select></div>
+          <div><label class="brief-label">BGM Mood</label><select class="brief-select"><option>Dramatic</option></select></div>
+        </div>
+        <button class="btn btn-gold btn-full" style="margin-top:10px;">Continue with Cinematic <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════
+     STAGE 03: REFERENCE REVIEW
+     Subject images in film frame containers with sprocket holes
+     ═══════════════════════════════════════════════ -->
+<section class="stage-section">
+  <div class="stage-label">03 <span>Reference Review</span></div>
+  <div class="dialog">
+    <div class="film-inner">
+      <div class="dialog-header">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+        <div class="dialog-close"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="3" x2="11" y2="11"/><line x1="11" y1="3" x2="3" y2="11"/></svg></div>
+      </div>
+      <div class="dialog-desc">Review and approve reference images</div>
+
+      <div class="film-pipeline">
+        <div class="film-pipeline-label">Production Pipeline</div>
+        <div class="film-strip-bar">
+          <div class="strip-sprockets"><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div></div>
+          <div class="strip-frames">
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Config</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Profile</div></div></div>
+            <div class="strip-frame active"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="3" y="3" width="10" height="10" rx="1.5"/><path d="M3 11l3-3 2 2 2.5-2.5L14 11"/></svg></div><div class="strip-name">Refs</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="2.5" y="3" width="5" height="4" rx="0.8"/><rect x="8.5" y="3" width="5" height="4" rx="0.8"/><rect x="2.5" y="9" width="5" height="4" rx="0.8"/><rect x="8.5" y="9" width="5" height="4" rx="0.8"/></svg></div><div class="strip-name">Board</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><polygon points="5.5,3 12.5,8 5.5,13"/></svg></div><div class="strip-name">Gen</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Done</div></div></div>
+          </div>
+          <div class="strip-sprockets"><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div></div>
+        </div>
+      </div>
+
+      <div class="dialog-body">
+        <div class="panel-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D4A652" stroke-width="2" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+          <span class="panel-header-title">Review References (2/2 approved)</span>
+        </div>
+        <p class="panel-sub">Reference images guide AI for visual consistency.</p>
+
+        <div class="subject-grid">
+          <div class="subject-film-frame">
+            <div class="mini-sprockets"><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div></div>
+            <div class="subject-image">
+              <div class="grad" style="background:linear-gradient(135deg,#1a1a2e,#16213e,#0f0c29);"></div>
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+                <div style="width:36%;height:65%;border-radius:14px;border:1.5px solid rgba(255,255,255,0.06);background:linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01));"></div>
+              </div>
+              <button class="subject-approve"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+            </div>
+            <div class="mini-sprockets"><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div></div>
+            <div class="subject-info">
+              <div class="subject-name">iPhone 17 Pro</div>
+              <div class="subject-meta">product &middot; Scenes 1, 2, 3</div>
+            </div>
+          </div>
+          <div class="subject-film-frame">
+            <div class="mini-sprockets"><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div></div>
+            <div class="subject-image">
+              <div class="grad" style="background:linear-gradient(135deg,#302b63,#24243e,#0f0c29);"></div>
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+                  <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,rgba(212,166,82,0.12),rgba(212,166,82,0.04));border:1px solid rgba(212,166,82,0.12);"></div>
+                  <div style="width:38px;height:28px;border-radius:7px 7px 0 0;background:linear-gradient(180deg,rgba(212,166,82,0.08),rgba(212,166,82,0.02));border:1px solid rgba(212,166,82,0.08);border-bottom:none;margin-top:-2px;"></div>
+                </div>
+              </div>
+              <button class="subject-approve"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+            </div>
+            <div class="mini-sprockets"><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div><div class="ms"></div></div>
+            <div class="subject-info">
+              <div class="subject-name">Creative Professional</div>
+              <div class="subject-meta">character &middot; Scenes 1, 2</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="suggested-section">
+          <div class="suggested-header">More from your script (3)</div>
+          <div class="suggested-chips">
+            <div class="suggested-chip"><span class="chip-plus">+</span> City Skyline <span class="chip-cat">location</span></div>
+            <div class="suggested-chip"><span class="chip-plus">+</span> Coffee Shop <span class="chip-cat">location</span></div>
+            <div class="suggested-chip"><span class="chip-plus">+</span> Golden Hour <span class="chip-cat">object</span></div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <button class="btn btn-ghost">Skip References</button>
+          <button class="btn btn-gold">Continue with 2 References <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════
+     STAGE 04: STORYBOARD REVIEW
+     Scene images literally in film frames (most natural fit)
+     ═══════════════════════════════════════════════ -->
+<section class="stage-section">
+  <div class="stage-label">04 <span>Storyboard Review</span></div>
+  <div class="dialog">
+    <div class="film-inner">
+      <div class="dialog-header">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+        <div class="dialog-close"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="3" x2="11" y2="11"/><line x1="11" y1="3" x2="3" y2="11"/></svg></div>
+      </div>
+      <div class="dialog-desc">Review your storyboard before generating videos</div>
+
+      <div class="film-pipeline">
+        <div class="film-pipeline-label">Production Pipeline</div>
+        <div class="film-strip-bar">
+          <div class="strip-sprockets"><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div></div>
+          <div class="strip-frames">
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Config</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Profile</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Refs</div></div></div>
+            <div class="strip-frame active"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="2.5" y="3" width="5" height="4" rx="0.8"/><rect x="8.5" y="3" width="5" height="4" rx="0.8"/><rect x="2.5" y="9" width="5" height="4" rx="0.8"/><rect x="8.5" y="9" width="5" height="4" rx="0.8"/></svg></div><div class="strip-name">Board</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><polygon points="5.5,3 12.5,8 5.5,13"/></svg></div><div class="strip-name">Gen</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Done</div></div></div>
+          </div>
+          <div class="strip-sprockets"><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div></div>
+        </div>
+      </div>
+
+      <div class="dialog-body">
+        <div class="panel-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5EC97E" stroke-width="2" stroke-linecap="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+          <span class="panel-header-title">Review Storyboard (3/3 generated)</span>
+        </div>
+        <p class="panel-sub">These images become starting frames for AI video generation.</p>
+
+        <div class="scene-grid">
+          <div class="scene-film-frame">
+            <div class="sfm-sprockets"><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div></div>
+            <div class="scene-image"><div class="grad" style="background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);"></div><span class="scene-badge">1</span></div>
+            <div class="sfm-sprockets"><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div></div>
+            <div class="scene-info"><div class="scene-title">The Spark</div><div class="scene-status">Ready</div></div>
+          </div>
+          <div class="scene-film-frame">
+            <div class="sfm-sprockets"><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div></div>
+            <div class="scene-image"><div class="grad" style="background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);"></div><span class="scene-badge">2</span></div>
+            <div class="sfm-sprockets"><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div></div>
+            <div class="scene-info"><div class="scene-title">Unfolding Stories</div><div class="scene-status">Ready</div></div>
+          </div>
+          <div class="scene-film-frame">
+            <div class="sfm-sprockets"><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div></div>
+            <div class="scene-image"><div class="grad" style="background:linear-gradient(135deg,#7209b7,#3a0ca3,#f72585);"></div><span class="scene-badge">3</span></div>
+            <div class="sfm-sprockets"><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div><div class="sms"></div></div>
+            <div class="scene-info"><div class="scene-title">Life Amplified</div><div class="scene-status">Ready</div></div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <button class="btn btn-ghost">Skip Videos</button>
+          <button class="btn btn-gold">Generate 3 Videos <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════
+     STAGE 05: PROCESSING
+     Viewfinder inside a film frame while processing
+     ═══════════════════════════════════════════════ -->
+<section class="stage-section">
+  <div class="stage-label">05 <span>Processing (Video Generation)</span></div>
+  <div class="dialog">
+    <div class="film-inner">
+      <div class="dialog-header">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+        <div class="dialog-close"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="3" x2="11" y2="11"/><line x1="11" y1="3" x2="3" y2="11"/></svg></div>
+      </div>
+      <div class="dialog-desc">Generating your AI video...</div>
+
+      <div class="film-pipeline">
+        <div class="film-pipeline-label">Production Pipeline</div>
+        <div class="film-strip-bar">
+          <div class="strip-sprockets"><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div></div>
+          <div class="strip-frames">
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Config</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Profile</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Refs</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Board</div></div></div>
+            <div class="strip-frame active"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><polygon points="5.5,3 12.5,8 5.5,13"/></svg></div><div class="strip-name">Gen</div></div></div>
+            <div class="strip-frame future"><div class="strip-frame-inner"><div class="strip-icon"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Done</div></div></div>
+          </div>
+          <div class="strip-sprockets"><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div></div>
+        </div>
+      </div>
+
+      <div class="dialog-body">
+        <div class="film-frame-container" data-frame="FRM 005">
+          <div class="viewfinder-container">
+            <div class="viewfinder">
+              <div class="vf-corner tl"></div>
+              <div class="vf-corner tr"></div>
+              <div class="vf-corner bl"></div>
+              <div class="vf-corner br"></div>
+              <div class="vf-progress"></div>
+              <div class="vf-center-text">
+                <div class="vf-pct">40%</div>
+                <div class="vf-label">Rendering</div>
+              </div>
+            </div>
+            <div class="vf-rec">
+              <div class="vf-rec-dot"></div>
+              REC
+            </div>
+          </div>
+        </div>
+
+        <div class="processing-header">
+          <div class="spinner"></div>
+          <div class="processing-text">Bringing scenes to life</div>
+          <div class="processing-count">2 / 5</div>
+        </div>
+        <div class="step-list">
+          <div class="step done"><div class="step-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div><div class="step-name">Scene 1 — Opening hook</div><div class="step-time">12s</div></div>
+          <div class="step done"><div class="step-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div><div class="step-name">Scene 2 — Product reveal</div><div class="step-time">18s</div></div>
+          <div class="step active"><div class="step-icon"><div class="spinner" style="width:12px;height:12px;border-width:1.5px;"></div></div><div class="step-name">Scene 3 — Feature showcase</div><div class="step-time">~20s</div></div>
+          <div class="step pending"><div class="step-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/></svg></div><div class="step-name">Scene 4 — Testimonial</div></div>
+          <div class="step pending"><div class="step-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/></svg></div><div class="step-name">Scene 5 — Call to action</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════
+     STAGE 06: COMPLETE
+     Clapperboard/slate aesthetic for success card
+     ═══════════════════════════════════════════════ -->
+<section class="stage-section">
+  <div class="stage-label">06 <span>Export Complete</span></div>
+  <div class="dialog">
+    <div class="film-inner">
+      <div class="dialog-header">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <span class="dialog-title">Export to Editor</span>
+        <div class="dialog-close"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="3" x2="11" y2="11"/><line x1="11" y1="3" x2="3" y2="11"/></svg></div>
+      </div>
+      <div class="dialog-desc">Your project is ready</div>
+
+      <div class="film-pipeline">
+        <div class="film-pipeline-label">Production Pipeline</div>
+        <div class="film-strip-bar">
+          <div class="strip-sprockets"><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div></div>
+          <div class="strip-frames">
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Config</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Profile</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Refs</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Board</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Gen</div></div></div>
+            <div class="strip-frame done"><div class="strip-frame-inner"><div class="strip-icon"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="4,8.5 7,11.5 12,5"/></svg></div><div class="strip-name">Done</div></div></div>
+          </div>
+          <div class="strip-sprockets"><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div><div class="mini-sprocket"></div></div>
+        </div>
+      </div>
+
+      <div class="dialog-body">
+        <!-- Clapperboard success card -->
+        <div class="clapper-card">
+          <div class="clapper-top">
+            <div class="clapper-top-text">PRODUCTION WRAP</div>
+            <div class="clapper-top-text" style="opacity:0.5;">EDITRON</div>
+          </div>
+          <div class="clapper-body">
+            <div class="clapper-row">
+              <span class="clapper-label">Scene</span>
+              <span class="clapper-value green">COMPLETE</span>
+            </div>
+            <div class="clapper-row">
+              <span class="clapper-label">Take</span>
+              <span class="clapper-value">1</span>
+            </div>
+            <div class="clapper-row">
+              <span class="clapper-label">Project</span>
+              <span class="clapper-value gold">iPhone 17 Pro — Launch Ad</span>
+            </div>
+            <div class="clapper-row">
+              <span class="clapper-label">Format</span>
+              <span class="clapper-value">3 scenes &middot; 16:9 &middot; AI Videos</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="audio-indicator">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          <div>
+            <div class="audio-title">Music & Sound Effects generating</div>
+            <div class="audio-sub">Audio will appear in your Editor automatically</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;">
+          <div class="form-label" style="margin-bottom:6px;">Storyboard Preview</div>
+          <div class="preview-grid">
+            <div class="preview-thumb"><div class="grad" style="background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);"></div><div class="preview-thumb-label">The Spark</div></div>
+            <div class="preview-thumb"><div class="grad" style="background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);"></div><div class="preview-thumb-label">Unfolding Stories</div></div>
+            <div class="preview-thumb"><div class="grad" style="background:linear-gradient(135deg,#7209b7,#3a0ca3,#f72585);"></div><div class="preview-thumb-label">Life Amplified</div></div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <button class="btn btn-ghost">Close</button>
+          <button class="btn btn-outline-gold">Edit Storyboard</button>
+          <button class="btn btn-gold">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+            Open in Editor
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<p style="text-align:center;font-size:10px;color:var(--faint);margin-top:40px;font-family:var(--mono);">
+  Concept 2 — Film Strip &mdash; 6 Stages &mdash; Design Review Artifact
+</p>
+
+</body>
+</html>

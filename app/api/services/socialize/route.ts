@@ -35,6 +35,8 @@ interface ISocializeData {
   links?: SocializeLink[];
   notifications?: Notification[];
   banner?: BannerConfig;
+  status?: string;
+  accentColor?: string;
   _id?: string; // Add _id for lean results
   __v?: number; // Add __v for lean results
 }
@@ -192,6 +194,17 @@ function isValidSocializeData(
       }
     }
   }
+  if (data.status !== undefined) {
+    if (typeof data.status !== "string" || data.status.length > 50) {
+      return "Status must be a string up to 50 characters.";
+    }
+  }
+  if (data.accentColor !== undefined) {
+    const validColors = ["gold", "cyan", "rose", "green", "purple", "coral"];
+    if (typeof data.accentColor !== "string" || !validColors.includes(data.accentColor)) {
+      return "Accent color must be one of: gold, cyan, rose, green, purple, coral.";
+    }
+  }
   return null;
 }
 
@@ -319,6 +332,8 @@ export async function PATCH(request: NextRequest) {
 
     // Current implementation replaces the entire array if provided.
     if (updateFields.links !== undefined) updateData.links = updateFields.links;
+    if (updateFields.status !== undefined) updateData.status = updateFields.status;
+    if (updateFields.accentColor !== undefined) updateData.accentColor = updateFields.accentColor;
 
     // 🚀 NEW LOGIC: Process and enhance notifications with expiry data
     if (updateFields.notifications !== undefined) {

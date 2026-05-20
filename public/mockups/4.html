@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Story V3 — Socialize by Insturix</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-page:#0B0B0A;--bg-surface:#0F0F0E;--bg-raised:#131312;--bg-well:#1B1A18;
+  --border-subtle:#1C1B19;--border-emphasis:#282724;
+  --text-primary:#ECE9E1;--text-secondary:#B5B2A8;--text-muted:#7A776E;--text-dim:#5F5E5A;--text-faint:#454340;
+  --gold:#D4A652;--gold-hover:#C49840;--gold-bg:rgba(212,166,82,.08);--gold-border:rgba(212,166,82,.16);
+  --gold-glow:rgba(212,166,82,.15);--gold-glow-strong:rgba(212,166,82,.35);
+  --green:#5EC97E;--red:#D46A5C;--purple:#9088D4;--cyan:#5CB8CC;--pink:#D088B4;
+  --linkedin:#0A66C2;--youtube:#FF0000;--github:#E6EDF3;
+  --radius-card:12px;--radius-btn:7px;
+  --ease:cubic-bezier(.16,1,.3,1);
+  --font-body:'Plus Jakarta Sans',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+}
+html{font-size:15px}
+body{background:var(--bg-page);color:var(--text-primary);font-family:var(--font-body);min-height:100vh;overflow-x:hidden}
+::selection{background:var(--gold);color:var(--bg-page)}
+
+/* ── Header ── */
+.story-header{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 40px;
+  background:rgba(11,11,10,.85);backdrop-filter:blur(24px) saturate(1.4);
+  border-bottom:1px solid var(--border-subtle);
+}
+.header-back{
+  display:flex;align-items:center;gap:6px;
+  font-size:.82rem;color:var(--text-muted);cursor:pointer;
+  transition:color .25s var(--ease);text-decoration:none;font-family:var(--font-body);
+}
+.header-back:hover{color:var(--text-secondary)}
+.header-back svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
+.header-center{
+  position:absolute;left:50%;transform:translateX(-50%);
+  font-size:1.47rem;font-weight:800;color:var(--text-primary);letter-spacing:-.02em;
+}
+.publish-btn{
+  padding:9px 22px;border-radius:var(--radius-btn);border:none;
+  background:var(--gold);color:var(--bg-page);font-family:var(--font-body);
+  font-size:.82rem;font-weight:800;cursor:pointer;letter-spacing:.02em;
+  transition:all .3s var(--ease);
+}
+.publish-btn:hover{background:var(--gold-hover);transform:translateY(-1px)}
+
+/* ── Story Arc ── */
+.story-arc{
+  padding:10px 40px 8px;border-bottom:1px solid var(--border-subtle);
+  position:relative;overflow:hidden;
+}
+.arc-svg{width:100%;height:32px;display:block}
+.arc-line{
+  fill:none;stroke:var(--gold);stroke-width:1.5;
+  stroke-dasharray:1200;stroke-dashoffset:1200;
+  animation:drawArc 2s var(--ease) .5s forwards;
+  filter:drop-shadow(0 0 6px rgba(212,166,82,.25));
+}
+.arc-fill{fill:url(#arcGrad);opacity:0;animation:fadeIn .8s ease 2s forwards}
+.arc-dot{fill:var(--gold);r:3;opacity:0;animation:fadeIn .4s ease forwards;cursor:pointer;transition:r .2s,filter .2s}
+.arc-dot:nth-child(1){animation-delay:2.2s}
+.arc-dot:nth-child(2){animation-delay:2.4s}
+.arc-dot:nth-child(3){animation-delay:2.6s}
+.arc-dot:nth-child(4){animation-delay:2.8s}
+.arc-dot:nth-child(5){animation-delay:3s}
+.arc-dot:hover,.arc-dot.active{r:5;filter:drop-shadow(0 0 8px rgba(212,166,82,.5))}
+.arc-labels{
+  display:flex;justify-content:space-between;
+  padding:2px 20px 0;
+}
+.arc-label{
+  font-family:var(--font-mono);font-size:10px;font-weight:400;
+  color:var(--text-dim);letter-spacing:.06em;
+  cursor:pointer;transition:color .25s var(--ease);
+  padding:2px 4px;border-radius:4px;
+}
+.arc-label:hover,.arc-label.active{color:var(--gold)}
+
+@keyframes drawArc{to{stroke-dashoffset:0}}
+@keyframes fadeIn{to{opacity:1}}
+
+/* ── Main Layout ── */
+.main{display:flex;padding:0 40px;gap:0;min-height:calc(100vh - 110px)}
+.col-timeline{flex:0 0 50%;padding:24px 28px 60px 0;position:relative}
+.col-preview{flex:0 0 50%;position:relative}
+.preview-sticky{
+  position:sticky;top:80px;
+  padding:24px 0 24px 36px;border-left:1px solid var(--border-subtle);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:calc(100vh - 110px);
+}
+
+/* ── Timeline Spine ── */
+.timeline{position:relative;padding-left:52px}
+.timeline::before{
+  content:'';position:absolute;left:31px;top:0;bottom:28px;width:1.5px;
+  background:linear-gradient(180deg,var(--gold) 0%,rgba(212,166,82,.4) 70%,rgba(212,166,82,.15) 100%);
+}
+.timeline::after{
+  content:'';position:absolute;left:29.5px;top:0;width:5px;height:40px;
+  background:linear-gradient(180deg,transparent,var(--gold),transparent);
+  border-radius:3px;animation:pulseDown 4s ease-in-out infinite;filter:blur(1px);
+}
+@keyframes pulseDown{
+  0%{top:-40px;opacity:0}
+  10%{opacity:1}
+  85%{opacity:1}
+  95%{opacity:.4}
+  100%{top:calc(100% - 10px);opacity:0}
+}
+
+/* ── Moments ── */
+.moment{position:relative;margin-bottom:28px;opacity:0;animation:momentIn .6s var(--ease) forwards}
+.moment:nth-child(1){animation-delay:.3s}
+.moment:nth-child(2){animation-delay:.42s}
+.moment:nth-child(3){animation-delay:.54s}
+.moment:nth-child(4){animation-delay:.66s}
+.moment:nth-child(5){animation-delay:.78s}
+
+@keyframes momentIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+/* Node */
+.node{position:absolute;left:-52px;top:6px;width:32px;display:flex;align-items:center;justify-content:center}
+.node-dot{
+  width:12px;height:12px;border-radius:50%;position:relative;z-index:2;
+  box-shadow:0 0 10px var(--gold-glow);
+}
+.node-dot.filled-green{background:var(--green);box-shadow:0 0 10px rgba(94,201,126,.25)}
+.node-dot.filled-gold{background:var(--gold);box-shadow:0 0 10px var(--gold-glow)}
+/* peak class removed — all dots same size for clean visual rhythm */
+.node-dot.pulsing{background:var(--gold);animation:ringPulse 2s ease-in-out infinite}
+.node-dot.pulsing::after{
+  content:'';position:absolute;inset:-6px;border-radius:50%;
+  border:1.5px solid var(--gold);opacity:0;animation:ringExpand 2s ease-in-out infinite;
+}
+@keyframes ringPulse{0%,100%{box-shadow:0 0 10px var(--gold-glow)}50%{box-shadow:0 0 20px var(--gold-glow-strong)}}
+@keyframes ringExpand{0%{opacity:.6;transform:scale(.8)}100%{opacity:0;transform:scale(1.8)}}
+
+/* Connector */
+.connector{position:absolute;left:-20px;top:12px;width:20px;height:1px;background:var(--gold);opacity:.35}
+
+/* Label */
+.moment-label{
+  display:flex;align-items:center;gap:8px;margin-bottom:6px;
+}
+.moment-label-text{
+  font-family:var(--font-body);font-size:.72rem;font-weight:500;
+  color:var(--gold);letter-spacing:.1em;text-transform:uppercase;
+}
+.moment-timing{
+  font-family:var(--font-mono);font-size:10px;color:var(--text-dim);
+}
+
+/* Card */
+.card{
+  background:var(--bg-surface);
+  border-radius:var(--radius-card);padding:20px;position:relative;
+  transition:all .35s var(--ease);
+}
+.card:hover{
+  transform:translateY(-2px);
+  border-color:var(--gold-border);
+  box-shadow:0 8px 32px rgba(0,0,0,.3),0 0 20px rgba(212,166,82,.05);
+}
+.card.has-border{
+  border:1px solid var(--border-subtle);
+}
+.card.has-border:hover{
+  border-color:var(--gold-border);
+}
+
+/* ── Moment 1: Banner ── */
+.banner-swatch{
+  width:100%;height:48px;border-radius:8px;
+  background:linear-gradient(135deg,var(--gold),#1B1A18 70%);
+  margin-bottom:12px;
+}
+.controls-row{display:flex;gap:6px}
+.pill{
+  font-family:var(--font-body);font-size:.75rem;font-weight:500;
+  padding:5px 12px;border-radius:16px;cursor:pointer;
+  border:1px solid var(--border-emphasis);color:var(--text-muted);
+  background:transparent;transition:all .25s var(--ease);
+}
+.pill.active{background:var(--gold-bg);border-color:var(--gold-border);color:var(--gold)}
+.pill:hover:not(.active){border-color:var(--text-dim);color:var(--text-secondary)}
+
+/* ── Moment 2: Identity ── */
+.identity-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.avatar-small{
+  width:38px;height:38px;border-radius:50%;
+  background:var(--bg-well);border:2px solid var(--gold);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:.9rem;color:var(--gold);flex-shrink:0;
+}
+.identity-fields{flex:1;display:flex;gap:10px;align-items:center}
+.underline-input{
+  font-family:var(--font-body);font-size:.85rem;color:var(--text-primary);
+  background:transparent;border:none;border-bottom:1px solid var(--border-emphasis);
+  padding:4px 0;outline:none;flex:1;transition:border-color .25s var(--ease);
+}
+.underline-input:focus{border-color:var(--gold)}
+.underline-input.status-input{font-size:.78rem;color:var(--text-secondary)}
+.bio-row{display:flex;align-items:flex-start;gap:10px}
+.bio-area{
+  font-family:var(--font-body);font-size:.85rem;color:var(--text-secondary);
+  background:var(--bg-well);border:1px solid var(--border-subtle);
+  border-radius:var(--radius-btn);padding:10px 12px;
+  resize:none;outline:none;width:100%;height:48px;line-height:1.4;
+}
+.bio-area:focus{border-color:var(--gold)}
+.char-count{
+  font-family:var(--font-mono);font-size:11px;color:var(--text-dim);
+  white-space:nowrap;padding-top:8px;
+}
+
+/* ── Moment 3: Links ── */
+.link-row{
+  display:flex;align-items:center;gap:12px;padding:12px;
+  border-radius:8px;background:var(--bg-well);margin-bottom:8px;
+  transition:all .25s var(--ease);position:relative;overflow:hidden;
+  border-left:4px solid var(--link-platform-color, var(--border-emphasis));
+}
+.link-row:last-of-type{margin-bottom:0}
+.link-row:hover{background:var(--bg-raised);transform:translateX(2px)}
+.link-icon{
+  width:30px;height:30px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  font-size:12px;font-weight:800;color:#fff;
+  box-shadow:0 0 12px var(--link-glow,transparent);
+}
+.link-name{flex:1;font-size:.88rem;color:var(--text-primary);font-weight:500}
+.link-toggle{
+  width:34px;height:19px;border-radius:10px;background:var(--green);
+  position:relative;cursor:pointer;flex-shrink:0;transition:background .25s;
+}
+.link-toggle::after{
+  content:'';position:absolute;top:2.5px;right:2.5px;width:14px;height:14px;
+  border-radius:50%;background:#fff;transition:transform .25s var(--ease);
+}
+.link-toggle.off{background:var(--border-emphasis)}
+.link-toggle.off::after{transform:translateX(-15px)}
+.add-link-btn{
+  font-family:var(--font-body);font-size:.75rem;color:var(--text-muted);font-weight:500;
+  padding:6px 12px;border:1px dashed var(--border-emphasis);
+  border-radius:var(--radius-btn);background:transparent;cursor:pointer;
+  transition:all .25s var(--ease);margin-top:10px;
+}
+.add-link-btn:hover{border-color:var(--gold);color:var(--gold)}
+
+/* ── Moment 4: Notification ── */
+.notif-row{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 12px;border-radius:8px;background:var(--bg-well);
+}
+.notif-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--gold);flex-shrink:0;
+  animation:livePulse 1.5s ease-in-out infinite;
+}
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
+.notif-text{flex:1;font-size:.85rem;color:var(--text-primary)}
+.notif-time{
+  font-family:var(--font-mono);font-size:11px;color:var(--text-dim);
+  padding:2px 8px;border-radius:4px;background:var(--bg-raised);
+}
+.notif-add{
+  font-family:var(--font-body);font-size:.75rem;color:var(--text-muted);font-weight:500;
+  padding:5px 10px;border:1px solid var(--border-emphasis);
+  border-radius:var(--radius-btn);background:transparent;cursor:pointer;
+  margin-top:8px;transition:all .25s var(--ease);
+}
+.notif-add:hover{border-color:var(--gold);color:var(--gold)}
+
+/* ── Moment 5: Style ── */
+.accent-label{
+  font-family:var(--font-body);font-size:.72rem;font-weight:500;
+  color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;
+}
+.accent-dots{display:flex;gap:12px}
+.accent-dot{
+  width:24px;height:24px;border-radius:50%;cursor:pointer;
+  transition:all .25s var(--ease);border:2px solid transparent;
+}
+.accent-dot:hover{transform:scale(1.15)}
+.accent-dot.active{border-color:var(--text-primary);box-shadow:0 0 10px rgba(212,166,82,.3)}
+
+/* Timeline end */
+.timeline-end{
+  display:flex;align-items:center;gap:10px;
+  margin-left:-25px;margin-top:-2px;
+}
+.end-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--gold);
+  flex-shrink:0;opacity:.5;
+  animation:endCatch 4s ease-in-out infinite;
+}
+@keyframes endCatch{
+  0%,88%{opacity:.3;box-shadow:none}
+  94%{opacity:1;box-shadow:0 0 14px var(--gold-glow-strong)}
+  100%{opacity:.3;box-shadow:none}
+}
+.end-text{
+  font-family:var(--font-mono);font-size:12px;letter-spacing:.04em;
+  color:var(--text-muted);
+  animation:textRadiate 4s ease-in-out infinite;
+}
+@keyframes textRadiate{
+  0%,85%{color:var(--text-muted)}
+  93%{color:var(--gold)}
+  100%{color:var(--text-muted)}
+}
+
+/* ── Preview Column ── */
+.preview-header{
+  font-family:var(--font-body);font-size:.72rem;font-weight:500;
+  color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;
+  margin-bottom:16px;
+}
+
+/* Phone Wrapper (holds frame + sync dots) */
+.phone-wrapper{position:relative}
+
+/* Sync Dots */
+.sync-dots{
+  position:absolute;left:-24px;top:60px;
+  display:flex;flex-direction:column;gap:0;height:calc(100% - 80px);
+  justify-content:space-around;
+}
+.sync-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--border-emphasis);
+  transition:all .4s var(--ease);
+}
+.sync-dot.active{
+  background:var(--gold);
+  box-shadow:0 0 10px var(--gold-glow),0 0 20px var(--gold-glow);
+  transform:scale(1.4);
+}
+.sync-line{
+  position:absolute;left:-20px;width:20px;height:1px;
+  background:var(--gold);opacity:0;
+  transition:opacity .3s var(--ease);
+}
+.sync-dot.active + .sync-line,
+.sync-dot.active ~ .sync-line{opacity:0}
+
+/* Phone Frame */
+.phone-frame{
+  width:420px;background:var(--bg-raised);border-radius:32px;
+  border:2px solid var(--border-emphasis);
+  box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.03),0 0 80px rgba(212,166,82,.04);
+  overflow:hidden;position:relative;
+}
+.phone-notch{
+  width:100px;height:22px;background:var(--bg-page);
+  border-radius:0 0 14px 14px;margin:0 auto;
+}
+.phone-screen{
+  max-height:560px;overflow-y:auto;overflow-x:hidden;
+  scrollbar-width:none;
+}
+.phone-screen::-webkit-scrollbar{width:0;display:none}
+.phone-inner{padding:0 20px 20px}
+
+/* Preview content */
+.prev-banner{
+  height:72px;border-radius:10px;margin:8px 0;
+  background:linear-gradient(135deg,var(--gold) 0%,#2a2520 50%,#1B1A18 100%);
+  position:relative;
+}
+.prev-avatar{
+  width:48px;height:48px;border-radius:50%;
+  background:var(--bg-well);border:2.5px solid var(--gold);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:1.1rem;color:var(--gold);
+  margin:-24px auto 0;position:relative;z-index:2;
+  animation:breathe 3s ease-in-out infinite;
+}
+@keyframes breathe{
+  0%,100%{box-shadow:0 0 0 3px rgba(212,166,82,.1)}
+  50%{box-shadow:0 0 0 6px rgba(212,166,82,.2)}
+}
+.prev-name{text-align:center;font-size:1.1rem;font-weight:800;margin-top:8px;color:var(--text-primary)}
+.prev-status{
+  display:flex;align-items:center;justify-content:center;gap:5px;margin-top:4px;
+}
+.prev-status-dot{width:5px;height:5px;border-radius:50%;background:var(--gold)}
+.prev-status-text{font-size:.82rem;color:var(--text-secondary)}
+.prev-bio{text-align:center;font-size:.82rem;color:var(--text-muted);margin-top:6px;line-height:1.45;padding:0 12px}
+
+/* Preview notification */
+.prev-notif{
+  display:flex;align-items:center;gap:6px;
+  margin:10px 0;padding:8px 10px;border-radius:8px;
+  background:var(--bg-well);border-left:3px solid var(--gold);
+}
+.prev-notif-dot{width:6px;height:6px;border-radius:50%;background:var(--gold);animation:livePulse 1.5s ease-in-out infinite}
+.prev-notif-text{font-size:.75rem;color:var(--text-secondary);flex:1}
+
+/* Preview bento cards */
+.prev-bento{display:grid;gap:8px;margin-top:10px;grid-template-columns:1fr 1fr}
+.prev-bento-wide{
+  grid-column:1/-1;padding:12px 14px;border-radius:10px;
+  background:var(--bg-well);border:1px solid var(--border-subtle);
+  display:flex;align-items:center;gap:10px;
+  transition:all .25s var(--ease);cursor:pointer;position:relative;overflow:hidden;
+}
+.prev-bento-wide::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+}
+.prev-bento-wide:hover{border-color:var(--border-emphasis);transform:translateY(-1px)}
+.prev-bento-half{
+  padding:12px;border-radius:10px;
+  background:var(--bg-well);border:1px solid var(--border-subtle);
+  display:flex;flex-direction:column;gap:6px;
+  transition:all .25s var(--ease);cursor:pointer;position:relative;overflow:hidden;
+}
+.prev-bento-half::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+}
+.prev-bento-half:hover{border-color:var(--border-emphasis);transform:translateY(-1px)}
+.prev-bento-icon{
+  width:28px;height:28px;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:800;flex-shrink:0;
+}
+.prev-bento-label{font-size:.82rem;color:var(--text-secondary);font-weight:500}
+
+.prev-footer{
+  text-align:center;margin-top:14px;
+  font-family:var(--font-mono);font-size:11px;color:var(--text-faint);letter-spacing:.04em;
+}
+
+/* Below phone */
+.preview-url{
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  margin-top:14px;
+}
+.preview-url-text{font-family:var(--font-mono);font-size:12px;color:var(--text-secondary)}
+.preview-url-copy{
+  width:18px;height:18px;cursor:pointer;color:var(--text-dim);
+  transition:color .25s var(--ease);
+}
+.preview-url-copy:hover{color:var(--gold)}
+.preview-updated{
+  text-align:center;font-family:var(--font-mono);font-size:11px;
+  color:var(--text-muted);margin-top:4px;
+}
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="story-header">
+  <a class="header-back">
+    <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+    Dashboard
+  </a>
+  <div class="header-center">nimit's story</div>
+  <button class="publish-btn">Publish</button>
+</header>
+
+<!-- Story Arc -->
+<div class="story-arc">
+  <svg class="arc-svg" viewBox="0 0 1000 32" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="arcGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="rgba(212,166,82,.12)"/>
+        <stop offset="100%" stop-color="rgba(212,166,82,0)"/>
+      </linearGradient>
+    </defs>
+    <path class="arc-fill" d="M0,30 C150,30 200,24 350,14 C450,8 500,5 550,8 C650,14 750,22 850,11 C900,6 950,16 1000,18 L1000,32 L0,32Z"/>
+    <path class="arc-line" d="M0,30 C150,30 200,24 350,14 C450,8 500,5 550,8 C650,14 750,22 850,11 C900,6 950,16 1000,18"/>
+    <circle class="arc-dot" cx="0" cy="30"/>
+    <circle class="arc-dot" cx="250" cy="19"/>
+    <circle class="arc-dot" cx="500" cy="5"/>
+    <circle class="arc-dot" cx="750" cy="18"/>
+    <circle class="arc-dot" cx="1000" cy="18"/>
+  </svg>
+  <div class="arc-labels">
+    <span class="arc-label" data-target="1">ARRIVAL</span>
+    <span class="arc-label" data-target="2">DISCOVERY</span>
+    <span class="arc-label" data-target="3">CONNECTION</span>
+    <span class="arc-label" data-target="4">NEWS</span>
+    <span class="arc-label" data-target="5">SIGNATURE</span>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Left: Timeline -->
+  <div class="col-timeline">
+    <div class="timeline">
+
+      <!-- Moment 1: First Impression -->
+      <div class="moment" data-moment="1">
+        <div class="node"><div class="node-dot filled-green"></div></div>
+        <div class="connector"></div>
+        <div class="moment-label">
+          <span class="moment-label-text">OPENING SCENE</span>
+          <span class="moment-timing">~1s</span>
+        </div>
+        <div class="card">
+          <div class="banner-swatch"></div>
+          <div class="controls-row">
+            <button class="pill active">Gradient</button>
+            <button class="pill">Color</button>
+            <button class="pill">Image</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Moment 2: Who You Are -->
+      <div class="moment" data-moment="2">
+        <div class="node"><div class="node-dot filled-green"></div></div>
+        <div class="connector"></div>
+        <div class="moment-label">
+          <span class="moment-label-text">THE INTRODUCTION</span>
+          <span class="moment-timing">~3s</span>
+        </div>
+        <div class="card">
+          <div class="identity-row">
+            <div class="avatar-small">N</div>
+            <div class="identity-fields">
+              <input class="underline-input" value="nimit" readonly>
+              <input class="underline-input status-input" value="Building the future" readonly>
+            </div>
+          </div>
+          <div class="bio-row">
+            <textarea class="bio-area" readonly>Full-stack developer. Building things that matter. Open-source contributor.</textarea>
+            <span class="char-count">67/160</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Moment 3: Your Links (peak) -->
+      <div class="moment" data-moment="3">
+        <div class="node"><div class="node-dot filled-green"></div></div>
+        <div class="connector"></div>
+        <div class="moment-label">
+          <span class="moment-label-text">THE CHAPTERS</span>
+          <span class="moment-timing">~8s</span>
+        </div>
+        <div class="card has-border">
+          <!-- LinkedIn -->
+          <div class="link-row" style="--link-platform-color:var(--linkedin);--link-glow:rgba(10,102,194,.3)">
+            <div class="link-icon" style="background:var(--linkedin)">in</div>
+            <span class="link-name">My LinkedIn</span>
+            <div class="link-toggle"></div>
+          </div>
+          <!-- YouTube -->
+          <div class="link-row" style="--link-platform-color:var(--youtube);--link-glow:rgba(255,0,0,.25)">
+            <div class="link-icon" style="background:var(--youtube)">&#9654;</div>
+            <span class="link-name">My Channel</span>
+            <div class="link-toggle"></div>
+          </div>
+          <!-- GitHub -->
+          <div class="link-row" style="--link-platform-color:#24292e;--link-glow:rgba(230,237,243,.15)">
+            <div class="link-icon" style="background:#24292e;color:var(--github)">&lt;/&gt;</div>
+            <span class="link-name">Code</span>
+            <div class="link-toggle"></div>
+          </div>
+
+          <button class="add-link-btn">+ Add Link</button>
+        </div>
+      </div>
+
+      <!-- Moment 4: Breaking News -->
+      <div class="moment" data-moment="4">
+        <div class="node"><div class="node-dot pulsing"></div></div>
+        <div class="connector"></div>
+        <div class="moment-label">
+          <span class="moment-label-text">BREAKING NEWS</span>
+          <span class="moment-timing">~2s</span>
+        </div>
+        <div class="card has-border">
+          <div class="notif-row">
+            <div class="notif-dot"></div>
+            <span class="notif-text">New project dropping soon!</span>
+            <span class="notif-time">6h</span>
+          </div>
+          <button class="notif-add">+ New</button>
+        </div>
+      </div>
+
+      <!-- Moment 5: Your Style -->
+      <div class="moment" data-moment="5">
+        <div class="node"><div class="node-dot filled-green"></div></div>
+        <div class="connector"></div>
+        <div class="moment-label">
+          <span class="moment-label-text">THE SIGNATURE</span>
+          <span class="moment-timing">~1s</span>
+        </div>
+        <div class="card">
+          <div class="accent-label">ACCENT COLOR</div>
+          <div class="accent-dots">
+            <div class="accent-dot active" style="background:var(--gold)"></div>
+            <div class="accent-dot" style="background:var(--cyan)"></div>
+            <div class="accent-dot" style="background:var(--pink)"></div>
+            <div class="accent-dot" style="background:var(--green)"></div>
+            <div class="accent-dot" style="background:var(--purple)"></div>
+            <div class="accent-dot" style="background:var(--red)"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline End -->
+      <div class="timeline-end">
+        <div class="end-dot"></div>
+        <span class="end-text">5 moments &middot; ~15s</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Right: Preview -->
+  <div class="col-preview">
+    <div class="preview-sticky">
+      <div class="preview-header">VISITOR'S JOURNEY</div>
+
+      <div class="phone-wrapper">
+        <!-- Sync dots -->
+        <div class="sync-dots">
+          <div class="sync-dot" data-sync="1"></div>
+          <div class="sync-dot" data-sync="2"></div>
+          <div class="sync-dot" data-sync="3"></div>
+          <div class="sync-dot" data-sync="4"></div>
+          <div class="sync-dot" data-sync="5"></div>
+        </div>
+
+      <div class="phone-frame">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+        <div class="phone-inner">
+          <!-- Banner -->
+          <div class="prev-banner"></div>
+          <!-- Avatar -->
+          <div class="prev-avatar">N</div>
+          <!-- Name -->
+          <div class="prev-name">nimit</div>
+          <!-- Status -->
+          <div class="prev-status">
+            <div class="prev-status-dot"></div>
+            <span class="prev-status-text">Building the future</span>
+          </div>
+          <!-- Bio -->
+          <div class="prev-bio">Full-stack developer. Building things that matter. Open-source contributor.</div>
+          <!-- Notification -->
+          <div class="prev-notif">
+            <div class="prev-notif-dot"></div>
+            <span class="prev-notif-text">New project dropping soon!</span>
+          </div>
+          <!-- Bento links -->
+          <div class="prev-bento">
+            <!-- LinkedIn wide -->
+            <div class="prev-bento-wide">
+              <div style="position:absolute;top:0;left:0;right:0;height:2px;background:var(--linkedin)"></div>
+              <div class="prev-bento-icon" style="background:var(--linkedin)">in</div>
+              <span class="prev-bento-label">My LinkedIn</span>
+              <svg style="margin-left:auto;width:14px;height:14px;stroke:var(--text-dim);fill:none;stroke-width:2" viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H7M17 7v10"/></svg>
+            </div>
+            <!-- YouTube half -->
+            <div class="prev-bento-half">
+              <div style="position:absolute;top:0;left:0;right:0;height:2px;background:var(--youtube)"></div>
+              <div class="prev-bento-icon" style="background:var(--youtube)">&#9654;</div>
+              <span class="prev-bento-label">My Channel</span>
+            </div>
+            <!-- GitHub half -->
+            <div class="prev-bento-half">
+              <div style="position:absolute;top:0;left:0;right:0;height:2px;background:#24292e"></div>
+              <div class="prev-bento-icon" style="background:#24292e;color:var(--github)">&lt;/&gt;</div>
+              <span class="prev-bento-label">Code</span>
+            </div>
+          </div>
+          <!-- Footer -->
+          <div class="prev-footer">Built with Insturix</div>
+        </div>
+        </div><!-- /phone-screen -->
+      </div><!-- /phone-frame -->
+      </div><!-- /phone-wrapper -->
+
+      <!-- Below phone -->
+      <div class="preview-url">
+        <span class="preview-url-text">insturix.com/socialize/nimit</span>
+        <svg class="preview-url-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+        </svg>
+      </div>
+      <div class="preview-updated">Updated 2m ago</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Toggle switches
+document.querySelectorAll('.link-toggle').forEach(toggle => {
+  toggle.addEventListener('click', () => toggle.classList.toggle('off'));
+});
+
+// Banner type pills
+document.querySelectorAll('.controls-row .pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.controls-row .pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+  });
+});
+
+// Accent color selection
+document.querySelectorAll('.accent-dot').forEach(dot => {
+  dot.addEventListener('click', () => {
+    document.querySelectorAll('.accent-dot').forEach(d => d.classList.remove('active'));
+    dot.classList.add('active');
+  });
+});
+
+// === INTERACTIVE ARC + SYNC DOTS ===
+const syncDots = document.querySelectorAll('.sync-dot');
+const moments = document.querySelectorAll('.moment');
+const phoneScreen = document.querySelector('.phone-screen');
+const arcDots = document.querySelectorAll('.arc-dot');
+const arcLabels = document.querySelectorAll('.arc-label');
+const phoneTargets = ['.prev-banner', '.prev-avatar', '.prev-bento', '.prev-notif', '.prev-footer'];
+
+function highlightMoment(i) {
+  // Sync dots on phone
+  syncDots.forEach(d => d.classList.remove('active'));
+  if (syncDots[i]) syncDots[i].classList.add('active');
+  // Arc dots
+  arcDots.forEach(d => d.classList.remove('active'));
+  if (arcDots[i]) arcDots[i].classList.add('active');
+  // Arc labels
+  arcLabels.forEach(l => l.classList.remove('active'));
+  if (arcLabels[i]) arcLabels[i].classList.add('active');
+}
+
+function clearHighlight() {
+  syncDots.forEach(d => d.classList.remove('active'));
+  arcDots.forEach(d => d.classList.remove('active'));
+  arcLabels.forEach(l => l.classList.remove('active'));
+}
+
+function scrollToMoment(i) {
+  const target = moments[i];
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// Hover moments → light up arc + sync dots
+moments.forEach((m, i) => {
+  m.addEventListener('mouseenter', () => {
+    highlightMoment(i);
+    const card = m.querySelector('.card');
+    if (card) card.style.boxShadow = '0 8px 32px rgba(0,0,0,.3),0 0 24px rgba(212,166,82,.08)';
+  });
+  m.addEventListener('mouseleave', () => {
+    clearHighlight();
+    const card = m.querySelector('.card');
+    if (card) card.style.boxShadow = '';
+  });
+});
+
+// Click arc dots → scroll to moment
+arcDots.forEach((dot, i) => {
+  dot.addEventListener('click', () => scrollToMoment(i));
+  dot.addEventListener('mouseenter', () => highlightMoment(i));
+  dot.addEventListener('mouseleave', () => clearHighlight());
+});
+
+// Click arc labels → scroll to moment
+arcLabels.forEach((label, i) => {
+  label.addEventListener('click', () => scrollToMoment(i));
+  label.addEventListener('mouseenter', () => highlightMoment(i));
+  label.addEventListener('mouseleave', () => clearHighlight());
+});
+
+// Phone scroll → update sync dots
+if (phoneScreen) {
+  const sections = phoneTargets.map(s => phoneScreen.querySelector(s)).filter(Boolean);
+  phoneScreen.addEventListener('scroll', () => {
+    const scrollTop = phoneScreen.scrollTop;
+    const screenH = phoneScreen.clientHeight;
+    let closest = 0;
+    let minDist = Infinity;
+    sections.forEach((sec, i) => {
+      const dist = Math.abs(sec.offsetTop - scrollTop - screenH / 3);
+      if (dist < minDist) { minDist = dist; closest = i; }
+    });
+    syncDots.forEach((d, i) => d.classList.toggle('active', i === closest));
+  });
+}
+</script>
+
+</body>
+</html>

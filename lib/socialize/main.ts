@@ -82,6 +82,8 @@ export interface SocializeUser {
   username: string;
   profileImage: string;
   bio: string;
+  status?: string;
+  accentColor?: string;
   links: SocializeLink[];
   banner?: BannerConfig;
   uniqueUsername?: string;

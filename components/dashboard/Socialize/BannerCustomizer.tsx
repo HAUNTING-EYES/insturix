@@ -50,8 +50,21 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
 
     const currentUploading = uploading || !!isUploading;
 
-    // Minimal console debug kept intentionally (can be removed later)
-    console.debug('BannerCustomizer:', { banner, expanded, selectedTab });
+    const deletePreviousBannerImage = async (prev: BannerConfig) => {
+        if (prev.type === "image" && (prev.gcsPath || prev.value)) {
+            try {
+                const deleteUrl = new URL(window.location.origin + "/api/services/socialize/upload/banner");
+                deleteUrl.searchParams.set('url', prev.gcsPath || prev.value || '');
+                const delRes = await fetch(deleteUrl.toString(), { method: 'DELETE' });
+                if (!delRes.ok) {
+                    const err = await delRes.json().catch(() => ({}));
+                    console.warn('Failed to delete previous banner image:', err?.error || delRes.statusText);
+                }
+            } catch (e) {
+                console.warn('Error deleting previous banner image:', e);
+            }
+        }
+    };
 
     async function handleUpload() {
         if (!file) return;
@@ -94,22 +107,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
             // close panel after success for a cleaner interaction
             setExpanded(false);
             // Delete previous image from GCS if it exists and was an image
-            try {
-                if (prevBanner?.type === 'image' && (prevBanner.gcsPath || prevBanner.value)) {
-                    const deleteUrl = new URL(window.location.origin + "/api/services/socialize/upload/banner");
-                    // prefer gcsPath if present
-                    deleteUrl.searchParams.set('url', prevBanner.gcsPath || prevBanner.value || '');
-                    const delRes = await fetch(deleteUrl.toString(), { method: 'DELETE' });
-                    if (!delRes.ok) {
-                        const err = await delRes.json().catch(() => ({}));
-                        console.warn('Failed to delete previous banner image:', err?.error || delRes.statusText);
-                        // Non-blocking: inform user
-                        toast({ title: 'Warning', description: 'Could not delete previous banner image', variant: 'destructive' });
-                    }
-                }
-            } catch (e) {
-                console.warn('Error deleting previous banner image:', e);
-            }
+            await deletePreviousBannerImage(prevBanner);
         } catch (e: any) {
             toast({ title: "Upload failed", description: e?.message || "Try again later", variant: "destructive" });
         } finally {
@@ -159,23 +157,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
             const prevBanner = banner;
             onBannerChange({ type: "color", value: normalized, gradientType: "linear", gradientColors: [] });
             // If previous banner was an uploaded image, delete it from GCS
-            (async () => {
-                try {
-                    if (prevBanner?.type === 'image' && (prevBanner.gcsPath || prevBanner.value)) {
-                        const deleteUrl = new URL(window.location.origin + "/api/services/socialize/upload/banner");
-                        deleteUrl.searchParams.set('url', prevBanner.gcsPath || prevBanner.value || '');
-                        const delRes = await fetch(deleteUrl.toString(), { method: 'DELETE' });
-                        if (!delRes.ok) {
-                            const err = await delRes.json().catch(() => ({}));
-                            console.warn('Failed to delete previous banner image:', err?.error || delRes.statusText);
-                            // Optionally show a toast (kept minimal to avoid too many toasts)
-                            toast({ title: 'Warning', description: 'Could not delete previous banner image', variant: 'destructive' });
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Error deleting previous banner image:', e);
-                }
-            })();
+            deletePreviousBannerImage(prevBanner);
         }
     }
 
@@ -193,20 +175,7 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
         toast({ title: 'Banner updated', description: 'Color applied to banner' });
 
         // If previous banner was an uploaded image, delete it from GCS
-        try {
-            if (prevBanner?.type === 'image' && (prevBanner.gcsPath || prevBanner.value)) {
-                const deleteUrl = new URL(window.location.origin + "/api/services/socialize/upload/banner");
-                deleteUrl.searchParams.set('url', prevBanner.gcsPath || prevBanner.value || '');
-                const delRes = await fetch(deleteUrl.toString(), { method: 'DELETE' });
-                if (!delRes.ok) {
-                    const err = await delRes.json().catch(() => ({}));
-                    console.warn('Failed to delete previous banner image:', err?.error || delRes.statusText);
-                    toast({ title: 'Warning', description: 'Could not delete previous banner image', variant: 'destructive' });
-                }
-            }
-        } catch (e) {
-            console.warn('Error deleting previous banner image:', e);
-        }
+        await deletePreviousBannerImage(prevBanner);
     }
 
     return (

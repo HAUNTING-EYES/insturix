@@ -151,7 +151,7 @@ export default function RootLayout({
                 ],
                 contactPoint: {
                   "@type": "ContactPoint",
-                  email: "contact@insturix.com",
+                  email: "support@insturix.com",
                   contactType: "customer service",
                 },
               }),
@@ -173,6 +173,12 @@ export default function RootLayout({
               )}
             </ThemeProvider>
           </ReactQueryProvider>
+          <footer aria-hidden="true" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap" }}>
+            <p>Insturix — AI-powered video production platform. Replace your entire video production workflow.</p>
+            <a href="/legal/privacy">Privacy Policy</a>
+            <a href="/legal/terms">Terms of Service</a>
+            <a href="mailto:support@insturix.com">Contact</a>
+          </footer>
         </body>
       </html>
     </ClerkProvider>

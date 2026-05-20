@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Musitron — The Setlist</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0B0B0A; --surface: #0F0F0E; --raised: #131312; --well: #1B1A18;
+    --border: #1C1B19; --border-light: #282724;
+    --text: #ECE9E1; --text-sec: #B5B2A8; --text-muted: #7A776E; --text-dim: #5F5E5A;
+    --gold: #D4A652; --gold-glow: rgba(212, 166, 82, 0.2);
+    --ease: cubic-bezier(.16,1,.3,1);
+  }
+  body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Breadcrumb */
+  .breadcrumb { display: flex; align-items: center; gap: 10px; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); position: relative; z-index: 10; }
+  .breadcrumb span { font-size: 13px; color: var(--text-muted); }
+  .breadcrumb span.active { color: var(--gold); }
+  .breadcrumb .sep { color: var(--text-dim); font-size: 11px; }
+  .breadcrumb .logo { font-weight: 700; font-size: 15px; color: var(--text); letter-spacing: -0.3px; }
+
+  /* 3-Column Layout */
+  .setlist-layout { display: grid; grid-template-columns: 320px 1fr 300px; min-height: calc(100vh - 53px); }
+
+  /* Backstage — Left Panel */
+  .backstage { background: var(--surface); border-right: 1px solid var(--border); padding: 28px 22px; display: flex; flex-direction: column; }
+  .panel-label { font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 18px; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; gap: 8px; }
+  .panel-label .icon { width: 18px; height: 18px; border-radius: 4px; background: var(--well); display: flex; align-items: center; justify-content: center; font-size: 10px; }
+
+  .form-field { margin-bottom: 14px; }
+  .form-field label { display: block; font-size: 10px; color: var(--text-dim); margin-bottom: 5px; letter-spacing: 0.8px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+  .form-field input, .form-field select, .form-field textarea {
+    width: 100%; background: var(--well); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; color: var(--text); font-size: 13px; font-family: 'Plus Jakarta Sans', sans-serif;
+    outline: none; transition: border-color .2s, box-shadow .3s;
+  }
+  .form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212,166,82,0.06); }
+  .form-field select option { background: var(--raised); }
+  .form-field textarea { resize: vertical; min-height: 60px; }
+
+  /* Style chips */
+  .style-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .chip { padding: 6px 12px; border-radius: 20px; font-size: 11px; border: 1px solid var(--border); background: var(--well); color: var(--text-sec); cursor: pointer; transition: all .2s var(--ease); font-family: 'JetBrains Mono', monospace; }
+  .chip:hover { border-color: var(--border-light); color: var(--text); }
+  .chip.active { border-color: var(--gold); background: rgba(212,166,82,0.08); color: var(--gold); }
+
+  .btn-prep { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; background: linear-gradient(135deg, var(--gold), #b8872e); color: #0B0B0A; font-weight: 700; font-size: 13px; transition: all .2s var(--ease); margin-top: 8px; }
+  .btn-prep:hover { transform: translateY(-1px); box-shadow: 0 8px 28px rgba(212,166,82,.2); }
+
+  /* Ticket counter */
+  .tickets { margin-top: auto; padding: 16px; background: var(--raised); border: 1px solid var(--border); border-radius: 10px; text-align: center; }
+  .tickets .t-val { font-size: 32px; font-weight: 700; color: var(--gold); font-family: 'JetBrains Mono', monospace; line-height: 1; }
+  .tickets .t-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+  .tickets .t-bar { height: 3px; background: var(--well); border-radius: 2px; margin-top: 10px; overflow: hidden; }
+  .tickets .t-fill { height: 100%; background: var(--gold); border-radius: 2px; width: 60%; }
+
+  /* Stage — Center */
+  .stage { display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; padding: 40px; overflow: hidden; }
+
+  /* Spotlight */
+  .spotlight { position: absolute; top: -120px; left: 50%; transform: translateX(-50%); width: 500px; height: 500px; background: radial-gradient(ellipse at center, rgba(212,166,82,0.08) 0%, rgba(212,166,82,0.02) 40%, transparent 70%); pointer-events: none; animation: spotlightSweep 8s ease-in-out infinite; }
+
+  @keyframes spotlightSweep { 0%, 100% { transform: translateX(-50%) rotate(-3deg); } 50% { transform: translateX(-50%) rotate(3deg); } }
+
+  .stage-player { text-align: center; position: relative; z-index: 2; width: 100%; max-width: 480px; }
+  .stage-title { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+  .stage-meta { font-size: 12px; color: var(--text-sec); font-family: 'JetBrains Mono', monospace; margin-bottom: 28px; }
+
+  .play-ring { width: 100px; height: 100px; border-radius: 50%; border: 2px solid var(--gold); display: flex; align-items: center; justify-content: center; margin: 0 auto 28px; cursor: pointer; transition: all .3s var(--ease); position: relative; }
+  .play-ring:hover { box-shadow: 0 0 40px var(--gold-glow); transform: scale(1.05); }
+  .play-ring.playing { box-shadow: 0 0 50px var(--gold-glow); }
+  .play-ring .play-icon { font-size: 32px; color: var(--gold); margin-left: 4px; }
+  .play-ring .pulse-ring { position: absolute; inset: -8px; border-radius: 50%; border: 1px solid rgba(212,166,82,0.2); animation: pulseRing 2s ease infinite; opacity: 0; }
+  .play-ring.playing .pulse-ring { opacity: 1; }
+  @keyframes pulseRing { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(1.4); opacity: 0; } }
+
+  /* Waveform */
+  .stage-wave { width: 100%; height: 60px; display: flex; align-items: center; justify-content: center; gap: 2px; margin-bottom: 12px; }
+  .sw-bar { width: 3px; border-radius: 1.5px; background: var(--border-light); transition: height .1s, background .2s; }
+  .sw-bar.past { background: var(--gold); }
+
+  .stage-progress { display: flex; align-items: center; gap: 10px; width: 100%; }
+  .sp-time { font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; min-width: 36px; }
+  .sp-bar { flex: 1; height: 3px; background: var(--well); border-radius: 2px; overflow: hidden; cursor: pointer; }
+  .sp-fill { height: 100%; background: var(--gold); border-radius: 2px; width: 35%; transition: width .2s; }
+
+  /* Countdown overlay */
+  .countdown { position: absolute; inset: 0; background: rgba(11,11,10,0.85); display: flex; align-items: center; justify-content: center; z-index: 20; opacity: 0; pointer-events: none; transition: opacity .3s; }
+  .countdown.visible { opacity: 1; pointer-events: auto; }
+  .countdown .cd-num { font-size: 80px; font-weight: 700; color: var(--gold); font-family: 'JetBrains Mono', monospace; animation: cdPulse 1s ease infinite; }
+  @keyframes cdPulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.7; } }
+
+  /* Setlist — Right Panel */
+  .setlist-panel { background: var(--surface); border-left: 1px solid var(--border); padding: 28px 22px; display: flex; flex-direction: column; }
+
+  .setlist-items { flex: 1; overflow-y: auto; }
+  .sl-item { display: flex; align-items: center; gap: 12px; padding: 14px 12px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .15s; position: relative; border-radius: 6px; margin-bottom: 4px; }
+  .sl-item:hover { background: var(--raised); }
+  .sl-item.active { background: var(--raised); }
+  .sl-item.active::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; background: var(--gold); border-radius: 1px; }
+
+  .sl-pin { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; border: 1.5px solid var(--border-light); transition: all .3s; }
+  .sl-item.active .sl-pin { background: var(--gold); border-color: var(--gold); box-shadow: 0 0 8px var(--gold-glow); }
+  .sl-item.done .sl-pin { background: #4ade80; border-color: #4ade80; }
+  .sl-item.gen .sl-pin { background: var(--gold); border-color: var(--gold); animation: pulse 1.5s ease infinite; }
+
+  .sl-info { flex: 1; min-width: 0; }
+  .sl-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sl-meta { font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 1px; }
+  .sl-dur { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; flex-shrink: 0; }
+
+  .sl-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 9px; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.3px; }
+  .b-done { background: rgba(74,222,128,0.08); color: #4ade80; }
+  .b-playing { background: rgba(212,166,82,0.08); color: var(--gold); }
+  .b-gen { background: rgba(212,166,82,0.08); color: var(--gold); animation: pulse 1.5s ease infinite; }
+  .b-queued { background: rgba(95,94,90,0.1); color: var(--text-dim); }
+
+  /* Summary footer */
+  .sl-summary { padding: 14px 0 0; border-top: 1px solid var(--border); margin-top: 12px; }
+  .sl-summary-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px; }
+  .sl-summary-row .label { color: var(--text-dim); }
+  .sl-summary-row .val { color: var(--text-sec); font-family: 'JetBrains Mono', monospace; }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes pinDrop { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .sl-item { animation: pinDrop .4s var(--ease) both; }
+  .sl-item:nth-child(2) { animation-delay: .05s; }
+  .sl-item:nth-child(3) { animation-delay: .1s; }
+  .sl-item:nth-child(4) { animation-delay: .15s; }
+</style>
+</head>
+<body>
+
+<nav class="breadcrumb">
+  <span class="logo">Musitron</span>
+  <span class="sep">&#8250;</span>
+  <span>Dashboard</span>
+  <span class="sep">&#8250;</span>
+  <span class="active">Setlist</span>
+</nav>
+
+<div class="setlist-layout">
+  <!-- Backstage — Left -->
+  <div class="backstage">
+    <div class="panel-label"><span class="icon">&#9835;</span> Prep Next Track</div>
+
+    <div class="form-field">
+      <label>Track Title</label>
+      <input type="text" placeholder="Name your track..." value="Solar Winds">
+    </div>
+
+    <div class="form-field">
+      <label>Style</label>
+    </div>
+    <div class="style-chips">
+      <div class="chip" onclick="selectChip(this)">Lo-fi</div>
+      <div class="chip active" onclick="selectChip(this)">Synthwave</div>
+      <div class="chip" onclick="selectChip(this)">Orchestral</div>
+      <div class="chip" onclick="selectChip(this)">Jazz</div>
+      <div class="chip" onclick="selectChip(this)">Folk</div>
+      <div class="chip" onclick="selectChip(this)">Trap</div>
+      <div class="chip" onclick="selectChip(this)">EDM</div>
+      <div class="chip" onclick="selectChip(this)">R&amp;B</div>
+    </div>
+
+    <div class="form-field">
+      <label>Model</label>
+      <select>
+        <option selected>Lyria 2</option>
+        <option>MusicGen Large</option>
+        <option>Suno v4</option>
+        <option>Stable Audio</option>
+      </select>
+    </div>
+
+    <div class="form-field">
+      <label>Duration</label>
+      <select>
+        <option>0:30</option>
+        <option>1:00</option>
+        <option selected>2:30</option>
+        <option>4:00</option>
+        <option>5:00</option>
+      </select>
+    </div>
+
+    <div class="form-field">
+      <label>Lyrics / Prompt</label>
+      <textarea placeholder="Describe the vibe or write lyrics...">Driving pads, retro laser synths, 80s sunset highway energy, no vocals</textarea>
+    </div>
+
+    <button class="btn-prep" onclick="prepTrack()">Add to Setlist</button>
+
+    <div class="tickets">
+      <div class="t-val" id="ticketCount">24</div>
+      <div class="t-label">Tickets Remaining</div>
+      <div class="t-bar"><div class="t-fill" style="width: 60%;"></div></div>
+    </div>
+  </div>
+
+  <!-- Stage — Center -->
+  <div class="stage">
+    <div class="spotlight"></div>
+
+    <div class="countdown" id="countdown">
+      <div class="cd-num" id="cdNum">3</div>
+    </div>
+
+    <div class="stage-player">
+      <div class="stage-title" id="stageTitle">Neon Reverie</div>
+      <div class="stage-meta">Synthwave &middot; 3:42 &middot; Lyria 2</div>
+
+      <div class="play-ring" id="playRing" onclick="togglePlay()">
+        <div class="pulse-ring"></div>
+        <div class="play-icon" id="playIcon">&#9654;</div>
+      </div>
+
+      <div class="stage-wave" id="stageWave"></div>
+
+      <div class="stage-progress">
+        <span class="sp-time" id="spTimeNow">1:18</span>
+        <div class="sp-bar"><div class="sp-fill" id="spFill"></div></div>
+        <span class="sp-time">3:42</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Setlist — Right -->
+  <div class="setlist-panel">
+    <div class="panel-label"><span class="icon">&#9776;</span> Setlist</div>
+
+    <div class="setlist-items">
+      <div class="sl-item active" onclick="selectSetlist(this, 'Neon Reverie')">
+        <div class="sl-pin"></div>
+        <div class="sl-info">
+          <div class="sl-title">Neon Reverie</div>
+          <div class="sl-meta">Synthwave &middot; Lyria 2</div>
+        </div>
+        <div class="sl-dur">3:42</div>
+        <div class="sl-badge b-playing">Playing</div>
+      </div>
+
+      <div class="sl-item done" onclick="selectSetlist(this, 'Autumn Letters')">
+        <div class="sl-pin"></div>
+        <div class="sl-info">
+          <div class="sl-title">Autumn Letters</div>
+          <div class="sl-meta">Acoustic Folk &middot; MusicGen</div>
+        </div>
+        <div class="sl-dur">2:15</div>
+        <div class="sl-badge b-done">Done</div>
+      </div>
+
+      <div class="sl-item done" onclick="selectSetlist(this, 'Orbital Drift')">
+        <div class="sl-pin"></div>
+        <div class="sl-info">
+          <div class="sl-title">Orbital Drift</div>
+          <div class="sl-meta">Lo-fi Ambient &middot; Lyria 2</div>
+        </div>
+        <div class="sl-dur">4:08</div>
+        <div class="sl-badge b-done">Done</div>
+      </div>
+
+      <div class="sl-item gen" onclick="selectSetlist(this, 'Midnight Cascade')">
+        <div class="sl-pin"></div>
+        <div class="sl-info">
+          <div class="sl-title">Midnight Cascade</div>
+          <div class="sl-meta">Orchestral &middot; Suno v4</div>
+        </div>
+        <div class="sl-dur">--:--</div>
+        <div class="sl-badge b-gen">Generating</div>
+      </div>
+    </div>
+
+    <div class="sl-summary">
+      <div class="sl-summary-row">
+        <span class="label">Total tracks</span>
+        <span class="val">4</span>
+      </div>
+      <div class="sl-summary-row">
+        <span class="label">Complete</span>
+        <span class="val">3 / 4</span>
+      </div>
+      <div class="sl-summary-row">
+        <span class="label">Total runtime</span>
+        <span class="val">10:05</span>
+      </div>
+      <div class="sl-summary-row">
+        <span class="label">Credits used</span>
+        <span class="val">16</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let isPlaying = false;
+  let progress = 35;
+  const WAVE_BARS = 100;
+
+  // Stage waveform
+  const waveContainer = document.getElementById('stageWave');
+  const waveHeights = [];
+  for (let i = 0; i < WAVE_BARS; i++) {
+    const h = Math.sin(i * 0.1) * 15 + Math.random() * 25 + 10;
+    waveHeights.push(h);
+    const bar = document.createElement('div');
+    bar.className = 'sw-bar' + (i / WAVE_BARS * 100 < progress ? ' past' : '');
+    bar.style.height = h + 'px';
+    waveContainer.appendChild(bar);
+  }
+
+  function togglePlay() {
+    isPlaying = !isPlaying;
+    const ring = document.getElementById('playRing');
+    const icon = document.getElementById('playIcon');
+    ring.classList.toggle('playing', isPlaying);
+    icon.innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
+    if (isPlaying) advanceProgress();
+  }
+
+  function advanceProgress() {
+    if (!isPlaying) return;
+    progress = Math.min(progress + 0.07, 100);
+    document.getElementById('spFill').style.width = progress + '%';
+
+    const bars = waveContainer.querySelectorAll('.sw-bar');
+    bars.forEach((b, i) => {
+      const pct = i / WAVE_BARS * 100;
+      if (pct < progress) { b.classList.add('past'); }
+      else { b.classList.remove('past'); }
+      if (isPlaying && Math.abs(pct - progress) < 4) {
+        b.style.height = (waveHeights[i] + Math.random() * 8) + 'px';
+      }
+    });
+
+    const secs = Math.floor(progress / 100 * 222);
+    const m = Math.floor(secs / 60);
+    const s = (secs % 60).toString().padStart(2, '0');
+    document.getElementById('spTimeNow').textContent = m + ':' + s;
+
+    requestAnimationFrame(advanceProgress);
+  }
+
+  function selectChip(el) {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+  }
+
+  function selectSetlist(el, name) {
+    document.querySelectorAll('.sl-item').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('stageTitle').textContent = name;
+  }
+
+  function prepTrack() {
+    const cd = document.getElementById('countdown');
+    const cdNum = document.getElementById('cdNum');
+    cd.classList.add('visible');
+    let count = 3;
+    cdNum.textContent = count;
+    const iv = setInterval(() => {
+      count--;
+      if (count <= 0) {
+        clearInterval(iv);
+        cd.classList.remove('visible');
+        // Add new item to setlist
+        const items = document.querySelector('.setlist-items');
+        const newItem = document.createElement('div');
+        newItem.className = 'sl-item gen';
+        newItem.style.animation = 'pinDrop .4s var(--ease) both';
+        newItem.innerHTML = `
+          <div class="sl-pin"></div>
+          <div class="sl-info">
+            <div class="sl-title">Solar Winds</div>
+            <div class="sl-meta">Synthwave &middot; Lyria 2</div>
+          </div>
+          <div class="sl-dur">--:--</div>
+          <div class="sl-badge b-gen">Generating</div>
+        `;
+        items.appendChild(newItem);
+        // Decrement tickets
+        const tc = document.getElementById('ticketCount');
+        tc.textContent = parseInt(tc.textContent) - 4;
+      } else {
+        cdNum.textContent = count;
+      }
+    }, 1000);
+  }
+
+  setTimeout(() => togglePlay(), 700);
+</script>
+</body>
+</html>

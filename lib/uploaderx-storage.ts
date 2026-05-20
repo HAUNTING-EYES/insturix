@@ -19,7 +19,7 @@ type ResolvedUploaderXVideo = {
 let r2Client: S3Client | null = null;
 
 function getRequiredEnv(name: string) {
-  const value = process.env[name];
+  const value = process.env[name]?.trim();
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
@@ -28,13 +28,14 @@ function getRequiredEnv(name: string) {
 
 export function getUploaderXR2Client() {
   if (!r2Client) {
+    const accountId = (process.env.UPLOADERX_R2_ACCOUNT_ID || getRequiredEnv("R2_ACCOUNT_ID")).trim();
+    const accessKeyId = (process.env.UPLOADERX_R2_ACCESS_KEY_ID || getRequiredEnv("R2_ACCESS_KEY_ID")).trim();
+    const secretAccessKey = (process.env.UPLOADERX_R2_SECRET_ACCESS_KEY || getRequiredEnv("R2_SECRET_ACCESS_KEY")).trim();
+
     r2Client = new S3Client({
       region: "auto",
-      endpoint: `https://${getRequiredEnv("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
-      credentials: {
-        accessKeyId: getRequiredEnv("R2_ACCESS_KEY_ID"),
-        secretAccessKey: getRequiredEnv("R2_SECRET_ACCESS_KEY"),
-      },
+      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId, secretAccessKey },
     });
   }
 
@@ -42,11 +43,11 @@ export function getUploaderXR2Client() {
 }
 
 export function getUploaderXR2BucketName() {
-  return process.env.UPLOADERX_R2_BUCKET_NAME || getRequiredEnv("R2_BUCKET_NAME");
+  return (process.env.UPLOADERX_R2_BUCKET_NAME || getRequiredEnv("R2_BUCKET_NAME")).trim();
 }
 
 export function buildUploaderXPublicUrl(key: string) {
-  const baseUrl = (process.env.UPLOADERX_R2_PUBLIC_BASE_URL || process.env.R2_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+  const baseUrl = (process.env.UPLOADERX_R2_PUBLIC_BASE_URL || process.env.R2_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
   if (!baseUrl) throw new Error("Missing required environment variable: UPLOADERX_R2_PUBLIC_BASE_URL (or R2_PUBLIC_BASE_URL)");
   return `${baseUrl}/${key}`;
 }

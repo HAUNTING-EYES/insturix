@@ -30,6 +30,8 @@ interface ISocialize extends Document {
   username: string;
   profileImage: string;
   bio: string;
+  status: string;
+  accentColor: string;
   links: SocializeLink[];
   notifications: INotification[];
   banner: BannerConfig;
@@ -112,7 +114,7 @@ const bannerSchema = new Schema<BannerConfig>(
     value: {
       type: String,
       required: true,
-      default: '#0e6b9c',
+      default: '#D4A652',
     },
     gradientType: {
       type: String,
@@ -146,6 +148,16 @@ const socializeSchema = new Schema<ISocialize>(
     bio: {
       type: String,
       default: "",
+    },
+    status: {
+      type: String,
+      default: "",
+      maxlength: 50,
+    },
+    accentColor: {
+      type: String,
+      default: "gold",
+      enum: ["gold", "cyan", "rose", "green", "purple", "coral"],
     },
     links: {
       type: [linkSchema],

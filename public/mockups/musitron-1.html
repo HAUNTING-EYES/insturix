@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Musitron — The Recording Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0B0B0A; --surface: #0F0F0E; --raised: #131312; --well: #1B1A18;
+    --border: #1C1B19; --border-light: #282724;
+    --text: #ECE9E1; --text-sec: #B5B2A8; --text-muted: #7A776E; --text-dim: #5F5E5A;
+    --gold: #D4A652; --gold-glow: rgba(212, 166, 82, 0.15);
+    --green: #4ade80; --red: #f87171;
+    --ease: cubic-bezier(.16,1,.3,1);
+  }
+  body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Breadcrumb */
+  .breadcrumb { display: flex; align-items: center; gap: 10px; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .breadcrumb span { font-size: 13px; color: var(--text-muted); cursor: pointer; transition: color .2s; }
+  .breadcrumb span:hover { color: var(--text-sec); }
+  .breadcrumb span.active { color: var(--gold); }
+  .breadcrumb .sep { color: var(--text-dim); font-size: 11px; cursor: default; }
+  .breadcrumb .logo { font-weight: 700; font-size: 15px; color: var(--text); letter-spacing: -0.3px; }
+  .tab-nav { display: flex; gap: 0; margin-left: auto; }
+  .tab-btn { padding: 6px 16px; font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase;
+    color: var(--text-dim); background: transparent; border: 1px solid var(--border); border-radius: 0; cursor: pointer; transition: all .2s var(--ease); font-family: 'JetBrains Mono', monospace; }
+  .tab-btn:first-child { border-radius: 6px 0 0 6px; }
+  .tab-btn:last-child { border-radius: 0 6px 6px 0; }
+  .tab-btn.active { color: var(--gold); border-color: var(--gold); background: rgba(212,166,82,0.06); }
+  .tab-btn:hover:not(.active) { color: var(--text-sec); border-color: var(--border-light); }
+
+  /* Studio Layout */
+  .studio { display: grid; grid-template-columns: 380px 1fr 300px; gap: 0; min-height: calc(100vh - 53px); }
+
+  /* Left: Console */
+  .panel { padding: 28px 24px; border-right: 1px solid var(--border); overflow-y: auto; }
+  .panel:last-child { border-right: none; }
+  .panel-title { font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 20px; font-family: 'JetBrains Mono', monospace; }
+
+  .console { background: var(--surface); }
+
+  /* Channel Strips = Model Selector */
+  .channel-strips { display: flex; gap: 10px; justify-content: center; margin-bottom: 24px; }
+  .channel { background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 14px 10px 12px; flex: 1; text-align: center; transition: all .3s var(--ease); cursor: pointer; position: relative; }
+  .channel:hover { border-color: var(--border-light); }
+  .channel.active { border-color: var(--gold); box-shadow: 0 0 24px var(--gold-glow); }
+  .channel .ch-label { font-size: 9px; color: var(--text-dim); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; font-family: 'JetBrains Mono', monospace; }
+  .channel .led { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); margin: 0 auto 8px; transition: all .3s; }
+  .channel.active .led { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+
+  /* Knob (decorative model indicator) */
+  .knob-wrap { width: 44px; height: 44px; margin: 0 auto 6px; }
+  .knob { width: 44px; height: 44px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #3a3a38, #1a1a19); border: 2px solid var(--border-light); position: relative; cursor: pointer; transition: transform .4s var(--ease); }
+  .knob::after { content: ''; position: absolute; top: 5px; left: 50%; width: 2px; height: 10px; background: var(--gold); border-radius: 1px; transform-origin: bottom center; transform: translateX(-50%) rotate(var(--rot, 0deg)); }
+  .channel .model-name { font-size: 10px; color: var(--text-sec); font-weight: 600; margin-bottom: 2px; }
+  .channel .cost-tag { font-size: 9px; color: var(--gold); font-family: 'JetBrains Mono', monospace; }
+
+  /* Form Fields */
+  .form-field { margin-bottom: 16px; }
+  .form-field label { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.6px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+  .form-field .req { color: var(--gold); font-size: 8px; }
+  .form-field input, .form-field textarea {
+    width: 100%; background: var(--well); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; color: var(--text); font-size: 13px; font-family: 'Plus Jakarta Sans', sans-serif;
+    outline: none; transition: border-color .2s, box-shadow .2s;
+  }
+  .form-field input:focus, .form-field textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212,166,82,0.06); }
+  .form-field textarea { resize: vertical; min-height: 80px; }
+  .form-field .char-count { text-align: right; font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+  .form-field .hint { font-size: 10px; color: var(--text-dim); margin-top: 4px; font-style: italic; }
+
+  /* Duration Fader */
+  .duration-row { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  .fader-track { width: 100%; height: 4px; background: var(--well); border-radius: 2px; position: relative; appearance: none; outline: none; cursor: pointer; }
+  .fader-track::-webkit-slider-thumb { appearance: none; width: 18px; height: 12px; background: linear-gradient(180deg, #666, #333); border: 1px solid var(--border-light); border-radius: 3px; cursor: grab; }
+  .fader-track::-moz-range-thumb { width: 18px; height: 12px; background: linear-gradient(180deg, #666, #333); border: 1px solid var(--border-light); border-radius: 3px; cursor: grab; }
+  .fader-track:disabled { opacity: 0.35; cursor: not-allowed; }
+  .fader-track:disabled::-webkit-slider-thumb { cursor: not-allowed; }
+  .duration-val { min-width: 48px; text-align: right; font-size: 13px; color: var(--gold); font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+  .duration-disabled-note { font-size: 9px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 2px; margin-bottom: 12px; }
+
+  /* Instrumental Toggle */
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--raised); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
+  .toggle-row .toggle-label { font-size: 12px; color: var(--text-sec); display: flex; align-items: center; gap: 8px; }
+  .toggle-row .toggle-label svg { width: 16px; height: 16px; color: var(--gold); }
+  .switch { position: relative; width: 40px; height: 22px; background: var(--well); border: 1px solid var(--border); border-radius: 11px; cursor: pointer; transition: background .2s; }
+  .switch.on { background: var(--gold); border-color: var(--gold); }
+  .switch.disabled { opacity: 0.4; cursor: not-allowed; }
+  .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--text); transition: transform .2s var(--ease); }
+  .switch.on::after { transform: translateX(18px); background: #0B0B0A; }
+
+  /* Model Description */
+  .model-desc { font-size: 11px; color: var(--text-dim); line-height: 1.5; padding: 10px 12px; background: var(--raised); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 18px; }
+
+  /* Generate Button */
+  .btn-generate {
+    width: 100%; padding: 14px; border: none; border-radius: 8px; cursor: pointer;
+    background: linear-gradient(135deg, var(--gold), #b8872e); color: #0B0B0A; font-weight: 700;
+    font-size: 13px; letter-spacing: 0.5px; transition: all .2s var(--ease); display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-generate:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(212,166,82,.25); }
+  .btn-generate:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  /* VU Meter */
+  .vu-meter { display: flex; gap: 3px; align-items: flex-end; height: 60px; justify-content: center; margin: 16px 0 0; }
+  .vu-bar { width: 5px; border-radius: 2px; background: var(--gold); opacity: 0.25; transition: height .12s; }
+  .vu-bar.hot { background: #e8832a; }
+
+  /* CENTER: Turntable */
+  .main-stage { background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; position: relative; }
+
+  .turntable { width: 320px; height: 320px; position: relative; margin-bottom: 32px; }
+  .vinyl { width: 300px; height: 300px; border-radius: 50%; position: absolute; top: 10px; left: 10px;
+    background: repeating-radial-gradient(circle, #111 0px, #111 2px, #161615 2px, #161615 4px);
+    border: 3px solid #222; box-shadow: 0 0 60px rgba(0,0,0,.6); transition: box-shadow .4s; }
+  .vinyl.spinning { animation: spin 3s linear infinite; box-shadow: 0 0 80px rgba(212,166,82,.1); }
+  .vinyl-label { position: absolute; top: 50%; left: 50%; width: 90px; height: 90px; border-radius: 50%;
+    transform: translate(-50%, -50%); background: radial-gradient(circle, var(--gold), #8a6520);
+    display: flex; align-items: center; justify-content: center; }
+  .vinyl-label span { font-size: 9px; font-weight: 700; color: #0B0B0A; text-transform: uppercase; letter-spacing: 1px; }
+  .tonearm { position: absolute; top: -10px; right: 20px; width: 4px; height: 140px; background: linear-gradient(180deg, #777, #444);
+    border-radius: 2px; transform-origin: top center; transform: rotate(-15deg); transition: transform .6s var(--ease); }
+  .tonearm.playing { transform: rotate(8deg); }
+  .tonearm::after { content: ''; position: absolute; bottom: -6px; left: -3px; width: 10px; height: 10px; border-radius: 50%; background: #555; border: 1px solid #777; }
+
+  /* Recording Indicator */
+  .rec-indicator { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: rgba(220, 60, 60, 0.08); border: 1px solid rgba(220, 60, 60, 0.2); border-radius: 8px; margin-bottom: 24px; }
+  .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: #dc3c3c; animation: pulse 1s ease infinite; }
+  .rec-text { font-size: 11px; color: #dc6c6c; font-family: 'JetBrains Mono', monospace; letter-spacing: 1px; text-transform: uppercase; }
+
+  /* Now Playing */
+  .now-playing { text-align: center; }
+  .now-playing .track-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .now-playing .track-meta { font-size: 12px; color: var(--text-sec); font-family: 'JetBrains Mono', monospace; }
+  .player-controls { display: flex; gap: 16px; align-items: center; margin-top: 20px; }
+  .ctrl-btn { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border-light); background: var(--raised);
+    color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; transition: all .2s var(--ease); }
+  .ctrl-btn.play { width: 56px; height: 56px; background: var(--gold); color: #0B0B0A; border: none; font-size: 20px; }
+  .ctrl-btn:hover { border-color: var(--gold); }
+  .ctrl-btn.play:hover { box-shadow: 0 0 30px var(--gold-glow); }
+
+  /* Progress */
+  .progress-bar { width: 280px; height: 3px; background: var(--well); border-radius: 2px; margin-top: 16px; position: relative; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--gold); border-radius: 2px; width: 35%; transition: width .3s; }
+  .time-labels { display: flex; justify-content: space-between; width: 280px; margin-top: 6px; font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+
+  /* RIGHT: Tape Shelf */
+  .tape-shelf { background: var(--surface); overflow-y: auto; }
+  .tape-reel { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background .2s; position: relative; }
+  .tape-reel:hover { background: var(--raised); }
+  .tape-reel.active { background: var(--raised); border-left: 2px solid var(--gold); }
+  .reel-icon { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--border-light);
+    background: radial-gradient(circle, var(--well) 30%, var(--raised) 70%); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; position: relative; }
+  .reel-icon::before, .reel-icon::after { content: ''; position: absolute; border-radius: 50%; border: 1px solid var(--border-light); }
+  .reel-icon::before { width: 10px; height: 10px; background: var(--raised); }
+  .reel-icon::after { width: 24px; height: 24px; }
+  .reel-info { flex: 1; min-width: 0; }
+  .reel-info .reel-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .reel-info .reel-meta { font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .reel-status { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-dot.complete { background: var(--green); }
+  .status-dot.generating { background: var(--gold); animation: pulse 1.5s ease infinite; }
+  .status-dot.failed { background: var(--red); }
+
+  /* Credits Display */
+  .credits-box { padding: 16px; background: var(--raised); border-radius: 8px; margin-top: 16px; text-align: center; border: 1px solid var(--border); }
+  .credits-box .credits-val { font-size: 24px; font-weight: 700; color: var(--gold); font-family: 'JetBrains Mono', monospace; }
+  .credits-box .credits-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+</style>
+</head>
+<body>
+
+<nav class="breadcrumb">
+  <span class="logo">Musitron</span>
+  <span class="sep">&#8250;</span>
+  <span>Dashboard</span>
+  <span class="sep">&#8250;</span>
+  <span class="active">Studio</span>
+  <div class="tab-nav">
+    <button class="tab-btn active">Studio</button>
+    <button class="tab-btn" onclick="window.location='musitron-2.html'">Jukebox</button>
+  </div>
+</nav>
+
+<div class="studio">
+  <!-- LEFT: Mixing Console (Generation Form) -->
+  <div class="panel console">
+    <div class="panel-title">Mixing Console</div>
+
+    <!-- Model Selector as Channel Strips -->
+    <div class="channel-strips">
+      <div class="channel active" id="ch-sonauto" onclick="selectModel('sonauto/v2/text-to-music')">
+        <div class="ch-label">CH 1</div>
+        <div class="led"></div>
+        <div class="knob-wrap"><div class="knob" style="--rot: -40deg"></div></div>
+        <div class="model-name">Sonauto V2</div>
+        <div class="cost-tag">8 credits</div>
+      </div>
+      <div class="channel" id="ch-stable" onclick="selectModel('fal-ai/stable-audio/v2.5')">
+        <div class="ch-label">CH 2</div>
+        <div class="led"></div>
+        <div class="knob-wrap"><div class="knob" style="--rot: 15deg"></div></div>
+        <div class="model-name">Stable Audio</div>
+        <div class="cost-tag">1 credit</div>
+      </div>
+      <div class="channel" id="ch-minimax" onclick="selectModel('fal-ai/minimax-music/v2')">
+        <div class="ch-label">CH 3</div>
+        <div class="led"></div>
+        <div class="knob-wrap"><div class="knob" style="--rot: 60deg"></div></div>
+        <div class="model-name">MiniMax V2</div>
+        <div class="cost-tag">3 credits</div>
+      </div>
+    </div>
+
+    <!-- Model Description -->
+    <div class="model-desc" id="modelDesc">
+      Best for viral hits; creates full songs with realistic, expressive vocals/lyrics, controllable via BPM and customizable text.
+    </div>
+
+    <!-- Title -->
+    <div class="form-field">
+      <label><span class="req">*</span> Track Title</label>
+      <input type="text" id="titleInput" placeholder="Name your track..." maxlength="120">
+    </div>
+
+    <!-- Style -->
+    <div class="form-field">
+      <label><span class="req">*</span> Style of Music</label>
+      <input type="text" id="styleInput" placeholder="e.g., Cinematic Orchestral, Lo-fi Ambient, Jazz Fusion" maxlength="120">
+      <div class="char-count"><span id="styleCount">0</span>/120</div>
+    </div>
+
+    <!-- Duration (fader) -->
+    <div class="form-field">
+      <label>Duration</label>
+      <div class="duration-row">
+        <input type="range" class="fader-track" id="durationSlider" min="5" max="240" value="30" step="1">
+        <div class="duration-val" id="durationVal">30s</div>
+      </div>
+      <div class="duration-disabled-note" id="durationNote" style="display:none;">Fixed duration for this model</div>
+    </div>
+
+    <!-- Instrumental Toggle -->
+    <div class="toggle-row">
+      <div class="toggle-label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        Instrumental Only
+      </div>
+      <div class="switch" id="instrumentalSwitch" onclick="toggleInstrumental()"></div>
+    </div>
+
+    <!-- Lyrics -->
+    <div class="form-field" id="lyricsField">
+      <label>Lyrics <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0">(optional for instrumental)</span></label>
+      <textarea id="lyricsInput" placeholder="Write lyrics or describe the vibe. Two verses (8 lines) for best result..." maxlength="2999"></textarea>
+      <div class="char-count"><span id="lyricsCount">0</span>/2999</div>
+    </div>
+
+    <!-- Generate -->
+    <button class="btn-generate" id="genBtn" onclick="startGeneration()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>
+      Record Track
+    </button>
+
+    <!-- VU Meter (decorative) -->
+    <div class="vu-meter" id="vuMeter"></div>
+  </div>
+
+  <!-- CENTER: Turntable Player -->
+  <div class="main-stage">
+    <div id="recIndicator" class="rec-indicator" style="display:none;">
+      <div class="rec-dot"></div>
+      <div class="rec-text" id="recText">Recording... 0%</div>
+    </div>
+
+    <div class="turntable">
+      <div class="vinyl" id="vinyl">
+        <div class="vinyl-label"><span>Musitron</span></div>
+      </div>
+      <div class="tonearm" id="tonearm"></div>
+    </div>
+
+    <div class="now-playing">
+      <div class="track-title" id="npTitle">Neon Reverie</div>
+      <div class="track-meta" id="npMeta">Synthwave &middot; 3:42 &middot; Sonauto V2</div>
+    </div>
+
+    <div class="player-controls">
+      <div class="ctrl-btn" onclick="prevTrack()">&#9664;&#9664;</div>
+      <div class="ctrl-btn play" id="playBtn" onclick="togglePlay()">&#9654;</div>
+      <div class="ctrl-btn" onclick="nextTrack()">&#9654;&#9654;</div>
+    </div>
+
+    <div class="progress-bar"><div class="progress-fill" id="progFill"></div></div>
+    <div class="time-labels"><span id="timeNow">1:18</span><span id="timeTotal">3:42</span></div>
+  </div>
+
+  <!-- RIGHT: Tape Shelf (Recent Tracks) -->
+  <div class="panel tape-shelf">
+    <div class="panel-title">Tape Shelf</div>
+
+    <div class="tape-reel active" onclick="selectReel(this, 0)">
+      <div class="reel-icon"></div>
+      <div class="reel-info">
+        <div class="reel-title">Neon Reverie</div>
+        <div class="reel-meta">Synthwave &middot; 3:42 &middot; Sonauto V2</div>
+      </div>
+      <div class="reel-status"><div class="status-dot complete"></div></div>
+    </div>
+
+    <div class="tape-reel" onclick="selectReel(this, 1)">
+      <div class="reel-icon"></div>
+      <div class="reel-info">
+        <div class="reel-title">Autumn Letters</div>
+        <div class="reel-meta">Acoustic Folk &middot; 2:15 &middot; MiniMax V2</div>
+      </div>
+      <div class="reel-status"><div class="status-dot complete"></div></div>
+    </div>
+
+    <div class="tape-reel" onclick="selectReel(this, 2)">
+      <div class="reel-icon"></div>
+      <div class="reel-info">
+        <div class="reel-title">Orbital Drift</div>
+        <div class="reel-meta">Lo-fi Ambient &middot; 4:00 &middot; Stable Audio</div>
+      </div>
+      <div class="reel-status"><div class="status-dot complete"></div></div>
+    </div>
+
+    <div class="tape-reel">
+      <div class="reel-icon"></div>
+      <div class="reel-info">
+        <div class="reel-title">Midnight Cascade</div>
+        <div class="reel-meta">Generating...</div>
+      </div>
+      <div class="reel-status"><div class="status-dot generating"></div></div>
+    </div>
+
+    <div class="tape-reel" onclick="selectReel(this, 4)">
+      <div class="reel-icon"></div>
+      <div class="reel-info">
+        <div class="reel-title">Circuit Breaker</div>
+        <div class="reel-meta">Failed &middot; Retry</div>
+      </div>
+      <div class="reel-status"><div class="status-dot failed"></div></div>
+    </div>
+
+    <div class="credits-box">
+      <div class="credits-val">24</div>
+      <div class="credits-label">Credits Remaining</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // State
+  let isPlaying = false;
+  let progress = 35;
+  let currentModel = 'sonauto/v2/text-to-music';
+  let instrumental = false;
+
+  const MODELS = {
+    'sonauto/v2/text-to-music': {
+      label: 'Sonauto V2', hasDuration: false, fixedDuration: 95, cost: 8,
+      desc: 'Best for viral hits; creates full songs with realistic, expressive vocals/lyrics, controllable via BPM and customizable text.',
+      elId: 'ch-sonauto'
+    },
+    'fal-ai/stable-audio/v2.5': {
+      label: 'Stable Audio 2.5', hasDuration: true, minDuration: 5, maxDuration: 240, cost: 1,
+      desc: 'Best for video background music; generates high-quality, structured instrumental tracks (up to 4 minutes) with distinct intro/outro sections.',
+      elId: 'ch-stable'
+    },
+    'fal-ai/minimax-music/v2': {
+      label: 'MiniMax Music V2', hasDuration: false, fixedDuration: 60, cost: 3,
+      desc: 'Best for complex compositions; excels at high-fidelity instrumentals and multi-language vocals that rival human performances.',
+      elId: 'ch-minimax'
+    }
+  };
+
+  const tracks = [
+    { title: 'Neon Reverie', style: 'Synthwave', dur: '3:42', model: 'Sonauto V2', durSec: 222 },
+    { title: 'Autumn Letters', style: 'Acoustic Folk', dur: '2:15', model: 'MiniMax V2', durSec: 135 },
+    { title: 'Orbital Drift', style: 'Lo-fi Ambient', dur: '4:00', model: 'Stable Audio', durSec: 240 },
+  ];
+  let currentTrack = 0;
+
+  // VU Meter bars
+  const vuMeter = document.getElementById('vuMeter');
+  for (let i = 0; i < 20; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'vu-bar' + (i > 15 ? ' hot' : '');
+    bar.style.height = '8px';
+    vuMeter.appendChild(bar);
+  }
+
+  let vuFrame = null;
+  function animateVU() {
+    const bars = vuMeter.querySelectorAll('.vu-bar');
+    if (!isPlaying) {
+      bars.forEach(b => { b.style.height = '4px'; b.style.opacity = '0.15'; });
+      vuFrame = null;
+      return;
+    }
+    bars.forEach((b, i) => {
+      const h = Math.random() * 45 + 8;
+      b.style.height = h + 'px';
+      b.style.opacity = (0.4 + Math.random() * 0.6).toString();
+    });
+    vuFrame = requestAnimationFrame(animateVU);
+  }
+
+  function selectModel(modelKey) {
+    currentModel = modelKey;
+    const m = MODELS[modelKey];
+
+    // Update channel strip active states
+    document.querySelectorAll('.channel').forEach(c => c.classList.remove('active'));
+    document.getElementById(m.elId).classList.add('active');
+
+    // Update description
+    document.getElementById('modelDesc').textContent = m.desc;
+
+    // Duration control
+    const slider = document.getElementById('durationSlider');
+    const note = document.getElementById('durationNote');
+    const val = document.getElementById('durationVal');
+    if (m.hasDuration) {
+      slider.disabled = false;
+      slider.min = m.minDuration;
+      slider.max = m.maxDuration;
+      note.style.display = 'none';
+      val.textContent = slider.value + 's';
+    } else {
+      slider.disabled = true;
+      note.style.display = 'block';
+      val.textContent = m.fixedDuration + 's';
+    }
+
+    // Instrumental/Lyrics handling
+    if (modelKey === 'fal-ai/stable-audio/v2.5') {
+      instrumental = true;
+      document.getElementById('instrumentalSwitch').classList.add('on', 'disabled');
+      document.getElementById('lyricsField').style.display = 'none';
+    } else {
+      document.getElementById('instrumentalSwitch').classList.remove('disabled');
+      if (instrumental) {
+        document.getElementById('lyricsField').style.display = 'none';
+      } else {
+        document.getElementById('lyricsField').style.display = 'block';
+      }
+    }
+  }
+
+  function toggleInstrumental() {
+    if (currentModel === 'fal-ai/stable-audio/v2.5') return;
+    instrumental = !instrumental;
+    const sw = document.getElementById('instrumentalSwitch');
+    sw.classList.toggle('on', instrumental);
+    document.getElementById('lyricsField').style.display = instrumental ? 'none' : 'block';
+  }
+
+  function togglePlay() {
+    isPlaying = !isPlaying;
+    document.getElementById('playBtn').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
+    document.getElementById('vinyl').classList.toggle('spinning', isPlaying);
+    document.getElementById('tonearm').classList.toggle('playing', isPlaying);
+    if (isPlaying) { advanceProgress(); animateVU(); }
+    else { animateVU(); }
+  }
+
+  function advanceProgress() {
+    if (!isPlaying) return;
+    const t = tracks[currentTrack];
+    progress = Math.min(progress + 0.12, 100);
+    document.getElementById('progFill').style.width = progress + '%';
+    const secs = Math.floor(progress / 100 * t.durSec);
+    const mm = Math.floor(secs / 60);
+    const ss = (secs % 60).toString().padStart(2, '0');
+    document.getElementById('timeNow').textContent = mm + ':' + ss;
+    requestAnimationFrame(advanceProgress);
+  }
+
+  function selectReel(el, idx) {
+    if (idx >= tracks.length) return;
+    document.querySelectorAll('.tape-reel').forEach(r => r.classList.remove('active'));
+    el.classList.add('active');
+    currentTrack = idx;
+    const t = tracks[idx];
+    document.getElementById('npTitle').textContent = t.title;
+    document.getElementById('npMeta').textContent = t.style + ' · ' + t.dur + ' · ' + t.model;
+    document.getElementById('timeTotal').textContent = t.dur;
+    progress = 0;
+    document.getElementById('progFill').style.width = '0%';
+    document.getElementById('timeNow').textContent = '0:00';
+  }
+
+  function prevTrack() {
+    const idx = Math.max(0, currentTrack - 1);
+    const reels = document.querySelectorAll('.tape-reel');
+    selectReel(reels[idx], idx);
+  }
+  function nextTrack() {
+    const idx = Math.min(tracks.length - 1, currentTrack + 1);
+    const reels = document.querySelectorAll('.tape-reel');
+    selectReel(reels[idx], idx);
+  }
+
+  function startGeneration() {
+    const title = document.getElementById('titleInput').value.trim();
+    const style = document.getElementById('styleInput').value.trim();
+    if (!title) { alert('Please enter a track title.'); return; }
+    if (!style) { alert('Please enter a style of music.'); return; }
+    if (!instrumental && currentModel !== 'fal-ai/stable-audio/v2.5') {
+      const lyrics = document.getElementById('lyricsInput').value.trim();
+      if (!lyrics) { alert('Please enter lyrics or enable Instrumental Only.'); return; }
+    }
+
+    const ind = document.getElementById('recIndicator');
+    const btn = document.getElementById('genBtn');
+    ind.style.display = 'flex';
+    btn.disabled = true;
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg> Generating...';
+
+    let pct = 0;
+    const iv = setInterval(() => {
+      pct += Math.random() * 4;
+      if (pct >= 100) {
+        pct = 100; clearInterval(iv);
+        document.getElementById('recText').textContent = 'Complete';
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg> Record Track';
+        setTimeout(() => { ind.style.display = 'none'; }, 2000);
+      } else {
+        document.getElementById('recText').textContent = 'Recording... ' + Math.floor(pct) + '%';
+      }
+    }, 200);
+  }
+
+  // Char counters
+  document.getElementById('styleInput').addEventListener('input', e => {
+    document.getElementById('styleCount').textContent = e.target.value.length;
+  });
+  document.getElementById('lyricsInput').addEventListener('input', e => {
+    document.getElementById('lyricsCount').textContent = e.target.value.length;
+  });
+
+  // Duration slider
+  document.getElementById('durationSlider').addEventListener('input', e => {
+    document.getElementById('durationVal').textContent = e.target.value + 's';
+  });
+
+  // Auto-play demo
+  setTimeout(() => togglePlay(), 800);
+</script>
+</body>
+</html>

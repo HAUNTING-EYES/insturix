@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 
-const baseUrl = process.env.NEXT_PUBLIC_APP_URL!;
+const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
 
 export async function GET(req: Request) {
   try {
@@ -25,102 +25,63 @@ export async function GET(req: Request) {
       );
     }
 
-    const appId = process.env.FACEBOOK_APP_ID!;
-    const appSecret = process.env.FACEBOOK_APP_SECRET!;
-
-    // MUST match /auth exactly
+    const appId = (process.env.INSTAGRAM_APP_ID || process.env.FACEBOOK_APP_ID || "").trim();
+    const appSecret = (process.env.INSTAGRAM_APP_SECRET || process.env.FACEBOOK_APP_SECRET || "").trim();
     const redirectUri = `${baseUrl}/api/services/uploaderx/instagram/callback`;
 
     console.log("[IG Callback] Redirect URI:", redirectUri);
 
-    // Exchange code for Facebook access token
-    const tokenUrl = new URL("https://graph.facebook.com/v21.0/oauth/access_token");
-    tokenUrl.searchParams.set("client_id", appId);
-    tokenUrl.searchParams.set("client_secret", appSecret);
-    tokenUrl.searchParams.set("redirect_uri", redirectUri);
-    tokenUrl.searchParams.set("code", code!);
-
-    const tokenRes = await fetch(tokenUrl.toString());
+    // Step 1: Exchange code for short-lived Instagram access token
+    const tokenRes = await fetch("https://api.instagram.com/oauth/access_token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: appId,
+        client_secret: appSecret,
+        grant_type: "authorization_code",
+        redirect_uri: redirectUri,
+        code,
+      }),
+    });
     const tokenData = await tokenRes.json();
 
-    if (tokenData.error) {
-      console.error("❌ Token exchange error:", tokenData.error);
+    if (tokenData.error_type || tokenData.error_message) {
+      console.error("❌ Token exchange error:", tokenData);
       return NextResponse.redirect(
         `${baseUrl}/dashboard/uploaderx?ig_error=token_exchange`
       );
     }
 
-    const shortToken = tokenData.access_token;
+    const shortLivedToken = tokenData.access_token;
+    const igUserId = String(tokenData.user_id);
 
-    // Exchange for long-lived token
-    const longUrl = new URL("https://graph.facebook.com/v21.0/oauth/access_token");
-    longUrl.searchParams.set("grant_type", "fb_exchange_token");
-    longUrl.searchParams.set("client_id", appId);
-    longUrl.searchParams.set("client_secret", appSecret);
-    longUrl.searchParams.set("fb_exchange_token", shortToken);
-
-    const longRes = await fetch(longUrl.toString());
-    const longData = await longRes.json();
-
-    const userAccessToken = longData.access_token || shortToken;
-
-    // Fetch Facebook Pages with Instagram accounts
-    const pagesRes = await fetch(
-      `https://graph.facebook.com/v21.0/me/accounts?access_token=${userAccessToken}&fields=id,name,access_token,instagram_business_account{id,username,profile_picture_url}`
+    // Step 2: Exchange for long-lived token (60 days)
+    const longTokenRes = await fetch(
+      `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(appSecret)}&access_token=${encodeURIComponent(shortLivedToken)}`
     );
-    const pagesData = await pagesRes.json();
+    const longTokenData = await longTokenRes.json();
+    const accessToken = longTokenData.access_token || shortLivedToken;
 
-    if (pagesData.error) {
-      console.error("❌ Pages fetch error:", pagesData.error);
-      return NextResponse.redirect(
-        `${baseUrl}/dashboard/uploaderx?ig_error=pages_fetch`
-      );
-    }
-
-    // Extract Instagram Business accounts from Pages
-    const accounts: Array<{
-      instagramAccountId: string;
-      instagramUsername: string;
-      profilePictureUrl: string | null;
-      pageId: string;
-      pageAccessToken: string;
-    }> = [];
-
-    let primaryUserName = "Unknown";
-
-    if (pagesData.data) {
-      for (const page of pagesData.data) {
-        if (page.instagram_business_account) {
-          const igAccount = page.instagram_business_account;
-          accounts.push({
-            instagramAccountId: igAccount.id,
-            instagramUsername: igAccount.username || "Unknown",
-            profilePictureUrl: igAccount.profile_picture_url || null,
-            pageId: page.id,
-            pageAccessToken: page.access_token,
-          });
-
-          if (primaryUserName === "Unknown" && igAccount.username) {
-            primaryUserName = igAccount.username;
-          }
-        }
-      }
-    }
-
-    if (accounts.length === 0) {
-      console.error("❌ No Instagram Business accounts found");
-      return NextResponse.redirect(
-        `${baseUrl}/dashboard/uploaderx?ig_error=no_instagram_account`
-      );
-    }
-
-    // Fetch user info
+    // Step 3: Get Instagram user profile
     const meRes = await fetch(
-      `https://graph.facebook.com/v21.0/me?access_token=${userAccessToken}`
+      `https://graph.instagram.com/v21.0/me?fields=user_id,username,account_type,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
     );
     const meData = await meRes.json();
 
-    // Save to database
+    if (meData.error) {
+      console.error("❌ Instagram profile fetch error:", meData.error);
+      return NextResponse.redirect(
+        `${baseUrl}/dashboard/uploaderx?ig_error=profile_fetch`
+      );
+    }
+
+    const username = meData.username || "Unknown";
+    const accountType = meData.account_type || "UNKNOWN";
+    const profilePicture = meData.profile_picture_url || null;
+
+    console.log(`[IG Callback] Connected: @${username} (${accountType}, ID: ${igUserId})`);
+
+    // Step 4: Save to database
     await connectToDatabase();
     const { User } = await import("@/schemas/user");
 
@@ -129,19 +90,17 @@ export async function GET(req: Request) {
       {
         $set: {
           instagramTokens: {
-            userAccessToken,
-            userId: meData.id,
-            userName: primaryUserName,
-            accounts: accounts.map((acc) => ({
-              instagramAccountId: acc.instagramAccountId,
-              instagramUsername: acc.instagramUsername,
-              profilePictureUrl: acc.profilePictureUrl,
-            })),
-            pageTokens: accounts.map((acc) => ({
-              pageId: acc.pageId,
-              instagramAccountId: acc.instagramAccountId,
-              pageAccessToken: acc.pageAccessToken,
-            })),
+            userAccessToken: accessToken,
+            userId: igUserId,
+            userName: username,
+            accountType,
+            accounts: [
+              {
+                instagramAccountId: igUserId,
+                instagramUsername: username,
+                profilePictureUrl: profilePicture,
+              },
+            ],
             connectedAt: new Date(),
           },
         },

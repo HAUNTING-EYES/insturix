@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { useToast } from "@/hooks/use-toast";
-import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -20,7 +19,11 @@ import { SocializeShareBar } from "./SocializeShareBar";
 import { SocializeAddLinkButton } from "./SocializeAddLinkButton";
 import { SocializeNotificationCard } from "./SocializeNotificationCard";
 import { SocializeLinksCard } from "./SocializeLinksCard";
-import { SocializeLinkPreviewCard } from "./SocializeLinkPreviewCard";
+import { StoryArc } from "./StoryArc";
+import TimelineSpine, { NodeDot, TimelineEnd } from "./TimelineSpine";
+import SyncDots from "./SyncDots";
+import { NarrativeLabel } from "./NarrativeLabel";
+import { SocializePreview } from "./PreviewSocialize";
 import { Plus, Bell } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -40,19 +43,6 @@ import { getExpiresAtFromDuration, isNotificationExpired } from "@/lib/utils/not
 
 
 
-// interface ISocialize {
-//   clerkUserId: string;
-//   username: string;
-//   profileImage: string;
-//   bio: string;
-//   links: SocializeLink[];
-//   banner?: BannerConfig;
-//   uniqueUsername?: string;
-//   notifications?: { message: string; duration: number }[];
-//   createdAt: Date;
-//   updatedAt: Date;
-// }
-// Add the necessary fields to the notification object type within ISocialize
 interface ISocialize {
   clerkUserId: string;
   username: string;
@@ -71,13 +61,8 @@ interface ISocialize {
   }[];
   createdAt: Date;
   updatedAt: Date;
-}
-
-interface LinkPreview {
-  title: string;
-  description: string;
-  image: string | null;
-  url: string;
+  status?: string;
+  accentColor?: string;
 }
 
 const api = axios.create({
@@ -117,9 +102,6 @@ export default function SocializeDashboard({
   });
   const [duration, setDuration] = useState<number | "">(1);
   const [message, setMessage] = useState("");
-  const [selectedLinkIndex, setSelectedLinkIndex] = useState<number | null>(
-    null
-  );
   const [editingLink, setEditingLink] = useState<SocializeLink | null>(null);
   const [editingLinkIndex, setEditingLinkIndex] = useState<number | null>(null);
   const [editingNotificationIndex, setEditingNotificationIndex] = useState<number | null>(null);
@@ -135,6 +117,15 @@ export default function SocializeDashboard({
       gradientColors: []
     }
   );
+  const [status, setStatus] = useState(initialData?.status || "");
+  const [accentColor, setAccentColor] = useState(initialData?.accentColor || "gold");
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const scrollToSection = (id: string) => {
+    sectionRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveSection(id);
+  };
 
   // Queries and mutations remain unchanged...
 
@@ -180,43 +171,6 @@ export default function SocializeDashboard({
     enabled: !initialData && !!uniqueUsername, // Only fetch if initialData is not present
     // Keep initial server data fresh for a short window to avoid jitter on quick switches
     staleTime: 30_000,
-  });
-
-  const { data: previewData, isLoading: isPreviewLoading } = useQuery({
-    queryKey: [
-      "linkPreview",
-      selectedLinkIndex !== null
-        ? userData?.links?.[selectedLinkIndex]?.url
-        : null,
-    ],
-    queryFn: async () => {
-      if (selectedLinkIndex === null || !userData?.links?.[selectedLinkIndex]) {
-        return null;
-      }
-      const url = userData.links[selectedLinkIndex].url;
-
-      // Skip fetching previews for obviously invalid/empty URLs
-      if (!url || !/^https?:\/\/.+/i.test(url)) {
-        return null;
-      }
-
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 2900);
-      try {
-        const { data } = await api.get(
-          `/link-preview?url=${encodeURIComponent(url)}`,
-          { signal: controller.signal }
-        );
-        return data as LinkPreview;
-      } finally {
-        clearTimeout(id);
-      }
-    },
-    enabled:
-      selectedLinkIndex !== null && !!userData?.links?.[selectedLinkIndex],
-    // Prevent rapid re-fetch loops when quickly switching links
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
   });
 
   const updateUserDataMutation = useMutation({
@@ -333,9 +287,6 @@ export default function SocializeDashboard({
       { links: updatedLinks },
       {
         onSuccess: (response) => {
-          if (selectedLinkIndex === indexToRemove) {
-            setSelectedLinkIndex(null);
-          }
           // Update the local state to reflect the changes immediately
           setLinks(response.data.profile.links || []);
           setBio(response.data.profile.bio || "");
@@ -422,31 +373,6 @@ export default function SocializeDashboard({
     );
   };
 
-  // const handleAddUpdate = async () => {
-  //   if (
-  //     duration === "" ||
-  //     Number(duration) < 1 ||
-  //     Number(duration) > 24 ||
-  //     !message.trim()
-  //   )
-  //     return;
-  //   updateUserDataMutation.mutate(
-  //     {
-  //       notifications: [{ message, duration: Number(duration) }],
-  //     },
-  //     {
-  //       onSuccess: () => {
-  //         setShowUpdatePopup(false);
-  //         toast({
-  //           title: "Success",
-  //           description: "Notification updated",
-  //           variant: "default",
-  //           duration: 4000,
-  //         });
-  //       },
-  //     }
-  //   );
-  // };
   const handleAddUpdate = async () => {
     if (
       duration === "" ||
@@ -510,10 +436,6 @@ export default function SocializeDashboard({
     );
   };
 
-  const handleSelectLink = (index: number) => {
-    setSelectedLinkIndex(index);
-  };
-
   const handleReorderLinks = (reorderedLinks: SocializeLink[]) => {
     // Optimistic UI to keep the interface snappy
     setLinks(reorderedLinks);
@@ -552,10 +474,6 @@ export default function SocializeDashboard({
       }
     });
   };
-  // console.log("Notifications:", userData?.updates);
-  //      const activeNotification =
-  //   userData?.notifications?.find((n) => !isNotificationExpired(n)) ?? null;
-  // // Force re-check every minute to auto-hide expired notifications
   // Auto-filter out expired notifications
   const activeNotification =
     (userData?.notifications ?? []).filter((n) => !isNotificationExpired(n))[0] ??
@@ -571,152 +489,280 @@ export default function SocializeDashboard({
 
 
 
+  const timelineSections = [
+    { id: "opening", hasData: banner.type !== "color" || banner.value !== "#D4A652", isLive: false },
+    { id: "introduction", hasData: (userData?.bio || "").length > 0, isLive: false },
+    { id: "chapters", hasData: (links || []).length > 0, isLive: false },
+    { id: "breaking", hasData: (userData?.notifications || []).filter(n => !isNotificationExpired(n)).length > 0, isLive: (userData?.notifications || []).filter(n => !isNotificationExpired(n)).length > 0 },
+    { id: "signature", hasData: true, isLive: false },
+  ];
+
   return (
     <div className="relative">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="relative z-10 space-y-6"
-      >
-        <div className="grid lg:grid-cols-3 gap-8 font-jakarta">
-          {/* Main Content Area */}
-          <div className="lg:col-span-2 space-y-6 lg:border-r lg:border-social-line lg:pr-8">
-            <BannerCustomizer
-              banner={banner}
-              onBannerChange={handleBannerChange}
-              isUploading={updateUserDataMutation.isPending}
-            />
-            <SocializeHeader
-              user={
-                user
-                  ? {
-                    username: user.username ?? undefined,
-                    imageUrl: user.imageUrl ?? undefined,
-                  }
-                  : null
-              }
-              bio={bio}
-              onEditBio={() => setShowEditBioModal(true)}
-            />
-            <SocializeShareBar
-              uniqueUsername={uniqueUsername}
-              onShare={(platform) => {
-                if (platform === "copy") {
-                  toast({
-                    title: "Success",
-                    description: "URL copied to clipboard",
-                    variant: "default",
-                    duration: 4000,
-                  });
-                }
-              }}
-            />
-            <SocializeAddLinkButton onClick={() => setShowAddModal(true)} />
-            {/* {userData?.notifications?.[0]?.message ? (
-              <SocializeNotificationCard
-                message={userData.notifications[0].message}
-                duration={userData.notifications[0].duration}
-                onEdit={() => setShowUpdatePopup(true)}
+      <StoryArc
+        username={uniqueUsername || "your"}
+        activeSection={activeSection}
+        onWaypointClick={scrollToSection}
+      />
+
+      <div className="grid xl:grid-cols-2 gap-0 font-jakarta" style={{ minHeight: "calc(100vh - 120px)" }}>
+        {/* Left: Timeline Editor */}
+        <div style={{ padding: "24px 28px 60px 0" }}>
+          <TimelineSpine sections={timelineSections} activeSection={activeSection}>
+            {/* OPENING SCENE */}
+            <div
+              ref={(el) => { sectionRefs.current["opening"] = el; }}
+              className="relative"
+              style={{ marginBottom: 28 }}
+              onMouseEnter={() => setActiveSection("opening")}
+              onMouseLeave={() => setActiveSection(null)}
+            >
+              <NodeDot hasData={timelineSections[0].hasData} isLive={false} />
+              <NarrativeLabel title="OPENING SCENE" timing="~1s" isActive={activeSection === "opening"} id="opening" />
+              <BannerCustomizer
+                banner={banner}
+                onBannerChange={handleBannerChange}
+                isUploading={updateUserDataMutation.isPending}
               />
-            ) : (
-              <div className="mb-6">
-                <Button
-                  variant="outline"
-                  className="border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-[#EAE9E5]"
-                  onClick={() => setShowUpdatePopup(true)}
-                >
-                  <Bell className="w-4 h-4 mr-2" />
-                  Add a New Update
-                </Button>
-              </div>
-            )} */}
+            </div>
 
-            {userData?.notifications && userData.notifications.length > 0 ? (
-              <div className="mb-6 space-y-3">
-                {userData.notifications.filter((n) => !isNotificationExpired(n)).map((notification, index) => (
-                  <SocializeNotificationCard
-                    key={`${index}-${notification.message}`}
-                    message={notification.message}
-                    duration={notification.duration}
-                    timestamp={notification.timestamp}
-                    expiresAt={notification.expiresAt}
-                    onEdit={() => {
-                      setEditingNotificationIndex(index);
-                      setMessage(notification.message);
-                      setDuration(notification.duration);
-                      setShowUpdatePopup(true);
-                    }}
-                    onDelete={() => deleteNotificationMutation.mutate({ notificationIndex: index })}
-                    isDeleting={deleteNotificationMutation.isPending && deleteNotificationMutation.variables?.notificationIndex === index}
-                  />
-                ))}
-                <Button
-                  variant="outline"
-                  className="w-full border-social-line bg-white text-black hover:bg-white/90 font-jetbrains tracking-[0.08em] uppercase text-[10px] rounded-[7px] transition-colors"
-                  style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }}
+            {/* THE INTRODUCTION */}
+            <div
+              ref={(el) => { sectionRefs.current["introduction"] = el; }}
+              className="relative"
+              style={{ marginBottom: 28 }}
+              onMouseEnter={() => setActiveSection("introduction")}
+              onMouseLeave={() => setActiveSection(null)}
+            >
+              <NodeDot hasData={timelineSections[1].hasData} isLive={false} />
+              <NarrativeLabel title="THE INTRODUCTION" timing="~3s" isActive={activeSection === "introduction"} id="introduction" />
+              <SocializeHeader
+                user={user ? { username: user.username ?? undefined, imageUrl: user.imageUrl ?? undefined } : null}
+                bio={bio}
+                onEditBio={() => setShowEditBioModal(true)}
+                status={status}
+                accentColor={accentColor}
+              />
+              <div style={{ marginTop: 12 }}>
+                <label
+                  style={{
+                    fontFamily: "var(--font-jetbrains-mono)",
+                    fontSize: "0.68rem",
+                    color: "#5F5E5A",
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase" as const,
+                    display: "block",
+                    marginBottom: 6,
+                  }}
+                >
+                  Status
+                </label>
+                <input
+                  type="text"
+                  value={status}
+                  maxLength={50}
+                  placeholder="What are you working on?"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setStatus(val);
+                  }}
+                  onBlur={() => {
+                    updateUserDataMutation.mutate({ status });
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: 7,
+                    border: "1px solid #1C1B19",
+                    background: "#1B1A18",
+                    color: "#ECE9E1",
+                    fontSize: "0.82rem",
+                    fontFamily: "var(--font-plus-jakarta-sans), system-ui, sans-serif",
+                    outline: "none",
+                    transition: "border-color 0.25s cubic-bezier(.16,1,.3,1)",
+                  }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = "#D4A652"; }}
+                  onMouseLeave={(e) => { if (document.activeElement !== e.currentTarget) e.currentTarget.style.borderColor = "#1C1B19"; }}
+                />
+                <div style={{ textAlign: "right", fontFamily: "var(--font-jetbrains-mono)", fontSize: "0.6rem", color: "#5F5E5A", marginTop: 4 }}>
+                  {status.length}/50
+                </div>
+              </div>
+            </div>
+
+            {/* THE CHAPTERS */}
+            <div
+              ref={(el) => { sectionRefs.current["chapters"] = el; }}
+              className="relative"
+              style={{ marginBottom: 28 }}
+              onMouseEnter={() => setActiveSection("chapters")}
+              onMouseLeave={() => setActiveSection(null)}
+            >
+              <NodeDot hasData={timelineSections[2].hasData} isLive={false} />
+              <NarrativeLabel title="THE CHAPTERS" timing="~8s" isActive={activeSection === "chapters"} id="chapters" />
+              <div style={{ background: "#0F0F0E", border: "1px solid #1C1B19", borderRadius: 12, padding: 14 }}>
+                <SocializeLinksCard
+                  links={links}
+                  onRemoveLink={handleRemoveLink}
+                  onEditLink={handleEditLink}
+                  onReorder={handleReorderLinks}
+                />
+                <SocializeAddLinkButton onClick={() => setShowAddModal(true)} />
+              </div>
+            </div>
+
+            {/* BREAKING NEWS */}
+            <div
+              ref={(el) => { sectionRefs.current["breaking"] = el; }}
+              className="relative"
+              style={{ marginBottom: 28 }}
+              onMouseEnter={() => setActiveSection("breaking")}
+              onMouseLeave={() => setActiveSection(null)}
+            >
+              <NodeDot hasData={timelineSections[3].hasData} isLive={timelineSections[3].isLive} />
+              <NarrativeLabel title="BREAKING NEWS" timing="~2s" isActive={activeSection === "breaking"} id="breaking" />
+              <div style={{ background: "#0F0F0E", border: "1px solid #1C1B19", borderRadius: 12, padding: 14 }}>
+                {userData?.notifications && userData.notifications.length > 0 ? (
+                  <div className="space-y-3">
+                    {userData.notifications.filter((n) => !isNotificationExpired(n)).map((notification, index) => (
+                      <SocializeNotificationCard
+                        key={`${index}-${notification.message}`}
+                        message={notification.message}
+                        duration={notification.duration}
+                        timestamp={notification.timestamp}
+                        expiresAt={notification.expiresAt}
+                        onEdit={() => {
+                          setEditingNotificationIndex(index);
+                          setMessage(notification.message);
+                          setDuration(notification.duration);
+                          setShowUpdatePopup(true);
+                        }}
+                        onDelete={() => deleteNotificationMutation.mutate({ notificationIndex: index })}
+                        isDeleting={deleteNotificationMutation.isPending && deleteNotificationMutation.variables?.notificationIndex === index}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                <button
                   onClick={() => {
                     setEditingNotificationIndex(null);
                     setMessage("");
                     setDuration(1);
                     setShowUpdatePopup(true);
                   }}
-                >
-                  <Bell className="w-4 h-4 mr-2" />
-                  Add Another Update
-                </Button>
-              </div>
-            ) : (
-              <div className="mb-6">
-                <Button
-                  variant="outline"
-                  className="w-full border-social-line bg-white text-black hover:bg-white/90 font-jetbrains tracking-[0.08em] uppercase text-[10px] rounded-[7px] transition-colors"
-                  style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)", transitionDuration: "300ms" }}
-                  onClick={() => {
-                    setEditingNotificationIndex(null);
-                    setMessage("");
-                    setDuration(1);
-                    setShowUpdatePopup(true);
+                  style={{
+                    width: "100%",
+                    marginTop: 10,
+                    padding: "6px 12px",
+                    borderRadius: 7,
+                    border: "1px dashed #282724",
+                    background: "transparent",
+                    color: "#7A776E",
+                    fontFamily: "var(--font-plus-jakarta-sans), system-ui, sans-serif",
+                    fontSize: "0.75rem",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    transition: "all 0.25s cubic-bezier(.16,1,.3,1)",
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#D4A652"; e.currentTarget.style.color = "#D4A652"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#282724"; e.currentTarget.style.color = "#7A776E"; }}
                 >
-                  <Bell className="w-4 h-4 mr-2" />
-                  Add a New Update
-                </Button>
+                  + New
+                </button>
               </div>
-            )}
+            </div>
 
+            {/* THE SIGNATURE */}
+            <div
+              ref={(el) => { sectionRefs.current["signature"] = el; }}
+              className="relative"
+              style={{ marginBottom: 28 }}
+              onMouseEnter={() => setActiveSection("signature")}
+              onMouseLeave={() => setActiveSection(null)}
+            >
+              <NodeDot hasData={true} isLive={false} />
+              <NarrativeLabel title="THE SIGNATURE" timing="~1s" isActive={activeSection === "signature"} id="signature" />
+              <div>
+                <div style={{ fontFamily: "var(--font-plus-jakarta-sans)", fontSize: "0.72rem", fontWeight: 500, color: "#5F5E5A", letterSpacing: "0.08em", textTransform: "uppercase" as const, marginBottom: 10 }}>
+                  ACCENT COLOR
+                </div>
+                <div style={{ display: "flex", gap: 12 }}>
+                  {(["gold", "cyan", "rose", "green", "purple", "coral"] as const).map((color) => {
+                    const palette: Record<string, string> = { gold: "#D4A652", cyan: "#5CB8CC", rose: "#D088B4", green: "#5EC97E", purple: "#9088D4", coral: "#D46A5C" };
+                    return (
+                      <div
+                        key={color}
+                        onClick={() => {
+                          setAccentColor(color);
+                          updateUserDataMutation.mutate({ accentColor: color });
+                        }}
+                        style={{
+                          width: 24, height: 24, borderRadius: "50%",
+                          background: palette[color],
+                          border: accentColor === color ? "2px solid #ECE9E1" : "2px solid transparent",
+                          cursor: "pointer",
+                          transition: "all 0.25s cubic-bezier(.16,1,.3,1)",
+                          boxShadow: accentColor === color ? `0 0 8px ${palette[color]}40` : "none",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: "0.65rem", fontWeight: 800, color: "#0B0B0A",
+                        }}
+                      >
+                        {accentColor === color ? "✓" : ""}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{ marginTop: 16 }}>
+                <SocializeShareBar
+                  uniqueUsername={uniqueUsername}
+                  onShare={(platform) => {
+                    if (platform === "copy") {
+                      toast({ title: "Success", description: "URL copied to clipboard", variant: "default", duration: 4000 });
+                    }
+                  }}
+                />
+              </div>
+            </div>
 
-            <SocializeLinksCard
-              links={links}
-              selectedLinkIndex={selectedLinkIndex}
-              onSelectLink={handleSelectLink}
-              onRemoveLink={handleRemoveLink}
-              onEditLink={handleEditLink}
-              onReorder={handleReorderLinks}
+            <TimelineEnd />
+          </TimelineSpine>
+        </div>
+
+        {/* Right: Phone Preview (xl+ only) */}
+        <div className="hidden xl:flex" style={{
+          position: "sticky", top: 80,
+          height: "calc(100vh - 120px)",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          borderLeft: "1px solid #1C1B19",
+          paddingLeft: 36,
+        }}>
+          <div style={{ fontFamily: "var(--font-plus-jakarta-sans)", fontSize: "0.72rem", fontWeight: 500, color: "#5F5E5A", letterSpacing: "0.08em", textTransform: "uppercase" as const, marginBottom: 16 }}>
+            VISITOR&apos;S JOURNEY
+          </div>
+          <div style={{ position: "relative" }}>
+            <SyncDots activeSection={activeSection} />
+            <SocializePreview
+              logo={user && "imageUrl" in user ? (user.imageUrl ?? null) : null}
+              profileTitle={uniqueUsername}
+              bio={bio || userData?.bio || ""}
+              links={links || []}
+              banner={banner}
+              status={status}
+              accentColor={accentColor}
+              notifications={(userData?.notifications || []).filter(n => !isNotificationExpired(n))}
             />
           </div>
-
-          {/* Sidebar */}
-          <div className="lg:col-span-1 sticky top-20">
-            <SocializeLinkPreviewCard
-              selectedLinkIndex={selectedLinkIndex}
-              isPreviewLoading={isPreviewLoading}
-              previewData={previewData ?? null}
-              userLinks={links || []}
-              userBio={userData?.bio || ""}
-              userLogo={
-                user && "imageUrl" in user ? (user.imageUrl ?? null) : null
-              }
-              userName={
-                user && "username" in user
-                  ? (user.username ?? undefined)
-                  : undefined
-              }
-              userBanner={banner}
-            />
+          <div style={{ marginTop: 14, textAlign: "center" }}>
+            <div style={{ fontFamily: "var(--font-jetbrains-mono)", fontSize: 12, color: "#B5B2A8", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              insturix.com/socialize/{uniqueUsername}
+            </div>
+            <div style={{ fontFamily: "var(--font-jetbrains-mono)", fontSize: 11, color: "#7A776E", marginTop: 4 }}>
+              Updated 2m ago
+            </div>
           </div>
         </div>
-      </motion.div>
+      </div>
 
       {/* Modals */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>

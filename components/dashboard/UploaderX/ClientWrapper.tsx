@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
-import { useUser, useClerk } from "@clerk/nextjs";
+import { useUser, useClerk, useReverification } from "@clerk/nextjs";
 
 // ─── Design tokens (Insturix design system) ───────────────────
 const C = {
@@ -61,6 +61,10 @@ export function UploaderXClientWrapper() {
   const { toast } = useToast();
   const { user } = useUser();
   const { openUserProfile } = useClerk();
+  const createExternalAccountWithVerification = useReverification(
+    (params: { strategy: string; redirectUrl: string; additionalScopes: string[] }) =>
+      user?.createExternalAccount(params as any)
+  );
   const [view, setView] = useState<ViewState>("floor");
   const [platformStatuses, setPlatformStatuses] = useState<PlatformStatus[]>([]);
   const [videos, setVideos] = useState<VideoItem[]>([]);
@@ -325,22 +329,64 @@ export function UploaderXClientWrapper() {
 
   const handleConnect = useCallback(async (platform: PlatformStatus) => {
     if (platform.key === "youtube") {
-      // YouTube uses Clerk OAuth, not a custom redirect
       const YT_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
+      const googleAccount = user?.externalAccounts.find(
+        (acc) => acc.provider === "google" || (acc.provider as string) === "oauth_google"
+      );
+
       try {
-        await user?.createExternalAccount({
-          strategy: "oauth_google",
-          redirectUrl: window.location.href,
-          additionalScopes: [YT_SCOPE],
+        if (googleAccount?.approvedScopes?.includes(YT_SCOPE)) {
+          toast({ title: "YouTube connected", description: "Your Google account has YouTube permissions." });
+          return;
+        }
+        if (googleAccount) {
+          const reauth = await googleAccount.reauthorize({
+            redirectUrl: `${window.location.origin}/dashboard/uploaderx`,
+            additionalScopes: [YT_SCOPE],
+          });
+          if (reauth.verification?.externalVerificationRedirectURL) {
+            window.location.href = reauth.verification.externalVerificationRedirectURL.toString();
+          }
+        } else {
+          await createExternalAccountWithVerification({
+            strategy: "oauth_google",
+            redirectUrl: `${window.location.origin}/dashboard/uploaderx`,
+            additionalScopes: [YT_SCOPE],
+          });
+        }
+      } catch (err) {
+        console.error("[YouTube connect]", err);
+        toast({
+          title: "YouTube connection issue",
+          description: "Could not connect automatically. Try connecting Google from your account settings.",
+          variant: "destructive",
         });
-      } catch {
-        // Fallback: open Clerk profile to connect manually
         openUserProfile();
       }
     } else if (platform.authUrl) {
       window.location.href = platform.authUrl;
     }
-  }, [user, openUserProfile]);
+  }, [user, openUserProfile, toast, createExternalAccountWithVerification]);
+
+  const RESET_ENDPOINTS: Record<string, string> = {
+    instagram: "/api/services/uploaderx/instagram/reset",
+    facebook: "/api/services/uploaderx/facebook/reset",
+    twitter: "/api/services/uploaderx/twitter/reset",
+  };
+
+  const handleDisconnect = useCallback(async (platform: PlatformStatus) => {
+    const resetUrl = RESET_ENDPOINTS[platform.key];
+    if (!resetUrl) return;
+    try {
+      const res = await fetch(resetUrl, { method: "POST" });
+      if (res.ok) {
+        toast({ title: `${platform.label} disconnected`, description: "You can reconnect anytime." });
+        setPlatformStatuses((prev) => prev.map((p) => p.key === platform.key ? { ...p, connected: false, userName: undefined } : p));
+      }
+    } catch {
+      toast({ title: "Disconnect failed", description: "Please try again.", variant: "destructive" });
+    }
+  }, [toast]);
 
   const connectedCount = platformStatuses.filter(p => p.connected).length;
 
@@ -689,10 +735,7 @@ export function UploaderXClientWrapper() {
               platformStatuses.map((p) => (
                 <div
                   key={p.key}
-                  onClick={() => !p.connected && handleConnect(p)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, cursor: p.connected ? "default" : "pointer", transition: "opacity .2s" }}
-                  onMouseEnter={(e) => { if (!p.connected) e.currentTarget.style.opacity = "0.7"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+                  style={{ display: "flex", alignItems: "center", gap: 6, transition: "opacity .2s" }}
                 >
                   <span style={{
                     width: 6, height: 6, borderRadius: 3,
@@ -702,6 +745,31 @@ export function UploaderXClientWrapper() {
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t4, letterSpacing: ".04em" }}>
                     {p.label}
                   </span>
+                  {p.connected && RESET_ENDPOINTS[p.key] ? (
+                    <button
+                      onClick={() => handleDisconnect(p)}
+                      style={{
+                        fontSize: 9, color: C.t5, background: "none", border: `1px solid ${C.border}`,
+                        padding: "1px 6px", borderRadius: 3, cursor: "pointer", fontFamily: "var(--font-mono)",
+                        transition: `all .2s ${EASE}`, lineHeight: 1.4,
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = C.red; e.currentTarget.style.borderColor = C.red; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = C.t5; e.currentTarget.style.borderColor = C.border; }}
+                    >
+                      ×
+                    </button>
+                  ) : !p.connected ? (
+                    <button
+                      onClick={() => handleConnect(p)}
+                      style={{
+                        fontSize: 9, color: C.gold, background: "none", border: `1px solid ${C.goldBd}`,
+                        padding: "1px 6px", borderRadius: 3, cursor: "pointer", fontFamily: "var(--font-mono)",
+                        transition: `all .2s ${EASE}`, lineHeight: 1.4,
+                      }}
+                    >
+                      connect
+                    </button>
+                  ) : null}
                 </div>
               ))
             )}

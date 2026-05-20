@@ -9,7 +9,6 @@ export default async function MusitronDashboard() {
   const session: any = await auth();
   if (!session?.userId) return null;
 
-  // MusitronLayout currently does not accept props; recentTasks can be wired inside its ClientWrapper if needed.
   return (
     <Suspense fallback={<LoadingScreen />}>
       <MusitronLayout />

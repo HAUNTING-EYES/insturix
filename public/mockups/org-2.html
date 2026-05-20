@@ -1,0 +1,2048 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Constellation - Org Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0B0B0A;
+    --surface: #0F0F0E;
+    --raised: #131312;
+    --well: #1B1A18;
+    --border: #1C1B19;
+    --border-light: #282724;
+    --text-primary: #ECE9E1;
+    --text-secondary: #B5B2A8;
+    --text-muted: #7A776E;
+    --text-dim: #5F5E5A;
+    --gold: #D4A652;
+    --green: #5EC97E;
+    --cyan: #5CB8CC;
+    --purple: #9088D4;
+    --red: #D45050;
+    --ease: cubic-bezier(.16,1,.3,1);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ===== CONSTELLATION HERO ===== */
+  .constellation-hero {
+    position: relative;
+    width: 100%;
+    height: 600px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+    background: radial-gradient(ellipse 80% 60% at 50% 40%, rgba(212,166,82,0.03) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 50% at 30% 60%, rgba(144,136,212,0.02) 0%, transparent 50%),
+                radial-gradient(ellipse 50% 40% at 70% 50%, rgba(92,184,204,0.02) 0%, transparent 50%),
+                var(--bg);
+  }
+
+  /* Star field background — 120 twinkling stars */
+  .star-field {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+  }
+
+  .bg-star {
+    position: absolute;
+    border-radius: 50%;
+    background: var(--text-dim);
+    animation: twinkle var(--dur) ease-in-out infinite;
+    animation-delay: var(--delay);
+  }
+
+  .bg-star.bright {
+    background: var(--text-muted);
+    box-shadow: 0 0 3px rgba(236,233,225,0.15);
+  }
+
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.1; }
+    50% { opacity: 0.65; }
+  }
+
+  /* Constellation container */
+  .constellation {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+  }
+
+  /* Connection SVG lines */
+  .connections {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .connections svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .conn-line {
+    stroke: var(--border-light);
+    stroke-width: 1;
+    opacity: 0;
+    stroke-dasharray: var(--line-len);
+    stroke-dashoffset: var(--line-len);
+    animation: drawLine 1.8s var(--ease) forwards;
+    animation-delay: var(--draw-delay);
+  }
+
+  @keyframes drawLine {
+    to { stroke-dashoffset: 0; opacity: 0.4; }
+  }
+
+  /* ===== MEMBER STARS ===== */
+  .star-member {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    z-index: 10;
+    opacity: 0;
+    animation: starAppear 0.9s var(--ease) forwards;
+    animation-delay: var(--appear-delay, 0.3s);
+    transform: translate(-50%, -50%);
+  }
+
+  .star-member:hover {
+    z-index: 15;
+  }
+
+  .star-member:hover .star-avatar {
+    transform: scale(1.06);
+  }
+
+  .star-member:hover .star-glow {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+
+  .star-body {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .star-glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(25px);
+    z-index: -1;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    animation: starPulse 4s ease-in-out infinite;
+    animation-delay: var(--pulse-delay, 0s);
+  }
+
+  .star-avatar {
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    position: relative;
+    z-index: 2;
+    overflow: hidden;
+    transition: transform 0.4s var(--ease);
+  }
+
+  .star-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .star-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1.5px solid;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    animation: ringPulse 3.5s ease-in-out infinite;
+    animation-delay: var(--pulse-delay, 0s);
+    z-index: 1;
+  }
+
+  /* Owner star — LARGE (100px) */
+  .star-member.owner .star-avatar {
+    width: 100px;
+    height: 100px;
+    font-size: 30px;
+    background: linear-gradient(135deg, rgba(212,166,82,0.3), rgba(212,166,82,0.08));
+    color: var(--gold);
+    border: 2.5px solid rgba(212,166,82,0.55);
+    box-shadow: 0 0 30px rgba(212,166,82,0.15), inset 0 0 20px rgba(212,166,82,0.05);
+  }
+
+  .star-member.owner .star-glow {
+    width: 180px;
+    height: 180px;
+    background: rgba(212,166,82,0.14);
+  }
+
+  .star-member.owner .star-ring {
+    width: 130px;
+    height: 130px;
+    border-color: rgba(212,166,82,0.2);
+  }
+
+  .star-member.owner .star-ring-outer {
+    position: absolute;
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    border: 1px solid rgba(212,166,82,0.08);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    animation: ringPulse 5s ease-in-out infinite;
+    z-index: 0;
+  }
+
+  /* Admin star — 70px */
+  .star-member.admin .star-avatar {
+    width: 70px;
+    height: 70px;
+    font-size: 22px;
+    background: linear-gradient(135deg, rgba(144,136,212,0.3), rgba(144,136,212,0.08));
+    color: var(--purple);
+    border: 2px solid rgba(144,136,212,0.45);
+    box-shadow: 0 0 22px rgba(144,136,212,0.1), inset 0 0 14px rgba(144,136,212,0.04);
+  }
+
+  .star-member.admin .star-glow {
+    width: 130px;
+    height: 130px;
+    background: rgba(144,136,212,0.1);
+  }
+
+  .star-member.admin .star-ring {
+    width: 96px;
+    height: 96px;
+    border-color: rgba(144,136,212,0.16);
+  }
+
+  /* Member star — 60px */
+  .star-member.member .star-avatar {
+    width: 60px;
+    height: 60px;
+    font-size: 18px;
+    background: linear-gradient(135deg, rgba(92,184,204,0.3), rgba(92,184,204,0.08));
+    color: var(--cyan);
+    border: 2px solid rgba(92,184,204,0.4);
+    box-shadow: 0 0 18px rgba(92,184,204,0.08), inset 0 0 12px rgba(92,184,204,0.03);
+  }
+
+  .star-member.member .star-glow {
+    width: 110px;
+    height: 110px;
+    background: rgba(92,184,204,0.08);
+  }
+
+  .star-member.member .star-ring {
+    width: 82px;
+    height: 82px;
+    border-color: rgba(92,184,204,0.13);
+  }
+
+  /* Star name label (always visible) */
+  .star-label {
+    text-align: center;
+    pointer-events: none;
+  }
+
+  .star-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 1px;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.6);
+  }
+
+  .star-role-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--text-muted);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+  }
+
+  /* CSS-only hover tooltip (just name, subtle) */
+  .star-tooltip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(19,19,18,0.92);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 6px 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 20;
+    backdrop-filter: blur(8px);
+  }
+
+  .star-tooltip .tt-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .star-tooltip .tt-role {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 1px;
+  }
+
+  .star-tooltip .tt-role.tt-owner { color: var(--gold); }
+  .star-tooltip .tt-role.tt-admin { color: var(--purple); }
+  .star-tooltip .tt-role.tt-member { color: var(--cyan); }
+
+  .star-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--border-light);
+  }
+
+  .star-member:hover .star-tooltip {
+    opacity: 1;
+  }
+
+  @keyframes starAppear {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+
+  @keyframes starPulse {
+    0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+    50% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.12); }
+  }
+
+  @keyframes ringPulse {
+    0%, 100% { opacity: 0.35; transform: translate(-50%, -50%) scale(1); }
+    50% { opacity: 0.65; transform: translate(-50%, -50%) scale(1.07); }
+  }
+
+  /* Org name overlay */
+  .constellation-title {
+    position: absolute;
+    top: 32px;
+    left: 44px;
+    z-index: 20;
+  }
+
+  .constellation-title .org-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .constellation-title .org-name {
+    font-size: 30px;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--text-primary), var(--gold));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Add member button — pulsing */
+  .add-star-btn {
+    position: absolute;
+    bottom: 32px;
+    right: 32px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: rgba(212,166,82,0.1);
+    border: 1.5px dashed rgba(212,166,82,0.3);
+    color: var(--gold);
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s var(--ease);
+    z-index: 20;
+    animation: pulseBorder 3s ease-in-out infinite;
+  }
+
+  .add-star-btn:hover {
+    background: rgba(212,166,82,0.18);
+    border-color: rgba(212,166,82,0.55);
+    transform: scale(1.1);
+    box-shadow: 0 0 20px rgba(212,166,82,0.15);
+  }
+
+  @keyframes pulseBorder {
+    0%, 100% { border-color: rgba(212,166,82,0.2); box-shadow: 0 0 0 rgba(212,166,82,0); }
+    50% { border-color: rgba(212,166,82,0.5); box-shadow: 0 0 16px rgba(212,166,82,0.08); }
+  }
+
+  /* ===== STAR DETAIL POPUP (click) — CENTERED BELOW STAR ===== */
+  .star-detail {
+    position: absolute;
+    background: var(--raised);
+    border: 1px solid var(--border-light);
+    border-radius: 14px;
+    padding: 22px 26px;
+    z-index: 50;
+    min-width: 260px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(12px);
+    transition: opacity 0.25s var(--ease), transform 0.25s var(--ease);
+    box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(40,39,36,0.3);
+    backdrop-filter: blur(12px);
+  }
+
+  .star-detail.visible {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateY(0);
+  }
+
+  .star-detail::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-bottom-color: var(--border-light);
+  }
+
+  .detail-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .detail-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+
+  .detail-avatar.da-owner {
+    background: linear-gradient(135deg, rgba(212,166,82,0.25), rgba(212,166,82,0.08));
+    color: var(--gold);
+    border: 1.5px solid rgba(212,166,82,0.4);
+  }
+
+  .detail-avatar.da-admin {
+    background: linear-gradient(135deg, rgba(144,136,212,0.25), rgba(144,136,212,0.08));
+    color: var(--purple);
+    border: 1.5px solid rgba(144,136,212,0.4);
+  }
+
+  .detail-avatar.da-member {
+    background: linear-gradient(135deg, rgba(92,184,204,0.25), rgba(92,184,204,0.08));
+    color: var(--cyan);
+    border: 1.5px solid rgba(92,184,204,0.4);
+  }
+
+  .detail-info {}
+
+  .detail-name { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
+
+  .detail-email {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .detail-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+  }
+
+  .detail-row-label { color: var(--text-muted); }
+
+  .detail-row-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-primary);
+  }
+
+  .detail-actions {
+    display: flex;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .detail-btn {
+    flex: 1;
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+    text-align: center;
+  }
+
+  .detail-btn.role-btn {
+    background: rgba(144,136,212,0.1);
+    border: 1px solid rgba(144,136,212,0.2);
+    color: var(--purple);
+  }
+  .detail-btn.role-btn:hover { background: rgba(144,136,212,0.18); }
+
+  .detail-btn.remove-btn {
+    background: rgba(220,80,80,0.08);
+    border: 1px solid rgba(220,80,80,0.15);
+    color: #d45050;
+  }
+  .detail-btn.remove-btn:hover { background: rgba(220,80,80,0.14); }
+
+
+  /* ===== DASHBOARD CONTENT BELOW ===== */
+  .dashboard {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 40px 60px;
+  }
+
+  /* Status cards */
+  .status-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 36px;
+  }
+
+  .status-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 22px;
+    position: relative;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(14px);
+    animation: cardAppear 0.5s var(--ease) forwards;
+  }
+
+  .status-card:nth-child(1) { animation-delay: 0.15s; }
+  .status-card:nth-child(2) { animation-delay: 0.22s; }
+  .status-card:nth-child(3) { animation-delay: 0.29s; }
+  .status-card:nth-child(4) { animation-delay: 0.36s; }
+
+  .status-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .status-card:nth-child(1)::before { background: var(--gold); }
+  .status-card:nth-child(2)::before { background: var(--green); }
+  .status-card:nth-child(3)::before { background: var(--cyan); }
+  .status-card:nth-child(4)::before { background: var(--purple); }
+
+  .status-card-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .status-card-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .status-card-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  @keyframes cardAppear {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+
+  /* ===== TOOLBAR ===== */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .toolbar-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .toolbar-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    padding: 3px 10px;
+    border-radius: 6px;
+    color: var(--text-muted);
+  }
+
+  .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .search-input {
+    padding: 8px 14px 8px 36px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 13px;
+    outline: none;
+    width: 220px;
+    transition: all 0.2s var(--ease);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%235F5E5A' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7' stroke='%235F5E5A' stroke-width='2' fill='none'/%3E%3Cline x1='16.5' y1='16.5' x2='21' y2='21' stroke='%235F5E5A' stroke-width='2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 12px center;
+  }
+
+  .search-input:focus {
+    border-color: var(--border-light);
+    width: 280px;
+  }
+
+  .search-input::placeholder { color: var(--text-dim); }
+
+  .invite-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 18px;
+    background: rgba(212,166,82,0.1);
+    border: 1px solid rgba(212,166,82,0.25);
+    border-radius: 8px;
+    color: var(--gold);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .invite-btn:hover {
+    background: rgba(212,166,82,0.15);
+    border-color: rgba(212,166,82,0.4);
+    transform: translateY(-1px);
+  }
+
+  .settings-btn-sm {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .settings-btn-sm:hover {
+    background: var(--raised);
+    border-color: var(--border-light);
+  }
+
+
+  /* ===== MEMBER TABLE ===== */
+  .crew-table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .crew-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .crew-table thead th {
+    padding: 14px 20px;
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    background: var(--raised);
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s var(--ease);
+  }
+
+  .crew-table thead th:hover { color: var(--text-muted); }
+  .crew-table thead th.sorted { color: var(--gold); }
+
+  .sort-arrow {
+    font-size: 10px;
+    margin-left: 4px;
+    opacity: 0.5;
+  }
+
+  .crew-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: all 0.2s var(--ease);
+    opacity: 0;
+    animation: rowSlide 0.5s var(--ease) forwards;
+  }
+
+  .crew-table tbody tr:nth-child(1) { animation-delay: 0.25s; }
+  .crew-table tbody tr:nth-child(2) { animation-delay: 0.35s; }
+  .crew-table tbody tr:nth-child(3) { animation-delay: 0.45s; }
+  .crew-table tbody tr:nth-child(4) { animation-delay: 0.55s; }
+  .crew-table tbody tr:nth-child(5) { animation-delay: 0.65s; }
+  .crew-table tbody tr:nth-child(6) { animation-delay: 0.75s; }
+
+  .crew-table tbody tr:last-child { border-bottom: none; }
+  .crew-table tbody tr:hover { background: var(--raised); }
+
+  .crew-table tbody td {
+    padding: 14px 20px;
+    font-size: 14px;
+    vertical-align: middle;
+  }
+
+  @keyframes rowSlide {
+    from { opacity: 0; transform: translateX(-16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* Member cell in table */
+  .member-cell {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .member-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .member-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+  .member-avatar.av-owner {
+    background: linear-gradient(135deg, rgba(212,166,82,0.2), rgba(212,166,82,0.05));
+    color: var(--gold);
+    border: 1.5px solid rgba(212,166,82,0.3);
+  }
+
+  .member-avatar.av-admin {
+    background: linear-gradient(135deg, rgba(144,136,212,0.2), rgba(144,136,212,0.05));
+    color: var(--purple);
+    border: 1.5px solid rgba(144,136,212,0.3);
+  }
+
+  .member-avatar.av-member {
+    background: linear-gradient(135deg, rgba(92,184,204,0.2), rgba(92,184,204,0.05));
+    color: var(--cyan);
+    border: 1.5px solid rgba(92,184,204,0.3);
+  }
+
+  .member-text .name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+
+  .member-text .email {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* Role badge */
+  .role-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    position: relative;
+    overflow: hidden;
+    cursor: default;
+  }
+
+  .role-badge::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.6s var(--ease);
+  }
+
+  tr:hover .role-badge::before { transform: translateX(100%); }
+
+  .role-badge.badge-owner {
+    background: rgba(212,166,82,0.1);
+    color: var(--gold);
+    border: 1px solid rgba(212,166,82,0.2);
+  }
+
+  .role-badge.badge-admin {
+    background: rgba(144,136,212,0.1);
+    color: var(--purple);
+    border: 1px solid rgba(144,136,212,0.2);
+  }
+
+  .role-badge.badge-member {
+    background: rgba(92,184,204,0.1);
+    color: var(--cyan);
+    border: 1px solid rgba(92,184,204,0.2);
+  }
+
+  .badge-icon { font-size: 12px; }
+
+  .date-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* Row actions */
+  .row-actions {
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.2s var(--ease);
+  }
+
+  tr:hover .row-actions { opacity: 1; }
+
+  .row-action-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s var(--ease);
+  }
+
+  .row-action-btn:hover {
+    background: var(--raised);
+    color: var(--text-primary);
+    border-color: var(--border-light);
+  }
+
+  .row-action-btn.danger:hover {
+    background: rgba(212,80,80,0.08);
+    color: var(--red);
+    border-color: rgba(212,80,80,0.2);
+  }
+
+
+  /* ===== INVITE MODAL ===== */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s var(--ease);
+  }
+
+  .modal-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  .modal {
+    background: var(--raised);
+    border: 1px solid var(--border-light);
+    border-radius: 16px;
+    padding: 32px;
+    width: 440px;
+    transform: scale(0.95) translateY(10px);
+    transition: transform 0.4s var(--ease);
+  }
+
+  .modal-overlay.active .modal {
+    transform: scale(1) translateY(0);
+  }
+
+  .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .modal p { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
+
+  .form-group { margin-bottom: 16px; }
+
+  .form-label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .modal-input {
+    width: 100%;
+    padding: 11px 14px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s var(--ease);
+  }
+
+  .modal-input:focus { border-color: var(--gold); }
+  .modal-input::placeholder { color: var(--text-dim); }
+
+  .modal-select {
+    width: 100%;
+    padding: 11px 14px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+  }
+
+  .btn-cancel {
+    padding: 10px 20px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .btn-cancel:hover { background: var(--raised); }
+
+  .btn-send {
+    padding: 10px 20px;
+    background: var(--gold);
+    border: none;
+    border-radius: 8px;
+    color: var(--bg);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .btn-send:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+
+  /* ===== SETTINGS PANEL — slide from right ===== */
+  .settings-panel-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s var(--ease);
+  }
+
+  .settings-panel-overlay.open {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  .settings-panel {
+    position: fixed;
+    top: 0;
+    right: -420px;
+    width: 400px;
+    height: 100vh;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 32px 28px;
+    z-index: 110;
+    transition: right 0.5s var(--ease);
+    overflow-y: auto;
+  }
+
+  .settings-panel.open { right: 0; }
+
+  .settings-close {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+  }
+
+  .settings-close:hover { color: var(--text-primary); }
+
+  .settings-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .settings-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 28px; }
+
+  .setting-group { margin-bottom: 24px; }
+
+  .setting-group-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .setting-row:last-child { border-bottom: none; }
+
+  .setting-label { font-size: 13px; color: var(--text-secondary); }
+
+  .setting-hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .setting-label-wrap {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .switch {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .switch input { opacity: 0; width: 0; height: 0; }
+
+  .switch-track {
+    position: absolute;
+    inset: 0;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: all 0.3s var(--ease);
+  }
+
+  .switch-track::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: all 0.3s var(--ease);
+  }
+
+  .switch input:checked + .switch-track {
+    background: rgba(94,201,126,0.15);
+    border-color: rgba(94,201,126,0.3);
+  }
+
+  .switch input:checked + .switch-track::after {
+    transform: translateX(20px);
+    background: var(--green);
+    box-shadow: 0 0 8px rgba(94,201,126,0.3);
+  }
+
+  .role-select {
+    padding: 6px 12px;
+    background: var(--well);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 12px;
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+    min-width: 100px;
+    text-align: center;
+  }
+
+  /* Role change dropdown */
+  .role-dropdown {
+    position: absolute;
+    background: var(--raised);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    padding: 6px;
+    z-index: 50;
+    min-width: 140px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: all 0.2s var(--ease);
+  }
+
+  .role-dropdown.visible {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateY(0);
+  }
+
+  .role-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s var(--ease);
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+  }
+
+  .role-dropdown-item:hover {
+    background: var(--well);
+    color: var(--text-primary);
+  }
+
+  .role-dropdown-item.active {
+    color: var(--gold);
+    background: rgba(212,166,82,0.06);
+  }
+
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .status-bar { grid-template-columns: repeat(2, 1fr); }
+    .constellation-hero { height: 480px; }
+    .dashboard { padding: 28px 20px 48px; }
+  }
+
+  @media (max-width: 600px) {
+    .status-bar { grid-template-columns: 1fr; }
+    .toolbar { flex-direction: column; gap: 12px; align-items: stretch; }
+    .toolbar-right { flex-wrap: wrap; }
+    .constellation-hero { height: 400px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== CONSTELLATION HERO ==================== -->
+<section class="constellation-hero" id="constellationHero">
+  <div class="star-field" id="starField"></div>
+
+  <div class="constellation-title">
+    <div class="org-label">Organization</div>
+    <div class="org-name">Insturix</div>
+  </div>
+
+  <div class="connections">
+    <svg id="connSvg"></svg>
+  </div>
+
+  <div class="constellation" id="constellation"></div>
+
+  <!-- Star detail popup — positioned by JS centered below clicked star -->
+  <div class="star-detail" id="starDetail">
+    <div class="detail-header">
+      <div class="detail-avatar" id="detailAvatar"></div>
+      <div class="detail-info">
+        <div class="detail-name" id="detailName"></div>
+        <div class="detail-email" id="detailEmail"></div>
+      </div>
+    </div>
+    <div class="detail-meta">
+      <div class="detail-row">
+        <span class="detail-row-label">Role</span>
+        <span class="detail-row-value" id="detailRole"></span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-row-label">Joined</span>
+        <span class="detail-row-value" id="detailJoined"></span>
+      </div>
+    </div>
+    <div class="detail-actions" id="detailActions"></div>
+  </div>
+
+  <button class="add-star-btn" onclick="openInviteModal()" title="Invite member">+</button>
+</section>
+
+
+<!-- ==================== DASHBOARD CONTENT ==================== -->
+<div class="dashboard">
+
+  <!-- Status Cards -->
+  <div class="status-bar">
+    <div class="status-card">
+      <div class="status-card-label">Active Projects</div>
+      <div class="status-card-value" id="projCount">0</div>
+      <div class="status-card-sub">3 completed this month</div>
+    </div>
+    <div class="status-card">
+      <div class="status-card-label">Active Members</div>
+      <div class="status-card-value" id="memberCount">0</div>
+      <div class="status-card-sub">of 4 total members</div>
+    </div>
+    <div class="status-card">
+      <div class="status-card-label">Videos Rendered</div>
+      <div class="status-card-value" id="renderCount">0</div>
+      <div class="status-card-sub">+18 this week</div>
+    </div>
+    <div class="status-card">
+      <div class="status-card-label">Storage Used</div>
+      <div class="status-card-value" id="storageCount">0</div>
+      <div class="status-card-sub">of 100 GB limit</div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <span class="toolbar-title">Members</span>
+      <span class="toolbar-count" id="toolbarCount">4 members</span>
+    </div>
+    <div class="toolbar-right">
+      <input class="search-input" type="text" placeholder="Search members..." id="searchInput" oninput="filterMembers(this.value)">
+      <button class="invite-btn" onclick="openInviteModal()">
+        <span style="font-size:16px;">+</span>
+        Invite Member
+      </button>
+      <button class="settings-btn-sm" onclick="toggleSettings()">
+        &#9881; Settings
+      </button>
+    </div>
+  </div>
+
+  <!-- Member Table -->
+  <div class="crew-table-wrap">
+    <table class="crew-table">
+      <thead>
+        <tr>
+          <th onclick="sortTable('name')" id="th-name">Member <span class="sort-arrow">&#8597;</span></th>
+          <th onclick="sortTable('role')" id="th-role">Role <span class="sort-arrow">&#8597;</span></th>
+          <th onclick="sortTable('joined')" id="th-joined" class="sorted">Joined <span class="sort-arrow">&#8593;</span></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="memberTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- ==================== INVITE MODAL ==================== -->
+<div class="modal-overlay" id="inviteModal">
+  <div class="modal">
+    <h3>Invite Member</h3>
+    <p>Send an invitation to join your organization.</p>
+    <div class="form-group">
+      <label class="form-label">Email Address</label>
+      <input class="modal-input" type="email" placeholder="colleague@example.com" id="inviteEmail">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Role</label>
+      <select class="modal-select" id="inviteRole">
+        <option value="member">Member</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeInviteModal()">Cancel</button>
+      <button class="btn-send" onclick="sendInvite()">Send Invitation</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ==================== SETTINGS PANEL ==================== -->
+<div class="settings-panel-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
+<div class="settings-panel" id="settingsPanel">
+  <button class="settings-close" onclick="toggleSettings()">&times;</button>
+  <div class="settings-title">Organization Settings</div>
+  <div class="settings-sub">Configure your workspace</div>
+
+  <div class="setting-group">
+    <div class="setting-group-label">Permissions</div>
+    <div class="setting-row">
+      <div class="setting-label-wrap">
+        <span class="setting-label">Allow member projects</span>
+        <span class="setting-hint">Members can create projects in this org</span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" checked id="settingAllowMemberProjects" onchange="onSettingChange()">
+        <span class="switch-track"></span>
+      </label>
+    </div>
+    <div class="setting-row">
+      <div class="setting-label-wrap">
+        <span class="setting-label">Default role for new members</span>
+        <span class="setting-hint">Applied when invitations are accepted</span>
+      </div>
+      <select class="role-select" id="settingDefaultRole" onchange="onSettingChange()">
+        <option value="member" selected>Member</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="setting-group">
+    <div class="setting-group-label">Notifications</div>
+    <div class="setting-row">
+      <span class="setting-label">Usage alerts</span>
+      <label class="switch"><input type="checkbox" checked><span class="switch-track"></span></label>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Weekly activity digest</span>
+      <label class="switch"><input type="checkbox"><span class="switch-track"></span></label>
+    </div>
+  </div>
+</div>
+
+
+<!-- ==================== ROLE CHANGE DROPDOWN ==================== -->
+<div class="role-dropdown" id="roleDropdown">
+  <button class="role-dropdown-item" data-role="admin" onclick="applyRoleChange('admin')">
+    <span style="color:var(--purple);">&#9670;</span> Admin
+  </button>
+  <button class="role-dropdown-item" data-role="member" onclick="applyRoleChange('member')">
+    <span style="color:var(--cyan);">&#9679;</span> Member
+  </button>
+</div>
+
+
+<script>
+  // ===================================================================
+  // DATA
+  // ===================================================================
+  const members = [
+    {
+      clerkUserId: 'user_nimit',
+      email: 'nimit@insturix.com',
+      username: 'Nimit Jain',
+      imageUrl: null,
+      role: 'owner',
+      joinedAt: '2026-01-15',
+    },
+    {
+      clerkUserId: 'user_arjun',
+      email: 'arjun@insturix.com',
+      username: 'Arjun Rao',
+      imageUrl: null,
+      role: 'admin',
+      joinedAt: '2026-02-03',
+    },
+    {
+      clerkUserId: 'user_priya',
+      email: 'priya@insturix.com',
+      username: 'Priya Sharma',
+      imageUrl: null,
+      role: 'admin',
+      joinedAt: '2026-02-10',
+    },
+    {
+      clerkUserId: 'user_kiran',
+      email: 'kiran@insturix.com',
+      username: 'Kiran Patel',
+      imageUrl: null,
+      role: 'member',
+      joinedAt: '2026-03-22',
+    },
+  ];
+
+  const currentUserRole = 'owner';
+
+  const orgSettings = {
+    allowMemberProjects: true,
+    defaultRole: 'member',
+  };
+
+  let sortField = 'joined';
+  let sortAsc = true;
+
+  // ===================================================================
+  // HELPERS
+  // ===================================================================
+  function getInitials(m) {
+    if (m.username) {
+      const parts = m.username.split(' ');
+      return parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : m.username[0];
+    }
+    return m.email[0].toUpperCase();
+  }
+
+  function displayName(m) {
+    return m.username || m.email.split('@')[0];
+  }
+
+  function formatDate(iso) {
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function roleColor(role) {
+    if (role === 'owner') return 'gold';
+    if (role === 'admin') return 'purple';
+    return 'cyan';
+  }
+
+  function roleIcon(role) {
+    if (role === 'owner') return '&#9733;';
+    if (role === 'admin') return '&#9670;';
+    return '&#9679;';
+  }
+
+  function canManage() {
+    return currentUserRole === 'owner' || currentUserRole === 'admin';
+  }
+
+
+  // ===================================================================
+  // 1. STAR FIELD — 120 twinkling background stars
+  // ===================================================================
+  function generateStarField() {
+    const field = document.getElementById('starField');
+    field.innerHTML = '';
+    for (let i = 0; i < 120; i++) {
+      const star = document.createElement('div');
+      star.className = 'bg-star' + (Math.random() > 0.8 ? ' bright' : '');
+      star.style.left = Math.random() * 100 + '%';
+      star.style.top = Math.random() * 100 + '%';
+      star.style.setProperty('--dur', (2.5 + Math.random() * 5) + 's');
+      star.style.setProperty('--delay', Math.random() * 6 + 's');
+      const size = (1 + Math.random() * 2) + 'px';
+      star.style.width = size;
+      star.style.height = size;
+      field.appendChild(star);
+    }
+  }
+
+
+  // ===================================================================
+  // 2. CONSTELLATION — large stars, generous spacing, connection lines
+  // ===================================================================
+  function renderConstellation() {
+    const container = document.getElementById('constellation');
+    const hero = document.getElementById('constellationHero');
+    const w = hero.offsetWidth;
+    const h = hero.offsetHeight;
+    const cx = w / 2;
+    const cy = h / 2 + 10; // slightly below center to leave room for title
+
+    container.innerHTML = '';
+
+    // Sort by role importance: owner first
+    const roleOrder = { owner: 0, admin: 1, member: 2 };
+    const sorted = [...members].sort((a, b) => roleOrder[a.role] - roleOrder[b.role]);
+    const n = sorted.length;
+
+    // Generous radius — use more of the available space
+    const radius = Math.min(w * 0.3, h * 0.32, 240);
+    const positions = {};
+
+    sorted.forEach((m, i) => {
+      // Distribute evenly, owner at top
+      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
+      const x = cx + radius * Math.cos(angle);
+      const y = cy + radius * Math.sin(angle);
+
+      positions[m.clerkUserId] = { x, y };
+
+      const el = document.createElement('div');
+      el.className = `star-member ${m.role}`;
+      el.id = `star-${m.clerkUserId}`;
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      el.style.setProperty('--appear-delay', (0.3 + i * 0.18) + 's');
+      el.style.setProperty('--pulse-delay', (i * 0.7) + 's');
+      el.setAttribute('data-userid', m.clerkUserId);
+
+      // CLICK opens detail popup — NOT hover
+      el.addEventListener('click', function(e) {
+        e.stopPropagation();
+        showStarDetail(m.clerkUserId);
+      });
+
+      const avatarContent = m.imageUrl
+        ? `<img src="${m.imageUrl}" alt="">`
+        : getInitials(m);
+
+      // Owner gets an extra outer ring
+      const outerRing = m.role === 'owner' ? '<div class="star-ring-outer"></div>' : '';
+
+      el.innerHTML = `
+        <div class="star-tooltip">
+          <div class="tt-name">${displayName(m)}</div>
+          <div class="tt-role tt-${m.role}">${m.role}</div>
+        </div>
+        <div class="star-body">
+          <div class="star-glow"></div>
+          ${outerRing}
+          <div class="star-ring"></div>
+          <div class="star-avatar">${avatarContent}</div>
+        </div>
+        <div class="star-label">
+          <div class="star-name">${displayName(m)}</div>
+          <div class="star-role-text">${m.role}</div>
+        </div>
+      `;
+
+      container.appendChild(el);
+    });
+
+    drawConnections(positions, sorted);
+  }
+
+  function drawConnections(positions, sorted) {
+    const svg = document.getElementById('connSvg');
+    svg.innerHTML = '';
+    const ids = sorted.map(m => m.clerkUserId);
+    let idx = 0;
+
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = positions[ids[i]];
+        const b = positions[ids[j]];
+        const lineLen = Math.sqrt(Math.pow(b.x - a.x, 2) + Math.pow(b.y - a.y, 2));
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', a.x);
+        line.setAttribute('y1', a.y);
+        line.setAttribute('x2', b.x);
+        line.setAttribute('y2', b.y);
+        line.classList.add('conn-line');
+        line.style.setProperty('--line-len', lineLen);
+        line.style.setProperty('--draw-delay', (0.6 + idx * 0.18) + 's');
+        svg.appendChild(line);
+        idx++;
+      }
+    }
+  }
+
+
+  // ===================================================================
+  // 3. STAR DETAIL POPUP — CLICK opens, CENTERED BELOW the star
+  // ===================================================================
+  let activeStarDetail = null;
+
+  function showStarDetail(userId) {
+    const detail = document.getElementById('starDetail');
+    const m = members.find(x => x.clerkUserId === userId);
+    if (!m) return;
+
+    // If clicking the same star, toggle off
+    if (activeStarDetail === userId && detail.classList.contains('visible')) {
+      hideStarDetail();
+      return;
+    }
+
+    // Populate content
+    const avatarEl = document.getElementById('detailAvatar');
+    avatarEl.className = 'detail-avatar da-' + m.role;
+    avatarEl.textContent = m.imageUrl ? '' : getInitials(m);
+    if (m.imageUrl) avatarEl.innerHTML = `<img src="${m.imageUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+
+    document.getElementById('detailName').textContent = displayName(m);
+    document.getElementById('detailEmail').textContent = m.email;
+    document.getElementById('detailRole').textContent = m.role.charAt(0).toUpperCase() + m.role.slice(1);
+    document.getElementById('detailJoined').textContent = formatDate(m.joinedAt);
+
+    const actionsEl = document.getElementById('detailActions');
+    if (m.role === 'owner') {
+      actionsEl.innerHTML = '<span style="font-size:11px;color:var(--text-dim)">Organization owner</span>';
+    } else if (canManage()) {
+      actionsEl.innerHTML = `
+        <button class="detail-btn role-btn" onclick="openRoleChangeForStar('${userId}')">Change Role</button>
+        <button class="detail-btn remove-btn" onclick="confirmRemoveMember('${userId}')">Remove</button>
+      `;
+    } else {
+      actionsEl.innerHTML = '';
+    }
+
+    // Position: CENTERED below the star
+    const starEl = document.getElementById('star-' + userId);
+    const hero = document.getElementById('constellationHero');
+    const starRect = starEl.getBoundingClientRect();
+    const heroRect = hero.getBoundingClientRect();
+
+    // Get the avatar size to position below it
+    const starCenterX = starRect.left + starRect.width / 2 - heroRect.left;
+    const starBottom = starRect.bottom - heroRect.top + 10;
+
+    // Show first to measure width
+    detail.style.visibility = 'hidden';
+    detail.style.opacity = '0';
+    detail.classList.add('visible');
+
+    const detailWidth = detail.offsetWidth;
+    const detailHeight = detail.offsetHeight;
+
+    // Center horizontally below the star
+    let left = starCenterX - detailWidth / 2;
+    let top = starBottom;
+
+    // Clamp to hero bounds
+    const margin = 12;
+    if (left < margin) left = margin;
+    if (left + detailWidth > hero.offsetWidth - margin) left = hero.offsetWidth - detailWidth - margin;
+
+    // If it would go below the hero, position ABOVE instead
+    if (top + detailHeight > hero.offsetHeight - margin) {
+      top = (starRect.top - heroRect.top) - detailHeight - 16;
+      // Flip the arrow
+      detail.style.setProperty('--arrow-flip', '1');
+    } else {
+      detail.style.removeProperty('--arrow-flip');
+    }
+
+    detail.style.left = left + 'px';
+    detail.style.top = top + 'px';
+    detail.style.visibility = '';
+    detail.style.opacity = '';
+
+    activeStarDetail = userId;
+  }
+
+  function hideStarDetail() {
+    const detail = document.getElementById('starDetail');
+    detail.classList.remove('visible');
+    activeStarDetail = null;
+  }
+
+
+  // ===================================================================
+  // 4. MEMBER TABLE
+  // ===================================================================
+  function renderMemberTable() {
+    const tbody = document.getElementById('memberTableBody');
+    const sorted = getSortedMembers();
+    tbody.innerHTML = '';
+
+    sorted.forEach((m, i) => {
+      const tr = document.createElement('tr');
+      tr.setAttribute('data-userid', m.clerkUserId);
+      tr.setAttribute('data-name', displayName(m).toLowerCase());
+      tr.setAttribute('data-email', m.email.toLowerCase());
+      tr.style.animationDelay = (0.25 + i * 0.1) + 's';
+
+      const avatarContent = m.imageUrl
+        ? `<img src="${m.imageUrl}" alt="">`
+        : getInitials(m);
+
+      let actionsHtml = '';
+      if (m.role !== 'owner' && canManage()) {
+        actionsHtml = `
+          <div class="row-actions">
+            <button class="row-action-btn" title="Change role" onclick="openRoleDropdown('${m.clerkUserId}', this)">&#8645;</button>
+            <button class="row-action-btn danger" title="Remove member" onclick="confirmRemoveMember('${m.clerkUserId}')">&#10005;</button>
+          </div>
+        `;
+      }
+
+      tr.innerHTML = `
+        <td>
+          <div class="member-cell">
+            <div class="member-avatar av-${m.role}">${avatarContent}</div>
+            <div class="member-text">
+              <div class="name">${displayName(m)}</div>
+              <div class="email">${m.email}</div>
+            </div>
+          </div>
+        </td>
+        <td>
+          <span class="role-badge badge-${m.role}">
+            <span class="badge-icon">${roleIcon(m.role)}</span>
+            ${m.role.charAt(0).toUpperCase() + m.role.slice(1)}
+          </span>
+        </td>
+        <td><span class="date-text">${formatDate(m.joinedAt)}</span></td>
+        <td>${actionsHtml}</td>
+      `;
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  function getSortedMembers() {
+    const roleOrder = { owner: 0, admin: 1, member: 2 };
+    return [...members].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'name') {
+        cmp = displayName(a).localeCompare(displayName(b));
+      } else if (sortField === 'role') {
+        cmp = roleOrder[a.role] - roleOrder[b.role];
+      } else {
+        cmp = new Date(a.joinedAt) - new Date(b.joinedAt);
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+  }
+
+  function sortTable(field) {
+    if (sortField === field) {
+      sortAsc = !sortAsc;
+    } else {
+      sortField = field;
+      sortAsc = true;
+    }
+
+    document.querySelectorAll('.crew-table thead th').forEach(th => {
+      th.classList.remove('sorted');
+      const arrow = th.querySelector('.sort-arrow');
+      if (arrow) arrow.innerHTML = '&#8597;';
+    });
+
+    const th = document.getElementById('th-' + field);
+    if (th) {
+      th.classList.add('sorted');
+      const arrow = th.querySelector('.sort-arrow');
+      if (arrow) arrow.innerHTML = sortAsc ? '&#8593;' : '&#8595;';
+    }
+
+    renderMemberTable();
+  }
+
+  function filterMembers(query) {
+    const q = query.toLowerCase();
+    const rows = document.querySelectorAll('#memberTableBody tr');
+    let visible = 0;
+    rows.forEach(row => {
+      const name = row.getAttribute('data-name');
+      const email = row.getAttribute('data-email');
+      const show = name.includes(q) || email.includes(q);
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    document.getElementById('toolbarCount').textContent = visible + ' member' + (visible !== 1 ? 's' : '');
+  }
+
+
+  // ===================================================================
+  // 5. ROLE CHANGE
+  // ===================================================================
+  let roleChangeTarget = null;
+
+  function openRoleDropdown(userId, btnEl) {
+    const dropdown = document.getElementById('roleDropdown');
+    const m = members.find(x => x.clerkUserId === userId);
+    if (!m) return;
+    roleChangeTarget = userId;
+
+    dropdown.querySelectorAll('.role-dropdown-item').forEach(item => {
+      item.classList.toggle('active', item.getAttribute('data-role') === m.role);
+    });
+
+    const rect = btnEl.getBoundingClientRect();
+    dropdown.style.position = 'fixed';
+    dropdown.style.left = (rect.left - 100) + 'px';
+    dropdown.style.top = (rect.bottom + 6) + 'px';
+    dropdown.classList.add('visible');
+  }
+
+  function closeRoleDropdown() {
+    document.getElementById('roleDropdown').classList.remove('visible');
+    roleChangeTarget = null;
+  }
+
+  function applyRoleChange(newRole) {
+    if (!roleChangeTarget) return;
+    const m = members.find(x => x.clerkUserId === roleChangeTarget);
+    if (m && m.role !== 'owner') {
+      m.role = newRole;
+      renderMemberTable();
+      renderConstellation();
+    }
+    closeRoleDropdown();
+  }
+
+  function openRoleChangeForStar(userId) {
+    const newRole = prompt('Enter new role (admin or member):');
+    if (newRole === 'admin' || newRole === 'member') {
+      const m = members.find(x => x.clerkUserId === userId);
+      if (m && m.role !== 'owner') {
+        m.role = newRole;
+        renderMemberTable();
+        renderConstellation();
+        hideStarDetail();
+      }
+    }
+  }
+
+
+  // ===================================================================
+  // 6. REMOVE MEMBER
+  // ===================================================================
+  function confirmRemoveMember(userId) {
+    const m = members.find(x => x.clerkUserId === userId);
+    if (!m || m.role === 'owner') return;
+    if (confirm('Remove ' + displayName(m) + ' from the organization?')) {
+      const idx = members.indexOf(m);
+      if (idx > -1) {
+        members.splice(idx, 1);
+        renderMemberTable();
+        renderConstellation();
+        hideStarDetail();
+        document.getElementById('toolbarCount').textContent = members.length + ' member' + (members.length !== 1 ? 's' : '');
+      }
+    }
+  }
+
+
+  // ===================================================================
+  // 7. INVITE MODAL
+  // ===================================================================
+  function openInviteModal() {
+    document.getElementById('inviteModal').classList.add('active');
+    setTimeout(() => document.getElementById('inviteEmail').focus(), 300);
+  }
+
+  function closeInviteModal() {
+    document.getElementById('inviteModal').classList.remove('active');
+  }
+
+  function sendInvite() {
+    const email = document.getElementById('inviteEmail').value.trim();
+    const role = document.getElementById('inviteRole').value;
+    if (!email) return;
+
+    const name = email.split('@')[0];
+    members.push({
+      clerkUserId: 'user_' + name + '_' + Date.now(),
+      email: email,
+      username: null,
+      imageUrl: null,
+      role: role,
+      joinedAt: new Date().toISOString().split('T')[0],
+    });
+
+    renderMemberTable();
+    renderConstellation();
+    document.getElementById('toolbarCount').textContent = members.length + ' member' + (members.length !== 1 ? 's' : '');
+
+    closeInviteModal();
+    document.getElementById('inviteEmail').value = '';
+    document.getElementById('inviteRole').value = 'member';
+  }
+
+  document.getElementById('inviteModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeInviteModal();
+  });
+
+
+  // ===================================================================
+  // 8. SETTINGS PANEL
+  // ===================================================================
+  function toggleSettings() {
+    document.getElementById('settingsPanel').classList.toggle('open');
+    document.getElementById('settingsOverlay').classList.toggle('open');
+  }
+
+  function onSettingChange() {
+    orgSettings.allowMemberProjects = document.getElementById('settingAllowMemberProjects').checked;
+    orgSettings.defaultRole = document.getElementById('settingDefaultRole').value;
+  }
+
+
+  // ===================================================================
+  // 9. ANIMATED COUNTERS
+  // ===================================================================
+  function animateCount(id, target, suffix) {
+    const el = document.getElementById(id);
+    const duration = 1400;
+    const start = performance.now();
+    suffix = suffix || '';
+
+    function update(now) {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      el.textContent = Math.round(target * eased) + suffix;
+      if (progress < 1) requestAnimationFrame(update);
+    }
+    requestAnimationFrame(update);
+  }
+
+
+  // ===================================================================
+  // 10. GLOBAL LISTENERS
+  // ===================================================================
+  document.addEventListener('click', (e) => {
+    // Close star detail when clicking outside
+    if (!e.target.closest('.star-member') && !e.target.closest('.star-detail')) {
+      hideStarDetail();
+    }
+    // Close role dropdown
+    if (!e.target.closest('.role-dropdown') && !e.target.closest('.row-action-btn')) {
+      closeRoleDropdown();
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeInviteModal();
+      hideStarDetail();
+      closeRoleDropdown();
+      if (document.getElementById('settingsPanel').classList.contains('open')) toggleSettings();
+    }
+  });
+
+
+  // ===================================================================
+  // INIT
+  // ===================================================================
+  function init() {
+    generateStarField();
+    renderConstellation();
+    renderMemberTable();
+
+    // Sync settings UI
+    document.getElementById('settingAllowMemberProjects').checked = orgSettings.allowMemberProjects;
+    document.getElementById('settingDefaultRole').value = orgSettings.defaultRole;
+
+    // Animate stat counters with slight delay for visual flow
+    setTimeout(() => {
+      animateCount('projCount', 12, '');
+      animateCount('memberCount', members.length, '');
+      animateCount('renderCount', 47, '');
+      animateCount('storageCount', 34, ' GB');
+    }, 500);
+  }
+
+  window.addEventListener('load', init);
+
+  // Debounced resize handler
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      renderConstellation();
+    }, 150);
+  });
+</script>
+</body>
+</html>
