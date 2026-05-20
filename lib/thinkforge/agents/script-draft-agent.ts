@@ -145,7 +145,7 @@ export class ScriptDraftAgent {
     }
 
     const parsedBlocks = parseMarkdownToBlocks(markdown);
-    const blocks = validateThinkForgeBlocks(
+    let blocks = validateThinkForgeBlocks(
       parsedBlocks.length > 0
         ? parsedBlocks
         : [
@@ -156,7 +156,7 @@ export class ScriptDraftAgent {
             },
           ]
     );
-    const content = markdown.trim();
+    let content = markdown.trim();
 
     // ─── Post-generation: Quality Scoring + Stylist Review ────────
     let qualityScore = 100;
@@ -185,6 +185,36 @@ export class ScriptDraftAgent {
         });
         stylistFlags = review.flags.filter(f => f.severity === 'high').map(f => `${f.issue}: ${f.suggestion}`);
         console.log(`[ThinkForge:Stylist] Score: ${review.overallScore}/100. Flags: ${review.flags.length} (${stylistFlags.length} high).`);
+
+        // V2: Auto-rewrite flagged sections
+        if (qualityViolations.length > 0 || stylistFlags.length > 0) {
+          if (callbacks?.onProgress) {
+            await callbacks.onProgress({ progress: 0.95, message: 'Rewriting flagged sections' });
+          }
+          const rewritten = await stylist.rewriteFlagged({
+            content,
+            violations: qualityViolations,
+            flags: stylistFlags,
+            brandContext: modeAwareInput.context.systemBrief,
+          });
+          if (rewritten) {
+            const newScore = scoreContent(rewritten);
+            if (newScore.score > qualityScore) {
+              console.log(`[ThinkForge:Stylist] Rewrite improved quality: ${qualityScore} → ${newScore.score}`);
+              content = rewritten;
+              const newParsed = parseMarkdownToBlocks(rewritten);
+              blocks = validateThinkForgeBlocks(
+                newParsed.length > 0
+                  ? newParsed
+                  : [{ id: ensureThinkForgeBlockId(), kind: 'paragraph', content: normalizeThinkForgeRichText([{ type: 'text', text: rewritten, styles: {} }]) }]
+              );
+              qualityScore = newScore.score;
+              qualityViolations = newScore.violations.map(v => v.message);
+            } else {
+              console.log(`[ThinkForge:Stylist] Rewrite did not improve (${qualityScore} → ${newScore.score}), keeping original`);
+            }
+          }
+        }
       } catch (e) {
         console.error('[ThinkForge:Stylist] Review failed:', e);
       }

@@ -10,6 +10,7 @@
  */
 
 import { StructuredAgent, type AgentConfig } from './base-agent';
+import { generateText } from 'ai';
 import type { AgentInput } from './types';
 import { z } from 'zod';
 
@@ -87,6 +88,66 @@ Draft to analyze: ${userPrompt}
   ): Promise<StylistResult> {
     const { result } = await this.runStructured(input, overrides);
     return result;
+  }
+
+  async rewriteFlagged(input: {
+    content: string;
+    violations: string[];
+    flags: string[];
+    brandContext?: string;
+  }): Promise<string | null> {
+    const { content, violations, flags, brandContext } = input;
+
+    const allIssues = [...violations, ...flags];
+    if (allIssues.length === 0) return null;
+
+    const issueList = allIssues.map((v, i) => `${i + 1}. ${v}`).join('\n');
+
+    const prompt = `<role>You are a copy editor making targeted fixes to a draft.</role>
+
+<task>
+Rewrite the draft below, fixing ONLY the listed issues.
+Output the COMPLETE rewritten draft — not a diff, not a summary, the full text.
+</task>
+
+<rules>
+- Fix each listed issue by rewriting the specific sentence or phrase.
+- Replace AI-sounding phrases with natural, specific alternatives.
+- Do NOT change sentences that are not related to the listed issues.
+- Do NOT introduce new filler words (leverage, seamless, robust, elevate, foster, empower, landscape, tapestry, etc.)
+- Preserve all markdown formatting, headings, scene headers, hashtags, and structure.
+- Preserve the overall section order and flow.
+</rules>
+
+<issues_to_fix>
+${issueList}
+</issues_to_fix>
+
+${brandContext ? `<brand_context>\n${brandContext}\n</brand_context>\n\n` : ''}<draft_to_fix>
+${content}
+</draft_to_fix>`;
+
+    try {
+      const result = await generateText({
+        model: this.model,
+        prompt,
+        temperature: 0.3,
+        maxTokens: 2600,
+        seed: 42,
+      });
+
+      const rewritten = result.text.trim();
+      if (rewritten.length < content.length * 0.5) {
+        console.warn(`[ThinkForge:Stylist] Rewrite too short (${rewritten.length} vs ${content.length}), discarding`);
+        return null;
+      }
+
+      console.log(`[ThinkForge:Stylist] Rewrite complete: ${allIssues.length} issues targeted, ${content.length} → ${rewritten.length} chars`);
+      return rewritten;
+    } catch (e) {
+      console.error('[ThinkForge:Stylist] Rewrite failed:', e);
+      return null;
+    }
   }
 }
 
