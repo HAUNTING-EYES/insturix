@@ -101,9 +101,9 @@ ${projectHint}${databankHint}
 </input_data>`;
   }
 
-  async generateIdeas(prompt: string, projectContext?: string): Promise<IdeaCardData[]> {
+  async generateIdeas(prompt: string, brandContext?: string): Promise<IdeaCardData[]> {
     const input: AgentInput = {
-      context: { projectSummary: projectContext || '' },
+      context: { projectSummary: '', systemBrief: brandContext || '' },
       userPrompt: prompt,
     };
 
