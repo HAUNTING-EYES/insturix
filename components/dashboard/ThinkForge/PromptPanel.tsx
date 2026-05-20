@@ -50,6 +50,18 @@ interface PromptPanelProps {
   briefResults?: UrlBriefResult[] | null;
 }
 
+const POST_KEYWORDS = /\b(post|article|blog|essay|thread|newsletter|write|carousel|caption)\b/i;
+const PLATFORM_KEYWORDS = /\b(linkedin|twitter|tweet|instagram|tiktok|youtube|facebook|reddit|medium|pinterest|x\s+post)\b/i;
+const PLATFORM_PICKS = [
+  { label: 'LinkedIn', value: 'LinkedIn' },
+  { label: 'Twitter/X', value: 'Twitter/X' },
+  { label: 'Instagram', value: 'Instagram' },
+  { label: 'Medium', value: 'Medium' },
+  { label: 'Blog', value: 'Blog' },
+  { label: 'Newsletter', value: 'Newsletter' },
+  { label: 'Reddit', value: 'Reddit' },
+];
+
 export const PromptPanel: React.FC<PromptPanelProps> = ({
   prompt,
   setPrompt,
@@ -63,6 +75,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
   briefResults = null,
 }) => {
   const formRef = React.useRef<HTMLFormElement | null>(null);
+  const [showPlatformPicker, setShowPlatformPicker] = React.useState(false);
 
   const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -77,14 +90,27 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
     setPrompt(e.target.value);
   };
 
+  const handlePlatformPick = (platform: string) => {
+    setShowPlatformPicker(false);
+    setPrompt(prev => `${prev.trim()} — ${platform} post`);
+    setTimeout(() => formRef.current?.requestSubmit(), 50);
+  };
+
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const urls = extractUrls(prompt);
     if (urls.length > 0 && onUrlSubmit) {
       onUrlSubmit(urls, prompt);
-    } else {
-      onSubmit(e);
+      return;
     }
+
+    // If user said "post" but no platform — ask before generating
+    if (POST_KEYWORDS.test(prompt) && !PLATFORM_KEYWORDS.test(prompt)) {
+      setShowPlatformPicker(true);
+      return;
+    }
+
+    onSubmit(e);
   };
 
   const isProcessing = loading || briefLoading;
@@ -152,6 +178,44 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
         Enhance with AI
       </button>
       
+      {showPlatformPicker && (
+        <div className="platform-picker" style={{
+          display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px 0',
+          animation: 'fadeIn 0.15s ease-out',
+        }}>
+          <span style={{ width: '100%', fontSize: '11px', color: '#7A776E', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+            Which platform?
+          </span>
+          {PLATFORM_PICKS.map(p => (
+            <button
+              key={p.value}
+              type="button"
+              onClick={() => handlePlatformPick(p.value)}
+              style={{
+                padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 500,
+                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                color: '#B5B2A8', cursor: 'pointer', transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(212,166,82,0.12)'; e.currentTarget.style.color = '#D4A652'; e.currentTarget.style.borderColor = 'rgba(212,166,82,0.25)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#B5B2A8'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
+            >
+              {p.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => { setShowPlatformPicker(false); onSubmit(new Event('submit') as any); }}
+            style={{
+              padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 500,
+              background: 'transparent', border: '1px dashed rgba(255,255,255,0.1)',
+              color: '#5F5E5A', cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            Skip — surprise me
+          </button>
+        </div>
+      )}
+
       <div className="prompt-footer">
         <span className="mono" style={{ color: 'var(--text-faint)' }}>1 credit per generation</span>
         {onManualSetup && (
