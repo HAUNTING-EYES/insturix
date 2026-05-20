@@ -236,7 +236,7 @@ const REGRESSION_BASELINES: Record<number, number> = {
   1: 0.93, // TikTok: 93% (14 criteria, allows 1 stochastic failure)
   2: 0.90, // LinkedIn: 90% (10 criteria, achieved 100% on 2026-05-20)
   3: 0.93, // Brand film: 93% (14 criteria)
-  4: 0.57, // Talking head: 57% (seed=13 pre-existing: uses VO instead of On-Camera)
+  4: 0.86, // Talking head: 86% (7 criteria, 1 stochastic filler failure)
   5: 0.90, // Technical LinkedIn: 90% (filler outliers: unlock, seamless, game-changer)
   6: 0.90, // Personal story LinkedIn: 90% (filler outlier: pivotal)
   7: 0.90, // Data-driven LinkedIn: 90% (hook + filler outliers)
