@@ -116,15 +116,16 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const urls = extractUrls(prompt);
-    if (urls.length > 0 && onUrlSubmit) {
-      onUrlSubmit(urls, prompt);
+
+    // Platform check FIRST — before URL extraction or submission
+    if (POST_KEYWORDS.test(prompt) && !PLATFORM_KEYWORDS.test(prompt)) {
+      setShowPlatformPicker(true);
       return;
     }
 
-    // If user said "post" but no platform — ask before generating
-    if (POST_KEYWORDS.test(prompt) && !PLATFORM_KEYWORDS.test(prompt)) {
-      setShowPlatformPicker(true);
+    const urls = extractUrls(prompt);
+    if (urls.length > 0 && onUrlSubmit) {
+      onUrlSubmit(urls, prompt);
       return;
     }
 

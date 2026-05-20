@@ -60,13 +60,47 @@ export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                 <span className="mono" style={{ color: 'var(--accent-gold)' }} id="expLabel">idea details</span>
                 <div className="dot-8" id="expDot" style={{ background: `var(--cat-${expandedIdea.tone === 'white' ? 'purple' : expandedIdea.tone === 'red' ? 'pink' : 'cyan'})` }}></div>
+                <span className="mono" style={{ color: 'var(--text-faint)', fontSize: '10px', marginLeft: 'auto' }}>click any field to edit</span>
               </div>
-              <div className="expand-title" id="expTitle">{expandedIdea.idea}</div>
+              <div
+                className="expand-title"
+                id="expTitle"
+                contentEditable
+                suppressContentEditableWarning
+                onBlur={(e) => setExpandedIdea({ ...expandedIdea, idea: e.currentTarget.textContent || expandedIdea.idea })}
+                style={{ outline: 'none', cursor: 'text', borderBottom: '1px solid transparent', transition: 'border-color 0.15s' }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(212,166,82,0.3)'; }}
+                onBlurCapture={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; }}
+              >{expandedIdea.idea}</div>
               <div className="expand-grid">
-                <div className="expand-field"><label>purpose</label><p id="expPurpose">{expandedIdea.purpose}</p></div>
-                <div className="expand-field"><label>style</label><p id="expStyle">{expandedIdea.style}</p></div>
-                <div className="expand-field"><label>format</label><p id="expFormat">{expandedIdea.format}</p></div>
-                <div className="expand-field"><label>platform</label><p id="expPlatform">{expandedIdea.platform}</p></div>
+                <div className="expand-field">
+                  <label>purpose</label>
+                  <p id="expPurpose" contentEditable suppressContentEditableWarning
+                    onBlur={(e) => setExpandedIdea({ ...expandedIdea, purpose: e.currentTarget.textContent || expandedIdea.purpose })}
+                    style={{ outline: 'none', cursor: 'text' }}
+                  >{expandedIdea.purpose}</p>
+                </div>
+                <div className="expand-field">
+                  <label>style</label>
+                  <p id="expStyle" contentEditable suppressContentEditableWarning
+                    onBlur={(e) => setExpandedIdea({ ...expandedIdea, style: e.currentTarget.textContent || expandedIdea.style })}
+                    style={{ outline: 'none', cursor: 'text' }}
+                  >{expandedIdea.style}</p>
+                </div>
+                <div className="expand-field">
+                  <label>format</label>
+                  <p id="expFormat" contentEditable suppressContentEditableWarning
+                    onBlur={(e) => setExpandedIdea({ ...expandedIdea, format: e.currentTarget.textContent || expandedIdea.format })}
+                    style={{ outline: 'none', cursor: 'text' }}
+                  >{expandedIdea.format}</p>
+                </div>
+                <div className="expand-field">
+                  <label>platform</label>
+                  <p id="expPlatform" contentEditable suppressContentEditableWarning
+                    onBlur={(e) => setExpandedIdea({ ...expandedIdea, platform: e.currentTarget.textContent || expandedIdea.platform })}
+                    style={{ outline: 'none', cursor: 'text' }}
+                  >{expandedIdea.platform}</p>
+                </div>
               </div>
             </div>
             <button className="start-btn" onClick={() => onSelect(expandedIdea)}>Start drafting <span>→</span></button>
