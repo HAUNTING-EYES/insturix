@@ -8,12 +8,37 @@ import {
   Loader2,
   Save,
   Sparkles,
+  Upload,
+  Fingerprint,
+  Trash2,
+  Pin,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 
 /* ─── Types ─── */
+
+interface VoiceFingerprint {
+  avgWordsPerSentence: number;
+  sentenceLengthVariance: number;
+  passiveVoiceRatio: number;
+  questionFrequency: number;
+  openingPattern: string;
+  transitionStyle: string;
+  closingPattern: string;
+  listStyle: string;
+  extractedFromCount: number;
+}
+
+interface VoiceExemplar {
+  id: string;
+  text: string;
+  signalProfile: Record<string, number>;
+  contentType: string;
+  pinned: boolean;
+  weight: number;
+}
 
 interface BrandDNA {
   voiceLock?: string;
@@ -22,6 +47,8 @@ interface BrandDNA {
   hookArchetypes?: string[];
   structuralHabits?: string[];
   recurringAssets?: string[];
+  voiceFingerprint?: VoiceFingerprint;
+  voiceExemplars?: VoiceExemplar[];
 }
 
 interface KnowledgePanelProps {
@@ -121,6 +148,195 @@ function DNAArrayField({
   );
 }
 
+function VoiceFingerprintSection({
+  fingerprint,
+  onExtracted,
+}: {
+  fingerprint?: VoiceFingerprint;
+  onExtracted: (fp: VoiceFingerprint) => void;
+}) {
+  const [refTexts, setRefTexts] = useState("");
+  const [extracting, setExtracting] = useState(false);
+
+  const extract = async () => {
+    const pieces = refTexts.split(/\n{2,}/).map(t => t.trim()).filter(t => t.length > 20);
+    if (pieces.length < 5) {
+      toast({ title: "Need at least 5 reference pieces", description: "Separate each piece with a blank line.", variant: "destructive" });
+      return;
+    }
+    setExtracting(true);
+    try {
+      const res = await fetch("/api/services/thinkforge/brand-dna/extract-fingerprint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referenceTexts: pieces }),
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      onExtracted(data.voiceFingerprint);
+      toast({ title: `Voice fingerprint extracted from ${pieces.length} samples` });
+      setRefTexts("");
+    } catch {
+      toast({ title: "Extraction failed", variant: "destructive" });
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 pt-3 border-t border-white/[0.06]">
+      <div className="flex items-center gap-2">
+        <Fingerprint size={13} className="text-[#D4A652]" />
+        <label className="text-[11px] font-semibold text-[#B5B2A8] uppercase tracking-wider">Voice Fingerprint</label>
+      </div>
+      <p className="text-[11px] text-[#5F5E5A] leading-relaxed">
+        Paste 5+ samples of your writing (separate with blank lines). We extract your rhythm, sentence patterns, and style automatically.
+      </p>
+
+      {fingerprint && (
+        <div className="rounded-xl bg-white/[0.03] border border-white/[0.08] p-3 space-y-1 text-[11px] text-[#B5B2A8]">
+          <div className="flex justify-between"><span>Avg sentence</span><span className="text-[#ECE9E1]">{fingerprint.avgWordsPerSentence} words</span></div>
+          <div className="flex justify-between"><span>Rhythm variance</span><span className="text-[#ECE9E1]">{fingerprint.sentenceLengthVariance}</span></div>
+          <div className="flex justify-between"><span>Passive voice</span><span className="text-[#ECE9E1]">{Math.round(fingerprint.passiveVoiceRatio * 100)}%</span></div>
+          <div className="flex justify-between"><span>Questions</span><span className="text-[#ECE9E1]">{fingerprint.questionFrequency}/100 sentences</span></div>
+          <div className="flex justify-between"><span>Opens with</span><span className="text-[#ECE9E1]">{fingerprint.openingPattern}</span></div>
+          <div className="flex justify-between"><span>Transitions</span><span className="text-[#ECE9E1]">{fingerprint.transitionStyle}</span></div>
+          <div className="flex justify-between"><span>Closes with</span><span className="text-[#ECE9E1]">{fingerprint.closingPattern}</span></div>
+          <div className="pt-1 text-[10px] text-[#5F5E5A]">Extracted from {fingerprint.extractedFromCount} samples</div>
+        </div>
+      )}
+
+      <textarea
+        className="w-full rounded-xl bg-white/[0.03] border border-white/[0.08] px-4 py-3 text-sm text-[#ECE9E1] placeholder:text-[#454340] focus:outline-none focus:ring-1 focus:ring-[#D4A652]/40 resize-none transition-all"
+        rows={4}
+        value={refTexts}
+        onChange={(e) => setRefTexts(e.target.value)}
+        placeholder={"Paste your writing samples here.\n\nSeparate each piece with a blank line.\n\nMinimum 5 pieces for meaningful extraction."}
+      />
+      <button
+        onClick={extract}
+        disabled={extracting}
+        className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-white/[0.04] text-[#B5B2A8] border border-white/[0.08] hover:bg-[#D4A652]/10 hover:text-[#D4A652] hover:border-[#D4A652]/20 transition-all text-[12px] font-medium"
+      >
+        {extracting ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+        {fingerprint ? "Re-extract Fingerprint" : "Extract Voice Fingerprint"}
+      </button>
+    </div>
+  );
+}
+
+function VoiceExemplarSection({
+  exemplars,
+  onChange,
+}: {
+  exemplars: VoiceExemplar[];
+  onChange: (exs: VoiceExemplar[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [contentType, setContentType] = useState("linkedin_post");
+
+  const add = () => {
+    const text = draft.trim();
+    if (!text || text.length < 20) {
+      toast({ title: "Exemplar too short", description: "Paste a meaningful reference piece (20+ characters).", variant: "destructive" });
+      return;
+    }
+    if (exemplars.length >= 10) {
+      toast({ title: "Maximum 10 exemplars", variant: "destructive" });
+      return;
+    }
+    onChange([
+      ...exemplars,
+      { id: crypto.randomUUID(), text: text.slice(0, 2000), signalProfile: {}, contentType, pinned: false, weight: 1.0 },
+    ]);
+    setDraft("");
+  };
+
+  const remove = (id: string) => onChange(exemplars.filter(e => e.id !== id));
+  const togglePin = (id: string) => onChange(exemplars.map(e => e.id === id ? { ...e, pinned: !e.pinned } : e));
+
+  if (exemplars.length === 0 && !draft) {
+    return (
+      <div className="space-y-2 pt-3 border-t border-white/[0.06]">
+        <div className="flex items-center gap-2">
+          <Pin size={13} className="text-[#D4A652]" />
+          <label className="text-[11px] font-semibold text-[#B5B2A8] uppercase tracking-wider">Voice Exemplars</label>
+        </div>
+        <p className="text-[11px] text-[#5F5E5A] leading-relaxed">
+          Pin reference pieces the AI should mimic. These get injected as style examples when generating similar content.
+        </p>
+        <button
+          onClick={() => setDraft(" ")}
+          className="w-full py-2 rounded-xl border border-dashed border-white/[0.1] text-[11px] text-[#5F5E5A] hover:border-[#D4A652]/30 hover:text-[#D4A652] transition-all"
+        >
+          + Add first exemplar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 pt-3 border-t border-white/[0.06]">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Pin size={13} className="text-[#D4A652]" />
+          <label className="text-[11px] font-semibold text-[#B5B2A8] uppercase tracking-wider">Voice Exemplars</label>
+        </div>
+        <span className="text-[10px] text-[#5F5E5A]">{exemplars.length}/10</span>
+      </div>
+
+      {exemplars.map((ex) => (
+        <div key={ex.id} className="rounded-xl bg-white/[0.03] border border-white/[0.08] p-3 space-y-1.5">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[11px] text-[#B5B2A8] leading-relaxed line-clamp-3">{ex.text}</p>
+            <div className="flex gap-1 shrink-0">
+              <button onClick={() => togglePin(ex.id)} className={`p-1 rounded transition-colors ${ex.pinned ? "text-[#D4A652]" : "text-[#5F5E5A] hover:text-[#B5B2A8]"}`}>
+                <Pin size={11} />
+              </button>
+              <button onClick={() => remove(ex.id)} className="p-1 rounded text-[#5F5E5A] hover:text-red-400 transition-colors">
+                <Trash2 size={11} />
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="text-[10px] h-5 px-2 bg-white/[0.05] text-[#7A776E] rounded-md">{ex.contentType}</Badge>
+            {ex.pinned && <Badge variant="secondary" className="text-[10px] h-5 px-2 bg-[#D4A652]/10 text-[#D4A652] rounded-md">Pinned</Badge>}
+          </div>
+        </div>
+      ))}
+
+      <textarea
+        className="w-full rounded-xl bg-white/[0.03] border border-white/[0.08] px-4 py-3 text-sm text-[#ECE9E1] placeholder:text-[#454340] focus:outline-none focus:ring-1 focus:ring-[#D4A652]/40 resize-none transition-all"
+        rows={3}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="Paste a reference piece the AI should mimic..."
+      />
+      <div className="flex gap-2">
+        <select
+          value={contentType}
+          onChange={(e) => setContentType(e.target.value)}
+          className="rounded-xl bg-white/[0.03] border border-white/[0.08] px-3 py-2 text-[11px] text-[#B5B2A8] focus:outline-none focus:ring-1 focus:ring-[#D4A652]/40"
+        >
+          <option value="linkedin_post">LinkedIn Post</option>
+          <option value="twitter">Tweet</option>
+          <option value="instagram">Instagram</option>
+          <option value="video_script">Video Script</option>
+          <option value="blog_post">Blog Post</option>
+          <option value="newsletter">Newsletter</option>
+        </select>
+        <button
+          onClick={add}
+          disabled={!draft.trim()}
+          className="flex-1 py-2 rounded-xl bg-white/[0.04] text-[#B5B2A8] border border-white/[0.08] hover:bg-[#D4A652]/10 hover:text-[#D4A652] hover:border-[#D4A652]/20 transition-all text-[12px] font-medium disabled:opacity-40"
+        >
+          Add Exemplar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function BrandDNAEditor() {
   const [dna, setDna] = useState<BrandDNA>({});
   const [loading, setLoading] = useState(true);
@@ -212,6 +428,18 @@ function BrandDNAEditor() {
         description="Structural habits you always follow (e.g. always end with a question)."
         items={dna.structuralHabits ?? []}
         onChange={(v) => setDna({ ...dna, structuralHabits: v })}
+      />
+
+      {/* ─── Voice Fingerprint (Layer 2) ─── */}
+      <VoiceFingerprintSection
+        fingerprint={dna.voiceFingerprint}
+        onExtracted={(fp) => setDna({ ...dna, voiceFingerprint: fp })}
+      />
+
+      {/* ─── Voice Exemplars (Layer 3) ─── */}
+      <VoiceExemplarSection
+        exemplars={dna.voiceExemplars ?? []}
+        onChange={(exs) => setDna({ ...dna, voiceExemplars: exs })}
       />
 
       <button
