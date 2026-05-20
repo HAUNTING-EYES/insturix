@@ -36,7 +36,7 @@ export async function PATCH(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request body', details: parsed.error.issues }, { status: 400 });
   }
-  const { voiceLock, nicheMap, killList, hookArchetypes, structuralHabits, recurringAssets } = parsed.data;
+  const { voiceLock, nicheMap, killList, hookArchetypes, structuralHabits, recurringAssets, voiceFingerprint, voiceExemplars } = parsed.data;
 
   const updated = await updateUserBrandDNA(userId, {
     ...(voiceLock !== undefined && { voiceLock }),
@@ -45,6 +45,8 @@ export async function PATCH(req: Request) {
     ...(hookArchetypes !== undefined && { hookArchetypes }),
     ...(structuralHabits !== undefined && { structuralHabits }),
     ...(recurringAssets !== undefined && { recurringAssets }),
+    ...(voiceFingerprint !== undefined && { voiceFingerprint }),
+    ...(voiceExemplars !== undefined && { voiceExemplars }),
   });
 
   return NextResponse.json({ brandDNA: updated });

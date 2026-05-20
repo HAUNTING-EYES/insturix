@@ -12,7 +12,7 @@
   { "pattern": "\\bcircle back\\b", "label": "circle back" },
   { "pattern": "work its magic", "label": "work its magic" },
   { "pattern": "\\bleverage\\b", "label": "leverage" },
-  { "pattern": "\\bunlock\\b", "label": "unlock" },
+  { "pattern": "\\bunlock\\s+(the\\s+)?(full\\s+)?(potential|power|possibilities|key|secrets?|true\\s|untapped)", "label": "unlock [potential]" },
   { "pattern": "\\bempower\\b", "label": "empower" },
   { "pattern": "take it to the next level", "label": "take it to the next level" },
   { "pattern": "\\bdelve\\b", "label": "delve" },

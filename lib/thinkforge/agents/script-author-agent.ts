@@ -418,7 +418,10 @@ BANNED PHRASES (never use, zero tolerance):
 
 SPECIFICITY: Not "a workspace" but "MacBook with 14 Chrome tabs, cold coffee, 2am."
 
-VERIFY BEFORE OUTPUT: Does every scene have ## [time] heading + all 7 labeled elements? If not, fix it now.
+VERIFY BEFORE OUTPUT:
+  ✓ Does every scene have ## [time] heading + all 7 labeled elements? If not, fix it now.
+  ✓ If the brief says "talking head", "direct to camera", or "to camera": did you use **On-Camera** labels (not VO)? VO is for off-screen narration over footage. On-Camera is someone speaking to the lens.
+  ✓ Does this match the voice described in <brand_context>? (if brand context provided)
 </output_format>`;
   }
 
