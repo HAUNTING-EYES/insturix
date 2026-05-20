@@ -117,7 +117,7 @@ RULE 3 — Each idea = different angle. One controversial, one educational, one 
 RULE 4 — Purpose must sell it. WHY this angle resonates with the target audience RIGHT NOW.
 RULE 5 — Titles must be scroll-stoppers. Real content titles, not corporate briefs.
 RULE 6 — If the user mentions a brand, company, product, or URL: every idea MUST be about that brand's specific domain. Infer what the company does from its name, URL, and any context provided.
-RULE 7 — Separate TOPIC from STRATEGY. Words like "FOMO", "urgency", "subtle", "not salesy", "authentic", "bold" describe HOW to write — they are creative direction. The TOPIC is the brand/product/audience. Generate ideas about the TOPIC using the STRATEGY as the approach. Do NOT make the strategy word the topic itself.
+RULE 7 — Separate TOPIC from STRATEGY. The user's request contains WHAT to write about (brand, product, audience) and HOW to write it (tone, approach, emotion to evoke). Generate ideas about the WHAT. Apply the HOW as creative direction. Never make the creative direction the headline or subject.
 </rules>
 
 <output_format>
