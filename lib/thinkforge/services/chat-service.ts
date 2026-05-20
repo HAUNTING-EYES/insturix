@@ -12,6 +12,7 @@ import { quickAssembleContext, fetchContextSources, formatSystemBrief } from '..
 import { classifyIntent, intentRequiresSelection, type Intent, type IntentContextSignals } from '../intent/intent-gate';
 import * as db from './db';
 import { applyCommand } from './command-service';
+import { collectExemplarPassively } from './exemplar-collector';
 import { appendEvent } from './event-log';
 import type { SessionState, ProjectMeta } from '../state/types';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
@@ -863,6 +864,10 @@ CRITICAL: You are editing a SELECTION from a larger document.
             throw new Error(saveResult.error);
           }
           savedVersion = saveResult.script.version;
+
+          // Passive exemplar collection (fire-and-forget, never blocks save)
+          const detectedType = /post|linkedin|twitter|instagram/i.test(prompt) ? 'post' : 'video_script';
+          collectExemplarPassively(userId, draft.content, detectedType).catch(() => {});
         }
 
         // Send script update as SSE event
