@@ -5,17 +5,20 @@ import { Loader2 } from "lucide-react";
 
 /**
  * Extract all HTTP(S) URLs from text.
- * Handles query params, fragments, ports, and encoded characters.
+ * Handles full URLs (https://example.com) AND bare domains (example.com).
  * Rejects localhost, file://, ftp://, and other non-http protocols.
  */
 const URL_EXTRACT_REGEX = /https?:\/\/(?!localhost\b)[^\s<>"')\]]+/gi;
+const BARE_DOMAIN_REGEX = /\b([a-zA-Z0-9][-a-zA-Z0-9]*\.(?:com|io|co|org|net|dev|app|ai|xyz|me|info|biz|us|uk|in|ca|au|de|fr|tech|agency|studio|design|tv|gg|so|to)\b(?:\/[^\s<>"')\]]*)?)/gi;
 
 export function extractUrls(text: string): string[] {
-  const matches = text.match(URL_EXTRACT_REGEX) || [];
   const seen = new Set<string>();
   const urls: string[] = [];
-  for (const match of matches) {
-    let clean = match.replace(/[.,;:!?)]+$/, '');
+
+  // Match full URLs first
+  const fullMatches = text.match(URL_EXTRACT_REGEX) || [];
+  for (const match of fullMatches) {
+    const clean = match.replace(/[.,;:!?)]+$/, '');
     try {
       const url = new URL(clean);
       if ((url.protocol === 'http:' || url.protocol === 'https:') && !seen.has(clean)) {
@@ -24,6 +27,21 @@ export function extractUrls(text: string): string[] {
       }
     } catch {}
   }
+
+  // Match bare domains (insturix.com → https://insturix.com)
+  const bareMatches = text.match(BARE_DOMAIN_REGEX) || [];
+  for (const match of bareMatches) {
+    const clean = match.replace(/[.,;:!?)]+$/, '');
+    const full = `https://${clean}`;
+    if (!seen.has(full)) {
+      try {
+        new URL(full); // validate it parses
+        seen.add(full);
+        urls.push(full);
+      } catch {}
+    }
+  }
+
   return urls;
 }
 
