@@ -23,13 +23,18 @@ import { createThinkForgeModel } from './model-factory';
 // SCHEMA DEFINITIONS
 // =============================================================================
 
+const VALID_PLATFORMS = [
+  'YouTube', 'Instagram', 'TikTok', 'LinkedIn', 'Twitter/X',
+  'Reddit', 'Medium', 'Blog', 'Podcast', 'Newsletter', 'Facebook', 'Pinterest',
+] as const;
+
 const IdeaSchema = z.object({
   id: z.string(),
   idea: z.string().max(200),
   purpose: z.string(),
   style: z.string(),
   format: z.string(),
-  platform: z.string(),
+  platform: z.enum(VALID_PLATFORMS),
   tone: z.enum(['white', 'red', 'black', 'yellow', 'green', 'blue'])
 });
 
@@ -86,7 +91,8 @@ RULE 6 — Titles must be scroll-stoppers. Real content titles, not corporate br
 </rules>
 
 <output_format>
-Per idea: { id: "idea_1"-"idea_4", idea: "scroll-stopping title (max 80 chars)", purpose: "why it works NOW (1-2 sentences)", style: "visual/editorial approach", format: "deliverable type", platform: "best platform", tone: "white|red|black|yellow|green|blue" }
+Per idea: { id: "idea_1"-"idea_4", idea: "scroll-stopping title (max 80 chars)", purpose: "why it works NOW (1-2 sentences)", style: "visual/editorial approach", format: "deliverable type", platform: "YouTube|Instagram|TikTok|LinkedIn|Twitter/X|Reddit|Medium|Blog|Podcast|Newsletter|Facebook|Pinterest", tone: "white|red|black|yellow|green|blue" }
+Platform must be one of the listed options. NEVER use a brand name, URL, or website as platform.
 </output_format>
 
 <input_data>
