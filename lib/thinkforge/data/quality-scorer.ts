@@ -8,6 +8,8 @@
  * This is the writing pipeline's equivalent of editron's constraint-enforcer.ts.
  */
 
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { computeQualityScore, type QualityScore } from './writing-graph-query';
 
 export interface Violation {
@@ -17,31 +19,30 @@ export interface Violation {
   location?: string;
 }
 
-const AI_FILLER_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /in today'?s fast[- ]paced/gi, label: 'in today\'s fast-paced' },
-  { pattern: /it'?s important to note/gi, label: 'it\'s important to note' },
-  { pattern: /let'?s dive in/gi, label: 'let\'s dive in' },
-  { pattern: /at the end of the day/gi, label: 'at the end of the day' },
-  { pattern: /\bgame[- ]?changer\b/gi, label: 'game-changer' },
-  { pattern: /\bcutting[- ]?edge\b/gi, label: 'cutting-edge' },
-  { pattern: /\bseamless(?:ly)?\b/gi, label: 'seamless' },
-  { pattern: /\brobust\b/gi, label: 'robust' },
-  { pattern: /\binnovative\b/gi, label: 'innovative' },
-  { pattern: /\bsynergy\b/gi, label: 'synergy' },
-  { pattern: /\bcircle back\b/gi, label: 'circle back' },
-  { pattern: /work its magic/gi, label: 'work its magic' },
-  { pattern: /\bleverage\b/gi, label: 'leverage' },
-  { pattern: /\bunlock\b/gi, label: 'unlock' },
-  { pattern: /\bempower\b/gi, label: 'empower' },
-  { pattern: /take it to the next level/gi, label: 'take it to the next level' },
-  { pattern: /\bdelve\b/gi, label: 'delve' },
-  { pattern: /\bcomprehensive\b/gi, label: 'comprehensive' },
-  { pattern: /\bnuanced\b/gi, label: 'nuanced' },
-  { pattern: /\bpivotal\b/gi, label: 'pivotal' },
-  { pattern: /\bfundamental(?:ly)?\b/gi, label: 'fundamental' },
-  { pattern: /\bfurthermore\b/gi, label: 'furthermore' },
-  { pattern: /\bmoreover\b/gi, label: 'moreover' },
-];
+function loadFillerPatterns(): Array<{ pattern: RegExp; label: string }> {
+  const paths: string[] = [];
+  if (typeof __dirname !== 'undefined') {
+    paths.push(join(__dirname, 'ai-filler-patterns.json'));
+  }
+  paths.push(
+    join(process.cwd(), 'lib', 'thinkforge', 'data', 'ai-filler-patterns.json'),
+  );
+
+  for (const p of paths) {
+    try {
+      const raw: Array<{ pattern: string; label: string }> = JSON.parse(readFileSync(p, 'utf-8'));
+      return raw.map(d => ({
+        pattern: new RegExp(d.pattern, 'gi'),
+        label: d.label,
+      }));
+    } catch { /* try next path */ }
+  }
+
+  console.error('[QualityScorer] Failed to load ai-filler-patterns.json from all paths');
+  return [];
+}
+
+const AI_FILLER_PATTERNS = loadFillerPatterns();
 
 function detectAiFiller(text: string): Violation[] {
   const violations: Violation[] = [];

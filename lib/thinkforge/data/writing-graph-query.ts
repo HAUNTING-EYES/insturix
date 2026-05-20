@@ -145,11 +145,14 @@ function loadWritingGraph(): WritingIndex | null {
   if (cachedIndex) return cachedIndex;
 
   let data: WritingKnowledgeData;
-  const attempts = [
-    join(__dirname, 'writing-knowledge.json'),
+  const attempts: string[] = [];
+  if (typeof __dirname !== 'undefined') {
+    attempts.push(join(__dirname, 'writing-knowledge.json'));
+  }
+  attempts.push(
     join(process.cwd(), 'lib', 'thinkforge', 'data', 'writing-knowledge.json'),
     join(process.cwd(), '.next', 'server', 'lib', 'thinkforge', 'data', 'writing-knowledge.json'),
-  ];
+  );
 
   let loaded = false;
   const failReasons: string[] = [];

@@ -157,6 +157,77 @@ function inferRoleFromContext(projectSummary: string, userPrompt: string, explic
   };
 }
 
+// ─── Platform Detection (userPrompt-first, docType fallback, default linkedin) ──
+
+export type PlatformType = 'linkedin' | 'twitter' | 'instagram' | 'facebook' | 'generic';
+
+interface PlatformConfig {
+  name: string;
+  charTarget: string;
+  charMax: string;
+  foldChars: number;
+  hashtagRange: string;
+  extraGuidance: string;
+}
+
+const PLATFORM_CONFIGS: Record<PlatformType, PlatformConfig> = {
+  linkedin: {
+    name: 'LinkedIn',
+    charTarget: '1,300-1,900',
+    charMax: '3,000',
+    foldChars: 210,
+    hashtagRange: '3-5',
+    extraGuidance: 'Professional-conversational tone. Line breaks for rhythm. One-liners for punch.',
+  },
+  twitter: {
+    name: 'Twitter/X',
+    charTarget: '200-280',
+    charMax: '280',
+    foldChars: 280,
+    hashtagRange: '1-2',
+    extraGuidance: 'Punchy, direct. Every word counts. Thread format if content exceeds 280 chars.',
+  },
+  instagram: {
+    name: 'Instagram',
+    charTarget: '1,000-2,200',
+    charMax: '2,200',
+    foldChars: 125,
+    hashtagRange: '5-10',
+    extraGuidance: 'Visual-first language. Emoji sparingly. Caption supports the image.',
+  },
+  facebook: {
+    name: 'Facebook',
+    charTarget: '400-800',
+    charMax: '63,206',
+    foldChars: 477,
+    hashtagRange: '1-3',
+    extraGuidance: 'Conversational. Can be longer but front-load the value.',
+  },
+  generic: {
+    name: 'social media',
+    charTarget: '1,300-1,900',
+    charMax: '3,000',
+    foldChars: 210,
+    hashtagRange: '3-5',
+    extraGuidance: 'Professional-conversational. Platform-agnostic but engagement-focused.',
+  },
+};
+
+export function detectPlatform(userPrompt: string, docType?: string): PlatformType {
+  const lower = userPrompt.toLowerCase();
+  if (/\blinkedin\b/.test(lower)) return 'linkedin';
+  if (/\btwitter\b|\btweet\b|\bx\s+post\b|\bx\s+thread\b/.test(lower)) return 'twitter';
+  if (/\binstagram\b/.test(lower)) return 'instagram';
+  if (/\bfacebook\b/.test(lower)) return 'facebook';
+  const dt = (docType || '').toLowerCase();
+  if (dt.includes('linkedin')) return 'linkedin';
+  if (dt.includes('twitter') || dt.includes('tweet')) return 'twitter';
+  if (dt.includes('instagram')) return 'instagram';
+  if (dt.includes('facebook')) return 'facebook';
+  if (/post|social/i.test(dt)) return 'linkedin';
+  return 'generic';
+}
+
 export class ScriptAuthorAgent extends BaseAgent {
   constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
     super({
@@ -214,26 +285,84 @@ export class ScriptAuthorAgent extends BaseAgent {
     documentType?: string;
     medium?: string;
     signals: Partial<import('../../shared/signals/types').CreativeSignals>;
+    userPrompt?: string;
   }): string {
-    const { documentType, medium, signals } = params;
+    const { documentType, medium, signals, userPrompt } = params;
     const docType = (documentType || medium || '').toLowerCase();
 
     const isVideo = /video|film|ad|commercial|reel|short.?form|youtube|tiktok|ugc/i.test(docType);
     const isShotList = /shot.?list|storyboard|pre.?viz/i.test(docType);
+    const isPost = /post|linkedin|twitter|instagram|facebook|social/i.test(docType) ||
+      /\b(linkedin|twitter|tweet|instagram|facebook|post)\b/i.test(userPrompt || '');
+
+    if (!isVideo && !isShotList && isPost) {
+      const platform = detectPlatform(userPrompt || '', docType);
+      const config = PLATFORM_CONFIGS[platform];
+      console.log(`[ThinkForge:Platform] Detected: ${platform} from ${userPrompt ? 'userPrompt' : 'docType'}`);
+
+      return `<output_format>
+Write the ACTUAL publishable ${config.name} post. Not a brief. Not production notes. Not an outline ABOUT the content. The FINAL COPY.
+
+Follow these steps IN ORDER:
+
+STEP 1 — HOOK (first ${config.foldChars} characters)
+  Write a specific, arresting first line that earns the click to "see more."
+  Rules:
+  - Must contain a specific claim, number, or named entity. NOT a generic opener.
+  - NO "In today's...", "Have you ever...", "It's no secret...", "Let me tell you..."
+  - The first ${config.foldChars} characters are visible before the fold. Front-load value.
+
+STEP 2 — BODY
+  Develop 2-4 short paragraphs. Each paragraph max 3 sentences.
+  Rules:
+  - Vary sentence length. Mix 4-word punches with 15-word explanations.
+  - Be SPECIFIC. Not "saves time" but "cuts 3-hour edits to 12 minutes."
+  - Replace abstract claims with measurable ones. NOT "fundamentally changes workflows" but "cuts revision cycles from 8 hours to 30 minutes." NOT "empowers teams" but "frees editors to spend 4x more time on creative work."
+  - One-liners between paragraphs for rhythm and emphasis.
+  - NO section headings (##). This is a post, not a document.
+  - NO production notes, visual direction, or "Scene" labels.
+
+STEP 3 — CTA (call to action)
+  End with ONE specific engagement prompt.
+  Rules:
+  - Ask a SPECIFIC question. NOT "What do you think?" or "Thoughts?"
+  - Example: "What's the one tool your team adopted that actually stuck?"
+  - OR a specific repost prompt tied to the content.
+
+STEP 4 — HASHTAGS (REQUIRED — post is incomplete without this)
+  Add ${config.hashtagRange} hashtags at the very end.
+  Rules:
+  - Mix: 1 broad, 1-2 niche, 1 topic-specific.
+  - Hashtags go on their own line after the CTA.
+  - If you run long, CUT body paragraphs to make room. Never skip hashtags.
+
+PLATFORM CONSTRAINTS (${config.name}):
+  - Target: ${config.charTarget} characters. Platform max: ${config.charMax}.
+  - ${config.extraGuidance}
+
+QUALITY:
+  - Write like a specific human who has opinions and experience. NOT a brand voice generator.
+  - Use the vocabulary of someone who DOES this work, not someone who WRITES ABOUT this work.
+  - Every paragraph must earn its place. If you can delete it and nothing is lost, delete it.
+
+VERIFY BEFORE OUTPUT — check ALL before returning:
+  ✓ First line has a specific claim/number/entity (not generic opener)?
+  ✓ Total character count in range ${config.charTarget}? (estimate)
+  ✓ CTA asks a SPECIFIC question (not "what do you think?")?
+  ✓ ${config.hashtagRange} hashtags present?
+  ✓ Zero corporate/AI buzzwords? (no "leverage", "synergy", "game-changer", "cutting-edge", etc.)
+  ✓ Sentence length varies (not all same rhythm)?
+  ✓ Does this match the voice described in <brand_context>? (if brand context provided)
+</output_format>`;
+    }
 
     if (!isVideo && !isShotList) {
       return `<output_format>
 Write the ACTUAL publishable text. Not a brief. Not production notes. Not an outline ABOUT the content. The FINAL COPY.
 
-${/post|linkedin|twitter|instagram|facebook|social/i.test(docType) ? `PLATFORM FORMAT:
-  - Target: 1,300-1,900 characters (LinkedIn optimal). Max 3,000.
-  - First line must hook BEFORE the fold (~210 chars visible).
-  - Short paragraphs. One-liners for punch. Line breaks for rhythm.
-  - End with: engagement CTA (question or repost prompt) + 3-5 hashtags.
-  - NO section headings (##). This is a post, not a document.
-  - NO production notes, visual direction, or "Scene" labels.` : `DOCUMENT FORMAT:
+DOCUMENT FORMAT:
   - Use ## for sections, ### for sub-sections.
-  - Write for the reader, not for a system.`}
+  - Write for the reader, not for a system.
 
 RULES:
   - Sound like a specific human with a point of view, not a brand voice generator.
@@ -510,7 +639,7 @@ Final rule: This must feel like something a professional would use immediately �
     });
 
     const writingBlock = this.buildWritingKnowledgeBlock(signals);
-    const outputFormat = this.buildOutputFormatBlock({ documentType, medium, signals });
+    const outputFormat = this.buildOutputFormatBlock({ documentType, medium, signals, userPrompt });
 
     return `${writingBlock}
 
