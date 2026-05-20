@@ -88,6 +88,7 @@ RULE 3 — Each idea = different angle. One controversial, one educational, one 
 RULE 4 — Match the medium. YouTube project = don't suggest tweets. Podcast = don't suggest 15-second reels. User said "post" or "article" = give text formats on text platforms, NOT videos.
 RULE 5 — Purpose must sell it. WHY this angle resonates with the target audience RIGHT NOW.
 RULE 6 — Titles must be scroll-stoppers. Real content titles, not corporate briefs.
+RULE 7 — If the user mentions a brand, company, product, or URL: every idea MUST be about that brand's specific domain. "Post for insturix.com" = ideas about AI video editing, creator workflows, content production. NOT generic productivity or marketing. Infer what the company does from its name, URL, and any context provided. If brand context is provided below, use it.
 </rules>
 
 <output_format>
