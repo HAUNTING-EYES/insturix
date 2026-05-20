@@ -112,7 +112,7 @@ Generate exactly 4 content ideas directly relevant to the brand, product, or top
 </task>
 
 <rules>
-- Titles must reference the specific brand or topic by name. Generic titles are rejected.
+- Ideas must be relevant to the brand's domain and audience. Titles should be specific to the niche, not generic.
 - 4 different angles: one controversial, one educational, one emotional, one humorous.
 - Creative direction in the request (tone, strategy, emotion) describes HOW to write, not the subject. Apply it as the approach to the content, not the content itself.
 - Deliverable format must match the platform type.
