@@ -458,7 +458,7 @@ const SceneIntentSchema = z.object({
     sfxOnEntry: z.string().optional().describe('SFX when scene starts: "whoosh", "riser", "impact", etc.'),
     sfxAtPeak: z.string().optional().describe('SFX at decisive moment: "bass-hit", "ding", "pop", etc.'),
   }).describe('Audio treatment for this scene'),
-  graphicIntents: z.array(GraphicIntentSchema).max(8).describe('Graphics to place in this scene. Only include entries that serve a clear editorial purpose for this content type and density level.'),
+  graphicIntents: z.array(GraphicIntentSchema).max(8).describe('Graphics for this scene. Only include entries matching the GRAPHIC RULES conditions for this density level. Default: empty.'),
   shakeIntent: z.enum([
     'none',              // No camera shake
     'subtle-at-peak',    // Light shake at decisive moment (emphasis)
@@ -767,11 +767,23 @@ ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
     prompt += `\nEDIT PROFILE: "${profileName}"\n`;
     prompt += `Target pacing: ${options.targetCutsPerMinute || 10} cuts/min. Graphics density: ${options.graphicDensity || 'moderate'}.\n`;
     const densityGuidance = options.graphicDensity === 'minimal'
-      ? 'RESTRAINT IS THE AESTHETIC. Only place graphics that are absolutely essential — a name introduction, a thesis statistic, a brand moment. Most scenes should have ZERO graphics. When unsure, omit.'
+      ? `GRAPHIC RULES (minimal density):
+- At most 1 graphic per 5 scenes. Most scenes: graphicIntents should contain only {type: "none"}.
+- ONLY place a graphic if the scene contains: (a) first appearance of a named person → lower-third, (b) brand/logo at opening or closing scene → logo-reveal.
+- Default for all other scenes: no graphics.
+- onScreenText entries: skip unless they match condition (a) or (b) above.`
       : options.graphicDensity === 'heavy'
-      ? 'This content benefits from visual reinforcement. Use graphics to highlight key data, names, and concepts. Most scenes can have 1-2 graphics if editorially justified.'
-      : 'Place graphics where they serve a clear editorial purpose. Not every scene needs one. Quality over quantity — each graphic must earn its screen time.';
-    prompt += `<graphic_density_rules>\n${densityGuidance}\nConsider the narrative arc: opening moments deserve introductions, climactic moments deserve emphasis, quiet moments deserve breathing room.\n</graphic_density_rules>\n`;
+      ? `GRAPHIC RULES (heavy density):
+- Up to 2 graphics per scene.
+- Place graphics for: all named people, statistics, key terms, CTAs, brand mentions.
+- Use the most specific graphic type for each entry.
+- onScreenText entries: include all that are relevant.`
+      : `GRAPHIC RULES (moderate density):
+- At most 1 graphic per 2 scenes. Many scenes should have no graphics.
+- ONLY place a graphic if the scene contains: (a) first appearance of a named person → lower-third, (b) a specific number (percentage, dollar amount, count) → stat-counter, (c) brand/logo at opening or closing → logo-reveal, (d) a direct quote → quote-card.
+- Default for scenes without a matching condition: no graphics.
+- onScreenText entries: include only if they match a condition above.`;
+    prompt += `<graphic_density_rules>\n${densityGuidance}\nNarrative arc: opening scenes get introductions, closing scenes get brand moments, middle scenes only get graphics if content matches a condition above.\n</graphic_density_rules>\n`;
   }
 
   // Narrative arc (same detection as before)
@@ -828,7 +840,7 @@ ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
     if (scene.cameraDirection) prompt += `Camera: ${scene.cameraDirection}\n`;
 
     if (scene.onScreenText && scene.onScreenText.length > 0) {
-      prompt += `ON-SCREEN TEXT (available for graphic use — evaluate each on editorial merit, use text VERBATIM if included):\n`;
+      prompt += `ON-SCREEN TEXT (candidates — include only entries matching a graphic density rule above, use text VERBATIM):\n`;
       scene.onScreenText.forEach((t, i) => prompt += `  ${i + 1}. "${t}"\n`);
     }
 
@@ -864,7 +876,7 @@ ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
 For EACH scene, provide creative intent using the structured schema.
 - decisiveMoment: describe in WORDS, not frame numbers
 - reasoning: cite Murch's hierarchy or editing principles
-- graphicIntents: only include graphics that serve a clear editorial purpose for this density level
+- graphicIntents: only include entries matching the GRAPHIC RULES for this density level (see above)
 - The code will resolve your creative descriptions to exact frames using video analysis data
 </output_format>
 `;
@@ -1092,11 +1104,11 @@ OTHER SFX RULES:
       prompt += `- **Motion graphic (free-form hint):** ${scene.motionGraphicCue}\n`;
     }
     if (scene.onScreenText && scene.onScreenText.length > 0) {
-      prompt += `- **On-screen text candidates (use VERBATIM if included, evaluate on editorial merit):**\n`;
+      prompt += `- **On-screen text candidates (include only if matching a GRAPHIC RULE condition, use VERBATIM):**\n`;
       scene.onScreenText.forEach((t, i) => {
         prompt += `    ${i + 1}. "${t}"\n`;
       });
-      prompt += `  → Include only entries that serve a clear editorial purpose at this graphic density level. Use the exact string as graphicText. Choose the most appropriate graphicType for each entry.\n`;
+      prompt += `  → Apply the GRAPHIC RULES for this density level. Only include entries matching a condition (named person, specific number, brand, direct quote). Use the exact string as graphicText. Choose the most appropriate graphicType.\n`;
     }
 
     // Detected subjects
