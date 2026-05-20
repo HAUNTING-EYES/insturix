@@ -74,6 +74,23 @@ export class IdeasAgent extends StructuredAgent<IdeasOutput> {
       ? `\nResearch & brand context: ${context.systemBrief}`
       : '';
 
+    // Intent detection — drives which formats/platforms appear in the prompt
+    const lower = userPrompt.toLowerCase();
+    const isPostIntent = /\b(post|article|blog|essay|thread|newsletter|write|linkedin|twitter|tweet|medium)\b/.test(lower);
+    const isVideoIntent = /\b(video|reel|short|tiktok|youtube|vlog|film|clip|skit)\b/.test(lower);
+
+    const formatRule = isPostIntent && !isVideoIntent
+      ? 'RULE 2 — Think in text content trends: hot takes, myth-busting, unpopular opinions, carousel threads, data breakdowns, personal essays, listicles, how-to guides. Use text platforms: LinkedIn, Twitter/X, Medium, Blog, Newsletter, Reddit.'
+      : isVideoIntent && !isPostIntent
+        ? 'RULE 2 — Think in video trends: duets, POV, day-in-the-life, storytime, tutorials, reaction videos, explainers. Use video platforms: YouTube, TikTok, Instagram.'
+        : 'RULE 2 — Think in trends. Match the format to the user\'s intent. Mix text and video platforms if the request is open-ended.';
+
+    const platformList = isPostIntent && !isVideoIntent
+      ? 'LinkedIn|Twitter/X|Medium|Blog|Newsletter|Reddit|Facebook'
+      : isVideoIntent && !isPostIntent
+        ? 'YouTube|TikTok|Instagram|Facebook'
+        : 'YouTube|Instagram|TikTok|LinkedIn|Twitter/X|Reddit|Medium|Blog|Podcast|Newsletter|Facebook|Pinterest';
+
     // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
     return `<role>
 You are a viral content strategist who lives and breathes the internet. The person creators DM when they need an idea that will blow up. You think like a creator, not an agency.
@@ -83,16 +100,15 @@ You are a viral content strategist who lives and breathes the internet. The pers
 
 <rules>
 RULE 1 — Be specific and surprising. "Fitness tips" is garbage. "The workout that got banned from TikTok (and why it actually works)" is gold. Every idea must stop scrolling.
-RULE 2 — Think in trends. Reference real formats: duets, POV, day-in-the-life, hot takes, myth-busting, storytime, unpopular opinions, carousel threads, data breakdowns, personal essays.
+${formatRule}
 RULE 3 — Each idea = different angle. One controversial, one educational, one emotional, one humorous. Not 4 variations of one bland concept.
-RULE 4 — Match the medium. YouTube project = don't suggest tweets. Podcast = don't suggest 15-second reels. User said "post" or "article" = give text formats on text platforms, NOT videos.
-RULE 5 — Purpose must sell it. WHY this angle resonates with the target audience RIGHT NOW.
-RULE 6 — Titles must be scroll-stoppers. Real content titles, not corporate briefs.
-RULE 7 — If the user mentions a brand, company, product, or URL: every idea MUST be about that brand's specific domain. "Post for insturix.com" = ideas about AI video editing, creator workflows, content production. NOT generic productivity or marketing. Infer what the company does from its name, URL, and any context provided. If brand context is provided below, use it.
+RULE 4 — Purpose must sell it. WHY this angle resonates with the target audience RIGHT NOW.
+RULE 5 — Titles must be scroll-stoppers. Real content titles, not corporate briefs.
+RULE 6 — If the user mentions a brand, company, product, or URL: every idea MUST be about that brand's specific domain. Infer what the company does from its name, URL, and any context provided.
 </rules>
 
 <output_format>
-Per idea: { id: "idea_1"-"idea_4", idea: "scroll-stopping title (max 80 chars)", purpose: "why it works NOW (1-2 sentences)", style: "visual/editorial approach", format: "deliverable type", platform: "YouTube|Instagram|TikTok|LinkedIn|Twitter/X|Reddit|Medium|Blog|Podcast|Newsletter|Facebook|Pinterest", tone: "white|red|black|yellow|green|blue" }
+Per idea: { id: "idea_1"-"idea_4", idea: "scroll-stopping title (max 80 chars)", purpose: "why it works NOW (1-2 sentences)", style: "visual/editorial approach", format: "deliverable type", platform: "${platformList}", tone: "white|red|black|yellow|green|blue" }
 Platform must be one of the listed options. NEVER use a brand name, URL, or website as platform.
 </output_format>
 
