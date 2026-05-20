@@ -20,6 +20,8 @@ import type { SessionState } from '../state/types';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
+import { scoreContent } from '../data/quality-scorer';
+import { StylistAgent } from './stylist-agent';
 
 function compactOutline(outline: ScriptOutline): ScriptOutline {
   const capped = outline.sections.slice(0, 5);
@@ -36,6 +38,9 @@ export interface ScriptDraftResult {
   sections: SectionOutput[];
   status?: 'ok' | 'error';
   reason?: string;
+  qualityScore?: number;
+  qualityViolations?: string[];
+  stylistFlags?: string[];
 }
 
 export interface ScriptDraftCallbacks {
@@ -152,7 +157,39 @@ export class ScriptDraftAgent {
           ]
     );
     const content = markdown.trim();
-    
+
+    // ─── Post-generation: Quality Scoring + Stylist Review ────────
+    let qualityScore = 100;
+    let qualityViolations: string[] = [];
+    try {
+      const score = scoreContent(content);
+      qualityScore = score.score;
+      qualityViolations = score.violations.map(v => v.message);
+      if (score.violations.length > 0) {
+        console.log(`[ThinkForge:Quality] Score: ${score.score}/100 (${score.status}). Violations: ${score.violations.map(v => v.constraintId).join(', ')}`);
+      }
+    } catch (e) {
+      console.error('[ThinkForge:Quality] Scoring failed:', e);
+    }
+
+    let stylistFlags: string[] = [];
+    if (qualityScore < 90) {
+      try {
+        if (callbacks?.onProgress) {
+          await callbacks.onProgress({ progress: 0.9, message: 'Reviewing voice quality' });
+        }
+        const stylist = new StylistAgent();
+        const review = await stylist.checkVoice({
+          context: modeAwareInput.context,
+          userPrompt: content,
+        });
+        stylistFlags = review.flags.filter(f => f.severity === 'high').map(f => `${f.issue}: ${f.suggestion}`);
+        console.log(`[ThinkForge:Stylist] Score: ${review.overallScore}/100. Flags: ${review.flags.length} (${stylistFlags.length} high).`);
+      } catch (e) {
+        console.error('[ThinkForge:Stylist] Review failed:', e);
+      }
+    }
+
     // Convert to Tiptap JSON AST
     const richText = thinkForgeBlocksToTiptapJSON(blocks);
 
@@ -176,6 +213,9 @@ export class ScriptDraftAgent {
       draft: true,
       outline,
       sections: [],
+      qualityScore,
+      qualityViolations,
+      stylistFlags,
     };
   }
 }

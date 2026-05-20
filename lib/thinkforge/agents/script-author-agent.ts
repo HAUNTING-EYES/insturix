@@ -191,8 +191,9 @@ export class ScriptAuthorAgent extends BaseAgent {
         lines.push(`${category.toUpperCase()}: ${top.id}`);
         if (top.primary) lines.push(`  DO: ${top.primary}`);
         if (top.example) lines.push(`  EXAMPLE: ${top.example}`);
+        if (top.why) lines.push(`  WHY: ${top.why}`);
         if (top.antiPatterns && top.antiPatterns.length > 0) {
-          lines.push(`  NEVER: ${top.antiPatterns.slice(0, 2).join(' | ')}`);
+          lines.push(`  NEVER: ${top.antiPatterns.join(' | ')}`);
         }
       });
 
@@ -511,9 +512,9 @@ Final rule: This must feel like something a professional would use immediately â
     const writingBlock = this.buildWritingKnowledgeBlock(signals);
     const outputFormat = this.buildOutputFormatBlock({ documentType, medium, signals });
 
-    return `${core}
+    return `${writingBlock}
 
-${writingBlock}
+${core}
 
 ${outputFormat}`;
   }

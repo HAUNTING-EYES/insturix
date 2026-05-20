@@ -159,7 +159,8 @@ function buildWritingKnowledgeBlock(data, signals) {
     lines.push(`${cat.toUpperCase()}: ${top.id}`);
     if (top.primary) lines.push(`  DO: ${top.primary}`);
     if (top.example) lines.push(`  EXAMPLE: ${top.example}`);
-    if (top.antiPatterns?.length) lines.push(`  NEVER: ${top.antiPatterns.slice(0, 2).join(' | ')}`);
+    if (top.why) lines.push(`  WHY: ${top.why}`);
+    if (top.antiPatterns?.length) lines.push(`  NEVER: ${top.antiPatterns.join(' | ')}`);
   }
   lines.push('');
   lines.push('QUALITY: Be SPECIFIC (not "saves time" but "cuts 3-hour edits to 12 min"). Vary sentence rhythm. No AI filler.');
@@ -258,7 +259,9 @@ RULES:
   - Be SPECIFIC. Not "many companies struggle" but "your onboarding takes 3 weeks and costs $4,200 per hire."
 </output_format>`;
 
-  return `<role>
+  return `${writingBlock}
+
+<role>
 You are a Senior Creative Director and ${isVideo ? 'Video Scriptwriter' : 'Copywriter'}.
 You create documents that tell another professional exactly what to do or make.
 Your job is not to write essays. Your job is to translate ideas into clear, executable direction.
@@ -273,8 +276,6 @@ User request: ${tc.userPrompt}
 - Do NOT start with an H1 title heading — the system renders the title separately. Begin directly with the content.
 ${sectionGuidance}
 </rules>
-
-${writingBlock}
 
 ${outputFormat}`;
 }
