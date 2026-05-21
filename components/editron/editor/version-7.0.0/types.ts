@@ -191,14 +191,14 @@ export type Caption = {
 };
 
 // Caption display modes for different content types
-export type CaptionDisplayMode = "word-by-word" | "phrase" | "karaoke" | "subtitle";
+export type CaptionDisplayMode = "word-by-word" | "phrase" | "karaoke" | "subtitle" | "instagram" | "hormozi";
 
 /**
  * Display configuration for captions
  * Controls how words are grouped and displayed
  */
 export interface CaptionDisplayConfig {
-  /** Display mode: word-by-word (1 word), phrase (3-4), karaoke (5-6), subtitle (8-12) */
+  /** Display mode */
   mode: CaptionDisplayMode;
   /** Number of words to show at once (1-12) */
   wordsPerGroup: number;
@@ -208,6 +208,12 @@ export interface CaptionDisplayConfig {
   showPreviousWords: boolean;
   /** Fade/dim previous words when progressive reveal is on */
   fadeOutPreviousWords: boolean;
+  /** Use spring physics for active word scale (Remotion spring()) */
+  useSpringScale?: boolean;
+  /** Spring damping — lower = bouncier. Default 10. */
+  springDamping?: number;
+  /** Spring mass — higher = heavier/slower. Default 0.5. */
+  springMass?: number;
 }
 
 /** Default display configs for each mode */
@@ -239,6 +245,26 @@ export const DEFAULT_DISPLAY_CONFIGS: Record<CaptionDisplayMode, CaptionDisplayC
     maxWordsPerLine: 12,
     showPreviousWords: true,
     fadeOutPreviousWords: false,
+  },
+  "instagram": {
+    mode: "instagram",
+    wordsPerGroup: 4,
+    maxWordsPerLine: 3,
+    showPreviousWords: false,
+    fadeOutPreviousWords: false,
+    useSpringScale: true,
+    springDamping: 10,          // ← research: "snappy but not overly bouncy" (TikTok native feel)
+    springMass: 0.5,            // ← research: CrePal blog, confirmed working
+  },
+  "hormozi": {
+    mode: "hormozi",
+    wordsPerGroup: 3,
+    maxWordsPerLine: 2,
+    showPreviousWords: false,
+    fadeOutPreviousWords: false,
+    useSpringScale: true,
+    springDamping: 8,           // ← research: "fast pop, minimal bounce" (Hormozi punch)
+    springMass: 0.3,            // ← research: spring parameter table from investigation
   },
 };
 
@@ -387,6 +413,16 @@ export type MotionGraphicOverlay = BaseOverlay & {
   structureType: string;
   content: Record<string, string>;
   resolvedTokens: Record<string, any>;
+  contentSignals?: {
+    formality: number;
+    enthusiasm: number;
+    warmth: number;
+    emotional_arousal: number;
+    pacing_velocity: number;
+    humor: number;
+    visceral_impact: number;
+    visual_dependency: number;
+  };
   styles: BaseStyles & {
     backgroundColor?: string;
   };

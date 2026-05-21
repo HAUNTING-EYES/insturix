@@ -2013,7 +2013,7 @@ Use this to understand what exists. Then decide what to do based on user intent.
     highlightEffect: z.enum(['none', 'glow', 'box', 'underline', 'pop']).optional().describe("Highlight effect for active word"),
     highlightAnimation: z.enum(['none', 'bounce', 'pulse', 'scale']).optional().describe("Animation for active word"),
     // Display mode customization  
-    displayMode: z.enum(['word-by-word', 'phrase', 'karaoke', 'subtitle']).optional().describe("How words appear: word-by-word, phrase (3-4 words), karaoke (progressive), subtitle (sentence)"),
+    displayMode: z.enum(['word-by-word', 'phrase', 'karaoke', 'subtitle', 'instagram', 'hormozi']).optional().describe("How words appear: word-by-word (1 word), phrase (3-4), karaoke (progressive), subtitle (sentence), instagram (center block, spring pop), hormozi (bold punch, spring bounce)"),
     wordsPerGroup: z.coerce.number().optional().describe("Words shown at once (1-12). Overrides displayMode default."),
   });
 

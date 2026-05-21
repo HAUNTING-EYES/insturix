@@ -991,17 +991,16 @@ export async function executeDirectorPlan(
       }
     }
 
-    // Path D: suppress fancy_captions (creates non-editable html-scene overlays).
-    // Instead, keep standard add_captions which creates proper caption overlays.
-    let filteredActions = pathDConstraintViolations
-      ? actions.map(a => {
-          if (a.tool === 'add_fancy_captions') {
-            // Replace with standard captions for Mode 2 (editable, proper timeline row)
-            return { ...a, tool: 'add_captions' as const, description: 'Add captions from transcript' };
-          }
-          return a;
-        })
-      : actions;
+    // Unify captions: ALL caption paths go through add_captions (editable, word-timed).
+    // The standard caption system now supports instagram/hormozi display modes with spring
+    // animation — no need for separate add_fancy_captions html-scene overlays.
+    let filteredActions = actions.map(a => {
+      if (a.tool === 'add_fancy_captions') {
+        console.log(`[Director] Unified captions: fancy → add_captions (editable + animated)`);
+        return { ...a, tool: 'add_captions' as const, description: 'Add captions (unified, animated)' };
+      }
+      return a;
+    });
 
     // Path D: skip profile actions that the signal executor already handled.
     // Signal executor placed transitions via 95 graph mappings + EDL execution.
@@ -1617,16 +1616,45 @@ async function executeAction(
     case 'add_captions':
     case 'add_fancy_captions':
     case 'sync_cuts_to_beats': {
-      // For add_captions with Path D: compute caption style from signals BEFORE delegation
+      // Signal-driven caption style + display mode selection
+      // Signals determine both the visual style AND the display mode (word grouping + animation)
       if (action.tool === 'add_captions' && genreParams && !action.params?.style) {
         const formality = genreParams.formality ?? 0.5;
+        const energy = genreParams.energy_baseline ?? 0.5;
         const speakingRate = Math.max(100, 220 - (genreParams.pacing_tolerance * 10));
+        const enthusiasm = energy; // energy_baseline is our best proxy for enthusiasm at this point
+
         let signalStyle = 'minimal';
-        if (formality > 0.7 && speakingRate < 160) signalStyle = 'subtitle';
-        else if (speakingRate > 180) signalStyle = 'minimal';
-        else if (formality < 0.4) signalStyle = 'bold';
-        console.log(`[Director] Caption style from signals: formality=${formality.toFixed(2)}, rate~${Math.round(speakingRate)}WPM → "${signalStyle}"`);
-        action = { ...action, params: { ...action.params, style: signalStyle } };
+        let displayMode = 'phrase';
+
+        // CRG: formality 0.7+ → restrained, formal
+        if (formality > 0.7 && speakingRate < 140) {
+          signalStyle = 'subtitle';
+          displayMode = 'subtitle';
+        }
+        // High energy + fast pace → hormozi (bold punch, spring pop)
+        else if (enthusiasm > 0.7 && speakingRate > 160) {
+          signalStyle = 'bold';
+          displayMode = 'hormozi';
+        }
+        // Moderate casual → instagram (center block, spring scale)
+        else if (formality < 0.4 && enthusiasm > 0.4) {
+          signalStyle = 'bold';
+          displayMode = 'instagram';
+        }
+        // Moderate formal → karaoke (all words visible, active highlighted)
+        else if (formality > 0.5) {
+          signalStyle = 'minimal';
+          displayMode = 'karaoke';
+        }
+        // Low formality → phrase with bold
+        else if (formality < 0.4) {
+          signalStyle = 'bold';
+          displayMode = 'phrase';
+        }
+
+        console.log(`[Director] Caption from signals: formality=${formality.toFixed(2)}, energy=${enthusiasm.toFixed(2)}, rate~${Math.round(speakingRate)}WPM → style="${signalStyle}", mode="${displayMode}"`);
+        action = { ...action, params: { ...action.params, style: signalStyle, displayMode } };
       }
       // These are AI tools — delegate to invokeAITool which handles per-video iteration
       modified = await invokeAITool(action, userId, projectId, profile, overlays);

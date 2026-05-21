@@ -1,5 +1,5 @@
 import React from "react";
-import { useCurrentFrame, useVideoConfig } from "remotion";
+import { useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { Caption, CaptionOverlay, CaptionWord, HighlightEffect, HighlightAnimation, CaptionDisplayConfig, DEFAULT_DISPLAY_CONFIGS } from "../../../types";
 import { defaultCaptionStyles, defaultDisplayConfig } from "./default-caption-styles";
 
@@ -124,12 +124,11 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
       return [{ word: words[activeWordIndex], state: "active" }];
     }
 
-    if (mode === "phrase") {
-      // Show words around the active word based on wordsPerGroup
+    if (mode === "phrase" || mode === "instagram" || mode === "hormozi") {
       const halfWindow = Math.floor(displayConfig.wordsPerGroup / 2);
       const start = Math.max(0, activeWordIndex - halfWindow);
       const end = Math.min(words.length, start + displayConfig.wordsPerGroup);
-      
+
       return words.slice(start, end).map((word, i) => ({
         word,
         state: (start + i) === activeWordIndex ? "active" : "visible",
@@ -171,10 +170,26 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
       const effectStyles = getEffectStyles(highlight.effect, isActive);
       const animationStyles = getAnimationStyles(highlight.animation, isActive, progress);
 
-      // Build the base transform
-      let baseTransform = isActive
-        ? `scale(${1 + (highlight.scale - 1) * Math.min(progress * 3, 1)})`
-        : "scale(1)";
+      // Build the base transform — spring or linear scale on active word
+      const wordStartFrame = Math.round((word.startMs / 1000) * fps);
+      const framesSinceWordStart = frame - wordStartFrame;
+
+      let scaleValue = 1;
+      if (isActive && displayConfig.useSpringScale && framesSinceWordStart >= 0) {
+        const springProgress = spring({
+          frame: framesSinceWordStart,
+          fps,
+          config: {
+            damping: displayConfig.springDamping ?? 10,
+            mass: displayConfig.springMass ?? 0.5,
+          },
+        });
+        scaleValue = 1 + (highlight.scale - 1) * springProgress;
+      } else if (isActive) {
+        scaleValue = 1 + (highlight.scale - 1) * Math.min(progress * 3, 1);
+      }
+
+      let baseTransform = `scale(${scaleValue})`;
 
       // Merge animation transform if present (for bounce/pulse)
       if (animationStyles.transform && highlight.animation !== "scale") {

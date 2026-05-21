@@ -74,6 +74,10 @@ export interface RawFootageAnalysis {
   editMethod?: 'transcript-editor' | 'fragment-pipeline';
   /** Keep ranges from transcript editor (for debugging/UI) */
   transcriptEditRanges?: import('./transcript-editor').TranscriptEditKeepRange[];
+  /** Fraction of video duration covered by speech (0-1). Below 0.3 = speechless content that needs visual-driven editing. */
+  speechCoverage: number;
+  /** True when speech coverage is too low for transcript-based editing. Director should prioritize visual signals (Path D). */
+  needsVisualDrivenEditing: boolean;
 }
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -540,6 +544,8 @@ export async function processRawFootage(
       silenceRemovalPlan: [],
       estimatedCleanDurationMs: videoDurationMs,
       originalDurationMs: videoDurationMs,
+      speechCoverage: 0,
+      needsVisualDrivenEditing: true,
     };
   }
 
@@ -650,7 +656,17 @@ export async function processRawFootage(
   }, 0);
   const estimatedCleanDurationMs = videoDurationMs - totalRemovedMs;
 
-  console.log(`[RawFootage] Plan (${editMethod}): ${silenceRemovalPlan.length} actions, ${Math.round(totalRemovedMs / 1000)}s removed, clean=${Math.round(estimatedCleanDurationMs / 1000)}s (was ${Math.round(videoDurationSec)}s)`);
+  // Speech coverage: fraction of video duration with speech (from word timestamps)
+  const speechMs = transcription.words.reduce((sum, w) => sum + (w.end - w.start), 0);
+  const speechCoverage = videoDurationMs > 0 ? Math.min(1, speechMs / videoDurationMs) : 0;
+  const VISUAL_EDITING_THRESHOLD = 0.3; // ← below 30% speech, transcript-based editing is insufficient
+  const needsVisualDrivenEditing = speechCoverage < VISUAL_EDITING_THRESHOLD;
+
+  if (needsVisualDrivenEditing) {
+    console.log(`[RawFootage] LOW SPEECH COVERAGE: ${(speechCoverage * 100).toFixed(1)}% (threshold: ${VISUAL_EDITING_THRESHOLD * 100}%). Director should prioritize visual signals (Path D) over transcript-based editing.`);
+  }
+
+  console.log(`[RawFootage] Plan (${editMethod}): ${silenceRemovalPlan.length} actions, ${Math.round(totalRemovedMs / 1000)}s removed, clean=${Math.round(estimatedCleanDurationMs / 1000)}s (was ${Math.round(videoDurationSec)}s), speechCoverage=${(speechCoverage * 100).toFixed(1)}%`);
 
   return {
     transcription,
@@ -665,5 +681,7 @@ export async function processRawFootage(
     originalDurationMs: videoDurationMs,
     editMethod,
     transcriptEditRanges,
+    speechCoverage,
+    needsVisualDrivenEditing,
   };
 }
