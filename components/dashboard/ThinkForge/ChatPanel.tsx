@@ -256,7 +256,13 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       if (latestHasData) return;
 
       autoStartFired.current = true;
-      const autoPrompt = `Write a short starter draft for this idea: "${selectedIdea.idea}". Keep it concise — just enough to give me something to work with. Include a hook, a brief body, and a closing.`;
+      const format = selectedIdea.format || 'post';
+      const platform = selectedIdea.platform || '';
+      const formatIncludesPlatform = platform && format.toLowerCase().includes(platform.toLowerCase());
+      const prefix = formatIncludesPlatform ? format : `${platform} ${format}`;
+      const purposeLine = selectedIdea.purpose ? `\nPurpose: ${selectedIdea.purpose}` : '';
+      const styleLine = selectedIdea.style ? `\nStyle: ${selectedIdea.style}` : '';
+      const autoPrompt = `Write a ${prefix}: "${selectedIdea.idea}"${purposeLine}${styleLine}`;
       const currentScriptId = scriptIdRef.current || undefined;
       chat.sendMessage(autoPrompt, {
         script: scriptPayload,
