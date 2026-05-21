@@ -2,7 +2,6 @@ import type { MotionTokens } from '../types';
 import type {
   Recipe,
   RecipeElement,
-  ExitStyle,
   GraphicIntent,
   ContentShape,
   CompositionStrategy,
@@ -171,7 +170,7 @@ function composeNumeric(
 function composeIdentity(
   elements: RecipeElement[],
   shape: Extract<ContentShape, { kind: 'identity' }>,
-  language: MotionTokens,
+  _language: MotionTokens,
   signals: PlannerSignals,
 ): void {
   elements.push({

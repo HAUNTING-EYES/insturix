@@ -243,7 +243,8 @@ export function applyAudioReactiveModulation(
   const isHoldPhase = frame > timing.enterEndFrame && frame < timing.exitStartFrame;
   if (!isHoldPhase) return anim;
 
-  let { opacity, scale, translateX, translateY, clipProgress } = anim;
+  let { opacity, scale } = anim;
+  const { translateX, translateY, clipProgress } = anim;
 
   // Beat pulse: scale bump on music beats
   // ← signal:audio.music_beat = 0 or 1 per frame

@@ -158,7 +158,8 @@ const ImageElement: React.FC<{ element: ResolvedElement; anim: ReturnType<typeof
   const style = buildTransformStyle(anim);
   const src = String(element.resolvedProps.src || '');
   if (!src) return null;
-  return <img src={src} style={{ ...style, maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" style={{ ...style, maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />;
 };
 
 function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): React.CSSProperties {

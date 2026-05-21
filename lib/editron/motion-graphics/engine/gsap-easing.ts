@@ -3,7 +3,7 @@ import { Easing } from 'remotion';
 let gsapModule: { parseEase: (name: string) => ((t: number) => number) | undefined } | null = null;
 
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const g = require('gsap');
   gsapModule = g.gsap || g;
 } catch {

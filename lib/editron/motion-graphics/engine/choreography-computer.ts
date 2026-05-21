@@ -98,7 +98,7 @@ function computeStaggered(
     : exitDurationFrames;
 
   const availableHold = durationInFrames - totalEntranceSpan - totalExitSpan;
-  const holdFrames = Math.max(MIN_HOLD_FRAMES, availableHold);
+  const _holdFrames = Math.max(MIN_HOLD_FRAMES, availableHold);
 
   const scale = availableHold < MIN_HOLD_FRAMES
     ? (durationInFrames - MIN_HOLD_FRAMES) / (totalEntranceSpan + totalExitSpan)

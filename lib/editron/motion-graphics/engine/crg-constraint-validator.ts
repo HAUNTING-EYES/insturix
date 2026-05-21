@@ -18,7 +18,7 @@
  * Pure function, deterministic, no I/O (except console.warn for violations).
  */
 
-import type { Recipe, RecipeElement, RecipeLayout } from './recipe-types';
+import type { Recipe, RecipeLayout } from './recipe-types';
 
 // ─── CRG Constants (verified against creative-knowledge-graph.json) ──
 
@@ -34,7 +34,7 @@ const GENERAL_MIN_FONT = 72; // "text < 72px @1080p is unreadable on mobile"
 
 // constraint:overlay.graphic_in_caption_zone (CRG part-4 line 503)
 // "bottom 15-25% of safe zone" — we use the conservative 25% boundary
-const CAPTION_ZONE_BOTTOM_FRACTION = 0.25;
+const _CAPTION_ZONE_BOTTOM_FRACTION = 0.25;
 
 // Loop guard: max correction passes before giving up
 // ⚠️ INVENTED: no CRG source. CEO review Section 2 specified max 3 passes.

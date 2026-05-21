@@ -15,7 +15,7 @@
  *   CRG constraint:overlay.graphic_too_small (min 72px at 1080p)
  */
 
-import type { BrandInputs, MotionTokens } from '../types';
+import type { BrandInputs } from '../types';
 
 // ─── Font Classification ────────────────────────────────
 // creative_production_knowledge_v3:4411-4437
