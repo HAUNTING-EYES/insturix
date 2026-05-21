@@ -739,6 +739,7 @@ export async function executeDirectorPlan(
               overlays,
               context.fps,
               effectiveProfile.graphicsDensity,
+              pathEGenreParams as Record<string, number> | undefined,
             );
 
             if (translation.warnings.length > 0) {

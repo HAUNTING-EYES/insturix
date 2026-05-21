@@ -331,7 +331,7 @@ export async function executeEDL(
     }
 
     try {
-      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache);
+      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, usedGraphicTemplateIds);
       if (applied) {
         budget.commit(decision as any);
         result.decisionsExecuted++;
@@ -379,6 +379,7 @@ async function applyDecision(
   idEpoch: number = 0,
   decisionIndex: number = 0,
   sfxCache?: Map<string, { audioUrl: string; audioAssetId: string; durationMs: number } | null>,
+  graphicTemplateIds?: Set<string>,
 ): Promise<{ created: number; modified: number } | null> {
 
   switch (decision.type) {
@@ -395,7 +396,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, usedGraphicTemplateIds);
+      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicTemplateIds);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);

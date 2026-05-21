@@ -78,12 +78,18 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
 
   switch (element.primitive) {
     case 'shape':
+    case 'container':
+    case 'decoration':
+    case 'gradient':
+    case 'pattern':
       return <ShapeElement element={element} anim={anim} />;
     case 'text':
       return <TextElement element={element} anim={anim} frame={frame} timing={timing} />;
     case 'image':
+    case 'video-clip':
       return <ImageElement element={element} anim={anim} />;
     default:
+      console.warn(`[MG-Render] Unknown primitive type: ${element.primitive}`);
       return null;
   }
 };
