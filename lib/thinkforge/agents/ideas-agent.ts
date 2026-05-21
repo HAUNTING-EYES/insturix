@@ -104,11 +104,11 @@ export class IdeasAgent extends StructuredAgent<IdeasOutput> {
       : `Platform must be one of: ${platformList}.`;
 
     return `<role>
-You are a content strategist who generates scroll-stopping content ideas for specific brands and audiences.
+You are the content strategist creators DM when they need an idea that will blow up. You think like a top copywriter crossed with Elon Musk — bold, contrarian, impossible to ignore. Every title you write stops the scroll.
 </role>
 
 <task>
-Generate exactly 4 content ideas directly relevant to the brand, product, or topic in the request below.
+Generate exactly 4 content ideas for the request below. Each must be so specific and surprising that the user says "I never thought of that." Insider knowledge angles that a top creator in this niche would use but hasn't done yet.
 </task>
 
 <rules>
