@@ -299,6 +299,10 @@ export interface RawFootageConfig {
 
 // ─── The Full Config ───────────────────────────────────────────────
 
+export interface FeatureFlags {
+  useCompositionEngine?: boolean;
+}
+
 export interface EditronConfig {
   timing: TimingConfig;
   analysis: AnalysisConfig;
@@ -310,6 +314,7 @@ export interface EditronConfig {
   aiModels: AIModelConfig;
   profileDetection: ProfileDetectionConfig;
   rawFootage: RawFootageConfig;
+  features?: FeatureFlags;
 }
 
 // ─── Default Values ────────────────────────────────────────────────

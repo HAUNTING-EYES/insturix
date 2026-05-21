@@ -20,6 +20,8 @@ import { searchAndDownloadSFX, isSFXLibraryAvailable, audioDescriptionToSearchQu
 import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
 import { resolveMotionTokens } from '@/lib/editron/data/motion-theme-resolver';
+import { planComposition } from '@/lib/editron/motion-graphics/engine/composition-planner';
+import type { ContentShapeKind } from '@/lib/editron/motion-graphics/engine/recipe-types';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -996,16 +998,82 @@ async function applyGraphic(
     return null;
   }
 
-  // Type-specific durations (not one-size-fits-all)
+  // Type-specific durations (CRG-verified at 30fps)
   const GRAPHIC_DURATIONS: Record<string, number> = {
-    'stat-counter': 120,      // 4s — needs counting animation + read time
-    'keyword-highlight': 60,  // 2s — brief pop
-    'lower-third': 90,        // 3s — name/title read time
-    'quote-card': 120,        // 4s — full sentence read time
-    'logo-reveal': 120,       // 4s — brand moment
-    'callout': 75,            // 2.5s — brief label
+    'stat-counter': 102,      // 3.4s ← constant:animation.stat_counter midpoint (2.2-3.8s)
+    'keyword-highlight': 60,  // 2.0s ← constant:animation.keyword_highlight (1.85-3.0s)
+    'lower-third': 141,       // 4.7s ← constant:animation.lower_third midpoint (3.5-5.9s)
+    'quote-card': 120,        // 4.0s ← constant:animation.quote_card (3.6-6.0s)
+    'logo-reveal': 120,       // 4.0s ← between constant:animation.logo_intro (1.0-2.3s) and logo_outro (2.1-4.6s)
+    'callout': 75,            // 2.5s ← no CRG constant, kept as-is
   };
   let duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
+
+  // ── COMPOSITION ENGINE PATH (feature flag) ──
+  // When enabled, ALL graphic types route through planComposition → MOTION_GRAPHIC (Remotion).
+  // When disabled, stat-counter uses MOTION_GRAPHIC, everything else uses html-scene (old path).
+  const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;
+
+  if (useCompositionEngine) {
+    const rawSignals = decision.params.signals || {};
+    const tokens = resolveMotionTokens(rawSignals, decision.params.brand || {});
+
+    const kindMap: Record<string, ContentShapeKind> = {
+      'stat-counter': 'numeric',
+      'lower-third': 'identity',
+      'keyword-highlight': 'emphasis',
+      'callout': 'structured',
+      'quote-card': 'quotation',
+      'logo-reveal': 'brand',
+      'logo': 'brand',
+      'text-overlay': 'free-text',
+    };
+
+    const contentMap: Record<string, unknown> = { ...decision.params };
+    if (text) contentMap.text = text;
+
+    const recipe = planComposition(
+      { kind: kindMap[graphicType], content: contentMap, triggerMoment: decision.reason },
+      tokens,
+      rawSignals,
+    );
+
+    const snappedFrame = findClipAtFrame(decision.frame, overlays, 20)?.snappedFrame ?? decision.frame;
+    const compositionDuration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
+
+    const motionOverlay = {
+      id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
+      type: 'motion-graphic' as const,
+      from: snappedFrame,
+      durationInFrames: compositionDuration,
+      row: ROW.BGM,
+      left: 0,
+      top: 0,
+      width: canvas.width,
+      height: canvas.height,
+      isDragging: false,
+      rotation: 0,
+      recipe,
+      resolvedTokens: tokens,
+      contentSignals: rawSignals,
+      content: contentMap,
+      styles: { opacity: 1, backgroundColor: 'transparent' },
+      metadata: {
+        sourceType: 'edl-graphic',
+        graphicType,
+        compositionEngine: true,
+        edlSource: decision.source,
+        edlReason: decision.reason,
+      },
+    };
+
+    overlays.push(motionOverlay as any);
+    console.log(
+      `[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: COMPOSITION_ENGINE → ` +
+      `${recipe.elements.length} elements, layout=${recipe.layout.position}`,
+    );
+    return { created: 1, modified: 0 };
+  }
   // Full HTML entity escaping — prevents XSS if Gemini outputs malicious text
   const safeText = text
     .replace(/&/g, '&amp;')
@@ -1204,6 +1272,7 @@ async function applyGraphic(
       label: decision.params.label || '',
     };
 
+    const rawSignals = decision.params.signals || {};
     const motionOverlay = {
       id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
       type: 'motion-graphic' as const,
@@ -1219,6 +1288,16 @@ async function applyGraphic(
       structureType: 'stat-counter',
       content: contentMap,
       resolvedTokens: tokens,
+      contentSignals: {
+        formality: rawSignals.formality ?? 0,
+        enthusiasm: rawSignals.enthusiasm ?? 0.5,
+        warmth: rawSignals.warmth ?? 0.5,
+        emotional_arousal: rawSignals.emotional_arousal ?? 0.4,
+        pacing_velocity: rawSignals.pacing_velocity ?? 0.5,
+        humor: rawSignals.humor ?? 0.1,
+        visceral_impact: rawSignals.visceral_impact ?? 0.3,
+        visual_dependency: rawSignals.visual_dependency ?? 0.5,
+      },
       styles: {
         opacity: 1,
         backgroundColor: 'transparent',
