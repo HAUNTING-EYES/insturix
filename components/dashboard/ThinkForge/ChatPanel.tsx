@@ -293,6 +293,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       platform: (selectedIdea as any)?.platform,
       tone: selectedIdea?.tone,
       sessionName: (selectedIdea as any)?.sessionName,
+      brandBrief: (selectedIdea as any)?.brandBrief,
     }),
     [selectedIdea]
   );
