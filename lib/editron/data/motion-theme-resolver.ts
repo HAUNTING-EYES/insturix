@@ -118,12 +118,12 @@ const DEFAULT_SIGNALS: ContentSignals = {
 };
 
 const DEFAULT_BRAND: BrandInputs = {
-  primaryColor: '#6366F1',
-  accentColor: '#10B981',
-  backgroundColor: '#0A0A14',
-  headingFont: 'Inter, system-ui, sans-serif',
+  primaryColor: '#6366F1',       // Insturix indigo ← globals.css:421 --accent-indigo
+  accentColor: '#D4A652',        // Insturix gold ← thinkforge.css:24 --accent-gold
+  backgroundColor: '#0A0A14',    // Insturix dark background
+  headingFont: 'Inter, system-ui, sans-serif',   // ← layout.tsx
   bodyFont: 'Inter, system-ui, sans-serif',
-  monoFont: 'JetBrains Mono, monospace',
+  monoFont: 'JetBrains Mono, monospace',         // ← layout.tsx
 };
 
 // ─── Utility ────────────────────────────────────────────
