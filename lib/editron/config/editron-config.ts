@@ -495,6 +495,9 @@ export const DEFAULT_CONFIG: EditronConfig = {
     segmentPauseThresholdMs: 1000,
     bestTakeJaccardThreshold: 0.6,
   },
+  features: {
+    useCompositionEngine: true,
+  },
 };
 
 // ─── Config Builder ────────────────────────────────────────────────
