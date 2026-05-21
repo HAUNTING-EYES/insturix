@@ -16,7 +16,7 @@ import { StatCounter } from '@/lib/editron/motion-graphics/structures/StatCounte
 import { SafeCompositionRenderer } from '@/lib/editron/motion-graphics/engine/composition-renderer';
 import { planComposition } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import type { MotionTokens } from '@/lib/editron/motion-graphics/types';
-import type { GraphicPurpose } from '@/lib/editron/motion-graphics/engine/recipe-types';
+import type { Recipe } from '@/lib/editron/motion-graphics/engine/recipe-types';
 
 interface MotionGraphicLayerContentProps {
   overlay: MotionGraphicOverlay;
@@ -26,16 +26,34 @@ export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps>
   overlay,
 }) => {
   const tokens = overlay.resolvedTokens as MotionTokens;
-  const { structureType, content, contentSignals } = overlay;
+  const content = (overlay.content || {}) as Record<string, string>;
+  const signals = overlay.contentSignals;
 
+  // Composition engine path: recipe pre-computed at pipeline time.
+  // Use it directly -- don't re-plan at render time.
+  const preComputedRecipe = (overlay as Record<string, unknown>).recipe as Recipe | undefined;
+  if (preComputedRecipe && preComputedRecipe.elements?.length > 0) {
+    return (
+      <MotionThemeProvider tokens={tokens}>
+        <SafeCompositionRenderer
+          recipe={preComputedRecipe}
+          language={tokens}
+          content={content}
+          durationInFrames={overlay.durationInFrames}
+        />
+      </MotionThemeProvider>
+    );
+  }
+
+  // Legacy path: re-plan at render time (flag=false or old overlays without recipe)
   return (
     <MotionThemeProvider tokens={tokens}>
       <StructureDispatch
-        structureType={structureType}
+        structureType={(overlay as Record<string, unknown>).structureType as string}
         content={content}
         durationInFrames={overlay.durationInFrames}
         tokens={tokens}
-        signals={contentSignals}
+        signals={signals}
       />
     </MotionThemeProvider>
   );
@@ -72,8 +90,9 @@ const StructureDispatch: React.FC<StructureDispatchProps> = ({
     );
   }
 
+  // Fallback: plan at render time for overlays without pre-computed recipe
   const recipe = planComposition(
-    { purpose: structureType as GraphicPurpose, content },
+    { kind: undefined, content },
     tokens,
     signals,
   );
