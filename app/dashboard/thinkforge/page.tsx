@@ -222,7 +222,12 @@ export default function ThinkForgeLanding() {
 					`Angles: ${(brief.suggestedAngles || []).join(' | ')}`,
 					`Audience: ${brief.targetAudience || 'General'}`,
 				].join('\n');
+				// Replace both the normalized URL and the bare domain form
 				enrichedPrompt = enrichedPrompt.replace(url, briefBlock);
+				const bareDomain = url.replace(/^https?:\/\//, '');
+				if (enrichedPrompt.includes(bareDomain)) {
+					enrichedPrompt = enrichedPrompt.replace(bareDomain, briefBlock);
+				}
 			}
 
 			// Step 5: Update the textarea with the enriched prompt
