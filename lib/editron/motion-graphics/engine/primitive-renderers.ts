@@ -86,6 +86,14 @@ export function computeAnimationState(
     const progress = timing.enterEasing(Math.min(1, Math.max(0, raw)));
     return applyEntranceState(progress, entrancePattern, spatial);
   }
+  // Disney #5 — Follow Through: damped oscillation after entrance lands.
+  // Different patterns settle at different rates (overlapping action).
+  const settleFrames = getSettleFrames(entrancePattern);
+  if (settleFrames > 0 && frame > timing.enterEndFrame
+    && frame <= timing.enterEndFrame + settleFrames && frame < timing.exitStartFrame) {
+    const settleProgress = (frame - timing.enterEndFrame) / settleFrames;
+    return applyFollowThrough(settleProgress, entrancePattern);
+  }
   if (frame >= timing.exitStartFrame && frame <= timing.exitEndFrame) {
     const raw = (frame - timing.exitStartFrame) / Math.max(1, timing.exitEndFrame - timing.exitStartFrame);
     const progress = timing.exitEasing(Math.min(1, Math.max(0, raw)));
@@ -168,6 +176,57 @@ function applyAnticipationState(progress: number, pattern: EntrancePattern, s: S
     }
     default:
       return { ...NEUTRAL, opacity: 0 };
+  }
+}
+
+// Disney #5 — Follow Through: settle duration varies by entrance pattern (overlapping action).
+// Scale patterns settle longer than slides — heavier visual elements have more inertia.
+// Fade/blur/draw have no visible overshoot.
+function getSettleFrames(pattern: EntrancePattern): number {
+  switch (pattern) {
+    case 'scale-up':
+    case 'pop':
+      // CRG technique:animation.pop_in settle 0.1s ≈ 3 frames; extended for full oscillation
+      // ⚠️ 8 frames INVENTED — AE practice: 4-12 frames for scale settle
+      return 8;
+    case 'slide-left':
+    case 'slide-right':
+    case 'slide-up':
+    case 'slide-down':
+      // ⚠️ 6 frames INVENTED — position overshoots less visibly than scale
+      return 6;
+    case 'fade':
+    case 'blur-in':
+    case 'draw':
+    default:
+      return 0;
+  }
+}
+
+// Disney #5 — Follow Through: damped cosine oscillation after entrance.
+// Peak overshoot at progress=0, decays quadratically to NEUTRAL at progress=1.
+// One full oscillation: overshoot → zero-cross → undershoot → settle.
+function applyFollowThrough(progress: number, pattern: EntrancePattern): AnimationState {
+  const decay = (1 - progress) * (1 - progress);
+  const wave = Math.cos(progress * Math.PI * 2) * decay;
+
+  switch (pattern) {
+    case 'scale-up':
+    case 'pop':
+      // CRG technique:animation.pop_in — overshoot 3-5% past target
+      // ⚠️ 0.04 (4%) amplitude ← CRG midpoint of 3-5% range
+      return { ...NEUTRAL, scaleX: 1 + wave * 0.04, scaleY: 1 + wave * 0.04 };
+    case 'slide-left':
+      // ⚠️ 3px position overshoot ← CRG technique:animation.bounce_drop 2-5px range
+      return { ...NEUTRAL, translateX: wave * 3 };
+    case 'slide-right':
+      return { ...NEUTRAL, translateX: wave * -3 };
+    case 'slide-up':
+      return { ...NEUTRAL, translateY: wave * -3 };
+    case 'slide-down':
+      return { ...NEUTRAL, translateY: wave * 3 };
+    default:
+      return { ...NEUTRAL };
   }
 }
 
