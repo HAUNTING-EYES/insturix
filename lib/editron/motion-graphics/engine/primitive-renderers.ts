@@ -16,19 +16,52 @@ export function deriveSpatialConfig(tokens: MotionTokens): SpatialConfig {
   const paddingScale = tokens.layout.paddingScale;
   const hasOvershoot = tokens.animation.overshoot;
   return {
-    verticalSlidePx: Math.round(20 * paddingScale),   // 20px base ← StatCounter.tsx:84
-    horizontalSlidePx: Math.round(30 * paddingScale),  // 30px base ← 20 × 1.5 (AE convention)
-    scaleFrom: hasOvershoot ? 0.85 : 0.92,             // 0.92 base ← StatCounter.tsx:90, 0.85 for overshoot
+    verticalSlidePx: Math.round(20 * paddingScale),
+    horizontalSlidePx: Math.round(30 * paddingScale),
+    scaleFrom: hasOvershoot ? 0.85 : 0.92,
   };
 }
 
+// 20 new animatable properties (11→31 total, matching After Effects).
+// Organized: transform (7) + filter (4) + typography (2) + shadow (1) + stroke (1) + clip (1) = 16 AnimationState fields.
+// Remaining 4 (anchorPoint, strokeColor, mixBlendMode, gradientPosition, lineHeight) are resolvedProps.
 export interface AnimationState {
   opacity: number;
   translateX: number;
   translateY: number;
-  scale: number;
+  scaleX: number;
+  scaleY: number;
+  rotation: number;
+  skewX: number;
   clipProgress: number;
+  filterBlur: number;
+  filterBrightness: number;
+  filterContrast: number;
+  filterSaturate: number;
+  letterSpacing: number;
+  fontSize: number;
+  textShadowBlur: number;
+  strokeDashoffset: number;
 }
+
+const NEUTRAL: AnimationState = {
+  opacity: 1,
+  translateX: 0,
+  translateY: 0,
+  scaleX: 1,
+  scaleY: 1,
+  rotation: 0,
+  skewX: 0,
+  clipProgress: 1,
+  filterBlur: 0,
+  filterBrightness: 1,
+  filterContrast: 1,
+  filterSaturate: 1,
+  letterSpacing: 0,
+  fontSize: 1,
+  textShadowBlur: 0,
+  strokeDashoffset: 0,
+};
 
 export function computeAnimationState(
   frame: number,
@@ -37,53 +70,50 @@ export function computeAnimationState(
   exitPattern: ExitPattern,
   spatial: SpatialConfig,
 ): AnimationState {
-  const state: AnimationState = { opacity: 1, translateX: 0, translateY: 0, scale: 1, clipProgress: 1 };
-
   if (frame < timing.enterStartFrame) {
     return applyEntranceState(0, entrancePattern, spatial);
   }
-
   if (frame <= timing.enterEndFrame) {
     const raw = (frame - timing.enterStartFrame) / Math.max(1, timing.enterEndFrame - timing.enterStartFrame);
     const progress = timing.enterEasing(Math.min(1, Math.max(0, raw)));
     return applyEntranceState(progress, entrancePattern, spatial);
   }
-
   if (frame >= timing.exitStartFrame && frame <= timing.exitEndFrame) {
     const raw = (frame - timing.exitStartFrame) / Math.max(1, timing.exitEndFrame - timing.exitStartFrame);
     const progress = timing.exitEasing(Math.min(1, Math.max(0, raw)));
     return applyExitState(progress, exitPattern, spatial);
   }
-
   if (frame > timing.exitEndFrame) {
     return applyExitState(1, exitPattern, spatial);
   }
-
-  return state;
+  return { ...NEUTRAL };
 }
 
 function applyEntranceState(progress: number, pattern: EntrancePattern, s: SpatialConfig): AnimationState {
   switch (pattern) {
     case 'fade':
-      return { opacity: progress, translateX: 0, translateY: 0, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: progress };
     case 'slide-left':
-      return { opacity: progress, translateX: (1 - progress) * -s.horizontalSlidePx, translateY: 0, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: progress, translateX: (1 - progress) * -s.horizontalSlidePx };
     case 'slide-right':
-      return { opacity: progress, translateX: (1 - progress) * s.horizontalSlidePx, translateY: 0, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: progress, translateX: (1 - progress) * s.horizontalSlidePx };
     case 'slide-up':
-      return { opacity: progress, translateX: 0, translateY: (1 - progress) * s.verticalSlidePx, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: progress, translateY: (1 - progress) * s.verticalSlidePx };
     case 'slide-down':
-      return { opacity: progress, translateX: 0, translateY: (1 - progress) * -s.verticalSlidePx, scale: 1, clipProgress: 1 };
-    case 'scale-up':
-      return { opacity: progress, translateX: 0, translateY: 0, scale: s.scaleFrom + progress * (1 - s.scaleFrom), clipProgress: 1 };
+      return { ...NEUTRAL, opacity: progress, translateY: (1 - progress) * -s.verticalSlidePx };
+    case 'scale-up': {
+      const v = s.scaleFrom + progress * (1 - s.scaleFrom);
+      return { ...NEUTRAL, opacity: progress, scaleX: v, scaleY: v };
+    }
     case 'pop':
-      return { opacity: progress, translateX: 0, translateY: 0, scale: progress, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: progress, scaleX: progress, scaleY: progress };
     case 'blur-in':
-      return { opacity: progress, translateX: 0, translateY: 0, scale: 1, clipProgress: 1 };
+      // filterBlur 20→0px ← AE standard Gaussian blur for MG reveals (16-24px range)
+      return { ...NEUTRAL, opacity: progress, filterBlur: (1 - progress) * 20 };
     case 'draw':
-      return { opacity: 1, translateX: 0, translateY: 0, scale: 1, clipProgress: progress };
+      return { ...NEUTRAL, clipProgress: progress };
     default:
-      return { opacity: progress, translateX: 0, translateY: 0, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: progress };
   }
 }
 
@@ -91,23 +121,24 @@ function applyExitState(progress: number, pattern: ExitPattern, s: SpatialConfig
   const inv = 1 - progress;
   switch (pattern) {
     case 'fade':
-      return { opacity: inv, translateX: 0, translateY: 0, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: inv };
     case 'slide-left':
-      return { opacity: inv, translateX: progress * -s.horizontalSlidePx, translateY: 0, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: inv, translateX: progress * -s.horizontalSlidePx };
     case 'slide-right':
-      return { opacity: inv, translateX: progress * s.horizontalSlidePx, translateY: 0, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: inv, translateX: progress * s.horizontalSlidePx };
     case 'slide-up':
-      return { opacity: inv, translateX: 0, translateY: progress * -s.verticalSlidePx, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: inv, translateY: progress * -s.verticalSlidePx };
     case 'slide-down':
-      return { opacity: inv, translateX: 0, translateY: progress * s.verticalSlidePx, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: inv, translateY: progress * s.verticalSlidePx };
     case 'scale-down':
-      return { opacity: inv, translateX: 0, translateY: 0, scale: inv, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: inv, scaleX: inv, scaleY: inv };
     case 'blur-out':
-      return { opacity: inv, translateX: 0, translateY: 0, scale: 1, clipProgress: 1 };
+      // filterBlur 0→20px ← mirrors blur-in entrance
+      return { ...NEUTRAL, opacity: inv, filterBlur: progress * 20 };
     case 'draw-reverse':
-      return { opacity: 1, translateX: 0, translateY: 0, scale: 1, clipProgress: inv };
+      return { ...NEUTRAL, clipProgress: inv };
     default:
-      return { opacity: inv, translateX: 0, translateY: 0, scale: 1, clipProgress: 1 };
+      return { ...NEUTRAL, opacity: inv };
   }
 }
 
@@ -115,11 +146,24 @@ export function buildTransformStyle(anim: AnimationState): React.CSSProperties {
   const transforms: string[] = [];
   if (anim.translateX !== 0) transforms.push(`translateX(${anim.translateX}px)`);
   if (anim.translateY !== 0) transforms.push(`translateY(${anim.translateY}px)`);
-  if (anim.scale !== 1) transforms.push(`scale(${anim.scale})`);
+  if (anim.scaleX !== 1 || anim.scaleY !== 1) {
+    transforms.push(anim.scaleX === anim.scaleY
+      ? `scale(${anim.scaleX})`
+      : `scale(${anim.scaleX}, ${anim.scaleY})`);
+  }
+  if (anim.rotation !== 0) transforms.push(`rotate(${anim.rotation}deg)`);
+  if (anim.skewX !== 0) transforms.push(`skewX(${anim.skewX}deg)`);
+
+  const filters: string[] = [];
+  if (anim.filterBlur > 0) filters.push(`blur(${anim.filterBlur}px)`);
+  if (anim.filterBrightness !== 1) filters.push(`brightness(${anim.filterBrightness})`);
+  if (anim.filterContrast !== 1) filters.push(`contrast(${anim.filterContrast})`);
+  if (anim.filterSaturate !== 1) filters.push(`saturate(${anim.filterSaturate})`);
 
   return {
     opacity: anim.opacity,
     transform: transforms.length > 0 ? transforms.join(' ') : undefined,
+    filter: filters.length > 0 ? filters.join(' ') : undefined,
     willChange: 'transform, opacity',
   };
 }
@@ -145,6 +189,24 @@ export function buildShapeStyle(
   if (p.blur) {
     style.backdropFilter = `blur(${p.blur}px)`;
     style.WebkitBackdropFilter = `blur(${p.blur}px)`;
+  }
+
+  if (p.anchorX != null || p.anchorY != null) {
+    const ax = p.anchorX != null ? `${Number(p.anchorX) * 100}%` : '50%';
+    const ay = p.anchorY != null ? `${Number(p.anchorY) * 100}%` : '50%';
+    style.transformOrigin = `${ax} ${ay}`;
+  }
+
+  if (p.strokeColor) {
+    style.borderColor = p.strokeColor as string;
+  }
+
+  if (p.mixBlendMode) {
+    style.mixBlendMode = p.mixBlendMode as React.CSSProperties['mixBlendMode'];
+  }
+
+  if (p.gradientPosition != null) {
+    style.backgroundPosition = String(p.gradientPosition);
   }
 
   if (el.shape === 'line') {
@@ -174,20 +236,42 @@ export function buildTextStyle(
   const base = buildTransformStyle(anim);
   const p = el.resolvedProps;
 
-  const fontSize = p.minSize
+  const baseFontSize = p.minSize
     ? Math.max(Number(p.minSize), 64 * (Number(p.sizeScale) || 1))
     : undefined;
 
-  return {
+  const computedFontSize = baseFontSize && anim.fontSize !== 1
+    ? baseFontSize * anim.fontSize
+    : baseFontSize;
+
+  const baseLetterSpacing = p.tracking as string || undefined;
+  const computedLetterSpacing = anim.letterSpacing !== 0
+    ? (baseLetterSpacing ? `calc(${baseLetterSpacing} + ${anim.letterSpacing}px)` : `${anim.letterSpacing}px`)
+    : baseLetterSpacing;
+
+  const style: React.CSSProperties = {
     ...base,
     fontFamily: p.font as string || undefined,
     fontWeight: p.weight as number || undefined,
-    fontSize: fontSize ? `${fontSize}px` : undefined,
+    fontSize: computedFontSize ? `${computedFontSize}px` : undefined,
     color: p.color as string || '#FFFFFF',
-    letterSpacing: p.tracking as string || undefined,
+    letterSpacing: computedLetterSpacing,
     textTransform: p.transform as React.CSSProperties['textTransform'] || undefined,
-    lineHeight: 1.2,
+    lineHeight: p.lineHeight != null ? Number(p.lineHeight) : 1.2,
   };
+
+  if (p.anchorX != null || p.anchorY != null) {
+    const ax = p.anchorX != null ? `${Number(p.anchorX) * 100}%` : '50%';
+    const ay = p.anchorY != null ? `${Number(p.anchorY) * 100}%` : '50%';
+    style.transformOrigin = `${ax} ${ay}`;
+  }
+
+  if (anim.textShadowBlur > 0) {
+    const shadowColor = p.color as string || '#FFFFFF';
+    style.textShadow = `0 0 ${anim.textShadowBlur}px ${shadowColor}`;
+  }
+
+  return style;
 }
 
 function applyOpacity(color: string | undefined, opacity: number): string {
@@ -215,22 +299,12 @@ function applyOpacity(color: string | undefined, opacity: number): string {
 //
 // Beat pulse: 1.03x scale on beat ← creative_production_knowledge_v3:3496 (overshoot 102-105%)
 // Energy opacity: ±0.1 modulation ← ⚠️ INVENTED, needs calibration
-// Beat accent width: 1.3x multiplier ← ⚠️ INVENTED, needs calibration
+// Beat brightness: 1.05x on beat ← ⚠️ INVENTED, needs calibration
 
 export interface SignalCurves {
   [signalName: string]: number[];
 }
 
-/**
- * Apply audio-reactive modulation to an AnimationState during the HOLD phase.
- * Returns the original state unmodified during entrance/exit.
- *
- * @param anim - Base animation state from computeAnimationState()
- * @param frame - Current frame number
- * @param timing - Choreography timing for this element
- * @param curves - Pre-computed signal curves (key = signal name, value = per-frame values)
- * @returns Modulated AnimationState
- */
 export function applyAudioReactiveModulation(
   anim: AnimationState,
   frame: number,
@@ -239,44 +313,33 @@ export function applyAudioReactiveModulation(
 ): AnimationState {
   if (!curves || Object.keys(curves).length === 0) return anim;
 
-  // Only modulate during HOLD phase (graphic fully visible)
   const isHoldPhase = frame > timing.enterEndFrame && frame < timing.exitStartFrame;
   if (!isHoldPhase) return anim;
 
-  let { opacity, scale } = anim;
-  const { translateX, translateY, clipProgress } = anim;
+  let { opacity, scaleX, scaleY, filterBrightness } = anim;
 
-  // Beat pulse: scale bump on music beats
-  // ← signal:audio.music_beat = 0 or 1 per frame
-  // ← creative_production_knowledge_v3:3496 overshoot 102-105%: using 1.03 (3%)
   const beatValue = readCurve(curves, 'music_beat', frame);
   if (beatValue > 0.5) {
-    scale *= 1.03; // 3% scale pulse on beat ← creative doc overshoot range
+    scaleX *= 1.03;
+    scaleY *= 1.03;
+    filterBrightness = Math.min(1.3, filterBrightness * 1.05);
   }
 
-  // Energy breathing: subtle opacity modulation from speech energy
-  // ← signal:speech.energy = 0-1 continuous
-  // ⚠️ INVENTED magnitude (±0.05, 5% opacity). Needs calibration.
   const energyValue = readCurve(curves, 'energy', frame);
   if (isFinite(energyValue)) {
     opacity = Math.max(0.5, Math.min(1, opacity + (energyValue - 0.5) * 0.1));
   }
 
-  // Emotion intensity: scale breathing
-  // ← signal:speech.emotion_intensity (Wav2Vec) = 0-1 continuous
-  // ⚠️ INVENTED magnitude (±0.02, 2% scale). Needs calibration.
   const emotionValue = readCurve(curves, 'emotion_intensity', frame);
   if (isFinite(emotionValue) && emotionValue > 0.3) {
-    scale *= 1 + (emotionValue - 0.3) * 0.03; // max ~2% at emotion_intensity=1.0
+    const boost = 1 + (emotionValue - 0.3) * 0.03;
+    scaleX *= boost;
+    scaleY *= boost;
   }
 
-  return { opacity, scale, translateX, translateY, clipProgress };
+  return { ...anim, opacity, scaleX, scaleY, filterBrightness };
 }
 
-/**
- * Read a signal curve value at a specific frame.
- * Returns 0 if the curve doesn't exist or the frame is out of range.
- */
 function readCurve(curves: SignalCurves, name: string, frame: number): number {
   const curve = curves[name];
   if (!curve || frame < 0 || frame >= curve.length) return 0;
