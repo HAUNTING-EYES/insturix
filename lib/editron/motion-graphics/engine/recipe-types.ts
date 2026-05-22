@@ -86,6 +86,9 @@ export interface ResolvedElement {
 }
 
 export interface ComputedChoreography {
+  // Disney #2 — Anticipation: optional reverse movement before entrance
+  anticipateStartFrame?: number;
+  anticipateEndFrame?: number;
   enterStartFrame: number;
   enterEndFrame: number;
   holdStartFrame: number;

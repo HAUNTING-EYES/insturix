@@ -70,6 +70,13 @@ export function computeAnimationState(
   exitPattern: ExitPattern,
   spatial: SpatialConfig,
 ): AnimationState {
+  // Disney #2 — Anticipation: brief reverse movement before entrance
+  if (timing.anticipateStartFrame != null && timing.anticipateEndFrame != null
+    && frame >= timing.anticipateStartFrame && frame < timing.anticipateEndFrame) {
+    const raw = (frame - timing.anticipateStartFrame) / Math.max(1, timing.anticipateEndFrame - timing.anticipateStartFrame);
+    const progress = Math.min(1, Math.max(0, raw));
+    return applyAnticipationState(progress, entrancePattern, spatial);
+  }
   if (frame < timing.enterStartFrame) {
     return applyEntranceState(0, entrancePattern, spatial);
   }
@@ -90,23 +97,46 @@ export function computeAnimationState(
 }
 
 function applyEntranceState(progress: number, pattern: EntrancePattern, s: SpatialConfig): AnimationState {
+  // Disney #7 — Arc: perpendicular sine offset peaks at motion midpoint, returns to 0
+  // ⚠️ 0.2 arc magnitude INVENTED — AE practice: 10-25% of perpendicular axis for subtle arcs
+  const arc = Math.sin(progress * Math.PI) * 0.2;
+
   switch (pattern) {
     case 'fade':
       return { ...NEUTRAL, opacity: progress };
     case 'slide-left':
-      return { ...NEUTRAL, opacity: progress, translateX: (1 - progress) * -s.horizontalSlidePx };
+      return { ...NEUTRAL, opacity: progress,
+        translateX: (1 - progress) * -s.horizontalSlidePx,
+        translateY: -arc * s.verticalSlidePx,
+      };
     case 'slide-right':
-      return { ...NEUTRAL, opacity: progress, translateX: (1 - progress) * s.horizontalSlidePx };
+      return { ...NEUTRAL, opacity: progress,
+        translateX: (1 - progress) * s.horizontalSlidePx,
+        translateY: -arc * s.verticalSlidePx,
+      };
     case 'slide-up':
-      return { ...NEUTRAL, opacity: progress, translateY: (1 - progress) * s.verticalSlidePx };
+      return { ...NEUTRAL, opacity: progress,
+        translateY: (1 - progress) * s.verticalSlidePx,
+        translateX: arc * s.horizontalSlidePx,
+      };
     case 'slide-down':
-      return { ...NEUTRAL, opacity: progress, translateY: (1 - progress) * -s.verticalSlidePx };
+      return { ...NEUTRAL, opacity: progress,
+        translateY: (1 - progress) * -s.verticalSlidePx,
+        translateX: -arc * s.horizontalSlidePx,
+      };
     case 'scale-up': {
       const v = s.scaleFrom + progress * (1 - s.scaleFrom);
-      return { ...NEUTRAL, opacity: progress, scaleX: v, scaleY: v };
+      // Disney #1 — Squash & Stretch: damped sine diverges scaleX/Y, preserving volume
+      // ⚠️ 0.08 factor INVENTED — AE practice: 5-10% divergence for subtle squash
+      const squash = Math.sin(progress * Math.PI * 1.5) * 0.08 * (1 - progress);
+      return { ...NEUTRAL, opacity: progress, scaleX: v * (1 - squash * 0.5), scaleY: v * (1 + squash) };
     }
-    case 'pop':
-      return { ...NEUTRAL, opacity: progress, scaleX: progress, scaleY: progress };
+    case 'pop': {
+      // Disney #1 — Squash & Stretch: stronger for pop (emphasis text, keyword highlights)
+      // ⚠️ 0.12 factor INVENTED — pop is more energetic than scale-up (10-15% range)
+      const squash = Math.sin(progress * Math.PI * 1.5) * 0.12 * (1 - progress);
+      return { ...NEUTRAL, opacity: progress, scaleX: progress * (1 - squash * 0.5), scaleY: progress * (1 + squash) };
+    }
     case 'blur-in':
       // filterBlur 20→0px ← AE standard Gaussian blur for MG reveals (16-24px range)
       return { ...NEUTRAL, opacity: progress, filterBlur: (1 - progress) * 20 };
@@ -117,21 +147,60 @@ function applyEntranceState(progress: number, pattern: EntrancePattern, s: Spati
   }
 }
 
+// Disney #2 — Anticipation: pattern-specific reverse movement before entrance.
+// Scale/pop: ghost appears (low opacity) with slight shrink — "something is about to happen."
+// Slide/fade/blur/draw: invisible delay — creates breathing room before entrance.
+// ⚠️ Ghost opacity 0.15, shrink 0.1 INVENTED — AE practice: 10-20% ghost, 5-15% reverse scale
+function applyAnticipationState(progress: number, pattern: EntrancePattern, s: SpatialConfig): AnimationState {
+  switch (pattern) {
+    case 'scale-up': {
+      const ghostOpacity = progress * 0.15;
+      const shrink = s.scaleFrom * (1 - progress * 0.1);
+      return { ...NEUTRAL, opacity: ghostOpacity, scaleX: shrink, scaleY: shrink };
+    }
+    case 'pop': {
+      const ghostOpacity = progress * 0.1;
+      return { ...NEUTRAL, opacity: ghostOpacity, scaleX: progress * 0.05, scaleY: progress * 0.05 };
+    }
+    default:
+      return { ...NEUTRAL, opacity: 0 };
+  }
+}
+
 function applyExitState(progress: number, pattern: ExitPattern, s: SpatialConfig): AnimationState {
   const inv = 1 - progress;
+  // Disney #7 — Arc: mirrors entrance arc curve
+  const arc = Math.sin(progress * Math.PI) * 0.2;
+
   switch (pattern) {
     case 'fade':
       return { ...NEUTRAL, opacity: inv };
     case 'slide-left':
-      return { ...NEUTRAL, opacity: inv, translateX: progress * -s.horizontalSlidePx };
+      return { ...NEUTRAL, opacity: inv,
+        translateX: progress * -s.horizontalSlidePx,
+        translateY: -arc * s.verticalSlidePx,
+      };
     case 'slide-right':
-      return { ...NEUTRAL, opacity: inv, translateX: progress * s.horizontalSlidePx };
+      return { ...NEUTRAL, opacity: inv,
+        translateX: progress * s.horizontalSlidePx,
+        translateY: -arc * s.verticalSlidePx,
+      };
     case 'slide-up':
-      return { ...NEUTRAL, opacity: inv, translateY: progress * -s.verticalSlidePx };
+      return { ...NEUTRAL, opacity: inv,
+        translateY: progress * -s.verticalSlidePx,
+        translateX: arc * s.horizontalSlidePx,
+      };
     case 'slide-down':
-      return { ...NEUTRAL, opacity: inv, translateY: progress * s.verticalSlidePx };
-    case 'scale-down':
-      return { ...NEUTRAL, opacity: inv, scaleX: inv, scaleY: inv };
+      return { ...NEUTRAL, opacity: inv,
+        translateY: progress * s.verticalSlidePx,
+        translateX: -arc * s.horizontalSlidePx,
+      };
+    case 'scale-down': {
+      // Disney #1 — Squash & Stretch: compress before shrinking away
+      // ⚠️ 0.08 factor INVENTED — mirrors entrance scale-up squash
+      const squash = Math.sin(progress * Math.PI * 1.5) * 0.08 * (1 - progress);
+      return { ...NEUTRAL, opacity: inv, scaleX: inv * (1 + squash * 0.5), scaleY: inv * (1 - squash) };
+    }
     case 'blur-out':
       // filterBlur 0→20px ← mirrors blur-in entrance
       return { ...NEUTRAL, opacity: inv, filterBlur: progress * 20 };
@@ -320,8 +389,11 @@ export function applyAudioReactiveModulation(
 
   const beatValue = readCurve(curves, 'music_beat', frame);
   if (beatValue > 0.5) {
-    scaleX *= 1.03;
-    scaleY *= 1.03;
+    // Disney #1 — Squash & Stretch on beat: wider + shorter for physical impact
+    // Area-preserved: 1.04 × 1.02 = 1.0608 ≈ old 1.03 × 1.03 = 1.0609
+    // ⚠️ 1.04/1.02 divergence INVENTED — needs calibration
+    scaleX *= 1.04;
+    scaleY *= 1.02;
     filterBrightness = Math.min(1.3, filterBrightness * 1.05);
   }
 

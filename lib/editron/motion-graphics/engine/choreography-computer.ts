@@ -72,7 +72,23 @@ export function computeChoreography(input: ChoreographyInput): Map<string, Compu
   }
 
   validateChoreography(result, durationInFrames);
+  addAnticipation(result);
   return result;
+}
+
+// Disney #2 — Anticipation: carve a brief reverse phase from the start of each entrance.
+// Steals 20% of entrance frames (min 2) — no total duration change.
+// ⚠️ 0.2 ratio INVENTED — AE practice: 15-25% of entrance for anticipation
+function addAnticipation(result: Map<string, ComputedChoreography>): void {
+  for (const [, timing] of result) {
+    const entranceDuration = timing.enterEndFrame - timing.enterStartFrame;
+    const anticipationFrames = Math.floor(entranceDuration * 0.2);
+    if (anticipationFrames >= 2) {
+      timing.anticipateStartFrame = timing.enterStartFrame;
+      timing.anticipateEndFrame = timing.enterStartFrame + anticipationFrames;
+      timing.enterStartFrame = timing.enterStartFrame + anticipationFrames;
+    }
+  }
 }
 
 interface StaggerParams {
