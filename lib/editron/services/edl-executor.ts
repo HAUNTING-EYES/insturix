@@ -174,12 +174,22 @@ export function findClipAtFrame(
 
 // ─── Types ───────────────────────────────────────────────────────
 
+export interface RejectedDecision {
+  type: string;
+  frame: number;
+  reason: string;
+  ruleId?: string;
+  params?: Record<string, unknown>;
+}
+
 export interface ExecutionResult {
   decisionsExecuted: number;
   decisionsSkipped: number;
   overlaysCreated: number;
   overlaysModified: number;
   errors: string[];
+  /** Per-decision rejection reasons — surfaces WHY decisions were dropped (A3.5.10 fix) */
+  rejectedDecisions: RejectedDecision[];
   /** AssetIds of overlays whose zoom decisions were rejected by budget — drift-zoom should skip these */
   budgetRejectedZoomAssetIds: Set<string>;
   /** AssetIds that already received a zoom from EDL — drift-zoom should skip these too */
@@ -214,6 +224,7 @@ export async function executeEDL(
     overlaysCreated: 0,
     overlaysModified: 0,
     errors: [],
+    rejectedDecisions: [],
     budgetRejectedZoomAssetIds: new Set<string>(),
     zoomedAssetIds: new Set<string>(),
   };
@@ -305,6 +316,13 @@ export async function executeEDL(
     if (!budgetResult.allowed) {
       result.decisionsSkipped++;
       budgetRejected++;
+      result.rejectedDecisions.push({
+        type: decision.type,
+        frame: decision.frame,
+        reason: `BUDGET: ${budgetResult.reason}`,
+        ruleId: budgetResult.ruleId,
+        params: { graphicType: decision.params?.graphicType, text: (decision.params?.text || '').substring(0, 60) },
+      });
       console.log(`[EDL-Exec] BUDGET REJECTED: ${decision.type} at frame ${decision.frame} — ${budgetResult.reason} (${budgetResult.ruleId})`);
       if (decision.type === 'graphic') {
         const gType = decision.params?.graphicType || 'unknown';
@@ -352,10 +370,21 @@ export async function executeEDL(
         }
       } else {
         result.decisionsSkipped++;
+        result.rejectedDecisions.push({
+          type: decision.type,
+          frame: decision.frame,
+          reason: `GUARD: ${decision.reason?.substring(0, 80) || 'handler returned null (dedup/validation)'}`,
+          params: { graphicType: decision.params?.graphicType, text: (decision.params?.text || '').substring(0, 60) },
+        });
         console.log(`[EDL-Exec] SKIPPED (returned null): ${decision.type} at frame ${decision.frame} — ${decision.reason?.substring(0, 80) || 'no reason'}`);
       }
     } catch (err: any) {
       result.decisionsSkipped++;
+      result.rejectedDecisions.push({
+        type: decision.type,
+        frame: decision.frame,
+        reason: `ERROR: ${err.message}`,
+      });
       result.errors.push(`${decision.type} at frame ${decision.frame}: ${err.message}`);
       console.error(`[EDL-Exec] ERROR: ${decision.type} at frame ${decision.frame} — ${err.message}`);
     }
@@ -364,6 +393,17 @@ export async function executeEDL(
   const budgetSummary = budget.getSummary();
   console.log(`[EDL-Exec] Complete: ${result.decisionsExecuted} executed, ${result.decisionsSkipped} skipped (${budgetRejected} budget-rejected), ${result.overlaysCreated} created, ${result.overlaysModified} modified`);
   console.log(`[EDL-Exec] Budget: ${JSON.stringify(budgetSummary)}`);
+
+  // Surface rejection reasons grouped by type (A3.5.10 fix — no more silent drops)
+  if (result.rejectedDecisions.length > 0) {
+    const grouped: Record<string, number> = {};
+    for (const r of result.rejectedDecisions) {
+      const key = r.reason.split(':')[0] || 'UNKNOWN';
+      grouped[key] = (grouped[key] || 0) + 1;
+    }
+    console.log(`[EDL-Exec] REJECTION SUMMARY: ${result.rejectedDecisions.length} decisions rejected — ${Object.entries(grouped).map(([k, v]) => `${k}:${v}`).join(', ')}`);
+  }
+
   return result;
 }
 
@@ -985,6 +1025,43 @@ async function applyGraphic(
     || 'keyword-highlight';
   const hasContent = text || decision.params.name || decision.params.value || decision.params.quote || decision.params.title;
   if (!hasContent) return null;
+
+  // ── RC-8 FIX: Filler/vague word filter for keyword-highlights ──
+  // A professional editor would NEVER highlight "good", "stuff", "thing".
+  // ⚠️ INVENTED banned list — needs calibration against real video transcripts.
+  if (graphicType === 'keyword-highlight' && text) {
+    const BANNED_KEYWORDS = new Set([
+      'good', 'bad', 'thing', 'things', 'stuff', 'like', 'really', 'very',
+      'just', 'actually', 'basically', 'literally', 'pretty', 'kind', 'sort',
+      'maybe', 'probably', 'definitely', 'something', 'anything', 'everything',
+      'nothing', 'well', 'right', 'ok', 'okay', 'yeah', 'yes', 'no', 'so',
+      'um', 'uh', 'here', 'there', 'this', 'that', 'it', 'the', 'a', 'an',
+      'and', 'or', 'but', 'for', 'with', 'from', 'to', 'in', 'on', 'at', 'by',
+    ]);
+    const normalizedText = String(text).toLowerCase().trim();
+    if (BANNED_KEYWORDS.has(normalizedText) || normalizedText.length < 3) {
+      console.log(`[EDL-Exec] KEYWORD FILTER: skipped "${text}" — filler/vague word or too short`);
+      return null;
+    }
+  }
+
+  // ── RC-6 FIX: Name hallucination guard for lower-thirds ──
+  // Gemini sometimes invents names not in the transcript (e.g., "John Smith" for Hank Green).
+  // Runtime guard: reject obviously hallucinated placeholder names.
+  // Full transcript validation requires plumbing transcription data — deferred to signal expansion.
+  // ⚠️ INVENTED placeholder list — covers most common Gemini defaults.
+  if (graphicType === 'lower-third' && decision.params.name) {
+    const HALLUCINATION_NAMES = new Set([
+      'john smith', 'jane doe', 'john doe', 'speaker', 'host', 'guest',
+      'presenter', 'narrator', 'interviewer', 'interviewee', 'person',
+      'man', 'woman', 'unknown', 'name', 'first last',
+    ]);
+    const normalizedName = String(decision.params.name).toLowerCase().trim();
+    if (HALLUCINATION_NAMES.has(normalizedName) || normalizedName.length < 2) {
+      console.log(`[EDL-Exec] HALLUCINATION GUARD: skipped lower-third for "${decision.params.name}" — likely hallucinated placeholder`);
+      return null;
+    }
+  }
 
   // DEDUP: Don't create graphic if one already exists at this frame range.
   // Multiple systems (finalize, EDL, Director, chat) can create graphics.
