@@ -401,8 +401,26 @@ function detectSignalsFromContext(ctx: VideoContext, gp?: GenreParameters | null
   const hasNumbers = words.some(w => /\d/.test(w));
   if (hasNumbers) signals.add('number_mentioned');
 
+  const COMMON_CAPS = new Set([
+    'i', "i'm", "i've", "i'd", "i'll", 'the', 'a', 'an',
+    'oh', 'yeah', 'yes', 'no', 'hey', 'well', 'okay', 'ok',
+    'so', 'but', 'and', 'or', 'if', 'it', 'its', "it's",
+    'he', "he's", 'she', "she's", 'we', "we're", "we've",
+    'they', "they're", "they've", 'you', "you're", "you've",
+    'my', 'your', 'his', 'her', 'our', 'their',
+    'this', 'that', 'these', 'those', 'what', 'who', 'how', 'why',
+  ]);
   const originalWords = ctx.transcription.map(w => w.word);
-  const hasNames = originalWords.some(w => w.length > 1 && w[0] === w[0].toUpperCase() && w[0] !== w[0].toLowerCase());
+  const hasNames = originalWords.some((w, i) => {
+    const clean = w.replace(/[.,!?;:'"]/g, '');
+    if (clean.length <= 1) return false;
+    if (clean[0] !== clean[0].toUpperCase() || clean[0] === clean[0].toLowerCase()) return false;
+    if (COMMON_CAPS.has(clean.toLowerCase())) return false;
+    if (i === 0) return false;
+    const prev = originalWords[i - 1];
+    if (/[.?!]$/.test(prev)) return false;
+    return true;
+  });
   if (hasNames) signals.add('name_mentioned');
 
   const ctaWords = ['subscribe', 'click', 'link', 'check', 'download', 'sign', 'join', 'buy', 'order', 'visit'];
