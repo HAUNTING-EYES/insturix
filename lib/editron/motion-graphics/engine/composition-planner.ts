@@ -10,6 +10,7 @@ import type {
 import { analyzeContentShape } from './content-shape-analyzer';
 import { generateBrandPattern } from './brand-pattern-generator';
 import { deriveBrandRules } from './brand-composition-rules';
+import { getCompositionTemplate } from './composition-templates';
 
 const CRG = {
   STAT_MIN_FONT: 64,              // constant:typography.stat_counter_min_font → 64px
@@ -121,9 +122,15 @@ function composeElements(
       composeDataSeries(elements, primary, language);
       break;
     case 'free-text':
-    default:
-      elements.push(makeTextElement('primary', 'content:text', language));
+    default: {
+      const template = getCompositionTemplate(primary.kind);
+      if (template) {
+        elements.push(...template.compose(strategy.shapes[0] as unknown as Record<string, unknown>, language, signals));
+      } else {
+        elements.push(makeTextElement('primary', 'content:text', language));
+      }
       break;
+    }
   }
 
   if (budget >= 3 && hasAccent) {
