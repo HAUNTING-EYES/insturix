@@ -1,5 +1,5 @@
 import type { MotionTokens } from '../types';
-import type { ResolvedElement, ComputedChoreography, EntrancePattern, ExitPattern } from './recipe-types';
+import type { ResolvedElement, ComputedChoreography, EntrancePattern, ExitPattern, HoldPattern } from './recipe-types';
 
 // Spatial animation parameters derived from visual language tokens.
 // Base values sourced from StatCounter.tsx (production verified):
@@ -69,6 +69,7 @@ export function computeAnimationState(
   entrancePattern: EntrancePattern,
   exitPattern: ExitPattern,
   spatial: SpatialConfig,
+  holdPattern?: HoldPattern,
 ): AnimationState {
   // Disney #2 — Anticipation: brief reverse movement before entrance
   if (timing.anticipateStartFrame != null && timing.anticipateEndFrame != null
@@ -92,6 +93,9 @@ export function computeAnimationState(
   }
   if (frame > timing.exitEndFrame) {
     return applyExitState(1, exitPattern, spatial);
+  }
+  if (holdPattern && holdPattern !== 'static') {
+    return applyHoldAnimation(frame, timing, holdPattern);
   }
   return { ...NEUTRAL };
 }
@@ -164,6 +168,36 @@ function applyAnticipationState(progress: number, pattern: EntrancePattern, s: S
     }
     default:
       return { ...NEUTRAL, opacity: 0 };
+  }
+}
+
+// Hold-phase ambient animation — subtle looping motion during the hold phase.
+// 90-frame cycle (~3s at 30fps) ⚠️ INVENTED — AE practice: 2-4s ambient cycles
+const HOLD_CYCLE_FRAMES = 90;
+
+function applyHoldAnimation(frame: number, timing: ComputedChoreography, pattern: HoldPattern): AnimationState {
+  const elapsed = frame - timing.holdStartFrame;
+  const phase = (elapsed % HOLD_CYCLE_FRAMES) / HOLD_CYCLE_FRAMES;
+
+  switch (pattern) {
+    case 'pulse': {
+      // ⚠️ 0.02 amplitude INVENTED — AE practice: 1-3% scale for subtle ambient pulse
+      const wave = Math.sin(phase * Math.PI * 2);
+      return { ...NEUTRAL, scaleX: 1 + wave * 0.02, scaleY: 1 + wave * 0.02 };
+    }
+    case 'breathe': {
+      // ⚠️ 0.15 range INVENTED — AE practice: 10-20% opacity variance for breathing
+      const wave = (1 + Math.cos(phase * Math.PI * 2)) * 0.5;
+      return { ...NEUTRAL, opacity: 0.85 + wave * 0.15 };
+    }
+    case 'gentle-float': {
+      // ⚠️ 3px amplitude INVENTED — AE practice: 2-5px for subtle floating at MG scale
+      const wave = Math.sin(phase * Math.PI * 2);
+      return { ...NEUTRAL, translateY: wave * 3 };
+    }
+    case 'static':
+    default:
+      return { ...NEUTRAL };
   }
 }
 

@@ -23,6 +23,8 @@ export type ExitStyle = 'reverse-stagger' | 'simultaneous-fade' | 'simultaneous-
 
 export type ElementAnimation = 'count-up' | 'word-by-word' | 'word-highlight' | 'grow-up' | 'grow-right' | 'typewriter' | 'none';
 
+export type HoldPattern = 'static' | 'pulse' | 'breathe' | 'gentle-float';
+
 export type SyncTarget = 'audio-beats' | 'word-timings' | 'even-stagger';
 
 // --- Binding expressions ---
@@ -49,6 +51,7 @@ export interface RecipeElement {
   bind: Record<string, BindingExpr>;
   entranceOverride?: EntrancePattern;
   exitOverride?: ExitPattern;
+  holdAnimation?: HoldPattern;
 }
 
 export interface RecipeLayout {
@@ -78,6 +81,7 @@ export interface ResolvedElement {
   role: string;
   shape?: ShapeKind;
   animation?: ElementAnimation;
+  holdAnimation?: HoldPattern;
   layer?: DepthLayer;
   enterOrder: number;
   resolvedProps: Record<string, string | number | boolean>;

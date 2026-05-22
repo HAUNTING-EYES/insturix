@@ -92,7 +92,7 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
   spatial,
   signalCurves,
 }) => {
-  const baseAnim = computeAnimationState(frame, timing, element.entrancePattern, element.exitPattern, spatial);
+  const baseAnim = computeAnimationState(frame, timing, element.entrancePattern, element.exitPattern, spatial, element.holdAnimation);
   // Audio-reactive modulation: beat pulse, energy breathing, emotion scale (hold phase only)
   const anim = applyAudioReactiveModulation(baseAnim, frame, timing, signalCurves);
 

@@ -5,6 +5,7 @@ import type {
   GraphicIntent,
   ContentShape,
   CompositionStrategy,
+  HoldPattern,
 } from './recipe-types';
 import { analyzeContentShape } from './content-shape-analyzer';
 import { generateBrandPattern } from './brand-pattern-generator';
@@ -127,6 +128,17 @@ function composeElements(
 
   if (budget >= 3 && hasAccent) {
     elements.push(makeAccentLine());
+  }
+
+  // Hold animation: assign ambient motion to foreground elements based on signals.
+  // Background/midground (containers, patterns, decorations) stay static — only foreground animates.
+  const holdPattern = resolveHoldPattern(signals);
+  if (holdPattern !== 'static') {
+    for (const el of elements) {
+      if (el.layer === 'foreground') {
+        el.holdAnimation = holdPattern;
+      }
+    }
   }
 
   // Brand pattern: subtle background texture derived from brand tokens
@@ -399,6 +411,18 @@ function composeDataSeries(
       font: 'token:typography.bodyFamily',
     },
   });
+}
+
+// Signal-driven hold animation selection.
+// ⚠️ ALL thresholds INVENTED — need calibration against reference videos
+function resolveHoldPattern(signals: PlannerSignals): HoldPattern {
+  // High enthusiasm + slow pacing → visible pulse (energetic but held long enough to see it)
+  if (signals.enthusiasm > 0.6 && signals.pacing_velocity < 0.5) return 'pulse';
+  // Warm tone → organic breathing (warm = alive, breathing = organic)
+  if (signals.warmth > 0.6) return 'breathe';
+  // Moderate enthusiasm → subtle float (gentle motion adds life without distraction)
+  if (signals.enthusiasm > 0.4) return 'gentle-float';
+  return 'static';
 }
 
 function makeContainer(language: MotionTokens): RecipeElement {

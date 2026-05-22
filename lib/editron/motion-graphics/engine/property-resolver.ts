@@ -119,6 +119,7 @@ export function resolveElements(
       role: el.role,
       shape: el.shape,
       animation: el.animation,
+      holdAnimation: el.holdAnimation,
       layer: el.layer,
       enterOrder,
       resolvedProps,
