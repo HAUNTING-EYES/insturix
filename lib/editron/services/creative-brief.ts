@@ -35,7 +35,7 @@ export type BriefDecisionType =
   | 'sfx_whoosh' | 'sfx_impact' | 'sfx_shimmer' | 'sfx_ambient'
   | 'speed_slow_motion' | 'speed_ramp'
   | 'graphic_stat_counter' | 'graphic_lower_third' | 'graphic_callout'
-  | 'graphic_keyword_highlight' | 'graphic_logo_reveal'
+  | 'graphic_keyword_highlight' | 'graphic_quote_card' | 'graphic_logo_reveal'
   | 'camera_shake'
   | 'audio_duck' | 'audio_bed_select'
   | 'hold_longer' | 'cut_shorter';
@@ -261,6 +261,25 @@ Use ONLY these exact reason strings: ${validReasonsBlock}
 - GENERATE DECISIONS FOR THE FULL VIDEO. Spread them evenly: ~${Math.max(1, Math.floor(52 / Math.max(ctx.transcription.length / 500, 1)))} decisions per 500 words. Cover words 0 through ${ctx.transcription.length - 1}.
 </anti_patterns>
 
+<graphic_rules>
+Graphics are NOT decoration — they surface KEY INFORMATION. Use the MOST SPECIFIC type for each moment:
+
+graphic_stat_counter — ONLY when a specific, impactful number is spoken. params: { value: "73%", label: "user satisfaction" }. Use the EXACT number from the transcript. Never invent numbers. "seventy-three percent" → value="73%". Skip vague quantities ("a few", "some", "2 or 3").
+
+graphic_lower_third — FIRST mention of a named person, company, or product. params: { name: "Hank Green", title: "YouTuber" }. Title is optional but preferred. Do NOT repeat for the same entity. One lower-third per entity per video. The name MUST appear in the transcript — NEVER invent names. If you cannot find the person's actual name in the transcript, do NOT create a lower-third.
+
+graphic_callout — Key CONCEPTS that benefit from visual explanation. params: { title: "Selection Bias", body: "When your sample isn't random" }. Heavier than keyword-highlight. Use for ideas that deserve 2+ words of context, not single words.
+
+graphic_quote_card — Direct QUOTES or standout assertions worth displaying verbatim. params: { quote: "The data doesn't lie", author: "Speaker Name" }. Use the speaker's EXACT words from transcript. Max 2-3 per video. Author is optional.
+
+graphic_keyword_highlight — Quick pop for a single CONCEPTUAL term worth remembering. params: { text: "anonymity" }. The LIGHTEST graphic. Prefer multi-word concepts ("selection bias") over single generic words. NEVER use filler ("good", "like"), slang, profanity, or vague words ("thing", "stuff"). Choose words a viewer would screenshot.
+
+graphic_logo_reveal — Brand/logo moment at opening or closing only. Max 2 per video.
+
+PRIORITY ORDER when multiple graphics could apply to one moment: stat-counter > lower-third > quote-card > callout > keyword-highlight.
+Do NOT default to keyword-highlight for everything. If a number is spoken, use stat-counter. If a name is introduced, use lower-third. If an assertion is powerful, use quote-card.
+</graphic_rules>
+
 <rules>
 - Word indices MUST be between 0 and ${ctx.transcription.length - 1}. There are exactly ${ctx.transcription.length} words.
 - Confidence score 0.0-1.0 per decision. Below 0.5 = executor skips it.
@@ -382,7 +401,8 @@ function detectSignalsFromContext(ctx: VideoContext, gp?: GenreParameters | null
   const hasNumbers = words.some(w => /\d/.test(w));
   if (hasNumbers) signals.add('number_mentioned');
 
-  const hasNames = words.some(w => w.length > 1 && w[0] === w[0].toUpperCase() && w[0] !== w[0].toLowerCase());
+  const originalWords = ctx.transcription.map(w => w.word);
+  const hasNames = originalWords.some(w => w.length > 1 && w[0] === w[0].toUpperCase() && w[0] !== w[0].toLowerCase());
   if (hasNames) signals.add('name_mentioned');
 
   const ctaWords = ['subscribe', 'click', 'link', 'check', 'download', 'sign', 'join', 'buy', 'order', 'visit'];

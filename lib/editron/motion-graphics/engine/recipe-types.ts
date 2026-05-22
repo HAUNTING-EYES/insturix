@@ -78,6 +78,7 @@ export interface ResolvedElement {
   role: string;
   shape?: ShapeKind;
   animation?: ElementAnimation;
+  layer?: DepthLayer;
   enterOrder: number;
   resolvedProps: Record<string, string | number | boolean>;
   entrancePattern: EntrancePattern;

@@ -1,13 +1,22 @@
 import React from 'react';
 import { useCurrentFrame, useVideoConfig } from 'remotion';
 import type { CompositionRendererProps } from './recipe-types';
-import type { ResolvedElement, ComputedChoreography } from './recipe-types';
+import type { ResolvedElement, ComputedChoreography, DepthLayer } from './recipe-types';
 import { resolveElements } from './property-resolver';
 import { computeChoreography, type SyncData } from './choreography-computer';
-import { computeAnimationState, buildShapeStyle, buildTextStyle, buildTransformStyle, deriveSpatialConfig, type SpatialConfig } from './primitive-renderers';
+import { computeAnimationState, buildShapeStyle, buildTextStyle, buildTransformStyle, deriveSpatialConfig, applyAudioReactiveModulation, type SpatialConfig, type SignalCurves } from './primitive-renderers';
+import { BarChart, PercentageRing, Sparkline } from './data-viz-renderers';
+
+// Z-ordering: background renders first (behind), foreground last (on top)
+const DEPTH_ORDER: Record<DepthLayer, number> = {
+  background: 0,
+  midground: 1,
+  foreground: 2,
+};
 
 interface CompositionRendererInternalProps extends CompositionRendererProps {
   syncData?: SyncData;
+  signalCurves?: SignalCurves;
 }
 
 export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = ({
@@ -16,6 +25,7 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   content,
   durationInFrames,
   syncData,
+  signalCurves,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -33,11 +43,18 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
     syncData,
   });
 
+  // Z-order: sort by depth layer so background renders first, foreground last
+  const sorted = [...resolvedElements].sort((a, b) => {
+    const aDepth = DEPTH_ORDER[a.layer || 'foreground'];
+    const bDepth = DEPTH_ORDER[b.layer || 'foreground'];
+    return aDepth - bDepth;
+  });
+
   const layoutStyle = resolveLayout(recipe.layout);
 
   return (
     <div style={layoutStyle}>
-      {resolvedElements.map((el, idx) => {
+      {sorted.map((el, idx) => {
         const timing = choreographyMap.get(el.role);
         if (!timing) return null;
 
@@ -50,6 +67,7 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
             fps={fps}
             content={content}
             spatial={spatial}
+            signalCurves={signalCurves}
           />
         );
       })}
@@ -64,6 +82,7 @@ interface PrimitiveElementProps {
   fps: number;
   content: Record<string, unknown>;
   spatial: SpatialConfig;
+  signalCurves?: SignalCurves;
 }
 
 const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
@@ -71,8 +90,11 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
   timing,
   frame,
   spatial,
+  signalCurves,
 }) => {
-  const anim = computeAnimationState(frame, timing, element.entrancePattern, element.exitPattern, spatial);
+  const baseAnim = computeAnimationState(frame, timing, element.entrancePattern, element.exitPattern, spatial);
+  // Audio-reactive modulation: beat pulse, energy breathing, emotion scale (hold phase only)
+  const anim = applyAudioReactiveModulation(baseAnim, frame, timing, signalCurves);
 
   if (anim.opacity <= 0.001) return null;
 
@@ -81,13 +103,16 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
     case 'container':
     case 'decoration':
     case 'gradient':
-    case 'pattern':
       return <ShapeElement element={element} anim={anim} />;
+    case 'pattern':
+      return <PatternElement element={element} anim={anim} />;
     case 'text':
       return <TextElement element={element} anim={anim} frame={frame} timing={timing} />;
     case 'image':
     case 'video-clip':
       return <ImageElement element={element} anim={anim} />;
+    case 'data-viz':
+      return <DataVizElement element={element} anim={anim} frame={frame} timing={timing} />;
     default:
       console.warn(`[MG-Render] Unknown primitive type: ${element.primitive}`);
       return null;
@@ -100,6 +125,74 @@ const ShapeElement: React.FC<{ element: ResolvedElement; anim: ReturnType<typeof
 }) => {
   const style = buildShapeStyle(element, anim);
   return <div style={style} />;
+};
+
+/** Pattern element: renders brand background patterns via CSS background-image (SVG data URIs). */
+const PatternElement: React.FC<{ element: ResolvedElement; anim: ReturnType<typeof computeAnimationState> }> = ({
+  element,
+  anim,
+}) => {
+  const base = buildShapeStyle(element, anim);
+  const p = element.resolvedProps;
+
+  const patternStyle: React.CSSProperties = {
+    ...base,
+    backgroundImage: p.backgroundImage ? String(p.backgroundImage) : undefined,
+    backgroundRepeat: 'repeat',
+    backgroundSize: 'auto',
+    // Pattern opacity from generator (layered on top of shape opacity)
+    opacity: p.patternOpacity != null ? Number(p.patternOpacity) * (base.opacity ?? 1) : base.opacity,
+  };
+
+  return <div style={patternStyle} />;
+};
+
+/** Data-viz element: dispatches to BarChart, PercentageRing, or Sparkline based on role. */
+const DataVizElement: React.FC<{
+  element: ResolvedElement;
+  anim: ReturnType<typeof computeAnimationState>;
+  frame: number;
+  timing: ComputedChoreography;
+}> = ({ element, anim, frame, timing }) => {
+  const transformStyle = buildTransformStyle(anim);
+  const p = element.resolvedProps;
+
+  // Compute animation progress (0-1) during hold phase for chart animation
+  const holdStart = timing.holdStartFrame;
+  const holdDuration = Math.max(1, timing.holdEndFrame - timing.holdStartFrame);
+  const progress = Math.min(1, Math.max(0, (frame - holdStart) / Math.min(45, holdDuration)));
+
+  const values: number[] = Array.isArray(p.values)
+    ? (p.values as unknown as number[])
+    : String(p.values || '').split(',').map(Number).filter(isFinite);
+  const labels: string[] | undefined = p.labels
+    ? String(p.labels).split(',').map(s => s.trim())
+    : undefined;
+
+  const chartProps = {
+    values,
+    labels,
+    color: String(p.color || '#10B981'),
+    textColor: String(p.textColor || '#FFFFFF'),
+    font: String(p.font || 'Inter'),
+    progress,
+    width: 400,
+    height: 200,
+  };
+
+  // Dispatch by role — role is set by composition-planner based on content shape
+  const role = element.role;
+  const ChartComponent = role.includes('ring') || role.includes('percentage')
+    ? PercentageRing
+    : role.includes('sparkline') || role.includes('line')
+      ? Sparkline
+      : BarChart;
+
+  return (
+    <div style={transformStyle}>
+      <ChartComponent {...chartProps} />
+    </div>
+  );
 };
 
 const TextElement: React.FC<{

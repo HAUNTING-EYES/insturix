@@ -1,4 +1,4 @@
-import type { MotionTokens } from '../types';
+import type { MotionTokens, BrandInputs } from '../types';
 import type {
   Recipe,
   RecipeElement,
@@ -7,6 +7,8 @@ import type {
   CompositionStrategy,
 } from './recipe-types';
 import { analyzeContentShape } from './content-shape-analyzer';
+import { generateBrandPattern } from './brand-pattern-generator';
+import { deriveBrandRules } from './brand-composition-rules';
 
 const CRG = {
   STAT_MIN_FONT: 64,              // constant:typography.stat_counter_min_font → 64px
@@ -121,6 +123,33 @@ function composeElements(
 
   if (budget >= 3 && hasAccent) {
     elements.push(makeAccentLine());
+  }
+
+  // Brand pattern: subtle background texture derived from brand tokens
+  // Budget >= 4 required — pattern is lowest priority decorative element
+  // ⚠️ Budget threshold 4 INVENTED — pattern should only appear on complex compositions
+  if (budget >= 4) {
+    const brandFromTokens: Partial<BrandInputs> = {
+      accentColor: language.color.accent,
+      primaryColor: language.color.primary,
+      headingFont: language.typography.headingFamily,
+      bodyFont: language.typography.bodyFamily,
+    };
+    const brandRules = deriveBrandRules(brandFromTokens);
+    const pattern = generateBrandPattern(brandFromTokens, brandRules);
+
+    if (pattern.type !== 'none' && pattern.css !== 'none') {
+      elements.push({
+        primitive: 'pattern',
+        role: 'brand-pattern',
+        layer: 'background',
+        bind: {
+          backgroundImage: pattern.css,
+          patternOpacity: pattern.opacity,
+          fill: 'transparent',
+        },
+      });
+    }
   }
 
   return elements;
@@ -329,12 +358,25 @@ function composeStructured(
 
 function composeDataSeries(
   elements: RecipeElement[],
-  _shape: Extract<ContentShape, { kind: 'data-series' }>,
+  shape: Extract<ContentShape, { kind: 'data-series' }>,
   language: MotionTokens,
 ): void {
+  // Compute chart type from data shape — not a preset, a function of the data.
+  // 1 value (0-100 range) → percentage ring
+  // 2+ values with 5+ entries → sparkline (time series pattern)
+  // else → bar chart (comparison)
+  // ⚠️ INVENTED heuristic for sparkline detection (>= 5 values = time series). Needs calibration.
+  const values = shape.values || [];
+  let chartRole = 'bar-chart';
+  if (values.length === 1 && values[0] >= 0 && values[0] <= 100) {
+    chartRole = 'percentage-ring';
+  } else if (values.length >= 5) {
+    chartRole = 'sparkline';
+  }
+
   elements.push({
     primitive: 'data-viz',
-    role: 'chart',
+    role: chartRole,
     layer: 'foreground',
     animation: 'grow-up',
     bind: {

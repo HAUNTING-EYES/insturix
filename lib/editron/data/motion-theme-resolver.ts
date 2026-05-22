@@ -117,13 +117,14 @@ const DEFAULT_SIGNALS: ContentSignals = {
   visual_dependency: 0.5,
 };
 
+// Insturix Design Bible v1.0 tokens ← thinkforge.css:1-48
 const DEFAULT_BRAND: BrandInputs = {
-  primaryColor: '#6366F1',       // Insturix indigo ← globals.css:421 --accent-indigo
-  accentColor: '#D4A652',        // Insturix gold ← thinkforge.css:24 --accent-gold
-  backgroundColor: '#0A0A14',    // Insturix dark background
-  headingFont: 'Inter, system-ui, sans-serif',   // ← layout.tsx
-  bodyFont: 'Inter, system-ui, sans-serif',
-  monoFont: 'JetBrains Mono, monospace',         // ← layout.tsx
+  primaryColor: '#ECE9E1',       // --text-primary (warm off-white, not indigo — indigo is UI accent, not MG text)
+  accentColor: '#D4A652',        // --accent-gold (decision moments)
+  backgroundColor: '#0B0B0A',   // --canvas
+  headingFont: "'Plus Jakarta Sans', -apple-system, system-ui, sans-serif", // --font-body ← thinkforge.css:46
+  bodyFont: "'Plus Jakarta Sans', -apple-system, system-ui, sans-serif",
+  monoFont: "'JetBrains Mono', monospace",  // --font-mono ← thinkforge.css:47
 };
 
 // ─── Utility ────────────────────────────────────────────

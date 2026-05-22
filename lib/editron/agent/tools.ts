@@ -41,6 +41,10 @@ import {
   computeRelevanceScore,
 } from "../services/motion-graphics-service";
 import { extractEditDNA, applyEditDNA, loadProfile } from "../services/style-transfer-service";
+import { DEFAULT_CONFIG } from '../config/editron-config';
+import { planComposition } from '../motion-graphics/engine/composition-planner';
+import { resolveMotionTokens } from '../data/motion-theme-resolver';
+import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
 // OLD (in each tool):
@@ -57,6 +61,113 @@ function getLLMModel(temperature: number): ChatGoogleGenerativeAI {
     });
   }
   return _llmModelCache[key];
+}
+
+function parseGraphicDescription(description: string): {
+  graphicType: string;
+  kind: ContentShapeKind;
+  content: Record<string, unknown>;
+} {
+  if (!description || !description.trim()) {
+    return { graphicType: 'keyword-highlight', kind: 'emphasis', content: { text: '' } };
+  }
+
+  const desc = description.toLowerCase();
+
+  // Use multi-word phrases and word boundaries to avoid false positives.
+  // "statistics" should NOT match stat-counter. "counters the argument" should NOT match.
+  // Order: most specific patterns first, most generic last.
+
+  // 1. Lower-third: multi-word phrase "lower third" or "lower-third" or "name tag"
+  if (desc.includes('lower third') || desc.includes('lower-third') || desc.includes('name tag')) {
+    // Parse "for Name, Title" or ": Name, Title" — split on LAST comma for title
+    const forMatch = description.match(/(?:for|:)\s*(.+)$/i);
+    let name = '';
+    let title = '';
+    if (forMatch) {
+      const afterFor = forMatch[1].trim();
+      // Split on last comma to handle "Dr. Sarah Chen, Ph.D., Lead Researcher"
+      // → name="Dr. Sarah Chen, Ph.D." title="Lead Researcher"
+      const lastComma = afterFor.lastIndexOf(',');
+      if (lastComma > 0) {
+        name = afterFor.substring(0, lastComma).trim();
+        title = afterFor.substring(lastComma + 1).trim();
+      } else {
+        name = afterFor;
+      }
+    } else {
+      name = description.replace(/lower.?third\s*/i, '').replace(/name\s*tag\s*/i, '').trim();
+    }
+    return {
+      graphicType: 'lower-third',
+      kind: 'identity',
+      content: { name, title, text: description },
+    };
+  }
+
+  // 2. Stat-counter: explicit phrases or actual numbers with units
+  if (/\bstat\b|\bstat[-\s]counter\b|\bcounter\s*(animation|graphic)\b/i.test(desc) || /\d+[%$]|\$[\d,.]+|\d+[KMBkmb]\b/.test(description)) {
+    const valueMatch = description.match(/(\$?[\d,.]+\s*[%KMBkmb]?)/);
+    // Extract label from "value, label" or "value: label" pattern
+    const afterValue = valueMatch ? description.substring(description.indexOf(valueMatch[1]) + valueMatch[1].length) : '';
+    const labelMatch = afterValue.match(/[,:]\s*(.+)/);
+    return {
+      graphicType: 'stat-counter',
+      kind: 'numeric',
+      content: {
+        value: valueMatch?.[1]?.trim() || '',
+        label: labelMatch?.[1]?.trim() || '',
+        text: description,
+      },
+    };
+  }
+
+  // 3. Quote-card: "quote" as a noun (not "quotation marks"), or "assertion"
+  if (/\bquote[-\s]card\b|\bquote\b(?!\s*marks?)|\bassertion\b/i.test(desc)) {
+    const quoteMatch = description.match(/['"“”]([^'"“”]+)['"“”]/);
+    const colonParts = description.split(/:\s*/);
+    // Extract author from "- Author" or "by Author" patterns
+    const authorMatch = description.match(/(?:\s[-–—]\s*|\bby\s+)([A-Z][a-zA-Z\s.]+)$/);
+    return {
+      graphicType: 'quote-card',
+      kind: 'quotation',
+      content: {
+        quote: quoteMatch?.[1]?.trim() || colonParts.slice(1).join(': ').replace(/\s*[-–—]\s*[A-Z].*$/, '').trim() || '',
+        author: authorMatch?.[1]?.trim() || '',
+        text: description,
+      },
+    };
+  }
+
+  // 4. Callout: explicit "callout" keyword
+  if (/\bcallout\b/i.test(desc)) {
+    const parts = description.split(/[-:]\s*/);
+    return {
+      graphicType: 'callout',
+      kind: 'structured',
+      content: {
+        title: parts[1]?.trim() || description.replace(/callout\s*/i, '').trim(),
+        body: parts.slice(2).join(' ').trim() || '',
+        text: description,
+      },
+    };
+  }
+
+  // 5. Logo/brand reveal: explicit "logo" or "brand reveal"
+  if (/\blogo\b|\bbrand\s*reveal\b/i.test(desc)) {
+    return {
+      graphicType: 'logo-reveal',
+      kind: 'brand',
+      content: { text: description.replace(/logo\s*(reveal)?/i, '').trim() || description },
+    };
+  }
+
+  // 6. Fallback: keyword-highlight
+  return {
+    graphicType: 'keyword-highlight',
+    kind: 'emphasis',
+    content: { text: description },
+  };
 }
 
 // Factory to create tools with context
@@ -4364,11 +4475,23 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     },
   );
 
-  // ── ADD MOTION GRAPHIC (template-based) ──
+  // ── ADD MOTION GRAPHIC (composition engine + template fallback) ──
   const addMotionGraphicSchema = z.object({
     start: z.coerce.number().describe("Start frame number (integer, 0-based). At 30fps: 1 second = 30 frames."),
-    duration: z.coerce.number().optional().describe("Duration in frames. If omitted, uses the template's default duration."),
-    description: z.string().describe("Natural language description of the motion graphic (e.g., 'lower third for John Smith, CEO', 'show revenue $50K with counter animation', 'step-by-step list: sign up, choose plan, start building')"),
+    duration: z.coerce.number().optional().describe("Duration in frames. If omitted, uses type-specific defaults."),
+    description: z.string().describe("Natural language description of the motion graphic. Used as fallback when structured fields below are not provided."),
+    // ── Structured content fields (PREFERRED over description) ──
+    graphicType: z.enum(['stat-counter', 'lower-third', 'keyword-highlight', 'callout', 'quote-card', 'logo-reveal']).optional()
+      .describe("Graphic type. ALWAYS provide this when you know the type. If omitted, inferred from description."),
+    name: z.string().optional().describe("Person/entity name for lower-third (e.g., 'Hank Green')"),
+    title: z.string().optional().describe("Title/role for lower-third (e.g., 'YouTuber'), or heading for callout"),
+    value: z.string().optional().describe("Numeric value for stat-counter (e.g., '73%', '$4.2B')"),
+    label: z.string().optional().describe("Label below a stat-counter value (e.g., 'user satisfaction')"),
+    quote: z.string().optional().describe("Verbatim quote text for quote-card"),
+    author: z.string().optional().describe("Attribution for quote-card (e.g., speaker name)"),
+    text: z.string().optional().describe("Text content for keyword-highlight or general text overlays"),
+    body: z.string().optional().describe("Body text for callout (explanation below the title)"),
+    // ── Layout fields ──
     row: z.coerce.number().optional().describe("Force specific row. If omitted, auto-placed."),
     x: z.coerce.number().optional().describe("Center X position in pixels"),
     y: z.coerce.number().optional().describe("Center Y position in pixels"),
@@ -4387,6 +4510,101 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         const project = await loadProject();
         const canvas = getCanvasDimensions(project);
 
+        // ── COMPOSITION ENGINE PATH ──
+        const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;
+        if (useCompositionEngine) {
+          // ── Option C: Prefer structured schema fields, fall back to regex ──
+          let graphicType: string;
+          let kind: ContentShapeKind;
+          let content: Record<string, unknown>;
+
+          const hasStructuredFields = !!(input.graphicType || input.name || input.value || input.quote || input.title);
+          if (hasStructuredFields && input.graphicType) {
+            // Structured fields provided — build directly, no regex parsing needed
+            const GRAPHIC_TYPE_TO_KIND: Record<string, ContentShapeKind> = {
+              'lower-third': 'identity',
+              'stat-counter': 'numeric',
+              'keyword-highlight': 'emphasis',
+              'quote-card': 'quotation',
+              'callout': 'structured',
+              'logo-reveal': 'brand',
+            };
+            graphicType = input.graphicType;
+            kind = GRAPHIC_TYPE_TO_KIND[graphicType] || 'free-text';
+
+            // Build content from structured fields based on graphic type
+            content = { text: input.description || input.text || '' };
+            if (input.name != null) content.name = input.name;
+            if (input.title != null) content.title = input.title;
+            if (input.value != null) content.value = input.value;
+            if (input.label != null) content.label = input.label;
+            if (input.quote != null) content.quote = input.quote;
+            if (input.author != null) content.author = input.author;
+            if (input.body != null) content.body = input.body;
+          } else {
+            // No structured fields — fall back to regex parsing of description
+            const parsed = parseGraphicDescription(input.description);
+            graphicType = parsed.graphicType;
+            kind = parsed.kind;
+            content = parsed.content;
+          }
+
+          const tokens = resolveMotionTokens({}, {});
+          const recipe = planComposition(
+            { kind, content, triggerMoment: 'agent-placed' },
+            tokens,
+            {},
+          );
+
+          const DURATIONS: Record<string, number> = {
+            'stat-counter': 102, 'lower-third': 141, 'keyword-highlight': 60,
+            'quote-card': 120, 'callout': 75, 'logo-reveal': 120,
+          };
+          const duration = input.duration || DURATIONS[graphicType] || 90;
+          const id = Date.now() + Math.floor(Math.random() * 10000);
+
+          const existingOverlays = toExistingOverlays(project.overlays || []);
+          const assignedRow = input.row ?? findBestRow('motion-graphic' as any, { from: input.start, duration }, existingOverlays);
+
+          const newOverlay = {
+            id,
+            type: 'motion-graphic' as const,
+            from: input.start,
+            durationInFrames: duration,
+            row: assignedRow,
+            left: input.x !== undefined ? (input.x - (input.width ?? canvas.width) / 2) : 0,
+            top: input.y !== undefined ? (input.y - (input.height ?? canvas.height) / 2) : 0,
+            width: input.width ?? canvas.width,
+            height: input.height ?? canvas.height,
+            rotation: 0,
+            isDragging: false,
+            recipe,
+            resolvedTokens: tokens,
+            contentSignals: {},
+            content,
+            styles: { opacity: 1, backgroundColor: 'transparent' },
+            metadata: {
+              sourceType: 'agent-graphic',
+              graphicType,
+              compositionEngine: true,
+            },
+          };
+
+          await projectService.addOverlay(userId, projectId, newOverlay as any);
+          console.log(
+            `[MOTION-GRAPHIC] Composition engine: '${graphicType}' at frame ${input.start}, ` +
+            `${recipe.elements.length} elements, layout=${recipe.layout.position}`,
+          );
+          return successEnvelope({
+            id,
+            templateUsed: 'composition-engine',
+            templateName: `Composed ${graphicType}`,
+            score: 1.0,
+            message: `Added composed ${graphicType} for "${input.description}". Duration: ${duration} frames.`,
+          });
+        }
+
+        // ── OLD TEMPLATE PATH (feature flag OFF) ──
         // Search templates (Tier 1: MongoDB curated library)
         const match = await findBestTemplate(input.description);
 

@@ -2200,15 +2200,28 @@ async function invokeAITool(
       break;
     }
     case 'add_motion_graphic': {
-      // Template search uses description to match against template tags/names.
-      // Templates are named: "Clean Minimal Lower Third", "Stat Counter", "Subscribe Button" etc.
-      // Description must match template vocabulary, not be generic filler.
-      params.category = params.category || 'lower-third';
+      // ── Option C: Structured fields preferred, category/description as fallback ──
       params.start = params.start || 0;
       params.duration = params.duration || 90;
       params.row = params.row || 1;
 
-      // Map category to template-searchable descriptions
+      // Map legacy category → graphicType for backward compat
+      const CATEGORY_TO_GRAPHIC_TYPE: Record<string, string> = {
+        'lower-third': 'lower-third',
+        'lower_third': 'lower-third',
+        'stat-counter': 'stat-counter',
+        'stat_counter': 'stat-counter',
+        'callout': 'callout',
+        'quote': 'quote-card',
+        'quote-card': 'quote-card',
+        'logo': 'logo-reveal',
+        'logo-reveal': 'logo-reveal',
+      };
+      if (!params.graphicType && params.category) {
+        params.graphicType = CATEGORY_TO_GRAPHIC_TYPE[params.category] || undefined;
+      }
+
+      // Fallback description for old template path (when no structured fields)
       const CATEGORY_DESCRIPTIONS: Record<string, string> = {
         'lower-third': 'clean lower third with name and title',
         'lower_third': 'clean lower third with name and title',
@@ -2223,16 +2236,16 @@ async function invokeAITool(
         'comparison': 'comparison layout',
         'notification': 'notification popup',
       };
-      const categoryDesc = CATEGORY_DESCRIPTIONS[params.category] || 'lower third';
-      params.description = params.description && params.description.length > 10
-        ? params.description
-        : categoryDesc;
+      if (!params.description || (params.description as string).length <= 10) {
+        const cat = params.category || params.graphicType || 'lower-third';
+        params.description = CATEGORY_DESCRIPTIONS[cat] || 'lower third';
+      }
 
       // Dedup: skip if EDL or another system already placed a graphic at this frame.
       // Without this, EDL creates a graphic and then Director's profile action creates
       // a duplicate at the same position.
       const existingAtFrame = overlays.find((o: any) =>
-        (o.type === 'html-scene' || o.type === 'sticker') &&
+        (o.type === 'html-scene' || o.type === 'sticker' || o.type === 'motion-graphic') &&
         Math.abs(o.from - (params.start || 0)) <= 30 // within 1 second
       );
       if (existingAtFrame) {
@@ -2240,7 +2253,7 @@ async function invokeAITool(
         return 0;
       }
 
-      console.log(`[Director] add_motion_graphic: category="${params.category}", desc="${(params.description as string).substring(0, 60)}" at frame ${params.start}`);
+      console.log(`[Director] add_motion_graphic: type="${params.graphicType || params.category || 'auto'}", desc="${(params.description as string).substring(0, 60)}" at frame ${params.start}`);
       break;
     }
     case 'generate_html_scene': {

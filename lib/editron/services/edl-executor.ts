@@ -906,7 +906,7 @@ function mapDecisionParamsToSlots(
 
   switch (graphicType) {
     case 'stat-counter': {
-      slots.value = params.endValue ? String(params.endValue) : text;
+      slots.value = params.value ? String(params.value) : params.endValue ? String(params.endValue) : text;
       slots.label = params.label || '';
       slots.prefix = params.prefix || '';
       slots.suffix = params.suffix || '';
@@ -983,7 +983,8 @@ async function applyGraphic(
   const graphicType = decision.params.graphicType
     || (decision as any).technique?.replace('graphic_', '').replace(/_/g, '-')
     || 'keyword-highlight';
-  if (!text) return null;
+  const hasContent = text || decision.params.name || decision.params.value || decision.params.quote || decision.params.title;
+  if (!hasContent) return null;
 
   // DEDUP: Don't create graphic if one already exists at this frame range.
   // Multiple systems (finalize, EDL, Director, chat) can create graphics.
@@ -1267,7 +1268,7 @@ async function applyGraphic(
   if (graphicType === 'stat-counter') {
     const tokens = resolveMotionTokens(decision.params.signals || {}, decision.params.brand || {});
     const contentMap: Record<string, string> = {
-      value: decision.params.endValue ? String(decision.params.endValue) : text,
+      value: decision.params.value ? String(decision.params.value) : decision.params.endValue ? String(decision.params.endValue) : text,
       prefix: decision.params.prefix || '',
       suffix: decision.params.suffix || '',
       label: decision.params.label || '',
