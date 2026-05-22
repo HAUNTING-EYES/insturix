@@ -228,7 +228,13 @@ function deepMerge<T extends Record<string, unknown>>(base: T, overrides: DeepPa
 // ─── Animation Resolution ───────────────────────────────
 
 function resolveAnimation(s: ContentSignals): MotionTokens['animation'] {
-  const energy = (s.enthusiasm + s.emotional_arousal + s.pacing_velocity) / 3;
+  // speech_energy (Wav2Vec/5-Track): high speech energy → bolder, faster animation
+  // ← signal:speech.energy → animation speed. ⚠️ weight 0.3 INVENTED, needs calibration
+  const speechEnergyBoost = typeof s.speech_energy === 'number' && isFinite(s.speech_energy) ? s.speech_energy * 0.3 : 0;
+  // stress_detected (Wav2Vec): vocal stress → more overshoot, emphasis
+  const hasStress = s.stress_detected === true;
+
+  const energy = (s.enthusiasm + s.emotional_arousal + s.pacing_velocity) / 3 + speechEnergyBoost;
   const formalityNorm = (s.formality + 1) / 2; // normalize -1..+1 to 0..1
 
   // Entrance easing: energy + formality together determine the curve personality
@@ -288,7 +294,8 @@ function resolveAnimation(s: ContentSignals): MotionTokens['animation'] {
   // Overshoot: bounce past target. Casual + energetic, OR high narrative pressure.
   // ← signal:composite.narrative_pressure → overshoot. Threshold 0.6 ← creative_production_knowledge_v3:1820
   const narrativePressure = typeof s.narrative_pressure === 'number' && isFinite(s.narrative_pressure) ? s.narrative_pressure : 0;
-  const overshoot = (formalityNorm < 0.4 && energy > 0.5) || narrativePressure > 0.6;
+  // stress_detected: vocal stress also triggers overshoot (speaker emphasis = visual emphasis)
+  const overshoot = (formalityNorm < 0.4 && energy > 0.5) || narrativePressure > 0.6 || hasStress;
 
   // Entrance pattern: formality drives conservatism
   let entrancePattern: MotionTokens['animation']['entrancePattern'];
@@ -364,9 +371,18 @@ function resolveColor(s: ContentSignals, b: BrandInputs): MotionTokens['color'] 
   const formalityNorm = (s.formality + 1) / 2;
 
   // Temperature: warmth signal is the primary driver
+  // face_emotion (V-JEPA): happy/excited faces bias toward warm, sad/angry toward cool
+  // ← signal:visual.face_emotion → color temperature. Standard MG practice: match mood to color.
+  let warmthBias = s.warmth;
+  if (typeof s.face_emotion === 'string') {
+    const warmEmotions = new Set(['happy', 'excited', 'surprised', 'content']);
+    const coolEmotions = new Set(['sad', 'angry', 'fearful', 'disgusted']);
+    if (warmEmotions.has(s.face_emotion)) warmthBias = Math.min(1, warmthBias + 0.15);
+    else if (coolEmotions.has(s.face_emotion)) warmthBias = Math.max(0, warmthBias - 0.15);
+  }
   let temperature: MotionTokens['color']['temperature'];
-  if (s.warmth > 0.65) temperature = 'warm';
-  else if (s.warmth < 0.35) temperature = 'cool';
+  if (warmthBias > 0.65) temperature = 'warm';
+  else if (warmthBias < 0.35) temperature = 'cool';
   else temperature = 'neutral';
 
   // Surface opacity: high formality = more transparent (let footage breathe)
@@ -459,6 +475,20 @@ function resolveLayout(s: ContentSignals): MotionTokens['layout'] {
   const posInVideo = typeof s.position_in_video === 'number' && isFinite(s.position_in_video) ? s.position_in_video : 0.5;
   if (posInVideo < 0.15 && density !== 'minimal') {
     density = density === 'rich' ? 'standard' : 'minimal'; // reduce 1 tier in first 15%
+  }
+
+  // motion_intensity: high motion frames → simpler MG (avoid visual clutter over moving content)
+  // ← signal:visual.motion_intensity → density. ⚠️ threshold 0.7 INVENTED, needs calibration
+  const motionIntensity = typeof s.motion_intensity === 'number' && isFinite(s.motion_intensity) ? s.motion_intensity : 0;
+  if (motionIntensity > 0.7 && density !== 'minimal') {
+    density = density === 'rich' ? 'standard' : 'minimal';
+  }
+
+  // time_since_last_cut: very recent cuts → simpler MG (let the cut breathe)
+  // ← signal:structural.time_since_last_cut → density. ⚠️ threshold 30 frames INVENTED
+  const timeSinceCut = typeof s.time_since_last_cut === 'number' && isFinite(s.time_since_last_cut) ? s.time_since_last_cut : 999;
+  if (timeSinceCut < 30 && density !== 'minimal') {
+    density = density === 'rich' ? 'standard' : 'minimal';
   }
 
   // Max simultaneous: limits how many graphics can overlap

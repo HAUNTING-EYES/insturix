@@ -80,7 +80,11 @@ function composeElements(
 ): RecipeElement[] {
   const elements: RecipeElement[] = [];
   const formality = signals.formality;
-  const budget = strategy.complexityBudget;
+  // cinematic_moment: composite signal (speech energy + motion + music). High = visually important.
+  // Boost budget by 1 tier for cinematic moments → richer composition (more elements, accent lines).
+  // ← signal:composite.cinematic_moment → budget. ⚠️ threshold 0.6 INVENTED, needs calibration
+  const cinematicBoost = typeof signals.cinematic_moment === 'number' && isFinite(signals.cinematic_moment) && signals.cinematic_moment > 0.6 ? 1 : 0;
+  const budget = Math.min(5, strategy.complexityBudget + cinematicBoost);
   const hasAccent = language.color.accent !== language.color.primary;
 
   const primary = strategy.shapes[0];
