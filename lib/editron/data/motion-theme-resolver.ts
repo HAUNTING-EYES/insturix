@@ -45,6 +45,18 @@ export interface ContentSignals {
   position_in_video?: number;     // 0-1 ← signal:structural.position_in_video → density
   // Composite
   narrative_pressure?: number;    // 0-1 ← signal:composite.narrative_pressure → overshoot
+  // ── CEO Plan D1: 7 new signals wired to MG planner (2026-05-22) ──
+  // Perceptual (biggest gap — zero perceptual signals reached MG before this)
+  motion_intensity?: number;      // 0-1 ← signal:visual.motion_intensity → simpler MG on high motion
+  shot_scale?: number;            // 0-1 ← signal:visual.shot_scale → MG size adapts to shot type
+  face_emotion?: string;          // categorical ← signal:visual.face_emotion → MG color temperature
+  // Emotional expansion
+  speech_energy?: number;         // 0-1 ← signal:speech.energy → bolder animation on high energy
+  stress_detected?: boolean;      // ← signal:speech.stress_detected → emphasis weighting
+  // Structural expansion
+  time_since_last_cut?: number;   // frames ← signal:structural.time_since_last_cut → MG opportunity
+  // Composite expansion
+  cinematic_moment?: number;      // 0-1 ← signal:composite.cinematic_moment → rich composition
 }
 
 export interface BrandInputs {

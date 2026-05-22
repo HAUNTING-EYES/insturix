@@ -269,7 +269,7 @@ export function executeSignalDrivenEdit(
       }
 
       // Get technique and interpolate parameters
-      const decision = buildDecision(mapping, tier, momentWeight, frame, graphIndex, budget);
+      const decision = buildDecision(mapping, tier, momentWeight, frame, graphIndex, budget, signals);
       if (!decision) continue;
 
       // Budget check
@@ -336,7 +336,7 @@ export function executeSignalDrivenEdit(
       const tier = getWeightTier(momentWeight);
       if (tier === 'skip') { decisionsSuppressed++; continue; }
 
-      const decision = buildDecision(mapping, tier, momentWeight, frame, graphIndex, budget);
+      const decision = buildDecision(mapping, tier, momentWeight, frame, graphIndex, budget, signals);
       if (!decision) continue;
 
       // Add context from event (e.g., the actual number for stat graphic text)
@@ -474,7 +474,8 @@ function buildDecision(
   momentWeight: number,
   frame: number,
   graphIndex: GraphIndex,
-  budget: BudgetState
+  budget: BudgetState,
+  signals?: Record<string, unknown>,
 ): EditDecision | null {
   const primary = mapping.details.primary;
   if (!primary) return null;
@@ -495,6 +496,64 @@ function buildDecision(
   // so the EDL executor can read it (it reads params.transitionType, not decision.technique)
   if (edlType === 'transition' && techniqueId.startsWith('technique:transition.')) {
     params.transitionType = mapGraphTransitionToEdl(techniqueId);
+  }
+
+  // ── Attach signal snapshot to decision (ROOT CAUSE FIX) ──
+  // Previously: signal values were DISCARDED after triggering mappings.
+  // edl-executor read decision.params.signals → always {} → composition used DEFAULT_SIGNALS.
+  // Now: attach the signal values that PRODUCED this decision so composition uses REAL data.
+  // Only attach PlannerSignals-relevant subset to avoid bloating every decision.
+  // ── Attach signal snapshot to decision (ROOT CAUSE FIX) ──
+  // Previously: signal values were DISCARDED after triggering mappings.
+  // edl-executor read decision.params.signals → always {} → composition used DEFAULT_SIGNALS.
+  // Now: attach the signal values that PRODUCED this decision so composition uses REAL data.
+  //
+  // Key mapping: signal-registry uses dot-notation (speech.emotion_intensity)
+  // but ContentSignals/PlannerSignals use flat keys (emotion_intensity).
+  // Map dot→flat so resolveMotionTokens and planComposition receive compatible data.
+  if (signals) {
+    const signalSubset: Record<string, number | string> = {};
+
+    // Dot-notation registry key → flat ContentSignals/PlannerSignals key
+    const SIGNAL_MAP: Array<[string, string]> = [
+      // Original 8 PlannerSignals (already flat in both systems)
+      ['formality', 'formality'],
+      ['enthusiasm', 'enthusiasm'],
+      ['warmth', 'warmth'],
+      ['emotional_arousal', 'emotional_arousal'],
+      ['pacing_velocity', 'pacing_velocity'],
+      ['humor', 'humor'],
+      ['visceral_impact', 'visceral_impact'],
+      ['visual_dependency', 'visual_dependency'],
+      // Phase B ContentSignals (dot → flat)
+      ['speech.emotion_intensity', 'emotion_intensity'],
+      ['speech.pitch_variability', 'pitch_variability'],
+      ['speech.speaking_rate_wpm', 'speaking_rate_wpm'],
+      ['speech.silence_duration_ms', 'silence_duration_ms'],
+      ['audio.music_energy', 'music_energy'],
+      ['audio.music_section', 'music_section'],
+      ['structural.position_in_video', 'position_in_video'],
+      ['composite.narrative_pressure', 'narrative_pressure'],
+      // NEW: 7 signals wired to MG planner (CEO plan D1)
+      ['visual.motion_intensity', 'motion_intensity'],
+      ['visual.shot_scale', 'shot_scale'],
+      ['visual.face_emotion', 'face_emotion'],
+      ['speech.energy', 'speech_energy'],
+      ['structural.time_since_last_cut', 'time_since_last_cut'],
+      ['composite.cinematic_moment', 'cinematic_moment'],
+      ['speech.stress_detected', 'stress_detected'],
+    ];
+
+    for (const [registryKey, flatKey] of SIGNAL_MAP) {
+      const val = signals[registryKey];
+      if (val != null && val !== '') {
+        signalSubset[flatKey] = typeof val === 'number' ? val : String(val);
+      }
+    }
+
+    if (Object.keys(signalSubset).length > 0) {
+      (params as any).signals = signalSubset;
+    }
   }
 
   return {
