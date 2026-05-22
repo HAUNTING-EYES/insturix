@@ -181,6 +181,7 @@ function composeNumeric(
       color: 'token:color.textPrimary',
       sizeScale: 'token:typography.sizeScale',
       minSize: CRG.STAT_MIN_FONT,
+      lineHeight: 1.1,
     },
   });
 
@@ -195,6 +196,7 @@ function composeNumeric(
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
         tracking: 'token:typography.headingTracking',
+        lineHeight: 1.3,
       },
     });
   }
@@ -218,6 +220,7 @@ function composeIdentity(
       tracking: 'token:typography.headingTracking',
       transform: 'token:typography.headingTransform',
       minSize: CRG.LOWER_THIRD_MIN_FONT,
+      lineHeight: 1.1,
     },
   });
 
@@ -232,6 +235,7 @@ function composeIdentity(
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
         minSize: CRG.LOWER_THIRD_TITLE_MIN_FONT,
+        lineHeight: 1.3,
       },
     });
   }
@@ -252,6 +256,7 @@ function composeQuotation(
       weight: 'token:typography.bodyWeight',
       color: 'token:color.textPrimary',
       minSize: CRG.QUOTE_MIN_FONT,
+      lineHeight: 1.4,
     },
   });
 
@@ -265,6 +270,7 @@ function composeQuotation(
         font: 'token:typography.bodyFamily',
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
+        lineHeight: 1.2,
       },
     });
   }
@@ -341,6 +347,7 @@ function composeStructured(
       font: 'token:typography.headingFamily',
       weight: 'token:typography.headingWeight',
       color: 'token:color.textPrimary',
+      lineHeight: 1.1,
     },
   });
 
@@ -355,6 +362,7 @@ function composeStructured(
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
         minSize: CRG.CALLOUT_MIN_FONT,
+        lineHeight: 1.4,
       },
     });
   }
@@ -420,6 +428,8 @@ function makeAccentLine(): RecipeElement {
     bind: {
       color: 'token:color.accent',
       width: 3,
+      anchorX: 0,
+      anchorY: 0.5,
     },
   };
 }
