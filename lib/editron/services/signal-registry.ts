@@ -268,6 +268,8 @@ export function buildSignalTimeline(
     snapshot['visual.face_present'] = getFacePresentAt(mergedAnalysis, frame);
     snapshot['visual.ai_artifact_risk'] = getAiArtifactRiskAt(mergedAnalysis, frame);
     snapshot['visual.scene_type'] = getSceneTypeAt(mergedAnalysis, frame);
+    snapshot['visual.complexity'] = getVisualComplexityAt(mergedAnalysis, frame);
+    snapshot['visual.text_on_screen'] = hasTextOnScreen(mergedAnalysis) ? 1 : 0;
 
     // ── V-JEPA enrichment: REPLACE heuristic visual.motion_intensity + ADD new visual signals ──
     // V-JEPA learned motion > optical flow heuristic. Action type, motion type, face emotion,
@@ -632,6 +634,34 @@ function getSceneTypeAt(analysis: AssetAnalysis, frame: number): string {
   if (hasFace && motion < 0.3) return 'talking-head';
   if (motion > 0.7) return 'action';
   return 'general';
+}
+
+// D1: Visual complexity — proxy from color diversity + brightness extremity.
+// ⚠️ ALL thresholds INVENTED — need calibration against reference videos
+function getVisualComplexityAt(analysis: AssetAnalysis, frame: number): number {
+  if (!analysis.keyframeAnalyses?.length) return 0;
+  const closest = analysis.keyframeAnalyses.reduce((prev, curr) =>
+    Math.abs(curr.frameNumber - frame) < Math.abs(prev.frameNumber - frame) ? curr : prev
+  );
+  // Color diversity: more dominant colors = more complex frame
+  // ⚠️ 8 colors = max complexity INVENTED — typical dominant color extraction yields 3-8
+  const colorCount = closest.dominantColors?.length ?? 0;
+  const colorScore = Math.min(1, colorCount / 8);
+  // Brightness extremity: very bright or very dark = simpler; mid-range = more detail visible
+  const brightness = closest.brightness ?? 0.5;
+  const brightnessScore = 1 - Math.abs(brightness - 0.5) * 2;
+  // Energy level mapping
+  const energyMap: Record<string, number> = { low: 0.2, medium: 0.5, high: 0.8 };
+  const energyScore = energyMap[closest.energyLevel ?? 'medium'] ?? 0.5;
+  // Weighted average: color diversity is strongest indicator
+  return colorScore * 0.5 + brightnessScore * 0.25 + energyScore * 0.25;
+}
+
+// D1: Text on screen — detects existing text/logo in frame via subject tracking.
+// Used to avoid overlapping MG text on burned-in subtitles, signs, or watermarks.
+function hasTextOnScreen(analysis: AssetAnalysis): boolean {
+  if (!analysis.subjectTracks?.length) return false;
+  return analysis.subjectTracks.some(s => s.category === 'text' || s.category === 'logo');
 }
 
 function getMusicEnergyAt(analysis: AssetAnalysis, timestampMs: number): number {

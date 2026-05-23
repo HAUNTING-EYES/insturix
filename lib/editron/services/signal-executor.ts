@@ -553,6 +553,9 @@ function buildDecision(
       ['composite.emotional_alignment', 'emotional_alignment'],
       // D1/D6: tatum sub-beat signal for 7-level beat hierarchy
       ['audio.music_tatum', 'music_tatum'],
+      // D1 final: PERCEPTUAL dimension — closes the biggest signal gap
+      ['visual.complexity', 'visual_complexity'],
+      ['visual.text_on_screen', 'text_on_screen'],
     ];
 
     for (const [registryKey, flatKey] of SIGNAL_MAP) {
