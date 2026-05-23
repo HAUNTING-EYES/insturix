@@ -21,6 +21,7 @@ import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
 import { resolveMotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 import { planComposition } from '@/lib/editron/motion-graphics/engine/composition-planner';
+import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
 import type { ContentShapeKind } from '@/lib/editron/motion-graphics/engine/recipe-types';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
@@ -1116,6 +1117,12 @@ async function applyGraphic(
       tokens,
       rawSignals,
     );
+
+    // Tier 1 Aesthetic Gate: structural quality check (observe-only, no blocking)
+    const gateResult = checkCompositionStructure(recipe, tokens);
+    if (!gateResult.pass) {
+      console.warn(`[EDL] Structural gate WARN for ${graphicType} @frame ${decision.frame}: score=${gateResult.score}/100, issues=${gateResult.issues.length}`);
+    }
 
     const snappedFrame = findClipAtFrame(decision.frame, overlays, 20)?.snappedFrame ?? decision.frame;
     const compositionDuration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;

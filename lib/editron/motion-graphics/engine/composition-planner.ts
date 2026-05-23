@@ -6,6 +6,7 @@ import type {
   ContentShape,
   CompositionStrategy,
   HoldPattern,
+  MGKeyframeTrack,
 } from './recipe-types';
 import { analyzeContentShape } from './content-shape-analyzer';
 import { generateBrandPattern } from './brand-pattern-generator';
@@ -91,8 +92,13 @@ export function planComposition(
     elements.splice(3);
   }
 
+  // D8: Signal-driven keyframe generation — "crazy edits" motion paths
+  const entranceFrames = Math.round((language.animation.entranceDurationMs / 1000) * 30);
+  resolveKeyframeTracks(elements, s, entranceFrames, strategy.holdDurationFrames);
+
+  const kfCount = elements.filter(e => e.keyframeTracks?.length).length;
   console.log(
-    `[MG-Planner] Composed: ${elements.length} elements, ` +
+    `[MG-Planner] Composed: ${elements.length} elements (${kfCount} with keyframes), ` +
     `shapes=[${strategy.shapes.map(sh => sh.kind).join(',')}], ` +
     `layout=${strategy.suggestedLayout.position}, ` +
     `complexity=${strategy.complexityBudget}/5` +
@@ -451,6 +457,58 @@ function composeDataSeries(
       font: 'token:typography.bodyFamily',
     },
   });
+}
+
+// D8: Signal-driven keyframe generation — adds motion paths to elements based on signals.
+// Only triggers on high-energy signals. Low-energy content stays stationary (safe default).
+// ⚠️ ALL thresholds and motion values INVENTED — need calibration against reference videos
+function resolveKeyframeTracks(
+  elements: RecipeElement[],
+  signals: PlannerSignals,
+  entranceFrames: number,
+  holdDurationFrames: number,
+): void {
+  const holdStart = entranceFrames;
+  const holdEnd = entranceFrames + holdDurationFrames;
+
+  for (const el of elements) {
+    if (el.layer !== 'foreground') continue;
+
+    // High visceral impact → primary text drifts upward during hold
+    // ⚠️ visceral_impact > 0.7 INVENTED — only dramatic content triggers drift
+    // ⚠️ 15px drift INVENTED — AE practice: 10-20px for subtle hold drift
+    if (signals.visceral_impact > 0.7 && el.role === 'primary') {
+      el.keyframeTracks = [{
+        property: 'translateY',
+        keyframes: [
+          { frame: holdStart, value: 0, easing: 'ease-out' },
+          { frame: holdEnd, value: -15, easing: 'ease-in-out' },
+        ],
+      }];
+    }
+
+    // High enthusiasm + fast pacing → counter scale pulse during hold
+    // ⚠️ enthusiasm > 0.8 + pacing > 0.6 INVENTED — fast energetic content
+    // ⚠️ 1.05 scale pulse INVENTED — CRG overshoot 102-105% range
+    if (signals.enthusiasm > 0.8 && signals.pacing_velocity > 0.6 && el.animation === 'count-up') {
+      const mid = Math.floor((holdStart + holdEnd) / 2);
+      el.keyframeTracks = [{
+        property: 'scaleX',
+        keyframes: [
+          { frame: holdStart, value: 1, easing: 'ease-out' },
+          { frame: mid, value: 1.05, easing: 'ease-in-out' },
+          { frame: holdEnd, value: 1, easing: 'ease-in' },
+        ],
+      }, {
+        property: 'scaleY',
+        keyframes: [
+          { frame: holdStart, value: 1, easing: 'ease-out' },
+          { frame: mid, value: 1.05, easing: 'ease-in-out' },
+          { frame: holdEnd, value: 1, easing: 'ease-in' },
+        ],
+      }];
+    }
+  }
 }
 
 // Signal-driven hold animation selection.
