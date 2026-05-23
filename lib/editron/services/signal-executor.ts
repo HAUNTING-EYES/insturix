@@ -542,6 +542,15 @@ function buildDecision(
       ['structural.time_since_last_cut', 'time_since_last_cut'],
       ['composite.cinematic_moment', 'cinematic_moment'],
       ['speech.stress_detected', 'stress_detected'],
+      // D1 expansion: 8 high-value signals from registry → PlannerSignals
+      ['visual.face_present', 'face_present'],
+      ['visual.scene_type', 'scene_type'],
+      ['visual.significance', 'visual_significance'],
+      ['structural.active_overlays_count', 'active_overlay_count'],
+      ['composite.montage_mode', 'montage_mode'],
+      ['speech.energy_delta', 'energy_delta'],
+      ['speech.coverage', 'speech_coverage'],
+      ['composite.emotional_alignment', 'emotional_alignment'],
     ];
 
     for (const [registryKey, flatKey] of SIGNAL_MAP) {
