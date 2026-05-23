@@ -457,11 +457,20 @@ function applyOpacity(color: string | undefined, opacity: number): string {
 // Sources:
 //   creative_production_knowledge_v3:1638 "synchresis: visual + audio at same frame = viewer FEELS it"
 //   creative_production_knowledge_v3:2382 "synchresis breaks at ~40ms" — per-frame (33ms) is within window
-//   signal:audio.music_beat (CRG line 2293): binary 0/1 per frame
+//   CRG signal:audio.music_beat — "timestamps + beat_type (downbeat|upbeat|offbeat)"
 //
-// Beat pulse: 1.03x scale on beat ← creative_production_knowledge_v3:3496 (overshoot 102-105%)
-// Energy opacity: ±0.1 modulation ← ⚠️ INVENTED, needs calibration
-// Beat brightness: 1.05x on beat ← ⚠️ INVENTED, needs calibration
+// D6: 7 Beat Hierarchy Levels (continuous 0-1):
+//   0.0       = no beat
+//   0.0-0.15  = tatum    (16th note subdivision — micro-flutter)
+//   0.15-0.3  = tactus   (quarter note — perceived beat, foot-tap)
+//   0.3-0.5   = bar      (bar boundary — moderate emphasis)
+//   0.5-0.7   = downbeat (first beat of bar — strongest metric position)
+//   0.7-0.85  = phrase   (4-8 bar boundary — structural)
+//   0.85-1.0  = section  (verse/chorus/bridge — major transition)
+//   onset (separate curve) = audio transient — sharp spike independent of metric position
+//
+// Response scales quadratically: tatum gets micro-pulse, section gets full emphasis.
+// ⚠️ ALL amplitudes INVENTED — need calibration against reference videos
 
 export interface SignalCurves {
   [signalName: string]: number[];
@@ -478,16 +487,31 @@ export function applyAudioReactiveModulation(
   const isHoldPhase = frame > timing.enterEndFrame && frame < timing.exitStartFrame;
   if (!isHoldPhase) return anim;
 
-  let { opacity, scaleX, scaleY, filterBrightness } = anim;
+  let { opacity, scaleX, scaleY, filterBrightness, rotation } = anim;
 
-  const beatValue = readCurve(curves, 'music_beat', frame);
-  if (beatValue > 0.5) {
-    // Disney #1 — Squash & Stretch on beat: wider + shorter for physical impact
-    // Area-preserved: 1.04 × 1.02 = 1.0608 ≈ old 1.03 × 1.03 = 1.0609
-    // ⚠️ 1.04/1.02 divergence INVENTED — needs calibration
-    scaleX *= 1.04;
-    scaleY *= 1.02;
-    filterBrightness = Math.min(1.3, filterBrightness * 1.05);
+  // D6: 7-level beat hierarchy. Primary path uses continuous beat_level (0-1).
+  // Fallback: legacy binary music_beat (0/1) mapped to tactus level (0.25).
+  let beatLevel = readCurve(curves, 'beat_level', frame);
+  if (beatLevel <= 0) {
+    const legacyBeat = readCurve(curves, 'music_beat', frame);
+    if (legacyBeat > 0.5) beatLevel = 0.25;
+  }
+  if (beatLevel > 0) {
+    const response = computeBeatResponse(beatLevel);
+    scaleX *= 1 + response.scaleX;
+    scaleY *= 1 + response.scaleY;
+    filterBrightness = Math.min(1.3, filterBrightness * (1 + response.brightness));
+    if (response.rotation !== 0) {
+      rotation += response.rotation;
+    }
+  }
+
+  // Onset: audio transient (percussive hit, syllable attack). Separate from metric beat.
+  // Sharp brightness spike only — transients are visual "pops" not sustained pulses.
+  // ⚠️ 0.08 (8%) brightness spike INVENTED — AE practice: transient response is sharper than beat
+  const onsetValue = readCurve(curves, 'onset', frame);
+  if (onsetValue > 0.5) {
+    filterBrightness = Math.min(1.3, filterBrightness * 1.08);
   }
 
   const energyValue = readCurve(curves, 'energy', frame);
@@ -502,7 +526,26 @@ export function applyAudioReactiveModulation(
     scaleY *= boost;
   }
 
-  return { ...anim, opacity, scaleX, scaleY, filterBrightness };
+  return { ...anim, opacity, scaleX, scaleY, filterBrightness, rotation };
+}
+
+// D6: Compute visual response from beat hierarchy level.
+// Quadratic scaling — higher metric levels get disproportionately stronger response.
+// Disney #1 S&S preserved: scaleX > scaleY (wider + shorter for physical impact).
+interface BeatResponse { scaleX: number; scaleY: number; brightness: number; rotation: number }
+
+function computeBeatResponse(level: number): BeatResponse {
+  const intensity = level * level; // quadratic — emphasizes structural levels
+  // ⚠️ 0.05 max scale INVENTED — CRG overshoot 102-105% maps to 2-5% range
+  const scaleAmount = intensity * 0.05;
+  return {
+    scaleX: scaleAmount,
+    scaleY: scaleAmount * 0.5, // S&S: vertical gets half to approximate area preservation
+    // ⚠️ 0.06 max brightness INVENTED — needs calibration
+    brightness: intensity * 0.06,
+    // ⚠️ 0.5° max rotation INVENTED — phrase/section levels add dimensional interest
+    rotation: level > 0.7 ? (level - 0.7) * 1.667 * 0.5 : 0,
+  };
 }
 
 function readCurve(curves: SignalCurves, name: string, frame: number): number {
