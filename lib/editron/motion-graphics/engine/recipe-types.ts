@@ -27,6 +27,30 @@ export type HoldPattern = 'static' | 'pulse' | 'breathe' | 'gentle-float';
 
 export type SyncTarget = 'audio-beats' | 'word-timings' | 'even-stagger';
 
+// --- D8: Crazy Edits — Keyframes + Speed Ramp ---
+
+export type MGAnimatableProperty =
+  | 'translateX' | 'translateY'
+  | 'scaleX' | 'scaleY'
+  | 'rotation' | 'skewX'
+  | 'opacity'
+  | 'filterBlur' | 'filterBrightness';
+
+export interface MGKeyframe {
+  frame: number;
+  value: number;
+  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+}
+
+export interface MGKeyframeTrack {
+  property: MGAnimatableProperty;
+  keyframes: MGKeyframe[];
+}
+
+export interface MGSpeedRamp {
+  speedCurve: MGKeyframe[];
+}
+
 // --- Binding expressions ---
 // Bindings are strings that resolve at runtime:
 //   "token:color.accent"    → reads from VisualLanguage tokens
@@ -52,6 +76,8 @@ export interface RecipeElement {
   entranceOverride?: EntrancePattern;
   exitOverride?: ExitPattern;
   holdAnimation?: HoldPattern;
+  keyframeTracks?: MGKeyframeTrack[];
+  speedRamp?: MGSpeedRamp;
 }
 
 export interface RecipeLayout {
