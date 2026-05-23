@@ -307,6 +307,7 @@ export function buildSignalTimeline(
     snapshot['audio.music_beat'] = isMusicBeatAt(mergedAnalysis, timestampMs) ? 1 : 0;
     snapshot['audio.music_tatum'] = isMusicTatumAt(mergedAnalysis, timestampMs) ? 1 : 0;
     snapshot['audio.music_section'] = getMusicSectionAt(mergedAnalysis, timestampMs);
+    snapshot['audio.bpm'] = mergedAnalysis.musicStructure?.bpm ?? 0;
 
     // Structural signals
     snapshot['structural.position_in_video'] = frame / totalFrames;

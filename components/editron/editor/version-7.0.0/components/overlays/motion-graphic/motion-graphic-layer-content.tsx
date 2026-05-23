@@ -83,11 +83,43 @@ function synthesizeSignalCurves(
 ): SignalCurves {
   const curves: SignalCurves = {};
   if (!signals || durationInFrames <= 0) return curves;
+
+  // Pass 1: constant-fill all numeric signals
   for (const [key, value] of Object.entries(signals)) {
     if (typeof value === 'number' && isFinite(value)) {
       curves[key] = new Array(durationInFrames).fill(value);
     }
   }
+
+  // Pass 2: BPM-derived beat grid (replaces constant music_beat with real rhythm)
+  // D6 beat hierarchy: tatum=0.1, tactus=0.25, bar=0.4, downbeat=0.6
+  const bpm = typeof signals.bpm === 'number' ? signals.bpm : 0;
+  if (bpm > 0) {
+    const fps = 30;
+    const beatLevel = new Array(durationInFrames).fill(0);
+    const framesPerBeat = (60 / bpm) * fps;
+    const framesPerTatum = framesPerBeat / 4;
+
+    for (let f = 0; f < durationInFrames; f++) {
+      const beatIndex = Math.round(f / framesPerBeat);
+      const tatumIndex = Math.round(f / framesPerTatum);
+
+      const distToBeat = Math.abs(f - beatIndex * framesPerBeat);
+      const distToTatum = Math.abs(f - tatumIndex * framesPerTatum);
+
+      if (distToBeat < 1) {
+        // On a beat — check if downbeat (every 4 beats) or regular
+        beatLevel[f] = beatIndex % 4 === 0 ? 0.6 : 0.25;
+      } else if (distToTatum < 1) {
+        beatLevel[f] = 0.1; // tatum subdivision
+      }
+    }
+
+    curves['beat_level'] = beatLevel;
+    // Override constant music_beat with rhythmic version
+    curves['music_beat'] = beatLevel.map(v => v >= 0.25 ? 1 : 0);
+  }
+
   return curves;
 }
 

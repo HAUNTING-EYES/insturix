@@ -556,6 +556,8 @@ function buildDecision(
       // D1 final: PERCEPTUAL dimension — closes the biggest signal gap
       ['visual.complexity', 'visual_complexity'],
       ['visual.text_on_screen', 'text_on_screen'],
+      // BPM for beat grid generation at render time
+      ['audio.bpm', 'bpm'],
     ];
 
     for (const [registryKey, flatKey] of SIGNAL_MAP) {
