@@ -4549,11 +4549,11 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             content = parsed.content;
           }
 
-          const tokens = resolveMotionTokens({}, {});
+          const { DEFAULT_SIGNALS } = await import('../motion-graphics/engine/composition-planner');
+          const tokens = resolveMotionTokens(DEFAULT_SIGNALS as any, {});
           const recipe = planComposition(
             { kind, content, triggerMoment: 'agent-placed' },
             tokens,
-            {},
           );
 
           const DURATIONS: Record<string, number> = {

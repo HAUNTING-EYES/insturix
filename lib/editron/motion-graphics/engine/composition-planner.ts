@@ -35,7 +35,7 @@ export interface PlannerSignals {
   [key: string]: number;
 }
 
-const DEFAULT_SIGNALS: PlannerSignals = {
+export const DEFAULT_SIGNALS: PlannerSignals = {
   formality: 0,
   enthusiasm: 0.5,
   warmth: 0.5,
