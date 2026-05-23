@@ -551,6 +551,8 @@ function buildDecision(
       ['speech.energy_delta', 'energy_delta'],
       ['speech.coverage', 'speech_coverage'],
       ['composite.emotional_alignment', 'emotional_alignment'],
+      // D1/D6: tatum sub-beat signal for 7-level beat hierarchy
+      ['audio.music_tatum', 'music_tatum'],
     ];
 
     for (const [registryKey, flatKey] of SIGNAL_MAP) {

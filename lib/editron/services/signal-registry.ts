@@ -303,6 +303,7 @@ export function buildSignalTimeline(
     // Audio signals
     snapshot['audio.music_energy'] = getMusicEnergyAt(mergedAnalysis, timestampMs);
     snapshot['audio.music_beat'] = isMusicBeatAt(mergedAnalysis, timestampMs) ? 1 : 0;
+    snapshot['audio.music_tatum'] = isMusicTatumAt(mergedAnalysis, timestampMs) ? 1 : 0;
     snapshot['audio.music_section'] = getMusicSectionAt(mergedAnalysis, timestampMs);
 
     // Structural signals
@@ -645,6 +646,16 @@ function getMusicEnergyAt(analysis: AssetAnalysis, timestampMs: number): number 
 function isMusicBeatAt(analysis: AssetAnalysis, timestampMs: number): boolean {
   if (!analysis.audio?.beats?.length) return false;
   return analysis.audio.beats.some(b => Math.abs(b - timestampMs) < 50); // within 50ms
+}
+
+// D1/D6: Tatum = smallest metric subdivision (16th notes).
+// BPM × 4 = tatums per minute. Tolerance ±25ms (half of beat tolerance).
+function isMusicTatumAt(analysis: AssetAnalysis, timestampMs: number): boolean {
+  const bpm = analysis.musicStructure?.bpm;
+  if (!bpm || bpm <= 0) return false;
+  const tatumIntervalMs = 60000 / (bpm * 4);
+  const remainder = timestampMs % tatumIntervalMs;
+  return remainder < 25 || (tatumIntervalMs - remainder) < 25;
 }
 
 function getMusicSectionAt(analysis: AssetAnalysis, timestampMs: number): string {
