@@ -63,12 +63,36 @@ export function checkCompositionStructure(
     }
   }
 
+  // 2b. Secondary text contrast: textSecondary vs surfaceBase
+  const secondaryLum = relativeLuminance(tokens.color.textSecondary);
+  const secondaryContrast = computeContrastRatio(secondaryLum, surfaceLum);
+  if (secondaryContrast < 3) {
+    issues.push({ dimension: 'contrast', severity: 'medium', description: `Secondary text contrast ${secondaryContrast.toFixed(1)}:1 — below WCAG 3:1 for large text` });
+    deductions += 10;
+  }
+
+  // 2c. Accent color vs surface contrast
+  const accentLum = relativeLuminance(tokens.color.accent);
+  const accentContrast = computeContrastRatio(accentLum, surfaceLum);
+  if (accentContrast < 2) {
+    issues.push({ dimension: 'contrast', severity: 'low', description: `Accent/surface contrast ${accentContrast.toFixed(1)}:1 — accent line may be invisible` });
+    deductions += 5;
+  }
+
   // 3. Element density: too many foreground elements
   const foregroundCount = recipe.elements.filter(el => el.layer === 'foreground').length;
   // ⚠️ threshold 6 INVENTED — professional MG rarely exceeds 5-6 visible elements
   if (foregroundCount > 6) {
     issues.push({ dimension: 'density', severity: 'medium', description: `${foregroundCount} foreground elements — visual clutter risk (max 6 recommended)` });
     deductions += 10;
+  }
+
+  // 3b. Narrow layout overflow: bottom-left/right/top-left/right have maxWidth 45%
+  // ⚠️ threshold 3 INVENTED — 3+ text elements in 45% width risks line overflow
+  const isNarrowLayout = ['bottom-left', 'bottom-right', 'top-left', 'top-right'].includes(recipe.layout.position);
+  if (isNarrowLayout && textElements.length > 3) {
+    issues.push({ dimension: 'density', severity: 'low', description: `${textElements.length} text elements in narrow layout (${recipe.layout.position}, 45% width) — overflow risk` });
+    deductions += 5;
   }
 
   // 4. Frame brightness match: MG colors vs video frame brightness
