@@ -160,30 +160,41 @@ export async function generateCreativeBrief(
       console.log(`[CreativeBrief] Video file attached: ${geminiFileUri.substring(0, 80)}...`);
     }
 
-    console.log('[CreativeBrief] Calling Gemini...');
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts }],
-      generationConfig,
-    });
+    // Retry with different seeds on JSON parse failure.
+    // Batch testing showed ~20% JSON parse failure rate on seed 42.
+    // Different seeds produce different completion paths, often fixing truncation.
+    const seeds = [generationConfig.seed, 7, 99];
+    for (const seed of seeds) {
+      try {
+        console.log(`[CreativeBrief] Calling Gemini (seed=${seed})...`);
+        const result = await model.generateContent({
+          contents: [{ role: 'user', parts }],
+          generationConfig: { ...generationConfig, seed },
+        });
 
-    const responseText = result.response?.text?.() || result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!responseText) {
-      console.error('[CreativeBrief] Empty response from Gemini. Full response:', JSON.stringify(result.response?.candidates?.[0] || 'no candidates'));
-      return null;
+        const responseText = result.response?.text?.() || result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!responseText) {
+          console.warn(`[CreativeBrief] Empty response (seed=${seed}), retrying...`);
+          continue;
+        }
+
+        console.log(`[CreativeBrief] Gemini responded (${responseText.length} chars, seed=${seed}). Parsing JSON...`);
+
+        const parsed = JSON.parse(responseText);
+        const brief = validateAndGate(parsed, startTime, budget);
+
+        if (brief) {
+          console.log(`[CreativeBrief] SUCCESS: ${brief.decisions.length} decisions, pacing=${brief.overallPacing}, ${brief.narrativeArc.length} sections`);
+          return brief;
+        }
+        console.warn(`[CreativeBrief] validateAndGate returned null (seed=${seed}), retrying...`);
+      } catch (parseErr: any) {
+        console.warn(`[CreativeBrief] Parse/validation failed (seed=${seed}): ${parseErr.message.substring(0, 80)}`);
+      }
     }
 
-    console.log(`[CreativeBrief] Gemini responded (${responseText.length} chars). Parsing JSON...`);
-
-    const parsed = JSON.parse(responseText);
-    const brief = validateAndGate(parsed, startTime, budget);
-
-    if (brief) {
-      console.log(`[CreativeBrief] SUCCESS: ${brief.decisions.length} decisions, pacing=${brief.overallPacing}, ${brief.narrativeArc.length} sections`);
-    } else {
-      console.error('[CreativeBrief] validateAndGate returned null — parsed response was invalid');
-    }
-
-    return brief;
+    console.error('[CreativeBrief] All seeds failed — returning null');
+    return null;
   } catch (err: any) {
     console.error(`[CreativeBrief] Generation FAILED: ${err.message}`);
     console.error(`[CreativeBrief] Stack: ${err.stack?.split('\n').slice(0, 3).join(' | ')}`);
