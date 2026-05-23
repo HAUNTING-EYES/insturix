@@ -211,12 +211,34 @@ function exitStyleForShape(
 
 function computeComplexityBudget(signals?: Partial<PlannerSignals>): number {
   if (!signals) return DEFAULT_COMPLEXITY;
-  const position = (signals as Record<string, unknown>).position_in_video;
-  if (typeof position !== 'number') return DEFAULT_COMPLEXITY;
-  if (position < 0.2) return 1;
-  if (position < 0.6) return 3;
-  if (position < 0.8) return 4;
-  return 5;
+  const s = signals as Record<string, unknown>;
+
+  // Montage mode: music-driven section, no speech → suppress graphics entirely
+  // CRG signal:composite.montage_mode — "music is dominant, not speech"
+  const montageMode = typeof s.montage_mode === 'number' ? s.montage_mode : 0;
+  if (montageMode > 0.5) return 0;
+
+  // Active overlay count: too many overlays already visible → suppress
+  // CRG constraint:overlay.simultaneous_overlay_max
+  const activeOverlays = typeof s.active_overlay_count === 'number' ? s.active_overlay_count : 0;
+  if (activeOverlays >= 3) return 0;
+
+  // Position-based budget (existing)
+  const position = typeof s.position_in_video === 'number' ? s.position_in_video : 0.5;
+  let budget: number;
+  if (position < 0.2) budget = 1;
+  else if (position < 0.6) budget = 3;
+  else if (position < 0.8) budget = 4;
+  else budget = 5;
+
+  // Visual significance: frame content is already visually rich → reduce complexity
+  // ⚠️ threshold 0.7 INVENTED — high-significance frames shouldn't compete with graphics
+  const significance = typeof s.visual_significance === 'number' ? s.visual_significance : 0;
+  if (significance > 0.7) {
+    budget = Math.max(1, budget - 2);
+  }
+
+  return budget;
 }
 
 function computeHoldDuration(signals?: Partial<PlannerSignals>): number {

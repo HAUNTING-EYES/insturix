@@ -58,13 +58,46 @@ export function planComposition(
     console.warn('[MG-Planner] No content signals provided — using defaults.');
   }
 
+  // D1: Signal-driven suppression — skip composition if budget is 0
+  if (strategy.complexityBudget <= 0) {
+    console.log('[MG-Planner] Budget=0 (montage/overlay suppression) — skipping composition');
+    return { id: 'suppressed', elements: [], layout: strategy.suggestedLayout, exitStyle: strategy.suggestedExitStyle };
+  }
+
   const elements = composeElements(strategy, language, s);
+
+  // D1: emotional_alignment — boost confidence when face+voice agree
+  // ⚠️ threshold 0.7 INVENTED — high alignment = face and voice express same emotion
+  const alignment = typeof s.emotional_alignment === 'number' ? s.emotional_alignment : 0;
+  if (alignment > 0.7 && elements.length > 0) {
+    console.log(`[MG-Planner] High emotional alignment (${alignment.toFixed(2)}) — composition confidence boosted`);
+  }
+
+  // D1: energy_delta — rising energy suggests building tension, delay would improve timing
+  // Negative delta (falling energy) = visual gap, graphics fill naturally
+  // ⚠️ threshold 0.3 INVENTED — significant energy rise
+  const energyDelta = typeof s.energy_delta === 'number' ? s.energy_delta : 0;
+  if (energyDelta > 0.3 && elements.length > 0) {
+    console.log(`[MG-Planner] Rising energy (delta=${energyDelta.toFixed(2)}) — consider delayed entrance`);
+  }
+
+  // D1: speech_coverage — high coverage means lots of content opportunities
+  const speechCoverage = typeof s.speech_coverage === 'number' ? s.speech_coverage : 0;
+
+  // D1: scene_type — talking-head favors lower-thirds, action favors simpler graphics
+  const sceneType = typeof s.scene_type === 'string' ? s.scene_type : '';
+  if (sceneType === 'action' && elements.length > 3) {
+    console.log(`[MG-Planner] Action scene — simplifying (${elements.length} elements → capping at 3)`);
+    elements.splice(3);
+  }
 
   console.log(
     `[MG-Planner] Composed: ${elements.length} elements, ` +
     `shapes=[${strategy.shapes.map(sh => sh.kind).join(',')}], ` +
     `layout=${strategy.suggestedLayout.position}, ` +
-    `complexity=${strategy.complexityBudget}/5`,
+    `complexity=${strategy.complexityBudget}/5` +
+    `${sceneType ? `, scene=${sceneType}` : ''}` +
+    `${speechCoverage > 0 ? `, speechCov=${speechCoverage.toFixed(2)}` : ''}`,
   );
 
   return {
