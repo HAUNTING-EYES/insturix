@@ -281,11 +281,15 @@ function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): Re
     gap: '4px',
   };
 
+  // captionZoneAware: shift bottom-positioned graphics above caption zone
+  // ⚠️ 22% bottom offset INVENTED — typical captions occupy bottom 15-20%
+  const bottomOffset = layout.captionZoneAware ? '22%' : '12%';
+
   switch (layout.position) {
     case 'bottom-left':
-      return { ...base, bottom: '12%', left: '4%', maxWidth: '45%' };
+      return { ...base, bottom: bottomOffset, left: '4%', maxWidth: '45%' };
     case 'bottom-right':
-      return { ...base, bottom: '12%', right: '4%', maxWidth: '45%', alignItems: 'flex-end' };
+      return { ...base, bottom: bottomOffset, right: '4%', maxWidth: '45%', alignItems: 'flex-end' };
     case 'top-left':
       return { ...base, top: '8%', left: '4%', maxWidth: '45%' };
     case 'top-right':

@@ -17,6 +17,7 @@ import { SafeCompositionRenderer } from '@/lib/editron/motion-graphics/engine/co
 import { planComposition } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import type { MotionTokens } from '@/lib/editron/motion-graphics/types';
 import type { Recipe } from '@/lib/editron/motion-graphics/engine/recipe-types';
+import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
 
 interface MotionGraphicLayerContentProps {
   overlay: MotionGraphicOverlay;
@@ -33,6 +34,12 @@ export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps>
   // Use it directly -- don't re-plan at render time.
   const preComputedRecipe = (overlay as Record<string, unknown>).recipe as Recipe | undefined;
   if (preComputedRecipe && preComputedRecipe.elements?.length > 0) {
+    // Synthesize per-frame SignalCurves from scalar contentSignals snapshot.
+    // This enables audio-reactive modulation (beat pulse, energy, emotion) at render time.
+    // Scalar→constant array: each signal value is replicated for every frame of the composition.
+    // Beat pulsation requires BPM-derived per-frame curves (future work — needs BPM on overlay).
+    const signalCurves = synthesizeSignalCurves(signals, overlay.durationInFrames);
+
     return (
       <MotionThemeProvider tokens={tokens}>
         <SafeCompositionRenderer
@@ -40,6 +47,7 @@ export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps>
           language={tokens}
           content={content}
           durationInFrames={overlay.durationInFrames}
+          signalCurves={signalCurves}
         />
       </MotionThemeProvider>
     );
@@ -68,6 +76,20 @@ interface StructureDispatchProps {
 }
 
 const LEGACY_STAT_COUNTER = 'stat-counter-legacy';
+
+function synthesizeSignalCurves(
+  signals: Record<string, unknown> | undefined,
+  durationInFrames: number,
+): SignalCurves {
+  const curves: SignalCurves = {};
+  if (!signals || durationInFrames <= 0) return curves;
+  for (const [key, value] of Object.entries(signals)) {
+    if (typeof value === 'number' && isFinite(value)) {
+      curves[key] = new Array(durationInFrames).fill(value);
+    }
+  }
+  return curves;
+}
 
 const StructureDispatch: React.FC<StructureDispatchProps> = ({
   structureType,
