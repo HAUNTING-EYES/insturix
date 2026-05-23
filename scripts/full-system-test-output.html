@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Full System Test — Editing Timeline</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: #0F172A; color: #E2E8F0; padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 8px; }
+  .meta { color: #94A3B8; font-size: 13px; margin-bottom: 24px; }
+  .section { background: #1E293B; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .section h2 { font-size: 15px; color: #94A3B8; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .timeline { position: relative; height: 60px; background: #334155; border-radius: 8px; margin-bottom: 8px; overflow: visible; }
+  .decision { position: absolute; top: 0; width: 2px; height: 100%; opacity: 0.8; cursor: pointer; }
+  .decision:hover { opacity: 1; z-index: 10; width: 4px; }
+  .decision .dot { position: absolute; top: -4px; left: -3px; width: 8px; height: 8px; border-radius: 50%; }
+  .arc-bar { position: relative; height: 32px; margin-bottom: 16px; border-radius: 6px; overflow: hidden; display: flex; }
+  .arc-section { position: absolute; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #1E293B; font-weight: 600; border-right: 1px solid rgba(0,0,0,0.1); }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #94A3B8; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .stat-card { background: #334155; border-radius: 8px; padding: 12px; text-align: center; }
+  .stat-card .value { font-size: 28px; font-weight: 700; color: #F8FAFC; }
+  .stat-card .label { font-size: 11px; color: #94A3B8; margin-top: 4px; }
+  .understanding { background: #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .understanding p { font-size: 13px; color: #CBD5E1; line-height: 1.6; }
+  .type-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+  .type-item { background: #334155; border-radius: 6px; padding: 8px 12px; font-size: 12px; display: flex; justify-content: space-between; }
+  .type-item .count { font-weight: 700; color: #F8FAFC; }
+</style></head><body>
+<h1>Full System Test — Editing Timeline</h1>
+<p class="meta">"A meta-commentary on video editing, internet culture, and human behavior online, featuring Hank Green discussing his hypothesis about internet trolls and the YouTube algorithm." — 1173s, balanced pacing, word_by_word captions</p>
+
+<div class="section">
+  <h2>Video Understanding</h2>
+  <div class="understanding">
+    <p><strong>Content:</strong> A meta-commentary on video editing, internet culture, and human behavior online, featuring Hank Green discussing his hypothesis about internet trolls and the YouTube algorithm.</p>
+    <p><strong>Shot:</strong> medium_close_up | <strong>Lighting:</strong> studio_bright | <strong>Quality:</strong> 0.9/1</p>
+    <p><strong>Speakers:</strong> 1 | <strong>B-Roll:</strong> No | <strong>Environment:</strong> studio_or_home_office</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Narrative Arc</h2>
+  <div class="arc-bar"><div class="arc-section" style="left:0.0%;width:1.1%;background:#FDE68A" title="hook (building, measured)">hook</div>
+<div class="arc-section" style="left:1.1%;width:5.8%;background:#BFDBFE" title="setup (neutral, calm)">setup</div>
+<div class="arc-section" style="left:7.0%;width:7.1%;background:#BBF7D0" title="build (building, energetic)">build</div>
+<div class="arc-section" style="left:14.1%;width:5.2%;background:#FCA5A5" title="peak (high, fast)">peak</div>
+<div class="arc-section" style="left:19.3%;width:4.1%;background:#E5E7EB" title="transition (declining, measured)">transition</div>
+<div class="arc-section" style="left:23.5%;width:6.7%;background:#BBF7D0" title="build (building, energetic)">build</div>
+<div class="arc-section" style="left:30.2%;width:3.5%;background:#FCA5A5" title="peak (high, fast)">peak</div>
+<div class="arc-section" style="left:33.8%;width:16.6%;background:#DDD6FE" title="resolve (declining, balanced)">resolve</div>
+<div class="arc-section" style="left:50.4%;width:49.6%;background:#FED7AA" title="closing (neutral, calm)">closing</div></div>
+</div>
+
+<div class="section">
+  <h2>Decision Timeline (65 decisions)</h2>
+  <div class="legend"><span class="legend-item"><span class="legend-dot" style="background:#3B82F6"></span>zoom (17)</span><span class="legend-item"><span class="legend-dot" style="background:#8B5CF6"></span>transition (2)</span><span class="legend-item"><span class="legend-dot" style="background:#F59E0B"></span>sfx (8)</span><span class="legend-item"><span class="legend-dot" style="background:#10B981"></span>graphic (22)</span><span class="legend-item"><span class="legend-dot" style="background:#EC4899"></span>caption (14)</span><span class="legend-item"><span class="legend-dot" style="background:#EF4444"></span>speed (0)</span><span class="legend-item"><span class="legend-dot" style="background:#6366F1"></span>camera (0)</span><span class="legend-item"><span class="legend-dot" style="background:#14B8A6"></span>audio (0)</span><span class="legend-item"><span class="legend-dot" style="background:#78716C"></span>hold (1)</span><span class="legend-item"><span class="legend-dot" style="background:#78716C"></span>cut (1)</span></div>
+  <div class="timeline"><div class="decision" style="left:1.1%;background:#10B981" title="graphic_lower_third @13.7s (conf=0.9)
+name_mentioned
+name=Hank, title=YouTuber">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:2.6%;background:#3B82F6" title="zoom_push @30.3s (conf=0.85)
+emotional_shift
+intensity=0.15, durationFrames=30">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:5.9%;background:#10B981" title="graphic_keyword_highlight @61.3s (conf=0.7)
+emphasis_word
+text=descriptions">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:7.2%;background:#EC4899" title="caption_emphasis @74.6s (conf=0.8)
+emphasis_word
+wordIdx=0, style=bold">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:10.7%;background:#F59E0B" title="sfx_impact @128.0s (conf=0.75)
+vocal_peak
+variant=light">
+      <span class="dot" style="background:#F59E0B"></span>
+    </div>
+<div class="decision" style="left:11.8%;background:#10B981" title="graphic_keyword_highlight @146.4s (conf=0.8)
+emphasis_word
+text=anonymity">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:14.1%;background:#3B82F6" title="zoom_punch @176.3s (conf=0.9)
+emotional_shift
+intensity=0.2, durationFrames=20">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:14.7%;background:#EC4899" title="caption_emphasis @187.0s (conf=0.7)
+emphasis_word
+wordIdx=0, style=italic">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:15.6%;background:#F59E0B" title="sfx_impact @196.5s (conf=0.75)
+vocal_peak
+variant=medium">
+      <span class="dot" style="background:#F59E0B"></span>
+    </div>
+<div class="decision" style="left:16.6%;background:#3B82F6" title="zoom_push @205.5s (conf=0.85)
+emphasis_word
+intensity=0.1, durationFrames=25">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:17.7%;background:#EC4899" title="caption_emphasis @219.7s (conf=0.7)
+emphasis_word
+wordIdx=0, style=bold">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:18.6%;background:#10B981" title="graphic_keyword_highlight @231.3s (conf=0.75)
+emphasis_word
+text=anonymous people">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:20.1%;background:#3B82F6" title="zoom_pull_back @241.4s (conf=0.6)
+visual_monotony
+intensity=0.08, durationFrames=40">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:20.9%;background:#F59E0B" title="sfx_impact @250.3s (conf=0.65)
+vocal_peak
+variant=cartoon">
+      <span class="dot" style="background:#F59E0B"></span>
+    </div>
+<div class="decision" style="left:23.4%;background:#8B5CF6" title="transition_dissolve @274.0s (conf=0.7)
+narrative_shift
+durationFrames=15">
+      <span class="dot" style="background:#8B5CF6"></span>
+    </div>
+<div class="decision" style="left:26.1%;background:#F59E0B" title="sfx_whoosh @303.3s (conf=0.7)
+energy_peak
+variant=fast">
+      <span class="dot" style="background:#F59E0B"></span>
+    </div>
+<div class="decision" style="left:26.5%;background:#10B981" title="graphic_keyword_highlight @313.7s (conf=0.8)
+emphasis_word
+text=Internet Turd">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:30.8%;background:#3B82F6" title="zoom_pull_back @348.1s (conf=0.6)
+visual_monotony
+intensity=0.08, durationFrames=40">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:31.6%;background:#EC4899" title="caption_emphasis @362.2s (conf=0.8)
+emphasis_word
+wordIdx=0, style=bold">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:32.7%;background:#3B82F6" title="zoom_push @371.8s (conf=0.75)
+emotional_shift
+intensity=0.1, durationFrames=30">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:33.5%;background:#EC4899" title="caption_emphasis @383.4s (conf=0.8)
+emphasis_word
+wordIdx=0, style=bold">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:33.7%;background:#3B82F6" title="zoom_punch @386.1s (conf=0.9)
+vocal_peak
+intensity=0.2, durationFrames=20">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:34.0%;background:#10B981" title="graphic_keyword_highlight @396.8s (conf=0.75)
+emphasis_word
+text=D bag">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:34.6%;background:#F59E0B" title="sfx_impact @409.7s (conf=0.7)
+vocal_peak
+variant=heavy">
+      <span class="dot" style="background:#F59E0B"></span>
+    </div>
+<div class="decision" style="left:35.8%;background:#F59E0B" title="sfx_impact @419.9s (conf=0.7)
+vocal_peak
+variant=heavy">
+      <span class="dot" style="background:#F59E0B"></span>
+    </div>
+<div class="decision" style="left:37.0%;background:#10B981" title="graphic_stat_counter @437.3s (conf=0.85)
+number_mentioned
+value=0.02, label=human beings per day">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:37.4%;background:#EC4899" title="caption_emphasis @444.8s (conf=0.75)
+emphasis_word
+wordIdx=0, style=bold">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:38.2%;background:#3B82F6" title="zoom_push @458.6s (conf=0.8)
+emotional_shift
+intensity=0.12, durationFrames=30">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:38.7%;background:#EC4899" title="caption_emphasis @466.1s (conf=0.7)
+emphasis_word
+wordIdx=0, style=italic">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:39.7%;background:#78716C" title="cut_shorter @476.1s (conf=0.9)
+rhetorical_pause
+trimFrames=10">
+      <span class="dot" style="background:#78716C"></span>
+    </div>
+<div class="decision" style="left:39.9%;background:#EC4899" title="caption_emphasis @477.0s (conf=0.8)
+emphasis_word
+wordIdx=0, style=bold">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:42.1%;background:#3B82F6" title="zoom_push @509.7s (conf=0.85)
+emphasis_word
+intensity=0.15, durationFrames=30">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:42.5%;background:#EC4899" title="caption_emphasis @512.3s (conf=0.75)
+emphasis_word
+wordIdx=0, style=bold">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:43.0%;background:#F59E0B" title="sfx_whoosh @515.5s (conf=0.7)
+energy_peak
+variant=fast">
+      <span class="dot" style="background:#F59E0B"></span>
+    </div>
+<div class="decision" style="left:43.7%;background:#10B981" title="graphic_keyword_highlight @529.6s (conf=0.75)
+emphasis_word
+text=d-bag">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:44.3%;background:#10B981" title="graphic_keyword_highlight @541.2s (conf=0.8)
+emphasis_word
+text=internet trolls">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:46.1%;background:#3B82F6" title="zoom_punch @557.6s (conf=0.88)
+vocal_peak
+intensity=0.2, durationFrames=20">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:46.6%;background:#10B981" title="graphic_callout @565.3s (conf=0.8)
+key_information
+title=Conjecture, body=An opinion or conclusion forme">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:46.8%;background:#EC4899" title="caption_emphasis @567.5s (conf=0.7)
+emphasis_word
+wordIdx=0, style=italic">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:48.5%;background:#10B981" title="graphic_keyword_highlight @585.4s (conf=0.8)
+emphasis_word
+text=narcissists">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:49.6%;background:#3B82F6" title="zoom_push @594.3s (conf=0.85)
+emphasis_word
+intensity=0.15, durationFrames=30">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:51.3%;background:#EC4899" title="caption_emphasis @613.8s (conf=0.75)
+emphasis_word
+wordIdx=0, style=bold">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:51.5%;background:#10B981" title="graphic_keyword_highlight @615.2s (conf=0.7)
+emphasis_word
+text=narrative">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:52.6%;background:#3B82F6" title="zoom_push @635.2s (conf=0.8)
+emphasis_word
+intensity=0.1, durationFrames=25">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:54.2%;background:#3B82F6" title="zoom_punch @649.1s (conf=0.9)
+energy_peak
+intensity=0.2, durationFrames=20">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:56.7%;background:#8B5CF6" title="transition_flash @679.1s (conf=0.7)
+emotional_shift
+">
+      <span class="dot" style="background:#8B5CF6"></span>
+    </div>
+<div class="decision" style="left:57.8%;background:#10B981" title="graphic_logo_reveal @697.3s (conf=0.85)
+name_mentioned
+text=Wikipedia">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:59.9%;background:#3B82F6" title="zoom_punch @737.5s (conf=0.9)
+vocal_peak
+intensity=0.2, durationFrames=20">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:60.7%;background:#10B981" title="graphic_stat_counter @745.2s (conf=0.85)
+number_mentioned
+value=1/3, label=of people">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:64.9%;background:#10B981" title="graphic_callout @791.6s (conf=0.85)
+key_information
+title=Selection Bias, body=When your sample isn't random,">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:66.0%;background:#EC4899" title="caption_emphasis @801.7s (conf=0.75)
+emphasis_word
+wordIdx=0, style=italic">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:67.9%;background:#3B82F6" title="zoom_pull_back @817.9s (conf=0.6)
+visual_monotony
+intensity=0.08, durationFrames=40">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:71.6%;background:#F59E0B" title="sfx_impact @866.5s (conf=0.7)
+vocal_peak
+variant=cartoon">
+      <span class="dot" style="background:#F59E0B"></span>
+    </div>
+<div class="decision" style="left:72.4%;background:#10B981" title="graphic_keyword_highlight @874.7s (conf=0.8)
+emphasis_word
+text=discussion">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:75.2%;background:#3B82F6" title="zoom_punch @901.5s (conf=0.9)
+emotional_shift
+intensity=0.2, durationFrames=20">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:75.4%;background:#EC4899" title="caption_emphasis @907.0s (conf=0.8)
+emphasis_word
+wordIdx=0, style=bold">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:76.7%;background:#10B981" title="graphic_keyword_highlight @924.7s (conf=0.75)
+emphasis_word
+text=discussion">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:80.2%;background:#10B981" title="graphic_stat_counter @955.9s (conf=0.85)
+number_mentioned
+value=90%, label=of people are good">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:82.6%;background:#3B82F6" title="zoom_push @981.4s (conf=0.8)
+emotional_shift
+intensity=0.1, durationFrames=25">
+      <span class="dot" style="background:#3B82F6"></span>
+    </div>
+<div class="decision" style="left:83.2%;background:#10B981" title="graphic_quote_card @992.1s (conf=0.9)
+cta
+quote=Leave a comment., author=Hank Green">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:83.5%;background:#10B981" title="graphic_keyword_highlight @995.6s (conf=0.75)
+emphasis_word
+text=edit challenge">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:86.8%;background:#10B981" title="graphic_keyword_highlight @1030.1s (conf=0.8)
+emphasis_word
+text=no spaces">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:91.2%;background:#EC4899" title="caption_emphasis @1070.6s (conf=0.75)
+emphasis_word
+wordIdx=0, style=bold">
+      <span class="dot" style="background:#EC4899"></span>
+    </div>
+<div class="decision" style="left:92.1%;background:#10B981" title="graphic_keyword_highlight @1078.5s (conf=0.7)
+emphasis_word
+text=skills">
+      <span class="dot" style="background:#10B981"></span>
+    </div>
+<div class="decision" style="left:100.0%;background:#78716C" title="hold_longer @1172.8s (conf=0.6)
+closing_zone
+durationFrames=60">
+      <span class="dot" style="background:#78716C"></span>
+    </div></div>
+  <p style="font-size:11px;color:#64748B;margin-top:4px">Hover over markers for details. Left = start, right = end of video.</p>
+</div>
+
+<div class="section">
+  <h2>Stats</h2>
+  <div class="stats">
+    <div class="stat-card"><div class="value">65</div><div class="label">Total Decisions</div></div>
+    <div class="stat-card"><div class="value">3.3</div><div class="label">Decisions / Min</div></div>
+    <div class="stat-card"><div class="value">0.77</div><div class="label">Avg Confidence</div></div>
+    <div class="stat-card"><div class="value">9</div><div class="label">Arc Sections</div></div>
+    <div class="stat-card"><div class="value">[15, 26, 13, 11]</div><div class="label">Distribution Q1-Q4</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Decision Breakdown</h2>
+  <div class="type-list">
+    <div class="type-item"><span>graphic_keyword_highlight</span><span class="count">14</span></div>
+<div class="type-item"><span>caption_emphasis</span><span class="count">14</span></div>
+<div class="type-item"><span>zoom_push</span><span class="count">8</span></div>
+<div class="type-item"><span>sfx_impact</span><span class="count">6</span></div>
+<div class="type-item"><span>zoom_punch</span><span class="count">6</span></div>
+<div class="type-item"><span>zoom_pull_back</span><span class="count">3</span></div>
+<div class="type-item"><span>graphic_stat_counter</span><span class="count">3</span></div>
+<div class="type-item"><span>sfx_whoosh</span><span class="count">2</span></div>
+<div class="type-item"><span>graphic_callout</span><span class="count">2</span></div>
+<div class="type-item"><span>graphic_lower_third</span><span class="count">1</span></div>
+<div class="type-item"><span>transition_dissolve</span><span class="count">1</span></div>
+<div class="type-item"><span>cut_shorter</span><span class="count">1</span></div>
+<div class="type-item"><span>transition_flash</span><span class="count">1</span></div>
+<div class="type-item"><span>graphic_logo_reveal</span><span class="count">1</span></div>
+<div class="type-item"><span>graphic_quote_card</span><span class="count">1</span></div>
+<div class="type-item"><span>hold_longer</span><span class="count">1</span></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Audio Design</h2>
+  <div class="understanding">
+    <p><strong>Ambient bed:</strong> light_underscore</p>
+    <p><strong>Ducking profile:</strong> standard_speech</p>
+    <p><strong>Caption style:</strong> word_by_word</p>
+  </div>
+</div>
+</body></html>
