@@ -4,7 +4,8 @@ import type { CompositionRendererProps } from './recipe-types';
 import type { ResolvedElement, ComputedChoreography, DepthLayer } from './recipe-types';
 import { resolveElements } from './property-resolver';
 import { computeChoreography, type SyncData } from './choreography-computer';
-import { computeAnimationState, buildShapeStyle, buildTextStyle, buildTransformStyle, deriveSpatialConfig, applyAudioReactiveModulation, type SpatialConfig, type SignalCurves } from './primitive-renderers';
+import { computeAnimationState, buildShapeStyle, buildTextStyle, buildTransformStyle, deriveSpatialConfig, applyAudioReactiveModulation, type SpatialConfig, type SignalCurves, type AnimationState } from './primitive-renderers';
+import type { MGKeyframe, MGKeyframeTrack, MGSpeedRamp } from './recipe-types';
 import { BarChart, PercentageRing, Sparkline } from './data-viz-renderers';
 
 // Z-ordering: background renders first (behind), foreground last (on top)
@@ -92,9 +93,20 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
   spatial,
   signalCurves,
 }) => {
-  const baseAnim = computeAnimationState(frame, timing, element.entrancePattern, element.exitPattern, spatial, element.holdAnimation);
+  // D8: Speed ramp — remap frame through speed curve before computing animation
+  const effectiveFrame = element.speedRamp
+    ? remapFrameBySpeed(frame, element.speedRamp, timing)
+    : frame;
+
+  const baseAnim = computeAnimationState(effectiveFrame, timing, element.entrancePattern, element.exitPattern, spatial, element.holdAnimation);
+
+  // D8: Keyframe overrides — per-property animation curves on top of phase animation
+  const keyframedAnim = element.keyframeTracks?.length
+    ? applyMGKeyframes(baseAnim, effectiveFrame, timing, element.keyframeTracks)
+    : baseAnim;
+
   // Audio-reactive modulation: beat pulse, energy breathing, emotion scale (hold phase only)
-  const anim = applyAudioReactiveModulation(baseAnim, frame, timing, signalCurves);
+  const anim = applyAudioReactiveModulation(keyframedAnim, frame, timing, signalCurves);
 
   if (anim.opacity <= 0.001) return null;
 
@@ -317,3 +329,69 @@ export const SafeCompositionRenderer: React.FC<CompositionRendererInternalProps>
     <CompositionRenderer {...props} />
   </CompositionErrorBoundary>
 );
+
+// ─── D8: MG Keyframe Interpolation ─────────────────────────────
+
+function applyMGKeyframes(
+  anim: AnimationState,
+  frame: number,
+  timing: import('./recipe-types').ComputedChoreography,
+  tracks: MGKeyframeTrack[],
+): AnimationState {
+  const localFrame = frame - timing.enterStartFrame;
+  const result = { ...anim };
+  for (const track of tracks) {
+    if (track.keyframes.length === 0) continue;
+    const value = interpolateMGKeyframes(track.keyframes, localFrame);
+    if (value !== undefined) {
+      (result as Record<string, unknown>)[track.property] = value;
+    }
+  }
+  return result;
+}
+
+function interpolateMGKeyframes(keyframes: MGKeyframe[], frame: number): number | undefined {
+  if (keyframes.length === 0) return undefined;
+  if (frame <= keyframes[0].frame) return keyframes[0].value;
+  if (frame >= keyframes[keyframes.length - 1].frame) return keyframes[keyframes.length - 1].value;
+
+  for (let i = 0; i < keyframes.length - 1; i++) {
+    const a = keyframes[i];
+    const b = keyframes[i + 1];
+    if (frame >= a.frame && frame <= b.frame) {
+      const t = (frame - a.frame) / Math.max(1, b.frame - a.frame);
+      const eased = applyMGEasing(t, b.easing);
+      return a.value + (b.value - a.value) * eased;
+    }
+  }
+  return undefined;
+}
+
+function applyMGEasing(t: number, easing: MGKeyframe['easing']): number {
+  switch (easing) {
+    case 'ease-in': return t * t;
+    case 'ease-out': return 1 - (1 - t) * (1 - t);
+    case 'ease-in-out': return t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
+    case 'linear':
+    default: return t;
+  }
+}
+
+// ─── D8: Speed Ramp — Frame Time Remapping ─────────────────────
+
+function remapFrameBySpeed(
+  frame: number,
+  speedRamp: MGSpeedRamp,
+  timing: import('./recipe-types').ComputedChoreography,
+): number {
+  if (speedRamp.speedCurve.length === 0) return frame;
+  const localFrame = frame - timing.enterStartFrame;
+  if (localFrame <= 0) return frame;
+
+  let accumulated = 0;
+  for (let f = 0; f < localFrame; f++) {
+    const speed = interpolateMGKeyframes(speedRamp.speedCurve, f) ?? 1;
+    accumulated += Math.max(0.1, Math.min(4, speed));
+  }
+  return timing.enterStartFrame + accumulated;
+}

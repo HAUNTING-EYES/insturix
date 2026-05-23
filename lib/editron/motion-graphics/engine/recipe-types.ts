@@ -113,6 +113,8 @@ export interface ResolvedElement {
   resolvedProps: Record<string, string | number | boolean>;
   entrancePattern: EntrancePattern;
   exitPattern: ExitPattern;
+  keyframeTracks?: MGKeyframeTrack[];
+  speedRamp?: MGSpeedRamp;
 }
 
 export interface ComputedChoreography {

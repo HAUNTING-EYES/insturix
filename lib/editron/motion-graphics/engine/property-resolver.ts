@@ -120,6 +120,8 @@ export function resolveElements(
       shape: el.shape,
       animation: el.animation,
       holdAnimation: el.holdAnimation,
+      keyframeTracks: el.keyframeTracks,
+      speedRamp: el.speedRamp,
       layer: el.layer,
       enterOrder,
       resolvedProps,
