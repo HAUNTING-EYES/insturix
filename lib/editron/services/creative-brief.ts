@@ -887,7 +887,7 @@ function computeDecisionBudget(
 
 // ─── Validation + Confidence Gating + Budget Enforcement ────────────────────
 
-function validateAndGate(raw: any, startTime: number, budget?: BudgetMap | null, mode: ContentMode = 'speech'): CreativeBrief | null {
+export function validateAndGate(raw: any, startTime: number, budget?: BudgetMap | null, mode: ContentMode = 'speech'): CreativeBrief | null {
   if (!raw || typeof raw !== 'object') return null;
 
   const VALID_SECTION_LABELS: NarrativeSectionLabel[] = [
