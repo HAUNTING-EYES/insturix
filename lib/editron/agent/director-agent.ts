@@ -59,7 +59,37 @@ export async function executeDirectorPlan(
   }
 
   // Apply brief overrides
-  const effectiveProfile = applyBriefOverrides(profile, brief);
+  let effectiveProfile = applyBriefOverrides(profile, brief);
+
+  // Phase 2.4: Utility AI profile override (feature-flagged, default OFF)
+  const useUtilityEngine = process.env.USE_UTILITY_ENGINE === 'true';
+  if (useUtilityEngine) {
+    try {
+      const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
+      const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
+      const overlayDefs = getOverlayDefinitions();
+      const globalSignals: Record<string, number> = {
+        formality: typeof effectiveProfile.pacing === 'string' ? (effectiveProfile.pacing === 'slow' ? 0.7 : effectiveProfile.pacing === 'fast' ? 0.3 : 0.5) : 0.5,
+        warmth: 0.5,
+        enthusiasm: 0.5,
+        'speech.coverage': 0.5,
+        'visual.engagement': 0.5,
+      };
+      const results = scoreAllOverlays(overlayDefs, globalSignals);
+      const filterWinner = results.find(r => r.category === 'filter');
+      const captionWinner = results.find(r => r.category === 'caption');
+      if (filterWinner?.outputValues['filterPresetId']) {
+        effectiveProfile = { ...effectiveProfile, filterPresetId: filterWinner.outputValues['filterPresetId'] as string };
+        console.log(`[Director] Utility AI: filter → ${filterWinner.outputValues['filterPresetId']} (score: ${filterWinner.totalScore.toFixed(3)}, was: ${profile.filterPresetId})`);
+      }
+      if (captionWinner?.outputValues['captionStyle']) {
+        effectiveProfile = { ...effectiveProfile, captionStyle: captionWinner.outputValues['captionStyle'] as any };
+        console.log(`[Director] Utility AI: caption → ${captionWinner.outputValues['captionStyle']} (score: ${captionWinner.totalScore.toFixed(3)}, was: ${profile.captionStyle})`);
+      }
+    } catch (err) {
+      console.log(`[Director] Utility AI profile override: skipped (${err instanceof Error ? err.message : 'error'})`);
+    }
+  }
 
   // Pipeline warning collector for structured error visibility
   const { createPipelineWarnings } = await import('@/lib/editron/services/pipeline-warnings');
@@ -589,6 +619,40 @@ export async function executeDirectorPlan(
               signalTimeline, genreOutput.genreParams, weightMap, graphIndex, overlayInfos
             );
             console.log(`[Director] Path D: ${signalEdl.metadata.totalMappingsFired} mappings fired → ${signalEdl.metadata.totalDecisionsGenerated} decisions (${signalEdl.metadata.totalDecisionsSuppressed} suppressed) in ${signalEdl.metadata.executionTimeMs}ms`);
+
+            // Step D.4b: Utility AI shadow scoring (Phase 1.2 — log only, never affects output)
+            try {
+              const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
+              const { inspectGridPoint, formatInspectorLog } = await import('@/lib/editron/engine/decision-inspector');
+              const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
+              const overlayDefs = getOverlayDefinitions();
+              const gridFrames = Array.from(signalTimeline.gridSignals.keys()).sort((a: number, b: number) => a - b);
+              let utilityTotal = 0;
+              let utilityAboveMin = 0;
+              const sampleLogs: string[] = [];
+              for (const frame of gridFrames) {
+                const snap = signalTimeline.gridSignals.get(frame)!;
+                const numericSnap: Record<string, number> = {};
+                for (const [k, v] of Object.entries({ ...signalTimeline.globalSignals, ...snap })) {
+                  if (typeof v === 'number') numericSnap[k] = v;
+                  else if (v === true) numericSnap[k] = 1;
+                  else if (v === false) numericSnap[k] = 0;
+                }
+                const results = scoreAllOverlays(overlayDefs, numericSnap);
+                utilityTotal += overlayDefs.length;
+                utilityAboveMin += results.length;
+                if (results.length > 0 && sampleLogs.length < 5) {
+                  const decision = { frame, timestampMs: snap.timestampMs, winners: {} as any, allScores: results };
+                  sampleLogs.push(formatInspectorLog(inspectGridPoint(decision)));
+                }
+              }
+              console.log(`[Director] Utility AI shadow: scored ${overlayDefs.length} overlays × ${gridFrames.length} grid points. ${utilityAboveMin} above minScore.`);
+              if (sampleLogs.length > 0) {
+                console.log(`[Director] Utility AI sample decisions:\n${sampleLogs.slice(0, 3).join('\n')}`);
+              }
+            } catch (utilityErr) {
+              console.log(`[Director] Utility AI shadow: skipped (${utilityErr instanceof Error ? utilityErr.message : 'unknown error'})`);
+            }
 
             // Step D.5: Humanize pass (organic imperfection injection)
             const humanizedEdl = humanizeEdl(signalEdl, projectId, projectDoc.rawFootageAnalysis, pathDFps);

@@ -242,6 +242,7 @@ export function buildSignalTimeline(
     snapshot['speech.energy_delta'] = getSpeechEnergyDelta(mergedAnalysis, timestampMs);
     snapshot['speech.speaking_rate_wpm'] = getSpeakingRateAt(rawFootage, timestampMs);
     snapshot['speech.silence_duration_ms'] = getSilenceDurationAt(rawFootage, timestampMs);
+    snapshot['speech.silence_normalized'] = Math.min(1, (snapshot['speech.silence_duration_ms'] as number) / 3000);
     snapshot['speech.coverage'] = getSpeechCoverageAt(rawFootage, timestampMs);
 
     // ── Wav2Vec enrichment: REPLACE heuristic speech.energy + ADD new speech signals ──
@@ -315,6 +316,19 @@ export function buildSignalTimeline(
     snapshot['structural.active_overlays_count'] = getActiveOverlayCount(overlays, frame);
     snapshot['structural.cumulative_edit_density'] = getCumulativeEditDensity(overlays, frame, fps);
 
+    // ── Phase 4: Visual intelligence signals (ADDITIVE — Phase 1C safe) ──
+
+    // 4.3: Scene boundary detection from keyframe color histogram diff
+    snapshot['visual.scene_change'] = getSceneChangeAt(mergedAnalysis, frame, fps);
+
+    // 4.4a: Brightness stability — how stable is brightness between consecutive keyframes
+    snapshot['visual.brightness_stability'] = getBrightnessStabilityAt(mergedAnalysis, frame);
+
+    // 4.4b: Visual Engagement Score — composite from available sub-signals
+    // Weights: eye_contact 0.3, visual_significance 0.25, motion 0.2, face_quality 0.15, brightness 0.1
+    // ⚠️ INVENTED weights — need calibration (D-013)
+    snapshot['visual.engagement'] = computeVES(snapshot);
+
     timeline.gridSignals.set(frame, snapshot);
   }
 
@@ -368,6 +382,50 @@ export function buildSignalTimeline(
     const vocalValence = snapshot['speech.emotional_valence'] as string | undefined;
     if (faceEmotion && vocalValence) {
       snapshot['composite.emotional_alignment'] = computeEmotionalAlignment(faceEmotion, vocalValence);
+    }
+  }
+
+  // ── PASS 3: EMA + Surprise + Trajectory (Phase 5 — temporal context) ──
+  // EMA = exponential moving average over ~3s window (alpha=0.3).
+  // Surprise = raw - EMA (positive = rising, negative = dropping).
+  // Trajectory = categorical state derived from EMA slope.
+  // These are ADDITIVE — they don't modify Pass 1/2 values.
+  {
+    const EMA_ALPHA = 0.3;
+    const emaSignals = ['speech.energy', 'visual.engagement', 'visual.motion_intensity'] as const;
+    const emaState: Record<string, number> = {};
+
+    for (const frame of gridFrames) {
+      const snapshot = timeline.gridSignals.get(frame)!;
+
+      for (const sig of emaSignals) {
+        const raw = (snapshot[sig] as number) ?? 0;
+        const key = sig;
+
+        if (!(key in emaState)) {
+          emaState[key] = raw;
+        } else {
+          emaState[key] = EMA_ALPHA * raw + (1 - EMA_ALPHA) * emaState[key];
+        }
+
+        const ema = emaState[key];
+        const surprise = raw - ema;
+
+        snapshot[`${sig}_ema`] = ema;
+        snapshot[`${sig}_surprise`] = surprise;
+      }
+
+      const energyEma = (snapshot['speech.energy_ema'] as number) ?? 0;
+      const energySurprise = (snapshot['speech.energy_surprise'] as number) ?? 0;
+      const energyRaw = (snapshot['speech.energy'] as number) ?? 0;
+
+      let trajectory: string = 'neutral';
+      if (energySurprise > 0.05 && energyRaw > energyEma) trajectory = 'rising';
+      else if (energySurprise > 0.1 && energyRaw > 0.6) trajectory = 'peaked';
+      else if (energySurprise < -0.05) trajectory = 'falling';
+      else if (energyRaw < 0.1 && energyEma < 0.15) trajectory = 'quiet';
+
+      snapshot['temporal.energy_trajectory'] = trajectory;
     }
   }
 
@@ -885,6 +943,69 @@ function estimateFormality(rawFootage: RawFootageAnalysis | null): number {
 function hasMusicPresent(analysis: AssetAnalysis): boolean {
   if (!analysis.musicStructure) return false;
   return (analysis.musicStructure.bpm ?? 0) > 0;
+}
+
+// ─── Phase 4: Visual Intelligence Helpers ─────────────────────────────────
+
+function getSceneChangeAt(analysis: AssetAnalysis, frame: number, fps: number): number {
+  if (!analysis.keyframeAnalyses?.length || analysis.keyframeAnalyses.length < 2) return 0;
+  const kfs = analysis.keyframeAnalyses;
+  let closestIdx = 0;
+  let closestDist = Infinity;
+  for (let i = 0; i < kfs.length; i++) {
+    const dist = Math.abs(kfs[i].frameNumber - frame);
+    if (dist < closestDist) { closestDist = dist; closestIdx = i; }
+  }
+  if (closestIdx === 0) return 0;
+  const curr = kfs[closestIdx];
+  const prev = kfs[closestIdx - 1];
+  if (!curr.dominantColors?.length || !prev.dominantColors?.length) return 0;
+  const currColors = curr.dominantColors!;
+  const prevColors = prev.dominantColors!;
+  const allColors = new Set<string>();
+  currColors.forEach(c => allColors.add(c));
+  prevColors.forEach(c => allColors.add(c));
+  let shared = 0;
+  currColors.forEach(c => { if (prevColors.includes(c)) shared++; });
+  if (allColors.size === 0) return 0;
+  return 1 - shared / allColors.size;
+}
+
+function getBrightnessStabilityAt(analysis: AssetAnalysis, frame: number): number {
+  if (!analysis.keyframeAnalyses?.length || analysis.keyframeAnalyses.length < 2) return 1;
+  const kfs = analysis.keyframeAnalyses;
+  let closestIdx = 0;
+  let closestDist = Infinity;
+  for (let i = 0; i < kfs.length; i++) {
+    const dist = Math.abs(kfs[i].frameNumber - frame);
+    if (dist < closestDist) { closestDist = dist; closestIdx = i; }
+  }
+  if (closestIdx === 0) return 1;
+  const currBrightness = kfs[closestIdx].brightness ?? 0.5;
+  const prevBrightness = kfs[closestIdx - 1].brightness ?? 0.5;
+  const delta = Math.abs(currBrightness - prevBrightness);
+  return Math.max(0, 1 - delta * 3);
+}
+
+function computeVES(snapshot: Record<string, number | boolean | string>): number {
+  let weightSum = 0;
+  let valueSum = 0;
+  const components: Array<{ key: string; weight: number }> = [
+    { key: 'visual.eye_contact', weight: 0.3 },
+    { key: 'visual.significance', weight: 0.25 },
+    { key: 'visual.motion_intensity', weight: 0.2 },
+    { key: 'visual.face_present', weight: 0.15 },
+    { key: 'visual.brightness_stability', weight: 0.1 },
+  ];
+  for (const { key, weight } of components) {
+    const val = snapshot[key];
+    if (typeof val === 'number' && isFinite(val)) {
+      valueSum += val * weight;
+      weightSum += weight;
+    }
+  }
+  if (weightSum === 0) return 0.5;
+  return valueSum / weightSum;
 }
 
 // ─── SegmentAnalysis Adapter ───────────────────────────────────────────────
