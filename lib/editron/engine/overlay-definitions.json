@@ -1,0 +1,2051 @@
+[
+  {
+    "id": "speech.zoom_push_speech_speaker_building_energy",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "speech.energy_delta",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.35,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Speaker Building Energy: speech.energy_delta > 0.15"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "scaleTo",
+        "mode": "proportional",
+        "minValue": 1,
+        "maxValue": 1.1
+      }
+    ]
+  },
+  {
+    "id": "speech.zoom_punch_speech_speaker_energy_peak",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 600,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Speaker Energy Peak: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "scaleTo",
+        "mode": "proportional",
+        "minValue": 1.1,
+        "maxValue": 1.3
+      }
+    ]
+  },
+  {
+    "id": "speech.zoom_pull_back_speech_speaker_winding_down",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "speech.energy_delta",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.7,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "Speaker Winding Down: speech.energy_delta < -0.2"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "scaleTo",
+        "mode": "proportional",
+        "minValue": 0.95,
+        "maxValue": 1
+      }
+    ]
+  },
+  {
+    "id": "speech.caption_emphasis_speech_speaker_emphasis_word",
+    "category": "caption",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "emphasis_word",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Speaker Emphasis Word: emphasis_word = true"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "speech.l_cut_speech_filler_removal",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "filler_detected",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Filler Removal: filler_detected = true"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "entity.stat_graphic_entity_quantitative_claim",
+    "category": "graphic",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "entity.number",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Quantitative Claim: entity.number = true"
+      },
+      {
+        "signalId": "claim_strength",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Quantitative Claim: claim_strength = assertive"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "graphicType",
+        "mode": "fixed",
+        "fixedValue": "stat_graphic"
+      }
+    ]
+  },
+  {
+    "id": "entity.stat_graphic_entity_hedged_statement_restraint",
+    "category": "graphic",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "claim_strength",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Hedged Statement Restraint: claim_strength = hedged"
+      },
+      {
+        "signalId": "entity.number",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Hedged Statement Restraint: entity.number = true"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "graphicType",
+        "mode": "fixed",
+        "fixedValue": "stat_graphic"
+      }
+    ]
+  },
+  {
+    "id": "entity.lower_third_entity_name_or_brand_mentioned",
+    "category": "graphic",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "entity.name",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Name Or Brand Mentioned: entity.name = true"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "graphicType",
+        "mode": "fixed",
+        "fixedValue": "lower_third"
+      }
+    ]
+  },
+  {
+    "id": "entity.zoom_in_entity_call_to_action",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "entity.CTA",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Call To Action: entity.CTA = true"
+      },
+      {
+        "signalId": "position_in_video",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.19999999999999996,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Call To Action: position_in_video > 0.7"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "entity.caption_emphasis_entity_call_to_action_early",
+    "category": "caption",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "entity.CTA",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Call To Action Early: entity.CTA = true"
+      },
+      {
+        "signalId": "position_in_video",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.19999999999999996,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "Call To Action Early: position_in_video < 0.7"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "entity.zoom_reset_entity_topic_shift",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "topic_boundary",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Topic Shift: topic_boundary = true"
+      },
+      {
+        "signalId": "silence_duration",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Topic Shift: silence_duration = 400ms"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "entity.zoom_push_entity_strong_claim_emphasis",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "claim_strength",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Strong Claim Emphasis: claim_strength = assertive"
+      },
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Strong Claim Emphasis: speech.energy = energy_baseline"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "scaleTo",
+        "mode": "proportional",
+        "minValue": 1,
+        "maxValue": 1.1
+      }
+    ]
+  },
+  {
+    "id": "visual.zoom_drift_visual_low_motion_visual_interest",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "motion_intensity",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.3,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "Low Motion Visual Interest: motion_intensity < 0.2"
+      },
+      {
+        "signalId": "time_since_last_cut",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Low Motion Visual Interest: time_since_last_cut = pacing_tolerance"
+      },
+      {
+        "signalId": "speech.energy",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.2,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Low Motion Visual Interest: speech.energy > 0.3"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "visual.hard_cut_visual_cut_on_action",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Cut On Action: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "visual.dissolve_visual_color_temperature_continuity",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Color Temperature Continuity: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "audio.zoom_punch_audio_music_drop_impact",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 600,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Music Drop Impact: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "scaleTo",
+        "mode": "proportional",
+        "minValue": 1.1,
+        "maxValue": 1.3
+      }
+    ]
+  },
+  {
+    "id": "composite.flash_composite_montage_mode_activation",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "montage_mode",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Montage Mode Activation: montage_mode = true"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "composite.zoom_push_composite_cinematic_moment_emphasis",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "cinematic_moment",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Cinematic Moment Emphasis: cinematic_moment = true"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "scaleTo",
+        "mode": "proportional",
+        "minValue": 1,
+        "maxValue": 1.1
+      }
+    ]
+  },
+  {
+    "id": "multi-signal.zoom_push_multi_speaker_delivering_key_point",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Speaker Delivering Key Point: speech.energy = energy_baseline"
+      },
+      {
+        "signalId": "speaking_rate",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Speaker Delivering Key Point: speaking_rate = baseline"
+      },
+      {
+        "signalId": "narrative_phase",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Speaker Delivering Key Point: narrative_phase = build"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "scaleTo",
+        "mode": "proportional",
+        "minValue": 1,
+        "maxValue": 1.12
+      }
+    ]
+  },
+  {
+    "id": "transition.hard_cut_transition_default_hard_cut",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Default Hard Cut: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.dissolve_transition_dissolve",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "time_passage_implied",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Dissolve: time_passage_implied = true"
+      },
+      {
+        "signalId": "energy_baseline",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.09999999999999998,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "Transition Dissolve: energy_baseline < 0.4"
+      },
+      {
+        "signalId": "pacing_tolerance",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 4.5,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Dissolve: pacing_tolerance > 5"
+      },
+      {
+        "signalId": "motion_intensity",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Dissolve: motion_intensity > 0.5"
+      },
+      {
+        "signalId": "montage_mode",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Dissolve: montage_mode = true"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.fade_to_black_transition_fade_to_black",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "narrative_phase",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Fade To Black: narrative_phase = resolve"
+      },
+      {
+        "signalId": "narrative_phase",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Fade To Black: narrative_phase = opening"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.whip_pan_transition_whip_pan",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "montage_mode",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Whip Pan: montage_mode = true"
+      },
+      {
+        "signalId": "speech.energy_delta",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.2,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Whip Pan: speech.energy_delta > 0.3"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "Transition Whip Pan: formality < 0.5"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.flash_transition_flash",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "peak_score",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.30000000000000004,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Flash: peak_score > 0.8"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.09999999999999998,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "Transition Flash: formality < 0.6"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.j_cut_transition_j_cut",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition J-Cut: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.l_cut_transition_l_cut",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition L-Cut: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "speed.speed_ramp_speed_speed_ramp_emphasis",
+    "category": "camera",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 60,
+    "considerations": [
+      {
+        "signalId": "action_type",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Speed Ramp Emphasis: action_type = physical"
+      },
+      {
+        "signalId": "moment_weight",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.19999999999999996,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Speed Ramp Emphasis: moment_weight > 0.7"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "sound-design.zoom_punch_sound_transition_sound_pairing",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 600,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Sound Pairing: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "scaleTo",
+        "mode": "proportional",
+        "minValue": 1.1,
+        "maxValue": 1.3
+      }
+    ]
+  },
+  {
+    "id": "caption.lower_third_caption_caption_position_adjustment",
+    "category": "graphic",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Caption Position Adjustment: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "graphicType",
+        "mode": "fixed",
+        "fixedValue": "lower_third"
+      }
+    ]
+  },
+  {
+    "id": "voiceover.l_cut_voiceover_visual_freedom",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "has_narration",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Voiceover Visual Freedom: has_narration = true"
+      },
+      {
+        "signalId": "face_present",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "Voiceover Visual Freedom: face_present = false"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "voiceover.l_cut_voiceover_on_camera_speech_constraints",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "face_present",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "On Camera Speech Constraints: face_present = true"
+      },
+      {
+        "signalId": "speech.energy",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.3,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "On Camera Speech Constraints: speech.energy > 0.2"
+      },
+      {
+        "signalId": "eye_contact",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "On Camera Speech Constraints: eye_contact = true"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "visual-finishing.film_grain_finishing_film_grain_texture",
+    "category": "filter",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Film Grain Texture: formality > 0.5"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "visual-finishing.vignette_finishing_subtle_vignette",
+    "category": "filter",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.09999999999999998,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Subtle Vignette: formality > 0.6"
+      },
+      {
+        "signalId": "scene_type",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "Subtle Vignette: scene_type = graphic_only"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.hard_cut_transition_match_cut",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "moment_weight",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Match Cut: moment_weight = 0.6."
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.hard_cut_transition_smash_cut",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Smash Cut: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.jump_cut_transition_jump_cut",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.09999999999999998,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "Transition Jump Cut: formality < 0.4"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.dip_to_white_transition_dip_to_white",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Dip To White: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.blur_transition_transition_blur",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Blur: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "transition.dissolve_transition_soft_cut",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Transition Soft Cut: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "graphic.callout_graphic_callout_graphic",
+    "category": "graphic",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "action_type",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Callout Graphic: action_type = demonstrating"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "graphicType",
+        "mode": "fixed",
+        "fixedValue": "callout"
+      }
+    ]
+  },
+  {
+    "id": "graphic.keyword_highlight_graphic_keyword_highlight",
+    "category": "graphic",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Keyword Highlight: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "graphicType",
+        "mode": "fixed",
+        "fixedValue": "keyword_highlight"
+      }
+    ]
+  },
+  {
+    "id": "camera-shake.camera_shake_shake_camera_shake_impact",
+    "category": "camera",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 60,
+    "considerations": [
+      {
+        "signalId": "peak_score",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.35,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Camera Shake Impact: peak_score > 0.85"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "Camera Shake Impact: formality < 0.5"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "intensity",
+        "mode": "proportional",
+        "minValue": 0.02,
+        "maxValue": 0.08
+      }
+    ]
+  },
+  {
+    "id": "cross-domain.flash_cross_domain_eye_trace_continuity_across_cuts",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Eye Trace Continuity Across Cuts: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": []
+  },
+  {
+    "id": "cross-domain.zoom_pull_back_cross_domain_post_peak_decompression",
+    "category": "zoom",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 90,
+    "considerations": [
+      {
+        "signalId": "speech.energy",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "Post Peak Decompression: fallback (trigger unparseable)"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "scaleTo",
+        "mode": "proportional",
+        "minValue": 0.95,
+        "maxValue": 1
+      }
+    ]
+  },
+  {
+    "id": "visual.cut_dead_air",
+    "category": "cut",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.5,
+    "minGapFrames": 60,
+    "considerations": [
+      {
+        "signalId": "visual.engagement",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.1,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "low visual engagement suggests dead air"
+      },
+      {
+        "signalId": "speech.silence_normalized",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 2,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "longer silence increases dead air likelihood"
+      },
+      {
+        "signalId": "speech.energy",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.2,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "no speech supports dead air classification"
+      },
+      {
+        "signalId": "speech.energy_ema",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.1,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "energy was ALSO low recently (not just now) — true dead air, not dramatic pause"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "cutType",
+        "mode": "fixed",
+        "fixedValue": "dead_air"
+      }
+    ]
+  },
+  {
+    "id": "visual.scene_transition",
+    "category": "transition",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.4,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visual.scene_change",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 2,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "high visual change indicates scene boundary"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "transitionType",
+        "mode": "fixed",
+        "fixedValue": "dissolve"
+      },
+      {
+        "name": "durationFrames",
+        "mode": "proportional",
+        "minValue": 8,
+        "maxValue": 20
+      }
+    ]
+  },
+  {
+    "id": "visual.beat_sync_cut",
+    "category": "cut",
+    "rank": 40,
+    "weight": 1,
+    "minScore": 0.5,
+    "minGapFrames": 60,
+    "considerations": [
+      {
+        "signalId": "audio.music_beat",
+        "curveType": "linear",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "on a music beat position"
+      },
+      {
+        "signalId": "speech.coverage",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.1,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "low speech coverage favors music-driven editing"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "cutType",
+        "mode": "fixed",
+        "fixedValue": "beat_sync"
+      }
+    ]
+  },
+  {
+    "id": "visual.hold_dramatic_pause",
+    "category": "cut",
+    "rank": 60,
+    "weight": 1,
+    "minScore": 0.5,
+    "minGapFrames": 60,
+    "considerations": [
+      {
+        "signalId": "visual.engagement",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "high visual engagement — speaker is present and intentional"
+      },
+      {
+        "signalId": "speech.energy_ema",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "energy WAS high recently — this silence follows intensity"
+      },
+      {
+        "signalId": "speech.silence_normalized",
+        "curveType": "normal",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": -0.2,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "moderate silence (0.5-2s bell curve) — too short or too long is not dramatic"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "holdType",
+        "mode": "fixed",
+        "fixedValue": "dramatic_pause"
+      }
+    ]
+  },
+  {
+    "id": "profile.filter_clean_corporate",
+    "category": "filter",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "formal content suits clean corporate look"
+      },
+      {
+        "signalId": "warmth",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.1,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "cool/neutral content — not warm"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "filterPresetId",
+        "mode": "fixed",
+        "fixedValue": "clean-corporate"
+      }
+    ]
+  },
+  {
+    "id": "profile.filter_vivid",
+    "category": "filter",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "enthusiastic content suits vivid colors"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.1,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "informal content — not corporate"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "filterPresetId",
+        "mode": "fixed",
+        "fixedValue": "vivid"
+      }
+    ]
+  },
+  {
+    "id": "profile.filter_warm_neutral",
+    "category": "filter",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "warmth",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "warm emotional content suits warm filter"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "filterPresetId",
+        "mode": "fixed",
+        "fixedValue": "warm-neutral"
+      }
+    ]
+  },
+  {
+    "id": "profile.filter_cinematic",
+    "category": "filter",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visual.engagement",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "visually engaging content suits cinematic treatment"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "normal",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": 0,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "moderate formality — not too casual or corporate"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "filterPresetId",
+        "mode": "fixed",
+        "fixedValue": "cinematic"
+      }
+    ]
+  },
+  {
+    "id": "profile.caption_subtitle",
+    "category": "caption",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.coverage",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.2,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "has speech to caption"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": -0.15,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "formal content suits standard subtitles"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "captionStyle",
+        "mode": "fixed",
+        "fixedValue": "subtitle"
+      }
+    ]
+  },
+  {
+    "id": "profile.caption_word_by_word",
+    "category": "caption",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.coverage",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.2,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "has speech to caption"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "energetic content suits animated word display"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.1,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "casual content — not corporate"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "captionStyle",
+        "mode": "fixed",
+        "fixedValue": "word-by-word"
+      }
+    ]
+  },
+  {
+    "id": "profile.caption_none",
+    "category": "caption",
+    "rank": 40,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.coverage",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.2,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "low speech — no captions needed"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "captionStyle",
+        "mode": "fixed",
+        "fixedValue": "none"
+      }
+    ]
+  },
+  {
+    "id": "profile.transition_hard_cut",
+    "category": "transition",
+    "rank": 40,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "speech.energy_surprise",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "energy shift favors hard cut"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "transitionType",
+        "mode": "fixed",
+        "fixedValue": "hard-cut"
+      },
+      {
+        "name": "durationFrames",
+        "mode": "fixed",
+        "fixedValue": 2
+      }
+    ]
+  },
+  {
+    "id": "profile.transition_dissolve",
+    "category": "transition",
+    "rank": 40,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "warmth",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "warm content suits soft dissolve"
+      },
+      {
+        "signalId": "speech.energy_surprise",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.1,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "low energy change — smooth moment"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "transitionType",
+        "mode": "fixed",
+        "fixedValue": "dissolve"
+      },
+      {
+        "name": "durationFrames",
+        "mode": "proportional",
+        "minValue": 10,
+        "maxValue": 25
+      }
+    ]
+  },
+  {
+    "id": "profile.transition_whip_pan",
+    "category": "transition",
+    "rank": 40,
+    "weight": 1,
+    "minScore": 0.4,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "high energy content"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": 0.1,
+          "yShift": 0
+        },
+        "invert": true,
+        "description": "casual — not corporate"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "transitionType",
+        "mode": "fixed",
+        "fixedValue": "whip-pan"
+      },
+      {
+        "name": "durationFrames",
+        "mode": "fixed",
+        "fixedValue": 8
+      }
+    ]
+  },
+  {
+    "id": "profile.transition_dip_to_black",
+    "category": "transition",
+    "rank": 40,
+    "weight": 1,
+    "minScore": 0.3,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1,
+          "xShift": -0.15,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "formal content suits structured transitions"
+      },
+      {
+        "signalId": "visual.scene_change",
+        "curveType": "logistic",
+        "params": {
+          "slope": 1,
+          "exponent": 1.5,
+          "xShift": -0.1,
+          "yShift": 0
+        },
+        "invert": false,
+        "description": "visual scene boundary"
+      }
+    ],
+    "outputParams": [
+      {
+        "name": "transitionType",
+        "mode": "fixed",
+        "fixedValue": "dip-to-black"
+      },
+      {
+        "name": "durationFrames",
+        "mode": "proportional",
+        "minValue": 15,
+        "maxValue": 30
+      }
+    ]
+  }
+]
