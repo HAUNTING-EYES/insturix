@@ -283,14 +283,112 @@ assert(routeContentType({ speechCoverage: 0.1, musicPresence: 0.8, visualChangeR
 assert(routeContentType({ speechCoverage: 0.1, musicPresence: 0.8, visualChangeRate: 0.5, beatDensityBpm: 5 }) === 'visual', 'ambient + visual (music but no beats) → visual');
 assert(routeContentType({ speechCoverage: 0.4, musicPresence: 0.3, visualChangeRate: 0.3 }) === 'hybrid', 'mixed content → hybrid');
 
+// ── Part 5: Live Gemini Eval (needs API key) ─────────────────────────────
+
+const localPassed = passed;
+const localFailed = failed;
+
+const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+if (apiKey) {
+  console.log('\n=== Part 5: LIVE Gemini Eval ===\n');
+
+  const { generateCreativeBrief } = await import('../lib/editron/services/creative-brief');
+  type VideoContext = import('../lib/editron/services/creative-brief').VideoContext;
+
+  const musicCtx: VideoContext = {
+    transcription: [],
+    totalDurationSec: 60,
+    segmentCount: 8,
+    musicFeatures: {
+      beats: Array.from({ length: 30 }, (_, i) => ({ timestampMs: i * 2000, strength: i % 4 === 0 ? 0.9 : 0.5 })),
+      sections: [
+        { startMs: 0, endMs: 15000, label: 'intro' },
+        { startMs: 15000, endMs: 30000, label: 'verse' },
+        { startMs: 30000, endMs: 45000, label: 'chorus' },
+        { startMs: 45000, endMs: 60000, label: 'outro' },
+      ],
+      bpm: 120,
+    },
+  };
+
+  const visualCtx: VideoContext = {
+    transcription: [],
+    totalDurationSec: 90,
+    segmentCount: 12,
+    vjepaFeatures: {
+      segments: Array.from({ length: 6 }, (_, i) => ({
+        startMs: i * 15000, endMs: (i + 1) * 15000,
+        visualSignificance: 0.3 + Math.random() * 0.5,
+        motionIntensity: 0.1 + Math.random() * 0.6,
+      })),
+    },
+  };
+
+  const prefs = {};
+
+  for (const [label, ctx, mode] of [
+    ['Music', musicCtx, 'music'],
+    ['Visual', visualCtx, 'visual'],
+  ] as const) {
+    console.log(`--- ${label} Mode (live Gemini call) ---`);
+    try {
+      const brief = await generateCreativeBrief(ctx as any, prefs, undefined, undefined, mode as any);
+      if (!brief) {
+        console.error(`  ✗ ${label}: generateCreativeBrief returned null`);
+        failed++;
+        continue;
+      }
+
+      assert(brief.contentMode === mode, `${label}: contentMode is '${mode}'`);
+      assert(brief.decisions.length > 0, `${label}: ${brief.decisions.length} decisions generated`);
+      assert(brief.decisions.length <= 30, `${label}: reasonable decision count (≤30, got ${brief.decisions.length})`);
+      assert(brief.narrativeArc.length > 0, `${label}: has narrative arc (${brief.narrativeArc.length} sections)`);
+
+      let allTypesValid = true;
+      let allReasonsValid = true;
+      let allHaveTimestamp = true;
+      let noneHaveWordIdx = true;
+
+      for (const d of brief.decisions) {
+        if (!VALID_DECISION_TYPES.has(d.type)) allTypesValid = false;
+        if (!VALID_DECISION_REASONS.has(d.reason)) allReasonsValid = false;
+        if (d.targetTimestampMs === undefined || d.targetTimestampMs < 0) allHaveTimestamp = false;
+        if (d.targetWordIdx > 0) noneHaveWordIdx = false;
+      }
+
+      assert(allTypesValid, `${label}: all decision types valid`);
+      assert(allReasonsValid, `${label}: all decision reasons valid`);
+      assert(allHaveTimestamp, `${label}: all decisions have timestamp coordinate`);
+      assert(noneHaveWordIdx, `${label}: no decisions use word index (non-speech mode)`);
+
+      // Distribution: decisions should span the full duration
+      const timestamps = brief.decisions.map(d => d.targetTimestampMs ?? 0);
+      const minTs = Math.min(...timestamps);
+      const maxTs = Math.max(...timestamps);
+      const coverage = (maxTs - minTs) / (ctx.totalDurationSec * 1000);
+      assert(coverage > 0.5, `${label}: decisions span >${(coverage * 100).toFixed(0)}% of duration (want >50%)`);
+
+      // Confidence: should NOT be uniform
+      const confs = new Set(brief.decisions.map(d => Math.round(d.confidence * 100)));
+      assert(confs.size >= 2, `${label}: confidence varies (${confs.size} distinct values)`);
+
+      console.log(`  → ${brief.decisions.length} decisions, ${brief.narrativeArc.length} sections, pacing=${brief.overallPacing}\n`);
+    } catch (err: any) {
+      console.error(`  ✗ ${label}: Gemini call failed — ${err.message}`);
+      failed++;
+    }
+  }
+} else {
+  console.log('\n(Skipping Part 5: No GEMINI_API_KEY in environment)');
+}
+
 // ── Results ───────────────────────────────────────────────────────────────
 
 console.log(`\n${'='.repeat(60)}`);
-console.log(`EVAL RESULTS: ${passed} passed, ${failed} failed out of ${passed + failed}`);
+console.log(`LOCAL EVAL: ${localPassed} passed, ${localFailed} failed`);
+console.log(`TOTAL EVAL: ${passed} passed, ${failed} failed out of ${passed + failed}`);
 if (failed === 0) {
   console.log('ALL EVAL CHECKS PASSED ✓');
-  console.log('\nNote: This is the LOCAL eval (structural + pipeline).');
-  console.log('For live Gemini eval with seeds 1-10, run with GEMINI_API_KEY set.');
 } else {
   console.log('SOME EVAL CHECKS FAILED ✗');
   process.exit(1);
