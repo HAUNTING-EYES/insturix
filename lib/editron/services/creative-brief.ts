@@ -26,6 +26,8 @@ import type { GenreParameters } from './graph-query';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+export type ContentMode = 'speech' | 'music' | 'visual' | 'hybrid';
+
 export type BriefDecisionType =
   | 'zoom_push' | 'zoom_punch' | 'zoom_pull_back' | 'zoom_drift'
   | 'transition_dissolve' | 'transition_hard_cut' | 'transition_whip_pan'
@@ -48,21 +50,30 @@ export type DecisionReason =
   | 'scene_boundary' | 'visual_monotony'
   | 'music_beat' | 'music_drop' | 'music_section_change'
   | 'emotional_shift' | 'narrative_resolve'
-  | 'opening_hook' | 'closing_zone';
+  | 'opening_hook' | 'closing_zone'
+  | 'motion_peak' | 'visual_peak' | 'beat_accent';
 
 export interface BriefDecision {
   type: BriefDecisionType;
   targetWordIdx: number;
+  targetTimestampMs?: number;
+  targetBeatIdx?: number;
   confidence: number;
   reason: DecisionReason;
   params: Record<string, number | string>;
 }
 
+export type NarrativeSectionLabel =
+  | 'setup' | 'build' | 'peak' | 'resolve' | 'transition' | 'hook' | 'closing'
+  | 'intro' | 'verse' | 'chorus' | 'bridge' | 'outro' | 'drop';
+
 export interface NarrativeSection {
   sectionId: number;
   startWordIdx: number;
   endWordIdx: number;
-  label: 'setup' | 'build' | 'peak' | 'resolve' | 'transition' | 'hook' | 'closing';
+  startTimestampMs?: number;
+  endTimestampMs?: number;
+  label: NarrativeSectionLabel;
   energyLevel: 'low' | 'building' | 'high' | 'declining' | 'neutral';
   mood: string;
   pacingFeel: 'calm' | 'measured' | 'balanced' | 'energetic' | 'fast';
@@ -88,6 +99,7 @@ export interface CreativeBrief {
   };
   captionStyle: 'word_by_word' | 'sentence' | 'key_phrases' | 'none';
   overallPacing: 'calm' | 'measured' | 'balanced' | 'energetic' | 'fast';
+  contentMode: ContentMode;
   modelVersion: string;
   processingTimeMs: number;
 }
@@ -119,29 +131,66 @@ export interface VideoContext {
   wav2vecFeatures?: {
     segments: { startMs: number; endMs: number; emotionIntensity: number; energy: number }[];
   };
+  musicFeatures?: {
+    beats: { timestampMs: number; strength: number }[];
+    sections: { startMs: number; endMs: number; label: string }[];
+    bpm?: number;
+  };
 }
 
 // ─── Main Function ──────────────────────────────────────────────────────────
 
 const CONFIDENCE_THRESHOLD = 0.5;
 
+// ─── Content Mode Routing (D-004) ──────────────────────────────────────────
+
+// Thresholds — Phase 7 calibration scope (D-011)
+const SPEECH_COVERAGE_THRESHOLD = 0.6;  // ⚠️ INVENTED — D-004
+const MUSIC_PRESENCE_THRESHOLD = 0.6;   // ← CRG constraint: music_energy > 0.6 for music-dominant (graph node signal:audio.music_beat)
+const VISUAL_CHANGE_THRESHOLD = 0.3;    // ⚠️ INVENTED — D-004
+const MIN_BEAT_DENSITY_BPM = 20;        // ⚠️ INVENTED — ambient/drone < 20 BPM. Slowest rhythmic music (ballads ~60) well above. Needs calibration.
+const NON_SPEECH_CEILING = 0.3;         // ← CRG constraint: speech_energy < 0.3 for music/visual mode
+
+export function routeContentType(signals: {
+  speechCoverage: number;
+  musicPresence: number;
+  visualChangeRate: number;
+  beatDensityBpm?: number;
+}): ContentMode {
+  if (signals.speechCoverage > SPEECH_COVERAGE_THRESHOLD) return 'speech';
+
+  const hasRhythm = signals.beatDensityBpm === undefined || signals.beatDensityBpm >= MIN_BEAT_DENSITY_BPM;
+  if (signals.musicPresence > MUSIC_PRESENCE_THRESHOLD && signals.speechCoverage < NON_SPEECH_CEILING && hasRhythm) return 'music';
+  if (signals.visualChangeRate > VISUAL_CHANGE_THRESHOLD && signals.speechCoverage < NON_SPEECH_CEILING) return 'visual';
+  return 'hybrid';
+}
+
 export async function generateCreativeBrief(
   videoContext: VideoContext,
   preferences: UserEditPreferences,
   geminiFileUri?: string,
   genreParams?: GenreParameters,
+  contentMode?: ContentMode,
 ): Promise<CreativeBrief | null> {
   const startTime = Date.now();
+  const mode = contentMode ?? 'speech';
 
   try {
-    console.log(`[CreativeBrief] Starting generation (${videoContext.transcription.length} words, ${videoContext.segmentCount} segments, geminiFileUri=${!!geminiFileUri}, genreParams=${!!genreParams})`);
+    console.log(`[CreativeBrief] Starting generation (mode=${mode}, ${videoContext.transcription.length} words, ${videoContext.segmentCount} segments, geminiFileUri=${!!geminiFileUri}, genreParams=${!!genreParams})`);
 
     const model = await getCreativeDocCachedModel();
     console.log('[CreativeBrief] Model obtained from context cache');
 
     const budget = genreParams ? computeDecisionBudget(genreParams, videoContext.totalDurationSec) : null;
-    const prompt = buildPrompt(videoContext, preferences, genreParams, budget);
-    console.log(`[CreativeBrief] Prompt built (${prompt.length} chars, budget=${budget ? Object.keys(budget).length + ' categories' : 'none'})`);
+    let prompt: string;
+    if (mode === 'speech' || mode === 'hybrid') {
+      prompt = buildPrompt(videoContext, preferences, genreParams, budget);
+    } else if (mode === 'music') {
+      prompt = buildMusicPrompt(videoContext, preferences, genreParams, budget);
+    } else {
+      prompt = buildVisualPrompt(videoContext, preferences, genreParams, budget);
+    }
+    console.log(`[CreativeBrief] Prompt built (mode=${mode}, ${prompt.length} chars, budget=${budget ? Object.keys(budget).length + ' categories' : 'none'})`);
 
     const generationConfig = {
       responseMimeType: 'application/json',
@@ -181,7 +230,7 @@ export async function generateCreativeBrief(
         console.log(`[CreativeBrief] Gemini responded (${responseText.length} chars, seed=${seed}). Parsing JSON...`);
 
         const parsed = JSON.parse(responseText);
-        const brief = validateAndGate(parsed, startTime, budget);
+        const brief = validateAndGate(parsed, startTime, budget, mode);
 
         if (brief) {
           console.log(`[CreativeBrief] SUCCESS: ${brief.decisions.length} decisions, pacing=${brief.overallPacing}, ${brief.narrativeArc.length} sections`);
@@ -326,6 +375,270 @@ ${transcriptBlock}
 </transcription>`;
 }
 
+// ─── Music Prompt (beat/timestamp coordinates) ────────────────────────────
+
+function buildMusicPrompt(
+  ctx: VideoContext,
+  prefs: UserEditPreferences,
+  genreParams?: GenreParameters | null,
+  budget?: BudgetMap | null,
+): string {
+  const prefsBlock = Object.entries(prefs)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => `  ${k}: ${v}`)
+    .join('\n');
+
+  const featuresBlock = buildFeaturesBlock(ctx);
+  const genreBlock = genreParams ? buildGenreBlock(genreParams) : '';
+  const budgetBlock = budget ? buildBudgetBlock(budget) : '';
+  const signalMapBlock = buildSignalDecisionMap(ctx, genreParams);
+  const validTypesBlock = buildValidTypesBlock();
+  const validReasonsBlock = [...VALID_DECISION_REASONS].join(', ');
+
+  const beatsBlock = ctx.musicFeatures?.beats?.length
+    ? ctx.musicFeatures.beats.map((b, i) => `[${i}] ${b.timestampMs}ms (strength=${b.strength.toFixed(2)})`).join('\n')
+    : '(no beat data available — use audio energy curve timestamps)';
+
+  const sectionsBlock = ctx.musicFeatures?.sections?.length
+    ? ctx.musicFeatures.sections.map((s, i) => `[${i}] ${s.startMs}-${s.endMs}ms: ${s.label}`).join('\n')
+    : '(no section data — treat as one continuous section)';
+
+  const bpmInfo = ctx.musicFeatures?.bpm ? `BPM: ${ctx.musicFeatures.bpm}` : '';
+
+  // ⚠️ INVENTED threshold — 60 BPM. Below this, beat-driven editing less effective. Needs calibration.
+  const beatCount = ctx.musicFeatures?.beats?.length ?? 0;
+  const beatsPerMin = ctx.totalDurationSec > 0 ? beatCount / (ctx.totalDurationSec / 60) : 0;
+  const isSparseRhythm = beatsPerMin < 60;
+  const isAmbient = beatsPerMin < MIN_BEAT_DENSITY_BPM;
+
+  const rhythmAdaptation = isAmbient
+    ? `\n<rhythm_adaptation>
+AMBIENT / TONAL CONTENT — no clear rhythmic pattern detected (${beatCount} beats in ${ctx.totalDurationSec.toFixed(0)}s).
+- Do NOT use target_beat_idx. Use target_timestamp_ms ONLY.
+- Edit to ENERGY DYNAMICS: volume swells, texture changes, tonal shifts, frequency sweeps.
+- Place decisions at moments where the sonic landscape CHANGES — not on arbitrary timestamps.
+- Pacing should be measured or calm. This content breathes. Do not over-edit.
+- Favor dissolves and slow zooms over hard cuts and punches.
+</rhythm_adaptation>\n`
+    : isSparseRhythm
+      ? `\n<rhythm_adaptation>
+SLOW / NON-METRONOMIC RHYTHM (${beatsPerMin.toFixed(0)} BPM). Beat indices may be unreliable.
+- Prefer target_timestamp_ms over target_beat_idx.
+- Focus on PHRASE BOUNDARIES and dynamic contours rather than individual beats.
+- Musical sections matter more than individual beats — edit at section changes.
+- Energy rises and falls are your primary guide, not metronomic beat positions.
+</rhythm_adaptation>\n`
+      : '';
+
+  return `<role>
+You are a professional music video editor making creative decisions based on rhythm, energy, and musical structure. You edit to the BEAT, not to words. Your decisions align with musical moments — drops, section changes, energy peaks.
+</role>
+
+<your_scope>
+This is music-dominant content with minimal or no speech. Your coordinate system is TIMESTAMPS (milliseconds), not word indices.
+
+You handle CREATIVE ENHANCEMENT:
+- WHERE to zoom for rhythmic emphasis (drops, builds, beat accents)
+- WHERE transitions mark musical section changes (verse→chorus, chorus→bridge)
+- WHAT SFX punctuate genuine musical moments (drops, builds, breakdowns)
+- WHERE speed changes create dramatic effect (slow-mo on drops, ramps on builds)
+- WHERE pacing adjustments serve the musical structure
+
+Output decisions use target_timestamp_ms (milliseconds from video start) and optionally target_beat_idx (index into the beat array below).
+Do NOT use target_word_idx — this content has no speech transcript.
+</your_scope>
+${rhythmAdaptation}${genreBlock}
+${budgetBlock}
+${signalMapBlock}
+
+<valid_types>
+Use ONLY these exact type strings. Any other type will be silently dropped.
+${validTypesBlock}
+</valid_types>
+
+<valid_reasons>
+Use ONLY these exact reason strings: ${validReasonsBlock}
+</valid_reasons>
+
+<anti_patterns>
+- NEVER place a decision on every beat. Pick the beats that MATTER — downbeats of new sections, drops, energy peaks.
+- NEVER lock 6+ consecutive decisions to exact beat positions — this is the strongest "AI edited this" tell. Vary timing ±2-3 frames. Syncopation is life, metronomic precision is death. (CRG: constraint:temporal.metronomic_beat_sync, deduction -5)
+- NEVER assign the same confidence to every decision. Vary 0.55-0.95.
+- NEVER cluster decisions in one section. Each section should have proportional decisions.
+- NEVER use caption_emphasis or graphic_keyword_highlight — no speech to highlight.
+- NEVER exceed the budget maximums. Fewer confident decisions beat many uncertain ones.
+- GENERATE DECISIONS FOR THE FULL TRACK. Cover 0ms through ${Math.round(ctx.totalDurationSec * 1000)}ms.
+</anti_patterns>
+
+<rules>
+- target_timestamp_ms MUST be between 0 and ${Math.round(ctx.totalDurationSec * 1000)}. Duration is ${ctx.totalDurationSec}s.
+- target_beat_idx (optional) MUST be between 0 and ${(ctx.musicFeatures?.beats?.length ?? 1) - 1} if used.
+- Confidence score 0.0-1.0 per decision. Below 0.5 = executor skips it.
+- narrative_arc sections use start_timestamp_ms / end_timestamp_ms (NOT word indices). Must cover full duration.
+- Distribute decisions across the FULL track, not clustered at start or end.
+- Match user preferences below if specified.
+</rules>
+
+<output_format>
+{
+  "video_understanding": { "primary_content": string, "shot_scale": string, "lighting": string, "production_quality": 0-1, "environment": string, "speaker_count": 0, "has_b_roll": boolean },
+  "narrative_arc": [{ "section_id": number, "start_timestamp_ms": number, "end_timestamp_ms": number, "start_word_idx": -1, "end_word_idx": -1, "label": "intro"|"verse"|"chorus"|"bridge"|"outro"|"drop"|"build"|"peak"|"transition", "energy_level": "low"|"building"|"high"|"declining"|"neutral", "mood": string, "pacing_feel": "calm"|"measured"|"balanced"|"energetic"|"fast" }],
+  "decisions": [{ "type": "<valid_type>", "target_timestamp_ms": number, "target_beat_idx": number, "target_word_idx": -1, "confidence": 0.55-0.95, "reason": "<valid_reason>", "params": { ...required_params_for_type } }],
+  "audio_design": { "ambient_bed": string, "ducking_profile": "music_dominant" },
+  "caption_style": "none",
+  "overall_pacing": "calm"|"measured"|"balanced"|"energetic"|"fast"
+}
+</output_format>
+
+<user_preferences>
+${prefsBlock || '  (none specified — use your best creative judgment)'}
+</user_preferences>
+
+<video_features>
+Duration: ${ctx.totalDurationSec}s
+Segments: ${ctx.segmentCount}
+${bpmInfo}
+${featuresBlock}
+</video_features>
+
+<music_structure>
+<beats>
+${beatsBlock}
+</beats>
+<sections>
+${sectionsBlock}
+</sections>
+</music_structure>`;
+}
+
+// ─── Visual Prompt (timestamp coordinates, scene-driven) ──────────────────
+
+function buildVisualPrompt(
+  ctx: VideoContext,
+  prefs: UserEditPreferences,
+  genreParams?: GenreParameters | null,
+  budget?: BudgetMap | null,
+): string {
+  const prefsBlock = Object.entries(prefs)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => `  ${k}: ${v}`)
+    .join('\n');
+
+  const featuresBlock = buildFeaturesBlock(ctx);
+  const genreBlock = genreParams ? buildGenreBlock(genreParams) : '';
+  const budgetBlock = budget ? buildBudgetBlock(budget) : '';
+  const signalMapBlock = buildSignalDecisionMap(ctx, genreParams);
+  const validTypesBlock = buildValidTypesBlock();
+  const validReasonsBlock = [...VALID_DECISION_REASONS].join(', ');
+
+  const hasVjepa = !!ctx.vjepaFeatures?.segments?.length;
+  const segmentsBlock = hasVjepa
+    ? ctx.vjepaFeatures!.segments!.map((s, i) =>
+        `[${i}] ${s.startMs}-${s.endMs}ms (significance=${s.visualSignificance.toFixed(2)}, motion=${s.motionIntensity.toFixed(2)})`
+      ).join('\n')
+    : '(no visual segment data — use video features timestamps)';
+
+  // ⚠️ INVENTED threshold — 0.3. CRG: motion_intensity > 0.7 high, < 0.2 static. 0.3 = static-to-moderate boundary. Needs calibration.
+  const avgMotion = hasVjepa
+    ? ctx.vjepaFeatures!.segments!.reduce((sum, s) => sum + s.motionIntensity, 0) / ctx.vjepaFeatures!.segments!.length
+    : null;
+
+  const visualAdaptation = !hasVjepa
+    ? `\n<data_adaptation>
+No visual analysis data available. Use these editing strategies:
+- Place transitions at natural shot/scene boundaries visible in video features (lighting or shot scale changes).
+- Divide the video into temporal segments — place decisions at natural thirds and two-thirds points within each segment.
+- Use zoom_push on static shots longer than 4 seconds to add visual movement.
+- Use zoom_drift to add subtle lateral movement to otherwise static compositions.
+- Use motion_peak reason for decisions near action moments, visual_peak for composition-significant moments.
+- Pacing: use balanced or measured unless content clearly warrants energetic editing.
+</data_adaptation>\n`
+    : avgMotion !== null && avgMotion < 0.3
+      ? `\n<pacing_adaptation>
+LOW-MOTION content detected (average motion intensity: ${avgMotion.toFixed(2)}). Adapt your editing:
+- Use MEASURED or CALM pacing — do not over-edit scenic or contemplative content.
+- Favor transition_dissolve over transition_hard_cut between scenes.
+- Hold shots longer — beauty and atmosphere need breathing room.
+- Use zoom_push sparingly for Ken Burns effect on landscape/scenic shots.
+- zoom_drift adds subtle movement to static compositions — use it.
+- Do NOT use camera_shake — it conflicts with contemplative content.
+- Fewer, higher-confidence decisions. Quality over quantity.
+</pacing_adaptation>\n`
+      : '';
+
+  return `<role>
+You are a professional video editor working with visual-dominant content (no speech). You edit based on VISUAL RHYTHM — shot changes, motion peaks, visual significance, and scene composition. Your decisions enhance the visual storytelling.
+</role>
+
+<your_scope>
+This is visual-dominant content with minimal or no speech. Your coordinate system is TIMESTAMPS (milliseconds from video start).
+
+You handle CREATIVE ENHANCEMENT:
+- WHERE to zoom for visual emphasis (subject reveal, motion peaks, significant moments)
+- WHERE transitions mark scene changes (shot boundaries, location changes)
+- WHAT SFX punctuate visual moments (impacts on motion peaks, shimmers on reveals)
+- WHERE speed changes create dramatic effect (slow-mo on action, ramps on reveals)
+- WHERE to break visual monotony (drift on static shots)
+
+Output decisions use target_timestamp_ms (milliseconds from video start).
+Do NOT use target_word_idx — this content has no speech transcript.
+</your_scope>
+${visualAdaptation}${genreBlock}
+${budgetBlock}
+${signalMapBlock}
+
+<valid_types>
+Use ONLY these exact type strings. Any other type will be silently dropped.
+${validTypesBlock}
+</valid_types>
+
+<valid_reasons>
+Use ONLY these exact reason strings: ${validReasonsBlock}
+</valid_reasons>
+
+<anti_patterns>
+- NEVER place a transition at every shot change. Most shot changes are natural hard cuts — add transitions only at MEANINGFUL boundaries.
+- NEVER assign the same confidence to every decision. Vary 0.55-0.95.
+- NEVER cluster decisions in one section. Distribute across the full duration.
+- NEVER use caption_emphasis or graphic_keyword_highlight — no speech to highlight.
+- NEVER exceed the budget maximums. Fewer confident decisions beat many uncertain ones.
+- GENERATE DECISIONS FOR THE FULL VIDEO. Cover 0ms through ${Math.round(ctx.totalDurationSec * 1000)}ms.
+</anti_patterns>
+
+<rules>
+- target_timestamp_ms MUST be between 0 and ${Math.round(ctx.totalDurationSec * 1000)}. Duration is ${ctx.totalDurationSec}s.
+- Confidence score 0.0-1.0 per decision. Below 0.5 = executor skips it.
+- narrative_arc sections use start_timestamp_ms / end_timestamp_ms (NOT word indices). Must cover full duration.
+- Distribute decisions across the FULL video, not clustered at start or end.
+- Match user preferences below if specified.
+</rules>
+
+<output_format>
+{
+  "video_understanding": { "primary_content": string, "shot_scale": string, "lighting": string, "production_quality": 0-1, "environment": string, "speaker_count": 0, "has_b_roll": boolean },
+  "narrative_arc": [{ "section_id": number, "start_timestamp_ms": number, "end_timestamp_ms": number, "start_word_idx": -1, "end_word_idx": -1, "label": "setup"|"build"|"peak"|"resolve"|"transition"|"hook"|"closing", "energy_level": "low"|"building"|"high"|"declining"|"neutral", "mood": string, "pacing_feel": "calm"|"measured"|"balanced"|"energetic"|"fast" }],
+  "decisions": [{ "type": "<valid_type>", "target_timestamp_ms": number, "target_word_idx": -1, "confidence": 0.55-0.95, "reason": "<valid_reason>", "params": { ...required_params_for_type } }],
+  "audio_design": { "ambient_bed": string, "ducking_profile": "balanced" },
+  "caption_style": "none",
+  "overall_pacing": "calm"|"measured"|"balanced"|"energetic"|"fast"
+}
+</output_format>
+
+<user_preferences>
+${prefsBlock || '  (none specified — use your best creative judgment)'}
+</user_preferences>
+
+<video_features>
+Duration: ${ctx.totalDurationSec}s
+Segments: ${ctx.segmentCount}
+${featuresBlock}
+</video_features>
+
+<visual_segments>
+${segmentsBlock}
+</visual_segments>`;
+}
+
 // ─── Genre Parameters Block ─────────────────────────────────────────────────
 
 function buildGenreBlock(gp: GenreParameters): string {
@@ -452,6 +765,23 @@ function detectSignalsFromContext(ctx: VideoContext, gp?: GenreParameters | null
   if (ctx.segmentCount > 3) signals.add('scene_boundary');
   if (ctx.totalDurationSec > 30) signals.add('visual_monotony');
 
+  // Music signals — detected from musicFeatures or audio energy patterns
+  if (ctx.musicFeatures?.beats?.length) {
+    signals.add('music_beat');
+    signals.add('beat_accent');
+    const strongBeats = ctx.musicFeatures.beats.filter(b => b.strength > 0.7);
+    if (strongBeats.length > 0) signals.add('music_drop');
+    if (ctx.musicFeatures.sections?.length > 1) signals.add('music_section_change');
+  }
+
+  // Visual signals — detected from V-JEPA features
+  if (ctx.vjepaFeatures?.segments?.length) {
+    const highMotion = ctx.vjepaFeatures.segments.some(s => s.motionIntensity > 0.7);
+    if (highMotion) signals.add('motion_peak');
+    const highSignificance = ctx.vjepaFeatures.segments.some(s => s.visualSignificance > 0.7);
+    if (highSignificance) signals.add('visual_peak');
+  }
+
   return signals;
 }
 
@@ -557,8 +887,13 @@ function computeDecisionBudget(
 
 // ─── Validation + Confidence Gating + Budget Enforcement ────────────────────
 
-function validateAndGate(raw: any, startTime: number, budget?: BudgetMap | null): CreativeBrief | null {
+function validateAndGate(raw: any, startTime: number, budget?: BudgetMap | null, mode: ContentMode = 'speech'): CreativeBrief | null {
   if (!raw || typeof raw !== 'object') return null;
+
+  const VALID_SECTION_LABELS: NarrativeSectionLabel[] = [
+    'setup', 'build', 'peak', 'resolve', 'transition', 'hook', 'closing',
+    'intro', 'verse', 'chorus', 'bridge', 'outro', 'drop',
+  ];
 
   const videoUnderstanding: VideoUnderstanding = {
     primaryContent: raw.video_understanding?.primary_content || 'unknown',
@@ -572,9 +907,11 @@ function validateAndGate(raw: any, startTime: number, budget?: BudgetMap | null)
 
   const narrativeArc: NarrativeSection[] = (raw.narrative_arc || []).map((s: any, i: number) => ({
     sectionId: s.section_id ?? i,
-    startWordIdx: s.start_word_idx ?? 0,
-    endWordIdx: s.end_word_idx ?? 0,
-    label: validateEnum(s.label, ['setup', 'build', 'peak', 'resolve', 'transition', 'hook', 'closing'], 'build'),
+    startWordIdx: s.start_word_idx ?? -1,
+    endWordIdx: s.end_word_idx ?? -1,
+    startTimestampMs: typeof s.start_timestamp_ms === 'number' ? s.start_timestamp_ms : undefined,
+    endTimestampMs: typeof s.end_timestamp_ms === 'number' ? s.end_timestamp_ms : undefined,
+    label: validateEnum(s.label, VALID_SECTION_LABELS, 'build'),
     energyLevel: validateEnum(s.energy_level, ['low', 'building', 'high', 'declining', 'neutral'], 'neutral'),
     mood: s.mood || 'neutral',
     pacingFeel: validateEnum(s.pacing_feel, ['calm', 'measured', 'balanced', 'energetic', 'fast'], 'balanced'),
@@ -620,7 +957,9 @@ function validateAndGate(raw: any, startTime: number, budget?: BudgetMap | null)
 
     parsed.push({
       type: type as BriefDecisionType,
-      targetWordIdx: d.target_word_idx ?? 0,
+      targetWordIdx: d.target_word_idx ?? -1,
+      targetTimestampMs: typeof d.target_timestamp_ms === 'number' ? d.target_timestamp_ms : undefined,
+      targetBeatIdx: typeof d.target_beat_idx === 'number' ? d.target_beat_idx : undefined,
       confidence,
       reason: reason as DecisionReason,
       params,
@@ -716,6 +1055,7 @@ function validateAndGate(raw: any, startTime: number, budget?: BudgetMap | null)
       ['calm', 'measured', 'balanced', 'energetic', 'fast'],
       'balanced',
     ),
+    contentMode: mode,
     modelVersion: 'gemini-2.5-flash-cached',
     processingTimeMs: Date.now() - startTime,
   };
