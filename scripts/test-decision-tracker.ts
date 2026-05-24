@@ -171,6 +171,23 @@ const idOutcomes = diffOutcomes(idLog, idOverlays);
 assert(idOutcomes[0].outcome === 'kept', 'ID match wins over frame proximity (overlay_exact at 102, within ±3)');
 assert(idOutcomes[0].finalFrame === 102, 'matched by ID, not by closest frame');
 
+// R29 adversarial: user deletes original overlay, places new one at same frame
+const deletedReplacedLog = snapshotDecisions('proj_r29', 'user_1', testDecisions.slice(0, 1), 'music', 60000, signalCtx, new Map([[100, 'original_overlay']]));
+const deletedReplacedOverlays: OverlayRef[] = [
+  { id: 'user_manual_new', from: 100, durationInFrames: 30 },
+];
+const deletedReplacedOutcomes = diffOutcomes(deletedReplacedLog, deletedReplacedOverlays);
+assert(deletedReplacedOutcomes[0].outcome === 'kept',
+  'R29: original overlay deleted + new overlay at same frame → kept (proximity fallback, not crash)');
+
+// R29 adversarial: all overlays far away (beyond 5s snap range)
+const farOverlays: OverlayRef[] = [
+  { id: 'far1', from: 5000, durationInFrames: 30 },
+];
+const farOutcomes = diffOutcomes(log, farOverlays);
+assert(farOutcomes.every(o => o.outcome === 'removed'),
+  'R29: all overlays >5s away → all decisions classified as removed (no false matches)');
+
 // ── Results ───────────────────────────────────────────────────────────────
 
 console.log(`\n${'='.repeat(50)}`);
