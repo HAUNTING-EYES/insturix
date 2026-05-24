@@ -418,11 +418,17 @@ export async function executeDirectorPlan(
           // music detection (Essentia.js) is wired — conservative, never false-positive.
           const speechCoverage = rfa.speechCoverage ?? 0;
           const vjepaSegs = projectDoc.vjepaAnalysis?.segments;
-          const visualChangeRate = vjepaSegs?.length
-            ? vjepaSegs.reduce((sum: number, s: any) => sum + (s.motionIntensity || 0), 0) / vjepaSegs.length
-            : 0;
+          let visualChangeRate = 0;
+          if (vjepaSegs?.length) {
+            visualChangeRate = vjepaSegs.reduce((sum: number, s: any) => sum + (s.motionIntensity || 0), 0) / vjepaSegs.length;
+          } else if (speechCoverage < 0.3) { // NON_SPEECH_CEILING from creative-brief.ts (CRG: speech_energy < 0.3)
+            // No V-JEPA but speech is clearly absent — use segment density as proxy.
+            // Visual prompt has <data_adaptation> for missing V-JEPA data.
+            const segCount = rfa.segments?.length ?? 0;
+            visualChangeRate = cleanDurationSec > 0 ? Math.min(1, segCount / (cleanDurationSec * 0.5)) : 0;
+          }
           const contentMode = routeContentType({ speechCoverage, musicPresence: 0, visualChangeRate });
-          console.log(`[Director] Path E: Content routing — speech=${speechCoverage.toFixed(2)}, visual=${visualChangeRate.toFixed(2)} → ${contentMode}`);
+          console.log(`[Director] Path E: Content routing — speech=${speechCoverage.toFixed(2)}, visual=${visualChangeRate.toFixed(2)}${!vjepaSegs?.length && visualChangeRate > 0 ? ' (segment proxy)' : ''} → ${contentMode}`);
 
           // Generate Creative Brief (Gemini call — context-cached creative doc + decision registry)
           const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams, contentMode);

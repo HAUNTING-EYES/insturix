@@ -1002,15 +1002,23 @@ export function validateAndGate(raw: any, startTime: number, budget?: BudgetMap 
 
   // Pass 4: Distribution check (warn if clustered)
   if (allDecisions.length > 5) {
-    const maxIdx = Math.max(...allDecisions.map(d => d.targetWordIdx), 1);
-    const quartiles = [0, 0, 0, 0];
-    for (const d of allDecisions) {
-      const q = Math.min(3, Math.floor((d.targetWordIdx / maxIdx) * 4));
-      quartiles[q]++;
-    }
-    const maxQ = Math.max(...quartiles);
-    if (maxQ > allDecisions.length * 0.4) {
-      console.warn(`[CreativeBrief] Distribution warning: quartiles [${quartiles.join(', ')}] — ${maxQ}/${allDecisions.length} clustered in one quarter`);
+    const positions = allDecisions.map(d =>
+      d.targetTimestampMs !== undefined && d.targetTimestampMs >= 0
+        ? d.targetTimestampMs
+        : d.targetWordIdx >= 0 ? d.targetWordIdx : -1
+    ).filter(p => p >= 0);
+
+    if (positions.length > 3) {
+      const maxPos = Math.max(...positions, 1);
+      const quartiles = [0, 0, 0, 0];
+      for (const p of positions) {
+        const q = Math.min(3, Math.floor((p / maxPos) * 4));
+        quartiles[q]++;
+      }
+      const maxQ = Math.max(...quartiles);
+      if (maxQ > positions.length * 0.4) {
+        console.warn(`[CreativeBrief] Distribution warning: quartiles [${quartiles.join(', ')}] — ${maxQ}/${positions.length} clustered in one quarter`);
+      }
     }
   }
 
