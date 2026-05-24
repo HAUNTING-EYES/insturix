@@ -62,34 +62,8 @@ export async function executeDirectorPlan(
   let effectiveProfile = applyBriefOverrides(profile, brief);
 
   // Phase 2.4: Utility AI profile override (feature-flagged, default OFF)
+  // Scoring happens after signal timeline build (Step D.4c) where real signals exist.
   const useUtilityEngine = process.env.USE_UTILITY_ENGINE === 'true';
-  if (useUtilityEngine) {
-    try {
-      const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
-      const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
-      const overlayDefs = getOverlayDefinitions();
-      const globalSignals: Record<string, number> = {
-        formality: typeof effectiveProfile.pacing === 'string' ? (effectiveProfile.pacing === 'slow' ? 0.7 : effectiveProfile.pacing === 'fast' ? 0.3 : 0.5) : 0.5,
-        warmth: 0.5,
-        enthusiasm: 0.5,
-        'speech.coverage': 0.5,
-        'visual.engagement': 0.5,
-      };
-      const results = scoreAllOverlays(overlayDefs, globalSignals);
-      const filterWinner = results.find(r => r.category === 'filter');
-      const captionWinner = results.find(r => r.category === 'caption');
-      if (filterWinner?.outputValues['filterPresetId']) {
-        effectiveProfile = { ...effectiveProfile, filterPresetId: filterWinner.outputValues['filterPresetId'] as string };
-        console.log(`[Director] Utility AI: filter → ${filterWinner.outputValues['filterPresetId']} (score: ${filterWinner.totalScore.toFixed(3)}, was: ${profile.filterPresetId})`);
-      }
-      if (captionWinner?.outputValues['captionStyle']) {
-        effectiveProfile = { ...effectiveProfile, captionStyle: captionWinner.outputValues['captionStyle'] as any };
-        console.log(`[Director] Utility AI: caption → ${captionWinner.outputValues['captionStyle']} (score: ${captionWinner.totalScore.toFixed(3)}, was: ${profile.captionStyle})`);
-      }
-    } catch (err) {
-      console.log(`[Director] Utility AI profile override: skipped (${err instanceof Error ? err.message : 'error'})`);
-    }
-  }
 
   // Pipeline warning collector for structured error visibility
   const { createPipelineWarnings } = await import('@/lib/editron/services/pipeline-warnings');
@@ -652,6 +626,61 @@ export async function executeDirectorPlan(
               }
             } catch (utilityErr) {
               console.log(`[Director] Utility AI shadow: skipped (${utilityErr instanceof Error ? utilityErr.message : 'unknown error'})`);
+            }
+
+            // Step D.4c: Utility AI profile override — real signals (Phase 2.4)
+            // Global overlays (filter, caption) score against averaged signals across the
+            // entire video, not per-grid-point. This runs AFTER the signal timeline is built
+            // so it uses real content analysis instead of the old placeholder 0.5 values.
+            if (useUtilityEngine) {
+              try {
+                const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
+                const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
+                const overrideDefs = getOverlayDefinitions();
+                const overrideFrames = Array.from(signalTimeline.gridSignals.keys());
+                if (overrideFrames.length > 0) {
+                  const avgSignals: Record<string, number> = {};
+                  const avgCounts: Record<string, number> = {};
+                  for (const f of overrideFrames) {
+                    const snap = signalTimeline.gridSignals.get(f)!;
+                    for (const [k, v] of Object.entries(snap)) {
+                      if (typeof v === 'number' && isFinite(v)) {
+                        avgSignals[k] = (avgSignals[k] ?? 0) + v;
+                        avgCounts[k] = (avgCounts[k] ?? 0) + 1;
+                      }
+                    }
+                  }
+                  for (const k of Object.keys(avgSignals)) avgSignals[k] /= avgCounts[k];
+                  for (const [k, v] of Object.entries(signalTimeline.globalSignals)) {
+                    if (typeof v === 'number' && isFinite(v)) avgSignals[k] = v;
+                  }
+                  // Bridge: overlay definitions use bare signal IDs, registry uses namespaced.
+                  // ⚠️ INVENTED mappings for warmth/enthusiasm — Phase 7 calibration scope.
+                  if (avgSignals['content.formality'] !== undefined) avgSignals['formality'] = avgSignals['content.formality'];
+                  if (avgSignals['content.speech_coverage'] !== undefined) avgSignals['speech.coverage'] = avgSignals['content.speech_coverage'];
+                  if (!('warmth' in avgSignals)) {
+                    const valence = avgSignals['speech.emotional_valence'];
+                    const face = avgSignals['visual.face_present'] ?? 0;
+                    avgSignals['warmth'] = valence !== undefined ? (0.6 * Math.max(0, valence) + 0.4 * face) : (0.3 + 0.4 * face);
+                  }
+                  if (!('enthusiasm' in avgSignals)) {
+                    avgSignals['enthusiasm'] = avgSignals['speech.energy'] ?? 0.5;
+                  }
+                  const overrideResults = scoreAllOverlays(overrideDefs, avgSignals);
+                  const filterWin = overrideResults.find(r => r.category === 'filter');
+                  const captionWin = overrideResults.find(r => r.category === 'caption');
+                  if (filterWin?.outputValues['filterPresetId']) {
+                    effectiveProfile = { ...effectiveProfile, filterPresetId: filterWin.outputValues['filterPresetId'] as string };
+                    console.log(`[Director] Utility AI override: filter → ${filterWin.outputValues['filterPresetId']} (score: ${filterWin.totalScore.toFixed(3)}, was: ${profile.filterPresetId}, signals: formality=${avgSignals['formality']?.toFixed(2)}, warmth=${avgSignals['warmth']?.toFixed(2)}, enthusiasm=${avgSignals['enthusiasm']?.toFixed(2)})`);
+                  }
+                  if (captionWin?.outputValues['captionStyle']) {
+                    effectiveProfile = { ...effectiveProfile, captionStyle: captionWin.outputValues['captionStyle'] as any };
+                    console.log(`[Director] Utility AI override: caption → ${captionWin.outputValues['captionStyle']} (score: ${captionWin.totalScore.toFixed(3)}, was: ${profile.captionStyle}, signals: formality=${avgSignals['formality']?.toFixed(2)}, speech.coverage=${avgSignals['speech.coverage']?.toFixed(2)})`);
+                  }
+                }
+              } catch (overrideErr) {
+                console.log(`[Director] Utility AI profile override: skipped (${overrideErr instanceof Error ? overrideErr.message : 'error'})`);
+              }
             }
 
             // Step D.5: Humanize pass (organic imperfection injection)
