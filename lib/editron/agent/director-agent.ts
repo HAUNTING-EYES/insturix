@@ -343,7 +343,7 @@ export async function executeDirectorPlan(
           onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
           console.log('[Director] Path E: Creative Brief architecture (USE_CREATIVE_BRIEF=true)');
 
-          const { generateCreativeBrief } = await import('@/lib/editron/services/creative-brief');
+          const { generateCreativeBrief, routeContentType } = await import('@/lib/editron/services/creative-brief');
           const { executeBrief } = await import('@/lib/editron/services/brief-executor');
           const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
           const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
@@ -413,8 +413,19 @@ export async function executeDirectorPlan(
             console.warn(`[Director] Path E: Genre param computation failed (non-fatal): ${gpErr.message}`);
           }
 
+          // ── Content mode routing (D-004) ──
+          // Compute from measured signals. musicPresence = 0 until audio-based
+          // music detection (Essentia.js) is wired — conservative, never false-positive.
+          const speechCoverage = rfa.speechCoverage ?? 0;
+          const vjepaSegs = projectDoc.vjepaAnalysis?.segments;
+          const visualChangeRate = vjepaSegs?.length
+            ? vjepaSegs.reduce((sum: number, s: any) => sum + (s.motionIntensity || 0), 0) / vjepaSegs.length
+            : 0;
+          const contentMode = routeContentType({ speechCoverage, musicPresence: 0, visualChangeRate });
+          console.log(`[Director] Path E: Content routing — speech=${speechCoverage.toFixed(2)}, visual=${visualChangeRate.toFixed(2)} → ${contentMode}`);
+
           // Generate Creative Brief (Gemini call — context-cached creative doc + decision registry)
-          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams);
+          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams, contentMode);
 
           if (creativeBrief && creativeBrief.decisions.length > 0) {
             console.log(`[Director] Path E: Creative Brief generated — ${creativeBrief.decisions.length} decisions, pacing=${creativeBrief.overallPacing}`);
