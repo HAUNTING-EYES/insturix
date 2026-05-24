@@ -116,7 +116,7 @@ export const THRESHOLD_REGISTRY: ThresholdEntry[] = [
     controls: 'Below this in visual mode → contemplative pacing adaptation',
     source: 'crg',
     sourceRef: 'signal:visual.motion_intensity — 0.2- = static, 0.7+ = high. 0.3 = static-to-moderate boundary.',
-    prior: { mu: 0.3, sigma: 0.05 },
+    prior: { mu: 0.3, sigma: 0.04 },
     adaptive: true,
   },
   {
@@ -315,7 +315,7 @@ export const THRESHOLD_REGISTRY: ThresholdEntry[] = [
     controls: 'Max scale increase on beat (5%)',
     source: 'crg',
     sourceRef: 'CRG overshoot 102-105% maps to 2-5% range',
-    prior: { mu: 0.05, sigma: 0.008 },
+    prior: { mu: 0.05, sigma: 0.007 },
     adaptive: true,
   },
 
