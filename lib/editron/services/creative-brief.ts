@@ -151,17 +151,34 @@ const VISUAL_CHANGE_THRESHOLD = 0.3;    // ⚠️ INVENTED — D-004
 const MIN_BEAT_DENSITY_BPM = 20;        // ⚠️ INVENTED — ambient/drone < 20 BPM. Slowest rhythmic music (ballads ~60) well above. Needs calibration.
 const NON_SPEECH_CEILING = 0.3;         // ← CRG constraint: speech_energy < 0.3 for music/visual mode
 
+export interface RoutingThresholds {
+  speechCoverage: number;
+  musicPresence: number;
+  visualChange: number;
+  nonSpeechCeiling: number;
+  minBeatDensityBpm: number;
+}
+
+export const DEFAULT_ROUTING_THRESHOLDS: RoutingThresholds = {
+  speechCoverage: SPEECH_COVERAGE_THRESHOLD,
+  musicPresence: MUSIC_PRESENCE_THRESHOLD,
+  visualChange: VISUAL_CHANGE_THRESHOLD,
+  nonSpeechCeiling: NON_SPEECH_CEILING,
+  minBeatDensityBpm: MIN_BEAT_DENSITY_BPM,
+};
+
 export function routeContentType(signals: {
   speechCoverage: number;
   musicPresence: number;
   visualChangeRate: number;
   beatDensityBpm?: number;
-}): ContentMode {
-  if (signals.speechCoverage > SPEECH_COVERAGE_THRESHOLD) return 'speech';
+}, thresholds?: RoutingThresholds): ContentMode {
+  const t = thresholds ?? DEFAULT_ROUTING_THRESHOLDS;
+  if (signals.speechCoverage > t.speechCoverage) return 'speech';
 
-  const hasRhythm = signals.beatDensityBpm === undefined || signals.beatDensityBpm >= MIN_BEAT_DENSITY_BPM;
-  if (signals.musicPresence > MUSIC_PRESENCE_THRESHOLD && signals.speechCoverage < NON_SPEECH_CEILING && hasRhythm) return 'music';
-  if (signals.visualChangeRate > VISUAL_CHANGE_THRESHOLD && signals.speechCoverage < NON_SPEECH_CEILING) return 'visual';
+  const hasRhythm = signals.beatDensityBpm === undefined || signals.beatDensityBpm >= t.minBeatDensityBpm;
+  if (signals.musicPresence > t.musicPresence && signals.speechCoverage < t.nonSpeechCeiling && hasRhythm) return 'music';
+  if (signals.visualChangeRate > t.visualChange && signals.speechCoverage < t.nonSpeechCeiling) return 'visual';
   return 'hybrid';
 }
 

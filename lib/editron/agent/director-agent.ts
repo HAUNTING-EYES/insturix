@@ -343,7 +343,8 @@ export async function executeDirectorPlan(
           onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
           console.log('[Director] Path E: Creative Brief architecture (USE_CREATIVE_BRIEF=true)');
 
-          const { generateCreativeBrief, routeContentType } = await import('@/lib/editron/services/creative-brief');
+          const { generateCreativeBrief, routeContentType, DEFAULT_ROUTING_THRESHOLDS } = await import('@/lib/editron/services/creative-brief');
+          const { snapshotDecisions } = await import('@/lib/editron/services/decision-tracker');
           const { executeBrief } = await import('@/lib/editron/services/brief-executor');
           const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
           const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
@@ -413,6 +414,35 @@ export async function executeDirectorPlan(
             console.warn(`[Director] Path E: Genre param computation failed (non-fatal): ${gpErr.message}`);
           }
 
+          // ── Threshold bandit: sample adjusted thresholds for this project ──
+          let routingThresholds = DEFAULT_ROUTING_THRESHOLDS;
+          try {
+            const { loadThresholdBanditState, sampleThresholdAdjustments, getEffectiveThreshold } = await import('@/lib/editron/services/threshold-bandit');
+            const { buildSpeechCoverageBucket, buildDurationBucket } = await import('@/lib/editron/services/genre-parameter-bandit');
+            const banditState = await loadThresholdBanditState(userId);
+            if (banditState) {
+              const banditContext = {
+                contentType: rfa.contentTypeDetection?.contentType || 'unknown',
+                speechCoverageBucket: buildSpeechCoverageBucket(rfa.speechCoverage ?? 0),
+                durationBucket: buildDurationBucket(cleanDurationSec),
+                platform: projectDoc.syntheticStoryboard?.platform || 'youtube',
+              };
+              const adj = sampleThresholdAdjustments(banditState, banditContext);
+              if (adj.usedBandit) {
+                routingThresholds = {
+                  speechCoverage: getEffectiveThreshold(adj, 'speech-coverage-threshold'),
+                  musicPresence: getEffectiveThreshold(adj, 'music-presence-threshold'),
+                  visualChange: getEffectiveThreshold(adj, 'visual-change-threshold'),
+                  nonSpeechCeiling: getEffectiveThreshold(adj, 'non-speech-ceiling'),
+                  minBeatDensityBpm: getEffectiveThreshold(adj, 'min-beat-density-bpm'),
+                };
+                console.log(`[Director] Path E: Threshold bandit active (${adj.observationCount} obs) — adjusted routing thresholds`);
+              }
+            }
+          } catch (banditErr: any) {
+            console.warn(`[Director] Path E: Threshold bandit failed (non-fatal): ${banditErr.message}`);
+          }
+
           // ── Content mode routing (D-004) ──
           // Compute from measured signals. musicPresence = 0 until audio-based
           // music detection (Essentia.js) is wired — conservative, never false-positive.
@@ -421,13 +451,11 @@ export async function executeDirectorPlan(
           let visualChangeRate = 0;
           if (vjepaSegs?.length) {
             visualChangeRate = vjepaSegs.reduce((sum: number, s: any) => sum + (s.motionIntensity || 0), 0) / vjepaSegs.length;
-          } else if (speechCoverage < 0.3) { // NON_SPEECH_CEILING from creative-brief.ts (CRG: speech_energy < 0.3)
-            // No V-JEPA but speech is clearly absent — use segment density as proxy.
-            // Visual prompt has <data_adaptation> for missing V-JEPA data.
+          } else if (speechCoverage < routingThresholds.nonSpeechCeiling) {
             const segCount = rfa.segments?.length ?? 0;
             visualChangeRate = cleanDurationSec > 0 ? Math.min(1, segCount / (cleanDurationSec * 0.5)) : 0;
           }
-          const contentMode = routeContentType({ speechCoverage, musicPresence: 0, visualChangeRate });
+          const contentMode = routeContentType({ speechCoverage, musicPresence: 0, visualChangeRate }, routingThresholds);
           console.log(`[Director] Path E: Content routing — speech=${speechCoverage.toFixed(2)}, visual=${visualChangeRate.toFixed(2)}${!vjepaSegs?.length && visualChangeRate > 0 ? ' (segment proxy)' : ''} → ${contentMode}`);
 
           // Generate Creative Brief (Gemini call — context-cached creative doc + decision registry)
@@ -494,6 +522,18 @@ export async function executeDirectorPlan(
             edlSummary.skipped = briefResult.stats.skippedOutOfRange;
             for (const d of humanizedEdl.decisions) {
               edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
+            }
+
+            // Snapshot decisions for threshold calibration feedback loop
+            try {
+              const decisionLog = snapshotDecisions(
+                projectId, userId, humanizedEdl.decisions, contentMode,
+                totalDurationMs, { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate },
+              );
+              (projectDoc as any)._decisionLog = decisionLog;
+              console.log(`[Director] Path E: Snapshotted ${decisionLog.snapshots.length} decisions for calibration`);
+            } catch (snapErr: any) {
+              console.warn(`[Director] Path E: Decision snapshot failed (non-fatal): ${snapErr.message}`);
             }
 
             pathDHandled = true;
