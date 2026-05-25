@@ -49,9 +49,9 @@ for (const t of THRESHOLD_REGISTRY) {
     const ratio = t.value !== 0 ? t.prior.sigma / Math.abs(t.value) : 0;
     assert(ratio <= 0.15, `${t.id}: CRG-grounded has tight prior (sigma/mu=${(ratio * 100).toFixed(1)}% ≤ 15%)`);
   }
-  if (t.source === 'invented' && t.adaptive) {
+  if (t.source === 'invented') {
     const ratio = t.value !== 0 ? t.prior.sigma / Math.abs(t.value) : 0;
-    assert(ratio >= 0.1, `${t.id}: INVENTED+adaptive has wide prior (sigma/mu=${(ratio * 100).toFixed(1)}% ≥ 10%)`);
+    assert(ratio >= 0.1, `${t.id}: INVENTED has wide prior (sigma/mu=${(ratio * 100).toFixed(1)}% ≥ 10%)`);
   }
   if (t.aeRange) {
     assert(t.aeRange[0] <= t.value && t.value <= t.aeRange[1],

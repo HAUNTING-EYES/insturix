@@ -309,3 +309,63 @@ export async function saveThresholdBanditState(state: ThresholdBanditState): Pro
     console.error(`[ThresholdBandit] Failed to save state for ${state.userId}: ${msg}`);
   }
 }
+
+// ─── Outcome Processing (called from render route) ──────────────────────────
+
+/**
+ * Process decision outcomes for a project: load snapshot, diff against
+ * current overlays, update bandit, save state.
+ *
+ * Called asynchronously from the render route — never blocks rendering.
+ * Entirely non-fatal: if anything fails, logs and returns.
+ */
+export async function processDecisionOutcomes(
+  projectId: string,
+  userId: string,
+  currentOverlays: { id: string; from: number; durationInFrames: number; type?: string }[],
+): Promise<void> {
+  try {
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const { diffOutcomes, aggregateOutcomes } = await import('./decision-tracker');
+    const { buildSpeechCoverageBucket, buildDurationBucket } = await import('./genre-parameter-bandit');
+
+    const db = await getDatabase();
+    const projectDoc = await db.collection('projects').findOne({ projectId });
+
+    const decisionLog = projectDoc?.intelligence?.decisionLog;
+    if (!decisionLog?.snapshots?.length) {
+      return;
+    }
+
+    const outcomes = diffOutcomes(decisionLog, currentOverlays);
+    if (outcomes.length === 0) return;
+
+    const stats = aggregateOutcomes(outcomes);
+    console.log(
+      `[ThresholdBandit] ${projectId}: ${stats.kept} kept, ${stats.modified} modified, ` +
+      `${stats.removed} removed (keepRate=${stats.keepRate.toFixed(2)})`,
+    );
+
+    let state = await loadThresholdBanditState(userId);
+    if (!state) state = createThresholdBanditState(userId);
+
+    const durationSec = (decisionLog.totalDurationMs || 60000) / 1000;
+    const context = {
+      contentType: projectDoc?.rawFootageAnalysis?.contentTypeDetection?.contentType || 'unknown',
+      speechCoverageBucket: buildSpeechCoverageBucket(projectDoc?.rawFootageAnalysis?.speechCoverage ?? 0),
+      durationBucket: buildDurationBucket(durationSec),
+      platform: projectDoc?.syntheticStoryboard?.platform || 'youtube',
+    };
+
+    updateThresholdBandit(state, outcomes, context);
+    await saveThresholdBanditState(state);
+
+    console.log(
+      `[ThresholdBandit] Updated bandit for ${userId}: ${state.totalOutcomes} total outcomes, ` +
+      `${state.arms.size} arms`,
+    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[ThresholdBandit] processDecisionOutcomes failed for ${projectId}: ${msg}`);
+  }
+}

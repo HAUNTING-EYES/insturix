@@ -531,7 +531,14 @@ export async function executeDirectorPlan(
                 projectId, userId, humanizedEdl.decisions, contentMode,
                 totalDurationMs, { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate },
               );
-              (projectDoc as any)._decisionLog = decisionLog;
+              // Persist to MongoDB for render-time outcome capture
+              try {
+                const snapDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+                await snapDb.collection('projects').updateOne(
+                  { projectId },
+                  { $set: { 'intelligence.decisionLog': decisionLog } },
+                );
+              } catch { /* persistence is non-fatal */ }
               console.log(`[Director] Path E: Snapshotted ${decisionLog.snapshots.length} decisions for calibration`);
             } catch (snapErr: any) {
               console.warn(`[Director] Path E: Decision snapshot failed (non-fatal): ${snapErr.message}`);
