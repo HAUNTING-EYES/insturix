@@ -548,7 +548,11 @@ export async function executeDirectorPlan(
               music_presence: musicPresence,
               // Bridge: bare keys for MG composition planner + utility scorer
               formality: genreFormality,
+              // ⚠️ INVENTED: enthusiasm derived from speechCoverage. 1.2x multiplier + 0.5 threshold
+              // have no CRG source. Proper source: Wav2Vec speech.energy (when available). Needs calibration.
               enthusiasm: speechCoverage > 0.5 ? Math.min(1, speechCoverage * 1.2) : 0.5,
+              // ⚠️ INVENTED: warmth = 0.3 base + 0.4 if speech present. No CRG source.
+              // Proper source: Wav2Vec emotional_valence + face_present (when available). Needs calibration.
               warmth: 0.3 + (speechCoverage > 0 ? 0.4 : 0),
               'speech.coverage': speechCoverage,
               'content.formality': genreFormality,
