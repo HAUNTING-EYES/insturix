@@ -657,8 +657,11 @@ export async function processRawFootage(
   const estimatedCleanDurationMs = videoDurationMs - totalRemovedMs;
 
   // Speech coverage: fraction of video duration with speech (from word timestamps)
-  const speechMs = transcription.words.reduce((sum, w) => sum + (w.end - w.start), 0);
-  const speechCoverage = videoDurationMs > 0 ? Math.min(1, speechMs / videoDurationMs) : 0;
+  const speechMs = transcription.words.reduce((sum, w) => {
+    const dur = (w.end ?? 0) - (w.start ?? 0);
+    return sum + (Number.isFinite(dur) ? dur : 0);
+  }, 0);
+  const speechCoverage = (videoDurationMs > 0 && Number.isFinite(speechMs)) ? Math.min(1, speechMs / videoDurationMs) : 0;
   const VISUAL_EDITING_THRESHOLD = 0.3; // ← below 30% speech, transcript-based editing is insufficient
   const needsVisualDrivenEditing = speechCoverage < VISUAL_EDITING_THRESHOLD;
 

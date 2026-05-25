@@ -447,9 +447,14 @@ export async function executeDirectorPlan(
           // ── Content mode routing (D-004) ──
           // Compute from measured signals. musicPresence from Essentia analysis (Modal endpoint).
           // Falls back to 0 if music analysis hasn't run.
-          const speechCoverage = rfa.speechCoverage ?? 0;
+          const speechCoverage = Number.isFinite(rfa.speechCoverage) ? rfa.speechCoverage : 0;
           const musicAnalysis = projectDoc.musicAnalysis;
-          const musicPresence = musicAnalysis?.musicPresence ?? 0;
+          let musicPresence = musicAnalysis?.musicPresence ?? 0;
+          // Penalize musicPresence when speech dominates — speech rhythm creates
+          // false-positive beat patterns in Essentia (e.g., 130 WPM → 129 BPM).
+          if (speechCoverage > 0.5) {
+            musicPresence *= Math.max(0, 1 - speechCoverage);
+          }
           const beatDensityBpm = musicAnalysis?.bpm ?? undefined;
 
           const vjepaSegs = projectDoc.vjepaAnalysis?.segments;
