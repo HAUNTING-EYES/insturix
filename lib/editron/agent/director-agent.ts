@@ -445,9 +445,13 @@ export async function executeDirectorPlan(
           }
 
           // ── Content mode routing (D-004) ──
-          // Compute from measured signals. musicPresence = 0 until audio-based
-          // music detection (Essentia.js) is wired — conservative, never false-positive.
+          // Compute from measured signals. musicPresence from Essentia analysis (Modal endpoint).
+          // Falls back to 0 if music analysis hasn't run.
           const speechCoverage = rfa.speechCoverage ?? 0;
+          const musicAnalysis = projectDoc.musicAnalysis;
+          const musicPresence = musicAnalysis?.musicPresence ?? 0;
+          const beatDensityBpm = musicAnalysis?.bpm ?? undefined;
+
           const vjepaSegs = projectDoc.vjepaAnalysis?.segments;
           let visualChangeRate = 0;
           if (vjepaSegs?.length) {
@@ -456,8 +460,18 @@ export async function executeDirectorPlan(
             const segCount = rfa.segments?.length ?? 0;
             visualChangeRate = cleanDurationSec > 0 ? Math.min(1, segCount / (cleanDurationSec * 0.5)) : 0;
           }
-          const contentMode = routeContentType({ speechCoverage, musicPresence: 0, visualChangeRate }, routingThresholds);
-          console.log(`[Director] Path E: Content routing — speech=${speechCoverage.toFixed(2)}, visual=${visualChangeRate.toFixed(2)}${!vjepaSegs?.length && visualChangeRate > 0 ? ' (segment proxy)' : ''} → ${contentMode}`);
+
+          // Add music features to video context if Essentia analysis available
+          if (musicAnalysis?.beats?.length) {
+            (videoContext as any).musicFeatures = {
+              beats: musicAnalysis.beats,
+              sections: musicAnalysis.sections || [],
+              bpm: musicAnalysis.bpm,
+            };
+          }
+
+          const contentMode = routeContentType({ speechCoverage, musicPresence, visualChangeRate, beatDensityBpm }, routingThresholds);
+          console.log(`[Director] Path E: Content routing — speech=${speechCoverage.toFixed(2)}, music=${musicPresence.toFixed(2)}${beatDensityBpm ? ` (${beatDensityBpm} BPM)` : ''}, visual=${visualChangeRate.toFixed(2)}${!vjepaSegs?.length && visualChangeRate > 0 ? ' (segment proxy)' : ''} → ${contentMode}`);
 
           // Generate Creative Brief (Gemini call — context-cached creative doc + decision registry)
           const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams, contentMode);
@@ -527,9 +541,22 @@ export async function executeDirectorPlan(
 
             // Snapshot decisions for threshold calibration feedback loop
             try {
+              const vjepaLookup = vjepaSegs?.length
+                ? (frameNum: number) => {
+                    const timeMs = frameNum / pathEFps * 1000;
+                    const seg = vjepaSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs);
+                    return {
+                      speech_coverage: speechCoverage,
+                      visual_change_rate: seg?.motionIntensity ?? visualChangeRate,
+                      music_presence: musicPresence,
+                      visual_significance: seg?.visualSignificance ?? 0,
+                    };
+                  }
+                : { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate, music_presence: musicPresence };
+
               const decisionLog = snapshotDecisions(
                 projectId, userId, humanizedEdl.decisions, contentMode,
-                totalDurationMs, { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate },
+                totalDurationMs, vjepaLookup,
               );
               // Persist to MongoDB for render-time outcome capture
               try {

@@ -77,9 +77,13 @@ export function snapshotDecisions(
   decisions: EditDecision[],
   contentMode: string,
   totalDurationMs: number,
-  signalContext: Record<string, number>,
+  signalContext: Record<string, number> | ((frame: number) => Record<string, number>),
   overlayIdMap?: Map<number, string>,
 ): ProjectDecisionLog {
+  const getContext = typeof signalContext === 'function'
+    ? signalContext
+    : () => ({ ...signalContext });
+
   const snapshots: DecisionSnapshot[] = decisions.map((d, i) => ({
     id: `d-${projectId}-${i}`,
     type: d.type,
@@ -89,7 +93,7 @@ export function snapshotDecisions(
     reason: d.reason || '',
     source: d.source,
     params: { ...d.params },
-    signalContext: { ...signalContext },
+    signalContext: getContext(d.frame),
     overlayId: overlayIdMap?.get(d.frame),
   }));
 
