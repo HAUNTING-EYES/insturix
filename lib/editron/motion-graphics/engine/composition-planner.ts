@@ -134,7 +134,7 @@ function composeElements(
     return elements;
   }
 
-  if (budget >= 2 && formality > CRG.FORMALITY_MEDIUM) {
+  if (budget >= 2 && formality >= CRG.FORMALITY_MEDIUM) {
     elements.push(makeContainer(language));
   }
 

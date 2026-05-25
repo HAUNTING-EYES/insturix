@@ -2309,7 +2309,8 @@ async function invokeAITool(
         'creator': 'bold', 'fancy': 'bold', 'word-by-word': 'bold',
         'kinetic': 'bold', 'none': 'subtitle',
       };
-      const rawCaptionStyle = params.style || profile.captionStyle || 'subtitle';
+      // briefCaptionStyle (from Utility AI) takes priority over profile/action params
+      const rawCaptionStyle = briefCaptionStyle || params.style || profile.captionStyle || 'subtitle';
       const captionStyle = CAPTION_STYLE_MAP[rawCaptionStyle] || rawCaptionStyle;
 
       // ── Mode 2 FIX: Seed transcription cache from rawFootageAnalysis ──
