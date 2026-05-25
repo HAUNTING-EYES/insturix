@@ -1091,16 +1091,43 @@ export async function executeDirectorPlan(
     // Attach EDL summary to result for frontend inspection
     (result as any).edlSummary = edlSummary;
 
+    // ─── Step 1.9: Utility AI caption/filter scoring (runs after BOTH Path E and Path D) ──
+    // The overlay-based scoring for caption style and filter preset was previously
+    // inside Path D only. When Path E handled intelligence, the utility scoring was
+    // skipped — leaving captions/filters profile-driven. Now it runs unconditionally.
+    if (process.env.USE_UTILITY_ENGINE === 'true' && briefSignalContext.speech_coverage !== undefined) {
+      try {
+        const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
+        const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
+        const overrideDefs = getOverlayDefinitions().filter(d => d.category === 'caption' || d.category === 'filter');
+        if (overrideDefs.length > 0) {
+          const signalsForScoring: Record<string, number> = {
+            'speech.coverage': briefSignalContext.speech_coverage ?? 0,
+            'formality': 0.5,
+            'warmth': 0.5,
+            'enthusiasm': 0.5,
+          };
+          const overrideResults = scoreAllOverlays(overrideDefs, signalsForScoring);
+          const captionWin = overrideResults.find(r => r.category === 'caption');
+          const filterWin = overrideResults.find(r => r.category === 'filter');
+          if (captionWin?.outputValues['captionStyle']) {
+            briefCaptionStyle = captionWin.outputValues['captionStyle'] as string;
+            console.log(`[Director] Utility AI: caption → ${briefCaptionStyle} (score: ${captionWin.totalScore.toFixed(3)})`);
+          }
+          if (filterWin?.outputValues['filterPresetId']) {
+            effectiveProfile = { ...effectiveProfile, filterPresetId: filterWin.outputValues['filterPresetId'] as string };
+            console.log(`[Director] Utility AI: filter → ${filterWin.outputValues['filterPresetId']} (score: ${filterWin.totalScore.toFixed(3)})`);
+          }
+        }
+      } catch (utilErr: any) {
+        console.warn(`[Director] Utility AI caption/filter scoring failed (non-fatal): ${utilErr.message}`);
+      }
+    }
+
     // ─── Step 2: Check conditions and filter actions ──────────
-    // Caption injection: The user picks caption style in the export dialog.
-    // That choice flows through brief.overrides.captionStyle → effectiveProfile.captionStyle.
-    // But some profiles (B-07 Automotive, B-06 Real Estate, etc.) don't include
-    // addCaptions() in their actions array, so the user's choice gets ignored.
-    // Fix: If the user chose a caption style AND the profile lacks a caption action, inject one.
-    // If the user chose "none" or profile says "none" with no user override, respect that.
     const profileActions = [...effectiveProfile.actions];
     const hasCaptionAction = profileActions.some(a => a.tool === 'add_captions' || a.tool === 'add_fancy_captions');
-    // Brief output takes priority over profile. Falls back to profile if brief didn't run.
+    // Utility AI output takes priority → brief output → profile fallback.
     const resolvedCaptionStyle = briefCaptionStyle || effectiveProfile.captionStyle;
 
     if (!hasCaptionAction && resolvedCaptionStyle && resolvedCaptionStyle !== 'none') {
