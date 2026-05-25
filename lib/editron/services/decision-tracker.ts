@@ -220,6 +220,8 @@ export function aggregateOutcomes(outcomes: DecisionOutcome[]): OutcomeStats {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+const SOURCE_OVERLAY_TYPES = new Set(['video', 'sound']);
+
 function findClosestOverlay(
   snap: DecisionSnapshot,
   overlays: OverlayRef[],
@@ -230,6 +232,7 @@ function findClosestOverlay(
 
   for (const o of overlays) {
     if (alreadyMatched.has(o.id)) continue;
+    if (o.type && SOURCE_OVERLAY_TYPES.has(o.type)) continue;
     const dist = Math.abs(o.from - snap.frame);
     if (dist < bestDist) {
       bestDist = dist;
