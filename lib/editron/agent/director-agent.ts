@@ -429,12 +429,13 @@ export async function executeDirectorPlan(
               };
               const adj = sampleThresholdAdjustments(banditState, banditContext);
               if (adj.usedBandit) {
+                const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
                 routingThresholds = {
-                  speechCoverage: getEffectiveThreshold(adj, 'speech-coverage-threshold'),
-                  musicPresence: getEffectiveThreshold(adj, 'music-presence-threshold'),
-                  visualChange: getEffectiveThreshold(adj, 'visual-change-threshold'),
-                  nonSpeechCeiling: getEffectiveThreshold(adj, 'non-speech-ceiling'),
-                  minBeatDensityBpm: getEffectiveThreshold(adj, 'min-beat-density-bpm'),
+                  speechCoverage: clamp01(getEffectiveThreshold(adj, 'speech-coverage-threshold')),
+                  musicPresence: clamp01(getEffectiveThreshold(adj, 'music-presence-threshold')),
+                  visualChange: clamp01(getEffectiveThreshold(adj, 'visual-change-threshold')),
+                  nonSpeechCeiling: clamp01(getEffectiveThreshold(adj, 'non-speech-ceiling')),
+                  minBeatDensityBpm: Math.max(0, getEffectiveThreshold(adj, 'min-beat-density-bpm')),
                 };
                 console.log(`[Director] Path E: Threshold bandit active (${adj.observationCount} obs) — adjusted routing thresholds`);
               }

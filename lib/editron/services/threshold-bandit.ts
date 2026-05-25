@@ -190,6 +190,11 @@ export function updateThresholdBandit(
 
     for (const thresholdId of relatedThresholds) {
       const arm = getOrCreateArm(state, thresholdId, contextKey);
+      // ⚠️ INVENTED — 0.1 dampening factor. Intentional: unlike genre bandit which observes
+      // actual adjustment magnitudes, threshold bandit has binary signal (kept/removed).
+      // Without dampening, single observations shift mu too aggressively for ratio thresholds
+      // (0.3-0.7 range). Many observations needed before threshold meaningfully shifts.
+      // Needs calibration: too high = overfits to early decisions, too low = never learns.
       const effectiveObservation = rewardSign * 0.1;
       const newPrecision = arm.precision + OBSERVATION_PRECISION;
       const newMu = (arm.precision * arm.mu + OBSERVATION_PRECISION * effectiveObservation) / newPrecision;
@@ -207,6 +212,20 @@ export function updateThresholdBandit(
 
 // ─── Threshold-Decision Mapping ─────────────────────────────────────────────
 
+// Maps decision reasons to the thresholds that GATE them.
+// Logic: if threshold X controls whether mode Y activates, and reason Z only
+// appears in mode Y's decisions, then outcome feedback for reason Z should
+// update threshold X's bandit arm.
+//
+// CRG chain verification:
+//   music_beat/drop/section → CRG signal:audio.music_beat/music_section → music mode
+//     → gated by music-presence-threshold (0.6, CRG montage_mode) + min-beat-density-bpm
+//   visual_peak/motion_peak → CRG signal:visual.motion_intensity → visual mode
+//     → gated by visual-change-threshold (0.3) + motion-intensity-density-threshold (0.7, CRG)
+//   energy_peak/vocal_* → CRG signal:speech.energy → speech mode
+//     → gated by speech-coverage-threshold (0.6)
+//   beat_accent → INVENTED signal from music_beat downbeats → music mode
+//   visual_monotony → anti-monotony in visual mode → gated by visual-change-threshold
 const REASON_TO_THRESHOLDS: Record<string, string[]> = {
   music_beat: ['music-presence-threshold', 'min-beat-density-bpm'],
   music_drop: ['music-presence-threshold'],
