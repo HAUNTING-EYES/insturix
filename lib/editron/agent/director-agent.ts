@@ -538,7 +538,21 @@ export async function executeDirectorPlan(
 
             // Inject signal context into decisions for MG composition engine.
             // Without this, MG graphics get contentSignals={} → default animations.
-            const signalCtx = { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate, music_presence: musicPresence };
+            // Bridge signal names: MG composition planner expects personality signals
+            // (formality, enthusiasm, warmth) not routing signals (speech_coverage, etc.).
+            // Same bridge as Path D utility scoring (lines 774-782).
+            const genreFormality = pathEGenreParams?.formality ?? 0.5;
+            const signalCtx: Record<string, number> = {
+              speech_coverage: speechCoverage,
+              visual_change_rate: visualChangeRate,
+              music_presence: musicPresence,
+              // Bridge: bare keys for MG composition planner + utility scorer
+              formality: genreFormality,
+              enthusiasm: speechCoverage > 0.5 ? Math.min(1, speechCoverage * 1.2) : 0.5,
+              warmth: 0.3 + (speechCoverage > 0 ? 0.4 : 0),
+              'speech.coverage': speechCoverage,
+              'content.formality': genreFormality,
+            };
             for (const d of briefResult.edl.decisions) {
               if (!d.params.signals) {
                 d.params.signals = signalCtx;
@@ -594,7 +608,7 @@ export async function executeDirectorPlan(
             // Capture brief outputs for downstream action loop (replaces profile-driven values)
             briefCaptionStyle = creativeBrief.captionStyle !== 'none' ? creativeBrief.captionStyle : undefined;
             briefPacing = creativeBrief.overallPacing;
-            briefSignalContext = { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate, music_presence: musicPresence };
+            briefSignalContext = { ...signalCtx };
             console.log(`[Director] Path E: Brief outputs — captionStyle=${briefCaptionStyle || 'none'}, pacing=${briefPacing}`);
 
             pathDHandled = true;
@@ -1106,9 +1120,9 @@ export async function executeDirectorPlan(
         if (overrideDefs.length > 0) {
           const signalsForScoring: Record<string, number> = {
             'speech.coverage': briefSignalContext.speech_coverage ?? 0,
-            'formality': 0.5,
-            'warmth': 0.5,
-            'enthusiasm': 0.5,
+            'formality': briefSignalContext.formality ?? briefSignalContext['content.formality'] ?? 0.5,
+            'warmth': briefSignalContext.warmth ?? 0.5,
+            'enthusiasm': briefSignalContext.enthusiasm ?? 0.5,
           };
           const overrideResults = scoreAllOverlays(overrideDefs, signalsForScoring);
           const captionWin = overrideResults.find(r => r.category === 'caption');
