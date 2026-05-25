@@ -349,7 +349,7 @@ graphic_callout — Key CONCEPTS that benefit from visual explanation. params: {
 
 graphic_quote_card — Direct QUOTES or standout assertions worth displaying verbatim. params: { quote: "The data doesn't lie", author: "Speaker Name" }. Use the speaker's EXACT words from transcript. Max 2-3 per video. Author is optional.
 
-graphic_keyword_highlight — Quick pop for a single CONCEPTUAL term worth remembering. params: { text: "anonymity" }. The LIGHTEST graphic. Prefer multi-word concepts ("selection bias") over single generic words. NEVER use filler ("good", "like"), slang, profanity, or vague words ("thing", "stuff"). Choose words a viewer would screenshot.
+graphic_keyword_highlight — Quick pop for a DOMAIN-SPECIFIC term worth remembering. params: { text: "selection bias" }. The LIGHTEST graphic. ONLY highlight: A) branded/product terms from the speaker's domain, B) technical terms introduced for the FIRST TIME in the video, C) thesis-defining phrases the speaker repeats 2+ times. NEVER highlight: common verbs (download, leave, click, want), everyday nouns (people, thing, internet, problem), filler, slang, profanity. Test: would this word appear in the video's glossary or index? If not, don't highlight it.
 
 graphic_logo_reveal — Brand/logo moment at opening or closing only. Max 2 per video.
 

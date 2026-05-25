@@ -429,7 +429,7 @@ export const DECISION_REGISTRY: DecisionRegistryEntry[] = [
     defaultParams: { text: '' },
     requiredParams: ['text'],
     minGapSec: 10,
-    promptHint: 'Quick keyword pop for CONCEPTUAL terms worth remembering. params: text="anonymity". Prefer multi-word concepts over single generic words. Never use filler, slang, or vague words.',
+    promptHint: 'Quick keyword pop for a term worth remembering. params: text="selection bias". ONLY highlight: A) branded/product terms, B) technical terms introduced for the first time, C) thesis-defining phrases repeated 2+ times. NEVER highlight: common verbs (download, leave, click), everyday nouns (people, thing, internet), filler, slang, profanity. Test: would this word appear in the video\'s glossary? (CRG: mapping:graphic.keyword_highlight)',
   },
   {
     id: 'graphic-quote-card',

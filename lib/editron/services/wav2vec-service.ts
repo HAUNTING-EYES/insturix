@@ -134,12 +134,17 @@ export async function analyzeAudioWithWav2Vec(
     }
 
     console.log(`[Wav2VecService] ${segments.length} segments → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
-    const batchStartMs = Date.now();
+    let lastResponseMs = Date.now();
+    // ⚠️ INVENTED — 30s gap threshold. If >30s between batches, Modal container
+    // likely cold-restarted. Re-use cold timeout instead of warm. Needs calibration.
+    const GAP_COLD_RESTART_MS = 30_000;
 
     for (let b = 0; b < batches.length; b++) {
       const batch = batches[b];
       const controller = new AbortController();
-      const batchTimeout = b === 0 ? COLD_TIMEOUT_MS : WARM_TIMEOUT_MS;
+      const timeSinceLastResponse = Date.now() - lastResponseMs;
+      const batchTimeout = (b === 0 || timeSinceLastResponse > GAP_COLD_RESTART_MS)
+        ? COLD_TIMEOUT_MS : WARM_TIMEOUT_MS;
       const timeout = setTimeout(() => controller.abort(), batchTimeout);
 
       const response = await fetch(MODAL_WAV2VEC_ENDPOINT, {
@@ -166,10 +171,11 @@ export async function analyzeAudioWithWav2Vec(
         return null;
       }
 
+      lastResponseMs = Date.now();
       const data = (await response.json()) as ModalWav2VecResponse;
       if (!data?.segments?.length) {
-        console.warn(`[Wav2VecService] Batch ${b + 1}/${batches.length}: empty response`);
-        return null;
+        console.warn(`[Wav2VecService] Batch ${b + 1}/${batches.length}: empty response — continuing with partial results`);
+        continue;
       }
 
       const mapped: Wav2VecSegmentResult[] = data.segments.map(s => ({
