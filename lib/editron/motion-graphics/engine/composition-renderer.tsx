@@ -254,10 +254,12 @@ const CountUpText: React.FC<{
 
 function formatCounterValue(current: number, target: number, prefix: string, suffix: string): string {
   const isDecimal = target % 1 !== 0;
+  // Preserve the original value's decimal precision (0.02 → 2 decimals, 3.5 → 1 decimal)
+  const targetDecimals = isDecimal ? Math.max(1, (String(target).split('.')[1] || '').length) : 0;
   const formatted = current >= 1000
     ? Math.round(current).toLocaleString('en-US')
     : isDecimal
-      ? current.toFixed(1)
+      ? current.toFixed(targetDecimals)
       : String(Math.round(current));
   return `${prefix}${formatted}${suffix}`;
 }
