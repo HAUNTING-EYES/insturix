@@ -338,6 +338,9 @@ export async function executeDirectorPlan(
       // resolves word indices to exact frames deterministically.
       // Enable via env: USE_CREATIVE_BRIEF=true
       let pathDHandled = false;
+      let briefCaptionStyle: string | undefined;
+      let briefPacing: string | undefined;
+      let briefSignalContext: Record<string, number> = {};
       if (process.env.USE_CREATIVE_BRIEF === 'true' && projectDoc?.rawFootageAnalysis?.segments?.length > 0) {
         try {
           onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
@@ -530,6 +533,15 @@ export async function executeDirectorPlan(
               pathDConstraintViolations = constraintResult.violations;
             }
 
+            // Inject signal context into decisions for MG composition engine.
+            // Without this, MG graphics get contentSignals={} → default animations.
+            const signalCtx = { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate, music_presence: musicPresence };
+            for (const d of briefResult.edl.decisions) {
+              if (!d.params.signals) {
+                d.params.signals = signalCtx;
+              }
+            }
+
             // Execute EDL (apply to overlays)
             const canvas = project.playerDimensions || { width: 1920, height: 1080 };
             const analysesMap = new Map<string, any>();
@@ -575,6 +587,12 @@ export async function executeDirectorPlan(
             } catch (snapErr: any) {
               console.warn(`[Director] Path E: Decision snapshot failed (non-fatal): ${snapErr.message}`);
             }
+
+            // Capture brief outputs for downstream action loop (replaces profile-driven values)
+            briefCaptionStyle = creativeBrief.captionStyle !== 'none' ? creativeBrief.captionStyle : undefined;
+            briefPacing = creativeBrief.overallPacing;
+            briefSignalContext = { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate, music_presence: musicPresence };
+            console.log(`[Director] Path E: Brief outputs — captionStyle=${briefCaptionStyle || 'none'}, pacing=${briefPacing}`);
 
             pathDHandled = true;
             console.log(`[Director] Path E: Creative Brief execution COMPLETE — ${humanizedEdl.decisions.length} decisions applied`);
@@ -1082,7 +1100,8 @@ export async function executeDirectorPlan(
     // If the user chose "none" or profile says "none" with no user override, respect that.
     const profileActions = [...effectiveProfile.actions];
     const hasCaptionAction = profileActions.some(a => a.tool === 'add_captions' || a.tool === 'add_fancy_captions');
-    const resolvedCaptionStyle = effectiveProfile.captionStyle; // Already merged with user override by applyBriefOverrides
+    // Brief output takes priority over profile. Falls back to profile if brief didn't run.
+    const resolvedCaptionStyle = briefCaptionStyle || effectiveProfile.captionStyle;
 
     if (!hasCaptionAction && resolvedCaptionStyle && resolvedCaptionStyle !== 'none') {
       // User chose a caption style (or profile default is not 'none') but profile has no caption action

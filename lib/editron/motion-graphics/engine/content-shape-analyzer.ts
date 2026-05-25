@@ -8,6 +8,7 @@ import type {
 import type { PlannerSignals } from './composition-planner';
 
 const DEFAULT_HOLD_FRAMES = 90;
+let emphasisLayoutCounter = 0;
 const DEFAULT_COMPLEXITY = 3;
 
 export function analyzeContentShape(
@@ -182,8 +183,11 @@ function layoutForShape(
       return { position: 'center' };
     case 'identity':
       return { position: 'bottom-left', captionZoneAware: true };
-    case 'emphasis':
-      return { position: 'top-left', captionZoneAware: captionAware };
+    case 'emphasis': {
+      const emphasisPositions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
+      const idx = emphasisLayoutCounter++ % emphasisPositions.length;
+      return { position: emphasisPositions[idx], captionZoneAware: captionAware };
+    }
     case 'data-series':
       return { position: 'center', maxWidth: '80%' };
     case 'structured':
