@@ -455,6 +455,9 @@ export async function executeDirectorPlan(
           let musicPresence = musicAnalysis?.musicPresence ?? 0;
           // Penalize musicPresence when speech dominates — speech rhythm creates
           // false-positive beat patterns in Essentia (e.g., 130 WPM → 129 BPM).
+          // ⚠️ INVENTED formula: max(0, 1 - speechCoverage). At speech=0.8 → 0.2x. At speech=0.1 → 0.9x.
+          // Source: no CRG node. Derived from production test (proj_APY5gxzbxZ68: speech=0.82, music=0.90 false positive).
+          // Threshold 0.5 = point where speech is likely dominant. Needs calibration.
           if (speechCoverage > 0.5) {
             musicPresence *= Math.max(0, 1 - speechCoverage);
           }
