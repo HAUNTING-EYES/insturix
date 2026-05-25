@@ -72,7 +72,7 @@ interface ModalMusicResponse {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const MODAL_MUSIC_ENDPOINT = process.env.MODAL_MUSIC_ANALYSIS_ENDPOINT
-  || 'https://jainnimit728--music-analysis-essentia-analyzer-analyze.modal.run';
+  || 'https://jainnimit728--music-analysis-essentia-essentiaanalyzer-analyze.modal.run';
 
 const COLD_TIMEOUT_MS = 90_000;
 const WARM_TIMEOUT_MS = 45_000;
