@@ -114,6 +114,9 @@ export async function executeDirectorPlan(
     // Path D: hoisted constraint violations + genre params for quality review step 11
     let pathDConstraintViolations: any[] | undefined;
     let pathDGenreParams: any | undefined;
+    let briefCaptionStyle: string | undefined;
+    let briefPacing: string | undefined;
+    let briefSignalContext: Record<string, number> = {};
 
     const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
@@ -338,9 +341,6 @@ export async function executeDirectorPlan(
       // resolves word indices to exact frames deterministically.
       // Enable via env: USE_CREATIVE_BRIEF=true
       let pathDHandled = false;
-      let briefCaptionStyle: string | undefined;
-      let briefPacing: string | undefined;
-      let briefSignalContext: Record<string, number> = {};
       if (process.env.USE_CREATIVE_BRIEF === 'true' && projectDoc?.rawFootageAnalysis?.segments?.length > 0) {
         try {
           onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
