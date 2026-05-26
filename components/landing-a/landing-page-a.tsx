@@ -1,8 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import Image from "next/image";
-import { motion, AnimatePresence } from "framer-motion";
 import { SiteFooter } from "@/components/shared/site-footer";
 import { PreviewVisualInsturix } from "./preview-visual";
 
@@ -132,60 +130,6 @@ const MSGS: { at: number; side: string; text: string; color?: string }[] = [
 // ═══════════════════════════════════════════════════════════════
 // PRIMITIVES
 // ═══════════════════════════════════════════════════════════════
-
-// Logo image ONLY ↔ "Insturix" text ONLY — clean alternation
-function LogoBrand() {
-  const [showLogo, setShowLogo] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => setShowLogo((v) => !v), 4000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const variants = {
-    enter: { opacity: 0, y: 12, filter: "blur(3px)" },
-    center: { opacity: 1, y: 0, filter: "blur(0px)" },
-    exit: { opacity: 0, y: -12, filter: "blur(3px)" },
-  };
-
-  return (
-    <div style={{ position: "relative", width: 110, height: 36, display: "flex", alignItems: "center" }}>
-      <AnimatePresence mode="wait">
-        {showLogo ? (
-          <motion.div
-            key="logo-img"
-            variants={variants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            style={{ position: "absolute", display: "flex", alignItems: "center" }}
-          >
-            <Image
-              src="/brand/insturix_white.png"
-              alt="Insturix"
-              width={36}
-              height={36}
-              style={{ borderRadius: 4 }}
-            />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="logo-text"
-            variants={variants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            style={{ position: "absolute", display: "flex", alignItems: "center" }}
-          >
-            <span style={{ fontWeight: 800, fontSize: 18, letterSpacing: "-0.02em" }}>Insturix</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 function Chk({ size = 14, color = C.accent, sw = 2.5 }: { size?: number; color?: string; sw?: number }) {
   return (
@@ -335,9 +279,6 @@ export function LandingPageA() {
         @keyframes checkDraw{from{stroke-dashoffset:20}to{stroke-dashoffset:0}}
         @keyframes eqBounce{0%,100%{transform:scaleY(.15)}50%{transform:scaleY(1)}}
         @keyframes toastIn{from{opacity:0;transform:translateY(-16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
-        @keyframes toastOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.95)}}
-        @keyframes logoFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes logoFadeOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-8px)}}
         .mkt-card{transition:border-color .35s ${EASE},transform .35s ${EASE}}
         .mkt-card:hover{border-color:var(--hover-border)!important;transform:translateY(-3px)}
         @media(max-width:1100px){
@@ -583,8 +524,6 @@ export function LandingPageA() {
     </>
   );
 }
-
-// Preview component imported from ./preview-visual (PreviewVisualInsturix)
 
 // ═══════════════════════════════════════════════════════════════
 // TIMELINE
