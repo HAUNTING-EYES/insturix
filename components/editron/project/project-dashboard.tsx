@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback, useReducer, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
+import { useGSAP } from '@gsap/react';
+import { gsap } from '@/lib/animation/gsap-config';
+import { DURATIONS, STAGGER } from '@/lib/animation/presets';
 import { formatDistanceToNow } from 'date-fns';
 import { Trash2 } from 'lucide-react';
 import {
@@ -102,6 +105,18 @@ export default function ProjectDashboard() {
   const oscLabelRef = useRef<HTMLDivElement>(null);
   const projectsStripRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+
+  // ── GSAP entrance (Phase 2: replaces CSS @keyframes efStaggerIn) ──
+  // OLD: CSS animation with manual animationDelay per element
+  // NEW: GSAP fromTo with shared presets, auto-cleanup via useGSAP
+  // IMPORTANT: uses fromTo (not from) because CSS sets opacity:0 — from() would animate 0→0
+  useGSAP(() => {
+    gsap.fromTo('.ef-stagger',
+      { y: 24, opacity: 0 },
+      { y: 0, opacity: 1, duration: DURATIONS.atmosphere, ease: 'expo.out', stagger: { each: STAGGER.wide.each, from: 'start' } }
+    );
+  }, { scope: pageRef });
 
   // ── Load projects (PRESERVED) ──
   useEffect(() => {
@@ -629,7 +644,7 @@ export default function ProjectDashboard() {
   })();
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--ef-bg)', color: 'var(--ef-text)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", overflowX: 'hidden', position: 'relative' }}>
+    <div ref={pageRef} style={{ minHeight: '100vh', background: 'var(--ef-bg)', color: 'var(--ef-text)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", overflowX: 'hidden', position: 'relative' }}>
       <style>{`
         /* ── TOKENS ── */
         :root {
@@ -654,8 +669,9 @@ export default function ProjectDashboard() {
         }
 
         /* ── STAGGER LOAD ── */
-        .ef-stagger { opacity: 0; transform: translateY(12px); animation: efStaggerIn .7s var(--ef-ease) forwards; }
-        @keyframes efStaggerIn { to { opacity: 1; transform: translateY(0); } }
+        /* OLD: CSS @keyframes efStaggerIn with per-element animationDelay */
+        /* NEW: GSAP fromTo handles reveal. CSS only sets initial hidden state. */
+        .ef-stagger { opacity: 0; }
 
         /* ── PULSE ── */
         @keyframes efPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
@@ -717,7 +733,7 @@ export default function ProjectDashboard() {
       </div>
 
       {/* ── ROOM HEADER ── */}
-      <header className="ef-stagger" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 28px', background: 'var(--ef-surface)', borderBottom: '1px solid var(--ef-border)', position: 'relative', zIndex: 1, animationDelay: '0s' }}>
+      <header className="ef-stagger" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 28px', background: 'var(--ef-surface)', borderBottom: '1px solid var(--ef-border)', position: 'relative', zIndex: 1 }}>
         <div style={{ fontFamily: 'var(--ef-mono)', fontSize: 9, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ef-gold)' }}>Edit Floor</div>
         <span ref={tcRef} style={{ fontFamily: 'var(--ef-mono)', fontSize: 11, color: 'var(--ef-dim)' }}>TC 00:00:00:00</span>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontFamily: 'var(--ef-mono)', fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ef-dim)' }}>
@@ -731,7 +747,7 @@ export default function ProjectDashboard() {
         <div className="ef-hero-row" style={{ display: 'flex', gap: 28, alignItems: 'flex-start', justifyContent: 'center', flexWrap: 'wrap' }}>
 
           {/* ── VU METERS ── */}
-          <div className="ef-stagger ef-vu-meters" style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', paddingTop: 40, animationDelay: '.8s' }}>
+          <div className="ef-stagger ef-vu-meters" style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', paddingTop: 40 }}>
             <div style={{ display: 'flex', gap: 6 }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                 <div style={{ fontFamily: 'var(--ef-mono)', fontSize: 7, color: 'var(--ef-faint)', textTransform: 'uppercase' }}>AI</div>
@@ -750,7 +766,7 @@ export default function ProjectDashboard() {
           </div>
 
           {/* ── HERO MONITOR (upload zone) ── */}
-          <div className="ef-stagger ef-hero-monitor" style={{ maxWidth: 780, width: '100%', flexShrink: 0, animationDelay: '.2s' }}>
+          <div className="ef-stagger ef-hero-monitor" style={{ maxWidth: 780, width: '100%', flexShrink: 0 }}>
             <div style={{ border: '3px solid var(--ef-borderL)', borderRadius: 4, boxShadow: 'inset 0 1px 0 rgba(255,255,255,.03), inset 0 -1px 0 rgba(0,0,0,.4), 0 0 60px rgba(212,166,82,.04)', overflow: 'hidden', background: '#000' }}>
               <div
                 className="ef-monitor-screen"
@@ -863,7 +879,7 @@ export default function ProjectDashboard() {
           </div>
 
           {/* ── SCRIPT MONITOR ── */}
-          <div className="ef-stagger ef-script-monitor" style={{ maxWidth: 340, width: '100%', flexShrink: 0, animationDelay: '1s' }}>
+          <div className="ef-stagger ef-script-monitor" style={{ maxWidth: 340, width: '100%', flexShrink: 0 }}>
             <div style={{ border: '2px solid var(--ef-border)', borderRadius: 4, boxShadow: 'inset 0 1px 0 rgba(255,255,255,.02), 0 0 40px rgba(181,178,168,.02)', overflow: 'hidden', background: '#000' }}>
               <div className="ef-script-screen" style={{ position: 'relative', height: 260, overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '20px 16px', animation: 'efScrollUp 30s linear infinite' }}>
@@ -914,7 +930,7 @@ export default function ProjectDashboard() {
         </div>
 
         {/* ── OSCILLOSCOPE PROCESSING STRIP ── */}
-        <section className="ef-stagger" style={{ marginTop: 36, animationDelay: '1.2s' }}>
+        <section className="ef-stagger" style={{ marginTop: 36 }}>
           <div style={{ border: '1px solid var(--ef-border)', borderRadius: 4, background: 'var(--ef-surface)', overflow: 'hidden', padding: '8px 12px' }}>
             <canvas ref={oscCanvasRef} height={56} style={{ display: 'block', width: '100%', height: 56 }} />
             <div
@@ -935,7 +951,7 @@ export default function ProjectDashboard() {
         )}
 
         {/* ── PROJECTS ── */}
-        <section className="ef-stagger" style={{ marginTop: 48, animationDelay: '1.6s' }}>
+        <section className="ef-stagger" style={{ marginTop: 48 }}>
           <div style={{ fontFamily: 'var(--ef-mono)', fontSize: 9, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ef-dim)', marginBottom: 18 }}>Projects</div>
 
           {loading ? (
@@ -1025,7 +1041,7 @@ export default function ProjectDashboard() {
       </main>
 
       {/* ── ROOM FOOTER ── */}
-      <footer className="ef-stagger" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 28px', marginTop: 48, borderTop: '1px solid var(--ef-border)', position: 'relative', zIndex: 1, animationDelay: '1.8s' }}>
+      <footer className="ef-stagger" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 28px', marginTop: 48, borderTop: '1px solid var(--ef-border)', position: 'relative', zIndex: 1 }}>
         <span style={{ fontFamily: 'var(--ef-mono)', fontSize: 8, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--ef-faint)' }}>Insturix Edit Floor</span>
         <span style={{ fontFamily: 'var(--ef-mono)', fontSize: 8, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--ef-dim)' }}>{projects.length} Projects</span>
         <span style={{ fontFamily: 'var(--ef-mono)', fontSize: 8, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--ef-faint)' }}>v3.1</span>
