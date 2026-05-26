@@ -64,6 +64,7 @@ export async function executeDirectorPlan(
   // Phase 2.4: Utility AI profile override (feature-flagged, default OFF)
   // Scoring happens after signal timeline build (Step D.4c) where real signals exist.
   const useUtilityEngine = process.env.USE_UTILITY_ENGINE === 'true';
+  const useUtilityLive = process.env.USE_UTILITY_LIVE === 'true';
 
   // Pipeline warning collector for structured error visibility
   const { createPipelineWarnings } = await import('@/lib/editron/services/pipeline-warnings');
@@ -730,9 +731,11 @@ export async function executeDirectorPlan(
             );
             console.log(`[Director] Path D: ${signalEdl.metadata.totalMappingsFired} mappings fired → ${signalEdl.metadata.totalDecisionsGenerated} decisions (${signalEdl.metadata.totalDecisionsSuppressed} suppressed) in ${signalEdl.metadata.executionTimeMs}ms`);
 
-            // Step D.4b: Utility AI shadow scoring (Phase 1.2 — log only, never affects output)
+            // Step D.4b: Utility AI overlay scoring
+            // When USE_UTILITY_LIVE=true: produces EditDecisions that REPLACE signal-executor for zoom/transition/graphic/camera/cut
+            // When false: shadow scoring only (log, never affects output)
             try {
-              const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
+              const { scoreAllOverlays, selectWinners } = await import('@/lib/editron/engine/utility-scorer');
               const { inspectGridPoint, formatInspectorLog } = await import('@/lib/editron/engine/decision-inspector');
               const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
               const overlayDefs = getOverlayDefinitions();
@@ -742,6 +745,7 @@ export async function executeDirectorPlan(
               let utilityTotal = 0;
               let utilityAboveMin = 0;
               const sampleLogs: string[] = [];
+              const gridPointDecisions: Array<{ frame: number; timestampMs: number; winners: Record<string, any> }> = [];
               for (const frame of gridFrames) {
                 const snap = signalTimeline.gridSignals.get(frame)!;
                 const numericSnap: Record<string, number> = {};
@@ -753,17 +757,28 @@ export async function executeDirectorPlan(
                 const results = scoreAllOverlays(overlayDefs, numericSnap);
                 utilityTotal += overlayDefs.length;
                 utilityAboveMin += results.length;
+                if (useUtilityLive) {
+                  const winners = selectWinners(results, frame);
+                  gridPointDecisions.push({ frame, timestampMs: (snap as any).timestampMs ?? (frame / pathDFps * 1000), winners });
+                }
                 if (results.length > 0 && sampleLogs.length < 5) {
-                  const decision = { frame, timestampMs: snap.timestampMs, winners: {} as any, allScores: results };
+                  const decision = { frame, timestampMs: (snap as any).timestampMs ?? 0, winners: {} as any, allScores: results };
                   sampleLogs.push(formatInspectorLog(inspectGridPoint(decision)));
                 }
               }
-              console.log(`[Director] Utility AI shadow: scored ${overlayDefs.length} overlays × ${gridFrames.length} grid points. ${utilityAboveMin} above minScore.`);
+              console.log(`[Director] Utility AI ${useUtilityLive ? 'LIVE' : 'shadow'}: scored ${overlayDefs.length} overlays × ${gridFrames.length} grid points. ${utilityAboveMin} above minScore.`);
               if (sampleLogs.length > 0) {
                 console.log(`[Director] Utility AI sample decisions:\n${sampleLogs.slice(0, 3).join('\n')}`);
               }
+              if (useUtilityLive && gridPointDecisions.length > 0) {
+                const { overlayResultsToEditDecisions } = await import('@/lib/editron/engine/overlay-bridge');
+                const utilityEdl = overlayResultsToEditDecisions(gridPointDecisions, signalTimeline, pathDFps);
+                const merged = [...signalEdl.decisions.filter(d => d.type === 'graphic'), ...utilityEdl.decisions.filter(d => d.type !== 'graphic')];
+                signalEdl = { decisions: merged, metadata: { ...signalEdl.metadata, totalMappingsFired: merged.length, totalDecisionsGenerated: merged.length } };
+                console.log(`[Director] Utility AI LIVE: ${utilityEdl.decisions.length} overlay decisions produced (${utilityEdl.metadata.executionTimeMs}ms). Merged with ${signalEdl.decisions.filter(d => d.type === 'graphic').length} signal-executor graphics.`);
+              }
             } catch (utilityErr) {
-              console.log(`[Director] Utility AI shadow: skipped (${utilityErr instanceof Error ? utilityErr.message : 'unknown error'})`);
+              console.log(`[Director] Utility AI scoring: skipped (${utilityErr instanceof Error ? utilityErr.message : 'unknown error'})`);
             }
 
             // Step D.4c: Utility AI profile override — real signals (Phase 2.4)
