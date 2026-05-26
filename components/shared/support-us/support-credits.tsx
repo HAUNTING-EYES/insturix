@@ -4,19 +4,15 @@ import React from "react";
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { FRAMER_VARIANTS } from "@/lib/animation/presets";
 
 /* ─── animation constants ─── */
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
-};
-
-const staggerContainer = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.14, delayChildren: 0.1 } },
-};
+// OLD: local fadeUp + staggerContainer (0.14s stagger)
+// NEW: shared presets. stagger 0.14→0.12 (staggerContainerWide), 20ms/child difference
+const fadeUp = FRAMER_VARIANTS.fadeUp;
+const staggerContainer = FRAMER_VARIANTS.staggerContainerWide;
 
 /* ─── tier data ─── */
 interface Perk {

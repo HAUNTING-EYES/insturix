@@ -12,6 +12,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { FRAMER_VARIANTS } from "@/lib/animation/presets";
 
 /* ─── Constants ─── */
 
@@ -95,16 +96,10 @@ const broadcastKeyframes = `
 `;
 
 /* ─── Animation Variants ─── */
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
-};
-
-const staggerContainer = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.1, delayChildren: 0.1 } },
-};
+// OLD: local fadeUp/staggerContainer declarations
+// NEW: shared imports from lib/animation/presets.ts
+const fadeUp = FRAMER_VARIANTS.fadeUp;
+const staggerContainer = FRAMER_VARIANTS.staggerContainer; // 0.1→0.08s stagger (negligible)
 
 const staggerItem = {
   hidden: { opacity: 0, y: 20 },
