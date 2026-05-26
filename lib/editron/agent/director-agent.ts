@@ -727,6 +727,7 @@ export async function executeDirectorPlan(
               const { buildSignalTimelineFromAnalysis } = await import('@/lib/editron/services/signal-registry');
               signalTimeline = buildSignalTimelineFromAnalysis(
                 sa, analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps,
+                projectDoc.musicAnalysis ?? null,
               );
             } else {
               // ── Legacy path: read from 5 separate fields (backward compat) ──
@@ -757,13 +758,35 @@ export async function executeDirectorPlan(
                 analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps,
                 projectDoc.vjepaAnalysis ?? null,
                 projectDoc.wav2vecAnalysis ?? null,
+                projectDoc.musicAnalysis ?? null,
               );
             }
 
             console.log(`[Director] Path D: Moment weights Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
 
+            // Step D.3b: Threshold bandit — sample adjusted thresholds for this project
+            try {
+              const { loadThresholdBanditState, sampleThresholdAdjustments } = await import('@/lib/editron/services/threshold-bandit');
+              const banditState = await loadThresholdBanditState(userId);
+              if (banditState) {
+                const rfa = projectDoc.rawFootageAnalysis;
+                const banditContext = {
+                  contentType: rfa?.contentTypeDetection?.contentType || 'unknown',
+                  speechCoverageBucket: rfa?.speechCoverage != null ? (rfa.speechCoverage < 0.3 ? 'low' : rfa.speechCoverage < 0.7 ? 'medium' : 'high') : 'unknown',
+                  durationBucket: ((project.durationInFrames || 900) / pathDFps) < 60 ? 'short' : ((project.durationInFrames || 900) / pathDFps) < 300 ? 'medium' : 'long',
+                  platform: projectDoc.syntheticStoryboard?.platform || 'youtube',
+                };
+                const adj = sampleThresholdAdjustments(banditState, banditContext);
+                if (adj.usedBandit) {
+                  console.log(`[Director] Path D: Threshold bandit active (${adj.observationCount} obs) — adjusted thresholds sampled`);
+                }
+              }
+            } catch (banditErr: any) {
+              console.warn(`[Director] Path D: Threshold bandit failed (non-fatal): ${banditErr.message}`);
+            }
+
             // Step D.4: Execute signal-driven edit (evaluate 95 mappings)
-            const signalEdl = executeSignalDrivenEdit(
+            let signalEdl = executeSignalDrivenEdit(
               signalTimeline, genreOutput.genreParams, weightMap, graphIndex, overlayInfos
             );
             console.log(`[Director] Path D: ${signalEdl.metadata.totalMappingsFired} mappings fired → ${signalEdl.metadata.totalDecisionsGenerated} decisions (${signalEdl.metadata.totalDecisionsSuppressed} suppressed) in ${signalEdl.metadata.executionTimeMs}ms`);

@@ -205,10 +205,15 @@ export function buildSignalTimeline(
   fps: number = DEFAULT_FPS,
   vjepaAnalysis?: VjepaAnalysisResult | null,
   wav2vecAnalysis?: Wav2VecAnalysisResult | null,
+  essentiaAnalysis?: { bpm: number; beats: Array<{ timestampMs: number; strength: number }>; sections: Array<{ startMs: number; endMs: number; label: string }>; energyCurve: number[]; musicPresence: number } | null,
 ): SignalTimeline {
   const totalDurationMs = rawFootage?.originalDurationMs ?? rawFootage?.estimatedCleanDurationMs ?? 30000;
   const totalFrames = Math.ceil((totalDurationMs / 1000) * fps);
   const mergedAnalysis = mergeAnalyses(analyses);
+
+  // Essentia music data (more accurate than 5-Track when available)
+  const hasEssentia = (essentiaAnalysis?.beats?.length ?? 0) > 0;
+  if (hasEssentia) console.log(`[SignalRegistry] Essentia enrichment: BPM=${essentiaAnalysis!.bpm}, ${essentiaAnalysis!.beats.length} beats, ${essentiaAnalysis!.sections.length} sections`);
 
   // Pre-extract segment arrays for enrichment (null-safe)
   const vjepaSegments = vjepaAnalysis?.segments;
@@ -303,12 +308,20 @@ export function buildSignalTimeline(
       }
     }
 
-    // Audio signals
-    snapshot['audio.music_energy'] = getMusicEnergyAt(mergedAnalysis, timestampMs);
-    snapshot['audio.music_beat'] = isMusicBeatAt(mergedAnalysis, timestampMs) ? 1 : 0;
-    snapshot['audio.music_tatum'] = isMusicTatumAt(mergedAnalysis, timestampMs) ? 1 : 0;
-    snapshot['audio.music_section'] = getMusicSectionAt(mergedAnalysis, timestampMs);
-    snapshot['audio.bpm'] = mergedAnalysis.musicStructure?.bpm ?? 0;
+    // Audio signals — prefer Essentia (Modal, spectral flux) over 5-Track (Gemini heuristic)
+    if (hasEssentia) {
+      snapshot['audio.music_beat'] = essentiaAnalysis!.beats.some(b => Math.abs(b.timestampMs - timestampMs) < 50) ? 1 : 0;
+      snapshot['audio.music_energy'] = getEssentiaEnergyAt(essentiaAnalysis!.energyCurve, timestampMs, totalDurationMs);
+      snapshot['audio.music_tatum'] = isMusicTatumAt(mergedAnalysis, timestampMs) ? 1 : 0; // tatum still from BPM math
+      snapshot['audio.music_section'] = getEssentiaSectionAt(essentiaAnalysis!.sections, timestampMs);
+      snapshot['audio.bpm'] = essentiaAnalysis!.bpm;
+    } else {
+      snapshot['audio.music_energy'] = getMusicEnergyAt(mergedAnalysis, timestampMs);
+      snapshot['audio.music_beat'] = isMusicBeatAt(mergedAnalysis, timestampMs) ? 1 : 0;
+      snapshot['audio.music_tatum'] = isMusicTatumAt(mergedAnalysis, timestampMs) ? 1 : 0;
+      snapshot['audio.music_section'] = getMusicSectionAt(mergedAnalysis, timestampMs);
+      snapshot['audio.bpm'] = mergedAnalysis.musicStructure?.bpm ?? 0;
+    }
 
     // Structural signals
     snapshot['structural.position_in_video'] = frame / totalFrames;
@@ -575,7 +588,7 @@ export function buildSignalTimeline(
   timeline.globalSignals['content.content_type'] = rawFootage?.contentTypeDetection?.contentType ?? 'unknown';
   timeline.globalSignals['audio.music_present'] = hasMusicPresent(mergedAnalysis);
   timeline.globalSignals['video.duration_s'] = totalDurationMs / 1000;
-  timeline.globalSignals['audio.music_bpm'] = mergedAnalysis.musicStructure?.bpm ?? 0;
+  timeline.globalSignals['audio.music_bpm'] = hasEssentia ? essentiaAnalysis!.bpm : (mergedAnalysis.musicStructure?.bpm ?? 0);
 
   // Speaker diarization global — number of distinct speakers detected
   const speakerIds = new Set<number>();
@@ -792,6 +805,27 @@ function isMusicBeatAt(analysis: AssetAnalysis, timestampMs: number): boolean {
 
 // D1/D6: Tatum = smallest metric subdivision (16th notes).
 // BPM × 4 = tatums per minute. Tolerance ±25ms (half of beat tolerance).
+// ─── Essentia Helpers (prefer over 5-Track when available) ───────────────────
+
+function getEssentiaEnergyAt(curve: number[], timestampMs: number, totalDurationMs: number): number {
+  if (!curve.length) return 0;
+  const idx = Math.round((timestampMs / totalDurationMs) * (curve.length - 1));
+  return curve[Math.max(0, Math.min(idx, curve.length - 1))] ?? 0;
+}
+
+const ESSENTIA_SECTION_MAP: Record<string, string> = {
+  intro: 'intro', verse: 'verse', chorus: 'chorus', bridge: 'bridge',
+  drop: 'drop', build: 'build', breakdown: 'breakdown', outro: 'outro',
+  hook: 'chorus', solo: 'verse', instrumental: 'unknown', interlude: 'unknown',
+  'pre-chorus': 'build',
+};
+
+function getEssentiaSectionAt(sections: Array<{ startMs: number; endMs: number; label: string }>, timestampMs: number): string {
+  const section = sections.find(s => timestampMs >= s.startMs && timestampMs <= s.endMs);
+  if (!section) return 'none';
+  return ESSENTIA_SECTION_MAP[section.label] ?? section.label;
+}
+
 function isMusicTatumAt(analysis: AssetAnalysis, timestampMs: number): boolean {
   const bpm = analysis.musicStructure?.bpm;
   if (!bpm || bpm <= 0) return false;
@@ -1074,6 +1108,7 @@ export function buildSignalTimelineFromAnalysis(
   rawFootage: RawFootageAnalysis | null,
   overlays: OverlayInfo[],
   fps: number = DEFAULT_FPS,
+  essentiaAnalysis?: { bpm: number; beats: Array<{ timestampMs: number; strength: number }>; sections: Array<{ startMs: number; endMs: number; label: string }>; energyCurve: number[]; musicPresence: number } | null,
 ): SignalTimeline {
   const vjepaSegments: VjepaSegmentResult[] = [];
   const wav2vecSegments: Wav2VecSegmentResult[] = [];
@@ -1112,6 +1147,7 @@ export function buildSignalTimelineFromAnalysis(
     fps,
     vjepaSegments.length > 0 ? { segments: vjepaSegments, modelVersion: 'from-segment-analysis', processingTimeMs: 0 } : null,
     wav2vecSegments.length > 0 ? { segments: wav2vecSegments, modelVersion: 'from-segment-analysis', processingTimeMs: 0 } : null,
+    essentiaAnalysis,
   );
 }
 
