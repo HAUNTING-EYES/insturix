@@ -579,7 +579,18 @@ export function LandingPageA() {
            - Second scroll-down reproduced the dead zone every time
            Fix: always render, toggle visibility + pointerEvents via showMkt state.
            Opacity is GSAP-controlled (onUpdate gsap.to). */}
-      <div ref={mktRef} className="mkt-root-animated" style={{ position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3, pointerEvents: showMkt ? "auto" : "none", visibility: showMkt ? "visible" : "hidden", overflowY: "auto", opacity: 0 }}>
+      <div ref={mktRef} className="mkt-root-animated" style={{
+        position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3,
+        overflowY: "auto", opacity: 0,
+        // visibility: showMkt makes the element paintable (GSAP can fade it in)
+        visibility: showMkt ? "visible" : "hidden",
+        // pointerEvents: delayed to pct > 0.59 (not just showMkt at 0.57).
+        // At pct 0.59, GSAP has already animated opacity to ~46% — the user can
+        // SEE the marketing content. Without this delay, the wheel handler intercepts
+        // events on an invisible (opacity:0) element, killing scroll propagation to
+        // the scroll driver. The 200ms React throttle on pct adds a natural buffer.
+        pointerEvents: showMkt && pct > 0.59 ? "auto" : "none",
+      }}>
         <Marketing />
         <SiteFooter />
       </div>
