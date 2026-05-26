@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useGSAP } from "@gsap/react";
+import { gsap, ScrollTrigger } from "@/lib/animation/gsap-config";
 import { SiteFooter } from "@/components/shared/site-footer";
 import { PreviewVisualInsturix } from "./preview-visual";
 
@@ -145,57 +147,97 @@ function Chk({ size = 14, color = C.accent, sw = 2.5 }: { size?: number; color?:
 
 export function LandingPageA() {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [pct, setPct] = useState(0);
-  const [ready, setReady] = useState(false);
-  const rafRef = useRef<number>(0);
+  const spacerRef = useRef<HTMLDivElement>(null);
   const mktRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setTimeout(() => setReady(true), 600);
-  }, []);
-
-  // PERF: Split scroll into two layers to reduce re-renders from 60/sec to ~10/sec.
-  // Layer 1 (60fps): CSS custom property --pct on scroll container (no React re-render)
-  // Layer 2 (10fps): Throttled setPct for React logic (phase, toasts, elapsed, conditional renders)
+  // ─── React state: ONLY for logic consumers (phase, toasts, text, conditional renders) ───
+  // Visual scroll properties (editorFade, mktPct opacity) are GSAP-controlled — zero re-renders.
+  // React state updates at ~5fps (200ms throttle) for child components that need pipePct.
+  const [pct, setPct] = useState(0);
   const lastSetPctRef = useRef<number>(0);
+
+  // ─── GSAP ScrollTrigger: replaces manual scroll handler ───
+  // Layer 1 (60fps): GSAP scrub timeline drives editor fade-out + marketing fade-in
+  // Layer 2 (60fps): CSS custom property --pct (compositor-only, no React re-render)
+  // Layer 3 (~5fps): Throttled setPct for React logic (phase, toasts, elapsed, conditional renders)
+  // Layer 4 (once):  scrollend listener catches the final frame the throttle might miss
+  useGSAP(
+    () => {
+      const scroller = scrollRef.current;
+      const spacer = spacerRef.current;
+      if (!scroller || !spacer) return;
+
+      // ── Mount animation: editor fades in after 600ms (replaces old `ready` state) ──
+      gsap.fromTo(
+        ".editor-root-animated",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.5, ease: "expo.out", delay: 0.6 }
+      );
+
+      // ── Scrub timeline: scroll position → visual properties (60fps, compositor) ──
+      const tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: spacer,
+          scroller: scroller,
+          start: "top top",
+          end: "bottom bottom",
+          scrub: true, // Instant tracking — no lag (CEO flagged scrub:1 timing issues)
+          onUpdate: (self) => {
+            const p = self.progress;
+
+            // 60fps: CSS custom property (for any CSS consumers, no React)
+            scroller.style.setProperty("--pct", String(p));
+
+            // 60fps: Navbar scroll indicator (no React)
+            document.documentElement.dataset.scrolled = p > 0.02 ? "true" : "";
+
+            // 60fps: Marketing overlay opacity + pointer events (GSAP direct, no React)
+            // Marketing mounts via React (showMkt), but opacity is GSAP-controlled.
+            const mktEl = mktRef.current;
+            if (mktEl) {
+              const mktProgress = Math.max(0, (p - 0.57) / 0.43);
+              gsap.set(mktEl, {
+                opacity: Math.min(1, mktProgress * 10),
+                pointerEvents: mktProgress > 0.12 ? "auto" : "none",
+              });
+            }
+
+            // ~5fps: Throttled React state for logic consumers (phase, toasts, elapsed, children)
+            const now = performance.now();
+            if (now - lastSetPctRef.current > 200) {
+              setPct(p);
+              lastSetPctRef.current = now;
+            }
+          },
+        },
+      });
+
+      // SEQUENCE, not crossfade: editor fades out FIRST, then marketing fades in.
+      // Editor: pct 0.55→0.58 (duration 0.03 of timeline). Marketing: handled in onUpdate above.
+      // No overlap. Clean handoff. Thresholds preserved from original implementation.
+      tl.fromTo(
+        ".editor-root-animated",
+        { opacity: 1, scale: 1, y: 0 },
+        { opacity: 0, scale: 0.95, y: -20, duration: 0.03, ease: "none" },
+        0.55
+      );
+
+      // Extend timeline to the full scroll range (0→1) so scrub maps correctly
+      tl.set({}, {}, 1.0);
+    },
+    { scope: scrollRef, dependencies: [] }
+  );
+
+  // ── Final frame sync: scrollend catches the last value the 200ms throttle misses ──
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const onScroll = () => {
-      if (rafRef.current) return;
-      rafRef.current = requestAnimationFrame(() => {
-        const mx = el.scrollHeight - el.clientHeight;
-        if (mx > 0) {
-          const newPct = el.scrollTop / mx;
-
-          // Layer 1: 60fps CSS custom property update (compositor-only, no React re-render)
-          el.style.setProperty("--pct", String(newPct));
-
-          // Layer 2: Throttled React state update (~10fps) for logic-only consumers
-          const now = performance.now();
-          if (now - lastSetPctRef.current > 100) {
-            setPct(newPct);
-            lastSetPctRef.current = now;
-          }
-
-          // Bridge to SiteNavbar: set data attribute so pill-on-scroll triggers
-          document.documentElement.dataset.scrolled = newPct > 0.02 ? "true" : "";
-        }
-        rafRef.current = 0;
-      });
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    // Sync final state on scroll end (catches the last frame the throttle might miss)
     const onScrollEnd = () => {
       const mx = el.scrollHeight - el.clientHeight;
       if (mx > 0) setPct(el.scrollTop / mx);
     };
     el.addEventListener("scrollend", onScrollEnd, { passive: true });
-    return () => {
-      el.removeEventListener("scroll", onScroll);
-      el.removeEventListener("scrollend", onScrollEnd);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
+    return () => el.removeEventListener("scrollend", onScrollEnd);
   }, []);
 
   // Smart scroll routing: when marketing is active, capture wheel events.
@@ -223,14 +265,8 @@ export function LandingPageA() {
     return () => mktEl.removeEventListener("wheel", onWheel);
   });
 
+  // ─── Derived values (from throttled pct state) ───
   const pipePct = Math.min(1, pct / 0.55);
-  // SEQUENCE, not crossfade: editor fades out FIRST, then marketing fades in.
-  // Editor done state: pipePct 0.97→1.0 = pct 0.534→0.55
-  // At pct 0.55: editor starts fading. At pct 0.58: editor fully gone.
-  // At pct 0.58: marketing starts appearing. At pct 0.61: marketing fully visible.
-  // No overlap. Clean handoff.
-  const editorFade = pct > 0.55 ? Math.max(0, 1 - ((pct - 0.55) / 0.03)) : 1;
-  const mktPct = Math.max(0, (pct - 0.57) / 0.43);
   const showMkt = pct > 0.57;
 
   const phase = pipePct < 0.06 ? "welcome" : pipePct < 0.15 ? "prompt" : pipePct < 0.32 ? "script" : pipePct < 0.58 ? "edit" : pipePct < 0.72 ? "analyze" : pipePct < 0.85 ? "design" : pipePct < 0.97 ? "publish" : "done";
@@ -265,9 +301,10 @@ export function LandingPageA() {
         ::selection{background:rgba(212,166,82,.18)}
         .m{font-family:'JetBrains Mono',monospace}
         ::-webkit-scrollbar{width:0}
-        /* PERF: CSS transitions smooth the 10fps throttled React state updates to 60fps visual output */
-        .editor-root-animated { transition: transform 0.1s cubic-bezier(0.16,1,0.3,1); will-change: opacity, transform; }
-        .mkt-root-animated { transition: opacity 0.1s cubic-bezier(0.16,1,0.3,1); will-change: opacity; }
+        /* PERF: GSAP ScrollTrigger scrub handles editor + marketing opacity/transform at 60fps.
+           No CSS transitions needed — GSAP drives values directly. Initial opacity:0 for mount animation. */
+        .editor-root-animated { opacity: 0; will-change: opacity, transform; }
+        .mkt-root-animated { will-change: opacity; }
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
         @keyframes popIn{0%{opacity:0;transform:scale(.92)}100%{opacity:1;transform:scale(1)}}
         @keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
@@ -341,7 +378,7 @@ export function LandingPageA() {
 
       {/* Scroll driver — always scrollable, marketing overlay captures wheel events when active */}
       <div ref={scrollRef} style={{ position: "fixed", inset: 0, overflowY: "auto", zIndex: 1 }}>
-        <div style={{ height: "2800vh" }} />
+        <div ref={spacerRef} style={{ height: "2800vh" }} />
       </div>
 
       {/* Site navbar is now rendered by the parent page, not inline here */}
@@ -385,7 +422,9 @@ export function LandingPageA() {
       )}
 
       {/* ━━━ EDITOR ━━━ */}
-      {/* PERF: editorFade updates at 10fps (throttled), CSS transition smooths to 60fps */}
+      {/* PERF: opacity + transform are GSAP-controlled (mount animation + scrub timeline).
+           CSS sets initial opacity:0. GSAP mount animates to 1. Scrub fades to 0 at pct 0.55-0.58.
+           React never touches these properties — zero re-renders for visual scroll. */}
       <div
         className="editor-root editor-root-animated"
         style={{
@@ -398,8 +437,7 @@ export function LandingPageA() {
           pointerEvents: "none",
           display: "flex",
           flexDirection: "column",
-          opacity: ready ? editorFade : 0,
-          transform: editorFade < 1 ? `scale(${0.95 + editorFade * 0.05}) translateY(${-(1 - editorFade) * 20}px)` : "none",
+          // opacity + transform: GSAP-controlled (see useGSAP above)
         }}
       >
         {/* TOP BAR */}
@@ -513,10 +551,10 @@ export function LandingPageA() {
         </div>
       </div>
 
-      {/* ━━━ MARKETING — visible at mktPct=0.1 (pct=0.577), pointer events at mktPct>0.12 ━━━ */}
-      {/* PERF: mktPct opacity updates at 10fps (throttled), CSS transition smooths to 60fps */}
+      {/* ━━━ MARKETING — mounts at pct>0.57. Opacity + pointerEvents are GSAP-controlled (onUpdate).
+           React only handles mount/unmount via showMkt. Zero re-renders for visual scroll. */}
       {showMkt && (
-        <div ref={mktRef} className="mkt-root-animated" style={{ position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3, pointerEvents: mktPct > 0.12 ? "auto" : "none", overflowY: "auto", opacity: Math.min(1, mktPct * 10) }}>
+        <div ref={mktRef} className="mkt-root-animated" style={{ position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3, pointerEvents: "none", overflowY: "auto", opacity: 0 }}>
           <Marketing />
           <SiteFooter />
         </div>
