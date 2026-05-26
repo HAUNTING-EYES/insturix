@@ -23,6 +23,7 @@ import {
   type CreditPackage,
 } from "@/lib/config/creditCosts";
 import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
+import { FRAMER_VARIANTS } from "@/lib/animation/presets";
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 const EASE_CSS = "cubic-bezier(0.16, 1, 0.3, 1)";
@@ -54,14 +55,11 @@ const VOLUME_TIERS = [
 
 const TOTAL_DIGITS = ["$", "2", ",", "0", "0", "0", "+"];
 
-const stagger = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
-};
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
-};
+// OLD: local stagger/fadeUp/fadeIn variant declarations
+// NEW: stagger + fadeUp imported from lib/animation/presets.ts (one source of truth)
+// fadeIn kept local — uses y:12 (smaller) vs shared y:24
+const stagger = FRAMER_VARIANTS.staggerContainer;
+const fadeUp = FRAMER_VARIANTS.fadeUp;
 const fadeIn = {
   hidden: { opacity: 0, y: 12 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
@@ -309,8 +307,25 @@ function CostAccumulation() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollPct, setScrollPct] = useState(0);
+  const lastScrollRef = useRef(0);
 
+  // PERF: Throttle scroll to ~20fps (50ms). Receipt items + meter use CSS transitions.
+  // OLD: setScrollPct on every frame (~60fps)
+  // NEW: 20fps state updates, scrollend catches final frame
   const handleScroll = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const scrollable = el.offsetHeight - window.innerHeight;
+    if (scrollable <= 0) return;
+    const now = performance.now();
+    if (now - lastScrollRef.current > 50) {
+      setScrollPct(clamp(-rect.top / scrollable, 0, 1));
+      lastScrollRef.current = now;
+    }
+  }, []);
+
+  const handleScrollEnd = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -321,9 +336,13 @@ function CostAccumulation() {
 
   useEffect(() => {
     window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("scrollend", handleScrollEnd, { passive: true });
     handleScroll();
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [handleScroll]);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("scrollend", handleScrollEnd);
+    };
+  }, [handleScroll, handleScrollEnd]);
 
   const visibleItems = RECEIPT_ITEMS.filter((item) => scrollPct >= item.threshold);
   const fillPct = clamp(scrollPct * 1.1, 0, 1.08);
