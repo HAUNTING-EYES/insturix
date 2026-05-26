@@ -117,6 +117,7 @@ export function selectWinners(
   const winners: Record<OverlayCategory, ScoringResult | null> = {
     zoom: null, transition: null, sfx: null, graphic: null,
     filter: null, caption: null, cut: null, camera: null,
+    'mg-property': null,
   };
   const categoryCount: Record<string, number> = {};
 

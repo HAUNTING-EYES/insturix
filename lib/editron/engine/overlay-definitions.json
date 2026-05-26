@@ -1989,5 +1989,601 @@
         "maxValue": 30
       }
     ]
+  },
+
+  {
+    "id": "mg.typography.font_size",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": -0.15, "yShift": 0 },
+        "invert": false,
+        "description": "High visceral impact → larger text for emphasis"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.8, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Energetic content → slightly larger text"
+      }
+    ],
+    "outputParams": [
+      { "name": "fontSize", "mode": "proportional", "minValue": 36, "maxValue": 160 }
+    ]
+  },
+  {
+    "id": "mg.typography.font_weight",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic content → bolder weight"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Formal content → lighter/medium weight (inverted)"
+      }
+    ],
+    "outputParams": [
+      { "name": "fontWeight", "mode": "proportional", "minValue": 300, "maxValue": 800 }
+    ]
+  },
+  {
+    "id": "mg.typography.letter_tracking",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.2 },
+        "invert": false,
+        "description": "Formal content → more letter spacing"
+      },
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.25 },
+        "invert": true,
+        "description": "Fast pacing → tighter tracking (inverted)"
+      }
+    ],
+    "outputParams": [
+      { "name": "letterTracking", "mode": "proportional", "minValue": -0.01, "maxValue": 0.06 }
+    ]
+  },
+  {
+    "id": "mg.typography.line_height",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.2 },
+        "invert": true,
+        "description": "Fast pacing → tighter line height (inverted)"
+      },
+      {
+        "signalId": "warmth",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.3 },
+        "invert": false,
+        "description": "Warm content → more generous vertical spacing"
+      }
+    ],
+    "outputParams": [
+      { "name": "lineHeight", "mode": "proportional", "minValue": 1.0, "maxValue": 1.5 }
+    ]
+  },
+  {
+    "id": "mg.typography.text_transform_tendency",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High energy → tendency toward uppercase"
+      },
+      {
+        "signalId": "visceral_impact",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High impact → tendency toward uppercase"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 0.8, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Formal content → less uppercase (inverted)"
+      }
+    ],
+    "outputParams": [
+      { "name": "textTransformScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.layout.center_avoidance",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visual_dependency",
+        "curveType": "linear",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Low visual dependency (face dominant) → avoid center (inverted)"
+      },
+      {
+        "signalId": "speech.coverage",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High speech coverage → likely face on camera → avoid center"
+      }
+    ],
+    "outputParams": [
+      { "name": "centerAvoidance", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.styling.container_opacity",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.3 },
+        "invert": false,
+        "description": "Formal content → more substantial container background"
+      },
+      {
+        "signalId": "warmth",
+        "curveType": "linear",
+        "params": { "slope": 0.3, "exponent": 1, "xShift": 0, "yShift": 0.2 },
+        "invert": false,
+        "description": "Warm content → slightly more opaque (inviting feel)"
+      }
+    ],
+    "outputParams": [
+      { "name": "containerOpacity", "mode": "proportional", "minValue": 0.3, "maxValue": 0.92 }
+    ]
+  },
+  {
+    "id": "mg.styling.corner_radius",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Formal content → sharper corners (inverted)"
+      },
+      {
+        "signalId": "warmth",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.2 },
+        "invert": false,
+        "description": "Warm content → rounder corners"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.3, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic content → can go rounder"
+      }
+    ],
+    "outputParams": [
+      { "name": "cornerRadius", "mode": "proportional", "minValue": 2, "maxValue": 16 }
+    ]
+  },
+  {
+    "id": "mg.styling.surface_complexity",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Formal → solid/clean surface (inverted from complex)"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic → more surface detail (gradient/glass)"
+      }
+    ],
+    "outputParams": [
+      { "name": "surfaceComplexity", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.color.saturation_boost",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "polynomial",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic content → more saturated graphics"
+      },
+      {
+        "signalId": "visual_dependency",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High visual dependency → graphics need more color presence"
+      }
+    ],
+    "outputParams": [
+      { "name": "saturationBoost", "mode": "proportional", "minValue": 0, "maxValue": 0.25 }
+    ]
+  },
+  {
+    "id": "mg.color.accent_usage",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "linear",
+        "params": { "slope": 0.7, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "High impact → prominent accent color usage"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic → more accent color"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Formal → restrained accent usage (inverted)"
+      }
+    ],
+    "outputParams": [
+      { "name": "accentUsage", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.animation.entrance_fade",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Formal content → fade entrance preferred (CRG: default for formal)"
+      },
+      {
+        "signalId": "warmth",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.3 },
+        "invert": false,
+        "description": "Warm content → gentle fade suits the tone"
+      }
+    ],
+    "outputParams": [
+      { "name": "fadeScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.entrance_pop",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic → pop entrance (CRG: overshoot 102-105%)"
+      },
+      {
+        "signalId": "visceral_impact",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High impact → snappy pop entrance"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "CRG anti-pattern: scale_pop when formality > 0.5 (inverted)"
+      }
+    ],
+    "outputParams": [
+      { "name": "popScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.entrance_slide",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Faster pacing → dynamic slide entrance"
+      },
+      {
+        "signalId": "speech.coverage",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.2 },
+        "invert": false,
+        "description": "Speaking content → sequential/directional slide"
+      }
+    ],
+    "outputParams": [
+      { "name": "slideScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.entrance_blur",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "warmth",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Warm content → atmospheric blur entrance"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High emotion → dramatic materialization"
+      },
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.2 },
+        "invert": true,
+        "description": "Slow pacing → contemplative (inverted from fast)"
+      }
+    ],
+    "outputParams": [
+      { "name": "blurScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.entrance_scale",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "polynomial",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High impact → dramatic scale entrance"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High emotional arousal → dramatic entrance"
+      }
+    ],
+    "outputParams": [
+      { "name": "scaleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.animation.hold_pulse",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic → rhythmic pulse during hold"
+      },
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Fast pace → rhythmic pulse"
+      }
+    ],
+    "outputParams": [
+      { "name": "pulseScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.hold_breathe",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "warmth",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Warm content → gentle breathing hold"
+      },
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Slow pacing → calm breathing (inverted from fast)"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.3 },
+        "invert": true,
+        "description": "Low arousal → calm (inverted from high)"
+      }
+    ],
+    "outputParams": [
+      { "name": "breatheScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.hold_float",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Mild enthusiasm → playful float"
+      },
+      {
+        "signalId": "warmth",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Warm content → friendly floating"
+      },
+      {
+        "signalId": "humor",
+        "curveType": "linear",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Humor → playful float (rarely triggers, humor default 0.1)"
+      }
+    ],
+    "outputParams": [
+      { "name": "floatScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.animation.entrance_speed",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "polynomial",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Fast pacing → shorter entrance duration (inverted: high signal → low output → fast)"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Energetic → snappier entrance (inverted: high signal → low output → fast)"
+      }
+    ],
+    "outputParams": [
+      { "name": "entranceSpeed", "mode": "proportional", "minValue": 0.15, "maxValue": 0.6 }
+    ]
   }
 ]

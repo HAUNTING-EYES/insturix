@@ -13,6 +13,24 @@ import { generateBrandPattern } from './brand-pattern-generator';
 import { deriveBrandRules } from './brand-composition-rules';
 import { getCompositionTemplate } from './composition-templates';
 
+export type MgOverlayScores = Record<string, { score: number; values: Record<string, number | string | boolean> }>;
+
+function mgVal(scores: MgOverlayScores | undefined, overlayId: string, param: string, fallback: number): number {
+  const v = scores?.[overlayId]?.values[param];
+  return typeof v === 'number' && isFinite(v) ? v : fallback;
+}
+
+function mgWinner(scores: MgOverlayScores | undefined, prefix: string): string | undefined {
+  if (!scores) return undefined;
+  let best: { id: string; score: number } | undefined;
+  for (const [id, data] of Object.entries(scores)) {
+    if (id.startsWith(prefix) && (!best || data.score > best.score)) {
+      best = { id, score: data.score };
+    }
+  }
+  return best?.id;
+}
+
 const CRG = {
   STAT_MIN_FONT: 64,              // constant:typography.stat_counter_min_font → 64px
   LOWER_THIRD_MIN_FONT: 48,      // constant:typography.lower_third_name_min_font → 48px
@@ -51,6 +69,7 @@ export function planComposition(
   intent: GraphicIntent,
   language: MotionTokens,
   signals?: Partial<PlannerSignals>,
+  mgScores?: MgOverlayScores,
 ): Recipe {
   const s: PlannerSignals = { ...DEFAULT_SIGNALS, ...signals };
   const strategy = analyzeContentShape(intent.content, intent.kind, s);
@@ -65,7 +84,7 @@ export function planComposition(
     return { id: 'suppressed', elements: [], layout: strategy.suggestedLayout, exitStyle: strategy.suggestedExitStyle };
   }
 
-  const elements = composeElements(strategy, language, s);
+  const elements = composeElements(strategy, language, s, mgScores);
 
   // D1: emotional_alignment — boost confidence when face+voice agree
   // ⚠️ threshold 0.7 INVENTED — high alignment = face and voice express same emotion
@@ -94,7 +113,7 @@ export function planComposition(
 
   // D8: Signal-driven keyframe generation — "crazy edits" motion paths
   const entranceFrames = Math.round((language.animation.entranceDurationMs / 1000) * 30);
-  resolveKeyframeTracks(elements, s, entranceFrames, strategy.holdDurationFrames);
+  resolveKeyframeTracks(elements, s, entranceFrames, strategy.holdDurationFrames, mgScores);
 
   const kfCount = elements.filter(e => e.keyframeTracks?.length).length;
   console.log(
@@ -118,6 +137,7 @@ function composeElements(
   strategy: CompositionStrategy,
   language: MotionTokens,
   signals: PlannerSignals,
+  mgScores?: MgOverlayScores,
 ): RecipeElement[] {
   const elements: RecipeElement[] = [];
   const formality = signals.formality;
@@ -134,28 +154,33 @@ function composeElements(
     return elements;
   }
 
-  if (budget >= 2 && formality >= CRG.FORMALITY_MEDIUM) {
+  const overlayOpacity = mgVal(mgScores, 'mg.styling.container_opacity', 'containerOpacity', -1);
+  if (overlayOpacity >= 0) {
+    if (budget >= 2 && overlayOpacity > 0.4) {
+      elements.push(makeContainer(language));
+    }
+  } else if (budget >= 2 && formality >= CRG.FORMALITY_MEDIUM) {
     elements.push(makeContainer(language));
   }
 
   switch (primary.kind) {
     case 'numeric':
-      composeNumeric(elements, primary, language, signals);
+      composeNumeric(elements, primary, language, signals, mgScores);
       break;
     case 'identity':
-      composeIdentity(elements, primary, language, signals);
+      composeIdentity(elements, primary, language, signals, mgScores);
       break;
     case 'quotation':
-      composeQuotation(elements, primary, language);
+      composeQuotation(elements, primary, language, mgScores);
       break;
     case 'emphasis':
-      composeEmphasis(elements, primary, language, signals);
+      composeEmphasis(elements, primary, language, signals, mgScores);
       break;
     case 'brand':
-      composeBrand(elements, primary, language);
+      composeBrand(elements, primary, language, mgScores);
       break;
     case 'structured':
-      composeStructured(elements, primary, language);
+      composeStructured(elements, primary, language, mgScores);
       break;
     case 'data-series':
       composeDataSeries(elements, primary, language);
@@ -176,9 +201,7 @@ function composeElements(
     elements.push(makeAccentLine());
   }
 
-  // Hold animation: assign ambient motion to foreground elements based on signals.
-  // Background/midground (containers, patterns, decorations) stay static — only foreground animates.
-  const holdPattern = resolveHoldPattern(signals);
+  const holdPattern = resolveHoldPattern(signals, mgScores);
   if (holdPattern !== 'static') {
     for (const el of elements) {
       if (el.layer === 'foreground') {
@@ -222,7 +245,13 @@ function composeNumeric(
   shape: Extract<ContentShape, { kind: 'numeric' }>,
   language: MotionTokens,
   signals: PlannerSignals,
+  mgScores?: MgOverlayScores,
 ): void {
+  const fontSize = Math.max(CRG.STAT_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.STAT_MIN_FONT));
+  const primaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.1);
+  const secondaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.3);
+  const letterTracking = mgVal(mgScores, 'mg.typography.letter_tracking', 'letterTracking', 0);
+
   elements.push({
     primitive: 'text',
     role: 'counter',
@@ -238,8 +267,8 @@ function composeNumeric(
       weight: 'token:typography.headingWeight',
       color: 'token:color.textPrimary',
       sizeScale: 'token:typography.sizeScale',
-      minSize: CRG.STAT_MIN_FONT,
-      lineHeight: 1.1,
+      minSize: fontSize,
+      lineHeight: primaryLineHeight,
     },
   });
 
@@ -253,8 +282,8 @@ function composeNumeric(
         font: 'token:typography.bodyFamily',
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
-        tracking: 'token:typography.headingTracking',
-        lineHeight: 1.3,
+        tracking: letterTracking > 0 ? `${letterTracking.toFixed(3)}em` : 'token:typography.headingTracking',
+        lineHeight: secondaryLineHeight,
       },
     });
   }
@@ -265,7 +294,12 @@ function composeIdentity(
   shape: Extract<ContentShape, { kind: 'identity' }>,
   _language: MotionTokens,
   signals: PlannerSignals,
+  mgScores?: MgOverlayScores,
 ): void {
+  const primarySize = Math.max(CRG.LOWER_THIRD_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.LOWER_THIRD_MIN_FONT));
+  const primaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.1);
+  const letterTracking = mgVal(mgScores, 'mg.typography.letter_tracking', 'letterTracking', 0);
+
   elements.push({
     primitive: 'text',
     role: 'primary',
@@ -275,14 +309,17 @@ function composeIdentity(
       font: 'token:typography.headingFamily',
       weight: 'token:typography.headingWeight',
       color: 'token:color.textPrimary',
-      tracking: 'token:typography.headingTracking',
+      tracking: letterTracking > 0 ? `${letterTracking.toFixed(3)}em` : 'token:typography.headingTracking',
       transform: 'token:typography.headingTransform',
-      minSize: CRG.LOWER_THIRD_MIN_FONT,
-      lineHeight: 1.1,
+      minSize: primarySize,
+      lineHeight: primaryLineHeight,
     },
   });
 
   if (shape.title) {
+    const titleSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.LOWER_THIRD_TITLE_MIN_FONT) * 0.75);
+    const titleLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.3);
+
     elements.push({
       primitive: 'text',
       role: 'secondary',
@@ -292,8 +329,8 @@ function composeIdentity(
         font: 'token:typography.bodyFamily',
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
-        minSize: CRG.LOWER_THIRD_TITLE_MIN_FONT,
-        lineHeight: 1.3,
+        minSize: titleSize,
+        lineHeight: titleLineHeight,
       },
     });
   }
@@ -303,7 +340,11 @@ function composeQuotation(
   elements: RecipeElement[],
   shape: Extract<ContentShape, { kind: 'quotation' }>,
   language: MotionTokens,
+  mgScores?: MgOverlayScores,
 ): void {
+  const quoteSize = Math.max(CRG.QUOTE_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.QUOTE_MIN_FONT));
+  const quoteLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.4);
+
   elements.push({
     primitive: 'text',
     role: 'primary',
@@ -313,12 +354,14 @@ function composeQuotation(
       font: 'token:typography.headingFamily',
       weight: 'token:typography.bodyWeight',
       color: 'token:color.textPrimary',
-      minSize: CRG.QUOTE_MIN_FONT,
-      lineHeight: 1.4,
+      minSize: quoteSize,
+      lineHeight: quoteLineHeight,
     },
   });
 
   if (shape.author) {
+    const authorLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.2);
+
     elements.push({
       primitive: 'text',
       role: 'secondary',
@@ -328,7 +371,7 @@ function composeQuotation(
         font: 'token:typography.bodyFamily',
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
-        lineHeight: 1.2,
+        lineHeight: authorLineHeight,
       },
     });
   }
@@ -339,8 +382,13 @@ function composeEmphasis(
   shape: Extract<ContentShape, { kind: 'emphasis' }>,
   language: MotionTokens,
   signals: PlannerSignals,
+  mgScores?: MgOverlayScores,
 ): void {
-  const informal = signals.formality < CRG.FORMALITY_MEDIUM;
+  const accentUsage = mgVal(mgScores, 'mg.color.accent_usage', 'accentUsage', -1);
+  const informal = accentUsage >= 0 ? accentUsage > 0.4 : signals.formality < CRG.FORMALITY_MEDIUM;
+  const rawOpacity = mgVal(mgScores, 'mg.styling.container_opacity', 'containerOpacity', -1);
+  const pillOpacity = rawOpacity >= 0 ? rawOpacity * 0.25 : 0.15;
+  const cornerRadius = mgVal(mgScores, 'mg.styling.corner_radius', 'cornerRadius', 999);
 
   if (informal) {
     elements.push({
@@ -350,11 +398,13 @@ function composeEmphasis(
       shape: 'pill',
       bind: {
         fill: 'token:color.accent',
-        opacity: 0.15,
-        radius: 999,
+        opacity: pillOpacity,
+        radius: cornerRadius > 12 ? 999 : cornerRadius,
       },
     });
   }
+
+  const keywordSize = Math.max(CRG.KEYWORD_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.KEYWORD_MIN_FONT));
 
   elements.push({
     primitive: 'text',
@@ -366,7 +416,7 @@ function composeEmphasis(
       font: 'token:typography.headingFamily',
       weight: 'token:typography.headingWeight',
       color: informal ? 'token:color.accent' : 'token:color.textPrimary',
-      minSize: CRG.KEYWORD_MIN_FONT,
+      minSize: keywordSize,
     },
   });
 }
@@ -375,7 +425,11 @@ function composeBrand(
   elements: RecipeElement[],
   _shape: Extract<ContentShape, { kind: 'brand' }>,
   language: MotionTokens,
+  mgScores?: MgOverlayScores,
 ): void {
+  const letterTracking = mgVal(mgScores, 'mg.typography.letter_tracking', 'letterTracking', 0.08);
+  const textTransform = mgVal(mgScores, 'mg.typography.text_transform_tendency', 'textTransformScore', 1);
+
   elements.push({
     primitive: 'text',
     role: 'primary',
@@ -385,8 +439,8 @@ function composeBrand(
       font: 'token:typography.headingFamily',
       weight: 'token:typography.headingWeight',
       color: 'token:color.primary',
-      tracking: '0.08em',
-      transform: 'uppercase',
+      tracking: `${letterTracking.toFixed(3)}em`,
+      transform: textTransform > 0.35 ? 'uppercase' : 'none',
     },
   });
 }
@@ -395,7 +449,10 @@ function composeStructured(
   elements: RecipeElement[],
   shape: Extract<ContentShape, { kind: 'structured' }>,
   language: MotionTokens,
+  mgScores?: MgOverlayScores,
 ): void {
+  const primaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.1);
+
   elements.push({
     primitive: 'text',
     role: 'primary',
@@ -405,11 +462,14 @@ function composeStructured(
       font: 'token:typography.headingFamily',
       weight: 'token:typography.headingWeight',
       color: 'token:color.textPrimary',
-      lineHeight: 1.1,
+      lineHeight: primaryLineHeight,
     },
   });
 
   if (shape.body) {
+    const bodySize = Math.max(CRG.CALLOUT_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.CALLOUT_MIN_FONT) * 0.75);
+    const bodyLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.4);
+
     elements.push({
       primitive: 'text',
       role: 'secondary',
@@ -419,8 +479,8 @@ function composeStructured(
         font: 'token:typography.bodyFamily',
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
-        minSize: CRG.CALLOUT_MIN_FONT,
-        lineHeight: 1.4,
+        minSize: bodySize,
+        lineHeight: bodyLineHeight,
       },
     });
   }
@@ -459,25 +519,24 @@ function composeDataSeries(
   });
 }
 
-// D8: Signal-driven keyframe generation — adds motion paths to elements based on signals.
-// Only triggers on high-energy signals. Low-energy content stays stationary (safe default).
-// ⚠️ ALL thresholds and motion values INVENTED — need calibration against reference videos
 function resolveKeyframeTracks(
   elements: RecipeElement[],
   signals: PlannerSignals,
   entranceFrames: number,
   holdDurationFrames: number,
+  mgScores?: MgOverlayScores,
 ): void {
   const holdStart = entranceFrames;
   const holdEnd = entranceFrames + holdDurationFrames;
+  const fontSizeScore = mgScores?.['mg.typography.font_size']?.score ?? -1;
 
   for (const el of elements) {
     if (el.layer !== 'foreground') continue;
 
-    // High visceral impact → primary text drifts upward during hold
-    // ⚠️ visceral_impact > 0.7 INVENTED — only dramatic content triggers drift
+    // ⚠️ drift threshold INVENTED — only dramatic content triggers drift
     // ⚠️ 15px drift INVENTED — AE practice: 10-20px for subtle hold drift
-    if (signals.visceral_impact > 0.7 && el.role === 'primary') {
+    const driftTrigger = fontSizeScore >= 0 ? fontSizeScore > 0.6 : signals.visceral_impact > 0.7;
+    if (driftTrigger && el.role === 'primary') {
       el.keyframeTracks = [{
         property: 'translateY',
         keyframes: [
@@ -487,10 +546,11 @@ function resolveKeyframeTracks(
       }];
     }
 
-    // High enthusiasm + fast pacing → counter scale pulse during hold
-    // ⚠️ enthusiasm > 0.8 + pacing > 0.6 INVENTED — fast energetic content
+    // ⚠️ pulse thresholds INVENTED — fast energetic content
     // ⚠️ 1.05 scale pulse INVENTED — CRG overshoot 102-105% range
-    if (signals.enthusiasm > 0.8 && signals.pacing_velocity > 0.6 && el.animation === 'count-up') {
+    const pulseScore = mgScores?.['mg.animation.hold_pulse']?.score ?? -1;
+    const pulseTrigger = pulseScore >= 0 ? pulseScore > 0.3 : (signals.enthusiasm > 0.8 && signals.pacing_velocity > 0.6);
+    if (pulseTrigger && el.animation === 'count-up') {
       const mid = Math.floor((holdStart + holdEnd) / 2);
       el.keyframeTracks = [{
         property: 'scaleX',
@@ -511,14 +571,15 @@ function resolveKeyframeTracks(
   }
 }
 
-// Signal-driven hold animation selection.
-// ⚠️ ALL thresholds INVENTED — need calibration against reference videos
-function resolveHoldPattern(signals: PlannerSignals): HoldPattern {
-  // High enthusiasm + slow pacing → visible pulse (energetic but held long enough to see it)
+function resolveHoldPattern(signals: PlannerSignals, mgScores?: MgOverlayScores): HoldPattern {
+  const winner = mgWinner(mgScores, 'mg.animation.hold_');
+  if (winner) {
+    if (winner === 'mg.animation.hold_pulse') return 'pulse';
+    if (winner === 'mg.animation.hold_breathe') return 'breathe';
+    if (winner === 'mg.animation.hold_float') return 'gentle-float';
+  }
   if (signals.enthusiasm > 0.6 && signals.pacing_velocity < 0.5) return 'pulse';
-  // Warm tone → organic breathing (warm = alive, breathing = organic)
   if (signals.warmth > 0.6) return 'breathe';
-  // Moderate enthusiasm → subtle float (gentle motion adds life without distraction)
   if (signals.enthusiasm > 0.4) return 'gentle-float';
   return 'static';
 }

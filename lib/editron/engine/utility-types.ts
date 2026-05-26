@@ -30,7 +30,8 @@ export type OverlayCategory =
   | 'filter'
   | 'caption'
   | 'cut'
-  | 'camera';
+  | 'camera'
+  | 'mg-property';
 
 export const CATEGORY_CONSTRAINTS: Record<OverlayCategory, { maxPerGridPoint: number; minGapFrames: number; global: boolean }> = {
   zoom:       { maxPerGridPoint: 1, minGapFrames: 90, global: false },
@@ -41,6 +42,7 @@ export const CATEGORY_CONSTRAINTS: Record<OverlayCategory, { maxPerGridPoint: nu
   caption:    { maxPerGridPoint: 1, minGapFrames: 0,  global: true },
   cut:        { maxPerGridPoint: 1, minGapFrames: 60, global: false },
   camera:     { maxPerGridPoint: 1, minGapFrames: 60, global: false },
+  'mg-property': { maxPerGridPoint: 99, minGapFrames: 0, global: true },
 };
 
 export interface OutputParam {

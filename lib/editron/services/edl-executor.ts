@@ -20,7 +20,7 @@ import { searchAndDownloadSFX, isSFXLibraryAvailable, audioDescriptionToSearchQu
 import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
 import { resolveMotionTokens } from '@/lib/editron/data/motion-theme-resolver';
-import { planComposition } from '@/lib/editron/motion-graphics/engine/composition-planner';
+import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
 import type { ContentShapeKind } from '@/lib/editron/motion-graphics/engine/recipe-types';
 
@@ -1112,10 +1112,37 @@ async function applyGraphic(
     const contentMap: Record<string, unknown> = { ...decision.params };
     if (text) contentMap.text = text;
 
+    let mgScores: MgOverlayScores | undefined = decision.params.mgOverlayScores as MgOverlayScores | undefined;
+    if (!mgScores && rawSignals && Object.keys(rawSignals).length > 0) {
+      try {
+        const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
+        const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
+        const allMgDefs = getOverlayDefinitions().filter(d => d.category === 'mg-property');
+        if (allMgDefs.length > 0) {
+          const SELECTION_IDS = new Set([
+            'mg.animation.entrance_fade', 'mg.animation.entrance_pop', 'mg.animation.entrance_slide',
+            'mg.animation.entrance_blur', 'mg.animation.entrance_scale',
+            'mg.animation.hold_pulse', 'mg.animation.hold_breathe', 'mg.animation.hold_float',
+          ]);
+          const propDefs = allMgDefs.filter(d => !SELECTION_IDS.has(d.id));
+          const selDefs = allMgDefs.filter(d => SELECTION_IDS.has(d.id));
+          const propResults = scoreAllOverlays(propDefs, rawSignals, 'additive');
+          const selResults = scoreAllOverlays(selDefs, rawSignals, 'multiplicative');
+          mgScores = {};
+          for (const r of [...propResults, ...selResults]) {
+            mgScores[r.overlayId] = { score: r.totalScore, values: r.outputValues };
+          }
+        }
+      } catch (mgErr: unknown) {
+        console.warn(`[EDL] MG overlay scoring failed (non-fatal): ${mgErr instanceof Error ? mgErr.message : 'unknown'}`);
+      }
+    }
+
     const recipe = planComposition(
       { kind: kindMap[graphicType], content: contentMap, triggerMoment: decision.reason },
       tokens,
       rawSignals,
+      mgScores,
     );
 
     // Tier 1 Aesthetic Gate: structural quality check (observe-only, no blocking)
