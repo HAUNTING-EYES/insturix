@@ -210,7 +210,10 @@ export function LandingPageA() {
     setTimeout(() => setReady(true), 600);
   }, []);
 
-  // FIX #1: rAF-throttled scroll handler
+  // PERF: Split scroll into two layers to reduce re-renders from 60/sec to ~10/sec.
+  // Layer 1 (60fps): CSS custom property --pct on scroll container (no React re-render)
+  // Layer 2 (10fps): Throttled setPct for React logic (phase, toasts, elapsed, conditional renders)
+  const lastSetPctRef = useRef<number>(0);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -220,7 +223,17 @@ export function LandingPageA() {
         const mx = el.scrollHeight - el.clientHeight;
         if (mx > 0) {
           const newPct = el.scrollTop / mx;
-          setPct(newPct);
+
+          // Layer 1: 60fps CSS custom property update (compositor-only, no React re-render)
+          el.style.setProperty("--pct", String(newPct));
+
+          // Layer 2: Throttled React state update (~10fps) for logic-only consumers
+          const now = performance.now();
+          if (now - lastSetPctRef.current > 100) {
+            setPct(newPct);
+            lastSetPctRef.current = now;
+          }
+
           // Bridge to SiteNavbar: set data attribute so pill-on-scroll triggers
           document.documentElement.dataset.scrolled = newPct > 0.02 ? "true" : "";
         }
@@ -228,8 +241,15 @@ export function LandingPageA() {
       });
     };
     el.addEventListener("scroll", onScroll, { passive: true });
+    // Sync final state on scroll end (catches the last frame the throttle might miss)
+    const onScrollEnd = () => {
+      const mx = el.scrollHeight - el.clientHeight;
+      if (mx > 0) setPct(el.scrollTop / mx);
+    };
+    el.addEventListener("scrollend", onScrollEnd, { passive: true });
     return () => {
       el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("scrollend", onScrollEnd);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
@@ -301,6 +321,9 @@ export function LandingPageA() {
         ::selection{background:rgba(212,166,82,.18)}
         .m{font-family:'JetBrains Mono',monospace}
         ::-webkit-scrollbar{width:0}
+        /* PERF: CSS transitions smooth the 10fps throttled React state updates to 60fps visual output */
+        .editor-root-animated { transition: transform 0.1s cubic-bezier(0.16,1,0.3,1); will-change: opacity, transform; }
+        .mkt-root-animated { transition: opacity 0.1s cubic-bezier(0.16,1,0.3,1); will-change: opacity; }
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
         @keyframes popIn{0%{opacity:0;transform:scale(.92)}100%{opacity:1;transform:scale(1)}}
         @keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
@@ -421,8 +444,9 @@ export function LandingPageA() {
       )}
 
       {/* ━━━ EDITOR ━━━ */}
+      {/* PERF: editorFade updates at 10fps (throttled), CSS transition smooths to 60fps */}
       <div
-        className="editor-root"
+        className="editor-root editor-root-animated"
         style={{
           position: "fixed",
           top: 64, // 48px navbar + 16px breathing gap
@@ -433,12 +457,8 @@ export function LandingPageA() {
           pointerEvents: "none",
           display: "flex",
           flexDirection: "column",
-          // FIX #1b: Editor fades out faster (2.5→5) so stats appear sooner
           opacity: ready ? editorFade : 0,
           transform: editorFade < 1 ? `scale(${0.95 + editorFade * 0.05}) translateY(${-(1 - editorFade) * 20}px)` : "none",
-          // FIX #8: Consistent easing + will-change for GPU
-          transition: `opacity .5s ${EASE}, transform .5s ${EASE}`,
-          willChange: "opacity, transform",
         }}
       >
         {/* TOP BAR */}
@@ -553,8 +573,9 @@ export function LandingPageA() {
       </div>
 
       {/* ━━━ MARKETING — visible at mktPct=0.1 (pct=0.577), pointer events at mktPct>0.12 ━━━ */}
+      {/* PERF: mktPct opacity updates at 10fps (throttled), CSS transition smooths to 60fps */}
       {showMkt && (
-        <div ref={mktRef} style={{ position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3, pointerEvents: mktPct > 0.12 ? "auto" : "none", overflowY: "auto", opacity: Math.min(1, mktPct * 10), transition: `opacity .35s ${EASE}` }}>
+        <div ref={mktRef} className="mkt-root-animated" style={{ position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3, pointerEvents: mktPct > 0.12 ? "auto" : "none", overflowY: "auto", opacity: Math.min(1, mktPct * 10) }}>
           <Marketing />
           <SiteFooter />
         </div>
@@ -609,12 +630,15 @@ function Chat({ phase, pct }: { phase: string; pct: number }) {
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, width: 0 });
 
-  // Scroll chat to bottom smoothly when new messages appear
+  // PERF: Only scroll chat when a NEW message appears, not on every pct change.
+  // OLD: dependency [pct] fired scrollTo 60 times/sec — expensive DOM writes
+  // NEW: dependency [visibleMsgCount] fires ~10 times total (only when a message appears)
+  const visibleMsgCount = MSGS.filter((m) => pct >= m.at).length;
   useEffect(() => {
-    if (chatBodyRef.current) {
+    if (chatBodyRef.current && visibleMsgCount > 0) {
       chatBodyRef.current.scrollTo({ top: chatBodyRef.current.scrollHeight, behavior: "smooth" });
     }
-  }, [pct]);
+  }, [visibleMsgCount]);
 
   // Draggable resize handle
   const onDragStart = useCallback((e: React.MouseEvent) => {
