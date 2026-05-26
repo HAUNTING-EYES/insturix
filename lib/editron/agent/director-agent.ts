@@ -454,12 +454,15 @@ export async function executeDirectorPlan(
           const speechCoverage = Number.isFinite(rfa.speechCoverage) ? rfa.speechCoverage : 0;
           const musicAnalysis = projectDoc.musicAnalysis;
           let musicPresence = musicAnalysis?.musicPresence ?? 0;
-          // Penalize musicPresence when speech dominates — speech rhythm creates
+          // Penalize musicPresence when speech is present — speech rhythm creates
           // false-positive beat patterns in Essentia (e.g., 130 WPM → 129 BPM).
           // ⚠️ INVENTED formula: max(0, 1 - speechCoverage). At speech=0.8 → 0.2x. At speech=0.1 → 0.9x.
-          // Source: no CRG node. Derived from production test (proj_APY5gxzbxZ68: speech=0.82, music=0.90 false positive).
-          // Threshold 0.5 = point where speech is likely dominant. Needs calibration.
-          if (speechCoverage > 0.5) {
+          // Source: no CRG node. Derived from production tests:
+          //   proj_APY5gxzbxZ68: speech=0.82, music=0.90 false positive (original threshold 0.5)
+          //   proj_CGeIHVzXHdUs: speech=0.47, music=0.90 (129 BPM), routed to hybrid instead of speech
+          // Threshold lowered 0.5 → 0.3: any meaningful speech presence should penalize Essentia beats.
+          // At 0.3, pure music (speech<0.3) is unaffected. Documentary (speech=0.47) gets penalty.
+          if (speechCoverage > 0.3) {
             musicPresence *= Math.max(0, 1 - speechCoverage);
           }
           const beatDensityBpm = musicAnalysis?.bpm ?? undefined;
@@ -1931,7 +1934,7 @@ async function executeAction(
         action = { ...action, params: { ...action.params, style: signalStyle, displayMode } };
       }
       // These are AI tools — delegate to invokeAITool which handles per-video iteration
-      modified = await invokeAITool(action, userId, projectId, profile, overlays);
+      modified = await invokeAITool(action, userId, projectId, profile, overlays, briefCaptionStyle);
       break;
     }
 
@@ -2274,6 +2277,7 @@ async function invokeAITool(
   projectId: string,
   profile: EditProfile,
   overlays: any[],
+  captionStyleOverride?: string,
 ): Promise<number> {
   const { createTools } = await import('@/lib/editron/agent/tools');
   const tools = createTools(userId, projectId);
@@ -2325,8 +2329,8 @@ async function invokeAITool(
         'creator': 'bold', 'fancy': 'bold', 'word-by-word': 'bold',
         'kinetic': 'bold', 'none': 'subtitle',
       };
-      // briefCaptionStyle (from Utility AI) takes priority over profile/action params
-      const rawCaptionStyle = briefCaptionStyle || params.style || profile.captionStyle || 'subtitle';
+      // captionStyleOverride (from Utility AI via caller) takes priority over profile/action params
+      const rawCaptionStyle = captionStyleOverride || params.style || profile.captionStyle || 'subtitle';
       const captionStyle = CAPTION_STYLE_MAP[rawCaptionStyle] || rawCaptionStyle;
 
       // ── Mode 2 FIX: Seed transcription cache from rawFootageAnalysis ──
