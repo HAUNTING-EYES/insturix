@@ -193,17 +193,22 @@ export function LandingPageA() {
             // 60fps: Navbar scroll indicator (no React)
             document.documentElement.dataset.scrolled = p > 0.02 ? "true" : "";
 
-            // 60fps: Marketing overlay opacity + pointer events (GSAP smooth, no React)
+            // 60fps: Marketing overlay opacity (GSAP smooth) + pointer events (instant DOM)
             // Marketing mounts via React (showMkt), but opacity is GSAP-controlled.
             const mktEl = mktRef.current;
             if (mktEl) {
               const mktProgress = Math.max(0, (p - 0.57) / 0.43);
+              // Opacity: smoothed via gsap.to for momentum feel
               gsap.to(mktEl, {
                 opacity: Math.min(1, mktProgress * 10),
-                pointerEvents: mktProgress > 0.12 ? "auto" : "none",
                 duration: 0.3,
                 overwrite: true, // Kill previous tween — only latest target matters
               });
+              // Pointer events: INSTANT via direct DOM (not gsap.to — binary toggle
+              // can't be smoothed). Threshold 0.03 ≈ pct 0.583 — right after editor
+              // finishes fading out at 0.58. No "dead zone" where marketing is visible
+              // but non-interactive.
+              mktEl.style.pointerEvents = mktProgress > 0.03 ? "auto" : "none";
             }
 
             // Event-driven: showMkt set IMMEDIATELY (not throttled) to prevent
