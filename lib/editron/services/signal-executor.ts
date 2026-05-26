@@ -516,15 +516,15 @@ function buildDecision(
 
     // Dot-notation registry key → flat ContentSignals/PlannerSignals key
     const SIGNAL_MAP: Array<[string, string]> = [
-      // Original 8 PlannerSignals (already flat in both systems)
-      ['formality', 'formality'],
-      ['enthusiasm', 'enthusiasm'],
-      ['warmth', 'warmth'],
-      ['emotional_arousal', 'emotional_arousal'],
-      ['pacing_velocity', 'pacing_velocity'],
-      ['humor', 'humor'],
-      ['visceral_impact', 'visceral_impact'],
-      ['visual_dependency', 'visual_dependency'],
+      // Personality signals (computed in signal-registry.ts as globals, available via line 215 merge)
+      ['content.formality', 'formality'],
+      ['personality.enthusiasm', 'enthusiasm'],
+      ['personality.warmth', 'warmth'],
+      ['personality.emotional_arousal', 'emotional_arousal'],
+      ['personality.pacing_velocity', 'pacing_velocity'],
+      ['personality.humor', 'humor'],
+      ['personality.visceral_impact', 'visceral_impact'],
+      ['personality.visual_dependency', 'visual_dependency'],
       // Phase B ContentSignals (dot → flat)
       ['speech.emotion_intensity', 'emotion_intensity'],
       ['speech.pitch_variability', 'pitch_variability'],

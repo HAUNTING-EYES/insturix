@@ -844,17 +844,16 @@ export async function executeDirectorPlan(
                   for (const [k, v] of Object.entries(signalTimeline.globalSignals)) {
                     if (typeof v === 'number' && isFinite(v)) avgSignals[k] = v;
                   }
-                  // Bridge: synthesized signals not in registry (formality from global, warmth/enthusiasm derived).
-                  // ⚠️ INVENTED mappings for warmth/enthusiasm — Phase 7 calibration scope.
+                  // Bridge: personality.* namespace → bare keys for overlay definitions + MG planner.
+                  // Personality signals are computed in signal-registry.ts (shared layer).
                   if (avgSignals['content.formality'] !== undefined) avgSignals['formality'] = avgSignals['content.formality'];
-                  if (!('warmth' in avgSignals)) {
-                    const valence = avgSignals['speech.emotional_valence'];
-                    const face = avgSignals['visual.face_present'] ?? 0;
-                    avgSignals['warmth'] = valence !== undefined ? (0.6 * Math.max(0, valence) + 0.4 * face) : (0.3 + 0.4 * face);
-                  }
-                  if (!('enthusiasm' in avgSignals)) {
-                    avgSignals['enthusiasm'] = avgSignals['speech.energy'] ?? 0.5;
-                  }
+                  if (avgSignals['personality.enthusiasm'] !== undefined) avgSignals['enthusiasm'] = avgSignals['personality.enthusiasm'];
+                  if (avgSignals['personality.warmth'] !== undefined) avgSignals['warmth'] = avgSignals['personality.warmth'];
+                  if (avgSignals['personality.emotional_arousal'] !== undefined) avgSignals['emotional_arousal'] = avgSignals['personality.emotional_arousal'];
+                  if (avgSignals['personality.pacing_velocity'] !== undefined) avgSignals['pacing_velocity'] = avgSignals['personality.pacing_velocity'];
+                  if (avgSignals['personality.visceral_impact'] !== undefined) avgSignals['visceral_impact'] = avgSignals['personality.visceral_impact'];
+                  if (avgSignals['personality.visual_dependency'] !== undefined) avgSignals['visual_dependency'] = avgSignals['personality.visual_dependency'];
+                  if (avgSignals['personality.humor'] !== undefined) avgSignals['humor'] = avgSignals['personality.humor'];
                   const overrideResults = scoreAllOverlays(overrideDefs, avgSignals);
                   const filterWin = overrideResults.find(r => r.category === 'filter');
                   const captionWin = overrideResults.find(r => r.category === 'caption');

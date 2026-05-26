@@ -594,6 +594,59 @@ export function buildSignalTimeline(
   timeline.globalSignals['enrichment.wav2vec_segments'] = wav2vecSegments?.length ?? 0;
   timeline.globalSignals['enrichment.diarization'] = speakerIds.size > 1 ? 'grok' : 'none';
 
+  // ── PERSONALITY SIGNALS (global, derived from Wav2Vec + V-JEPA + structural) ──
+  // Used by MG composition planner, theme resolver, and overlay definitions.
+  // Computed HERE in the signal layer so BOTH Path D and Path E get them.
+  // ⚠️ ALL formulas INVENTED — need calibration via Thompson sampling.
+  const speechCov = timeline.globalSignals['content.speech_coverage'] as number ?? 0;
+  const formality = timeline.globalSignals['content.formality'] as number ?? 0;
+
+  // Wav2Vec averages (if available)
+  const w2vAvg = hasWav2Vec && wav2vecSegments?.length ? {
+    energy: wav2vecSegments.reduce((s, seg) => s + (seg.energy ?? 0), 0) / wav2vecSegments.length,
+    emotionIntensity: wav2vecSegments.reduce((s, seg) => s + (seg.emotionIntensity ?? 0), 0) / wav2vecSegments.length,
+    valence: wav2vecSegments.reduce((s, seg) => {
+      const v = seg.emotionalValence;
+      return s + (v === 'positive' ? 0.8 : v === 'negative' ? 0.2 : 0.5);
+    }, 0) / wav2vecSegments.length,
+  } : null;
+
+  // V-JEPA face coverage (if available)
+  const vjFace = hasVjepa && vjepaSegments?.length
+    ? vjepaSegments.filter(s => (s.eyeContact ?? 0) > 0.3 || s.faceEmotion != null).length / vjepaSegments.length
+    : (speechCov > 0.3 ? 0.5 : 0.2); // ⚠️ INVENTED fallback
+
+  // enthusiasm ← vocal energy + emotion boost. Fallback: speechCoverage proxy.
+  timeline.globalSignals['personality.enthusiasm'] = w2vAvg
+    ? Math.min(1, w2vAvg.energy * 1.2 + (w2vAvg.emotionIntensity > 0.5 ? 0.15 : 0))
+    : (speechCov > 0.5 ? Math.min(1, speechCov * 1.2) : 0.5);
+
+  // warmth ← emotional valence + face coverage. Fallback: speech presence heuristic.
+  timeline.globalSignals['personality.warmth'] = w2vAvg
+    ? (0.6 * w2vAvg.valence + 0.4 * vjFace)
+    : (0.3 + (speechCov > 0 ? 0.4 : 0));
+
+  // emotional_arousal ← Wav2Vec emotion_intensity (direct). Fallback: 0.4.
+  timeline.globalSignals['personality.emotional_arousal'] = w2vAvg?.emotionIntensity ?? 0.4;
+
+  // pacing_velocity ← speech rate + visual change rate. Both available as grid averages.
+  const avgVisualChange = gridFrames.length > 0
+    ? gridFrames.reduce((s, f) => s + ((timeline.gridSignals.get(f)?.['visual.motion_intensity'] as number) ?? 0), 0) / gridFrames.length
+    : 0;
+  timeline.globalSignals['personality.pacing_velocity'] = Math.min(1, speechCov * 0.5 + avgVisualChange * 0.5);
+
+  // visceral_impact ← energy peaks proxy. Fallback: 0.3.
+  timeline.globalSignals['personality.visceral_impact'] = w2vAvg
+    ? Math.min(1, w2vAvg.energy * 0.6 + w2vAvg.emotionIntensity * 0.4)
+    : 0.3;
+
+  // visual_dependency ← how much video NEEDS graphics (low face + low speech = high dependency).
+  timeline.globalSignals['personality.visual_dependency'] = Math.min(1, Math.max(0,
+    (1 - vjFace) * 0.6 + (1 - speechCov) * 0.4));
+
+  // humor ← no NLP source exists. Default 0.1.
+  timeline.globalSignals['personality.humor'] = 0.1;
+
   return timeline;
 }
 
