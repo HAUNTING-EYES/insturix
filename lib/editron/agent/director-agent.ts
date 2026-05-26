@@ -736,6 +736,8 @@ export async function executeDirectorPlan(
               const { inspectGridPoint, formatInspectorLog } = await import('@/lib/editron/engine/decision-inspector');
               const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
               const overlayDefs = getOverlayDefinitions();
+              const { projectEventsOntoGrid } = await import('@/lib/editron/services/signal-registry');
+              projectEventsOntoGrid(signalTimeline);
               const gridFrames = Array.from(signalTimeline.gridSignals.keys()).sort((a: number, b: number) => a - b);
               let utilityTotal = 0;
               let utilityAboveMin = 0;
@@ -790,10 +792,9 @@ export async function executeDirectorPlan(
                   for (const [k, v] of Object.entries(signalTimeline.globalSignals)) {
                     if (typeof v === 'number' && isFinite(v)) avgSignals[k] = v;
                   }
-                  // Bridge: overlay definitions use bare signal IDs, registry uses namespaced.
+                  // Bridge: synthesized signals not in registry (formality from global, warmth/enthusiasm derived).
                   // ⚠️ INVENTED mappings for warmth/enthusiasm — Phase 7 calibration scope.
                   if (avgSignals['content.formality'] !== undefined) avgSignals['formality'] = avgSignals['content.formality'];
-                  if (avgSignals['content.speech_coverage'] !== undefined) avgSignals['speech.coverage'] = avgSignals['content.speech_coverage'];
                   if (!('warmth' in avgSignals)) {
                     const valence = avgSignals['speech.emotional_valence'];
                     const face = avgSignals['visual.face_present'] ?? 0;

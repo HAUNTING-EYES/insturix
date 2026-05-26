@@ -1061,3 +1061,47 @@ export function buildSignalTimelineFromAnalysis(
     wav2vecSegments.length > 0 ? { segments: wav2vecSegments, modelVersion: 'from-segment-analysis', processingTimeMs: 0 } : null,
   );
 }
+
+/**
+ * Project event signals onto the nearest grid-point snapshots.
+ * Event signals (entity.cta, entity.name, etc.) are stored at exact word timestamps
+ * but the utility scorer reads grid-point snapshots. This copies event signal values
+ * onto the nearest grid point so the scorer can evaluate them.
+ *
+ * ⚠️ INVENTED: claim_strength string encodings (assertive=0.8, hedged=0.3)
+ */
+export function projectEventsOntoGrid(timeline: SignalTimeline): void {
+  if (!timeline.eventSignals.length) return;
+  const gridFrames = Array.from(timeline.gridSignals.keys()).sort((a, b) => a - b);
+  if (!gridFrames.length) return;
+
+  const CLAIM_ENCODINGS: Record<string, number> = { assertive: 0.8, hedged: 0.3 };
+  let projected = 0;
+
+  for (const event of timeline.eventSignals) {
+    let nearest = gridFrames[0];
+    let minDist = Math.abs(event.frame - gridFrames[0]);
+    for (const gf of gridFrames) {
+      const dist = Math.abs(event.frame - gf);
+      if (dist < minDist) { minDist = dist; nearest = gf; }
+      if (gf > event.frame + timeline.gridInterval) break;
+    }
+
+    const snapshot = timeline.gridSignals.get(nearest);
+    if (!snapshot) continue;
+
+    let numericValue: number;
+    if (typeof event.value === 'number') numericValue = event.value;
+    else if (typeof event.value === 'boolean') numericValue = event.value ? 1.0 : 0.0;
+    else numericValue = CLAIM_ENCODINGS[event.value] ?? 0.5;
+
+    if (snapshot[event.signal] === undefined) {
+      (snapshot as Record<string, number | boolean | string>)[event.signal] = numericValue;
+      projected++;
+    }
+  }
+
+  if (projected > 0) {
+    console.log(`[SignalRegistry] Projected ${projected} event signals onto grid (${timeline.eventSignals.length} total events)`);
+  }
+}
