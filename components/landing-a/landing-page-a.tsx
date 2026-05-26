@@ -154,10 +154,8 @@ export function LandingPageA() {
   // Visual scroll properties (editorFade, mktPct opacity) are GSAP-controlled — zero re-renders.
   // React state updates at ~5fps (200ms throttle) for child components that need pipePct.
   const [pct, setPct] = useState(0);
-  const [showMkt, setShowMkt] = useState(false); // Event-driven — set immediately in onUpdate, not throttled
-  const [mktInteractive, setMktInteractive] = useState(false); // Event-driven — pointerEvents as React state, not DOM write (React reconciliation overwrites DOM writes)
+  const [showMkt, setShowMkt] = useState(false); // Event-driven — controls visibility + interactivity
   const showMktRef = useRef(false); // Ref mirror avoids stale closure in onUpdate
-  const mktInteractiveRef = useRef(false); // Ref mirror for onUpdate closure
   const lastSetPctRef = useRef<number>(0);
 
   // ─── GSAP ScrollTrigger: replaces manual scroll handler ───
@@ -195,7 +193,9 @@ export function LandingPageA() {
             // 60fps: Navbar scroll indicator (no React)
             document.documentElement.dataset.scrolled = p > 0.02 ? "true" : "";
 
-            // 60fps: Marketing overlay opacity (GSAP smooth, no React re-render)
+            // 60fps: Marketing overlay opacity (GSAP smooth, no React re-render).
+            // Marketing is ALWAYS in the DOM (never mount/unmount). showMkt controls
+            // visibility + pointerEvents via React state. GSAP controls opacity.
             const mktEl = mktRef.current;
             if (mktEl) {
               const mktProgress = Math.max(0, (p - 0.57) / 0.43);
@@ -206,20 +206,12 @@ export function LandingPageA() {
               });
             }
 
-            // Event-driven React state: showMkt + mktInteractive set IMMEDIATELY (not
-            // throttled). pointerEvents MUST be React state — direct DOM writes get
-            // overwritten by React reconciliation on every re-render, creating a race
-            // condition where marketing flickers between interactive/non-interactive.
+            // Event-driven React state: showMkt set IMMEDIATELY (not throttled).
+            // Controls visibility + pointerEvents + data-hidden on editor.
             const shouldShowMkt = p > 0.57;
             if (shouldShowMkt !== showMktRef.current) {
               showMktRef.current = shouldShowMkt;
               setShowMkt(shouldShowMkt);
-            }
-            const mktProgress = Math.max(0, (p - 0.57) / 0.43);
-            const shouldBeInteractive = mktProgress > 0.03;
-            if (shouldBeInteractive !== mktInteractiveRef.current) {
-              mktInteractiveRef.current = shouldBeInteractive;
-              setMktInteractive(shouldBeInteractive);
             }
 
             // ~5fps: Throttled React state for logic consumers (phase, toasts, elapsed, children)
@@ -264,7 +256,8 @@ export function LandingPageA() {
   }, []);
 
   // Smart scroll routing: when marketing is active, capture wheel events.
-  // Scrolling down → scroll marketing overlay. Scrolling up at top of marketing → scroll main container back.
+  // Marketing is ALWAYS in the DOM now — handler attaches once on mount, never torn down/re-attached.
+  // This eliminates the timing gaps that caused lost wheel events on the second scroll-down.
   useEffect(() => {
     const mktEl = mktRef.current;
     const scrollEl = scrollRef.current;
@@ -275,18 +268,16 @@ export function LandingPageA() {
       const atMktTop = mktEl.scrollTop <= 0;
 
       if (isScrollingUp && atMktTop) {
-        // User is scrolling up and marketing overlay is at the top → route to main scroll to go back
         e.preventDefault();
         scrollEl.scrollBy({ top: e.deltaY * 3, behavior: "auto" });
       } else {
-        // User is scrolling within marketing content → let it scroll naturally
         e.stopPropagation();
       }
     };
 
     mktEl.addEventListener("wheel", onWheel, { passive: false });
     return () => mktEl.removeEventListener("wheel", onWheel);
-  }, [showMkt]); // Only re-attach when marketing mounts/unmounts — was missing deps, causing teardown/re-attach on every render
+  }, []); // Empty deps — mktRef.current always exists (never conditionally mounted)
 
   // ─── Derived values (from throttled pct state) ───
   // showMkt is event-driven state (set immediately in onUpdate above), NOT derived here.
@@ -580,16 +571,18 @@ export function LandingPageA() {
         </div>
       </div>
 
-      {/* ━━━ MARKETING — mounts at pct>0.57. Opacity is GSAP-controlled (onUpdate).
-           pointerEvents is React state (mktInteractive) — direct DOM writes get overwritten
-           by React reconciliation, causing a race condition where events fall through to
-           invisible editor children at z:2. React state is the only safe path. */}
-      {showMkt && (
-        <div ref={mktRef} className="mkt-root-animated" style={{ position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3, pointerEvents: mktInteractive ? "auto" : "none", overflowY: "auto", opacity: 0 }}>
-          <Marketing />
-          <SiteFooter />
-        </div>
-      )}
+      {/* ━━━ MARKETING — ALWAYS in DOM (never mount/unmount).
+           Conditional mount caused a cascade of timing bugs:
+           - Wheel handler torn down/re-attached on every mount cycle
+           - React reconciliation overwrote GSAP pointerEvents on re-render
+           - Invisible editor children (z:2) absorbed events in the gap
+           - Second scroll-down reproduced the dead zone every time
+           Fix: always render, toggle visibility + pointerEvents via showMkt state.
+           Opacity is GSAP-controlled (onUpdate gsap.to). */}
+      <div ref={mktRef} className="mkt-root-animated" style={{ position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3, pointerEvents: showMkt ? "auto" : "none", visibility: showMkt ? "visible" : "hidden", overflowY: "auto", opacity: 0 }}>
+        <Marketing />
+        <SiteFooter />
+      </div>
     </>
   );
 }
