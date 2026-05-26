@@ -542,22 +542,56 @@ export async function executeDirectorPlan(
 
             // Inject signal context into decisions for MG composition engine.
             // Without this, MG graphics get contentSignals={} → default animations.
-            // Bridge signal names: MG composition planner expects personality signals
-            // (formality, enthusiasm, warmth) not routing signals (speech_coverage, etc.).
-            // Same bridge as Path D utility scoring (lines 774-782).
+            // ── Personality signals for MG composition planner + theme resolver ──
+            // Derived from Wav2Vec, V-JEPA, and structural signals when available.
+            // Falls back to heuristics when enrichment data is absent.
             const genreFormality = pathEGenreParams?.formality ?? 0.5;
+
+            // Compute averages from Wav2Vec segments (if available)
+            const w2vSegs = projectDoc.wav2vecAnalysis?.segments;
+            const w2vAvg = w2vSegs?.length ? {
+              energy: w2vSegs.reduce((s: number, seg: any) => s + (seg.energy ?? 0), 0) / w2vSegs.length,
+              emotionIntensity: w2vSegs.reduce((s: number, seg: any) => s + (seg.emotionIntensity ?? 0), 0) / w2vSegs.length,
+              valence: w2vSegs.reduce((s: number, seg: any) => {
+                const v = seg.emotionalValence;
+                return s + (v === 'positive' ? 0.8 : v === 'negative' ? 0.2 : 0.5);
+              }, 0) / w2vSegs.length,
+            } : null;
+
+            // Compute face coverage from V-JEPA (if available)
+            const vjSegs = projectDoc.vjepaAnalysis?.segments;
+            const vjFaceCoverage = vjSegs?.length
+              ? vjSegs.filter((s: any) => s.eyeContact > 0.3 || s.faceEmotion).length / vjSegs.length
+              : (speechCoverage > 0.3 ? 0.5 : 0.2); // ⚠️ INVENTED fallback
+
+            // ⚠️ ALL derivation formulas are INVENTED — need calibration via Thompson sampling.
             const signalCtx: Record<string, number> = {
               speech_coverage: speechCoverage,
               visual_change_rate: visualChangeRate,
               music_presence: musicPresence,
-              // Bridge: bare keys for MG composition planner + utility scorer
               formality: genreFormality,
-              // ⚠️ INVENTED: enthusiasm derived from speechCoverage. 1.2x multiplier + 0.5 threshold
-              // have no CRG source. Proper source: Wav2Vec speech.energy (when available). Needs calibration.
-              enthusiasm: speechCoverage > 0.5 ? Math.min(1, speechCoverage * 1.2) : 0.5,
-              // ⚠️ INVENTED: warmth = 0.3 base + 0.4 if speech present. No CRG source.
-              // Proper source: Wav2Vec emotional_valence + face_present (when available). Needs calibration.
-              warmth: 0.3 + (speechCoverage > 0 ? 0.4 : 0),
+              // enthusiasm ← Wav2Vec speech.energy (vocal energy = speaker excitement)
+              // Fallback: speechCoverage proxy (less accurate but always available)
+              enthusiasm: w2vAvg ? Math.min(1, w2vAvg.energy * 1.2 + (w2vAvg.emotionIntensity > 0.5 ? 0.15 : 0))
+                : (speechCoverage > 0.5 ? Math.min(1, speechCoverage * 1.2) : 0.5),
+              // warmth ← Wav2Vec emotional_valence + V-JEPA face coverage
+              // Fallback: 0.3 base + 0.4 if speech present
+              warmth: w2vAvg ? (0.6 * w2vAvg.valence + 0.4 * vjFaceCoverage)
+                : (0.3 + (speechCoverage > 0 ? 0.4 : 0)),
+              // emotional_arousal ← Wav2Vec emotion_intensity (direct mapping)
+              emotional_arousal: w2vAvg?.emotionIntensity ?? 0.4,
+              // pacing_velocity ← normalized from speech rate + visual change (0-1)
+              // High speech rate + high visual change = fast pacing
+              pacing_velocity: Math.min(1, (speechCoverage * 0.5 + visualChangeRate * 0.5)),
+              // visceral_impact ← cinematic moment proxy (energy peaks)
+              // High speech energy variance = has impactful moments
+              visceral_impact: w2vAvg ? Math.min(1, w2vAvg.energy * 0.6 + w2vAvg.emotionIntensity * 0.4)
+                : 0.3,
+              // visual_dependency ← how much the video NEEDS graphics to carry information
+              // Low face presence + low text = high dependency on MG
+              visual_dependency: Math.min(1, Math.max(0, (1 - vjFaceCoverage) * 0.6 + (1 - speechCoverage) * 0.4)),
+              // humor ← no source exists. Default 0.1 (low).
+              humor: 0.1,
               'speech.coverage': speechCoverage,
               'content.formality': genreFormality,
             };
