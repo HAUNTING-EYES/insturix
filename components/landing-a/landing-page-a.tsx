@@ -155,7 +155,9 @@ export function LandingPageA() {
   // React state updates at ~5fps (200ms throttle) for child components that need pipePct.
   const [pct, setPct] = useState(0);
   const [showMkt, setShowMkt] = useState(false); // Event-driven — set immediately in onUpdate, not throttled
+  const [mktInteractive, setMktInteractive] = useState(false); // Event-driven — pointerEvents as React state, not DOM write (React reconciliation overwrites DOM writes)
   const showMktRef = useRef(false); // Ref mirror avoids stale closure in onUpdate
+  const mktInteractiveRef = useRef(false); // Ref mirror for onUpdate closure
   const lastSetPctRef = useRef<number>(0);
 
   // ─── GSAP ScrollTrigger: replaces manual scroll handler ───
@@ -193,30 +195,31 @@ export function LandingPageA() {
             // 60fps: Navbar scroll indicator (no React)
             document.documentElement.dataset.scrolled = p > 0.02 ? "true" : "";
 
-            // 60fps: Marketing overlay opacity (GSAP smooth) + pointer events (instant DOM)
-            // Marketing mounts via React (showMkt), but opacity is GSAP-controlled.
+            // 60fps: Marketing overlay opacity (GSAP smooth, no React re-render)
             const mktEl = mktRef.current;
             if (mktEl) {
               const mktProgress = Math.max(0, (p - 0.57) / 0.43);
-              // Opacity: smoothed via gsap.to for momentum feel
               gsap.to(mktEl, {
                 opacity: Math.min(1, mktProgress * 10),
                 duration: 0.3,
-                overwrite: true, // Kill previous tween — only latest target matters
+                overwrite: true,
               });
-              // Pointer events: INSTANT via direct DOM (not gsap.to — binary toggle
-              // can't be smoothed). Threshold 0.03 ≈ pct 0.583 — right after editor
-              // finishes fading out at 0.58. No "dead zone" where marketing is visible
-              // but non-interactive.
-              mktEl.style.pointerEvents = mktProgress > 0.03 ? "auto" : "none";
             }
 
-            // Event-driven: showMkt set IMMEDIATELY (not throttled) to prevent
-            // blank flash between editor fade-out (GSAP 60fps) and marketing mount (React).
+            // Event-driven React state: showMkt + mktInteractive set IMMEDIATELY (not
+            // throttled). pointerEvents MUST be React state — direct DOM writes get
+            // overwritten by React reconciliation on every re-render, creating a race
+            // condition where marketing flickers between interactive/non-interactive.
             const shouldShowMkt = p > 0.57;
             if (shouldShowMkt !== showMktRef.current) {
               showMktRef.current = shouldShowMkt;
               setShowMkt(shouldShowMkt);
+            }
+            const mktProgress = Math.max(0, (p - 0.57) / 0.43);
+            const shouldBeInteractive = mktProgress > 0.03;
+            if (shouldBeInteractive !== mktInteractiveRef.current) {
+              mktInteractiveRef.current = shouldBeInteractive;
+              setMktInteractive(shouldBeInteractive);
             }
 
             // ~5fps: Throttled React state for logic consumers (phase, toasts, elapsed, children)
@@ -283,7 +286,7 @@ export function LandingPageA() {
 
     mktEl.addEventListener("wheel", onWheel, { passive: false });
     return () => mktEl.removeEventListener("wheel", onWheel);
-  });
+  }, [showMkt]); // Only re-attach when marketing mounts/unmounts — was missing deps, causing teardown/re-attach on every render
 
   // ─── Derived values (from throttled pct state) ───
   // showMkt is event-driven state (set immediately in onUpdate above), NOT derived here.
@@ -324,6 +327,11 @@ export function LandingPageA() {
         /* PERF: GSAP ScrollTrigger scrub handles editor + marketing opacity/transform at 60fps.
            No CSS transitions needed — GSAP drives values directly. Initial opacity:0 for mount animation. */
         .editor-root-animated { opacity: 0; will-change: opacity, transform; }
+        /* When editor is faded out (showMkt=true), kill ALL child pointer events.
+           Without this, invisible children (topbar, pipeline, chat, drag handle) at z:2
+           with pointerEvents:"auto" absorb wheel events, creating a dead zone between
+           the marketing overlay (z:3) and the scroll driver (z:1). */
+        .editor-root-animated[data-hidden] *{ pointer-events: none !important; }
         .mkt-root-animated { will-change: opacity; }
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
         @keyframes popIn{0%{opacity:0;transform:scale(.92)}100%{opacity:1;transform:scale(1)}}
@@ -447,6 +455,7 @@ export function LandingPageA() {
            React never touches these properties — zero re-renders for visual scroll. */}
       <div
         className="editor-root editor-root-animated"
+        {...(showMkt ? { "data-hidden": "" } : {})}
         style={{
           position: "fixed",
           top: 64, // 48px navbar + 16px breathing gap
@@ -571,10 +580,12 @@ export function LandingPageA() {
         </div>
       </div>
 
-      {/* ━━━ MARKETING — mounts at pct>0.57. Opacity + pointerEvents are GSAP-controlled (onUpdate).
-           React only handles mount/unmount via showMkt. Zero re-renders for visual scroll. */}
+      {/* ━━━ MARKETING — mounts at pct>0.57. Opacity is GSAP-controlled (onUpdate).
+           pointerEvents is React state (mktInteractive) — direct DOM writes get overwritten
+           by React reconciliation, causing a race condition where events fall through to
+           invisible editor children at z:2. React state is the only safe path. */}
       {showMkt && (
-        <div ref={mktRef} className="mkt-root-animated" style={{ position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3, pointerEvents: "none", overflowY: "auto", opacity: 0 }}>
+        <div ref={mktRef} className="mkt-root-animated" style={{ position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3, pointerEvents: mktInteractive ? "auto" : "none", overflowY: "auto", opacity: 0 }}>
           <Marketing />
           <SiteFooter />
         </div>
