@@ -164,6 +164,7 @@ export interface DirectorResult {
   checkpointId: string;
   executionMs: number;
   warnings: string[];
+  pipelineWarnings?: Array<{ severity: string; phase: string; message: string; details?: Record<string, any>; timestamp: number; autoFixed?: boolean; autoFixDescription?: string }>;
   qualityGate?: {
     totalActions: number;
     passedActions: number;

@@ -1751,6 +1751,11 @@ export async function executeDirectorPlan(
   } catch {}
 
   result.executionMs = Date.now() - startTime;
+  const pwAll = pipelineWarnings.getAll();
+  if (pwAll.length > 0) {
+    result.pipelineWarnings = pwAll;
+    console.log(`[Director] ${pipelineWarnings.getSummary()}`);
+  }
   console.log(`[Director] Complete: ${result.actionsExecuted} actions, ${result.actionsSkipped.length} skipped, ${result.executionMs}ms`);
 
   return result;

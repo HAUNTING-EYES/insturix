@@ -657,8 +657,20 @@ export function buildSignalTimeline(
   timeline.globalSignals['personality.visual_dependency'] = Math.min(1, Math.max(0,
     (1 - vjFace) * 0.6 + (1 - speechCov) * 0.4));
 
-  // humor ← no NLP source exists. Default 0.1.
-  timeline.globalSignals['personality.humor'] = 0.1;
+  // humor ← derived from pitch variability (animated delivery), low formality, rhetorical
+  // questions, and positive high-energy vocal tone. No dedicated NLP laughter/sarcasm model.
+  // ⚠️ ALL weights INVENTED — needs Thompson sampling calibration.
+  const rhetoricalCount = timeline.eventSignals.filter(e => e.signal === 'entity.rhetorical_question').length;
+  const avgPitchVar = w2vAvg && wav2vecSegments?.length
+    ? wav2vecSegments.reduce((s: number, seg: any) => s + ((seg as any).pitchVariability ?? 0), 0) / wav2vecSegments.length
+    : 0;
+  const positiveEnergy = w2vAvg ? (w2vAvg.valence > 0.6 && w2vAvg.emotionIntensity > 0.5 ? 0.2 : 0) : 0;
+  timeline.globalSignals['personality.humor'] = Math.min(1, Math.max(0,
+    avgPitchVar * 0.4
+    + (1 - formality) * 0.25
+    + Math.min(rhetoricalCount * 0.05, 0.15)
+    + positiveEnergy
+  ));
 
   return timeline;
 }
