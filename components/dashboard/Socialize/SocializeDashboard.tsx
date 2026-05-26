@@ -2,6 +2,9 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useUser } from "@clerk/nextjs";
+import { useGSAP } from "@gsap/react";
+import { gsap } from "@/lib/animation/gsap-config";
+import { DURATIONS, STAGGER } from "@/lib/animation/presets";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { useToast } from "@/hooks/use-toast";
@@ -121,6 +124,15 @@ export default function SocializeDashboard({
   const [accentColor, setAccentColor] = useState(initialData?.accentColor || "gold");
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const socPageRef = useRef<HTMLDivElement>(null);
+
+  // GSAP entrance — staggered fadeUp for main sections
+  useGSAP(() => {
+    gsap.fromTo('[data-soc-animate]',
+      { y: 24, opacity: 0 },
+      { y: 0, opacity: 1, duration: DURATIONS.atmosphere, ease: 'expo.out', stagger: { each: STAGGER.wide.each, from: 'start' } }
+    );
+  }, { scope: socPageRef });
 
   const scrollToSection = (id: string) => {
     sectionRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -498,14 +510,16 @@ export default function SocializeDashboard({
   ];
 
   return (
-    <div className="relative">
+    <div ref={socPageRef} className="relative">
+      <div data-soc-animate style={{ opacity: 0 }}>
       <StoryArc
         username={uniqueUsername || "your"}
         activeSection={activeSection}
         onWaypointClick={scrollToSection}
       />
+      </div>
 
-      <div className="grid xl:grid-cols-2 gap-0 font-jakarta" style={{ minHeight: "calc(100vh - 120px)" }}>
+      <div data-soc-animate className="grid xl:grid-cols-2 gap-0 font-jakarta" style={{ minHeight: "calc(100vh - 120px)", opacity: 0 }}>
         {/* Left: Timeline Editor */}
         <div style={{ padding: "24px 28px 60px 0" }}>
           <TimelineSpine sections={timelineSections} activeSection={activeSection}>

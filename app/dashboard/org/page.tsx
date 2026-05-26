@@ -6,9 +6,13 @@
  * Shows user's organizations with Insturix dark theme and role-colored badges.
  */
 
+import { useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useOrganizations } from '@/hooks/useOrganization';
 import { formatDistanceToNow } from 'date-fns';
+import { useGSAP } from '@gsap/react';
+import { gsap } from '@/lib/animation/gsap-config';
+import { DURATIONS, STAGGER } from '@/lib/animation/presets';
 
 const ROLE_BADGE_STYLES: Record<string, { bg: string; color: string; border: string }> = {
   owner: {
@@ -31,6 +35,15 @@ const ROLE_BADGE_STYLES: Record<string, { bg: string; color: string; border: str
 export default function OrganizationsPage() {
   const router = useRouter();
   const { data: organizations, isLoading } = useOrganizations();
+  const pageRef = useRef<HTMLDivElement>(null);
+
+  // GSAP entrance — staggered fadeUp for header + list
+  useGSAP(() => {
+    gsap.fromTo('[data-animate]',
+      { y: 24, opacity: 0 },
+      { y: 0, opacity: 1, duration: DURATIONS.atmosphere, ease: 'expo.out', stagger: { each: STAGGER.wide.each, from: 'start' } }
+    );
+  }, { scope: pageRef });
 
   if (isLoading) {
     return (
@@ -57,11 +70,12 @@ export default function OrganizationsPage() {
 
   return (
     <div
+      ref={pageRef}
       className="p-6 md:p-8 max-w-4xl mx-auto"
       style={{ background: '#0B0B0A', minHeight: '100vh' }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div data-animate className="flex items-center justify-between mb-8" style={{ opacity: 0 }}>
         <div>
           <h1 className="text-2xl font-semibold" style={{ color: '#ECE9E1' }}>
             Team
@@ -92,6 +106,7 @@ export default function OrganizationsPage() {
       </div>
 
       {/* List */}
+      <div data-animate style={{ opacity: 0 }}>
       {!organizations || organizations.length === 0 ? (
         <div
           className="text-center py-16 rounded-lg"
@@ -179,6 +194,7 @@ export default function OrganizationsPage() {
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }
