@@ -225,7 +225,10 @@ export function LandingPageA() {
       // Extend timeline to the full scroll range (0→1) so scrub maps correctly
       tl.set({}, {}, 1.0);
     },
-    { scope: scrollRef, dependencies: [] }
+    // NO scope — animated elements (.editor-root-animated, mktRef) are siblings of
+    // scrollRef, not children. Scoping would limit selectors to inside the scroller
+    // and find nothing → blank page. useGSAP still handles cleanup without scope.
+    { dependencies: [] }
   );
 
   // ── Final frame sync: scrollend catches the last value the 200ms throttle misses ──
