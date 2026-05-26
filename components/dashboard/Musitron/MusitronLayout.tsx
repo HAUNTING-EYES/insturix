@@ -1,7 +1,10 @@
 "use client";
 
-import { useState, useCallback, lazy, Suspense } from "react";
+import { useState, useCallback, useRef, lazy, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useGSAP } from "@gsap/react";
+import { gsap } from "@/lib/animation/gsap-config";
+import { DURATIONS, STAGGER } from "@/lib/animation/presets";
 
 const ClientWrapper = lazy(() =>
   import("@/components/dashboard/Musitron/ClientWrapper").then((mod) => ({
@@ -19,6 +22,15 @@ export function MusitronLayout() {
       ? "jukebox"
       : "studio";
   const [activeTab, setActiveTab] = useState<MusitronTab>(initialTab);
+  const pageRef = useRef<HTMLDivElement>(null);
+
+  // GSAP entrance — staggered fadeUp for nav + content
+  useGSAP(() => {
+    gsap.fromTo('[data-animate]',
+      { y: 24, opacity: 0 },
+      { y: 0, opacity: 1, duration: DURATIONS.atmosphere, ease: 'expo.out', stagger: { each: STAGGER.wide.each, from: 'start' } }
+    );
+  }, { scope: pageRef });
 
   const switchTab = useCallback(
     (tab: MusitronTab) => {
@@ -31,9 +43,10 @@ export function MusitronLayout() {
   );
 
   return (
-    <div style={{ background: "#0B0B0A", minHeight: "100vh" }}>
+    <div ref={pageRef} style={{ background: "#0B0B0A", minHeight: "100vh" }}>
       {/* Breadcrumb + Tab Navigation */}
       <nav
+        data-animate=""
         style={{
           display: "flex",
           alignItems: "center",
@@ -41,6 +54,7 @@ export function MusitronLayout() {
           padding: "16px 32px",
           borderBottom: "1px solid #1C1B19",
           background: "#0F0F0E",
+          opacity: 0,
         }}
       >
         <span
@@ -90,6 +104,7 @@ export function MusitronLayout() {
       </nav>
 
       {/* Tab Content */}
+      <div data-animate style={{ opacity: 0 }}>
       <Suspense
         fallback={
           <div
@@ -109,6 +124,7 @@ export function MusitronLayout() {
       >
         <ClientWrapper activeTab={activeTab} />
       </Suspense>
+      </div>
     </div>
   );
 }
