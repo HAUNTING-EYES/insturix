@@ -186,3 +186,40 @@ export const SCROLL_TRIGGERS = {
     anticipatePin: 1,
   },
 } as const;
+
+// ─── Spread-format presets ──────────────────────────────────────
+// For components that use <motion.div {...fadeIn}> prop-spreading
+// instead of <motion.div variants={fadeUp} initial="hidden" animate="visible">.
+// Both patterns are valid framer-motion. Use SPREAD when the component
+// doesn't use a stagger container parent (standalone entrances).
+//
+// @example: <motion.div {...SPREAD.fadeUp}>content</motion.div>
+
+const SPREAD_EASE = [0.16, 1, 0.3, 1] as const;
+
+export const SPREAD = {
+  /** Fade up 20px. For standalone card/section entrances. */
+  fadeUp: {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: DURATIONS.atmosphere, ease: SPREAD_EASE },
+  },
+  /** Fade in with slight y shift. For panels, overlays. */
+  fadeIn: {
+    initial: { opacity: 0, y: 8 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: DURATIONS.response, ease: SPREAD_EASE },
+  },
+  /** Slide from right. For side panels. */
+  slideFromRight: {
+    initial: { opacity: 0, x: 20 },
+    animate: { opacity: 1, x: 0 },
+    transition: { duration: DURATIONS.response, ease: SPREAD_EASE },
+  },
+  /** Scale in. For modals, focused content. */
+  scaleIn: {
+    initial: { opacity: 0, scale: 0.92 },
+    animate: { opacity: 1, scale: 1 },
+    transition: { duration: DURATIONS.atmosphere, ease: SPREAD_EASE },
+  },
+} as const;

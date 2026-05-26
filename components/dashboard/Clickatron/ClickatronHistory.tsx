@@ -23,12 +23,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { SPREAD } from "@/lib/animation/presets";
 
-const fadeIn = {
-  initial: { opacity: 0, y: 20 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.4, ease: "easeOut" as any }
-};
+// OLD: local fadeIn (y:20, 0.4s, 'easeOut')
+// NEW: shared SPREAD.fadeUp (y:20, 0.5s, expo.out — brand easing)
+const fadeIn = SPREAD.fadeUp;
 
 const staggerChildren = {
   animate: {
