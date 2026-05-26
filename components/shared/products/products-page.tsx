@@ -95,20 +95,40 @@ export function ProductsPage() {
   const [scrollPct, setScrollPct] = useState(0);
   const [activeRoom, setActiveRoom] = useState(0);
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const lastScrollUpdate = useRef(0);
 
+  // PERF: Throttle scroll state updates to ~20fps (50ms).
+  // OLD: setScrollPct on every frame (~60fps) = 60 React re-renders/sec
+  // NEW: 20fps state updates, existing CSS transition (transform 0.1s linear) smooths visuals
   useEffect(() => {
     const onScroll = () => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const scrollableHeight = containerRef.current.offsetHeight - window.innerHeight;
-      // How far into the sticky section we've scrolled
+      const rawPct = Math.max(0, Math.min(1, -rect.top / scrollableHeight));
+      const now = performance.now();
+      if (now - lastScrollUpdate.current > 50) {
+        setScrollPct(rawPct);
+        setActiveRoom(Math.min(ROOM_COUNT - 1, Math.round(rawPct * (ROOM_COUNT - 1))));
+        lastScrollUpdate.current = now;
+      }
+    };
+    // Sync final state on scroll end
+    const onScrollEnd = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const scrollableHeight = containerRef.current.offsetHeight - window.innerHeight;
       const rawPct = Math.max(0, Math.min(1, -rect.top / scrollableHeight));
       setScrollPct(rawPct);
       setActiveRoom(Math.min(ROOM_COUNT - 1, Math.round(rawPct * (ROOM_COUNT - 1))));
     };
     if (!isMobile) {
       window.addEventListener("scroll", onScroll, { passive: true });
-      return () => window.removeEventListener("scroll", onScroll);
+      window.addEventListener("scrollend", onScrollEnd, { passive: true });
+      return () => {
+        window.removeEventListener("scroll", onScroll);
+        window.removeEventListener("scrollend", onScrollEnd);
+      };
     }
   }, [isMobile]);
 
