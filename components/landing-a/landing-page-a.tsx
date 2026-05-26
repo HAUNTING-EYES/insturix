@@ -154,6 +154,8 @@ export function LandingPageA() {
   // Visual scroll properties (editorFade, mktPct opacity) are GSAP-controlled — zero re-renders.
   // React state updates at ~5fps (200ms throttle) for child components that need pipePct.
   const [pct, setPct] = useState(0);
+  const [showMkt, setShowMkt] = useState(false); // Event-driven — set immediately in onUpdate, not throttled
+  const showMktRef = useRef(false); // Ref mirror avoids stale closure in onUpdate
   const lastSetPctRef = useRef<number>(0);
 
   // ─── GSAP ScrollTrigger: replaces manual scroll handler ───
@@ -181,7 +183,7 @@ export function LandingPageA() {
           scroller: scroller,
           start: "top top",
           end: "bottom bottom",
-          scrub: true, // Instant tracking — no lag (CEO flagged scrub:1 timing issues)
+          scrub: 0.5, // 500ms momentum catchup — feels smooth without the 1s lag CEO flagged
           onUpdate: (self) => {
             const p = self.progress;
 
@@ -191,15 +193,25 @@ export function LandingPageA() {
             // 60fps: Navbar scroll indicator (no React)
             document.documentElement.dataset.scrolled = p > 0.02 ? "true" : "";
 
-            // 60fps: Marketing overlay opacity + pointer events (GSAP direct, no React)
+            // 60fps: Marketing overlay opacity + pointer events (GSAP smooth, no React)
             // Marketing mounts via React (showMkt), but opacity is GSAP-controlled.
             const mktEl = mktRef.current;
             if (mktEl) {
               const mktProgress = Math.max(0, (p - 0.57) / 0.43);
-              gsap.set(mktEl, {
+              gsap.to(mktEl, {
                 opacity: Math.min(1, mktProgress * 10),
                 pointerEvents: mktProgress > 0.12 ? "auto" : "none",
+                duration: 0.3,
+                overwrite: true, // Kill previous tween — only latest target matters
               });
+            }
+
+            // Event-driven: showMkt set IMMEDIATELY (not throttled) to prevent
+            // blank flash between editor fade-out (GSAP 60fps) and marketing mount (React).
+            const shouldShowMkt = p > 0.57;
+            if (shouldShowMkt !== showMktRef.current) {
+              showMktRef.current = shouldShowMkt;
+              setShowMkt(shouldShowMkt);
             }
 
             // ~5fps: Throttled React state for logic consumers (phase, toasts, elapsed, children)
@@ -269,8 +281,8 @@ export function LandingPageA() {
   });
 
   // ─── Derived values (from throttled pct state) ───
+  // showMkt is event-driven state (set immediately in onUpdate above), NOT derived here.
   const pipePct = Math.min(1, pct / 0.55);
-  const showMkt = pct > 0.57;
 
   const phase = pipePct < 0.06 ? "welcome" : pipePct < 0.15 ? "prompt" : pipePct < 0.32 ? "script" : pipePct < 0.58 ? "edit" : pipePct < 0.72 ? "analyze" : pipePct < 0.85 ? "design" : pipePct < 0.97 ? "publish" : "done";
 
