@@ -28,6 +28,10 @@ async function getGenAI() {
 
 // ─── Model Getters ───────────────────────────────────────────────
 
+/** Canonical model name — single source of truth. Import this instead of hardcoding. */
+export const ANALYSIS_MODEL_NAME = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview';
+export const CHAT_MODEL_NAME = 'gemini-3.1-flash-lite-preview';
+
 /**
  * Get a model for video/image analysis (fast + cheap).
  * Used by: five-track-analysis, style-transfer, motion-graphics, transcription, asset analysis.
@@ -35,8 +39,7 @@ async function getGenAI() {
  */
 export async function getAnalysisModel() {
   const genAI = await getGenAI();
-  const modelName = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview';
-  return genAI.getGenerativeModel({ model: modelName });
+  return genAI.getGenerativeModel({ model: ANALYSIS_MODEL_NAME });
 }
 
 /**

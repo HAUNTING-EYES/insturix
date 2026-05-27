@@ -42,6 +42,7 @@ import {
 } from "../services/motion-graphics-service";
 import { extractEditDNA, applyEditDNA, loadProfile } from "../services/style-transfer-service";
 import { DEFAULT_CONFIG } from '../config/editron-config';
+import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
 import { planComposition } from '../motion-graphics/engine/composition-planner';
 import { resolveMotionTokens } from '../data/motion-theme-resolver';
 import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
@@ -52,10 +53,10 @@ import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
 // NEW: getLLMModel(temperature) → shared singleton
 const _llmModelCache: Record<string, ChatGoogleGenerativeAI> = {};
 function getLLMModel(temperature: number): ChatGoogleGenerativeAI {
-  const key = `gemini-3.1-flash-lite-preview-t${temperature}`;
+  const key = `${CHAT_MODEL_NAME}-t${temperature}`;
   if (!_llmModelCache[key]) {
     _llmModelCache[key] = new ChatGoogleGenerativeAI({
-      model: 'gemini-3.1-flash-lite-preview',
+      model: CHAT_MODEL_NAME,
       apiKey: process.env.GEMINI_API_KEY,
       temperature,
     });
@@ -3729,9 +3730,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           return `Scene ${i + 1} (${startSec}s-${startSec + durSec}s): "${narration}"`;
         }).join('\n');
 
-        const { GoogleGenerativeAI } = await import('@google/generative-ai');
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite-preview' });
+        const genAI = await getGenAI();
+        const model = genAI.getGenerativeModel({ model: CHAT_MODEL_NAME });
 
         const densityGuide = input.density === 'minimal' ? '1-2 total' : input.density === 'heavy' ? 'one per scene' : '2-3 total';
 
