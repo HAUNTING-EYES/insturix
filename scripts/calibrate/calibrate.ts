@@ -106,6 +106,7 @@ async function analyzeVideo(
   signedUrl: string,
   durationMs: number,
   title: string,
+  gcsUri?: string,
 ): Promise<AnalysisResult> {
   console.log(`\n[Calibrate] ═══ Analyzing: ${title} (${(durationMs / 1000).toFixed(0)}s) ═══`);
 
@@ -163,40 +164,40 @@ async function analyzeVideo(
     console.warn(`[Calibrate] ✗ 5-Track parse failed, using empty`);
   }
 
-  // Transcription via Whisper
-  console.log('[Calibrate] → Transcription (Whisper)...');
+  // Transcription via production service (Grok STT primary → Whisper → Gemini → Deepgram fallback chain)
+  console.log('[Calibrate] → Transcription (Grok STT → fallbacks)...');
   let transcript = { words: [] as Array<{ word: string; startMs: number; endMs: number }>, transcript: '' };
   try {
-    const { fal } = await import('@fal-ai/client');
-    const falKey = process.env.FAL_AI_API_KEY || process.env.FAL_KEY;
-    if (falKey) fal.config({ credentials: falKey });
-    const whisperResult = await Promise.race([
-      fal.subscribe('fal-ai/wizper', {
-        input: { audio_url: signedUrl, task: 'transcribe', chunk_level: 'segment' },
-        logs: false,
-      }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 90_000)),
-    ]);
-    const data = whisperResult.data as any;
-    if (data?.chunks?.length) {
-      const words: typeof transcript.words = [];
-      for (const chunk of data.chunks) {
-        const segText = (chunk.text || '').trim();
-        const segStart = (chunk.timestamp?.[0] || 0) * 1000;
-        const segEnd = (chunk.timestamp?.[1] || 0) * 1000;
-        const segWords = segText.split(/\s+/).filter(Boolean);
-        if (segWords.length === 0) continue;
-        const totalChars = segWords.reduce((s: number, w: string) => s + w.length, 0);
-        let cursor = segStart;
-        for (const w of segWords) {
-          const dur = (w.length / totalChars) * (segEnd - segStart);
-          words.push({ word: w, startMs: Math.round(cursor), endMs: Math.round(cursor + dur) });
-          cursor += dur;
-        }
-      }
-      transcript = { words, transcript: data.text || words.map(w => w.word).join(' ') };
+    const { getTranscription } = await import('../../lib/editron/services/media/transcription-service');
+    // The production service needs an asset in MongoDB. For calibration, we create a synthetic asset record.
+    const { getDatabase } = await import('../../lib/editron/db/mongodb');
+    const db = await getDatabase();
+    const calibrationAssetId = `calibration-${title.slice(0, 40)}`;
+    const calibrationUserId = 'calibration-system';
+
+    // Upsert a minimal asset record so the transcription service can find it
+    await db.collection('media_assets').updateOne(
+      { assetId: calibrationAssetId },
+      { $set: {
+        assetId: calibrationAssetId,
+        userId: calibrationUserId,
+        type: 'video',
+        gcsPath: gcsUri ? gcsUri.replace(/^gs:\/\/[^/]+\//, '') : undefined,
+        cachedUrl: signedUrl,
+        source: 'calibration',
+        createdAt: new Date(),
+      } },
+      { upsert: true },
+    );
+
+    const result = await getTranscription(calibrationAssetId, calibrationUserId, { forceRefresh: true });
+    if (result.words.length > 0) {
+      transcript = {
+        words: result.words.map(w => ({ word: w.word, startMs: w.startMs, endMs: w.endMs })),
+        transcript: result.transcript,
+      };
     }
-    console.log(`[Calibrate] ✓ Transcript: ${transcript.words.length} words`);
+    console.log(`[Calibrate] ✓ Transcript: ${transcript.words.length} words (via ${result.words.length > 0 ? 'production chain' : 'empty'})`);
   } catch (e: any) {
     console.warn(`[Calibrate] ✗ Transcription failed: ${e.message}`);
   }
@@ -495,7 +496,7 @@ async function calibrateVideo(
   }
 
   // Stage 2: Analyze
-  const analysis = await analyzeVideo(download.signedUrl, download.durationMs, download.title || label);
+  const analysis = await analyzeVideo(download.signedUrl, download.durationMs, download.title || label, download.gcsUri);
 
   // Stage 3: Score
   const scoring = await scoreVideo(analysis, download.durationMs);
