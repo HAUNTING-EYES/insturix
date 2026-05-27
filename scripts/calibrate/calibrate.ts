@@ -147,7 +147,7 @@ async function analyzeVideo(
   console.log('[Calibrate] → 5-Track (Gemini Vision)...');
   const { GoogleGenerativeAI } = await import('@google/generative-ai');
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '');
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
   const fiveTrackResult = await model.generateContent([
     { text: `Analyze this video for editing. Return JSON with: { "shots": [{"startMs": N, "endMs": N, "shotType": "...", "motionIntensity": 0-1}], "naturalCutPoints": [{"timestampMs": N, "reason": "..."}], "transitionTypes": [{"timestampMs": N, "type": "hard-cut|dissolve|whip-pan|fade"}] }. Video duration: ${durationMs}ms. Analyze the ACTUAL editing decisions — where cuts happen, what transitions are used, pacing patterns.` },
