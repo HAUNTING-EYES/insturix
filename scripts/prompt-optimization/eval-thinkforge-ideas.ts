@@ -35,7 +35,7 @@ const TEXT_PLATFORMS = new Set(['LinkedIn', 'Twitter/X', 'Medium', 'Blog', 'News
 const VIDEO_PLATFORMS = new Set(['YouTube', 'TikTok', 'Instagram']);
 const ALL_VALID = new Set([...TEXT_PLATFORMS, ...VIDEO_PLATFORMS, 'Podcast', 'Pinterest']);
 
-const VIDEO_FORMAT_WORDS = /\b(video|reel|short|skit|clip|film|vlog|duet|pov\b|storytime|explainer|tutorial|unboxing|reaction|review\s*video)/i;
+const VIDEO_FORMAT_WORDS = /\b(video|reel|skit|clip|film|vlog|duet|pov\b|storytime|explainer|tutorial|unboxing|reaction|review\s*video)/i;
 const TEXT_FORMAT_WORDS = /\b(post|article|essay|thread|carousel|newsletter|listicle|guide|blog|case study|breakdown|hot take|story|opinion|anecdotal)/i;
 
 // ---- Test Cases ----

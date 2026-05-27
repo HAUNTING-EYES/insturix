@@ -29,6 +29,7 @@ import ImageOverlayManager, {
 import { SketchOverlay, type SketchOverlayHandle, type SketchTool, type PencilColor, type EraserSize } from "../canvas/SketchOverlay";
 import { SelectionTool } from "../canvas/SelectionTool";
 import { GenerativeFillInline } from "../canvas/GenerativeFillInline";
+import { SPREAD } from "@/lib/animation/presets";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -36,11 +37,9 @@ interface CanvasStageProps {
   isGenerating: boolean;
 }
 
-const fadeIn = {
-  initial: { opacity: 0, y: 20 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.4, ease: "easeOut" } as any,
-};
+// OLD: local fadeIn (y:20, 0.4s, 'easeOut')
+// NEW: shared SPREAD.fadeUp (y:20, 0.5s, expo.out — brand easing)
+const fadeIn = SPREAD.fadeUp;
 
 // Helper function to get aspect ratio dimensions
 const getAspectRatioDimensions = (

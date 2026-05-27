@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Palette, RotateCcw } from 'lucide-react';
+import { SPREAD } from '@/lib/animation/presets';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -74,11 +75,9 @@ const colorLooks: ColorLook[] = [
   },
 ];
 
-const fadeIn = {
-  initial: { opacity: 0, x: 20 },
-  animate: { opacity: 1, x: 0 },
-  transition: { duration: 0.3, ease: "easeOut" } as any,
-};
+// OLD: local fadeIn (x:20, 0.3s, 'easeOut')
+// NEW: shared SPREAD.slideFromRight (x:20, 0.35s, expo.out — brand easing)
+const fadeIn = SPREAD.slideFromRight;
 
 export function FineTuningPanel({
   controls,

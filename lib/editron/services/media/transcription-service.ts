@@ -144,13 +144,17 @@ async function generateTranscription(
           formData.append('format', 'true');
           formData.append('diarize', 'true');
 
+          const grokController = new AbortController();
+          const grokTimer = setTimeout(() => grokController.abort(), 90_000);
           response = await fetch('https://api.x.ai/v1/stt', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${xaiKey}`,
             },
             body: formData,
+            signal: grokController.signal,
           });
+          clearTimeout(grokTimer);
 
           if (response.ok) break;
 
@@ -230,17 +234,18 @@ async function generateTranscription(
     const { fal } = await import('@fal-ai/client');
     const falKey = process.env.FAL_AI_API_KEY || process.env.FAL_KEY;
     if (falKey) fal.config({ credentials: falKey });
-    const whisperResult = await fal.subscribe('fal-ai/wizper', {
-      input: {
-        audio_url: mediaUrl,
-        task: 'transcribe',
-        language: (language || undefined) as any,
-        // chunk_level: only "segment" is valid per fal.ai/wizper docs.
-        // Word-level timestamps are derived by splitting segments below.
-        chunk_level: 'segment',
-      },
-      logs: false,
-    });
+    const whisperResult = await Promise.race([
+      fal.subscribe('fal-ai/wizper', {
+        input: {
+          audio_url: mediaUrl,
+          task: 'transcribe',
+          language: (language || undefined) as any,
+          chunk_level: 'segment',
+        },
+        logs: false,
+      }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Whisper/fal timeout (90s)')), 90_000)),
+    ]);
     const data = whisperResult.data as any;
     if (data?.chunks && data.chunks.length > 0) {
       // Wizper returns segment-level chunks. Split each segment into word-level
@@ -333,8 +338,10 @@ async function transcribeWithGemini(
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('No Gemini API key for transcription');
 
-  // Download audio file
-  const response = await fetch(mediaUrl);
+  const dlController = new AbortController();
+  const dlTimer = setTimeout(() => dlController.abort(), 60_000);
+  const response = await fetch(mediaUrl, { signal: dlController.signal });
+  clearTimeout(dlTimer);
   if (!response.ok) throw new Error(`Failed to download media (${response.status})`);
   const buffer = Buffer.from(await response.arrayBuffer());
   const mimeType = response.headers.get('content-type') || (asset.type === 'video' ? 'video/mp4' : 'audio/wav');
@@ -343,7 +350,8 @@ async function transcribeWithGemini(
   const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
   const model = await getAnalysisModel();
 
-  const result = await model.generateContent([
+  const result = await Promise.race([
+    model.generateContent([
     {
       inlineData: {
         data: buffer.toString('base64'),
@@ -362,6 +370,8 @@ ${language ? `- Language: ${language}` : '- Auto-detect language'}
 Return ONLY the JSON array, no other text. Example:
 [{"word":"Hello,","start":0.1,"end":0.4},{"word":"world.","start":0.5,"end":0.9}]`,
     },
+  ]),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Gemini transcription timeout (90s)')), 90_000)),
   ]);
 
   const text = result.response.text()?.trim() || '';

@@ -23,6 +23,7 @@ export interface IdeaCardData {
   platform: string;
   tone: string;
   sessionName?: string;
+  brandBrief?: string;
 }
 
 export interface ProjectMeta {
@@ -34,6 +35,7 @@ export interface ProjectMeta {
   tone?: string;
   sessionName?: string;
   brandId?: string;
+  brandBrief?: string;
   preferences?: Record<string, any>;
 }
 

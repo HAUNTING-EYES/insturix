@@ -86,6 +86,7 @@ export function translateCreativeIntentToEDL(
   overlays: Array<{ id: number; type: string; from: number; durationInFrames: number; row: number; [k: string]: any }>,
   fps: number = 30,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
+  genreParams?: Record<string, number>,
 ): TranslationResult {
   const decisions: TranslatedDecision[] = [];
   const warnings: string[] = [];
@@ -185,6 +186,18 @@ export function translateCreativeIntentToEDL(
         params: {
           graphicType: graphic.type === 'text-overlay' ? 'keyword-highlight' : graphic.type,
           text: graphic.text || '',
+          // Pass genre parameters as signals for composition engine
+          // Maps: formality→formality, energy_baseline→enthusiasm, warmth→warmth
+          signals: genreParams ? {
+            formality: genreParams.formality ?? 0,
+            enthusiasm: genreParams.energy_baseline ?? 0.5,
+            warmth: genreParams.warmth ?? 0.5,
+            emotional_arousal: genreParams.energy_baseline ?? 0.4,
+            pacing_velocity: genreParams.pacing_tolerance ? (1 - genreParams.pacing_tolerance / 20) : 0.5,
+            humor: genreParams.humor ?? 0.1,
+            visceral_impact: genreParams.visceral_impact ?? 0.3,
+            visual_dependency: genreParams.visual_dependency ?? 0.5,
+          } : undefined,
         },
         confidence: 0.75,
         sources: ['creative-intent', 'script'],

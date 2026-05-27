@@ -349,15 +349,18 @@ async function handler(request: NextRequest) {
 
         console.log(`[VideoAnalysisWorker] TRIBE Phase 2: Dispatching V-JEPA + Wav2Vec for ${segmentInputs.length} segments...`);
 
-        const [vjepaResult, wav2vecResult] = await Promise.allSettled([
+        const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
           (async () => {
             const { analyzeVideoWithVjepa } = await import('@/lib/editron/services/vjepa-service');
             return analyzeVideoWithVjepa(videoUrl, segmentInputs);
           })(),
           (async () => {
             const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
-            // Wav2Vec uses same URL — Modal endpoint extracts audio from video
             return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);
+          })(),
+          (async () => {
+            const { analyzeMusicContent } = await import('@/lib/editron/services/music-analysis-service');
+            return analyzeMusicContent(videoUrl);
           })(),
         ]);
 
@@ -379,6 +382,26 @@ async function handler(request: NextRequest) {
         } else {
           const msg = wav2vecResult.status === 'rejected' ? (wav2vecResult.reason?.message || String(wav2vecResult.reason)) : 'returned null';
           console.warn(`[VideoAnalysisWorker] Wav2Vec skipped: ${msg}`);
+        }
+
+        // Handle Music Analysis result
+        let musicAnalysis: any = null;
+        if (musicResult.status === 'fulfilled' && musicResult.value) {
+          musicAnalysis = musicResult.value;
+          console.log(`[VideoAnalysisWorker] Music: BPM=${musicAnalysis.bpm}, ${musicAnalysis.beats.length} beats, presence=${musicAnalysis.musicPresence.toFixed(2)}, ${musicAnalysis.processingTimeMs}ms`);
+        } else {
+          const msg = musicResult.status === 'rejected' ? (musicResult.reason?.message || String(musicResult.reason)) : 'returned null';
+          console.warn(`[VideoAnalysisWorker] Music analysis skipped: ${msg}`);
+        }
+
+        // Store music analysis on project for Director to read
+        if (musicAnalysis) {
+          try {
+            await db.collection('projects').updateOne(
+              { projectId },
+              { $set: { musicAnalysis } },
+            );
+          } catch { /* non-fatal */ }
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);

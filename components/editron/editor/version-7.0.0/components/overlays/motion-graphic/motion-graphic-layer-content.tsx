@@ -13,7 +13,11 @@ import React from 'react';
 import type { MotionGraphicOverlay } from '../../../types';
 import { MotionThemeProvider } from '@/lib/editron/motion-graphics/context/MotionThemeContext';
 import { StatCounter } from '@/lib/editron/motion-graphics/structures/StatCounter';
+import { SafeCompositionRenderer } from '@/lib/editron/motion-graphics/engine/composition-renderer';
+import { planComposition } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import type { MotionTokens } from '@/lib/editron/motion-graphics/types';
+import type { Recipe } from '@/lib/editron/motion-graphics/engine/recipe-types';
+import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
 
 interface MotionGraphicLayerContentProps {
   overlay: MotionGraphicOverlay;
@@ -23,14 +27,41 @@ export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps>
   overlay,
 }) => {
   const tokens = overlay.resolvedTokens as MotionTokens;
-  const { structureType, content } = overlay;
+  const content = (overlay.content || {}) as Record<string, string>;
+  const signals = overlay.contentSignals;
 
+  // Composition engine path: recipe pre-computed at pipeline time.
+  // Use it directly -- don't re-plan at render time.
+  const preComputedRecipe = (overlay as Record<string, unknown>).recipe as Recipe | undefined;
+  if (preComputedRecipe && preComputedRecipe.elements?.length > 0) {
+    // Synthesize per-frame SignalCurves from scalar contentSignals snapshot.
+    // This enables audio-reactive modulation (beat pulse, energy, emotion) at render time.
+    // Scalar→constant array: each signal value is replicated for every frame of the composition.
+    // Beat pulsation requires BPM-derived per-frame curves (future work — needs BPM on overlay).
+    const signalCurves = synthesizeSignalCurves(signals, overlay.durationInFrames);
+
+    return (
+      <MotionThemeProvider tokens={tokens}>
+        <SafeCompositionRenderer
+          recipe={preComputedRecipe}
+          language={tokens}
+          content={content}
+          durationInFrames={overlay.durationInFrames}
+          signalCurves={signalCurves}
+        />
+      </MotionThemeProvider>
+    );
+  }
+
+  // Legacy path: re-plan at render time (flag=false or old overlays without recipe)
   return (
     <MotionThemeProvider tokens={tokens}>
       <StructureDispatch
-        structureType={structureType}
+        structureType={(overlay as Record<string, unknown>).structureType as string}
         content={content}
         durationInFrames={overlay.durationInFrames}
+        tokens={tokens}
+        signals={signals}
       />
     </MotionThemeProvider>
   );
@@ -40,29 +71,92 @@ interface StructureDispatchProps {
   structureType: string;
   content: Record<string, string>;
   durationInFrames: number;
+  tokens: MotionTokens;
+  signals?: MotionGraphicOverlay['contentSignals'];
+}
+
+const LEGACY_STAT_COUNTER = 'stat-counter-legacy';
+
+function synthesizeSignalCurves(
+  signals: Record<string, unknown> | undefined,
+  durationInFrames: number,
+): SignalCurves {
+  const curves: SignalCurves = {};
+  if (!signals || durationInFrames <= 0) return curves;
+
+  // Pass 1: constant-fill all numeric signals
+  for (const [key, value] of Object.entries(signals)) {
+    if (typeof value === 'number' && isFinite(value)) {
+      curves[key] = new Array(durationInFrames).fill(value);
+    }
+  }
+
+  // Pass 2: BPM-derived beat grid (replaces constant music_beat with real rhythm)
+  // D6 beat hierarchy: tatum=0.1, tactus=0.25, bar=0.4, downbeat=0.6
+  const bpm = typeof signals.bpm === 'number' ? signals.bpm : 0;
+  if (bpm > 0) {
+    const fps = 30;
+    const beatLevel = new Array(durationInFrames).fill(0);
+    const framesPerBeat = (60 / bpm) * fps;
+    const framesPerTatum = framesPerBeat / 4;
+
+    for (let f = 0; f < durationInFrames; f++) {
+      const beatIndex = Math.round(f / framesPerBeat);
+      const tatumIndex = Math.round(f / framesPerTatum);
+
+      const distToBeat = Math.abs(f - beatIndex * framesPerBeat);
+      const distToTatum = Math.abs(f - tatumIndex * framesPerTatum);
+
+      if (distToBeat < 1) {
+        // On a beat — check if downbeat (every 4 beats) or regular
+        beatLevel[f] = beatIndex % 4 === 0 ? 0.6 : 0.25;
+      } else if (distToTatum < 1) {
+        beatLevel[f] = 0.1; // tatum subdivision
+      }
+    }
+
+    curves['beat_level'] = beatLevel;
+    // Override constant music_beat with rhythmic version
+    curves['music_beat'] = beatLevel.map(v => v >= 0.25 ? 1 : 0);
+  }
+
+  return curves;
 }
 
 const StructureDispatch: React.FC<StructureDispatchProps> = ({
   structureType,
   content,
   durationInFrames,
+  tokens,
+  signals,
 }) => {
-  switch (structureType) {
-    case 'stat-counter':
-      return (
-        <StatCounter
-          content={{
-            value: content.value || '0',
-            prefix: content.prefix,
-            suffix: content.suffix,
-            label: content.label || '',
-          }}
-          durationInFrames={durationInFrames}
-        />
-      );
-
-    default:
-      console.warn(`[MotionGraphic] Unknown structureType: ${structureType}`);
-      return null;
+  if (structureType === LEGACY_STAT_COUNTER) {
+    return (
+      <StatCounter
+        content={{
+          value: content.value || '0',
+          prefix: content.prefix,
+          suffix: content.suffix,
+          label: content.label || '',
+        }}
+        durationInFrames={durationInFrames}
+      />
+    );
   }
+
+  // Fallback: plan at render time for overlays without pre-computed recipe
+  const recipe = planComposition(
+    { kind: undefined, content },
+    tokens,
+    signals,
+  );
+
+  return (
+    <SafeCompositionRenderer
+      recipe={recipe}
+      language={tokens}
+      content={content}
+      durationInFrames={durationInFrames}
+    />
+  );
 };

@@ -85,6 +85,102 @@ function Chk({ size = 14, color = C.accent, sw = 2.5 }: { size?: number; color?:
   );
 }
 
+// ─── Film Strip — "Exposing" the video scene by scene ──────────
+
+const FILM_SCENES = [
+  { num: "01", icon: "◆", label: "Logo Reveal", sub: "Brand intro", grad: C.accent },
+  { num: "02", icon: "✎", label: "Editor", sub: "AI timeline", grad: "#5B8DEF" },
+  { num: "03", icon: "✦", label: "Features", sub: "6 rooms", grad: C.pink },
+  { num: "04", icon: "❝", label: "Testimonial", sub: "User story", grad: C.green },
+  { num: "05", icon: "▶", label: "End Card", sub: "CTA + signup", grad: C.red },
+];
+
+function FilmStrip({ editSub }: { editSub: number }) {
+  const done = editSub >= 0.98;
+  const activeIdx = done ? -1 : Math.min(4, Math.floor(editSub * 5));
+  const completedCount = Math.min(5, Math.floor(editSub * 5));
+  const segProgress = done ? 0 : (editSub * 5) - activeIdx;
+  const totalSec = Math.round(editSub * 30);
+  const tc = `${String(Math.floor(totalSec / 60)).padStart(2, "0")}:${String(totalSec % 60).padStart(2, "0")}`;
+
+  const frameW = 110;
+  const gap = 10;
+  const step = frameW + gap;
+  const stripOffset = done ? 0 : -(activeIdx * step + segProgress * step * 0.3) + 180;
+
+  return (
+    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", justifyContent: "center", padding: "12px 20px", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="m" style={{ fontSize: 10, color: C.text, fontWeight: 500, letterSpacing: ".04em" }}>FILM STRIP</span>
+          <div className="m" style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, display: "flex", alignItems: "center", gap: 5, background: done ? `${C.green}10` : `${C.accent}10`, border: `1px solid ${done ? C.green : C.accent}20`, color: done ? C.green : C.accent, letterSpacing: ".05em" }}>
+            <div style={{ width: 5, height: 5, borderRadius: 3, background: done ? C.green : C.accent, animation: done ? "none" : "pulse 1.6s infinite" }} />
+            {done ? "DONE" : "EXPOSING"}
+          </div>
+        </div>
+        <span className="m" style={{ fontSize: 10, color: C.dim }}>{tc} / 00:30</span>
+      </div>
+
+      <div style={{ position: "relative", overflow: "hidden", borderRadius: 8, background: C.s1, border: `1px solid ${C.border}`, flex: 1, minHeight: 0 }}>
+        {[0, 1].map(r => (
+          <div key={r} style={{ position: "absolute", [r ? "bottom" : "top"]: 0, left: 0, right: 0, height: 16, display: "flex", alignItems: "center", zIndex: 2, pointerEvents: "none", background: r ? `linear-gradient(0deg, ${C.s1}f0 50%, transparent)` : `linear-gradient(180deg, ${C.s1}f0 50%, transparent)` }}>
+            <div style={{ display: "flex", gap: 14, padding: "0 10px", width: "100%", overflow: "hidden" }}>
+              {Array.from({ length: 36 }).map((_, i) => (
+                <div key={i} style={{ width: 8, height: 5, borderRadius: 1, background: `${C.dim}30`, flexShrink: 0 }} />
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <div style={{ position: "absolute", top: 0, bottom: 0, display: "flex", alignItems: "center", gap, padding: "0 32px", transition: `transform .5s ${EASE}`, transform: `translateX(${stripOffset}px)` }}>
+          {FILM_SCENES.map((sc, i) => {
+            const st = done ? "done" : i < completedCount ? "exposed" : i === activeIdx ? "exposing" : "off";
+            const lit = st !== "off";
+            return (
+              <div key={i} style={{
+                width: frameW, height: "78%", maxHeight: 160, borderRadius: 4, position: "relative", overflow: "hidden", flexShrink: 0,
+                border: `1.5px solid ${st === "exposing" ? C.accent : lit ? `${C.green}30` : C.border}`,
+                background: C.s2, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
+                boxShadow: st === "exposing" ? `0 0 16px ${C.accent}15` : "none",
+                transition: `border-color .4s ${EASE}, box-shadow .4s ${EASE}`,
+              }}>
+                <div style={{ position: "absolute", inset: 0, background: `linear-gradient(160deg, ${sc.grad}10, ${sc.grad}03)`, opacity: lit ? 1 : 0, transition: `opacity .5s ${EASE}` }} />
+                {st === "exposing" && <div style={{ position: "absolute", left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${C.accent}, transparent)`, opacity: 0.6, top: `${segProgress * 100}%`, transition: "top .15s linear", zIndex: 1 }} />}
+                <span className="m" style={{ position: "absolute", top: 3, left: 4, fontSize: 8, color: st === "exposing" ? C.accent : lit ? C.green : C.dim, zIndex: 2 }}>{sc.num}</span>
+                {(st === "exposed" || st === "done") && (
+                  <div style={{ position: "absolute", top: 2, right: 3, width: 12, height: 12, borderRadius: 6, background: C.green, display: "flex", alignItems: "center", justifyContent: "center", animation: `popIn .35s ${EASE} both`, zIndex: 3 }}>
+                    <svg width={7} height={7} viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke={C.bg} strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </div>
+                )}
+                {(i === 0 || i === 4) && lit && (
+                  <span style={{ fontSize: 10, fontWeight: 800, color: i === 0 ? C.accent : C.text, letterSpacing: "-0.02em", position: "relative", zIndex: 1, opacity: lit ? 0.7 : 0, transition: `opacity .5s ${EASE}`, marginBottom: -2 }}>Insturix</span>
+                )}
+                <div style={{ width: 26, height: 26, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, background: `linear-gradient(135deg, ${sc.grad}, ${sc.grad}80)`, opacity: lit ? 1 : 0.15, transform: lit ? "scale(1)" : "scale(0.8)", transition: `all .5s ${EASE}`, position: "relative", zIndex: 1 }}>{sc.icon}</div>
+                <span style={{ fontSize: 9, fontWeight: 500, color: st === "exposing" ? C.text : lit ? C.muted : C.dim, transition: `color .4s ${EASE}`, zIndex: 1 }}>{sc.label}</span>
+                <span className="m" style={{ fontSize: 7, color: C.dim, zIndex: 1, opacity: lit ? 1 : 0, transition: `opacity .4s ${EASE}` }}>{sc.sub}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ width: 5, height: 5, borderRadius: 3, background: done ? C.green : C.accent, animation: done ? "none" : "pulse 1.6s infinite" }} />
+          <span style={{ fontSize: 11, color: C.muted }}>
+            {done ? <><span style={{ color: C.text, fontWeight: 500 }}>All frames exposed</span> — video complete</> : <>Exposing <span style={{ color: C.text, fontWeight: 500 }}>Scene {activeIdx + 1}</span> of 5</>}
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 2 }}>
+          {[0, 1, 2, 3, 4].map(i => (
+            <div key={i} style={{ width: 24, height: 3, borderRadius: 1, background: (done || i < completedCount) ? C.green : i === activeIdx ? C.accent : C.s3, transition: `background .3s ${EASE}` }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlatformIcon({ name, color, size = 20 }: { name: string; color: string; size?: number }) {
   const s = size;
   const icons: Record<string, React.ReactNode> = {
@@ -519,6 +615,39 @@ export function PreviewVisualInsturix({
   const promptSub = sub(0.06, 0.15);
   const w = phase === "edit" ? editSub * 0.15 : PO.indexOf(phase) > PO.indexOf("edit") ? 0.15 : 0;
 
+  // ── "Program Monitor Feed Switching" — per-phase opacity for crossfades ──
+  // Each transition type matches its narrative meaning. CUT = instant. DISSOLVE = overlap.
+  // Phases always render (never conditional mount). Opacity determines visibility.
+  // "fade" = dissolve overlap window in pipePct units (0.02 = 2% of pipeline)
+  const fade = 0.02;
+  const phaseRanges: Record<string, { lo: number; hi: number }> = {
+    welcome: { lo: 0, hi: 0.06 },
+    prompt: { lo: 0.06, hi: 0.15 },
+    script: { lo: 0.15, hi: 0.32 },
+    edit: { lo: 0.32, hi: 0.58 },
+    analyze: { lo: 0.58, hi: 0.72 },
+    design: { lo: 0.72, hi: 0.85 },
+    publish: { lo: 0.85, hi: 0.97 },
+    done: { lo: 0.97, hi: 1.0 },
+  };
+  // CUT transitions have zero fade window (instant on/off at boundary).
+  // DISSOLVE transitions overlap by `fade` at each boundary.
+  const cutIn = new Set(["analyze"]); // Snap in — no fade-in. Welcome removed: it dissolves out smoothly.
+  const cutOut = new Set(["analyze"]); // Snap out — no fade-out. Welcome removed: dissolve is gentler.
+  function phaseOpacity(name: string): number {
+    const r = phaseRanges[name];
+    if (!r) return 0;
+    // Fade in at start of range
+    const fadeInW = cutIn.has(name) ? 0.001 : fade;
+    // For phases starting at 0 (welcome): already fully visible, no fade-in.
+    // For other phases: ramp 0→1 over fadeInW window after lo boundary.
+    const inProgress = r.lo === 0 ? 1 : pct < r.lo ? 0 : pct < r.lo + fadeInW ? (pct - r.lo) / fadeInW : 1;
+    // Fade out at end of range
+    const fadeOutW = cutOut.has(name) ? 0.001 : fade;
+    const outProgress = pct < r.hi - fadeOutW ? 1 : pct < r.hi ? 1 - (pct - (r.hi - fadeOutW)) / fadeOutW : 0;
+    return Math.min(inProgress, outProgress);
+  }
+
   return (
     <div
       className="editor-preview"
@@ -548,11 +677,18 @@ export function PreviewVisualInsturix({
         }}
       />
 
-      {/* ──── VISUAL FRAMES (edit phase only, zIndex 3 behind overlays) ──── */}
-      {phase === "edit" && <EditVisualFrames editSub={editSub} />}
+      {/* ──── FILM STRIP (edit phase — replaces old crossfading frames) ──── */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", overflow: "hidden", opacity: phaseOpacity("edit"), visibility: phaseOpacity("edit") > 0 ? "visible" : "hidden" }}>
+        <FilmStrip editSub={editSub} />
+      </div>
 
-      {/* WELCOME */}
-      {phase === "welcome" && (
+      {/* ══ PHASE CONTENT — always rendered, opacity from phaseOpacity() ══
+          "Program Monitor Feed Switching" — transition type per narrative meaning.
+          CUT = instant. DISSOLVE = 2% overlap. FLASH FRAME = white pulse. IRIS = circular reveal.
+          Phases at opacity 0 get visibility:hidden (no render cost). */}
+
+      {/* WELCOME — fades out via CUT (instant) when prompt begins */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 6, opacity: phaseOpacity("welcome"), visibility: phaseOpacity("welcome") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -564,30 +700,6 @@ export function PreviewVisualInsturix({
           }}
         >
           <div style={{ textAlign: "center", maxWidth: 440, padding: "0 40px" }}>
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 16,
-                margin: "0 auto 32px",
-                border: `1.5px solid ${C.borderL}`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                animation: "breathe 4s ease infinite",
-              }}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M5 12l5 5L19 7"
-                  stroke={C.accent}
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity=".35"
-                />
-              </svg>
-            </div>
             <h1
               className="hero-done-text"
               style={{
@@ -596,30 +708,31 @@ export function PreviewVisualInsturix({
                 lineHeight: 1.05,
                 letterSpacing: "-0.035em",
                 marginBottom: 16,
+                animation: `slideUp .5s ${EASE} 0.5s both`,
               }}
             >
               One platform.
               <br />
               <span style={{ color: C.accent }}>Entire production.</span>
             </h1>
-            <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.55, marginBottom: 32 }}>
+            <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.55, marginBottom: 32, animation: `fadeIn .5s ${EASE} 0.8s both` }}>
               Watch a complete video get produced as you scroll.
             </p>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, animation: `fadeIn .5s ${EASE} 1.2s both` }}>
               <div style={{ width: 1, height: 36, background: `linear-gradient(to bottom,transparent,${C.accent}30)` }} />
               <span
                 className="m"
-                style={{ fontSize: 13, color: C.muted, letterSpacing: "0.08em", animation: "pulseVisible 2s ease infinite" }}
+                style={{ fontSize: 13, color: C.muted, letterSpacing: "0.08em", animation: "pulseVisible 2s ease 1.7s infinite", opacity: 0, animationFillMode: "forwards" }}
               >
                 SCROLL TO BEGIN
               </span>
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* PROMPT */}
-      {phase === "prompt" && (
+      {/* PROMPT — CUT in (instant), DISSOLVE out to script */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 6, opacity: phaseOpacity("prompt"), visibility: phaseOpacity("prompt") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -632,7 +745,7 @@ export function PreviewVisualInsturix({
           }}
         >
           <div style={{ textAlign: "center", maxWidth: 420 }}>
-            <span className="m" style={{ fontSize: 11, color: C.accent, letterSpacing: ".08em", display: "block", marginBottom: 20 }}>
+            <span className="m" style={{ fontSize: 11, color: C.accent, letterSpacing: ".08em", display: "block", marginBottom: 20, animation: `fadeIn .35s ${EASE} both` }}>
               PROMPT
             </span>
             <p
@@ -642,19 +755,18 @@ export function PreviewVisualInsturix({
                 color: C.soft,
                 lineHeight: 1.35,
                 letterSpacing: "-0.015em",
-                opacity: Math.min(1, promptSub * 2.5),
-                transform: `translateY(${(1 - Math.min(1, promptSub * 2.5)) * 12}px)`,
-                transition: `all .4s ${EASE}`,
+                minHeight: "4.1em",
               }}
             >
-              30-second product launch for Insturix — the AI production platform
+              {"30-second product launch for Insturix — the AI production platform".substring(0, Math.floor(Math.min(1, promptSub * 1.8) * 68))}
+              {promptSub < 0.56 && <span style={{ display: "inline-block", width: 2, height: "0.85em", background: C.accent, marginLeft: 2, verticalAlign: "text-bottom", animation: "blink .9s step-end infinite" }} />}
             </p>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* SCRIPT */}
-      {phase === "script" && (
+      {/* SCRIPT — typewriter in (progressive), DISSOLVE out to edit */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 6, opacity: phaseOpacity("script"), visibility: phaseOpacity("script") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -675,7 +787,7 @@ export function PreviewVisualInsturix({
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {SCRIPT.slice(0, Math.ceil(scriptSub * SCRIPT.length)).map((line, i) => (
-              <div key={i} style={{ animation: `slideR .3s ${EASE} both` }}>
+              <div key={i} style={{ animation: line.type === "label" ? `fadeIn .25s ${EASE} both` : `lineReveal .35s ${EASE} both`, animationDelay: `${i * 0.04}s` }}>
                 {line.type === "label" ? (
                   <span
                     className="m"
@@ -740,132 +852,12 @@ export function PreviewVisualInsturix({
             )}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* EDIT — original overlays preserved, visual frames added via EditVisualFrames above */}
-      {phase === "edit" && (
-        <>
-          {editSub < 0.06 && (
-            <div
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                height: 2,
-                background: `linear-gradient(90deg,transparent,${C.accent}50,transparent)`,
-                top: `${(editSub / 0.06) * 100}%`,
-                zIndex: 7,
-              }}
-            />
-          )}
-          {editSub >= 0.08 && (
-            <div
-              style={{
-                position: "absolute",
-                top: 20,
-                left: 24,
-                zIndex: 7,
-                background: "rgba(0,0,0,.7)",
-                padding: "8px 20px",
-                borderRadius: 8,
-                animation: `popIn .5s ${EASE} both`,
-              }}
-            >
-              <span style={{ fontSize: 18, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>Insturix</span>
-            </div>
-          )}
-          {editSub >= 0.28 && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 48,
-                left: 24,
-                right: 24,
-                zIndex: 7,
-                animation: `slideUp .4s ${EASE} both`,
-              }}
-            >
-              <div style={{ background: "rgba(0,0,0,.7)", padding: "10px 18px", borderRadius: 8, display: "inline-block" }}>
-                <span style={{ color: "#fff", fontSize: 18, fontWeight: 500 }}>
-                  One platform. <span style={{ color: C.accent }}>Entire production.</span>
-                </span>
-              </div>
-            </div>
-          )}
-          {editSub >= 0.5 && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 52,
-                right: 24,
-                display: "flex",
-                gap: 3,
-                alignItems: "end",
-                height: 36,
-                zIndex: 7,
-                animation: `fadeIn .5s ${EASE}`,
-              }}
-            >
-              {Array.from({ length: 14 }).map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    width: 4,
-                    borderRadius: 2,
-                    background: `${C.pink}50`,
-                    height: "100%",
-                    transformOrigin: "bottom",
-                    animation: `eqBounce ${0.7 + i * 0.12}s ease ${i * 0.06}s infinite alternate`,
-                  }}
-                />
-              ))}
-            </div>
-          )}
-          {editSub >= 0.55 && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 16,
-                left: 24,
-                right: 24,
-                display: "flex",
-                gap: 3,
-                zIndex: 7,
-                animation: `fadeIn .5s ${EASE}`,
-              }}
-            >
-              {Array.from({ length: 20 }).map((_, i) => {
-                const lit = editSub > 0.55 + (i / 20) * 0.25;
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      flex: 1,
-                      height: 4,
-                      borderRadius: 2,
-                      background: lit ? (i % 4 === 0 ? C.accent : "#3a3a3a") : "#1a1a1a",
-                      transition: `background .2s ${EASE}`,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          )}
-          {editSub >= 0.78 && (
-            <div style={{ position: "absolute", top: 20, right: 24, zIndex: 7, animation: `popIn .5s ${EASE} both` }}>
-              <div style={{ background: "rgba(0,0,0,.75)", padding: "12px 22px", borderRadius: 12, textAlign: "center" }}>
-                <div style={{ fontSize: 32, fontWeight: 800, color: C.accent, letterSpacing: "-0.03em" }}>6</div>
-                <div className="m" style={{ fontSize: 11, color: C.muted }}>
-                  ROOMS
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      {/* EDIT — overlays removed. FilmStrip at zIndex 3 handles the full narrative. */}
 
-      {/* ANALYZE */}
-      {phase === "analyze" && (
+      {/* ANALYZE — FLASH FRAME in (brief white pulse), CUT out → design */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 7, opacity: phaseOpacity("analyze"), visibility: phaseOpacity("analyze") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -900,11 +892,11 @@ export function PreviewVisualInsturix({
               {analyzeSub > 0.88 && (
                 <div style={{ animation: `popIn .5s ${EASE} both` }}>
                   <span className="m" style={{ fontSize: 64, fontWeight: 500, color: C.text, lineHeight: 0.9, letterSpacing: "-0.06em" }}>
-                    91
+                    {Math.round(91 * Math.min(1, (analyzeSub - 0.88) / 0.08))}
                   </span>
                 </div>
               )}
-              {analyzeSub > 0.88 && (
+              {analyzeSub > 0.92 && (
                 <div style={{ animation: `slideR .4s ${EASE} .1s both` }}>
                   <span style={{ fontSize: 18, color: C.text, lineHeight: 1.35 }}>
                     Platform story lands instantly.{" "}
@@ -924,8 +916,11 @@ export function PreviewVisualInsturix({
               }}
             >
               {SCORES.map((sc, i) => {
-                if (analyzeSub <= i / SCORES.length) return null;
+                const rowThreshold = i / SCORES.length;
+                if (analyzeSub <= rowThreshold) return null;
+                const rowProgress = Math.min(1, (analyzeSub - rowThreshold) * SCORES.length);
                 const scoreColor = sc.score >= 85 ? C.green : sc.score >= 70 ? C.accent : C.red;
+                const barFill = Math.round(rowProgress * sc.score);
                 return (
                   <div
                     key={i}
@@ -936,28 +931,28 @@ export function PreviewVisualInsturix({
                       alignItems: "center",
                       padding: "12px 16px",
                       borderBottom: i < SCORES.length - 1 ? `1px solid ${C.border}` : "none",
-                      animation: `slideR .3s ${EASE} ${i * 0.06}s both`,
+                      animation: `fadeIn .35s ${EASE} both`,
                     }}
                   >
                     <div>
-                      <span style={{ fontSize: 14, color: C.text }}>{sc.label}</span>
+                      <span style={{ fontSize: 14, color: C.text, fontWeight: 500 }}>{sc.label}</span>
                       <div style={{ height: 3, background: `${C.text}06`, borderRadius: 2, overflow: "hidden", marginTop: 6 }}>
                         <div
                           style={{
                             height: "100%",
                             borderRadius: 2,
-                            background: scoreColor,
-                            width: `${sc.score}%`,
-                            transition: `width 1s ${EASE}`,
+                            background: rowProgress > 0.5 ? scoreColor : C.dim,
+                            width: `${barFill}%`,
+                            transition: `width .5s ${EASE}, background .25s ${EASE}`,
                           }}
                         />
                       </div>
                     </div>
                     <span
                       className="m"
-                      style={{ fontSize: 14, color: scoreColor, fontWeight: 500, minWidth: 28, textAlign: "right" }}
+                      style={{ fontSize: 14, color: rowProgress > 0.5 ? scoreColor : C.dim, fontWeight: 500, minWidth: 28, textAlign: "right", transition: `color .25s ${EASE}` }}
                     >
-                      {sc.score}
+                      {barFill}
                     </span>
                   </div>
                 );
@@ -965,10 +960,10 @@ export function PreviewVisualInsturix({
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* DESIGN */}
-      {phase === "design" && (
+      {/* DESIGN — CUT in from analyze, DISSOLVE out → publish */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 7, opacity: phaseOpacity("design"), visibility: phaseOpacity("design") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -988,21 +983,28 @@ export function PreviewVisualInsturix({
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {THUMBS.map((v, i) => {
                 if (designSub <= i * 0.2) return <div key={i} style={{ aspectRatio: "16/10" }} />;
-                const best = i === 1 && designSub > 0.85;
+                const bestRevealed = designSub > 0.85;
+                const isBest = i === 1;
+                const isWinner = isBest && bestRevealed;
+                const isDimmed = bestRevealed && !isBest;
                 return (
                   <div
                     key={i}
                     style={{
                       borderRadius: 12,
                       overflow: "hidden",
-                      border: best ? `1px solid ${C.green}30` : `1px solid ${C.borderL}`,
+                      border: isWinner ? `1.5px solid ${C.green}50` : `1px solid ${C.borderL}`,
                       background: C.s2,
-                      animation: `popIn .4s ${EASE} both`,
+                      animation: `popIn .4s ${EASE} ${i * 0.08}s both`,
                       position: "relative",
+                      opacity: isDimmed ? 0.45 : 1,
+                      transform: isWinner ? "scale(1.03)" : isDimmed ? "scale(0.97)" : "none",
+                      boxShadow: isWinner ? `0 0 20px ${C.green}15, 0 0 40px ${C.green}08` : "none",
+                      transition: `all .5s ${EASE}`,
                     }}
                   >
-                    {best && (
-                      <div style={{ position: "absolute", top: 8, right: 8, background: `${C.green}22`, borderRadius: 4, padding: "4px 8px", zIndex: 1 }}>
+                    {isWinner && (
+                      <div style={{ position: "absolute", top: 8, right: 8, background: `${C.green}22`, borderRadius: 4, padding: "4px 8px", zIndex: 1, animation: `popIn .35s ${EASE} both` }}>
                         <span className="m" style={{ fontSize: 10, color: C.green, fontWeight: 500 }}>
                           Best
                         </span>
@@ -1021,7 +1023,7 @@ export function PreviewVisualInsturix({
                     </div>
                     <div style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between" }}>
                       <span style={{ fontSize: 13, fontWeight: 500 }}>{v.label}</span>
-                      <span className="m" style={{ fontSize: 11, color: best ? C.green : C.muted }}>
+                      <span className="m" style={{ fontSize: 11, color: isWinner ? C.green : C.muted, fontWeight: isWinner ? 800 : 400 }}>
                         {v.ctr}
                       </span>
                     </div>
@@ -1031,10 +1033,10 @@ export function PreviewVisualInsturix({
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* PUBLISH */}
-      {phase === "publish" && (
+      {/* PUBLISH — DISSOLVE in from design, IRIS out → done */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 7, opacity: phaseOpacity("publish"), visibility: phaseOpacity("publish") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -1103,10 +1105,10 @@ export function PreviewVisualInsturix({
             )}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* DONE */}
-      {phase === "done" && (
+      {/* DONE — IRIS in (circular reveal from center). The production wraps. */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 8, opacity: phaseOpacity("done"), visibility: phaseOpacity("done") > 0 ? "visible" : "hidden" }}>
         <>
           <div style={{ position: "absolute", top: 20, left: 24, zIndex: 6, background: "rgba(0,0,0,.7)", padding: "8px 20px", borderRadius: 8 }}>
             <span style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>Insturix</span>
@@ -1217,7 +1219,7 @@ export function PreviewVisualInsturix({
             </div>
           </div>
         </>
-      )}
+      </div>
     </div>
   );
 }

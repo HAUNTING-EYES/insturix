@@ -222,7 +222,12 @@ export default function ThinkForgeLanding() {
 					`Angles: ${(brief.suggestedAngles || []).join(' | ')}`,
 					`Audience: ${brief.targetAudience || 'General'}`,
 				].join('\n');
+				// Replace both the normalized URL and the bare domain form
 				enrichedPrompt = enrichedPrompt.replace(url, briefBlock);
+				const bareDomain = url.replace(/^https?:\/\//, '');
+				if (enrichedPrompt.includes(bareDomain)) {
+					enrichedPrompt = enrichedPrompt.replace(bareDomain, briefBlock);
+				}
 			}
 
 			// Step 5: Update the textarea with the enriched prompt
@@ -248,7 +253,9 @@ export default function ThinkForgeLanding() {
 	const handleSelectIdea = async (idea: IdeaCardData) => {
 		// Auto-generate a session name from the idea if not present
 		const sessionName = idea.sessionName || (idea.idea || 'New Session').split('–')[0].trim().slice(0, 40);
-		const ideaWithName = { ...idea, sessionName };
+		// Persist URL brief data into the idea so it survives the ideation→scripting transition
+		const brandBrief = briefResults?.map(b => `${b.title}: ${b.summary}${b.keyTopics?.length ? ` | Topics: ${b.keyTopics.join(', ')}` : ''}${b.targetAudience ? ` | Audience: ${b.targetAudience}` : ''}`).join('\n') || undefined;
+		const ideaWithName = { ...idea, sessionName, brandBrief };
 		setSelectedIdea(ideaWithName);
 		// SKIP the session settings screen — go directly to the script editor
 		try { await session.closeSession(); } catch (err) { console.warn('[ThinkForge] closeSession warning:', err); }

@@ -4,6 +4,9 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
 import { useUser, useClerk, useReverification } from "@clerk/nextjs";
+import { useGSAP } from "@gsap/react";
+import { gsap } from "@/lib/animation/gsap-config";
+import { DURATIONS, STAGGER } from "@/lib/animation/presets";
 
 // ─── Design tokens (Insturix design system) ───────────────────
 const C = {
@@ -74,6 +77,15 @@ export function UploaderXClientWrapper() {
   const [loadingVideos, setLoadingVideos] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const uxPageRef = useRef<HTMLDivElement>(null);
+
+  // GSAP entrance — staggered fadeUp for main floor sections
+  useGSAP(() => {
+    gsap.fromTo('[data-ux-animate]',
+      { y: 24, opacity: 0 },
+      { y: 0, opacity: 1, duration: DURATIONS.atmosphere, ease: 'expo.out', stagger: { each: STAGGER.wide.each, from: 'start' } }
+    );
+  }, { scope: uxPageRef });
   const [isDragging, setIsDragging] = useState(false);
   const [armedPlatforms, setArmedPlatforms] = useState<Set<string>>(new Set());
   const [publishResults, setPublishResults] = useState<Record<string, { success: boolean; error?: string }>>({});
@@ -502,14 +514,14 @@ export function UploaderXClientWrapper() {
   // ═══════════════════════════════════════════════════════════════
 
   return (
-    <div style={{ fontFamily: "var(--font-sans, 'Plus Jakarta Sans', sans-serif)" }}>
+    <div ref={uxPageRef} style={{ fontFamily: "var(--font-sans, 'Plus Jakarta Sans', sans-serif)" }}>
 
       {/* ━━━ FLOOR VIEW ━━━ */}
       {view === "floor" && (
         <div style={{ display: "flex", flexDirection: "column", minHeight: "70vh" }}>
 
           {/* Pipeline breadcrumb */}
-          <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "14px 0", borderBottom: `1px solid ${C.border}`, marginBottom: 24, overflowX: "auto" }}>
+          <div data-ux-animate style={{ display: "flex", alignItems: "center", gap: 4, padding: "14px 0", borderBottom: `1px solid ${C.border}`, marginBottom: 24, overflowX: "auto", opacity: 0 }}>
             {STAGES.map((s, i) => {
               const isDone = i < 4; // Script through Thumbnails done
               const isCurrent = s.key === "publish";
@@ -614,7 +626,7 @@ export function UploaderXClientWrapper() {
           )}
 
           {/* Divider */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+          <div data-ux-animate style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, opacity: 0 }}>
             <div style={{ flex: 1, height: 1, background: C.border }} />
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: C.t5, letterSpacing: ".08em", textTransform: "uppercase" as const }}>
               from pipeline

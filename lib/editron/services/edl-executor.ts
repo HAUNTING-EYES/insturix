@@ -20,6 +20,9 @@ import { searchAndDownloadSFX, isSFXLibraryAvailable, audioDescriptionToSearchQu
 import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
 import { resolveMotionTokens } from '@/lib/editron/data/motion-theme-resolver';
+import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-graphics/engine/composition-planner';
+import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
+import type { ContentShapeKind } from '@/lib/editron/motion-graphics/engine/recipe-types';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -172,12 +175,22 @@ export function findClipAtFrame(
 
 // ─── Types ───────────────────────────────────────────────────────
 
+export interface RejectedDecision {
+  type: string;
+  frame: number;
+  reason: string;
+  ruleId?: string;
+  params?: Record<string, unknown>;
+}
+
 export interface ExecutionResult {
   decisionsExecuted: number;
   decisionsSkipped: number;
   overlaysCreated: number;
   overlaysModified: number;
   errors: string[];
+  /** Per-decision rejection reasons — surfaces WHY decisions were dropped (A3.5.10 fix) */
+  rejectedDecisions: RejectedDecision[];
   /** AssetIds of overlays whose zoom decisions were rejected by budget — drift-zoom should skip these */
   budgetRejectedZoomAssetIds: Set<string>;
   /** AssetIds that already received a zoom from EDL — drift-zoom should skip these too */
@@ -212,6 +225,7 @@ export async function executeEDL(
     overlaysCreated: 0,
     overlaysModified: 0,
     errors: [],
+    rejectedDecisions: [],
     budgetRejectedZoomAssetIds: new Set<string>(),
     zoomedAssetIds: new Set<string>(),
   };
@@ -303,6 +317,13 @@ export async function executeEDL(
     if (!budgetResult.allowed) {
       result.decisionsSkipped++;
       budgetRejected++;
+      result.rejectedDecisions.push({
+        type: decision.type,
+        frame: decision.frame,
+        reason: `BUDGET: ${budgetResult.reason}`,
+        ruleId: budgetResult.ruleId,
+        params: { graphicType: decision.params?.graphicType, text: (decision.params?.text || '').substring(0, 60) },
+      });
       console.log(`[EDL-Exec] BUDGET REJECTED: ${decision.type} at frame ${decision.frame} — ${budgetResult.reason} (${budgetResult.ruleId})`);
       if (decision.type === 'graphic') {
         const gType = decision.params?.graphicType || 'unknown';
@@ -329,7 +350,7 @@ export async function executeEDL(
     }
 
     try {
-      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache);
+      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, usedGraphicTemplateIds);
       if (applied) {
         budget.commit(decision as any);
         result.decisionsExecuted++;
@@ -350,10 +371,21 @@ export async function executeEDL(
         }
       } else {
         result.decisionsSkipped++;
+        result.rejectedDecisions.push({
+          type: decision.type,
+          frame: decision.frame,
+          reason: `GUARD: ${decision.reason?.substring(0, 80) || 'handler returned null (dedup/validation)'}`,
+          params: { graphicType: decision.params?.graphicType, text: (decision.params?.text || '').substring(0, 60) },
+        });
         console.log(`[EDL-Exec] SKIPPED (returned null): ${decision.type} at frame ${decision.frame} — ${decision.reason?.substring(0, 80) || 'no reason'}`);
       }
     } catch (err: any) {
       result.decisionsSkipped++;
+      result.rejectedDecisions.push({
+        type: decision.type,
+        frame: decision.frame,
+        reason: `ERROR: ${err.message}`,
+      });
       result.errors.push(`${decision.type} at frame ${decision.frame}: ${err.message}`);
       console.error(`[EDL-Exec] ERROR: ${decision.type} at frame ${decision.frame} — ${err.message}`);
     }
@@ -362,6 +394,17 @@ export async function executeEDL(
   const budgetSummary = budget.getSummary();
   console.log(`[EDL-Exec] Complete: ${result.decisionsExecuted} executed, ${result.decisionsSkipped} skipped (${budgetRejected} budget-rejected), ${result.overlaysCreated} created, ${result.overlaysModified} modified`);
   console.log(`[EDL-Exec] Budget: ${JSON.stringify(budgetSummary)}`);
+
+  // Surface rejection reasons grouped by type (A3.5.10 fix — no more silent drops)
+  if (result.rejectedDecisions.length > 0) {
+    const grouped: Record<string, number> = {};
+    for (const r of result.rejectedDecisions) {
+      const key = r.reason.split(':')[0] || 'UNKNOWN';
+      grouped[key] = (grouped[key] || 0) + 1;
+    }
+    console.log(`[EDL-Exec] REJECTION SUMMARY: ${result.rejectedDecisions.length} decisions rejected — ${Object.entries(grouped).map(([k, v]) => `${k}:${v}`).join(', ')}`);
+  }
+
   return result;
 }
 
@@ -377,6 +420,7 @@ async function applyDecision(
   idEpoch: number = 0,
   decisionIndex: number = 0,
   sfxCache?: Map<string, { audioUrl: string; audioAssetId: string; durationMs: number } | null>,
+  graphicTemplateIds?: Set<string>,
 ): Promise<{ created: number; modified: number } | null> {
 
   switch (decision.type) {
@@ -393,7 +437,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, usedGraphicTemplateIds);
+      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicTemplateIds);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -903,7 +947,7 @@ function mapDecisionParamsToSlots(
 
   switch (graphicType) {
     case 'stat-counter': {
-      slots.value = params.endValue ? String(params.endValue) : text;
+      slots.value = params.value ? String(params.value) : params.endValue ? String(params.endValue) : text;
       slots.label = params.label || '';
       slots.prefix = params.prefix || '';
       slots.suffix = params.suffix || '';
@@ -980,7 +1024,45 @@ async function applyGraphic(
   const graphicType = decision.params.graphicType
     || (decision as any).technique?.replace('graphic_', '').replace(/_/g, '-')
     || 'keyword-highlight';
-  if (!text) return null;
+  const hasContent = text || decision.params.name || decision.params.value || decision.params.quote || decision.params.title;
+  if (!hasContent) return null;
+
+  // ── RC-8 FIX: Filler/vague word filter for keyword-highlights ──
+  // A professional editor would NEVER highlight "good", "stuff", "thing".
+  // ⚠️ INVENTED banned list — needs calibration against real video transcripts.
+  if (graphicType === 'keyword-highlight' && text) {
+    const BANNED_KEYWORDS = new Set([
+      'good', 'bad', 'thing', 'things', 'stuff', 'like', 'really', 'very',
+      'just', 'actually', 'basically', 'literally', 'pretty', 'kind', 'sort',
+      'maybe', 'probably', 'definitely', 'something', 'anything', 'everything',
+      'nothing', 'well', 'right', 'ok', 'okay', 'yeah', 'yes', 'no', 'so',
+      'um', 'uh', 'here', 'there', 'this', 'that', 'it', 'the', 'a', 'an',
+      'and', 'or', 'but', 'for', 'with', 'from', 'to', 'in', 'on', 'at', 'by',
+    ]);
+    const normalizedText = String(text).toLowerCase().trim();
+    if (BANNED_KEYWORDS.has(normalizedText) || normalizedText.length < 3) {
+      console.log(`[EDL-Exec] KEYWORD FILTER: skipped "${text}" — filler/vague word or too short`);
+      return null;
+    }
+  }
+
+  // ── RC-6 FIX: Name hallucination guard for lower-thirds ──
+  // Gemini sometimes invents names not in the transcript (e.g., "John Smith" for Hank Green).
+  // Runtime guard: reject obviously hallucinated placeholder names.
+  // Full transcript validation requires plumbing transcription data — deferred to signal expansion.
+  // ⚠️ INVENTED placeholder list — covers most common Gemini defaults.
+  if (graphicType === 'lower-third' && decision.params.name) {
+    const HALLUCINATION_NAMES = new Set([
+      'john smith', 'jane doe', 'john doe', 'speaker', 'host', 'guest',
+      'presenter', 'narrator', 'interviewer', 'interviewee', 'person',
+      'man', 'woman', 'unknown', 'name', 'first last',
+    ]);
+    const normalizedName = String(decision.params.name).toLowerCase().trim();
+    if (HALLUCINATION_NAMES.has(normalizedName) || normalizedName.length < 2) {
+      console.log(`[EDL-Exec] HALLUCINATION GUARD: skipped lower-third for "${decision.params.name}" — likely hallucinated placeholder`);
+      return null;
+    }
+  }
 
   // DEDUP: Don't create graphic if one already exists at this frame range.
   // Multiple systems (finalize, EDL, Director, chat) can create graphics.
@@ -996,16 +1078,115 @@ async function applyGraphic(
     return null;
   }
 
-  // Type-specific durations (not one-size-fits-all)
+  // Type-specific durations (CRG-verified at 30fps)
   const GRAPHIC_DURATIONS: Record<string, number> = {
-    'stat-counter': 120,      // 4s — needs counting animation + read time
-    'keyword-highlight': 60,  // 2s — brief pop
-    'lower-third': 90,        // 3s — name/title read time
-    'quote-card': 120,        // 4s — full sentence read time
-    'logo-reveal': 120,       // 4s — brand moment
-    'callout': 75,            // 2.5s — brief label
+    'stat-counter': 102,      // 3.4s ← constant:animation.stat_counter midpoint (2.2-3.8s)
+    'keyword-highlight': 60,  // 2.0s ← constant:animation.keyword_highlight (1.85-3.0s)
+    'lower-third': 141,       // 4.7s ← constant:animation.lower_third midpoint (3.5-5.9s)
+    'quote-card': 120,        // 4.0s ← constant:animation.quote_card (3.6-6.0s)
+    'logo-reveal': 120,       // 4.0s ← between constant:animation.logo_intro (1.0-2.3s) and logo_outro (2.1-4.6s)
+    'callout': 75,            // 2.5s ← no CRG constant, kept as-is
   };
   let duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
+
+  // ── COMPOSITION ENGINE PATH (feature flag) ──
+  // When enabled, ALL graphic types route through planComposition → MOTION_GRAPHIC (Remotion).
+  // When disabled, stat-counter uses MOTION_GRAPHIC, everything else uses html-scene (old path).
+  const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;
+
+  if (useCompositionEngine) {
+    const rawSignals = decision.params.signals || {};
+    const tokens = resolveMotionTokens(rawSignals, decision.params.brand || {});
+
+    const kindMap: Record<string, ContentShapeKind> = {
+      'stat-counter': 'numeric',
+      'lower-third': 'identity',
+      'keyword-highlight': 'emphasis',
+      'callout': 'structured',
+      'quote-card': 'quotation',
+      'logo-reveal': 'brand',
+      'logo': 'brand',
+      'text-overlay': 'free-text',
+    };
+
+    const contentMap: Record<string, unknown> = { ...decision.params };
+    if (text) contentMap.text = text;
+
+    let mgScores: MgOverlayScores | undefined = decision.params.mgOverlayScores as MgOverlayScores | undefined;
+    if (!mgScores && rawSignals && Object.keys(rawSignals).length > 0) {
+      try {
+        const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
+        const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
+        const allMgDefs = getOverlayDefinitions().filter(d => d.category === 'mg-property');
+        if (allMgDefs.length > 0) {
+          const SELECTION_IDS = new Set([
+            'mg.animation.entrance_fade', 'mg.animation.entrance_pop', 'mg.animation.entrance_slide',
+            'mg.animation.entrance_blur', 'mg.animation.entrance_scale',
+            'mg.animation.hold_pulse', 'mg.animation.hold_breathe', 'mg.animation.hold_float',
+          ]);
+          const propDefs = allMgDefs.filter(d => !SELECTION_IDS.has(d.id));
+          const selDefs = allMgDefs.filter(d => SELECTION_IDS.has(d.id));
+          const propResults = scoreAllOverlays(propDefs, rawSignals, 'additive');
+          const selResults = scoreAllOverlays(selDefs, rawSignals, 'multiplicative');
+          mgScores = {};
+          for (const r of [...propResults, ...selResults]) {
+            mgScores[r.overlayId] = { score: r.totalScore, values: r.outputValues };
+          }
+        }
+      } catch (mgErr: unknown) {
+        console.warn(`[EDL] MG overlay scoring failed (non-fatal): ${mgErr instanceof Error ? mgErr.message : 'unknown'}`);
+      }
+    }
+
+    const recipe = planComposition(
+      { kind: kindMap[graphicType], content: contentMap, triggerMoment: decision.reason },
+      tokens,
+      rawSignals,
+      mgScores,
+    );
+
+    // Tier 1 Aesthetic Gate: structural quality check (observe-only, no blocking)
+    const gateResult = checkCompositionStructure(recipe, tokens);
+    if (!gateResult.pass) {
+      console.warn(`[EDL] Structural gate WARN for ${graphicType} @frame ${decision.frame}: score=${gateResult.score}/100, issues=${gateResult.issues.length}`);
+    }
+
+    const snappedFrame = findClipAtFrame(decision.frame, overlays, 20)?.snappedFrame ?? decision.frame;
+    const compositionDuration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
+
+    const motionOverlay = {
+      id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
+      type: 'motion-graphic' as const,
+      from: snappedFrame,
+      durationInFrames: compositionDuration,
+      row: ROW.BGM,
+      left: 0,
+      top: 0,
+      width: canvas.width,
+      height: canvas.height,
+      isDragging: false,
+      rotation: 0,
+      recipe,
+      resolvedTokens: tokens,
+      contentSignals: rawSignals,
+      content: contentMap,
+      styles: { opacity: 1, backgroundColor: 'transparent' },
+      metadata: {
+        sourceType: 'edl-graphic',
+        graphicType,
+        compositionEngine: true,
+        edlSource: decision.source,
+        edlReason: decision.reason,
+      },
+    };
+
+    overlays.push(motionOverlay as any);
+    console.log(
+      `[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: COMPOSITION_ENGINE → ` +
+      `${recipe.elements.length} elements, layout=${recipe.layout.position}`,
+    );
+    return { created: 1, modified: 0 };
+  }
   // Full HTML entity escaping — prevents XSS if Gemini outputs malicious text
   const safeText = text
     .replace(/&/g, '&amp;')
@@ -1198,12 +1379,13 @@ async function applyGraphic(
   if (graphicType === 'stat-counter') {
     const tokens = resolveMotionTokens(decision.params.signals || {}, decision.params.brand || {});
     const contentMap: Record<string, string> = {
-      value: decision.params.endValue ? String(decision.params.endValue) : text,
+      value: decision.params.value ? String(decision.params.value) : decision.params.endValue ? String(decision.params.endValue) : text,
       prefix: decision.params.prefix || '',
       suffix: decision.params.suffix || '',
       label: decision.params.label || '',
     };
 
+    const rawSignals = decision.params.signals || {};
     const motionOverlay = {
       id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
       type: 'motion-graphic' as const,
@@ -1219,6 +1401,16 @@ async function applyGraphic(
       structureType: 'stat-counter',
       content: contentMap,
       resolvedTokens: tokens,
+      contentSignals: {
+        formality: rawSignals.formality ?? 0,
+        enthusiasm: rawSignals.enthusiasm ?? 0.5,
+        warmth: rawSignals.warmth ?? 0.5,
+        emotional_arousal: rawSignals.emotional_arousal ?? 0.4,
+        pacing_velocity: rawSignals.pacing_velocity ?? 0.5,
+        humor: rawSignals.humor ?? 0.1,
+        visceral_impact: rawSignals.visceral_impact ?? 0.3,
+        visual_dependency: rawSignals.visual_dependency ?? 0.5,
+      },
       styles: {
         opacity: 1,
         backgroundColor: 'transparent',

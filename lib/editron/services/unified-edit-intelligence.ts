@@ -417,8 +417,15 @@ export async function assembleUnifiedContext(
 // No frame numbers — just WHAT and WHY. The intent-translator resolves frames.
 
 const GraphicIntentSchema = z.object({
-  type: z.enum(['none', 'text-overlay', 'stat-counter', 'lower-third', 'callout', 'keyword-highlight', 'quote-card', 'logo']).describe('Type of graphic overlay'),
+  type: z.enum(['none', 'text-overlay', 'stat-counter', 'lower-third', 'callout', 'keyword-highlight', 'quote-card', 'logo']).describe('Type of graphic overlay (soft hint for composition engine)'),
+  kind: z.enum(['numeric', 'identity', 'quotation', 'emphasis', 'data-series', 'brand', 'structured', 'free-text']).optional().describe('Content shape hint: what kind of content this graphic displays. If provided, composition engine uses it directly. If omitted, engine detects from content fields.'),
   text: z.string().optional().describe('Text content for the graphic (use VERBATIM from onScreenText if available)'),
+  value: z.string().optional().describe('Numeric value for stat graphics (e.g. "42%", "$4.2B", "300%")'),
+  label: z.string().optional().describe('Label below a numeric value (e.g. "revenue growth", "customer satisfaction")'),
+  name: z.string().optional().describe('Person or entity name for lower-third / identity graphics'),
+  title: z.string().optional().describe('Title or role for lower-third, or heading for callout/structured graphics'),
+  quote: z.string().optional().describe('Quote text for quote-card graphics'),
+  author: z.string().optional().describe('Attribution for quote-card graphics'),
   triggerMoment: z.string().describe('When this appears, in natural language: "when narrator says X", "at scene start", "at emotional peak"'),
 });
 

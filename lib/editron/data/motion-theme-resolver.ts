@@ -21,6 +21,7 @@
 // ─── Types ──────────────────────────────────────────────
 
 export interface ContentSignals {
+  // ── Original 8 signals (launch) ──
   formality: number;          // -1 (irreverent) to +1 (luxury)
   enthusiasm: number;         // 0-1
   warmth: number;             // 0-1
@@ -29,6 +30,33 @@ export interface ContentSignals {
   humor: number;              // 0-1
   visceral_impact: number;    // 0-1
   visual_dependency: number;  // 0-1
+  // ── Phase B expansion (9 signals) ──
+  // Speech (Wav2Vec)
+  emotion_intensity?: number;     // 0-1 ← signal:speech.emotional_valence → emphasisEasing
+  pitch_variability?: number;     // 0-1 ← signal:speech.pitch_contour → staggerMs
+  speaking_rate_wpm?: number;     // 80-220 ← signal:speech.speaking_rate_wpm → holdDurationMs
+  silence_duration_ms?: number;   // 0+ ← signal:speech.silence_duration_ms → entrance delay
+  // Visual (V-JEPA)
+  face_present?: boolean;         // ← signal:visual.face_present → captionZoneAware
+  // Audio
+  music_energy?: number;          // 0-1 ← signal:audio.music_energy → surface.backdropBlur
+  music_section?: string;         // 'verse'|'chorus'|'bridge'|'drop' ← signal:audio.music_section → staggerMs
+  // Structural
+  position_in_video?: number;     // 0-1 ← signal:structural.position_in_video → density
+  // Composite
+  narrative_pressure?: number;    // 0-1 ← signal:composite.narrative_pressure → overshoot
+  // ── CEO Plan D1: 7 new signals wired to MG planner (2026-05-22) ──
+  // Perceptual (biggest gap — zero perceptual signals reached MG before this)
+  motion_intensity?: number;      // 0-1 ← signal:visual.motion_intensity → simpler MG on high motion
+  shot_scale?: number;            // 0-1 ← signal:visual.shot_scale → MG size adapts to shot type
+  face_emotion?: string;          // categorical ← signal:visual.face_emotion → MG color temperature
+  // Emotional expansion
+  speech_energy?: number;         // 0-1 ← signal:speech.energy → bolder animation on high energy
+  stress_detected?: boolean;      // ← signal:speech.stress_detected → emphasis weighting
+  // Structural expansion
+  time_since_last_cut?: number;   // frames ← signal:structural.time_since_last_cut → MG opportunity
+  // Composite expansion
+  cinematic_moment?: number;      // 0-1 ← signal:composite.cinematic_moment → rich composition
 }
 
 export interface BrandInputs {
@@ -101,13 +129,14 @@ const DEFAULT_SIGNALS: ContentSignals = {
   visual_dependency: 0.5,
 };
 
+// Insturix Design Bible v1.0 tokens ← thinkforge.css:1-48
 const DEFAULT_BRAND: BrandInputs = {
-  primaryColor: '#6366F1',
-  accentColor: '#10B981',
-  backgroundColor: '#0A0A14',
-  headingFont: 'Inter, system-ui, sans-serif',
-  bodyFont: 'Inter, system-ui, sans-serif',
-  monoFont: 'JetBrains Mono, monospace',
+  primaryColor: '#ECE9E1',       // --text-primary (warm off-white, not indigo — indigo is UI accent, not MG text)
+  accentColor: '#D4A652',        // --accent-gold (decision moments)
+  backgroundColor: '#0B0B0A',   // --canvas
+  headingFont: "'Plus Jakarta Sans', -apple-system, system-ui, sans-serif", // --font-body ← thinkforge.css:46
+  bodyFont: "'Plus Jakarta Sans', -apple-system, system-ui, sans-serif",
+  monoFont: "'JetBrains Mono', monospace",  // --font-mono ← thinkforge.css:47
 };
 
 // ─── Utility ────────────────────────────────────────────
@@ -137,26 +166,75 @@ const EASING_PRESETS = {
 
 // ─── Main Resolver ──────────────────────────────────────
 
+/**
+ * Resolve visual language tokens from content signals + brand DNA + optional hierarchy overrides.
+ *
+ * Resolution priority (highest wins):
+ *   1. hierarchyOverrides (locked values from BRAND/CAMPAIGN/FORMAT/PROJECT/ACT scope)
+ *   2. Signal-driven computation (content signals → token values)
+ *   3. Brand DNA (colors, fonts — applied during signal resolution)
+ *   4. System defaults (when no signal or override exists)
+ *
+ * hierarchyOverrides is a deep partial of MotionTokens. Any token set here
+ * overrides the signal-computed value. Use for:
+ *   - Brand-locked colors/fonts (from brand extraction or user input)
+ *   - Campaign-level easing overrides (from ThinkForge hierarchy)
+ *   - Thompson Sampling adjustments (from learned user preferences)
+ *   - User manual overrides (from editor UI)
+ */
 export function resolveMotionTokens(
   signals: Partial<ContentSignals> = {},
   brand: Partial<BrandInputs> = {},
+  hierarchyOverrides?: DeepPartial<MotionTokens>,
 ): MotionTokens {
   const s = { ...DEFAULT_SIGNALS, ...signals };
   const b = { ...DEFAULT_BRAND, ...brand };
 
-  return {
+  const computed: MotionTokens = {
     animation: resolveAnimation(s),
     typography: resolveTypography(s, b),
     color: resolveColor(s, b),
     surface: resolveSurface(s),
     layout: resolveLayout(s),
   };
+
+  if (!hierarchyOverrides) return computed;
+
+  return deepMerge(computed, hierarchyOverrides);
+}
+
+type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
+};
+
+function deepMerge<T extends Record<string, unknown>>(base: T, overrides: DeepPartial<T>): T {
+  const result = { ...base };
+  for (const key of Object.keys(overrides) as Array<keyof T>) {
+    const overrideValue = overrides[key];
+    if (overrideValue === undefined) continue;
+    const baseValue = base[key];
+    if (
+      baseValue !== null && typeof baseValue === 'object' && !Array.isArray(baseValue) &&
+      overrideValue !== null && typeof overrideValue === 'object' && !Array.isArray(overrideValue)
+    ) {
+      result[key] = deepMerge(baseValue as Record<string, unknown>, overrideValue as DeepPartial<Record<string, unknown>>) as T[keyof T];
+    } else {
+      result[key] = overrideValue as T[keyof T];
+    }
+  }
+  return result;
 }
 
 // ─── Animation Resolution ───────────────────────────────
 
 function resolveAnimation(s: ContentSignals): MotionTokens['animation'] {
-  const energy = (s.enthusiasm + s.emotional_arousal + s.pacing_velocity) / 3;
+  // speech_energy (Wav2Vec/5-Track): high speech energy → bolder, faster animation
+  // ← signal:speech.energy → animation speed. ⚠️ weight 0.3 INVENTED, needs calibration
+  const speechEnergyBoost = typeof s.speech_energy === 'number' && isFinite(s.speech_energy) ? s.speech_energy * 0.3 : 0;
+  // stress_detected (Wav2Vec): vocal stress → more overshoot, emphasis
+  const hasStress = s.stress_detected === true;
+
+  const energy = (s.enthusiasm + s.emotional_arousal + s.pacing_velocity) / 3 + speechEnergyBoost;
   const formalityNorm = (s.formality + 1) / 2; // normalize -1..+1 to 0..1
 
   // Entrance easing: energy + formality together determine the curve personality
@@ -178,12 +256,17 @@ function resolveAnimation(s: ContentSignals): MotionTokens['animation'] {
   // Exit easing: always simpler than entrance (professional convention)
   const exitEasing = formalityNorm > 0.6 ? 'power1.in' : 'power2.in';
 
-  // Emphasis easing: humor and visceral_impact drive playfulness
+  // Emphasis easing: humor, visceral_impact, and emotion_intensity drive playfulness
+  // emotion_intensity (Wav2Vec) upgrades emphasis when emotional arousal is high
+  // ← signal:speech.emotional_valence → emphasisEasing
+  const emotionBoost = typeof s.emotion_intensity === 'number' && isFinite(s.emotion_intensity) ? s.emotion_intensity : 0;
   let emphasisEasing: string;
   if (s.humor > 0.5 || (s.visceral_impact > 0.6 && formalityNorm < 0.4)) {
     emphasisEasing = EASING_PRESETS.pop;
-  } else if (s.enthusiasm > 0.7) {
+  } else if (s.enthusiasm > 0.7 || emotionBoost > 0.7) {
     emphasisEasing = EASING_PRESETS.snappy;
+  } else if (emotionBoost > 0.5) {
+    emphasisEasing = EASING_PRESETS.snappy; // emotion_intensity 0.5+ → snappier emphasis
   } else {
     emphasisEasing = EASING_PRESETS.smooth;
   }
@@ -191,14 +274,28 @@ function resolveAnimation(s: ContentSignals): MotionTokens['animation'] {
   // Duration: high energy = fast, high formality = slow
   // Range: 120ms (explosive) to 700ms (cinematic) ← value ranges from Director research
   const entranceDurationMs = Math.round(lerp(energy, 0, 1, 600, 150) * lerp(formalityNorm, 0, 1, 0.85, 1.3));
-  const exitDurationMs = Math.round(entranceDurationMs * 0.7); // exits 30% faster (industry convention)
+  const exitDurationMs = Math.round(entranceDurationMs * 0.8); // exits 20% faster ← creative_production_knowledge_v3:5702
 
   // Stagger: time between sequential elements in multi-part graphics
   // Range: 30ms (rapid-fire) to 150ms (dramatic reveal) ← from industry research
-  const staggerMs = Math.round(lerp(energy, 0, 1, 130, 40) * lerp(formalityNorm, 0, 1, 0.8, 1.2));
+  // pitch_variability (Wav2Vec): high variation = shorter stagger (energetic speech)
+  // ← signal:speech.pitch_contour → staggerMs. ⚠️ multiplier INVENTED, needs calibration
+  const pitchMod = typeof s.pitch_variability === 'number' && isFinite(s.pitch_variability)
+    ? lerp(s.pitch_variability, 0, 1, 1.2, 0.8)  // high pitch variation = faster stagger
+    : 1.0;
+  // music_section: chorus = faster stagger, bridge = slower, verse = baseline
+  // ← signal:audio.music_section → staggerMs. ⚠️ multipliers INVENTED, needs calibration
+  const sectionMultipliers: Record<string, number> = { verse: 1.0, chorus: 0.7, bridge: 1.3, drop: 0.5, intro: 1.1, outro: 1.2 };
+  const sectionMod = typeof s.music_section === 'string' ? (sectionMultipliers[s.music_section] ?? 1.0) : 1.0;
+  const staggerMs = Math.round(
+    lerp(energy, 0, 1, 130, 40) * lerp(formalityNorm, 0, 1, 0.8, 1.2) * pitchMod * sectionMod,
+  );
 
-  // Overshoot: bounce past target. Only for casual + energetic content.
-  const overshoot = formalityNorm < 0.4 && energy > 0.5;
+  // Overshoot: bounce past target. Casual + energetic, OR high narrative pressure.
+  // ← signal:composite.narrative_pressure → overshoot. Threshold 0.6 ← creative_production_knowledge_v3:1820
+  const narrativePressure = typeof s.narrative_pressure === 'number' && isFinite(s.narrative_pressure) ? s.narrative_pressure : 0;
+  // stress_detected: vocal stress also triggers overshoot (speaker emphasis = visual emphasis)
+  const overshoot = (formalityNorm < 0.4 && energy > 0.5) || narrativePressure > 0.6 || hasStress;
 
   // Entrance pattern: formality drives conservatism
   let entrancePattern: MotionTokens['animation']['entrancePattern'];
@@ -274,9 +371,18 @@ function resolveColor(s: ContentSignals, b: BrandInputs): MotionTokens['color'] 
   const formalityNorm = (s.formality + 1) / 2;
 
   // Temperature: warmth signal is the primary driver
+  // face_emotion (V-JEPA): happy/excited faces bias toward warm, sad/angry toward cool
+  // ← signal:visual.face_emotion → color temperature. Standard MG practice: match mood to color.
+  let warmthBias = s.warmth;
+  if (typeof s.face_emotion === 'string') {
+    const warmEmotions = new Set(['happy', 'excited', 'surprised', 'content']);
+    const coolEmotions = new Set(['sad', 'angry', 'fearful', 'disgusted']);
+    if (warmEmotions.has(s.face_emotion)) warmthBias = Math.min(1, warmthBias + 0.15);
+    else if (coolEmotions.has(s.face_emotion)) warmthBias = Math.max(0, warmthBias - 0.15);
+  }
   let temperature: MotionTokens['color']['temperature'];
-  if (s.warmth > 0.65) temperature = 'warm';
-  else if (s.warmth < 0.35) temperature = 'cool';
+  if (warmthBias > 0.65) temperature = 'warm';
+  else if (warmthBias < 0.35) temperature = 'cool';
   else temperature = 'neutral';
 
   // Surface opacity: high formality = more transparent (let footage breathe)
@@ -321,8 +427,13 @@ function resolveSurface(s: ContentSignals): MotionTokens['surface'] {
   }
 
   // Backdrop blur: glass = 12-16px, minimal = 0, solid = 0, gradient = 8px
-  const backdropBlur = style === 'glass' ? Math.round(lerp(formalityNorm, 0, 1, 12, 20))
-    : style === 'gradient' ? 8
+  // music_energy reduces blur for vibrant feel during high-energy sections
+  // ← signal:audio.music_energy → backdropBlur. ⚠️ 0.8x multiplier INVENTED
+  const musicEnergyMod = typeof s.music_energy === 'number' && isFinite(s.music_energy)
+    ? lerp(s.music_energy, 0, 1, 1.0, 0.8)  // high music energy = 20% less blur
+    : 1.0;
+  const backdropBlur = style === 'glass' ? Math.round(lerp(formalityNorm, 0, 1, 12, 20) * musicEnergyMod)
+    : style === 'gradient' ? Math.round(8 * musicEnergyMod)
     : 0;
 
   // Corner radius: warmth drives roundness
@@ -354,18 +465,45 @@ function resolveSurface(s: ContentSignals): MotionTokens['surface'] {
 
 function resolveLayout(s: ContentSignals): MotionTokens['layout'] {
   // Density: visual_dependency is the primary driver
+  // position_in_video modulates: early in video = simpler (avoid overwhelming opener)
+  // ← signal:structural.position_in_video → density. ⚠️ early-video reduction INVENTED
   let density: MotionTokens['layout']['density'];
   if (s.visual_dependency > 0.7) density = 'rich';
   else if (s.visual_dependency < 0.3) density = 'minimal';
   else density = 'standard';
+
+  const posInVideo = typeof s.position_in_video === 'number' && isFinite(s.position_in_video) ? s.position_in_video : 0.5;
+  if (posInVideo < 0.15 && density !== 'minimal') {
+    density = density === 'rich' ? 'standard' : 'minimal'; // reduce 1 tier in first 15%
+  }
+
+  // motion_intensity: high motion frames → simpler MG (avoid visual clutter over moving content)
+  // ← signal:visual.motion_intensity → density. ⚠️ threshold 0.7 INVENTED, needs calibration
+  const motionIntensity = typeof s.motion_intensity === 'number' && isFinite(s.motion_intensity) ? s.motion_intensity : 0;
+  if (motionIntensity > 0.7 && density !== 'minimal') {
+    density = density === 'rich' ? 'standard' : 'minimal';
+  }
+
+  // time_since_last_cut: very recent cuts → simpler MG (let the cut breathe)
+  // ← signal:structural.time_since_last_cut → density. ⚠️ threshold 30 frames INVENTED
+  const timeSinceCut = typeof s.time_since_last_cut === 'number' && isFinite(s.time_since_last_cut) ? s.time_since_last_cut : 999;
+  if (timeSinceCut < 30 && density !== 'minimal') {
+    density = density === 'rich' ? 'standard' : 'minimal';
+  }
 
   // Max simultaneous: limits how many graphics can overlap
   const maxSimultaneous = density === 'rich' ? 3 : density === 'standard' ? 2 : 1;
 
   // Hold duration: how long a graphic stays visible after entrance animation
   // Range: 2000ms (fast-paced) to 5000ms (contemplative) ← from Director research
+  // speaking_rate_wpm refines: fast speakers = shorter hold, slow = longer
+  // ← signal:speech.speaking_rate_wpm → holdDurationMs. ⚠️ blend factor INVENTED
   const energy = (s.enthusiasm + s.pacing_velocity) / 2;
-  const holdDurationMs = Math.round(lerp(energy, 0, 1, 4500, 2000));
+  let holdDurationMs = Math.round(lerp(energy, 0, 1, 4500, 2000));
+  if (typeof s.speaking_rate_wpm === 'number' && isFinite(s.speaking_rate_wpm) && s.speaking_rate_wpm > 0) {
+    const wpmFactor = lerp(clamp(s.speaking_rate_wpm, 80, 220), 80, 220, 1.15, 0.75);
+    holdDurationMs = Math.round(holdDurationMs * wpmFactor); // fast speech = shorter hold
+  }
 
   // Alignment: formality drives center vs left
   const formalityNorm = (s.formality + 1) / 2;

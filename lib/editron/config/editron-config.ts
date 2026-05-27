@@ -299,6 +299,10 @@ export interface RawFootageConfig {
 
 // ─── The Full Config ───────────────────────────────────────────────
 
+export interface FeatureFlags {
+  useCompositionEngine?: boolean;
+}
+
 export interface EditronConfig {
   timing: TimingConfig;
   analysis: AnalysisConfig;
@@ -310,6 +314,7 @@ export interface EditronConfig {
   aiModels: AIModelConfig;
   profileDetection: ProfileDetectionConfig;
   rawFootage: RawFootageConfig;
+  features?: FeatureFlags;
 }
 
 // ─── Default Values ────────────────────────────────────────────────
@@ -489,6 +494,9 @@ export const DEFAULT_CONFIG: EditronConfig = {
     speechHeavyCoverageThreshold: 0.80,
     segmentPauseThresholdMs: 1000,
     bestTakeJaccardThreshold: 0.6,
+  },
+  features: {
+    useCompositionEngine: true,
   },
 };
 

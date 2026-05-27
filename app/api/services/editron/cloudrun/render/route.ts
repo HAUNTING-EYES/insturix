@@ -119,6 +119,22 @@ export async function POST(request: Request) {
       console.error('Failed to save render job to DB:', dbError);
     }
 
+    // Threshold calibration: process decision outcomes (async, non-blocking)
+    // Filter to editing overlays only — exclude video clips and audio tracks
+    // which would corrupt bandit feedback via type-blind proximity matching.
+    if (projectId && resolvedProps.overlays?.length > 0) {
+      const editingOverlays = resolvedProps.overlays.filter(
+        (o: any) => o.type !== 'video' && o.type !== 'sound',
+      );
+      if (editingOverlays.length > 0) {
+        import('@/lib/editron/services/threshold-bandit')
+          .then(({ processDecisionOutcomes }) =>
+            processDecisionOutcomes(projectId, userId, editingOverlays))
+          .catch((err: any) =>
+            console.warn(`[Render] Decision outcome processing failed: ${err.message}`));
+      }
+    }
+
     // Brand Intelligence: transition to rendering
     if (projectId) {
       try {

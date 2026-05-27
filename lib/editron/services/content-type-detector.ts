@@ -131,12 +131,15 @@ function extractFeatures(
     };
   }
 
-  // Use span from first to last word, not sum of individual durations
-  // (individual word durations can overlap or include gaps, causing >100%)
-  const firstWordMs = words[0].startMs;
-  const lastWordMs = words[words.length - 1].endMs;
-  const speechSpanMs = lastWordMs - firstWordMs;
-  const speechCoverage = Math.min(1.0, speechSpanMs / (videoDurationSec * 1000));
+  // Sum individual word durations (actual speech time, not span).
+  // Span method (first→last word) reports ~100% for any video where someone speaks
+  // near the start and near the end, ignoring all pauses/gaps between words.
+  const speechSumMs = words.reduce((sum, w) => {
+    const dur = (w.endMs ?? 0) - (w.startMs ?? 0);
+    return sum + (dur > 0 ? dur : 0);
+  }, 0);
+  const speechSpanMs = (words[words.length - 1].endMs ?? 0) - (words[0].startMs ?? 0);
+  const speechCoverage = Math.min(1.0, speechSumMs / (videoDurationSec * 1000));
 
   let fillerCount = 0;
   for (const w of words) {

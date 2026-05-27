@@ -9,11 +9,10 @@
  * const containerRef = useRef<HTMLDivElement>(null);
  *
  * useScrollTimeline(containerRef, (tl, trigger) => {
- *   tl.from('.hero', { ...PRESETS.fadeUp })
- *     .from('.cards', { ...PRESETS.fadeUp, stagger: STAGGER.default }, '-=0.3');
+ *   tl.fromTo('.hero', { y: 24, opacity: 0 }, { ...PRESETS.fadeUp })
+ *     .fromTo('.cards', { y: 24, opacity: 0 }, { ...PRESETS.fadeUp, stagger: STAGGER.default }, '-=0.3');
  * }, {
  *   start: 'top 80%',
- *   // pin: true, scrub: 1, etc.
  * });
  * ```
  */
@@ -139,18 +138,21 @@ export function useStaggerReveal(
     () => {
       if (!scopeRef.current) return;
 
-      gsap.from(selector, {
-        y,
-        opacity: 0,
-        duration,
-        ease: 'expo.out',
-        stagger: { each: stagger, from: 'start' },
-        scrollTrigger: {
-          trigger: scopeRef.current,
-          start,
-          toggleActions: 'play none none none',
-        },
-      });
+      gsap.fromTo(selector,
+        { y, opacity: 0 },
+        {
+          y: 0,
+          opacity: 1,
+          duration,
+          ease: 'expo.out',
+          stagger: { each: stagger, from: 'start' },
+          scrollTrigger: {
+            trigger: scopeRef.current,
+            start,
+            toggleActions: 'play none none none',
+          },
+        }
+      );
     },
     { scope: scopeRef },
   );

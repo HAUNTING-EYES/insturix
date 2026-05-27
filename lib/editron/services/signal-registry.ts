@@ -205,10 +205,15 @@ export function buildSignalTimeline(
   fps: number = DEFAULT_FPS,
   vjepaAnalysis?: VjepaAnalysisResult | null,
   wav2vecAnalysis?: Wav2VecAnalysisResult | null,
+  essentiaAnalysis?: { bpm: number; beats: Array<{ timestampMs: number; strength: number }>; sections: Array<{ startMs: number; endMs: number; label: string }>; energyCurve: number[]; musicPresence: number } | null,
 ): SignalTimeline {
   const totalDurationMs = rawFootage?.originalDurationMs ?? rawFootage?.estimatedCleanDurationMs ?? 30000;
   const totalFrames = Math.ceil((totalDurationMs / 1000) * fps);
   const mergedAnalysis = mergeAnalyses(analyses);
+
+  // Essentia music data (more accurate than 5-Track when available)
+  const hasEssentia = (essentiaAnalysis?.beats?.length ?? 0) > 0;
+  if (hasEssentia) console.log(`[SignalRegistry] Essentia enrichment: BPM=${essentiaAnalysis!.bpm}, ${essentiaAnalysis!.beats.length} beats, ${essentiaAnalysis!.sections.length} sections`);
 
   // Pre-extract segment arrays for enrichment (null-safe)
   const vjepaSegments = vjepaAnalysis?.segments;
@@ -242,6 +247,7 @@ export function buildSignalTimeline(
     snapshot['speech.energy_delta'] = getSpeechEnergyDelta(mergedAnalysis, timestampMs);
     snapshot['speech.speaking_rate_wpm'] = getSpeakingRateAt(rawFootage, timestampMs);
     snapshot['speech.silence_duration_ms'] = getSilenceDurationAt(rawFootage, timestampMs);
+    snapshot['speech.silence_normalized'] = Math.min(1, (snapshot['speech.silence_duration_ms'] as number) / 3000);
     snapshot['speech.coverage'] = getSpeechCoverageAt(rawFootage, timestampMs);
 
     // ── Wav2Vec enrichment: REPLACE heuristic speech.energy + ADD new speech signals ──
@@ -268,6 +274,8 @@ export function buildSignalTimeline(
     snapshot['visual.face_present'] = getFacePresentAt(mergedAnalysis, frame);
     snapshot['visual.ai_artifact_risk'] = getAiArtifactRiskAt(mergedAnalysis, frame);
     snapshot['visual.scene_type'] = getSceneTypeAt(mergedAnalysis, frame);
+    snapshot['visual.complexity'] = getVisualComplexityAt(mergedAnalysis, frame);
+    snapshot['visual.text_on_screen'] = hasTextOnScreen(mergedAnalysis) ? 1 : 0;
 
     // ── V-JEPA enrichment: REPLACE heuristic visual.motion_intensity + ADD new visual signals ──
     // V-JEPA learned motion > optical flow heuristic. Action type, motion type, face emotion,
@@ -300,16 +308,39 @@ export function buildSignalTimeline(
       }
     }
 
-    // Audio signals
-    snapshot['audio.music_energy'] = getMusicEnergyAt(mergedAnalysis, timestampMs);
-    snapshot['audio.music_beat'] = isMusicBeatAt(mergedAnalysis, timestampMs) ? 1 : 0;
-    snapshot['audio.music_section'] = getMusicSectionAt(mergedAnalysis, timestampMs);
+    // Audio signals — prefer Essentia (Modal, spectral flux) over 5-Track (Gemini heuristic)
+    if (hasEssentia) {
+      snapshot['audio.music_beat'] = essentiaAnalysis!.beats.some(b => Math.abs(b.timestampMs - timestampMs) < 50) ? 1 : 0;
+      snapshot['audio.music_energy'] = getEssentiaEnergyAt(essentiaAnalysis!.energyCurve, timestampMs, totalDurationMs);
+      snapshot['audio.music_tatum'] = isMusicTatumAt(mergedAnalysis, timestampMs) ? 1 : 0; // tatum still from BPM math
+      snapshot['audio.music_section'] = getEssentiaSectionAt(essentiaAnalysis!.sections, timestampMs);
+      snapshot['audio.bpm'] = essentiaAnalysis!.bpm;
+    } else {
+      snapshot['audio.music_energy'] = getMusicEnergyAt(mergedAnalysis, timestampMs);
+      snapshot['audio.music_beat'] = isMusicBeatAt(mergedAnalysis, timestampMs) ? 1 : 0;
+      snapshot['audio.music_tatum'] = isMusicTatumAt(mergedAnalysis, timestampMs) ? 1 : 0;
+      snapshot['audio.music_section'] = getMusicSectionAt(mergedAnalysis, timestampMs);
+      snapshot['audio.bpm'] = mergedAnalysis.musicStructure?.bpm ?? 0;
+    }
 
     // Structural signals
     snapshot['structural.position_in_video'] = frame / totalFrames;
     snapshot['structural.time_since_last_cut'] = getTimeSinceLastCut(overlays, frame, fps);
     snapshot['structural.active_overlays_count'] = getActiveOverlayCount(overlays, frame);
     snapshot['structural.cumulative_edit_density'] = getCumulativeEditDensity(overlays, frame, fps);
+
+    // ── Phase 4: Visual intelligence signals (ADDITIVE — Phase 1C safe) ──
+
+    // 4.3: Scene boundary detection from keyframe color histogram diff
+    snapshot['visual.scene_change'] = getSceneChangeAt(mergedAnalysis, frame, fps);
+
+    // 4.4a: Brightness stability — how stable is brightness between consecutive keyframes
+    snapshot['visual.brightness_stability'] = getBrightnessStabilityAt(mergedAnalysis, frame);
+
+    // 4.4b: Visual Engagement Score — composite from available sub-signals
+    // Weights: eye_contact 0.3, visual_significance 0.25, motion 0.2, face_quality 0.15, brightness 0.1
+    // ⚠️ INVENTED weights — need calibration (D-013)
+    snapshot['visual.engagement'] = computeVES(snapshot);
 
     timeline.gridSignals.set(frame, snapshot);
   }
@@ -364,6 +395,50 @@ export function buildSignalTimeline(
     const vocalValence = snapshot['speech.emotional_valence'] as string | undefined;
     if (faceEmotion && vocalValence) {
       snapshot['composite.emotional_alignment'] = computeEmotionalAlignment(faceEmotion, vocalValence);
+    }
+  }
+
+  // ── PASS 3: EMA + Surprise + Trajectory (Phase 5 — temporal context) ──
+  // EMA = exponential moving average over ~3s window (alpha=0.3).
+  // Surprise = raw - EMA (positive = rising, negative = dropping).
+  // Trajectory = categorical state derived from EMA slope.
+  // These are ADDITIVE — they don't modify Pass 1/2 values.
+  {
+    const EMA_ALPHA = 0.3;
+    const emaSignals = ['speech.energy', 'visual.engagement', 'visual.motion_intensity'] as const;
+    const emaState: Record<string, number> = {};
+
+    for (const frame of gridFrames) {
+      const snapshot = timeline.gridSignals.get(frame)!;
+
+      for (const sig of emaSignals) {
+        const raw = (snapshot[sig] as number) ?? 0;
+        const key = sig;
+
+        if (!(key in emaState)) {
+          emaState[key] = raw;
+        } else {
+          emaState[key] = EMA_ALPHA * raw + (1 - EMA_ALPHA) * emaState[key];
+        }
+
+        const ema = emaState[key];
+        const surprise = raw - ema;
+
+        snapshot[`${sig}_ema`] = ema;
+        snapshot[`${sig}_surprise`] = surprise;
+      }
+
+      const energyEma = (snapshot['speech.energy_ema'] as number) ?? 0;
+      const energySurprise = (snapshot['speech.energy_surprise'] as number) ?? 0;
+      const energyRaw = (snapshot['speech.energy'] as number) ?? 0;
+
+      let trajectory: string = 'neutral';
+      if (energySurprise > 0.05 && energyRaw > energyEma) trajectory = 'rising';
+      else if (energySurprise > 0.1 && energyRaw > 0.6) trajectory = 'peaked';
+      else if (energySurprise < -0.05) trajectory = 'falling';
+      else if (energyRaw < 0.1 && energyEma < 0.15) trajectory = 'quiet';
+
+      snapshot['temporal.energy_trajectory'] = trajectory;
     }
   }
 
@@ -513,7 +588,7 @@ export function buildSignalTimeline(
   timeline.globalSignals['content.content_type'] = rawFootage?.contentTypeDetection?.contentType ?? 'unknown';
   timeline.globalSignals['audio.music_present'] = hasMusicPresent(mergedAnalysis);
   timeline.globalSignals['video.duration_s'] = totalDurationMs / 1000;
-  timeline.globalSignals['audio.music_bpm'] = mergedAnalysis.musicStructure?.bpm ?? 0;
+  timeline.globalSignals['audio.music_bpm'] = hasEssentia ? essentiaAnalysis!.bpm : (mergedAnalysis.musicStructure?.bpm ?? 0);
 
   // Speaker diarization global — number of distinct speakers detected
   const speakerIds = new Set<number>();
@@ -531,6 +606,71 @@ export function buildSignalTimeline(
   timeline.globalSignals['enrichment.vjepa_segments'] = vjepaSegments?.length ?? 0;
   timeline.globalSignals['enrichment.wav2vec_segments'] = wav2vecSegments?.length ?? 0;
   timeline.globalSignals['enrichment.diarization'] = speakerIds.size > 1 ? 'grok' : 'none';
+
+  // ── PERSONALITY SIGNALS (global, derived from Wav2Vec + V-JEPA + structural) ──
+  // Used by MG composition planner, theme resolver, and overlay definitions.
+  // Computed HERE in the signal layer so BOTH Path D and Path E get them.
+  // ⚠️ ALL formulas INVENTED — need calibration via Thompson sampling.
+  const speechCov = timeline.globalSignals['content.speech_coverage'] as number ?? 0;
+  const formality = timeline.globalSignals['content.formality'] as number ?? 0;
+
+  // Wav2Vec averages (if available)
+  const w2vAvg = hasWav2Vec && wav2vecSegments?.length ? {
+    energy: wav2vecSegments.reduce((s, seg) => s + (seg.energy ?? 0), 0) / wav2vecSegments.length,
+    emotionIntensity: wav2vecSegments.reduce((s, seg) => s + (seg.emotionIntensity ?? 0), 0) / wav2vecSegments.length,
+    valence: wav2vecSegments.reduce((s, seg) => {
+      const v = seg.emotionalValence;
+      return s + (v === 'positive' ? 0.8 : v === 'negative' ? 0.2 : 0.5);
+    }, 0) / wav2vecSegments.length,
+  } : null;
+
+  // V-JEPA face coverage (if available)
+  const vjFace = hasVjepa && vjepaSegments?.length
+    ? vjepaSegments.filter(s => (s.eyeContact ?? 0) > 0.3 || s.faceEmotion != null).length / vjepaSegments.length
+    : (speechCov > 0.3 ? 0.5 : 0.2); // ⚠️ INVENTED fallback
+
+  // enthusiasm ← vocal energy + emotion boost. Fallback: speechCoverage proxy.
+  timeline.globalSignals['personality.enthusiasm'] = w2vAvg
+    ? Math.min(1, w2vAvg.energy * 1.2 + (w2vAvg.emotionIntensity > 0.5 ? 0.15 : 0))
+    : (speechCov > 0.5 ? Math.min(1, speechCov * 1.2) : 0.5);
+
+  // warmth ← emotional valence + face coverage. Fallback: speech presence heuristic.
+  timeline.globalSignals['personality.warmth'] = w2vAvg
+    ? (0.6 * w2vAvg.valence + 0.4 * vjFace)
+    : (0.3 + (speechCov > 0 ? 0.4 : 0));
+
+  // emotional_arousal ← Wav2Vec emotion_intensity (direct). Fallback: 0.4.
+  timeline.globalSignals['personality.emotional_arousal'] = w2vAvg?.emotionIntensity ?? 0.4;
+
+  // pacing_velocity ← speech rate + visual change rate. Both available as grid averages.
+  const avgVisualChange = gridFrames.length > 0
+    ? gridFrames.reduce((s, f) => s + ((timeline.gridSignals.get(f)?.['visual.motion_intensity'] as number) ?? 0), 0) / gridFrames.length
+    : 0;
+  timeline.globalSignals['personality.pacing_velocity'] = Math.min(1, speechCov * 0.5 + avgVisualChange * 0.5);
+
+  // visceral_impact ← energy peaks proxy. Fallback: 0.3.
+  timeline.globalSignals['personality.visceral_impact'] = w2vAvg
+    ? Math.min(1, w2vAvg.energy * 0.6 + w2vAvg.emotionIntensity * 0.4)
+    : 0.3;
+
+  // visual_dependency ← how much video NEEDS graphics (low face + low speech = high dependency).
+  timeline.globalSignals['personality.visual_dependency'] = Math.min(1, Math.max(0,
+    (1 - vjFace) * 0.6 + (1 - speechCov) * 0.4));
+
+  // humor ← derived from pitch variability (animated delivery), low formality, rhetorical
+  // questions, and positive high-energy vocal tone. No dedicated NLP laughter/sarcasm model.
+  // ⚠️ ALL weights INVENTED — needs Thompson sampling calibration.
+  const rhetoricalCount = timeline.eventSignals.filter(e => e.signal === 'entity.rhetorical_question').length;
+  const avgPitchVar = w2vAvg && wav2vecSegments?.length
+    ? wav2vecSegments.reduce((s: number, seg: any) => s + ((seg as any).pitchVariability ?? 0), 0) / wav2vecSegments.length
+    : 0;
+  const positiveEnergy = w2vAvg ? (w2vAvg.valence > 0.6 && w2vAvg.emotionIntensity > 0.5 ? 0.2 : 0) : 0;
+  timeline.globalSignals['personality.humor'] = Math.min(1, Math.max(0,
+    avgPitchVar * 0.4
+    + (1 - formality) * 0.25
+    + Math.min(rhetoricalCount * 0.05, 0.15)
+    + positiveEnergy
+  ));
 
   return timeline;
 }
@@ -633,6 +773,34 @@ function getSceneTypeAt(analysis: AssetAnalysis, frame: number): string {
   return 'general';
 }
 
+// D1: Visual complexity — proxy from color diversity + brightness extremity.
+// ⚠️ ALL thresholds INVENTED — need calibration against reference videos
+function getVisualComplexityAt(analysis: AssetAnalysis, frame: number): number {
+  if (!analysis.keyframeAnalyses?.length) return 0;
+  const closest = analysis.keyframeAnalyses.reduce((prev, curr) =>
+    Math.abs(curr.frameNumber - frame) < Math.abs(prev.frameNumber - frame) ? curr : prev
+  );
+  // Color diversity: more dominant colors = more complex frame
+  // ⚠️ 8 colors = max complexity INVENTED — typical dominant color extraction yields 3-8
+  const colorCount = closest.dominantColors?.length ?? 0;
+  const colorScore = Math.min(1, colorCount / 8);
+  // Brightness extremity: very bright or very dark = simpler; mid-range = more detail visible
+  const brightness = closest.brightness ?? 0.5;
+  const brightnessScore = 1 - Math.abs(brightness - 0.5) * 2;
+  // Energy level mapping
+  const energyMap: Record<string, number> = { low: 0.2, medium: 0.5, high: 0.8 };
+  const energyScore = energyMap[closest.energyLevel ?? 'medium'] ?? 0.5;
+  // Weighted average: color diversity is strongest indicator
+  return colorScore * 0.5 + brightnessScore * 0.25 + energyScore * 0.25;
+}
+
+// D1: Text on screen — detects existing text/logo in frame via subject tracking.
+// Used to avoid overlapping MG text on burned-in subtitles, signs, or watermarks.
+function hasTextOnScreen(analysis: AssetAnalysis): boolean {
+  if (!analysis.subjectTracks?.length) return false;
+  return analysis.subjectTracks.some(s => s.category === 'text' || s.category === 'logo');
+}
+
 function getMusicEnergyAt(analysis: AssetAnalysis, timestampMs: number): number {
   if (!analysis.musicStructure?.energyCurve?.length) return 0;
   const curve = analysis.musicStructure.energyCurve;
@@ -645,6 +813,37 @@ function getMusicEnergyAt(analysis: AssetAnalysis, timestampMs: number): number 
 function isMusicBeatAt(analysis: AssetAnalysis, timestampMs: number): boolean {
   if (!analysis.audio?.beats?.length) return false;
   return analysis.audio.beats.some(b => Math.abs(b - timestampMs) < 50); // within 50ms
+}
+
+// D1/D6: Tatum = smallest metric subdivision (16th notes).
+// BPM × 4 = tatums per minute. Tolerance ±25ms (half of beat tolerance).
+// ─── Essentia Helpers (prefer over 5-Track when available) ───────────────────
+
+function getEssentiaEnergyAt(curve: number[], timestampMs: number, totalDurationMs: number): number {
+  if (!curve.length) return 0;
+  const idx = Math.round((timestampMs / totalDurationMs) * (curve.length - 1));
+  return curve[Math.max(0, Math.min(idx, curve.length - 1))] ?? 0;
+}
+
+const ESSENTIA_SECTION_MAP: Record<string, string> = {
+  intro: 'intro', verse: 'verse', chorus: 'chorus', bridge: 'bridge',
+  drop: 'drop', build: 'build', breakdown: 'breakdown', outro: 'outro',
+  hook: 'chorus', solo: 'verse', instrumental: 'unknown', interlude: 'unknown',
+  'pre-chorus': 'build',
+};
+
+function getEssentiaSectionAt(sections: Array<{ startMs: number; endMs: number; label: string }>, timestampMs: number): string {
+  const section = sections.find(s => timestampMs >= s.startMs && timestampMs <= s.endMs);
+  if (!section) return 'none';
+  return ESSENTIA_SECTION_MAP[section.label] ?? section.label;
+}
+
+function isMusicTatumAt(analysis: AssetAnalysis, timestampMs: number): boolean {
+  const bpm = analysis.musicStructure?.bpm;
+  if (!bpm || bpm <= 0) return false;
+  const tatumIntervalMs = 60000 / (bpm * 4);
+  const remainder = timestampMs % tatumIntervalMs;
+  return remainder < 25 || (tatumIntervalMs - remainder) < 25;
 }
 
 function getMusicSectionAt(analysis: AssetAnalysis, timestampMs: number): string {
@@ -845,6 +1044,69 @@ function hasMusicPresent(analysis: AssetAnalysis): boolean {
   return (analysis.musicStructure.bpm ?? 0) > 0;
 }
 
+// ─── Phase 4: Visual Intelligence Helpers ─────────────────────────────────
+
+function getSceneChangeAt(analysis: AssetAnalysis, frame: number, fps: number): number {
+  if (!analysis.keyframeAnalyses?.length || analysis.keyframeAnalyses.length < 2) return 0;
+  const kfs = analysis.keyframeAnalyses;
+  let closestIdx = 0;
+  let closestDist = Infinity;
+  for (let i = 0; i < kfs.length; i++) {
+    const dist = Math.abs(kfs[i].frameNumber - frame);
+    if (dist < closestDist) { closestDist = dist; closestIdx = i; }
+  }
+  if (closestIdx === 0) return 0;
+  const curr = kfs[closestIdx];
+  const prev = kfs[closestIdx - 1];
+  if (!curr.dominantColors?.length || !prev.dominantColors?.length) return 0;
+  const currColors = curr.dominantColors!;
+  const prevColors = prev.dominantColors!;
+  const allColors = new Set<string>();
+  currColors.forEach(c => allColors.add(c));
+  prevColors.forEach(c => allColors.add(c));
+  let shared = 0;
+  currColors.forEach(c => { if (prevColors.includes(c)) shared++; });
+  if (allColors.size === 0) return 0;
+  return 1 - shared / allColors.size;
+}
+
+function getBrightnessStabilityAt(analysis: AssetAnalysis, frame: number): number {
+  if (!analysis.keyframeAnalyses?.length || analysis.keyframeAnalyses.length < 2) return 1;
+  const kfs = analysis.keyframeAnalyses;
+  let closestIdx = 0;
+  let closestDist = Infinity;
+  for (let i = 0; i < kfs.length; i++) {
+    const dist = Math.abs(kfs[i].frameNumber - frame);
+    if (dist < closestDist) { closestDist = dist; closestIdx = i; }
+  }
+  if (closestIdx === 0) return 1;
+  const currBrightness = kfs[closestIdx].brightness ?? 0.5;
+  const prevBrightness = kfs[closestIdx - 1].brightness ?? 0.5;
+  const delta = Math.abs(currBrightness - prevBrightness);
+  return Math.max(0, 1 - delta * 3);
+}
+
+function computeVES(snapshot: Record<string, number | boolean | string>): number {
+  let weightSum = 0;
+  let valueSum = 0;
+  const components: Array<{ key: string; weight: number }> = [
+    { key: 'visual.eye_contact', weight: 0.3 },
+    { key: 'visual.significance', weight: 0.25 },
+    { key: 'visual.motion_intensity', weight: 0.2 },
+    { key: 'visual.face_present', weight: 0.15 },
+    { key: 'visual.brightness_stability', weight: 0.1 },
+  ];
+  for (const { key, weight } of components) {
+    const val = snapshot[key];
+    if (typeof val === 'number' && isFinite(val)) {
+      valueSum += val * weight;
+      weightSum += weight;
+    }
+  }
+  if (weightSum === 0) return 0.5;
+  return valueSum / weightSum;
+}
+
 // ─── SegmentAnalysis Adapter ───────────────────────────────────────────────
 // Extracts V-JEPA/Wav2Vec data from the unified SegmentAnalysis type
 // and delegates to the existing buildSignalTimeline. Avoids duplicating
@@ -858,6 +1120,7 @@ export function buildSignalTimelineFromAnalysis(
   rawFootage: RawFootageAnalysis | null,
   overlays: OverlayInfo[],
   fps: number = DEFAULT_FPS,
+  essentiaAnalysis?: { bpm: number; beats: Array<{ timestampMs: number; strength: number }>; sections: Array<{ startMs: number; endMs: number; label: string }>; energyCurve: number[]; musicPresence: number } | null,
 ): SignalTimeline {
   const vjepaSegments: VjepaSegmentResult[] = [];
   const wav2vecSegments: Wav2VecSegmentResult[] = [];
@@ -896,5 +1159,50 @@ export function buildSignalTimelineFromAnalysis(
     fps,
     vjepaSegments.length > 0 ? { segments: vjepaSegments, modelVersion: 'from-segment-analysis', processingTimeMs: 0 } : null,
     wav2vecSegments.length > 0 ? { segments: wav2vecSegments, modelVersion: 'from-segment-analysis', processingTimeMs: 0 } : null,
+    essentiaAnalysis,
   );
+}
+
+/**
+ * Project event signals onto the nearest grid-point snapshots.
+ * Event signals (entity.cta, entity.name, etc.) are stored at exact word timestamps
+ * but the utility scorer reads grid-point snapshots. This copies event signal values
+ * onto the nearest grid point so the scorer can evaluate them.
+ *
+ * ⚠️ INVENTED: claim_strength string encodings (assertive=0.8, hedged=0.3)
+ */
+export function projectEventsOntoGrid(timeline: SignalTimeline): void {
+  if (!timeline.eventSignals.length) return;
+  const gridFrames = Array.from(timeline.gridSignals.keys()).sort((a, b) => a - b);
+  if (!gridFrames.length) return;
+
+  const CLAIM_ENCODINGS: Record<string, number> = { assertive: 0.8, hedged: 0.3 };
+  let projected = 0;
+
+  for (const event of timeline.eventSignals) {
+    let nearest = gridFrames[0];
+    let minDist = Math.abs(event.frame - gridFrames[0]);
+    for (const gf of gridFrames) {
+      const dist = Math.abs(event.frame - gf);
+      if (dist < minDist) { minDist = dist; nearest = gf; }
+      if (gf > event.frame + timeline.gridInterval) break;
+    }
+
+    const snapshot = timeline.gridSignals.get(nearest);
+    if (!snapshot) continue;
+
+    let numericValue: number;
+    if (typeof event.value === 'number') numericValue = event.value;
+    else if (typeof event.value === 'boolean') numericValue = event.value ? 1.0 : 0.0;
+    else numericValue = CLAIM_ENCODINGS[event.value] ?? 0.5;
+
+    if (snapshot[event.signal] === undefined) {
+      (snapshot as Record<string, number | boolean | string>)[event.signal] = numericValue;
+      projected++;
+    }
+  }
+
+  if (projected > 0) {
+    console.log(`[SignalRegistry] Projected ${projected} event signals onto grid (${timeline.eventSignals.length} total events)`);
+  }
 }

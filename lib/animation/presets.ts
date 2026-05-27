@@ -34,8 +34,8 @@
  * Consumed by: every page and component that animates
  *
  * @example GSAP usage:
- *   gsap.from(el, { ...PRESETS.fadeUp })
- *   gsap.from(els, { ...PRESETS.fadeUp, stagger: STAGGER.default })
+ *   gsap.fromTo(el, { y: 24, opacity: 0 }, { ...PRESETS.fadeUp })
+ *   gsap.fromTo(els, { y: 24, opacity: 0 }, { ...PRESETS.fadeUp, stagger: STAGGER.default })
  *
  * @example Framer-motion usage:
  *   <motion.div variants={FRAMER_VARIANTS.staggerContainer}>
@@ -75,56 +75,49 @@ export const STAGGER = {
 } as const;
 
 // ─── GSAP Presets ───────────────────────────────────────────────
-// Spread these into gsap.from() for entrance animations.
-// gsap.from(element, { ...PRESETS.fadeUp })
+// Use with gsap.fromTo(el, { y: 24, opacity: 0 }, { ...PRESETS.fadeUp })
 
 export const PRESETS = {
   /** Fade up from 24px below. The workhorse entrance animation. */
   fadeUp: {
-    y: 24,
-    opacity: 0,
+    y: 0,
+    opacity: 1,
     duration: DURATIONS.atmosphere,
     ease: EASINGS.out,
   },
   /** Pure opacity fade. For overlays, backgrounds, subtle reveals. */
   fadeIn: {
-    opacity: 0,
+    opacity: 1,
     duration: DURATIONS.response,
     ease: EASINGS.out,
   },
   /** Scale from 92% + fade. For cards, modals, focused elements. */
   scaleIn: {
-    scale: 0.92,
-    opacity: 0,
-    duration: DURATIONS.atmosphere,
-    ease: EASINGS.out,
-  },
-  /** Slide from left. For panels, sidebars, drawers. */
-  slideRight: {
-    x: -24,
-    opacity: 0,
-    duration: DURATIONS.atmosphere,
-    ease: EASINGS.out,
-  },
-  /** Slide from right. For opposite-direction panels. */
-  slideLeft: {
-    x: 24,
-    opacity: 0,
+    scale: 1,
+    opacity: 1,
     duration: DURATIONS.atmosphere,
     ease: EASINGS.out,
   },
   /** Quick micro feedback. For buttons, toggles, badges. */
   micro: {
-    y: 8,
-    opacity: 0,
+    y: 0,
+    opacity: 1,
     duration: DURATIONS.micro,
     ease: EASINGS.out,
   },
 } as const;
 
+// ─── GSAP "from" initial states (pair with PRESETS for fromTo) ──
+
+export const FROM = {
+  fadeUp: { y: 24, opacity: 0 },
+  fadeIn: { opacity: 0 },
+  scaleIn: { scale: 0.92, opacity: 0 },
+  micro: { y: 8, opacity: 0 },
+} as const;
+
 // ─── Framer-Motion Variants ─────────────────────────────────────
 // Same values as GSAP presets, formatted for framer-motion's variant system.
-// Use: <motion.div variants={FRAMER_VARIANTS.fadeUp} initial="hidden" animate="visible">
 
 const FM_TRANSITION = {
   duration: DURATIONS.atmosphere,
@@ -176,16 +169,9 @@ export const FRAMER_VARIANTS = {
     hidden: { opacity: 0, scale: 0.92 },
     visible: { opacity: 1, scale: 1, transition: FM_TRANSITION },
   },
-
-  /** Slide right + fade. Child variant. */
-  slideRight: {
-    hidden: { opacity: 0, x: -24 },
-    visible: { opacity: 1, x: 0, transition: FM_TRANSITION },
-  },
 } as const;
 
 // ─── ScrollTrigger Presets ──────────────────────────────────────
-// Common ScrollTrigger configurations. Spread into ScrollTrigger.create() or timeline scrollTrigger.
 
 export const SCROLL_TRIGGERS = {
   /** Standard reveal: trigger when element is 90% from top of viewport. */
@@ -193,15 +179,47 @@ export const SCROLL_TRIGGERS = {
     start: 'top 90%',
     toggleActions: 'play none none none' as const,
   },
-  /** Earlier reveal: trigger at 80%. For important content. */
-  earlyReveal: {
-    start: 'top 80%',
-    toggleActions: 'play none none none' as const,
-  },
   /** Pin + scrub: for scroll-driven timeline sections. */
   pinScrub: {
     pin: true,
     scrub: 1,
     anticipatePin: 1,
+  },
+} as const;
+
+// ─── Spread-format presets ──────────────────────────────────────
+// For components that use <motion.div {...fadeIn}> prop-spreading
+// instead of <motion.div variants={fadeUp} initial="hidden" animate="visible">.
+// Both patterns are valid framer-motion. Use SPREAD when the component
+// doesn't use a stagger container parent (standalone entrances).
+//
+// @example: <motion.div {...SPREAD.fadeUp}>content</motion.div>
+
+const SPREAD_EASE = [0.16, 1, 0.3, 1] as const;
+
+export const SPREAD = {
+  /** Fade up 20px. For standalone card/section entrances. */
+  fadeUp: {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: DURATIONS.atmosphere, ease: SPREAD_EASE },
+  },
+  /** Fade in with slight y shift. For panels, overlays. */
+  fadeIn: {
+    initial: { opacity: 0, y: 8 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: DURATIONS.response, ease: SPREAD_EASE },
+  },
+  /** Slide from right. For side panels. */
+  slideFromRight: {
+    initial: { opacity: 0, x: 20 },
+    animate: { opacity: 1, x: 0 },
+    transition: { duration: DURATIONS.response, ease: SPREAD_EASE },
+  },
+  /** Scale in. For modals, focused content. */
+  scaleIn: {
+    initial: { opacity: 0, scale: 0.92 },
+    animate: { opacity: 1, scale: 1 },
+    transition: { duration: DURATIONS.atmosphere, ease: SPREAD_EASE },
   },
 } as const;

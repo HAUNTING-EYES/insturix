@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import Image from "next/image";
-import { motion, AnimatePresence } from "framer-motion";
+import { useGSAP } from "@gsap/react";
+import { gsap, ScrollTrigger } from "@/lib/animation/gsap-config";
+import Lenis from "lenis";
 import { SiteFooter } from "@/components/shared/site-footer";
 import { PreviewVisualInsturix } from "./preview-visual";
 
@@ -133,65 +134,32 @@ const MSGS: { at: number; side: string; text: string; color?: string }[] = [
 // PRIMITIVES
 // ═══════════════════════════════════════════════════════════════
 
-// Logo image ONLY ↔ "Insturix" text ONLY — clean alternation
-function LogoBrand() {
-  const [showLogo, setShowLogo] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => setShowLogo((v) => !v), 4000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const variants = {
-    enter: { opacity: 0, y: 12, filter: "blur(3px)" },
-    center: { opacity: 1, y: 0, filter: "blur(0px)" },
-    exit: { opacity: 0, y: -12, filter: "blur(3px)" },
-  };
-
-  return (
-    <div style={{ position: "relative", width: 110, height: 36, display: "flex", alignItems: "center" }}>
-      <AnimatePresence mode="wait">
-        {showLogo ? (
-          <motion.div
-            key="logo-img"
-            variants={variants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            style={{ position: "absolute", display: "flex", alignItems: "center" }}
-          >
-            <Image
-              src="/brand/insturix_white.png"
-              alt="Insturix"
-              width={36}
-              height={36}
-              style={{ borderRadius: 4 }}
-            />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="logo-text"
-            variants={variants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            style={{ position: "absolute", display: "flex", alignItems: "center" }}
-          >
-            <span style={{ fontWeight: 800, fontSize: 18, letterSpacing: "-0.02em" }}>Insturix</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
 function Chk({ size = 14, color = C.accent, sw = 2.5 }: { size?: number; color?: string; sw?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <path d="M5 12l5 5L19 7" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+function TimecodeDisplay({ value, color }: { value: string; color: string }) {
+  return (
+    <span style={{ display: "inline-flex" }}>
+      {value.split("").map((ch, i) => (
+        <span
+          key={`${ch}-${i}`}
+          style={{
+            display: "inline-block",
+            animation: `digitRollIn .15s ${EASE} both`,
+            width: ch === ":" ? "auto" : "0.55em",
+            textAlign: "center",
+            color,
+          }}
+        >
+          {ch}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -201,58 +169,228 @@ function Chk({ size = 14, color = C.accent, sw = 2.5 }: { size?: number; color?:
 
 export function LandingPageA() {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [pct, setPct] = useState(0);
-  const [ready, setReady] = useState(false);
-  const rafRef = useRef<number>(0);
+  const spacerRef = useRef<HTMLDivElement>(null);
   const mktRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setTimeout(() => setReady(true), 600);
-  }, []);
+  // ─── React state: ONLY for logic consumers (phase, toasts, text, conditional renders) ───
+  // Visual scroll properties (editorFade, mktPct opacity) are GSAP-controlled — zero re-renders.
+  // React state updates at ~5fps (200ms throttle) for child components that need pipePct.
+  const [pct, setPct] = useState(0);
+  const [showMkt, setShowMkt] = useState(false); // Event-driven — controls visibility + interactivity
+  const showMktRef = useRef(false); // Ref mirror avoids stale closure in onUpdate
 
-  // FIX #1 + PERF: Split scroll into two layers:
-  // Layer 1 (60fps): CSS custom property --pct on scroll container for visual animations (no React re-render)
-  // Layer 2 (10fps): Throttled setPct for React logic (phase, toasts, elapsed, conditional renders)
-  const lastSetPctRef = useRef<number>(0);
+  // Layer animation state: track threshold crossings for one-shot GSAP tweens.
+  // Sets reset on scroll-back so arm pulse / done flash re-trigger on next forward crossing.
+  const armedLayersRef = useRef<Set<number>>(new Set());
+  const doneLayersRef = useRef<Set<number>>(new Set());
+  const prefersReducedMotion = useRef(
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+
+  // ─── GSAP ScrollTrigger: replaces manual scroll handler ───
+  // Layer 1 (60fps): GSAP scrub timeline drives editor fade-out + marketing fade-in
+  // Layer 2 (60fps): CSS custom property --pct (compositor-only, no React re-render)
+  // Layer 3 (~5fps): Throttled setPct for React logic (phase, toasts, elapsed, conditional renders)
+  // Layer 4 (once):  scrollend listener catches the final frame the throttle might miss
+  useGSAP(
+    () => {
+      const scroller = scrollRef.current;
+      const spacer = spacerRef.current;
+      if (!scroller || !spacer) return;
+
+      // ── Lenis: smooth scroll with momentum on the scroll driver container ──
+      // Without Lenis, the fixed overflowY:auto div has zero inertia — scroll stops
+      // dead when you lift your finger. Lenis adds natural deceleration.
+      const lenis = new Lenis({
+        wrapper: scroller,
+        content: spacer,
+        smoothWheel: true,
+        lerp: 0.08,        // Smooth catchup speed (lower = smoother, higher = snappier)
+        wheelMultiplier: 1, // 1:1 native feel
+      });
+      lenis.on("scroll", ScrollTrigger.update);
+      gsap.ticker.add((time) => lenis.raf(time * 1000));
+      gsap.ticker.lagSmoothing(0);
+
+      // ── Mount animation: editor fades in quickly ──
+      // Old: 0.6s delay + 0.5s = 1.1s of blank screen. User saw "text disappears."
+      // New: 0.1s delay + 0.4s = 0.5s total. Just enough to avoid FOUC, fast enough to feel instant.
+      gsap.fromTo(
+        ".editor-root-animated",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.4, ease: "expo.out", delay: 0.1 }
+      );
+
+      // ── Scrub timeline: scroll position → visual properties (60fps, compositor) ──
+      const tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: spacer,
+          scroller: scroller,
+          start: "top top",
+          end: "bottom bottom",
+          scrub: true, // Instant — Lenis provides the momentum feel. scrub:0.5 caused double-smoothing bounce.
+          onUpdate: (self) => {
+            const p = self.progress;
+
+            // 60fps: CSS custom property (for any CSS consumers, no React)
+            scroller.style.setProperty("--pct", String(p));
+
+            // 60fps: Navbar scroll indicator (no React)
+            document.documentElement.dataset.scrolled = p > 0.02 ? "true" : "";
+
+            // ── 60fps: Marketing overlay opacity (GSAP smooth, no React re-render) ──
+            const mktEl = mktRef.current;
+            if (mktEl) {
+              const mktProgress = Math.max(0, (p - 0.57) / 0.43);
+              gsap.to(mktEl, {
+                opacity: Math.min(1, mktProgress * 25),
+                duration: 0.15,
+                overwrite: true,
+              });
+            }
+
+            // ── 60fps: Layer "arming" — ghost → tally light → readable ──
+            // Layers at 60fps via gsap.set, not 10fps React. No jitter.
+            const pp = Math.min(1, p / 0.55);
+            const curPhase = pp < 0.06 ? "welcome" : pp < 0.15 ? "prompt" : pp < 0.32 ? "script" : pp < 0.58 ? "edit" : pp < 0.72 ? "analyze" : pp < 0.85 ? "design" : pp < 0.97 ? "publish" : "done";
+
+            for (let li = 0; li < 6; li++) {
+              const el = document.querySelector(`[data-layer-idx="${li}"]`) as HTMLElement;
+              if (!el) continue;
+              const layer = LAYERS[li];
+              const revealProg = Math.max(0, Math.min(1, (pp - (layer.at - 0.01)) / 0.03));
+              const isActive = layer.phases.includes(curPhase);
+              gsap.set(el, { opacity: 0.05 + revealProg * 0.95 });
+
+              const bar = el.querySelector("[data-layer-bar]") as HTMLElement;
+              if (bar) bar.style.opacity = String(isActive ? 1 : revealProg > 0 ? 0.25 : 0);
+
+              // Tally light pulse — broadcast camera going live.
+              // Scale 1→1.12→1 is intentional overshoot (RESTRAINT exception: communicates "track armed").
+              if (revealProg > 0 && !armedLayersRef.current.has(li)) {
+                armedLayersRef.current.add(li);
+                if (bar && !prefersReducedMotion.current) {
+                  gsap.fromTo(bar,
+                    { scaleY: 1, scaleX: 1 },
+                    { scaleY: 1.12, scaleX: 1.12, duration: 0.125, yoyo: true, repeat: 1, ease: "expo.out" }
+                  );
+                }
+              } else if (revealProg === 0 && armedLayersRef.current.has(li)) {
+                armedLayersRef.current.delete(li);
+              }
+
+              // Done: green flash on bar, then checkmark draws itself
+              const isDone = pp >= layer.doneAt;
+              if (isDone && !doneLayersRef.current.has(li)) {
+                doneLayersRef.current.add(li);
+                if (!prefersReducedMotion.current) {
+                  const flash = el.querySelector("[data-layer-flash]") as HTMLElement;
+                  if (flash) {
+                    gsap.fromTo(flash, { opacity: 1 }, { opacity: 0, duration: 0.25, ease: "expo.out" });
+                  }
+                }
+                const chkSvg = el.querySelector("[data-layer-check]") as SVGElement;
+                const chkPath = chkSvg?.querySelector("path") as SVGPathElement;
+                if (chkSvg && chkPath) {
+                  gsap.to(chkSvg, { opacity: 1, duration: prefersReducedMotion.current ? 0 : 0.25, delay: prefersReducedMotion.current ? 0 : 0.25 });
+                  gsap.to(chkPath, { strokeDashoffset: 0, duration: prefersReducedMotion.current ? 0 : 0.35, ease: "expo.out", delay: prefersReducedMotion.current ? 0 : 0.25 });
+                }
+              } else if (!isDone && doneLayersRef.current.has(li)) {
+                doneLayersRef.current.delete(li);
+                const chkSvg = el.querySelector("[data-layer-check]") as SVGElement;
+                const chkPath = chkSvg?.querySelector("path") as SVGPathElement;
+                if (chkSvg) gsap.set(chkSvg, { opacity: 0 });
+                if (chkPath) gsap.set(chkPath, { strokeDashoffset: 1 });
+              }
+
+              const name = el.querySelector("[data-layer-name]") as HTMLElement;
+              if (name) {
+                name.style.color = isActive ? C.text : (revealProg > 0 ? C.muted : C.dim);
+                name.style.fontWeight = isActive ? "500" : "400";
+              }
+              el.style.background = isActive ? C.s2 : "transparent";
+            }
+
+            // ── 60fps: Track fills at native frame rate ──
+            for (let ti = 0; ti < 5; ti++) {
+              const fillEl = document.querySelector(`[data-track-fill="${ti}"]`) as HTMLElement;
+              if (!fillEl) continue;
+              const track = TRACKS[ti];
+              const fill = Math.max(0, Math.min(1, (pp - track.lo) / (track.hi - track.lo)));
+              fillEl.style.width = `${fill * 100}%`;
+              // Playhead on first track
+              if (ti === 0) {
+                const playhead = document.querySelector("[data-track-playhead]") as HTMLElement;
+                if (playhead) {
+                  playhead.style.left = `${fill * 100}%`;
+                  playhead.style.opacity = fill > 0 ? "1" : "0";
+                }
+              }
+              // Track visibility
+              const row = fillEl.closest("[data-track-row]") as HTMLElement;
+              if (row) row.style.opacity = String(pp >= track.lo ? 1 : 0);
+            }
+
+            // ── 60fps: Dimmer overlay — "control room lights dimming" ──
+            // Subtle, barely perceptible. Just enough to feel "the room changed."
+            // Too strong → black flicker on scroll-back. 8% max, narrow window.
+            const dimmer = document.getElementById("controlRoomDimmer");
+            if (dimmer) {
+              const dimProgress = p < 0.55 ? 0 : p < 0.565 ? (p - 0.55) / 0.015 : p < 0.58 ? 1 - (p - 0.565) / 0.015 : 0;
+              dimmer.style.opacity = String(dimProgress * 0.08);
+            }
+
+            // Event-driven React state: showMkt set IMMEDIATELY (not throttled).
+            const shouldShowMkt = p > 0.57;
+            if (shouldShowMkt !== showMktRef.current) {
+              showMktRef.current = shouldShowMkt;
+              setShowMkt(shouldShowMkt);
+            }
+
+            // Every frame: React state drives preview content, chat, toasts, elapsed.
+            // NO THROTTLE. The 200ms throttle made everything look like "blocks moving."
+            // Layers + tracks are GSAP-owned (60fps direct DOM above) so they don't
+            // cause re-renders. The remaining React consumers (preview sub-progress,
+            // chat messages, toasts, elapsed timer) are lightweight — 60fps is fine.
+            setPct(p);
+          },
+        },
+      });
+
+      // SEQUENCE, not crossfade: editor fades out FIRST, then marketing fades in.
+      // Editor: pct 0.55→0.58 (duration 0.03 of timeline). Marketing: handled in onUpdate above.
+      // No overlap. Clean handoff. Thresholds preserved from original implementation.
+      tl.fromTo(
+        ".editor-root-animated",
+        { opacity: 1, scale: 1, y: 0 },
+        { opacity: 0, scale: 0.95, y: -20, duration: 0.03, ease: "none" },
+        0.55
+      );
+
+      // Extend timeline to the full scroll range (0→1) so scrub maps correctly
+      tl.set({}, {}, 1.0);
+    },
+    // NO scope — animated elements (.editor-root-animated, mktRef) are siblings of
+    // scrollRef, not children. Scoping would limit selectors to inside the scroller
+    // and find nothing → blank page. useGSAP still handles cleanup without scope.
+    { dependencies: [] }
+  );
+
+  // ── Final frame sync: scrollend catches the last value the 200ms throttle misses ──
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const onScroll = () => {
-      if (rafRef.current) return;
-      rafRef.current = requestAnimationFrame(() => {
-        const mx = el.scrollHeight - el.clientHeight;
-        if (mx > 0) {
-          const newPct = el.scrollTop / mx;
-
-          // Layer 1: 60fps CSS custom property update (compositor-only, no React re-render)
-          el.style.setProperty("--pct", String(newPct));
-
-          // Layer 2: Throttled React state update (~10fps) for logic-only consumers
-          const now = performance.now();
-          if (now - lastSetPctRef.current > 100) { // 100ms = ~10fps
-            setPct(newPct);
-            lastSetPctRef.current = now;
-          }
-
-          // Bridge to SiteNavbar: set data attribute so pill-on-scroll triggers
-          document.documentElement.dataset.scrolled = newPct > 0.02 ? "true" : "";
-        }
-        rafRef.current = 0;
-      });
+    const onScrollEnd = () => {
+      const mx = el.scrollHeight - el.clientHeight;
+      if (mx > 0) setPct(el.scrollTop / mx);
     };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    // Sync final state on scroll end (catch the last frame the throttle might miss)
-    const onScrollEnd = () => { if (scrollRef.current) { const mx = el.scrollHeight - el.clientHeight; if (mx > 0) setPct(el.scrollTop / mx); } };
     el.addEventListener("scrollend", onScrollEnd, { passive: true });
-    return () => {
-      el.removeEventListener("scroll", onScroll);
-      el.removeEventListener("scrollend", onScrollEnd);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
+    return () => el.removeEventListener("scrollend", onScrollEnd);
   }, []);
 
   // Smart scroll routing: when marketing is active, capture wheel events.
-  // Scrolling down → scroll marketing overlay. Scrolling up at top of marketing → scroll main container back.
+  // Marketing is ALWAYS in the DOM now — handler attaches once on mount, never torn down/re-attached.
+  // This eliminates the timing gaps that caused lost wheel events on the second scroll-down.
   useEffect(() => {
     const mktEl = mktRef.current;
     const scrollEl = scrollRef.current;
@@ -263,28 +401,20 @@ export function LandingPageA() {
       const atMktTop = mktEl.scrollTop <= 0;
 
       if (isScrollingUp && atMktTop) {
-        // User is scrolling up and marketing overlay is at the top → route to main scroll to go back
         e.preventDefault();
         scrollEl.scrollBy({ top: e.deltaY * 3, behavior: "auto" });
       } else {
-        // User is scrolling within marketing content → let it scroll naturally
         e.stopPropagation();
       }
     };
 
     mktEl.addEventListener("wheel", onWheel, { passive: false });
     return () => mktEl.removeEventListener("wheel", onWheel);
-  });
+  }, []); // Empty deps — mktRef.current always exists (never conditionally mounted)
 
+  // ─── Derived values (from throttled pct state) ───
+  // showMkt is event-driven state (set immediately in onUpdate above), NOT derived here.
   const pipePct = Math.min(1, pct / 0.55);
-  // SEQUENCE, not crossfade: editor fades out FIRST, then marketing fades in.
-  // Editor done state: pipePct 0.97→1.0 = pct 0.534→0.55
-  // At pct 0.55: editor starts fading. At pct 0.58: editor fully gone.
-  // At pct 0.58: marketing starts appearing. At pct 0.61: marketing fully visible.
-  // No overlap. Clean handoff.
-  const editorFade = pct > 0.55 ? Math.max(0, 1 - ((pct - 0.55) / 0.03)) : 1;
-  const mktPct = Math.max(0, (pct - 0.57) / 0.43);
-  const showMkt = pct > 0.57;
 
   const phase = pipePct < 0.06 ? "welcome" : pipePct < 0.15 ? "prompt" : pipePct < 0.32 ? "script" : pipePct < 0.58 ? "edit" : pipePct < 0.72 ? "analyze" : pipePct < 0.85 ? "design" : pipePct < 0.97 ? "publish" : "done";
 
@@ -318,11 +448,15 @@ export function LandingPageA() {
         ::selection{background:rgba(212,166,82,.18)}
         .m{font-family:'JetBrains Mono',monospace}
         ::-webkit-scrollbar{width:0}
-        /* PERF: Editor + marketing opacity driven by CSS custom property --pct (60fps, no React re-render).
-           --pct is set by the scroll handler directly on the scroll container.
-           These transitions smooth the 10fps throttled React state updates for other properties. */
-        .editor-root-animated { transition: transform 0.1s cubic-bezier(0.16,1,0.3,1); will-change: opacity, transform; }
-        .mkt-root-animated { transition: opacity 0.1s cubic-bezier(0.16,1,0.3,1); will-change: opacity; }
+        /* PERF: GSAP ScrollTrigger scrub handles editor + marketing opacity/transform at 60fps.
+           No CSS transitions needed — GSAP drives values directly. Initial opacity:0 for mount animation. */
+        .editor-root-animated { opacity: 0; will-change: opacity, transform; }
+        /* When editor is faded out (showMkt=true), kill ALL child pointer events.
+           Without this, invisible children (topbar, pipeline, chat, drag handle) at z:2
+           with pointerEvents:"auto" absorb wheel events, creating a dead zone between
+           the marketing overlay (z:3) and the scroll driver (z:1). */
+        .editor-root-animated[data-hidden] *{ pointer-events: none !important; }
+        .mkt-root-animated { will-change: opacity; }
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
         @keyframes popIn{0%{opacity:0;transform:scale(.92)}100%{opacity:1;transform:scale(1)}}
         @keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
@@ -332,11 +466,18 @@ export function LandingPageA() {
         @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
         @keyframes breathe{0%,100%{opacity:.015}50%{opacity:.05}}
         @keyframes checkDraw{from{stroke-dashoffset:20}to{stroke-dashoffset:0}}
+        @keyframes pipeRouteFill{from{transform:scale(0)}to{transform:scale(1)}}
+        @keyframes chatUserIn{0%{opacity:0;transform:translateY(12px) scale(.95)}60%{transform:translateY(-2px) scale(1.02)}100%{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes chatDoneIn{0%{opacity:0;transform:translateX(-8px)}40%{opacity:0;transform:translateX(-8px)}100%{opacity:1;transform:translateX(0)}}
+        @keyframes chatCompleteIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+        @keyframes intercomBlink{0%{opacity:0}25%{opacity:1}50%{opacity:.5}100%{opacity:1}}
+        @keyframes toastUnfold{0%{clip-path:inset(100% 0 0 0);opacity:0}50%{clip-path:inset(0);opacity:0}100%{clip-path:inset(0);opacity:1}}
+        @keyframes phaseFlipIn{0%{transform:perspective(400px) rotateX(90deg) scale(.9);opacity:0}60%{transform:perspective(400px) rotateX(-8deg) scale(1.03);opacity:1}100%{transform:perspective(400px) rotateX(0) scale(1);opacity:1}}
+        @keyframes digitRollIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes ctaGlow{0%,100%{box-shadow:0 0 0 rgba(212,166,82,0)}50%{box-shadow:0 0 24px rgba(212,166,82,.25)}}
+        @keyframes lineReveal{from{clip-path:inset(0 100% 0 0);opacity:.5}to{clip-path:inset(0);opacity:1}}
         @keyframes eqBounce{0%,100%{transform:scaleY(.15)}50%{transform:scaleY(1)}}
         @keyframes toastIn{from{opacity:0;transform:translateY(-16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
-        @keyframes toastOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.95)}}
-        @keyframes logoFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes logoFadeOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-8px)}}
         .mkt-card{transition:border-color .35s ${EASE},transform .35s ${EASE}}
         .mkt-card:hover{border-color:var(--hover-border)!important;transform:translateY(-3px)}
         @media(max-width:1100px){
@@ -385,6 +526,17 @@ export function LandingPageA() {
           .mkt-section h2{font-size:24px!important}
           .hero-done-text{font-size:18px!important}
         }
+        /* Reduced motion: respect OS accessibility setting.
+           Disables CSS animations/transitions. GSAP one-shot tweens (arm pulse,
+           done flash) check window.matchMedia in their trigger code. */
+        @media(prefers-reduced-motion:reduce){
+          *,*::before,*::after{
+            animation-duration:0.01ms!important;
+            animation-iteration-count:1!important;
+            transition-duration:0.01ms!important;
+            transition-delay:0ms!important;
+          }
+        }
         /* Hide Clerk dev mode keyless banner — targets the fixed-position bottom-right widget */
         [data-clerk-keyless-prompt]{display:none!important}
         div[style*="Configure your application"]{display:none!important}
@@ -399,7 +551,7 @@ export function LandingPageA() {
 
       {/* Scroll driver — always scrollable, marketing overlay captures wheel events when active */}
       <div ref={scrollRef} style={{ position: "fixed", inset: 0, overflowY: "auto", zIndex: 1 }}>
-        <div style={{ height: "2800vh" }} />
+        <div ref={spacerRef} style={{ height: "2800vh" }} />
       </div>
 
       {/* Site navbar is now rendered by the parent page, not inline here */}
@@ -423,9 +575,9 @@ export function LandingPageA() {
                   alignItems: "center",
                   gap: 12,
                   boxShadow: `0 8px 32px rgba(0,0,0,.5), 0 0 24px ${t.color}06`,
-                  animation: isNew ? `toastIn .4s ${EASE} both` : "none",
+                  animation: isNew ? `toastUnfold .35s ${EASE} both` : "none",
                   opacity: isNew ? 1 : 0.3,
-                  transform: `scale(${isNew ? 1 : 0.95})`,
+                  transform: isNew ? "none" : "translateY(-4px) scale(0.97)",
                   // FIX #8: Consistent easing
                   transition: `opacity .4s ${EASE}, transform .4s ${EASE}`,
                 }}
@@ -443,10 +595,12 @@ export function LandingPageA() {
       )}
 
       {/* ━━━ EDITOR ━━━ */}
-      {/* PERF: editorFade drives opacity + transform. These update at 10fps (throttled React state)
-           but CSS transition smooths the visual result to 60fps. */}
+      {/* PERF: opacity + transform are GSAP-controlled (mount animation + scrub timeline).
+           CSS sets initial opacity:0. GSAP mount animates to 1. Scrub fades to 0 at pct 0.55-0.58.
+           React never touches these properties — zero re-renders for visual scroll. */}
       <div
         className="editor-root editor-root-animated"
+        {...(showMkt ? { "data-hidden": "" } : {})}
         style={{
           position: "fixed",
           top: 64, // 48px navbar + 16px breathing gap
@@ -457,8 +611,7 @@ export function LandingPageA() {
           pointerEvents: "none",
           display: "flex",
           flexDirection: "column",
-          opacity: ready ? editorFade : 0,
-          transform: editorFade < 1 ? `scale(${0.95 + editorFade * 0.05}) translateY(${-(1 - editorFade) * 20}px)` : "none",
+          // opacity + transform: GSAP-controlled (see useGSAP above)
         }}
       >
         {/* TOP BAR */}
@@ -488,12 +641,23 @@ export function LandingPageA() {
             />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <span className="m" style={{ fontSize: 13, color: phase === "done" ? C.green : pipePct > 0.1 ? C.accent : C.dim, transition: `color .4s ${EASE}`, fontWeight: 500 }}>{elapsed}</span>
-            {phase !== "welcome" && (
-              <span className="m" style={{ fontSize: 11, padding: "5px 14px", borderRadius: 6, background: phase === "done" ? `${C.green}12` : `${C.accent}10`, color: phase === "done" ? C.green : C.accent, transition: `all .5s ${EASE}`, fontWeight: 500 }}>
-                {LABELS[phase]}
-              </span>
-            )}
+            <span className="m" style={{ fontSize: 13, transition: `color .4s ${EASE}`, fontWeight: 500 }}>
+              <TimecodeDisplay value={elapsed} color={phase === "done" ? C.green : pipePct > 0.1 ? C.accent : C.dim} />
+            </span>
+            <span
+              key={phase}
+              className="m"
+              style={{
+                fontSize: 11, padding: "5px 14px", borderRadius: 6,
+                background: phase === "done" ? `${C.green}12` : `${C.accent}10`,
+                color: phase === "done" ? C.green : C.accent,
+                fontWeight: 500,
+                visibility: phase === "welcome" ? "hidden" : "visible",
+                animation: phase === "welcome" ? "none" : phase === "prompt" ? `popIn .35s ${EASE} both` : `phaseFlipIn .35s ${EASE} both`,
+              }}
+            >
+              {LABELS[phase] || ""}
+            </span>
             {/* FIX #5: fontWeight 700 → 800 */}
             <button style={{ background: phase === "done" ? C.accent : C.s3, color: phase === "done" ? C.bg : C.dim, border: "none", padding: "8px 20px", borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", pointerEvents: "auto", transition: `all .5s ${EASE}` }}>
               {phase === "done" ? "Try with your video" : "Export"}
@@ -509,19 +673,17 @@ export function LandingPageA() {
               <span className="m" style={{ fontSize: 13, color: C.muted, letterSpacing: ".08em" }}>LAYERS</span>
             </div>
             <div style={{ flex: 1, padding: "8px 8px", display: "flex", flexDirection: "column", gap: 2 }}>
-              {LAYERS.map((l, i) => {
-                const vis = pipePct >= l.at;
-                const act = l.phases.includes(phase);
-                if (!vis) return <div key={i} style={{ height: 36 }} />;
-                return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: act ? C.s2 : "transparent", animation: `slideR .35s ${EASE} both`, transition: `background .4s ${EASE}` }}>
-                    <div style={{ width: 4, height: 20, borderRadius: 2, background: l.c, opacity: act ? 1 : 0.25, transition: `opacity .4s ${EASE}` }} />
-                    {/* FIX #5: fontWeight 600 → 500 */}
-                    <span style={{ fontSize: 14, fontWeight: act ? 500 : 400, color: act ? C.text : C.muted, transition: `all .3s ${EASE}`, flex: 1 }}>{l.name}</span>
-                    {pipePct >= l.doneAt && <Chk size={12} color={C.green} />}
+              {LAYERS.map((l, i) => (
+                <div key={i} data-layer-idx={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, opacity: 0.05, transition: `background .4s ${EASE}` }}>
+                  <div data-layer-bar style={{ width: 4, height: 20, borderRadius: 2, background: l.c, opacity: 0, transition: `opacity .25s ${EASE}`, position: "relative" }}>
+                    <div data-layer-flash style={{ position: "absolute", inset: 0, borderRadius: "inherit", background: C.green, opacity: 0 }} />
                   </div>
-                );
-              })}
+                  <span data-layer-name style={{ fontSize: 14, color: C.dim, transition: `all .25s ${EASE}`, flex: 1 }}>{l.name}</span>
+                  <svg data-layer-check width={12} height={12} viewBox="0 0 24 24" fill="none" style={{ opacity: 0, flexShrink: 0 }}>
+                    <path d="M5 12l5 5L19 7" stroke={C.green} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" pathLength={1} strokeDasharray={1} strokeDashoffset={1} />
+                  </svg>
+                </div>
+              ))}
             </div>
             {/* Pipeline */}
             <div style={{ padding: "14px 16px", borderTop: `1px solid ${C.border}` }}>
@@ -548,9 +710,18 @@ export function LandingPageA() {
                     onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.8"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
                   >
-                    <div style={{ width: 16, height: 16, borderRadius: 5, background: done ? `${C.green}15` : act ? `${st.c}10` : "transparent", border: done ? `1px solid ${C.green}25` : act ? `1px solid ${st.c}25` : `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", transition: `all .4s ${EASE}` }}>
-                      {done && <Chk size={10} color={C.green} sw={3} />}
-                      {act && !done && <div style={{ width: 5, height: 5, borderRadius: 3, background: st.c, animation: "pulse 1.5s infinite" }} />}
+                    <div style={{ width: 16, height: 16, borderRadius: 5, border: done ? `1px solid ${C.green}25` : act ? `1px solid ${st.c}25` : `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", transition: `border .35s ${EASE}`, position: "relative", overflow: "hidden" }}>
+                      {(act || done) && (
+                        <div style={{ position: "absolute", inset: 0, borderRadius: "inherit", background: done ? `${C.green}20` : `${st.c}15`, animation: `pipeRouteFill .35s ${EASE} both`, transition: `background .35s ${EASE}` }} />
+                      )}
+                      {act && !done && (
+                        <div style={{ width: 5, height: 5, borderRadius: 3, background: st.c, animation: "pulse 1.5s infinite", position: "relative", zIndex: 1 }} />
+                      )}
+                      {done && (
+                        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" style={{ position: "absolute", zIndex: 2 }}>
+                          <path d="M5 12l5 5L19 7" stroke={C.green} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" style={{ strokeDasharray: 20, strokeDashoffset: 0, animation: `checkDraw .35s ${EASE} both` }} />
+                        </svg>
+                      )}
                     </div>
                     <span className="m" style={{ fontSize: 13, color: done ? C.green : act ? st.c : C.dim, transition: `color .3s ${EASE}` }}>{st.label}</span>
                   </button>
@@ -572,19 +743,38 @@ export function LandingPageA() {
         </div>
       </div>
 
-      {/* ━━━ MARKETING — visible at mktPct=0.1 (pct=0.577), pointer events at mktPct>0.12 ━━━ */}
-      {/* PERF: mktPct opacity updates at 10fps (throttled), CSS transition smooths to 60fps */}
-      {showMkt && (
-        <div ref={mktRef} className="mkt-root-animated" style={{ position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3, pointerEvents: mktPct > 0.12 ? "auto" : "none", overflowY: "auto", opacity: Math.min(1, mktPct * 10) }}>
-          <Marketing />
-          <SiteFooter />
-        </div>
-      )}
+      {/* ━━━ DIMMER — "Control room lights going to standby" ━━━
+           Sits between editor (z:2) and marketing (z:3). GSAP onUpdate fades
+           it in at pct 0.54→0.56 and back out at 0.56→0.58. Max 15% darkening.
+           Communicates: you're leaving the production floor. */}
+      <div id="controlRoomDimmer" style={{ position: "fixed", inset: 0, zIndex: 2, background: "#000", opacity: 0, pointerEvents: "none" }} />
+
+      {/* ━━━ MARKETING — ALWAYS in DOM (never mount/unmount).
+           Conditional mount caused a cascade of timing bugs:
+           - Wheel handler torn down/re-attached on every mount cycle
+           - React reconciliation overwrote GSAP pointerEvents on re-render
+           - Invisible editor children (z:2) absorbed events in the gap
+           - Second scroll-down reproduced the dead zone every time
+           Fix: always render, toggle visibility + pointerEvents via showMkt state.
+           Opacity is GSAP-controlled (onUpdate gsap.to). */}
+      <div ref={mktRef} className="mkt-root-animated" style={{
+        position: "fixed", top: 56, left: 0, right: 0, bottom: 0, zIndex: 3,
+        overflowY: "auto", opacity: 0,
+        // visibility: showMkt makes the element paintable (GSAP can fade it in)
+        visibility: showMkt ? "visible" : "hidden",
+        // pointerEvents: delayed to pct > 0.59 (not just showMkt at 0.57).
+        // At pct 0.59, GSAP has already animated opacity to ~46% — the user can
+        // SEE the marketing content. Without this delay, the wheel handler intercepts
+        // events on an invisible (opacity:0) element, killing scroll propagation to
+        // the scroll driver. The 200ms React throttle on pct adds a natural buffer.
+        pointerEvents: showMkt && pct > 0.59 ? "auto" : "none",
+      }}>
+        <Marketing />
+        <SiteFooter />
+      </div>
     </>
   );
 }
-
-// Preview component imported from ./preview-visual (PreviewVisualInsturix)
 
 // ═══════════════════════════════════════════════════════════════
 // TIMELINE
@@ -594,20 +784,23 @@ function TL({ phase, pct }: { phase: string; pct: number }) {
   return (
     <div className="editor-timeline" style={{ height: 80, background: C.s1, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
       <div style={{ height: 24, padding: "0 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ width: 18, height: 16, borderRadius: 4, background: pct > 0.06 ? C.accent : C.s3, transition: `background .4s ${EASE}` }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ width: 6, height: 6, borderRadius: 3, background: pct > 0.06 ? C.accent : C.dim, transition: `background .4s ${EASE}`, animation: pct > 0.06 ? "pulse 1.5s infinite" : "none" }} />
+          <span className="m" style={{ fontSize: 9, color: pct > 0.06 ? C.accent : C.dim, transition: `color .4s ${EASE}`, letterSpacing: ".05em" }}>{pct > 0.06 ? "REC" : ""}</span>
+        </div>
         <span className="m" style={{ fontSize: 11, color: C.dim }}>{pct > 0.06 ? `${Math.round(pct * 100)}%` : ""}</span>
       </div>
       <div style={{ flex: 1, padding: "4px 16px", display: "flex", flexDirection: "column", gap: 2 }}>
         {TRACKS.map((t, i) => {
-          const vis = pct >= t.lo;
-          const fill = Math.max(0, Math.min(1, (pct - t.lo) / (t.hi - t.lo)));
+          // Track fills + playhead are GSAP-owned at 60fps. React provides structure ONLY.
+          // NO width/left in inline styles — React re-render would overwrite GSAP's values.
           return (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, height: 12, opacity: vis ? 1 : 0, transition: `opacity .4s ${EASE}` }}>
+            <div key={i} data-track-row style={{ display: "flex", alignItems: "center", gap: 8, height: 12, opacity: 0 }}>
               <span className="m" style={{ fontSize: 11, color: C.dim, width: 44, textAlign: "right" }}>{t.label}</span>
               <div style={{ flex: 1, height: "100%", background: C.s2, borderRadius: 4, position: "relative", overflow: "hidden" }}>
-                <div style={{ position: "absolute", left: 0, top: 1, bottom: 1, width: `${fill * 100}%`, background: `${t.c}22`, border: `1px solid ${t.c}32`, borderRadius: 4, transition: `width .25s ${EASE}` }} />
-                {i === 0 && fill > 0 && (
-                  <div style={{ position: "absolute", left: `${fill * 100}%`, top: -1, bottom: -1, width: 2, background: C.accent, transition: `left .2s ${EASE}`, zIndex: 2 }}>
+                <div data-track-fill={i} style={{ position: "absolute", left: 0, top: 1, bottom: 1, background: `${t.c}22`, border: `1px solid ${t.c}32`, borderRadius: 4 }} />
+                {i === 0 && (
+                  <div data-track-playhead style={{ position: "absolute", top: -1, bottom: -1, width: 2, background: C.accent, left: "0%", zIndex: 2 }}>
                     <div style={{ position: "absolute", top: -2, left: -3, width: 8, height: 8, borderRadius: 4, background: C.accent }} />
                   </div>
                 )}
@@ -631,8 +824,8 @@ function Chat({ phase, pct }: { phase: string; pct: number }) {
   const dragStart = useRef({ x: 0, width: 0 });
 
   // PERF: Only scroll chat when a NEW message appears, not on every pct change.
-  // OLD: dependency was [pct] → scrollTo fired 60 times/sec → expensive DOM writes
-  // NEW: dependency is visible message count → scrollTo fires only when a message appears (~10 times total)
+  // OLD: dependency [pct] fired scrollTo 60 times/sec — expensive DOM writes
+  // NEW: dependency [visibleMsgCount] fires ~10 times total (only when a message appears)
   const visibleMsgCount = MSGS.filter((m) => pct >= m.at).length;
   useEffect(() => {
     if (chatBodyRef.current && visibleMsgCount > 0) {
@@ -686,28 +879,34 @@ function Chat({ phase, pct }: { phase: string; pct: number }) {
             <p style={{ fontSize: 14, color: C.dim, textAlign: "center", lineHeight: 1.65 }}>Give it a prompt<br />to start producing</p>
           </div>
         )}
-        {MSGS.filter((m) => pct >= m.at).map((m, i) => (
-          <div
-            key={i}
-            style={{
-              ...(m.side === "user"
-                ? { alignSelf: "flex-end", background: C.accent, color: C.bg, padding: "10px 16px", borderRadius: "12px 12px 4px 12px", fontWeight: 500 }
-                : m.side === "status"
-                ? { padding: "8px 12px", borderRadius: 8, background: `${m.color}08`, border: `1px solid ${m.color}12`, color: m.color, display: "flex", alignItems: "center", gap: 8 }
-                : m.side === "done"
-                ? { padding: "6px 12px", borderRadius: 8, background: `${C.green}06`, border: `1px solid ${C.green}08`, color: C.soft, display: "flex", alignItems: "center", gap: 8 }
-                : { padding: "16px", borderRadius: 12, textAlign: "center" as const, background: `${C.green}0A`, border: `1px solid ${C.green}18`, fontWeight: 800, color: C.green, lineHeight: 1.5 }),
-              fontSize: 13,
-              lineHeight: 1.5,
-              maxWidth: "100%",
-              animation: m.side === "user" ? `slideUp .3s ${EASE} both` : `slideR .25s ${EASE} both`,
-            }}
-          >
-            {m.side === "status" && <div style={{ width: 6, height: 6, borderRadius: 3, background: m.color, animation: "pulse 1.5s infinite", flexShrink: 0 }} />}
-            {m.side === "done" && <Chk size={11} color={C.green} />}
-            {m.text}
-          </div>
-        ))}
+        {MSGS.filter((m) => pct >= m.at).map((m, i, arr) => {
+          const isLast = i === arr.length - 1;
+          return (
+            <div
+              key={i}
+              style={{
+                ...(m.side === "user"
+                  ? { alignSelf: "flex-end", background: C.accent, color: C.bg, padding: "10px 16px", borderRadius: "12px 12px 4px 12px", fontWeight: 500 }
+                  : m.side === "status"
+                  ? { padding: "8px 12px", borderRadius: 8, background: `${m.color}08`, border: `1px solid ${m.color}12`, color: m.color, display: "flex", alignItems: "center", gap: 8 }
+                  : m.side === "done"
+                  ? { padding: "6px 12px", borderRadius: 8, background: `${C.green}06`, border: `1px solid ${C.green}08`, color: C.soft, display: "flex", alignItems: "center", gap: 8 }
+                  : { padding: "16px", borderRadius: 12, textAlign: "center" as const, background: `${C.green}0A`, border: `1px solid ${C.green}18`, fontWeight: 800, color: C.green, lineHeight: 1.5 }),
+                fontSize: 13,
+                lineHeight: 1.5,
+                maxWidth: "100%",
+                animation: m.side === "user" ? `chatUserIn .35s ${EASE} both`
+                  : m.side === "complete" ? `chatCompleteIn .5s ${EASE} both`
+                  : m.side === "done" ? `chatDoneIn .35s ${EASE} both`
+                  : `slideR .25s ${EASE} both`,
+              }}
+            >
+              {m.side === "status" && <div style={{ width: 6, height: 6, borderRadius: 3, background: m.color, animation: isLast ? "intercomBlink .15s ease-out, pulse 1.5s 0.15s infinite" : "none", opacity: isLast ? 1 : 0.4, flexShrink: 0, transition: `opacity .25s ${EASE}` }} />}
+              {m.side === "done" && <Chk size={11} color={C.green} />}
+              {m.text}
+            </div>
+          );
+        })}
       </div>
       {/* Writable prompt input */}
       <div style={{ padding: "12px 12px", borderTop: `1px solid ${C.border}`, pointerEvents: "auto" }}>
@@ -770,10 +969,27 @@ function AnimNum({ target, prefix = "", suffix = "", delay = 0 }: { target: numb
 // ═══════════════════════════════════════════════════════════════
 
 function Marketing() {
+  const sRefs = useRef<(HTMLElement | null)[]>([]);
+  const [vis, setVis] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const idx = sRefs.current.indexOf(e.target as HTMLElement);
+          if (idx >= 0) setVis(prev => { const s = new Set(prev); s.add(idx); return s; });
+        }
+      });
+    }, { threshold: 0.1 });
+    sRefs.current.forEach(el => { if (el) obs.observe(el); });
+    return () => obs.disconnect();
+  }, []);
+  const sr = (i: number) => (el: HTMLElement | null) => { sRefs.current[i] = el; };
+  const v = (i: number) => vis.has(i);
+
   return (
     <div style={{ background: C.bg, minHeight: "100vh", paddingTop: 64, width: "100%" }}>
-      {/* Stats */}
-      <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
+      {/* Stats — "The Numbers Drop": curtain reveal per cell, stagger 0.1s */}
+      <section ref={sr(0)} className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
         <div className="mkt-stats" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2, borderRadius: 12, overflow: "hidden" }}>
           {[
             { target: 40, suffix: "%", l: "Lower cost", s: "vs. agencies" },
@@ -781,9 +997,8 @@ function Marketing() {
             { prefix: "$", target: 2353, suffix: "", l: "Saved per video", s: "vs. traditional" },
             { target: 8, suffix: " min", l: "Average production", s: "complete video" },
           ].map((st, i) => (
-            <div key={i} style={{ background: i % 2 === 0 ? "#0D0D0C" : C.s1, padding: "48px 32px", textAlign: "center" }}>
-              <AnimNum target={st.target} prefix={st.prefix || ""} suffix={st.suffix} delay={i * 200} />
-              {/* FIX #5: fontWeight 600 → 500 */}
+            <div key={i} style={{ background: i % 2 === 0 ? "#0D0D0C" : C.s1, padding: "48px 32px", textAlign: "center", clipPath: v(0) ? "inset(0)" : "inset(100% 0 0 0)", transition: `clip-path .5s ${EASE} ${i * 0.1}s` }}>
+              <AnimNum target={st.target} prefix={st.prefix || ""} suffix={st.suffix} delay={i * 200 + 500} />
               <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{st.l}</div>
               <div style={{ fontSize: 13, color: C.dim }}>{st.s}</div>
             </div>
@@ -793,13 +1008,13 @@ function Marketing() {
 
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
-      {/* Approach A: AI editing callout — moved here for visibility */}
-      <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
+      {/* AI Editing — "The Demo Reel": left column first, tags stagger, right delayed */}
+      <section ref={sr(1)} className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
         <div style={{
           display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 32, alignItems: "center",
           background: C.s1, border: `1px solid ${C.cyan}18`, borderRadius: 12, padding: "48px 24px", overflow: "hidden",
         }}>
-          <div>
+          <div style={{ opacity: v(1) ? 1 : 0, transform: v(1) ? "none" : "translateY(20px)", transition: `all .5s ${EASE}` }}>
             <span className="m" style={{ fontSize: 10, letterSpacing: "0.08em", color: C.cyan, display: "block", marginBottom: 16 }}>
               AI EDITING
             </span>
@@ -810,18 +1025,20 @@ function Marketing() {
               Upload your raw video. AI applies professional cuts, color grading, pacing, and audio mixing — the same decisions a senior editor makes.
             </p>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              {["Auto-cut to music", "Color grade", "Caption sync", "Audio mix", "Hook-body-CTA"].map((tag) => (
+              {["Auto-cut to music", "Color grade", "Caption sync", "Audio mix", "Hook-body-CTA"].map((tag, ti) => (
                 <span key={tag} style={{
                   fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: C.cyan,
                   background: `${C.cyan}10`, border: `1px solid ${C.cyan}18`,
                   padding: "4px 12px", borderRadius: 4,
+                  opacity: v(1) ? 1 : 0, transform: v(1) ? "none" : "translateX(-8px)",
+                  transition: `all .35s ${EASE} ${ti * 0.04 + 0.2}s`,
                 }}>
                   {tag}
                 </span>
               ))}
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, opacity: v(1) ? 1 : 0, transform: v(1) ? "none" : "translateY(20px)", transition: `all .5s ${EASE} 0.2s` }}>
             <div style={{ background: C.s2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "16px 20px" }}>
               <span className="m" style={{ fontSize: 10, color: C.dim, display: "block", marginBottom: 8 }}>RAW FOOTAGE</span>
               <div style={{ display: "flex", gap: 8 }}>
@@ -862,27 +1079,26 @@ function Marketing() {
 
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
-      {/* Before/After */}
-      <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
-        <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", textAlign: "center", marginBottom: 48 }}>The old way vs. <span style={{ color: C.accent }}>Insturix</span></h2>
+      {/* Comparison — "The Two Timelines": cards converge from sides, steps stagger, total last */}
+      <section ref={sr(2)} className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
+        <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", textAlign: "center", marginBottom: 48, opacity: v(2) ? 1 : 0, transition: `opacity .5s ${EASE}` }}>The old way vs. <span style={{ color: C.accent }}>Insturix</span></h2>
         <div className="mkt-compare" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           {[
             { title: "Traditional", color: C.red, steps: ["Brief freelancer - 2 hours", "Wait for draft - 3 days", "Revision round 1 - 2 days", "Revision round 2 - 1 day", "Final export - 2 hours"], total: "~6 days", cost: "$2,400" },
             { title: "Insturix", color: C.green, steps: ["Type your prompt - 30 seconds", "AI writes script - 48 seconds", "AI produces video - 4 minutes", "AI analyzes + optimizes - 45 seconds", "Published to 6 platforms - 1 minute"], total: "~8 minutes", cost: "$47" },
           ].map((side, i) => (
-            <div key={i} style={{ background: C.s1, border: `1px solid ${side.color}18`, borderRadius: 12, padding: "32px 24px" }}>
+            <div key={i} style={{ background: C.s1, border: `1px solid ${side.color}18`, borderRadius: 12, padding: "32px 24px", transform: v(2) ? "none" : `translateX(${i === 0 ? "-40px" : "40px"})`, opacity: v(2) ? 1 : 0, transition: `all .5s ${EASE}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 4, background: side.color }} />
-                {/* FIX #5: fontWeight 700 → 800 */}
                 <span style={{ fontSize: 18, fontWeight: 800, color: side.color }}>{side.title}</span>
               </div>
               {side.steps.map((st, j) => (
-                <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", background: C.s2, borderRadius: 8, marginBottom: 4, border: `1px solid ${C.border}` }}>
+                <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", background: C.s2, borderRadius: 8, marginBottom: 4, border: `1px solid ${C.border}`, opacity: v(2) ? 1 : 0, transition: `opacity .35s ${EASE} ${j * 0.06 + 0.15}s` }}>
                   <span style={{ fontSize: 13, color: C.soft }}>{st.split(" - ")[0]}</span>
                   <span className="m" style={{ fontSize: 11, color: side.color }}>{st.split(" - ")[1]}</span>
                 </div>
               ))}
-              <div style={{ textAlign: "center", marginTop: 16, padding: "16px", background: `${side.color}08`, borderRadius: 8, border: `1px solid ${side.color}12` }}>
+              <div style={{ textAlign: "center", marginTop: 16, padding: "16px", background: `${side.color}08`, borderRadius: 8, border: `1px solid ${side.color}12`, opacity: v(2) ? 1 : 0, transform: v(2) ? "none" : "scale(0.9)", transition: `all .5s ${EASE} 0.5s` }}>
                 <span style={{ fontSize: 32, fontWeight: 800, color: side.color }}>{side.total}</span>
                 <span style={{ fontSize: 13, color: side.color, display: "block", marginTop: 4, opacity: 0.6 }}>and {side.cost} spent</span>
               </div>
@@ -894,9 +1110,9 @@ function Marketing() {
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
 
-      {/* Paths — FIX #12: CSS class hover instead of inline JS */}
-      <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
-        <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", marginBottom: 48 }}>Two paths. Same engine.</h2>
+      {/* Two Paths — "The Fork": cards enter from their respective sides */}
+      <section ref={sr(3)} className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
+        <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", marginBottom: 48, opacity: v(3) ? 1 : 0, transition: `opacity .5s ${EASE}` }}>Two paths. Same engine.</h2>
         <div className="mkt-paths" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           {[
             { t: "For brand teams", d: "Produce 10x more content without growing headcount.", items: ["Chat-based editing — no skills needed", "Every output matches your brand", "Script to published in hours, not weeks"], c: C.accent },
@@ -911,8 +1127,10 @@ function Marketing() {
                 borderRadius: 12,
                 padding: "32px 32px",
                 cursor: "pointer",
-                // FIX #12: CSS variable for hover color
                 "--hover-border": `${card.c}20`,
+                opacity: v(3) ? 1 : 0,
+                transform: v(3) ? "none" : `translateX(${i === 0 ? "-24px" : "24px"})`,
+                transition: `all .5s ${EASE} ${i * 0.1}s, border-color .35s ${EASE}, transform .35s ${EASE}`,
               } as React.CSSProperties}
             >
               <h3 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em", marginBottom: 12 }}>{card.t}</h3>
@@ -933,18 +1151,18 @@ function Marketing() {
 
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
-      {/* Closing CTA — the conversion moment */}
-      <section className="mkt-section" style={{ padding: "120px 48px", textAlign: "center", maxWidth: 1120, margin: "0 auto" }}>
-        <span className="m" style={{ fontSize: 13, color: C.accent, letterSpacing: "0.08em", display: "block", marginBottom: 24 }}>
+      {/* CTA — "The Ask": slowest, most deliberate cascade on the page */}
+      <section ref={sr(4)} className="mkt-section" style={{ padding: "120px 48px", textAlign: "center", maxWidth: 1120, margin: "0 auto" }}>
+        <span className="m" style={{ fontSize: 13, color: C.accent, letterSpacing: "0.08em", display: "block", marginBottom: 24, opacity: v(4) ? 1 : 0, transition: `opacity .35s ${EASE}` }}>
           READY TO START?
         </span>
-        <h2 style={{ fontSize: 44, fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.035em", marginBottom: 16 }}>
+        <h2 style={{ fontSize: 44, fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.035em", marginBottom: 16, opacity: v(4) ? 1 : 0, transform: v(4) ? "none" : "translateY(16px)", transition: `all .5s ${EASE} 0.25s` }}>
           Your next video is a<br />conversation away.
         </h2>
-        <p style={{ fontSize: 18, color: C.muted, lineHeight: 1.55, maxWidth: 480, margin: "0 auto 48px" }}>
+        <p style={{ fontSize: 18, color: C.muted, lineHeight: 1.55, maxWidth: 480, margin: "0 auto 48px", opacity: v(4) ? 1 : 0, transition: `opacity .35s ${EASE} 0.45s` }}>
           Join thousands of creators and teams who produce professional content from a single prompt.
         </p>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, flexWrap: "wrap", pointerEvents: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, flexWrap: "wrap", pointerEvents: "auto", opacity: v(4) ? 1 : 0, transition: `opacity .35s ${EASE} 0.65s` }}>
           <a
             href="/signup"
             style={{
@@ -959,6 +1177,7 @@ function Marketing() {
               fontFamily: "inherit",
               textDecoration: "none",
               transition: `opacity .25s ${EASE}`,
+              animation: v(4) ? `ctaGlow .8s ${EASE} 0.8s both` : "none",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.9"; }}
             onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
@@ -991,7 +1210,7 @@ function Marketing() {
             Talk to sales
           </a>
         </div>
-        <p style={{ marginTop: 64, fontSize: 13, color: C.dim }}>Insturix — Building Future, Together.</p>
+        <p style={{ marginTop: 64, fontSize: 13, color: C.dim, opacity: v(4) ? 1 : 0, transition: `opacity .5s ${EASE} 1s` }}>Insturix — Building Future, Together.</p>
       </section>
     </div>
   );

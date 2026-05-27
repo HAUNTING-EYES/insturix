@@ -18,6 +18,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
+import { FRAMER_VARIANTS } from "@/lib/animation/presets";
 import { ScriptMockup } from "./mockups/script-mockup";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -98,11 +99,10 @@ const rooms: Room[] = [
 ];
 
 // ─── Animation ──────────────────────────────────────────────────
-const fadeUp = {
-  hidden: { opacity: 0, y: 32 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } },
-};
-const stagger = { visible: { transition: { staggerChildren: 0.12 } } };
+// OLD: local fadeUp (y:32, 0.6s) + stagger (0.12, no delayChildren)
+// NEW: shared presets. fadeUp standardized to y:24, 0.5s (design tokens). stagger uses wide (0.12)
+const fadeUp = FRAMER_VARIANTS.fadeUp;
+const stagger = FRAMER_VARIANTS.staggerContainerWide;
 
 // ═══════════════════════════════════════════════════════════════
 // PAGE

@@ -59,7 +59,12 @@ export async function executeDirectorPlan(
   }
 
   // Apply brief overrides
-  const effectiveProfile = applyBriefOverrides(profile, brief);
+  let effectiveProfile = applyBriefOverrides(profile, brief);
+
+  // Phase 2.4: Utility AI profile override (feature-flagged, default OFF)
+  // Scoring happens after signal timeline build (Step D.4c) where real signals exist.
+  const useUtilityEngine = process.env.USE_UTILITY_ENGINE === 'true';
+  const useUtilityLive = process.env.USE_UTILITY_LIVE === 'true';
 
   // Pipeline warning collector for structured error visibility
   const { createPipelineWarnings } = await import('@/lib/editron/services/pipeline-warnings');
@@ -110,6 +115,9 @@ export async function executeDirectorPlan(
     // Path D: hoisted constraint violations + genre params for quality review step 11
     let pathDConstraintViolations: any[] | undefined;
     let pathDGenreParams: any | undefined;
+    let briefCaptionStyle: string | undefined;
+    let briefPacing: string | undefined;
+    let briefSignalContext: Record<string, number> = {};
 
     const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
@@ -339,7 +347,8 @@ export async function executeDirectorPlan(
           onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
           console.log('[Director] Path E: Creative Brief architecture (USE_CREATIVE_BRIEF=true)');
 
-          const { generateCreativeBrief } = await import('@/lib/editron/services/creative-brief');
+          const { generateCreativeBrief, routeContentType, DEFAULT_ROUTING_THRESHOLDS } = await import('@/lib/editron/services/creative-brief');
+          const { snapshotDecisions } = await import('@/lib/editron/services/decision-tracker');
           const { executeBrief } = await import('@/lib/editron/services/brief-executor');
           const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
           const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
@@ -409,8 +418,78 @@ export async function executeDirectorPlan(
             console.warn(`[Director] Path E: Genre param computation failed (non-fatal): ${gpErr.message}`);
           }
 
+          // ── Threshold bandit: sample adjusted thresholds for this project ──
+          let routingThresholds = DEFAULT_ROUTING_THRESHOLDS;
+          try {
+            const { loadThresholdBanditState, sampleThresholdAdjustments, getEffectiveThreshold } = await import('@/lib/editron/services/threshold-bandit');
+            const { buildSpeechCoverageBucket, buildDurationBucket } = await import('@/lib/editron/services/genre-parameter-bandit');
+            const banditState = await loadThresholdBanditState(userId);
+            if (banditState) {
+              const banditContext = {
+                contentType: rfa.contentTypeDetection?.contentType || 'unknown',
+                speechCoverageBucket: buildSpeechCoverageBucket(rfa.speechCoverage ?? 0),
+                durationBucket: buildDurationBucket(cleanDurationSec),
+                platform: projectDoc.syntheticStoryboard?.platform || 'youtube',
+              };
+              const adj = sampleThresholdAdjustments(banditState, banditContext);
+              if (adj.usedBandit) {
+                const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+                routingThresholds = {
+                  speechCoverage: clamp01(getEffectiveThreshold(adj, 'speech-coverage-threshold')),
+                  musicPresence: clamp01(getEffectiveThreshold(adj, 'music-presence-threshold')),
+                  visualChange: clamp01(getEffectiveThreshold(adj, 'visual-change-threshold')),
+                  nonSpeechCeiling: clamp01(getEffectiveThreshold(adj, 'non-speech-ceiling')),
+                  minBeatDensityBpm: Math.max(0, getEffectiveThreshold(adj, 'min-beat-density-bpm')),
+                };
+                console.log(`[Director] Path E: Threshold bandit active (${adj.observationCount} obs) — adjusted routing thresholds`);
+              }
+            }
+          } catch (banditErr: any) {
+            console.warn(`[Director] Path E: Threshold bandit failed (non-fatal): ${banditErr.message}`);
+          }
+
+          // ── Content mode routing (D-004) ──
+          // Compute from measured signals. musicPresence from Essentia analysis (Modal endpoint).
+          // Falls back to 0 if music analysis hasn't run.
+          const speechCoverage = Number.isFinite(rfa.speechCoverage) ? rfa.speechCoverage : 0;
+          const musicAnalysis = projectDoc.musicAnalysis;
+          let musicPresence = musicAnalysis?.musicPresence ?? 0;
+          // Penalize musicPresence when speech is present — speech rhythm creates
+          // false-positive beat patterns in Essentia (e.g., 130 WPM → 129 BPM).
+          // ⚠️ INVENTED formula: max(0, 1 - speechCoverage). At speech=0.8 → 0.2x. At speech=0.1 → 0.9x.
+          // Source: no CRG node. Derived from production tests:
+          //   proj_APY5gxzbxZ68: speech=0.82, music=0.90 false positive (original threshold 0.5)
+          //   proj_CGeIHVzXHdUs: speech=0.47, music=0.90 (129 BPM), routed to hybrid instead of speech
+          // Threshold lowered 0.5 → 0.3: any meaningful speech presence should penalize Essentia beats.
+          // At 0.3, pure music (speech<0.3) is unaffected. Documentary (speech=0.47) gets penalty.
+          if (speechCoverage > 0.3) {
+            musicPresence *= Math.max(0, 1 - speechCoverage);
+          }
+          const beatDensityBpm = musicAnalysis?.bpm ?? undefined;
+
+          const vjepaSegs = projectDoc.vjepaAnalysis?.segments;
+          let visualChangeRate = 0;
+          if (vjepaSegs?.length) {
+            visualChangeRate = vjepaSegs.reduce((sum: number, s: any) => sum + (s.motionIntensity || 0), 0) / vjepaSegs.length;
+          } else if (speechCoverage < routingThresholds.nonSpeechCeiling) {
+            const segCount = rfa.segments?.length ?? 0;
+            visualChangeRate = cleanDurationSec > 0 ? Math.min(1, segCount / (cleanDurationSec * 0.5)) : 0;
+          }
+
+          // Add music features to video context if Essentia analysis available
+          if (musicAnalysis?.beats?.length) {
+            (videoContext as any).musicFeatures = {
+              beats: musicAnalysis.beats,
+              sections: musicAnalysis.sections || [],
+              bpm: musicAnalysis.bpm,
+            };
+          }
+
+          const contentMode = routeContentType({ speechCoverage, musicPresence, visualChangeRate, beatDensityBpm }, routingThresholds);
+          console.log(`[Director] Path E: Content routing — speech=${speechCoverage.toFixed(2)}, music=${musicPresence.toFixed(2)}${beatDensityBpm ? ` (${beatDensityBpm} BPM)` : ''}, visual=${visualChangeRate.toFixed(2)}${!vjepaSegs?.length && visualChangeRate > 0 ? ' (segment proxy)' : ''} → ${contentMode}`);
+
           // Generate Creative Brief (Gemini call — context-cached creative doc + decision registry)
-          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams);
+          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams, contentMode);
 
           if (creativeBrief && creativeBrief.decisions.length > 0) {
             console.log(`[Director] Path E: Creative Brief generated — ${creativeBrief.decisions.length} decisions, pacing=${creativeBrief.overallPacing}`);
@@ -461,6 +540,67 @@ export async function executeDirectorPlan(
               pathDConstraintViolations = constraintResult.violations;
             }
 
+            // Inject signal context into decisions for MG composition engine.
+            // Without this, MG graphics get contentSignals={} → default animations.
+            // ── Personality signals for MG composition planner + theme resolver ──
+            // Derived from Wav2Vec, V-JEPA, and structural signals when available.
+            // Falls back to heuristics when enrichment data is absent.
+            const genreFormality = pathEGenreParams?.formality ?? 0.5;
+
+            // Compute averages from Wav2Vec segments (if available)
+            const w2vSegs = projectDoc.wav2vecAnalysis?.segments;
+            const w2vAvg = w2vSegs?.length ? {
+              energy: w2vSegs.reduce((s: number, seg: any) => s + (seg.energy ?? 0), 0) / w2vSegs.length,
+              emotionIntensity: w2vSegs.reduce((s: number, seg: any) => s + (seg.emotionIntensity ?? 0), 0) / w2vSegs.length,
+              valence: w2vSegs.reduce((s: number, seg: any) => {
+                const v = seg.emotionalValence;
+                return s + (v === 'positive' ? 0.8 : v === 'negative' ? 0.2 : 0.5);
+              }, 0) / w2vSegs.length,
+            } : null;
+
+            // Compute face coverage from V-JEPA (if available)
+            const vjSegs = projectDoc.vjepaAnalysis?.segments;
+            const vjFaceCoverage = vjSegs?.length
+              ? vjSegs.filter((s: any) => s.eyeContact > 0.3 || s.faceEmotion).length / vjSegs.length
+              : (speechCoverage > 0.3 ? 0.5 : 0.2); // ⚠️ INVENTED fallback
+
+            // ⚠️ ALL derivation formulas are INVENTED — need calibration via Thompson sampling.
+            const signalCtx: Record<string, number> = {
+              speech_coverage: speechCoverage,
+              visual_change_rate: visualChangeRate,
+              music_presence: musicPresence,
+              formality: genreFormality,
+              // enthusiasm ← Wav2Vec speech.energy (vocal energy = speaker excitement)
+              // Fallback: speechCoverage proxy (less accurate but always available)
+              enthusiasm: w2vAvg ? Math.min(1, w2vAvg.energy * 1.2 + (w2vAvg.emotionIntensity > 0.5 ? 0.15 : 0))
+                : (speechCoverage > 0.5 ? Math.min(1, speechCoverage * 1.2) : 0.5),
+              // warmth ← Wav2Vec emotional_valence + V-JEPA face coverage
+              // Fallback: 0.3 base + 0.4 if speech present
+              warmth: w2vAvg ? (0.6 * w2vAvg.valence + 0.4 * vjFaceCoverage)
+                : (0.3 + (speechCoverage > 0 ? 0.4 : 0)),
+              // emotional_arousal ← Wav2Vec emotion_intensity (direct mapping)
+              emotional_arousal: w2vAvg?.emotionIntensity ?? 0.4,
+              // pacing_velocity ← normalized from speech rate + visual change (0-1)
+              // High speech rate + high visual change = fast pacing
+              pacing_velocity: Math.min(1, (speechCoverage * 0.5 + visualChangeRate * 0.5)),
+              // visceral_impact ← cinematic moment proxy (energy peaks)
+              // High speech energy variance = has impactful moments
+              visceral_impact: w2vAvg ? Math.min(1, w2vAvg.energy * 0.6 + w2vAvg.emotionIntensity * 0.4)
+                : 0.3,
+              // visual_dependency ← how much the video NEEDS graphics to carry information
+              // Low face presence + low text = high dependency on MG
+              visual_dependency: Math.min(1, Math.max(0, (1 - vjFaceCoverage) * 0.6 + (1 - speechCoverage) * 0.4)),
+              // humor ← no source exists. Default 0.1 (low).
+              humor: 0.1,
+              'speech.coverage': speechCoverage,
+              'content.formality': genreFormality,
+            };
+            for (const d of briefResult.edl.decisions) {
+              if (!d.params.signals) {
+                d.params.signals = signalCtx;
+              }
+            }
+
             // Execute EDL (apply to overlays)
             const canvas = project.playerDimensions || { width: 1920, height: 1080 };
             const analysesMap = new Map<string, any>();
@@ -474,6 +614,44 @@ export async function executeDirectorPlan(
             for (const d of humanizedEdl.decisions) {
               edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
             }
+
+            // Snapshot decisions for threshold calibration feedback loop
+            try {
+              const vjepaLookup = vjepaSegs?.length
+                ? (frameNum: number) => {
+                    const timeMs = frameNum / pathEFps * 1000;
+                    const seg = vjepaSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs);
+                    return {
+                      speech_coverage: speechCoverage,
+                      visual_change_rate: seg?.motionIntensity ?? visualChangeRate,
+                      music_presence: musicPresence,
+                      visual_significance: seg?.visualSignificance ?? 0,
+                    };
+                  }
+                : { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate, music_presence: musicPresence };
+
+              const decisionLog = snapshotDecisions(
+                projectId, userId, humanizedEdl.decisions, contentMode,
+                totalDurationMs, vjepaLookup,
+              );
+              // Persist to MongoDB for render-time outcome capture
+              try {
+                const snapDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+                await snapDb.collection('projects').updateOne(
+                  { projectId },
+                  { $set: { 'intelligence.decisionLog': decisionLog } },
+                );
+              } catch { /* persistence is non-fatal */ }
+              console.log(`[Director] Path E: Snapshotted ${decisionLog.snapshots.length} decisions for calibration`);
+            } catch (snapErr: any) {
+              console.warn(`[Director] Path E: Decision snapshot failed (non-fatal): ${snapErr.message}`);
+            }
+
+            // Capture brief outputs for downstream action loop (replaces profile-driven values)
+            briefCaptionStyle = creativeBrief.captionStyle !== 'none' ? creativeBrief.captionStyle : undefined;
+            briefPacing = creativeBrief.overallPacing;
+            briefSignalContext = { ...signalCtx };
+            console.log(`[Director] Path E: Brief outputs — captionStyle=${briefCaptionStyle || 'none'}, pacing=${briefPacing}`);
 
             pathDHandled = true;
             console.log(`[Director] Path E: Creative Brief execution COMPLETE — ${humanizedEdl.decisions.length} decisions applied`);
@@ -549,6 +727,7 @@ export async function executeDirectorPlan(
               const { buildSignalTimelineFromAnalysis } = await import('@/lib/editron/services/signal-registry');
               signalTimeline = buildSignalTimelineFromAnalysis(
                 sa, analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps,
+                projectDoc.musicAnalysis ?? null,
               );
             } else {
               // ── Legacy path: read from 5 separate fields (backward compat) ──
@@ -579,16 +758,141 @@ export async function executeDirectorPlan(
                 analyses, projectDoc.rawFootageAnalysis, overlayInfos, pathDFps,
                 projectDoc.vjepaAnalysis ?? null,
                 projectDoc.wav2vecAnalysis ?? null,
+                projectDoc.musicAnalysis ?? null,
               );
             }
 
             console.log(`[Director] Path D: Moment weights Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
 
+            // Step D.3b: Threshold bandit — sample adjusted thresholds for this project
+            try {
+              const { loadThresholdBanditState, sampleThresholdAdjustments } = await import('@/lib/editron/services/threshold-bandit');
+              const banditState = await loadThresholdBanditState(userId);
+              if (banditState) {
+                const rfa = projectDoc.rawFootageAnalysis;
+                const banditContext = {
+                  contentType: rfa?.contentTypeDetection?.contentType || 'unknown',
+                  speechCoverageBucket: rfa?.speechCoverage != null ? (rfa.speechCoverage < 0.3 ? 'low' : rfa.speechCoverage < 0.7 ? 'medium' : 'high') : 'unknown',
+                  durationBucket: ((project.durationInFrames || 900) / pathDFps) < 60 ? 'short' : ((project.durationInFrames || 900) / pathDFps) < 300 ? 'medium' : 'long',
+                  platform: projectDoc.syntheticStoryboard?.platform || 'youtube',
+                };
+                const adj = sampleThresholdAdjustments(banditState, banditContext);
+                if (adj.usedBandit) {
+                  console.log(`[Director] Path D: Threshold bandit active (${adj.observationCount} obs) — adjusted thresholds sampled`);
+                }
+              }
+            } catch (banditErr: any) {
+              console.warn(`[Director] Path D: Threshold bandit failed (non-fatal): ${banditErr.message}`);
+            }
+
             // Step D.4: Execute signal-driven edit (evaluate 95 mappings)
-            const signalEdl = executeSignalDrivenEdit(
+            let signalEdl = executeSignalDrivenEdit(
               signalTimeline, genreOutput.genreParams, weightMap, graphIndex, overlayInfos
             );
             console.log(`[Director] Path D: ${signalEdl.metadata.totalMappingsFired} mappings fired → ${signalEdl.metadata.totalDecisionsGenerated} decisions (${signalEdl.metadata.totalDecisionsSuppressed} suppressed) in ${signalEdl.metadata.executionTimeMs}ms`);
+
+            // Step D.4b: Utility AI overlay scoring
+            // When USE_UTILITY_LIVE=true: produces EditDecisions that REPLACE signal-executor for zoom/transition/graphic/camera/cut
+            // When false: shadow scoring only (log, never affects output)
+            try {
+              const { scoreAllOverlays, selectWinners } = await import('@/lib/editron/engine/utility-scorer');
+              const { inspectGridPoint, formatInspectorLog } = await import('@/lib/editron/engine/decision-inspector');
+              const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
+              const overlayDefs = getOverlayDefinitions();
+              const { projectEventsOntoGrid } = await import('@/lib/editron/services/signal-registry');
+              projectEventsOntoGrid(signalTimeline);
+              const gridFrames = Array.from(signalTimeline.gridSignals.keys()).sort((a: number, b: number) => a - b);
+              let utilityTotal = 0;
+              let utilityAboveMin = 0;
+              const sampleLogs: string[] = [];
+              const gridPointDecisions: Array<{ frame: number; timestampMs: number; winners: Record<string, any> }> = [];
+              for (const frame of gridFrames) {
+                const snap = signalTimeline.gridSignals.get(frame)!;
+                const numericSnap: Record<string, number> = {};
+                for (const [k, v] of Object.entries({ ...signalTimeline.globalSignals, ...snap })) {
+                  if (typeof v === 'number') numericSnap[k] = v;
+                  else if (v === true) numericSnap[k] = 1;
+                  else if (v === false) numericSnap[k] = 0;
+                }
+                const results = scoreAllOverlays(overlayDefs, numericSnap);
+                utilityTotal += overlayDefs.length;
+                utilityAboveMin += results.length;
+                if (useUtilityLive) {
+                  const winners = selectWinners(results, frame);
+                  gridPointDecisions.push({ frame, timestampMs: (snap as any).timestampMs ?? (frame / pathDFps * 1000), winners });
+                }
+                if (results.length > 0 && sampleLogs.length < 5) {
+                  const decision = { frame, timestampMs: (snap as any).timestampMs ?? 0, winners: {} as any, allScores: results };
+                  sampleLogs.push(formatInspectorLog(inspectGridPoint(decision)));
+                }
+              }
+              console.log(`[Director] Utility AI ${useUtilityLive ? 'LIVE' : 'shadow'}: scored ${overlayDefs.length} overlays × ${gridFrames.length} grid points. ${utilityAboveMin} above minScore.`);
+              if (sampleLogs.length > 0) {
+                console.log(`[Director] Utility AI sample decisions:\n${sampleLogs.slice(0, 3).join('\n')}`);
+              }
+              if (useUtilityLive && gridPointDecisions.length > 0) {
+                const { overlayResultsToEditDecisions } = await import('@/lib/editron/engine/overlay-bridge');
+                const utilityEdl = overlayResultsToEditDecisions(gridPointDecisions, signalTimeline, pathDFps);
+                const merged = [...signalEdl.decisions.filter(d => d.type === 'graphic'), ...utilityEdl.decisions.filter(d => d.type !== 'graphic')];
+                signalEdl = { decisions: merged, metadata: { ...signalEdl.metadata, totalMappingsFired: merged.length, totalDecisionsGenerated: merged.length } };
+                console.log(`[Director] Utility AI LIVE: ${utilityEdl.decisions.length} overlay decisions produced (${utilityEdl.metadata.executionTimeMs}ms). Merged with ${signalEdl.decisions.filter(d => d.type === 'graphic').length} signal-executor graphics.`);
+              }
+            } catch (utilityErr) {
+              console.log(`[Director] Utility AI scoring: skipped (${utilityErr instanceof Error ? utilityErr.message : 'unknown error'})`);
+            }
+
+            // Step D.4c: Utility AI profile override — real signals (Phase 2.4)
+            // Global overlays (filter, caption) score against averaged signals across the
+            // entire video, not per-grid-point. This runs AFTER the signal timeline is built
+            // so it uses real content analysis instead of the old placeholder 0.5 values.
+            if (useUtilityEngine) {
+              try {
+                const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
+                const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
+                const overrideDefs = getOverlayDefinitions();
+                const overrideFrames = Array.from(signalTimeline.gridSignals.keys());
+                if (overrideFrames.length > 0) {
+                  const avgSignals: Record<string, number> = {};
+                  const avgCounts: Record<string, number> = {};
+                  for (const f of overrideFrames) {
+                    const snap = signalTimeline.gridSignals.get(f)!;
+                    for (const [k, v] of Object.entries(snap)) {
+                      if (typeof v === 'number' && isFinite(v)) {
+                        avgSignals[k] = (avgSignals[k] ?? 0) + v;
+                        avgCounts[k] = (avgCounts[k] ?? 0) + 1;
+                      }
+                    }
+                  }
+                  for (const k of Object.keys(avgSignals)) avgSignals[k] /= avgCounts[k];
+                  for (const [k, v] of Object.entries(signalTimeline.globalSignals)) {
+                    if (typeof v === 'number' && isFinite(v)) avgSignals[k] = v;
+                  }
+                  // Bridge: personality.* namespace → bare keys for overlay definitions + MG planner.
+                  // Personality signals are computed in signal-registry.ts (shared layer).
+                  if (avgSignals['content.formality'] !== undefined) avgSignals['formality'] = avgSignals['content.formality'];
+                  if (avgSignals['personality.enthusiasm'] !== undefined) avgSignals['enthusiasm'] = avgSignals['personality.enthusiasm'];
+                  if (avgSignals['personality.warmth'] !== undefined) avgSignals['warmth'] = avgSignals['personality.warmth'];
+                  if (avgSignals['personality.emotional_arousal'] !== undefined) avgSignals['emotional_arousal'] = avgSignals['personality.emotional_arousal'];
+                  if (avgSignals['personality.pacing_velocity'] !== undefined) avgSignals['pacing_velocity'] = avgSignals['personality.pacing_velocity'];
+                  if (avgSignals['personality.visceral_impact'] !== undefined) avgSignals['visceral_impact'] = avgSignals['personality.visceral_impact'];
+                  if (avgSignals['personality.visual_dependency'] !== undefined) avgSignals['visual_dependency'] = avgSignals['personality.visual_dependency'];
+                  if (avgSignals['personality.humor'] !== undefined) avgSignals['humor'] = avgSignals['personality.humor'];
+                  const overrideResults = scoreAllOverlays(overrideDefs, avgSignals);
+                  const filterWin = overrideResults.find(r => r.category === 'filter');
+                  const captionWin = overrideResults.find(r => r.category === 'caption');
+                  if (filterWin?.outputValues['filterPresetId']) {
+                    effectiveProfile = { ...effectiveProfile, filterPresetId: filterWin.outputValues['filterPresetId'] as string };
+                    console.log(`[Director] Utility AI override: filter → ${filterWin.outputValues['filterPresetId']} (score: ${filterWin.totalScore.toFixed(3)}, was: ${profile.filterPresetId}, signals: formality=${avgSignals['formality']?.toFixed(2)}, warmth=${avgSignals['warmth']?.toFixed(2)}, enthusiasm=${avgSignals['enthusiasm']?.toFixed(2)})`);
+                  }
+                  if (captionWin?.outputValues['captionStyle']) {
+                    effectiveProfile = { ...effectiveProfile, captionStyle: captionWin.outputValues['captionStyle'] as any };
+                    console.log(`[Director] Utility AI override: caption → ${captionWin.outputValues['captionStyle']} (score: ${captionWin.totalScore.toFixed(3)}, was: ${profile.captionStyle}, signals: formality=${avgSignals['formality']?.toFixed(2)}, speech.coverage=${avgSignals['speech.coverage']?.toFixed(2)})`);
+                  }
+                }
+              } catch (overrideErr) {
+                console.log(`[Director] Utility AI profile override: skipped (${overrideErr instanceof Error ? overrideErr.message : 'error'})`);
+              }
+            }
 
             // Step D.5: Humanize pass (organic imperfection injection)
             const humanizedEdl = humanizeEdl(signalEdl, projectId, projectDoc.rawFootageAnalysis, pathDFps);
@@ -739,6 +1043,7 @@ export async function executeDirectorPlan(
               overlays,
               context.fps,
               effectiveProfile.graphicsDensity,
+              pathEGenreParams as Record<string, number> | undefined,
             );
 
             if (translation.warnings.length > 0) {
@@ -882,16 +1187,44 @@ export async function executeDirectorPlan(
     // Attach EDL summary to result for frontend inspection
     (result as any).edlSummary = edlSummary;
 
+    // ─── Step 1.9: Utility AI caption/filter scoring (runs after BOTH Path E and Path D) ──
+    // The overlay-based scoring for caption style and filter preset was previously
+    // inside Path D only. When Path E handled intelligence, the utility scoring was
+    // skipped — leaving captions/filters profile-driven. Now it runs unconditionally.
+    if (process.env.USE_UTILITY_ENGINE === 'true' && briefSignalContext.speech_coverage !== undefined) {
+      try {
+        const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
+        const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
+        const overrideDefs = getOverlayDefinitions().filter(d => d.category === 'caption' || d.category === 'filter');
+        if (overrideDefs.length > 0) {
+          const signalsForScoring: Record<string, number> = {
+            'speech.coverage': briefSignalContext.speech_coverage ?? 0,
+            'formality': briefSignalContext.formality ?? briefSignalContext['content.formality'] ?? 0.5,
+            'warmth': briefSignalContext.warmth ?? 0.5,
+            'enthusiasm': briefSignalContext.enthusiasm ?? 0.5,
+          };
+          const overrideResults = scoreAllOverlays(overrideDefs, signalsForScoring);
+          const captionWin = overrideResults.find(r => r.category === 'caption');
+          const filterWin = overrideResults.find(r => r.category === 'filter');
+          if (captionWin?.outputValues['captionStyle']) {
+            briefCaptionStyle = captionWin.outputValues['captionStyle'] as string;
+            console.log(`[Director] Utility AI: caption → ${briefCaptionStyle} (score: ${captionWin.totalScore.toFixed(3)})`);
+          }
+          if (filterWin?.outputValues['filterPresetId']) {
+            effectiveProfile = { ...effectiveProfile, filterPresetId: filterWin.outputValues['filterPresetId'] as string };
+            console.log(`[Director] Utility AI: filter → ${filterWin.outputValues['filterPresetId']} (score: ${filterWin.totalScore.toFixed(3)})`);
+          }
+        }
+      } catch (utilErr: any) {
+        console.warn(`[Director] Utility AI caption/filter scoring failed (non-fatal): ${utilErr.message}`);
+      }
+    }
+
     // ─── Step 2: Check conditions and filter actions ──────────
-    // Caption injection: The user picks caption style in the export dialog.
-    // That choice flows through brief.overrides.captionStyle → effectiveProfile.captionStyle.
-    // But some profiles (B-07 Automotive, B-06 Real Estate, etc.) don't include
-    // addCaptions() in their actions array, so the user's choice gets ignored.
-    // Fix: If the user chose a caption style AND the profile lacks a caption action, inject one.
-    // If the user chose "none" or profile says "none" with no user override, respect that.
     const profileActions = [...effectiveProfile.actions];
     const hasCaptionAction = profileActions.some(a => a.tool === 'add_captions' || a.tool === 'add_fancy_captions');
-    const resolvedCaptionStyle = effectiveProfile.captionStyle; // Already merged with user override by applyBriefOverrides
+    // Utility AI output takes priority → brief output → profile fallback.
+    const resolvedCaptionStyle = briefCaptionStyle || effectiveProfile.captionStyle;
 
     if (!hasCaptionAction && resolvedCaptionStyle && resolvedCaptionStyle !== 'none') {
       // User chose a caption style (or profile default is not 'none') but profile has no caption action
@@ -991,17 +1324,16 @@ export async function executeDirectorPlan(
       }
     }
 
-    // Path D: suppress fancy_captions (creates non-editable html-scene overlays).
-    // Instead, keep standard add_captions which creates proper caption overlays.
-    let filteredActions = pathDConstraintViolations
-      ? actions.map(a => {
-          if (a.tool === 'add_fancy_captions') {
-            // Replace with standard captions for Mode 2 (editable, proper timeline row)
-            return { ...a, tool: 'add_captions' as const, description: 'Add captions from transcript' };
-          }
-          return a;
-        })
-      : actions;
+    // Unify captions: ALL caption paths go through add_captions (editable, word-timed).
+    // The standard caption system now supports instagram/hormozi display modes with spring
+    // animation — no need for separate add_fancy_captions html-scene overlays.
+    let filteredActions = actions.map(a => {
+      if (a.tool === 'add_fancy_captions') {
+        console.log(`[Director] Unified captions: fancy → add_captions (editable + animated)`);
+        return { ...a, tool: 'add_captions' as const, description: 'Add captions (unified, animated)' };
+      }
+      return a;
+    });
 
     // Path D: skip profile actions that the signal executor already handled.
     // Signal executor placed transitions via 95 graph mappings + EDL execution.
@@ -1419,6 +1751,11 @@ export async function executeDirectorPlan(
   } catch {}
 
   result.executionMs = Date.now() - startTime;
+  const pwAll = pipelineWarnings.getAll();
+  if (pwAll.length > 0) {
+    result.pipelineWarnings = pwAll;
+    console.log(`[Director] ${pipelineWarnings.getSummary()}`);
+  }
   console.log(`[Director] Complete: ${result.actionsExecuted} actions, ${result.actionsSkipped.length} skipped, ${result.executionMs}ms`);
 
   return result;
@@ -1617,19 +1954,48 @@ async function executeAction(
     case 'add_captions':
     case 'add_fancy_captions':
     case 'sync_cuts_to_beats': {
-      // For add_captions with Path D: compute caption style from signals BEFORE delegation
+      // Signal-driven caption style + display mode selection
+      // Signals determine both the visual style AND the display mode (word grouping + animation)
       if (action.tool === 'add_captions' && genreParams && !action.params?.style) {
         const formality = genreParams.formality ?? 0.5;
+        const energy = genreParams.energy_baseline ?? 0.5;
         const speakingRate = Math.max(100, 220 - (genreParams.pacing_tolerance * 10));
+        const enthusiasm = energy; // energy_baseline is our best proxy for enthusiasm at this point
+
         let signalStyle = 'minimal';
-        if (formality > 0.7 && speakingRate < 160) signalStyle = 'subtitle';
-        else if (speakingRate > 180) signalStyle = 'minimal';
-        else if (formality < 0.4) signalStyle = 'bold';
-        console.log(`[Director] Caption style from signals: formality=${formality.toFixed(2)}, rate~${Math.round(speakingRate)}WPM → "${signalStyle}"`);
-        action = { ...action, params: { ...action.params, style: signalStyle } };
+        let displayMode = 'phrase';
+
+        // CRG: formality 0.7+ → restrained, formal
+        if (formality > 0.7 && speakingRate < 140) {
+          signalStyle = 'subtitle';
+          displayMode = 'subtitle';
+        }
+        // High energy + fast pace → hormozi (bold punch, spring pop)
+        else if (enthusiasm > 0.7 && speakingRate > 160) {
+          signalStyle = 'bold';
+          displayMode = 'hormozi';
+        }
+        // Moderate casual → instagram (center block, spring scale)
+        else if (formality < 0.4 && enthusiasm > 0.4) {
+          signalStyle = 'bold';
+          displayMode = 'instagram';
+        }
+        // Moderate formal → karaoke (all words visible, active highlighted)
+        else if (formality > 0.5) {
+          signalStyle = 'minimal';
+          displayMode = 'karaoke';
+        }
+        // Low formality → phrase with bold
+        else if (formality < 0.4) {
+          signalStyle = 'bold';
+          displayMode = 'phrase';
+        }
+
+        console.log(`[Director] Caption from signals: formality=${formality.toFixed(2)}, energy=${enthusiasm.toFixed(2)}, rate~${Math.round(speakingRate)}WPM → style="${signalStyle}", mode="${displayMode}"`);
+        action = { ...action, params: { ...action.params, style: signalStyle, displayMode } };
       }
       // These are AI tools — delegate to invokeAITool which handles per-video iteration
-      modified = await invokeAITool(action, userId, projectId, profile, overlays);
+      modified = await invokeAITool(action, userId, projectId, profile, overlays, briefCaptionStyle);
       break;
     }
 
@@ -1972,6 +2338,7 @@ async function invokeAITool(
   projectId: string,
   profile: EditProfile,
   overlays: any[],
+  captionStyleOverride?: string,
 ): Promise<number> {
   const { createTools } = await import('@/lib/editron/agent/tools');
   const tools = createTools(userId, projectId);
@@ -2023,7 +2390,8 @@ async function invokeAITool(
         'creator': 'bold', 'fancy': 'bold', 'word-by-word': 'bold',
         'kinetic': 'bold', 'none': 'subtitle',
       };
-      const rawCaptionStyle = params.style || profile.captionStyle || 'subtitle';
+      // captionStyleOverride (from Utility AI via caller) takes priority over profile/action params
+      const rawCaptionStyle = captionStyleOverride || params.style || profile.captionStyle || 'subtitle';
       const captionStyle = CAPTION_STYLE_MAP[rawCaptionStyle] || rawCaptionStyle;
 
       // ── Mode 2 FIX: Seed transcription cache from rawFootageAnalysis ──
@@ -2171,15 +2539,28 @@ async function invokeAITool(
       break;
     }
     case 'add_motion_graphic': {
-      // Template search uses description to match against template tags/names.
-      // Templates are named: "Clean Minimal Lower Third", "Stat Counter", "Subscribe Button" etc.
-      // Description must match template vocabulary, not be generic filler.
-      params.category = params.category || 'lower-third';
+      // ── Option C: Structured fields preferred, category/description as fallback ──
       params.start = params.start || 0;
       params.duration = params.duration || 90;
       params.row = params.row || 1;
 
-      // Map category to template-searchable descriptions
+      // Map legacy category → graphicType for backward compat
+      const CATEGORY_TO_GRAPHIC_TYPE: Record<string, string> = {
+        'lower-third': 'lower-third',
+        'lower_third': 'lower-third',
+        'stat-counter': 'stat-counter',
+        'stat_counter': 'stat-counter',
+        'callout': 'callout',
+        'quote': 'quote-card',
+        'quote-card': 'quote-card',
+        'logo': 'logo-reveal',
+        'logo-reveal': 'logo-reveal',
+      };
+      if (!params.graphicType && params.category) {
+        params.graphicType = CATEGORY_TO_GRAPHIC_TYPE[params.category] || undefined;
+      }
+
+      // Fallback description for old template path (when no structured fields)
       const CATEGORY_DESCRIPTIONS: Record<string, string> = {
         'lower-third': 'clean lower third with name and title',
         'lower_third': 'clean lower third with name and title',
@@ -2194,16 +2575,16 @@ async function invokeAITool(
         'comparison': 'comparison layout',
         'notification': 'notification popup',
       };
-      const categoryDesc = CATEGORY_DESCRIPTIONS[params.category] || 'lower third';
-      params.description = params.description && params.description.length > 10
-        ? params.description
-        : categoryDesc;
+      if (!params.description || (params.description as string).length <= 10) {
+        const cat = params.category || params.graphicType || 'lower-third';
+        params.description = CATEGORY_DESCRIPTIONS[cat] || 'lower third';
+      }
 
       // Dedup: skip if EDL or another system already placed a graphic at this frame.
       // Without this, EDL creates a graphic and then Director's profile action creates
       // a duplicate at the same position.
       const existingAtFrame = overlays.find((o: any) =>
-        (o.type === 'html-scene' || o.type === 'sticker') &&
+        (o.type === 'html-scene' || o.type === 'sticker' || o.type === 'motion-graphic') &&
         Math.abs(o.from - (params.start || 0)) <= 30 // within 1 second
       );
       if (existingAtFrame) {
@@ -2211,7 +2592,7 @@ async function invokeAITool(
         return 0;
       }
 
-      console.log(`[Director] add_motion_graphic: category="${params.category}", desc="${(params.description as string).substring(0, 60)}" at frame ${params.start}`);
+      console.log(`[Director] add_motion_graphic: type="${params.graphicType || params.category || 'auto'}", desc="${(params.description as string).substring(0, 60)}" at frame ${params.start}`);
       break;
     }
     case 'generate_html_scene': {

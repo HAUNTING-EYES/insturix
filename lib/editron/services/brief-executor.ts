@@ -26,6 +26,8 @@ export interface BriefExecutorInput {
   totalDurationMs: number;
   /** Video overlays with sourceStartFrame for original-to-cut timeline mapping */
   overlays?: { from: number; durationInFrames: number; sourceStartFrame?: number; type?: string }[];
+  /** Beat timestamps for music-mode coordinate resolution */
+  beats?: { timestampMs: number; strength: number }[];
 }
 
 export interface BriefExecutorOutput {
@@ -47,7 +49,7 @@ const TYPE_MAP: Record<string, EditDecision['type']> = { ...TYPE_TO_EDL };
 const ENERGY_SNAP_WINDOW_MS = 500;
 
 export function executeBrief(input: BriefExecutorInput): BriefExecutorOutput {
-  const { brief, transcription, fps, audioEnergyCurve, totalDurationMs, overlays } = input;
+  const { brief, transcription, fps, audioEnergyCurve, totalDurationMs, overlays, beats } = input;
 
   // Build clip map for original-to-cut timeline mapping (Mode 2)
   const videoClips = (overlays || [])
@@ -67,7 +69,7 @@ export function executeBrief(input: BriefExecutorInput): BriefExecutorOutput {
   const decisions: EditDecision[] = [];
 
   for (const decision of brief.decisions) {
-    const resolved = resolveDecisionToFrame(decision, transcription, fps, audioEnergyCurve, totalDurationMs);
+    const resolved = resolveDecisionToFrame(decision, transcription, fps, audioEnergyCurve, totalDurationMs, beats);
 
     if (resolved === null) {
       stats.skippedOutOfRange++;
@@ -139,43 +141,79 @@ function resolveDecisionToFrame(
   fps: number,
   energyCurve: number[] | undefined,
   totalDurationMs: number,
+  beats?: { timestampMs: number; strength: number }[],
 ): ResolvedDecision | null {
-  const { targetWordIdx: rawIdx, type, confidence, reason, params } = decision;
+  const { type, confidence, reason, params } = decision;
+  const maxFrame = Math.round(totalDurationMs / 1000 * fps);
 
-  if (transcription.length === 0) return null;
+  let targetMs: number | null = null;
+  let snappedToEnergy = false;
+  let coordinateSource: 'timestamp' | 'beat' | 'word' = 'word';
 
-  // Smart clamping: recover near-boundary indices, discard hallucinated ones.
-  // Gemini's creative brief sometimes generates indices beyond transcript bounds.
-  // Off-by-a-few is recoverable (meant "near the end"). Wildly off (3x overshoot)
-  // is hallucinated garbage that would dump random effects at the video boundary.
-  // Proximity gate: clamp if within 10% of transcript length, discard if beyond.
-  const MAX_OVERSHOOT_RATIO = 0.1; // 10% — e.g., index 44 for 40 words = OK, index 120 = garbage
-  const maxAllowedOvershoot = Math.max(3, Math.ceil(transcription.length * MAX_OVERSHOOT_RATIO));
-  let targetWordIdx = rawIdx;
-  if (rawIdx < 0) {
-    if (Math.abs(rawIdx) <= maxAllowedOvershoot) {
-      targetWordIdx = 0;
-      console.warn(`[BriefExecutor] Word index ${rawIdx} < 0 — clamped to 0 (decision: ${type})`);
-    } else {
-      console.warn(`[BriefExecutor] Word index ${rawIdx} wildly negative (max overshoot: ${maxAllowedOvershoot}) — DISCARDED (decision: ${type})`);
-      return null;
+  // Priority 1: Direct timestamp (music/visual mode)
+  if (decision.targetTimestampMs !== undefined && decision.targetTimestampMs >= 0) {
+    targetMs = decision.targetTimestampMs;
+    coordinateSource = 'timestamp';
+
+    if (targetMs > totalDurationMs) {
+      const overshootRatio = (targetMs - totalDurationMs) / totalDurationMs;
+      if (overshootRatio <= 0.05) {
+        targetMs = totalDurationMs;
+        console.warn(`[BriefExecutor] Timestamp ${decision.targetTimestampMs}ms > duration ${totalDurationMs}ms — clamped (decision: ${type})`);
+      } else {
+        console.warn(`[BriefExecutor] Timestamp ${decision.targetTimestampMs}ms >> duration ${totalDurationMs}ms — DISCARDED (decision: ${type})`);
+        return null;
+      }
     }
-  } else if (rawIdx >= transcription.length) {
-    const overshoot = rawIdx - (transcription.length - 1);
-    if (overshoot <= maxAllowedOvershoot) {
-      targetWordIdx = transcription.length - 1;
-      console.warn(`[BriefExecutor] Word index ${rawIdx} >= transcript length ${transcription.length} — clamped to last word (overshoot: ${overshoot}, decision: ${type})`);
+  }
+
+  // Priority 2: Beat index (music mode)
+  if (targetMs === null && decision.targetBeatIdx !== undefined && decision.targetBeatIdx >= 0 && beats?.length) {
+    const beatIdx = decision.targetBeatIdx;
+    if (beatIdx < beats.length) {
+      targetMs = beats[beatIdx].timestampMs;
+      coordinateSource = 'beat';
+    } else if (beatIdx < beats.length * 1.1) {
+      targetMs = beats[beats.length - 1].timestampMs;
+      coordinateSource = 'beat';
+      console.warn(`[BriefExecutor] Beat index ${beatIdx} >= beats length ${beats.length} — clamped to last beat (decision: ${type})`);
     } else {
-      console.warn(`[BriefExecutor] Word index ${rawIdx} >> transcript length ${transcription.length} (overshoot: ${overshoot}, max: ${maxAllowedOvershoot}) — DISCARDED as hallucinated (decision: ${type})`);
+      console.warn(`[BriefExecutor] Beat index ${beatIdx} >> beats length ${beats.length} — DISCARDED (decision: ${type})`);
       return null;
     }
   }
 
-  const word = transcription[targetWordIdx];
-  let targetMs = word.startMs;
-  let snappedToEnergy = false;
+  // Priority 3: Word index (speech mode — existing path)
+  if (targetMs === null) {
+    const rawIdx = decision.targetWordIdx;
+    if (transcription.length === 0 || rawIdx < 0) return null;
 
-  // For zoom/emphasis decisions, snap to the nearest audio energy peak within window
+    const MAX_OVERSHOOT_RATIO = 0.1;
+    const maxAllowedOvershoot = Math.max(3, Math.ceil(transcription.length * MAX_OVERSHOOT_RATIO));
+    let targetWordIdx = rawIdx;
+
+    if (rawIdx >= transcription.length) {
+      const overshoot = rawIdx - (transcription.length - 1);
+      if (overshoot <= maxAllowedOvershoot) {
+        targetWordIdx = transcription.length - 1;
+        console.warn(`[BriefExecutor] Word index ${rawIdx} >= transcript length ${transcription.length} — clamped to last word (decision: ${type})`);
+      } else {
+        console.warn(`[BriefExecutor] Word index ${rawIdx} >> transcript length ${transcription.length} — DISCARDED (decision: ${type})`);
+        return null;
+      }
+    }
+
+    const word = transcription[targetWordIdx];
+    targetMs = word.startMs;
+
+    // For transition decisions, snap to BETWEEN words
+    if (isTransitionType(type) && targetWordIdx > 0) {
+      const prevWord = transcription[targetWordIdx - 1];
+      targetMs = prevWord.endMs + (word.startMs - prevWord.endMs) / 2;
+    }
+  }
+
+  // Energy snapping (all coordinate types)
   if (shouldSnapToEnergy(type) && energyCurve && energyCurve.length > 0) {
     const snapped = snapToEnergyPeak(targetMs, energyCurve, totalDurationMs, fps);
     if (snapped !== null) {
@@ -184,25 +222,14 @@ function resolveDecisionToFrame(
     }
   }
 
-  // For transition decisions, snap to BETWEEN words (the gap between end of prev and start of next)
-  if (isTransitionType(type) && targetWordIdx > 0) {
-    const prevWord = transcription[targetWordIdx - 1];
-    targetMs = prevWord.endMs + (word.startMs - prevWord.endMs) / 2;
-  }
-
   const frame = Math.round(targetMs / 1000 * fps);
-
-  // Validate frame is within video bounds
-  const maxFrame = Math.round(totalDurationMs / 1000 * fps);
-  if (frame < 0 || frame > maxFrame) {
-    return null;
-  }
+  if (frame < 0 || frame > maxFrame) return null;
 
   const editDecision: EditDecision = {
     type: TYPE_MAP[type] || 'zoom',
     frame,
     confidence,
-    source: `creative-brief:${reason}`,
+    source: `creative-brief:${reason}:${coordinateSource}`,
     technique: type,
     params: { ...params },
     reason: reason,

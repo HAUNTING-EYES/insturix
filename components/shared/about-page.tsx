@@ -12,6 +12,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { motion } from "framer-motion";
 import { ArrowRight, Upload, FileText, Users, Video, Film, MessageSquare, Palette, Globe } from "lucide-react";
 import Link from "next/link";
+import { FRAMER_VARIANTS } from "@/lib/animation/presets";
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 const EASE_CSS = "cubic-bezier(0.16, 1, 0.3, 1)";
@@ -62,22 +63,16 @@ const JOURNEY = [
   { date: "2026", title: "Public launch", description: "Opening the production floor to every business that creates content." },
 ];
 
-const staggerContainer = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.12, delayChildren: 0.1 } },
-};
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
-};
+// OLD: local staggerContainer/fadeUp/scaleFadeIn declarations (copy-pasted across 20+ files)
+// NEW: shared imports from lib/animation/presets.ts (one source of truth)
+// fadeIn kept local — uses y:16 (smaller than shared y:24)
+const staggerContainer = FRAMER_VARIANTS.staggerContainerWide;
+const fadeUp = FRAMER_VARIANTS.fadeUp;
 const fadeIn = {
   hidden: { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
 };
-const scaleFadeIn = {
-  hidden: { opacity: 0, scale: 0.92 },
-  visible: { opacity: 1, scale: 1, transition: { duration: 0.5, ease: EASE } },
-};
+const scaleFadeIn = FRAMER_VARIANTS.scaleIn;
 
 // =====================================================================
 
