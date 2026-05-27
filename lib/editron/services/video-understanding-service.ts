@@ -19,6 +19,8 @@
  * Cost: 1 Gemini call (~$0.03-0.05 — much less output than scene decomposition).
  */
 
+import type { PipelineWarningCollector } from './pipeline-warnings';
+
 // ─── Types ──────────────────────────────────────────────────────
 
 export interface VisualSetup {
@@ -108,6 +110,7 @@ export async function analyzeVideo(
     contentType: string;
     keptRanges?: Array<{ startSec: number; endSec: number }>;
   },
+  pipelineWarnings?: PipelineWarningCollector,
 ): Promise<SyntheticStoryboard | null> {
   // Use creative doc cached model — gives Gemini professional editing knowledge
   // Falls back to uncached analysis model on any cache failure
@@ -242,6 +245,7 @@ RULE 8 — Return ONLY the JSON object. No markdown, no explanation.
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[VideoUnderstanding] Analysis failed: ${msg}`);
+    pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), 'video understanding analysis');
     return null;
   }
 }

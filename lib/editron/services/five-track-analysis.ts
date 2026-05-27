@@ -19,6 +19,7 @@
  */
 
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import type { PipelineWarningCollector } from './pipeline-warnings';
 
 // ─── Gemini 429 Retry ───────────────────────────────────────────
 // Gemini rate limits are transient. Exponential backoff (2s, 4s, 8s) recovers
@@ -1039,6 +1040,7 @@ export async function runFullAnalysis(
     /** Pre-existing Gemini file URI from VideoUnderstanding — avoids redundant CDN download + upload */
     geminiFileUri?: string;
   },
+  pipelineWarnings?: PipelineWarningCollector,
 ): Promise<AssetAnalysis> {
   const { videoUrl, audioUrl, durationMs, transcript, words, storyboardScene, sourceType = 'ai-generated', geminiFileUri: preloadedFileUri } = options;
 
@@ -1116,6 +1118,7 @@ export async function runFullAnalysis(
           } catch (uploadErr: any) {
             t1.fail(uploadErr.message);
             console.error(`[Analysis] Upload failed:`, uploadErr.message);
+            pipelineWarnings?.errorSwallowed('analysis', uploadErr instanceof Error ? uploadErr : new Error(String(uploadErr)), 'Gemini file upload');
           }
         }
 
@@ -1135,6 +1138,7 @@ export async function runFullAnalysis(
           } catch (mergeErr: any) {
             t2.fail(mergeErr.message);
             console.warn(`[Analysis] Merged analysis failed: ${mergeErr.message}, trying individual calls`);
+            pipelineWarnings?.errorSwallowed('analysis', mergeErr instanceof Error ? mergeErr : new Error(String(mergeErr)), 'merged vision analysis (L2+L4+L5)');
 
             // Fallback to individual calls
             const t3 = traceStep('fallback_individual_calls');
@@ -1153,6 +1157,7 @@ export async function runFullAnalysis(
               t3.ok(`motion=${motionOk}, keyframes=${kfOk}, subjects=${subOk}`);
             } catch (fallbackErr: any) {
               t3.fail(fallbackErr.message);
+              pipelineWarnings?.errorSwallowed('analysis', fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr)), 'fallback individual vision calls');
             }
           }
 
@@ -1168,6 +1173,7 @@ export async function runFullAnalysis(
       const tOuter = traceStep('outer_catch');
       tOuter.fail(err.message);
       console.error(`[Analysis] Video analysis failed: ${err.message}`);
+      pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), 'video analysis outer');
     }
   } else {
     trace.push({ step: 'video_url', status: 'skipped: no videoUrl provided', durationMs: 0 });
@@ -1215,6 +1221,7 @@ export async function runFullAnalysis(
       audioData = await analyzeAudio(audioUrl, durationMs);
     } catch (err: any) {
       console.warn(`[Layer3] Audio analysis failed: ${err.message}`);
+      pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), 'Layer 3 audio analysis');
     }
   }
 
@@ -1298,6 +1305,7 @@ export async function runFullAnalysis(
         `[TrackA] Transcription verification failed for ${assetId}: ${err.message}. ` +
         `Proceeding without hallucination flag — downstream will treat as silent.`,
       );
+      pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), 'Track A transcription verification');
     }
   }
 
@@ -1438,6 +1446,7 @@ export async function analyzeProjectAssets(
   userId: string,
   /** Max time budget in ms. Analysis stops when exceeded. Default 120s. */
   timeBudgetMs: number = 120_000,
+  pipelineWarnings?: PipelineWarningCollector,
 ): Promise<{ analyzed: number; cached: number; failed: number; timedOut: boolean }> {
   const startMs = Date.now();
   const db = await getDatabase();
@@ -1469,10 +1478,11 @@ export async function analyzeProjectAssets(
       if (!videoUrl) { failed++; continue; }
 
       const durationMs = (overlay.durationInFrames / 30) * 1000;
-      await runFullAnalysis(assetId, userId, { videoUrl, durationMs });
+      await runFullAnalysis(assetId, userId, { videoUrl, durationMs }, pipelineWarnings);
       analyzed++;
     } catch (err: any) {
       console.error(`[Analysis] Failed ${assetId}:`, err.message);
+      pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), `asset analysis ${assetId}`);
       failed++;
     }
   }

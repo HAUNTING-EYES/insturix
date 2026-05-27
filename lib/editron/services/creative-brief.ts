@@ -17,6 +17,7 @@
  */
 
 import { getCreativeDocCachedModel } from './gemini-context-cache';
+import type { PipelineWarningCollector } from './pipeline-warnings';
 import {
   DECISION_REGISTRY, VALID_DECISION_TYPES, VALID_DECISION_REASONS,
   BUDGET_CATEGORIES, TYPE_TO_BUDGET, REQUIRED_PARAMS_MAP, DEFAULT_PARAMS_MAP,
@@ -188,6 +189,7 @@ export async function generateCreativeBrief(
   geminiFileUri?: string,
   genreParams?: GenreParameters,
   contentMode?: ContentMode,
+  pipelineWarnings?: PipelineWarningCollector,
 ): Promise<CreativeBrief | null> {
   const startTime = Date.now();
   const mode = contentMode ?? 'speech';
@@ -264,6 +266,7 @@ export async function generateCreativeBrief(
   } catch (err: any) {
     console.error(`[CreativeBrief] Generation FAILED: ${err.message}`);
     console.error(`[CreativeBrief] Stack: ${err.stack?.split('\n').slice(0, 3).join(' | ')}`);
+    pipelineWarnings?.errorSwallowed('director', err instanceof Error ? err : new Error(String(err)), 'creative brief generation');
     return null;
   }
 }
