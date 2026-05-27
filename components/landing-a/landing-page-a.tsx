@@ -469,6 +469,7 @@ export function LandingPageA() {
         @keyframes toastUnfold{0%{clip-path:inset(100% 0 0 0);opacity:0}50%{clip-path:inset(0);opacity:0}100%{clip-path:inset(0);opacity:1}}
         @keyframes phaseFlipIn{from{transform:perspective(400px) rotateX(90deg);opacity:0}to{transform:perspective(400px) rotateX(0deg);opacity:1}}
         @keyframes digitRollIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes ctaGlow{0%,100%{box-shadow:0 0 0 rgba(212,166,82,0)}50%{box-shadow:0 0 24px rgba(212,166,82,.25)}}
         @keyframes eqBounce{0%,100%{transform:scaleY(.15)}50%{transform:scaleY(1)}}
         @keyframes toastIn{from{opacity:0;transform:translateY(-16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
         .mkt-card{transition:border-color .35s ${EASE},transform .35s ${EASE}}
@@ -948,10 +949,27 @@ function AnimNum({ target, prefix = "", suffix = "", delay = 0 }: { target: numb
 // ═══════════════════════════════════════════════════════════════
 
 function Marketing() {
+  const sRefs = useRef<(HTMLElement | null)[]>([]);
+  const [vis, setVis] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const idx = sRefs.current.indexOf(e.target as HTMLElement);
+          if (idx >= 0) setVis(prev => { const s = new Set(prev); s.add(idx); return s; });
+        }
+      });
+    }, { threshold: 0.1 });
+    sRefs.current.forEach(el => { if (el) obs.observe(el); });
+    return () => obs.disconnect();
+  }, []);
+  const sr = (i: number) => (el: HTMLElement | null) => { sRefs.current[i] = el; };
+  const v = (i: number) => vis.has(i);
+
   return (
     <div style={{ background: C.bg, minHeight: "100vh", paddingTop: 64, width: "100%" }}>
-      {/* Stats */}
-      <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
+      {/* Stats — "The Numbers Drop": curtain reveal per cell, stagger 0.1s */}
+      <section ref={sr(0)} className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
         <div className="mkt-stats" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2, borderRadius: 12, overflow: "hidden" }}>
           {[
             { target: 40, suffix: "%", l: "Lower cost", s: "vs. agencies" },
@@ -959,9 +977,8 @@ function Marketing() {
             { prefix: "$", target: 2353, suffix: "", l: "Saved per video", s: "vs. traditional" },
             { target: 8, suffix: " min", l: "Average production", s: "complete video" },
           ].map((st, i) => (
-            <div key={i} style={{ background: i % 2 === 0 ? "#0D0D0C" : C.s1, padding: "48px 32px", textAlign: "center" }}>
-              <AnimNum target={st.target} prefix={st.prefix || ""} suffix={st.suffix} delay={i * 200} />
-              {/* FIX #5: fontWeight 600 → 500 */}
+            <div key={i} style={{ background: i % 2 === 0 ? "#0D0D0C" : C.s1, padding: "48px 32px", textAlign: "center", clipPath: v(0) ? "inset(0)" : "inset(100% 0 0 0)", transition: `clip-path .5s ${EASE} ${i * 0.1}s` }}>
+              <AnimNum target={st.target} prefix={st.prefix || ""} suffix={st.suffix} delay={i * 200 + 500} />
               <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{st.l}</div>
               <div style={{ fontSize: 13, color: C.dim }}>{st.s}</div>
             </div>
@@ -971,13 +988,13 @@ function Marketing() {
 
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
-      {/* Approach A: AI editing callout — moved here for visibility */}
-      <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
+      {/* AI Editing — "The Demo Reel": left column first, tags stagger, right delayed */}
+      <section ref={sr(1)} className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
         <div style={{
           display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 32, alignItems: "center",
           background: C.s1, border: `1px solid ${C.cyan}18`, borderRadius: 12, padding: "48px 24px", overflow: "hidden",
         }}>
-          <div>
+          <div style={{ opacity: v(1) ? 1 : 0, transform: v(1) ? "none" : "translateY(20px)", transition: `all .5s ${EASE}` }}>
             <span className="m" style={{ fontSize: 10, letterSpacing: "0.08em", color: C.cyan, display: "block", marginBottom: 16 }}>
               AI EDITING
             </span>
@@ -988,18 +1005,20 @@ function Marketing() {
               Upload your raw video. AI applies professional cuts, color grading, pacing, and audio mixing — the same decisions a senior editor makes.
             </p>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              {["Auto-cut to music", "Color grade", "Caption sync", "Audio mix", "Hook-body-CTA"].map((tag) => (
+              {["Auto-cut to music", "Color grade", "Caption sync", "Audio mix", "Hook-body-CTA"].map((tag, ti) => (
                 <span key={tag} style={{
                   fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: C.cyan,
                   background: `${C.cyan}10`, border: `1px solid ${C.cyan}18`,
                   padding: "4px 12px", borderRadius: 4,
+                  opacity: v(1) ? 1 : 0, transform: v(1) ? "none" : "translateX(-8px)",
+                  transition: `all .35s ${EASE} ${ti * 0.04 + 0.2}s`,
                 }}>
                   {tag}
                 </span>
               ))}
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, opacity: v(1) ? 1 : 0, transform: v(1) ? "none" : "translateY(20px)", transition: `all .5s ${EASE} 0.2s` }}>
             <div style={{ background: C.s2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "16px 20px" }}>
               <span className="m" style={{ fontSize: 10, color: C.dim, display: "block", marginBottom: 8 }}>RAW FOOTAGE</span>
               <div style={{ display: "flex", gap: 8 }}>
@@ -1040,27 +1059,26 @@ function Marketing() {
 
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
-      {/* Before/After */}
-      <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
-        <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", textAlign: "center", marginBottom: 48 }}>The old way vs. <span style={{ color: C.accent }}>Insturix</span></h2>
+      {/* Comparison — "The Two Timelines": cards converge from sides, steps stagger, total last */}
+      <section ref={sr(2)} className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
+        <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", textAlign: "center", marginBottom: 48, opacity: v(2) ? 1 : 0, transition: `opacity .5s ${EASE}` }}>The old way vs. <span style={{ color: C.accent }}>Insturix</span></h2>
         <div className="mkt-compare" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           {[
             { title: "Traditional", color: C.red, steps: ["Brief freelancer - 2 hours", "Wait for draft - 3 days", "Revision round 1 - 2 days", "Revision round 2 - 1 day", "Final export - 2 hours"], total: "~6 days", cost: "$2,400" },
             { title: "Insturix", color: C.green, steps: ["Type your prompt - 30 seconds", "AI writes script - 48 seconds", "AI produces video - 4 minutes", "AI analyzes + optimizes - 45 seconds", "Published to 6 platforms - 1 minute"], total: "~8 minutes", cost: "$47" },
           ].map((side, i) => (
-            <div key={i} style={{ background: C.s1, border: `1px solid ${side.color}18`, borderRadius: 12, padding: "32px 24px" }}>
+            <div key={i} style={{ background: C.s1, border: `1px solid ${side.color}18`, borderRadius: 12, padding: "32px 24px", transform: v(2) ? "none" : `translateX(${i === 0 ? "-40px" : "40px"})`, opacity: v(2) ? 1 : 0, transition: `all .5s ${EASE}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 4, background: side.color }} />
-                {/* FIX #5: fontWeight 700 → 800 */}
                 <span style={{ fontSize: 18, fontWeight: 800, color: side.color }}>{side.title}</span>
               </div>
               {side.steps.map((st, j) => (
-                <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", background: C.s2, borderRadius: 8, marginBottom: 4, border: `1px solid ${C.border}` }}>
+                <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", background: C.s2, borderRadius: 8, marginBottom: 4, border: `1px solid ${C.border}`, opacity: v(2) ? 1 : 0, transition: `opacity .35s ${EASE} ${j * 0.06 + 0.15}s` }}>
                   <span style={{ fontSize: 13, color: C.soft }}>{st.split(" - ")[0]}</span>
                   <span className="m" style={{ fontSize: 11, color: side.color }}>{st.split(" - ")[1]}</span>
                 </div>
               ))}
-              <div style={{ textAlign: "center", marginTop: 16, padding: "16px", background: `${side.color}08`, borderRadius: 8, border: `1px solid ${side.color}12` }}>
+              <div style={{ textAlign: "center", marginTop: 16, padding: "16px", background: `${side.color}08`, borderRadius: 8, border: `1px solid ${side.color}12`, opacity: v(2) ? 1 : 0, transform: v(2) ? "none" : "scale(0.9)", transition: `all .5s ${EASE} 0.5s` }}>
                 <span style={{ fontSize: 32, fontWeight: 800, color: side.color }}>{side.total}</span>
                 <span style={{ fontSize: 13, color: side.color, display: "block", marginTop: 4, opacity: 0.6 }}>and {side.cost} spent</span>
               </div>
@@ -1072,9 +1090,9 @@ function Marketing() {
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
 
-      {/* Paths — FIX #12: CSS class hover instead of inline JS */}
-      <section className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
-        <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", marginBottom: 48 }}>Two paths. Same engine.</h2>
+      {/* Two Paths — "The Fork": cards enter from their respective sides */}
+      <section ref={sr(3)} className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
+        <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", marginBottom: 48, opacity: v(3) ? 1 : 0, transition: `opacity .5s ${EASE}` }}>Two paths. Same engine.</h2>
         <div className="mkt-paths" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           {[
             { t: "For brand teams", d: "Produce 10x more content without growing headcount.", items: ["Chat-based editing — no skills needed", "Every output matches your brand", "Script to published in hours, not weeks"], c: C.accent },
@@ -1089,8 +1107,10 @@ function Marketing() {
                 borderRadius: 12,
                 padding: "32px 32px",
                 cursor: "pointer",
-                // FIX #12: CSS variable for hover color
                 "--hover-border": `${card.c}20`,
+                opacity: v(3) ? 1 : 0,
+                transform: v(3) ? "none" : `translateX(${i === 0 ? "-24px" : "24px"})`,
+                transition: `all .5s ${EASE} ${i * 0.1}s, border-color .35s ${EASE}, transform .35s ${EASE}`,
               } as React.CSSProperties}
             >
               <h3 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em", marginBottom: 12 }}>{card.t}</h3>
@@ -1111,18 +1131,18 @@ function Marketing() {
 
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 48px" }}><div style={{ height: 1, background: C.border }} /></div>
 
-      {/* Closing CTA — the conversion moment */}
-      <section className="mkt-section" style={{ padding: "120px 48px", textAlign: "center", maxWidth: 1120, margin: "0 auto" }}>
-        <span className="m" style={{ fontSize: 13, color: C.accent, letterSpacing: "0.08em", display: "block", marginBottom: 24 }}>
+      {/* CTA — "The Ask": slowest, most deliberate cascade on the page */}
+      <section ref={sr(4)} className="mkt-section" style={{ padding: "120px 48px", textAlign: "center", maxWidth: 1120, margin: "0 auto" }}>
+        <span className="m" style={{ fontSize: 13, color: C.accent, letterSpacing: "0.08em", display: "block", marginBottom: 24, opacity: v(4) ? 1 : 0, transition: `opacity .35s ${EASE}` }}>
           READY TO START?
         </span>
-        <h2 style={{ fontSize: 44, fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.035em", marginBottom: 16 }}>
+        <h2 style={{ fontSize: 44, fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.035em", marginBottom: 16, opacity: v(4) ? 1 : 0, transform: v(4) ? "none" : "translateY(16px)", transition: `all .5s ${EASE} 0.25s` }}>
           Your next video is a<br />conversation away.
         </h2>
-        <p style={{ fontSize: 18, color: C.muted, lineHeight: 1.55, maxWidth: 480, margin: "0 auto 48px" }}>
+        <p style={{ fontSize: 18, color: C.muted, lineHeight: 1.55, maxWidth: 480, margin: "0 auto 48px", opacity: v(4) ? 1 : 0, transition: `opacity .35s ${EASE} 0.45s` }}>
           Join thousands of creators and teams who produce professional content from a single prompt.
         </p>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, flexWrap: "wrap", pointerEvents: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, flexWrap: "wrap", pointerEvents: "auto", opacity: v(4) ? 1 : 0, transition: `opacity .35s ${EASE} 0.65s` }}>
           <a
             href="/signup"
             style={{
@@ -1137,6 +1157,7 @@ function Marketing() {
               fontFamily: "inherit",
               textDecoration: "none",
               transition: `opacity .25s ${EASE}`,
+              animation: v(4) ? `ctaGlow .8s ${EASE} 0.8s both` : "none",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.9"; }}
             onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
@@ -1169,7 +1190,7 @@ function Marketing() {
             Talk to sales
           </a>
         </div>
-        <p style={{ marginTop: 64, fontSize: 13, color: C.dim }}>Insturix — Building Future, Together.</p>
+        <p style={{ marginTop: 64, fontSize: 13, color: C.dim, opacity: v(4) ? 1 : 0, transition: `opacity .5s ${EASE} 1s` }}>Insturix — Building Future, Together.</p>
       </section>
     </div>
   );
