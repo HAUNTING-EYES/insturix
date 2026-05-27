@@ -40,7 +40,9 @@ function getGoogleApiKey(): string {
   return key;
 }
 
-const MODEL_NAME = 'gemini-3.1-flash-lite-preview'; // Production model — verified against Google API 2026-05-15
+// Canonical source: lib/editron/utils/gemini-model-factory.ts CHAT_MODEL_NAME
+// Cannot import server-side factory from client component — mirrors the value.
+const MODEL_NAME = process.env.LLM_CHAT_MODEL || process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview';
 const MAX_TURNS = 5; // Maximum function calling iterations
 
 // ============================================================================
