@@ -171,13 +171,21 @@ async function analyzeVideo(
   if (xaiKey) {
     try {
       const formData = new FormData();
-      formData.append('url', signedUrl);
+      // Send as binary file — GCS signed URLs return headers xAI can't detect format from.
+      // The local file is already downloaded in Stage 1.
+      const localFile = join(process.cwd(), '.calibration-temp', `${title}.mp4`);
+      if (existsSync(localFile)) {
+        const fileBytes = readFileSync(localFile);
+        formData.append('file', new Blob([fileBytes], { type: 'video/mp4' }), `${title}.mp4`);
+      } else {
+        formData.append('url', signedUrl);
+      }
       formData.append('language', 'en');
       formData.append('format', 'true');
       formData.append('diarize', 'true');
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 120_000);
+      const timer = setTimeout(() => controller.abort(), 180_000); // 180s for file upload
       const response = await fetch('https://api.x.ai/v1/stt', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${xaiKey}` },
