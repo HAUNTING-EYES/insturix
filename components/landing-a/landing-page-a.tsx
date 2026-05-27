@@ -198,7 +198,7 @@ export function LandingPageA() {
           scroller: scroller,
           start: "top top",
           end: "bottom bottom",
-          scrub: 0.5, // 500ms momentum catchup — feels smooth without the 1s lag CEO flagged
+          scrub: true, // Instant — Lenis provides the momentum feel. scrub:0.5 caused double-smoothing bounce.
           onUpdate: (self) => {
             const p = self.progress;
 
@@ -253,6 +253,14 @@ export function LandingPageA() {
               const track = TRACKS[ti];
               const fill = Math.max(0, Math.min(1, (pp - track.lo) / (track.hi - track.lo)));
               fillEl.style.width = `${fill * 100}%`;
+              // Playhead on first track
+              if (ti === 0) {
+                const playhead = document.querySelector("[data-track-playhead]") as HTMLElement;
+                if (playhead) {
+                  playhead.style.left = `${fill * 100}%`;
+                  playhead.style.opacity = fill > 0 ? "1" : "0";
+                }
+              }
               // Track visibility
               const row = fillEl.closest("[data-track-row]") as HTMLElement;
               if (row) row.style.opacity = String(pp >= track.lo ? 1 : 0);
@@ -677,15 +685,15 @@ function TL({ phase, pct }: { phase: string; pct: number }) {
       </div>
       <div style={{ flex: 1, padding: "4px 16px", display: "flex", flexDirection: "column", gap: 2 }}>
         {TRACKS.map((t, i) => {
-          // Track fills are GSAP-owned at 60fps (onUpdate above). React provides structure only.
-          const fill = Math.max(0, Math.min(1, (pct - t.lo) / (t.hi - t.lo)));
+          // Track fills + playhead are GSAP-owned at 60fps. React provides structure ONLY.
+          // NO width/left in inline styles — React re-render would overwrite GSAP's values.
           return (
-            <div key={i} data-track-row style={{ display: "flex", alignItems: "center", gap: 8, height: 12, opacity: 0, transition: `opacity .4s ${EASE}` }}>
+            <div key={i} data-track-row style={{ display: "flex", alignItems: "center", gap: 8, height: 12, opacity: 0 }}>
               <span className="m" style={{ fontSize: 11, color: C.dim, width: 44, textAlign: "right" }}>{t.label}</span>
               <div style={{ flex: 1, height: "100%", background: C.s2, borderRadius: 4, position: "relative", overflow: "hidden" }}>
-                <div data-track-fill={i} style={{ position: "absolute", left: 0, top: 1, bottom: 1, width: "0%", background: `${t.c}22`, border: `1px solid ${t.c}32`, borderRadius: 4 }} />
-                {i === 0 && fill > 0 && (
-                  <div style={{ position: "absolute", left: `${fill * 100}%`, top: -1, bottom: -1, width: 2, background: C.accent, transition: `left .15s ${EASE}`, zIndex: 2 }}>
+                <div data-track-fill={i} style={{ position: "absolute", left: 0, top: 1, bottom: 1, background: `${t.c}22`, border: `1px solid ${t.c}32`, borderRadius: 4 }} />
+                {i === 0 && (
+                  <div data-track-playhead style={{ position: "absolute", top: -1, bottom: -1, width: 2, background: C.accent, left: "0%", zIndex: 2 }}>
                     <div style={{ position: "absolute", top: -2, left: -3, width: 8, height: 8, borderRadius: 4, background: C.accent }} />
                   </div>
                 )}
