@@ -267,11 +267,12 @@ export function LandingPageA() {
             }
 
             // ── 60fps: Dimmer overlay — "control room lights dimming" ──
+            // Subtle, barely perceptible. Just enough to feel "the room changed."
+            // Too strong → black flicker on scroll-back. 8% max, narrow window.
             const dimmer = document.getElementById("controlRoomDimmer");
             if (dimmer) {
-              // Subtle darkening at pct 0.54→0.56, then fades out at 0.58
-              const dimProgress = p < 0.54 ? 0 : p < 0.56 ? (p - 0.54) / 0.02 : p < 0.58 ? 1 - (p - 0.56) / 0.02 : 0;
-              gsap.set(dimmer, { opacity: dimProgress * 0.15 }); // Max 15% darker
+              const dimProgress = p < 0.55 ? 0 : p < 0.565 ? (p - 0.55) / 0.015 : p < 0.58 ? 1 - (p - 0.565) / 0.015 : 0;
+              dimmer.style.opacity = String(dimProgress * 0.08);
             }
 
             // Event-driven React state: showMkt set IMMEDIATELY (not throttled).

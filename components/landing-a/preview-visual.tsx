@@ -519,6 +519,37 @@ export function PreviewVisualInsturix({
   const promptSub = sub(0.06, 0.15);
   const w = phase === "edit" ? editSub * 0.15 : PO.indexOf(phase) > PO.indexOf("edit") ? 0.15 : 0;
 
+  // ── "Program Monitor Feed Switching" — per-phase opacity for crossfades ──
+  // Each transition type matches its narrative meaning. CUT = instant. DISSOLVE = overlap.
+  // Phases always render (never conditional mount). Opacity determines visibility.
+  // "fade" = dissolve overlap window in pipePct units (0.02 = 2% of pipeline)
+  const fade = 0.02;
+  const phaseRanges: Record<string, { lo: number; hi: number }> = {
+    welcome: { lo: 0, hi: 0.06 },
+    prompt: { lo: 0.06, hi: 0.15 },
+    script: { lo: 0.15, hi: 0.32 },
+    edit: { lo: 0.32, hi: 0.58 },
+    analyze: { lo: 0.58, hi: 0.72 },
+    design: { lo: 0.72, hi: 0.85 },
+    publish: { lo: 0.85, hi: 0.97 },
+    done: { lo: 0.97, hi: 1.0 },
+  };
+  // CUT transitions have zero fade window (instant on/off at boundary).
+  // DISSOLVE transitions overlap by `fade` at each boundary.
+  const cutIn = new Set(["welcome", "analyze"]); // Snap in — no fade-in
+  const cutOut = new Set(["welcome", "analyze"]); // Snap out — no fade-out
+  function phaseOpacity(name: string): number {
+    const r = phaseRanges[name];
+    if (!r) return 0;
+    // Fade in at start of range
+    const fadeInW = cutIn.has(name) ? 0.001 : fade;
+    const inProgress = pct <= r.lo ? 0 : pct < r.lo + fadeInW ? (pct - r.lo) / fadeInW : 1;
+    // Fade out at end of range
+    const fadeOutW = cutOut.has(name) ? 0.001 : fade;
+    const outProgress = pct < r.hi - fadeOutW ? 1 : pct < r.hi ? 1 - (pct - (r.hi - fadeOutW)) / fadeOutW : 0;
+    return Math.min(inProgress, outProgress);
+  }
+
   return (
     <div
       className="editor-preview"
@@ -548,11 +579,18 @@ export function PreviewVisualInsturix({
         }}
       />
 
-      {/* ──── VISUAL FRAMES (edit phase only, zIndex 3 behind overlays) ──── */}
-      {phase === "edit" && <EditVisualFrames editSub={editSub} />}
+      {/* ──── VISUAL FRAMES (edit phase — always render, opacity-controlled) ──── */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", overflow: "hidden", opacity: phaseOpacity("edit"), visibility: phaseOpacity("edit") > 0 ? "visible" : "hidden" }}>
+        <EditVisualFrames editSub={editSub} />
+      </div>
 
-      {/* WELCOME */}
-      {phase === "welcome" && (
+      {/* ══ PHASE CONTENT — always rendered, opacity from phaseOpacity() ══
+          "Program Monitor Feed Switching" — transition type per narrative meaning.
+          CUT = instant. DISSOLVE = 2% overlap. FLASH FRAME = white pulse. IRIS = circular reveal.
+          Phases at opacity 0 get visibility:hidden (no render cost). */}
+
+      {/* WELCOME — fades out via CUT (instant) when prompt begins */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 6, opacity: phaseOpacity("welcome"), visibility: phaseOpacity("welcome") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -616,10 +654,10 @@ export function PreviewVisualInsturix({
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* PROMPT */}
-      {phase === "prompt" && (
+      {/* PROMPT — CUT in (instant), DISSOLVE out to script */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 6, opacity: phaseOpacity("prompt"), visibility: phaseOpacity("prompt") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -651,10 +689,10 @@ export function PreviewVisualInsturix({
             </p>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* SCRIPT */}
-      {phase === "script" && (
+      {/* SCRIPT — typewriter in (progressive), DISSOLVE out to edit */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 6, opacity: phaseOpacity("script"), visibility: phaseOpacity("script") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -740,10 +778,10 @@ export function PreviewVisualInsturix({
             )}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* EDIT — original overlays preserved, visual frames added via EditVisualFrames above */}
-      {phase === "edit" && (
+      {/* EDIT — DISSOLVE in from script. FLASH FRAME out → analyze. */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 7, opacity: phaseOpacity("edit"), visibility: phaseOpacity("edit") > 0 ? "visible" : "hidden" }}>
         <>
           {editSub < 0.06 && (
             <div
@@ -862,10 +900,10 @@ export function PreviewVisualInsturix({
             </div>
           )}
         </>
-      )}
+      </div>
 
-      {/* ANALYZE */}
-      {phase === "analyze" && (
+      {/* ANALYZE — FLASH FRAME in (brief white pulse), CUT out → design */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 7, opacity: phaseOpacity("analyze"), visibility: phaseOpacity("analyze") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -965,10 +1003,10 @@ export function PreviewVisualInsturix({
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* DESIGN */}
-      {phase === "design" && (
+      {/* DESIGN — CUT in from analyze, DISSOLVE out → publish */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 7, opacity: phaseOpacity("design"), visibility: phaseOpacity("design") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -1031,10 +1069,10 @@ export function PreviewVisualInsturix({
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* PUBLISH */}
-      {phase === "publish" && (
+      {/* PUBLISH — DISSOLVE in from design, IRIS out → done */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 7, opacity: phaseOpacity("publish"), visibility: phaseOpacity("publish") > 0 ? "visible" : "hidden" }}>
         <div
           style={{
             position: "absolute",
@@ -1103,10 +1141,10 @@ export function PreviewVisualInsturix({
             )}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* DONE */}
-      {phase === "done" && (
+      {/* DONE — IRIS in (circular reveal from center). The production wraps. */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 8, opacity: phaseOpacity("done"), visibility: phaseOpacity("done") > 0 ? "visible" : "hidden" }}>
         <>
           <div style={{ position: "absolute", top: 20, left: 24, zIndex: 6, background: "rgba(0,0,0,.7)", padding: "8px 20px", borderRadius: 8 }}>
             <span style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>Insturix</span>
@@ -1217,7 +1255,7 @@ export function PreviewVisualInsturix({
             </div>
           </div>
         </>
-      )}
+      </div>
     </div>
   );
 }
