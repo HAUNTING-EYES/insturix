@@ -7,6 +7,7 @@ import type {
   CompositionStrategy,
   HoldPattern,
   MGKeyframeTrack,
+  TextSplitMode,
 } from './recipe-types';
 import { analyzeContentShape } from './content-shape-analyzer';
 import { generateBrandPattern } from './brand-pattern-generator';
@@ -114,6 +115,22 @@ export function planComposition(
   // D8: Signal-driven keyframe generation — "crazy edits" motion paths
   const entranceFrames = Math.round((language.animation.entranceDurationMs / 1000) * 30);
   resolveKeyframeTracks(elements, s, entranceFrames, strategy.holdDurationFrames, mgScores);
+
+  // Text split resolution: kinetic per-character or per-word animation when signals are high-energy.
+  // The renderer executes the split; the planner only decides WHEN.
+  const entranceWinner = mgWinner(mgScores, 'mg.animation.entrance_');
+  const isKineticEntrance = entranceWinner === 'mg.animation.entrance_pop'
+    || entranceWinner === 'mg.animation.entrance_slide'
+    || entranceWinner === 'mg.animation.entrance_scale';
+  if (isKineticEntrance) {
+    // ⚠️ threshold 0.7 INVENTED — chars for high energy, words for moderate
+    const splitMode: TextSplitMode = s.enthusiasm > 0.7 ? 'chars' : 'words';
+    for (const el of elements) {
+      if (el.primitive === 'text' && el.layer === 'foreground' && !el.textSplit) {
+        el.textSplit = splitMode;
+      }
+    }
+  }
 
   const kfCount = elements.filter(e => e.keyframeTracks?.length).length;
   console.log(

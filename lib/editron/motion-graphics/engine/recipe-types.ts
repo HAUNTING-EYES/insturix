@@ -64,6 +64,8 @@ export type BindingExpr = string | number | boolean;
 
 export type DepthLayer = 'background' | 'midground' | 'foreground';
 
+export type TextSplitMode = 'none' | 'chars' | 'words';
+
 export interface RecipeElement {
   primitive: PrimitiveType;
   role: string;
@@ -78,6 +80,7 @@ export interface RecipeElement {
   holdAnimation?: HoldPattern;
   keyframeTracks?: MGKeyframeTrack[];
   speedRamp?: MGSpeedRamp;
+  textSplit?: TextSplitMode;
 }
 
 export interface RecipeLayout {

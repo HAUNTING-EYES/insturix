@@ -119,7 +119,7 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
     case 'pattern':
       return <PatternElement element={element} anim={anim} />;
     case 'text':
-      return <TextElement element={element} anim={anim} frame={frame} timing={timing} />;
+      return <TextElement element={element} anim={anim} frame={frame} timing={timing} spatial={spatial} signalCurves={signalCurves} />;
     case 'image':
     case 'video-clip':
       return <ImageElement element={element} anim={anim} />;
@@ -212,7 +212,9 @@ const TextElement: React.FC<{
   anim: ReturnType<typeof computeAnimationState>;
   frame: number;
   timing: ComputedChoreography;
-}> = ({ element, anim, frame, timing }) => {
+  spatial: SpatialConfig;
+  signalCurves?: SignalCurves;
+}> = ({ element, anim, frame, timing, spatial, signalCurves }) => {
   const style = buildTextStyle(element, anim);
   const p = element.resolvedProps;
 
@@ -220,7 +222,73 @@ const TextElement: React.FC<{
     return <CountUpText element={element} style={style} frame={frame} timing={timing} />;
   }
 
-  return <div style={style}>{String(p.text || '')}</div>;
+  const text = String(p.text || '');
+  const splitMode = element.textSplit;
+  if (splitMode && splitMode !== 'none' && text.length > 1) {
+    return (
+      <SplitTextElement
+        element={element}
+        text={text}
+        splitMode={splitMode}
+        frame={frame}
+        timing={timing}
+        spatial={spatial}
+        signalCurves={signalCurves}
+        containerStyle={style}
+      />
+    );
+  }
+
+  return <div style={style}>{text}</div>;
+};
+
+const SplitTextElement: React.FC<{
+  element: ResolvedElement;
+  text: string;
+  splitMode: 'chars' | 'words';
+  frame: number;
+  timing: ComputedChoreography;
+  spatial: SpatialConfig;
+  signalCurves?: SignalCurves;
+  containerStyle: React.CSSProperties;
+}> = ({ element, text, splitMode, frame, timing, spatial, signalCurves, containerStyle }) => {
+  const units = splitMode === 'chars' ? text.split('') : text.split(/(\s+)/);
+  const nonEmpty = units.filter(u => u.trim().length > 0);
+  const entranceDuration = timing.enterEndFrame - timing.enterStartFrame;
+  // ⚠️ stagger ratio 0.6 INVENTED — 60% of entrance for stagger spread, 40% overlap
+  const staggerTotal = Math.round(entranceDuration * 0.6);
+  const perUnitDelay = nonEmpty.length > 1 ? staggerTotal / (nonEmpty.length - 1) : 0;
+
+  let unitIdx = 0;
+  return (
+    <div style={{ ...containerStyle, display: 'flex', flexWrap: 'wrap' }}>
+      {units.map((unit, i) => {
+        if (unit.trim().length === 0) {
+          return <span key={i} style={{ whiteSpace: 'pre' }}>{unit}</span>;
+        }
+        const delay = Math.round(unitIdx * perUnitDelay);
+        unitIdx++;
+        const offsetTiming: ComputedChoreography = {
+          ...timing,
+          enterStartFrame: timing.enterStartFrame + delay,
+          enterEndFrame: timing.enterEndFrame + delay,
+        };
+        const unitAnim = computeAnimationState(
+          frame, offsetTiming, element.entrancePattern, element.exitPattern, spatial, element.holdAnimation,
+        );
+        const modulatedAnim = signalCurves
+          ? applyAudioReactiveModulation(unitAnim, frame, offsetTiming, signalCurves)
+          : unitAnim;
+        const unitStyle = buildTextStyle(element, modulatedAnim);
+
+        return (
+          <span key={i} style={{ ...unitStyle, display: 'inline-block' }}>
+            {splitMode === 'chars' ? (unit === ' ' ? ' ' : unit) : unit}
+          </span>
+        );
+      })}
+    </div>
+  );
 };
 
 const CountUpText: React.FC<{
