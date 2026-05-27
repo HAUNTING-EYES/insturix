@@ -208,9 +208,7 @@ export function LandingPageA() {
             // 60fps: Navbar scroll indicator (no React)
             document.documentElement.dataset.scrolled = p > 0.02 ? "true" : "";
 
-            // 60fps: Marketing overlay opacity (GSAP smooth, no React re-render).
-            // Marketing is ALWAYS in the DOM (never mount/unmount). showMkt controls
-            // visibility + pointerEvents via React state. GSAP controls opacity.
+            // ── 60fps: Marketing overlay opacity (GSAP smooth, no React re-render) ──
             const mktEl = mktRef.current;
             if (mktEl) {
               const mktProgress = Math.max(0, (p - 0.57) / 0.43);
@@ -221,19 +219,65 @@ export function LandingPageA() {
               });
             }
 
+            // ── 60fps: Layer "arming" — ghost → tally light → readable ──
+            // Layers at 60fps via gsap.set, not 10fps React. No jitter.
+            const pp = Math.min(1, p / 0.55);
+            const curPhase = pp < 0.06 ? "welcome" : pp < 0.15 ? "prompt" : pp < 0.32 ? "script" : pp < 0.58 ? "edit" : pp < 0.72 ? "analyze" : pp < 0.85 ? "design" : pp < 0.97 ? "publish" : "done";
+
+            for (let li = 0; li < 6; li++) {
+              const el = document.querySelector(`[data-layer-idx="${li}"]`) as HTMLElement;
+              if (!el) continue;
+              const layer = LAYERS[li];
+              // Reveal progress: 3% pipePct window around threshold
+              const revealProg = Math.max(0, Math.min(1, (pp - (layer.at - 0.01)) / 0.03));
+              const isActive = layer.phases.includes(curPhase);
+              // Ghost state (opacity 0.05) → armed (opacity 1). No translateX — it was always there.
+              gsap.set(el, { opacity: 0.05 + revealProg * 0.95 });
+              // Color bar: tally light
+              const bar = el.querySelector("[data-layer-bar]") as HTMLElement;
+              if (bar) bar.style.opacity = String(isActive ? 1 : revealProg > 0 ? 0.25 : 0);
+              // Layer name readability
+              const name = el.querySelector("[data-layer-name]") as HTMLElement;
+              if (name) {
+                name.style.color = isActive ? C.text : (revealProg > 0 ? C.muted : C.dim);
+                name.style.fontWeight = isActive ? "500" : "400";
+              }
+              // Background
+              el.style.background = isActive ? C.s2 : "transparent";
+            }
+
+            // ── 60fps: Track fills at native frame rate ──
+            for (let ti = 0; ti < 5; ti++) {
+              const fillEl = document.querySelector(`[data-track-fill="${ti}"]`) as HTMLElement;
+              if (!fillEl) continue;
+              const track = TRACKS[ti];
+              const fill = Math.max(0, Math.min(1, (pp - track.lo) / (track.hi - track.lo)));
+              fillEl.style.width = `${fill * 100}%`;
+              // Track visibility
+              const row = fillEl.closest("[data-track-row]") as HTMLElement;
+              if (row) row.style.opacity = String(pp >= track.lo ? 1 : 0);
+            }
+
+            // ── 60fps: Dimmer overlay — "control room lights dimming" ──
+            const dimmer = document.getElementById("controlRoomDimmer");
+            if (dimmer) {
+              // Subtle darkening at pct 0.54→0.56, then fades out at 0.58
+              const dimProgress = p < 0.54 ? 0 : p < 0.56 ? (p - 0.54) / 0.02 : p < 0.58 ? 1 - (p - 0.56) / 0.02 : 0;
+              gsap.set(dimmer, { opacity: dimProgress * 0.15 }); // Max 15% darker
+            }
+
             // Event-driven React state: showMkt set IMMEDIATELY (not throttled).
-            // Controls visibility + pointerEvents + data-hidden on editor.
             const shouldShowMkt = p > 0.57;
             if (shouldShowMkt !== showMktRef.current) {
               showMktRef.current = shouldShowMkt;
               setShowMkt(shouldShowMkt);
             }
 
-            // ~10fps: Throttled React state for logic consumers (phase, toasts, elapsed, children)
-            // 100ms balances smoothness (no visible state jumps) with perf (90% fewer re-renders vs 0ms).
-            // CSS transitions on scroll-driven elements smooth these 10fps updates to 60fps visually.
+            // ~5fps: React state for logic-only consumers (phase, toasts, elapsed, chat).
+            // Visual properties are now GSAP-owned (60fps above). React only drives
+            // discrete consumers: phase string, toast filtering, elapsed text, chat messages.
             const now = performance.now();
-            if (now - lastSetPctRef.current > 100) {
+            if (now - lastSetPctRef.current > 200) {
               setPct(p);
               lastSetPctRef.current = now;
             }
@@ -526,16 +570,13 @@ export function LandingPageA() {
             </div>
             <div style={{ flex: 1, padding: "8px 8px", display: "flex", flexDirection: "column", gap: 2 }}>
               {LAYERS.map((l, i) => {
-                // Progressive reveal: layers materialize over a 3% pipePct window
-                // around their threshold, instead of binary pop at the exact threshold.
-                // "Weight" — elements have mass. They slide from left with deceleration.
-                const revealProg = Math.max(0, Math.min(1, (pipePct - (l.at - 0.01)) / 0.03));
-                const act = l.phases.includes(phase);
+                // "Track Arming" — layers are always present as ghost tracks (opacity 0.05).
+                // GSAP onUpdate drives opacity/color at 60fps. React only provides structure.
                 const doneChk = pipePct >= l.doneAt;
                 return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: act ? C.s2 : "transparent", opacity: revealProg, transform: `translateX(${(1 - revealProg) * -12}px)`, transition: `background .4s ${EASE}, opacity .15s ${EASE}, transform .15s ${EASE}` }}>
-                    <div style={{ width: 4, height: 20, borderRadius: 2, background: l.c, opacity: act ? 1 : 0.25, transition: `opacity .4s ${EASE}` }} />
-                    <span style={{ fontSize: 14, fontWeight: act ? 500 : 400, color: act ? C.text : C.muted, transition: `all .3s ${EASE}`, flex: 1 }}>{l.name}</span>
+                  <div key={i} data-layer-idx={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, opacity: 0.05, transition: `background .4s ${EASE}` }}>
+                    <div data-layer-bar style={{ width: 4, height: 20, borderRadius: 2, background: l.c, opacity: 0, transition: `opacity .3s ${EASE}` }} />
+                    <span data-layer-name style={{ fontSize: 14, color: C.dim, transition: `all .3s ${EASE}`, flex: 1 }}>{l.name}</span>
                     {doneChk && <Chk size={12} color={C.green} />}
                   </div>
                 );
@@ -590,6 +631,12 @@ export function LandingPageA() {
         </div>
       </div>
 
+      {/* ━━━ DIMMER — "Control room lights going to standby" ━━━
+           Sits between editor (z:2) and marketing (z:3). GSAP onUpdate fades
+           it in at pct 0.54→0.56 and back out at 0.56→0.58. Max 15% darkening.
+           Communicates: you're leaving the production floor. */}
+      <div id="controlRoomDimmer" style={{ position: "fixed", inset: 0, zIndex: 2, background: "#000", opacity: 0, pointerEvents: "none" }} />
+
       {/* ━━━ MARKETING — ALWAYS in DOM (never mount/unmount).
            Conditional mount caused a cascade of timing bugs:
            - Wheel handler torn down/re-attached on every mount cycle
@@ -630,15 +677,15 @@ function TL({ phase, pct }: { phase: string; pct: number }) {
       </div>
       <div style={{ flex: 1, padding: "4px 16px", display: "flex", flexDirection: "column", gap: 2 }}>
         {TRACKS.map((t, i) => {
-          const vis = pct >= t.lo;
+          // Track fills are GSAP-owned at 60fps (onUpdate above). React provides structure only.
           const fill = Math.max(0, Math.min(1, (pct - t.lo) / (t.hi - t.lo)));
           return (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, height: 12, opacity: vis ? 1 : 0, transition: `opacity .4s ${EASE}` }}>
+            <div key={i} data-track-row style={{ display: "flex", alignItems: "center", gap: 8, height: 12, opacity: 0, transition: `opacity .4s ${EASE}` }}>
               <span className="m" style={{ fontSize: 11, color: C.dim, width: 44, textAlign: "right" }}>{t.label}</span>
               <div style={{ flex: 1, height: "100%", background: C.s2, borderRadius: 4, position: "relative", overflow: "hidden" }}>
-                <div style={{ position: "absolute", left: 0, top: 1, bottom: 1, width: `${fill * 100}%`, background: `${t.c}22`, border: `1px solid ${t.c}32`, borderRadius: 4, transition: `width .25s ${EASE}` }} />
+                <div data-track-fill={i} style={{ position: "absolute", left: 0, top: 1, bottom: 1, width: "0%", background: `${t.c}22`, border: `1px solid ${t.c}32`, borderRadius: 4 }} />
                 {i === 0 && fill > 0 && (
-                  <div style={{ position: "absolute", left: `${fill * 100}%`, top: -1, bottom: -1, width: 2, background: C.accent, transition: `left .2s ${EASE}`, zIndex: 2 }}>
+                  <div style={{ position: "absolute", left: `${fill * 100}%`, top: -1, bottom: -1, width: 2, background: C.accent, transition: `left .15s ${EASE}`, zIndex: 2 }}>
                     <div style={{ position: "absolute", top: -2, left: -3, width: 8, height: 8, borderRadius: 4, background: C.accent }} />
                   </div>
                 )}
