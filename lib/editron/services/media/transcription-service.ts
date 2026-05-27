@@ -127,7 +127,7 @@ async function generateTranscription(
         // (edge cache hid this bug until cache expired). Presigned R2 URLs serve correct
         // Content-Type directly from storage — same pattern as auto-edit/from-asset.
         try {
-          const { isR2Available, getR2PresignedReadUrl } = await import('../../r2-service');
+          const { isR2Available, getR2PresignedReadUrl } = await import('../r2-service');
           if (isR2Available()) {
             mediaUrl = await getR2PresignedReadUrl(asset.assetId, 3600);
           }
