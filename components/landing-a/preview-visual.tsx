@@ -614,7 +614,7 @@ export function PreviewVisualInsturix({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                animation: "breathe 4s ease infinite",
+                animation: `fadeIn .5s ${EASE} 0.2s both, breathe 4s ease 1s infinite`,
               }}
             >
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -636,20 +636,21 @@ export function PreviewVisualInsturix({
                 lineHeight: 1.05,
                 letterSpacing: "-0.035em",
                 marginBottom: 16,
+                animation: `slideUp .5s ${EASE} 0.5s both`,
               }}
             >
               One platform.
               <br />
               <span style={{ color: C.accent }}>Entire production.</span>
             </h1>
-            <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.55, marginBottom: 32 }}>
+            <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.55, marginBottom: 32, animation: `fadeIn .5s ${EASE} 0.8s both` }}>
               Watch a complete video get produced as you scroll.
             </p>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, animation: `fadeIn .5s ${EASE} 1.2s both` }}>
               <div style={{ width: 1, height: 36, background: `linear-gradient(to bottom,transparent,${C.accent}30)` }} />
               <span
                 className="m"
-                style={{ fontSize: 13, color: C.muted, letterSpacing: "0.08em", animation: "pulseVisible 2s ease infinite" }}
+                style={{ fontSize: 13, color: C.muted, letterSpacing: "0.08em", animation: "pulseVisible 2s ease 1.7s infinite", opacity: 0, animationFillMode: "forwards" }}
               >
                 SCROLL TO BEGIN
               </span>
@@ -672,7 +673,7 @@ export function PreviewVisualInsturix({
           }}
         >
           <div style={{ textAlign: "center", maxWidth: 420 }}>
-            <span className="m" style={{ fontSize: 11, color: C.accent, letterSpacing: ".08em", display: "block", marginBottom: 20 }}>
+            <span className="m" style={{ fontSize: 11, color: C.accent, letterSpacing: ".08em", display: "block", marginBottom: 20, animation: `fadeIn .35s ${EASE} both` }}>
               PROMPT
             </span>
             <p
@@ -682,12 +683,11 @@ export function PreviewVisualInsturix({
                 color: C.soft,
                 lineHeight: 1.35,
                 letterSpacing: "-0.015em",
-                opacity: Math.min(1, promptSub * 2.5),
-                transform: `translateY(${(1 - Math.min(1, promptSub * 2.5)) * 12}px)`,
-                transition: `all .4s ${EASE}`,
+                minHeight: "4.1em",
               }}
             >
-              30-second product launch for Insturix — the AI production platform
+              {"30-second product launch for Insturix — the AI production platform".substring(0, Math.floor(Math.min(1, promptSub * 1.8) * 68))}
+              {promptSub < 0.56 && <span style={{ display: "inline-block", width: 2, height: "0.85em", background: C.accent, marginLeft: 2, verticalAlign: "text-bottom", animation: "blink .9s step-end infinite" }} />}
             </p>
           </div>
         </div>
@@ -715,7 +715,7 @@ export function PreviewVisualInsturix({
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {SCRIPT.slice(0, Math.ceil(scriptSub * SCRIPT.length)).map((line, i) => (
-              <div key={i} style={{ animation: `slideR .3s ${EASE} both` }}>
+              <div key={i} style={{ animation: line.type === "label" ? `fadeIn .25s ${EASE} both` : `lineReveal .35s ${EASE} both`, animationDelay: `${i * 0.04}s` }}>
                 {line.type === "label" ? (
                   <span
                     className="m"

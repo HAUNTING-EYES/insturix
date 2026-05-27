@@ -472,9 +472,10 @@ export function LandingPageA() {
         @keyframes chatCompleteIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
         @keyframes intercomBlink{0%{opacity:0}25%{opacity:1}50%{opacity:.5}100%{opacity:1}}
         @keyframes toastUnfold{0%{clip-path:inset(100% 0 0 0);opacity:0}50%{clip-path:inset(0);opacity:0}100%{clip-path:inset(0);opacity:1}}
-        @keyframes phaseFlipIn{from{transform:perspective(400px) rotateX(90deg);opacity:0}to{transform:perspective(400px) rotateX(0deg);opacity:1}}
+        @keyframes phaseFlipIn{0%{transform:perspective(400px) rotateX(90deg) scale(.9);opacity:0}60%{transform:perspective(400px) rotateX(-8deg) scale(1.03);opacity:1}100%{transform:perspective(400px) rotateX(0) scale(1);opacity:1}}
         @keyframes digitRollIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
         @keyframes ctaGlow{0%,100%{box-shadow:0 0 0 rgba(212,166,82,0)}50%{box-shadow:0 0 24px rgba(212,166,82,.25)}}
+        @keyframes lineReveal{from{clip-path:inset(0 100% 0 0);opacity:.5}to{clip-path:inset(0);opacity:1}}
         @keyframes eqBounce{0%,100%{transform:scaleY(.15)}50%{transform:scaleY(1)}}
         @keyframes toastIn{from{opacity:0;transform:translateY(-16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
         .mkt-card{transition:border-color .35s ${EASE},transform .35s ${EASE}}
@@ -652,7 +653,7 @@ export function LandingPageA() {
                 color: phase === "done" ? C.green : C.accent,
                 fontWeight: 500,
                 visibility: phase === "welcome" ? "hidden" : "visible",
-                animation: phase === "welcome" ? "none" : phase === "prompt" ? `popIn .35s ${EASE} both` : `phaseFlipIn .25s ${EASE} both`,
+                animation: phase === "welcome" ? "none" : phase === "prompt" ? `popIn .35s ${EASE} both` : `phaseFlipIn .35s ${EASE} both`,
               }}
             >
               {LABELS[phase] || ""}
@@ -783,7 +784,10 @@ function TL({ phase, pct }: { phase: string; pct: number }) {
   return (
     <div className="editor-timeline" style={{ height: 80, background: C.s1, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
       <div style={{ height: 24, padding: "0 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ width: 18, height: 16, borderRadius: 4, background: pct > 0.06 ? C.accent : C.s3, transition: `background .4s ${EASE}` }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ width: 6, height: 6, borderRadius: 3, background: pct > 0.06 ? C.accent : C.dim, transition: `background .4s ${EASE}`, animation: pct > 0.06 ? "pulse 1.5s infinite" : "none" }} />
+          <span className="m" style={{ fontSize: 9, color: pct > 0.06 ? C.accent : C.dim, transition: `color .4s ${EASE}`, letterSpacing: ".05em" }}>{pct > 0.06 ? "REC" : ""}</span>
+        </div>
         <span className="m" style={{ fontSize: 11, color: C.dim }}>{pct > 0.06 ? `${Math.round(pct * 100)}%` : ""}</span>
       </div>
       <div style={{ flex: 1, padding: "4px 16px", display: "flex", flexDirection: "column", gap: 2 }}>
