@@ -142,6 +142,27 @@ function Chk({ size = 14, color = C.accent, sw = 2.5 }: { size?: number; color?:
   );
 }
 
+function TimecodeDisplay({ value, color }: { value: string; color: string }) {
+  return (
+    <span style={{ display: "inline-flex" }}>
+      {value.split("").map((ch, i) => (
+        <span
+          key={`${ch}-${i}`}
+          style={{
+            display: "inline-block",
+            animation: `digitRollIn .15s ${EASE} both`,
+            width: ch === ":" ? "auto" : "0.55em",
+            textAlign: "center",
+            color,
+          }}
+        >
+          {ch}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════════════
@@ -441,6 +462,13 @@ export function LandingPageA() {
         @keyframes breathe{0%,100%{opacity:.015}50%{opacity:.05}}
         @keyframes checkDraw{from{stroke-dashoffset:20}to{stroke-dashoffset:0}}
         @keyframes pipeRouteFill{from{transform:scale(0)}to{transform:scale(1)}}
+        @keyframes chatUserIn{0%{opacity:0;transform:translateY(12px) scale(.95)}60%{transform:translateY(-2px) scale(1.02)}100%{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes chatDoneIn{0%{opacity:0;transform:translateX(-8px)}40%{opacity:0;transform:translateX(-8px)}100%{opacity:1;transform:translateX(0)}}
+        @keyframes chatCompleteIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+        @keyframes intercomBlink{0%{opacity:0}25%{opacity:1}50%{opacity:.5}100%{opacity:1}}
+        @keyframes toastUnfold{0%{clip-path:inset(100% 0 0 0);opacity:0}50%{clip-path:inset(0);opacity:0}100%{clip-path:inset(0);opacity:1}}
+        @keyframes phaseFlipIn{from{transform:perspective(400px) rotateX(90deg);opacity:0}to{transform:perspective(400px) rotateX(0deg);opacity:1}}
+        @keyframes digitRollIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
         @keyframes eqBounce{0%,100%{transform:scaleY(.15)}50%{transform:scaleY(1)}}
         @keyframes toastIn{from{opacity:0;transform:translateY(-16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
         .mkt-card{transition:border-color .35s ${EASE},transform .35s ${EASE}}
@@ -529,9 +557,9 @@ export function LandingPageA() {
                   alignItems: "center",
                   gap: 12,
                   boxShadow: `0 8px 32px rgba(0,0,0,.5), 0 0 24px ${t.color}06`,
-                  animation: isNew ? `toastIn .4s ${EASE} both` : "none",
+                  animation: isNew ? `toastUnfold .35s ${EASE} both` : "none",
                   opacity: isNew ? 1 : 0.3,
-                  transform: `scale(${isNew ? 1 : 0.95})`,
+                  transform: isNew ? "none" : "translateY(-4px) scale(0.97)",
                   // FIX #8: Consistent easing
                   transition: `opacity .4s ${EASE}, transform .4s ${EASE}`,
                 }}
@@ -595,12 +623,23 @@ export function LandingPageA() {
             />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <span className="m" style={{ fontSize: 13, color: phase === "done" ? C.green : pipePct > 0.1 ? C.accent : C.dim, transition: `color .4s ${EASE}`, fontWeight: 500 }}>{elapsed}</span>
-            {phase !== "welcome" && (
-              <span className="m" style={{ fontSize: 11, padding: "5px 14px", borderRadius: 6, background: phase === "done" ? `${C.green}12` : `${C.accent}10`, color: phase === "done" ? C.green : C.accent, transition: `all .5s ${EASE}`, fontWeight: 500 }}>
-                {LABELS[phase]}
-              </span>
-            )}
+            <span className="m" style={{ fontSize: 13, transition: `color .4s ${EASE}`, fontWeight: 500 }}>
+              <TimecodeDisplay value={elapsed} color={phase === "done" ? C.green : pipePct > 0.1 ? C.accent : C.dim} />
+            </span>
+            <span
+              key={phase}
+              className="m"
+              style={{
+                fontSize: 11, padding: "5px 14px", borderRadius: 6,
+                background: phase === "done" ? `${C.green}12` : `${C.accent}10`,
+                color: phase === "done" ? C.green : C.accent,
+                fontWeight: 500,
+                visibility: phase === "welcome" ? "hidden" : "visible",
+                animation: phase === "welcome" ? "none" : phase === "prompt" ? `popIn .35s ${EASE} both` : `phaseFlipIn .25s ${EASE} both`,
+              }}
+            >
+              {LABELS[phase] || ""}
+            </span>
             {/* FIX #5: fontWeight 700 → 800 */}
             <button style={{ background: phase === "done" ? C.accent : C.s3, color: phase === "done" ? C.bg : C.dim, border: "none", padding: "8px 20px", borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", pointerEvents: "auto", transition: `all .5s ${EASE}` }}>
               {phase === "done" ? "Try with your video" : "Export"}
@@ -833,10 +872,13 @@ function Chat({ phase, pct }: { phase: string; pct: number }) {
               fontSize: 13,
               lineHeight: 1.5,
               maxWidth: "100%",
-              animation: m.side === "user" ? `slideUp .3s ${EASE} both` : `slideR .25s ${EASE} both`,
+              animation: m.side === "user" ? `chatUserIn .35s ${EASE} both`
+                : m.side === "complete" ? `chatCompleteIn .5s ${EASE} both`
+                : m.side === "done" ? `chatDoneIn .35s ${EASE} both`
+                : `slideR .25s ${EASE} both`,
             }}
           >
-            {m.side === "status" && <div style={{ width: 6, height: 6, borderRadius: 3, background: m.color, animation: "pulse 1.5s infinite", flexShrink: 0 }} />}
+            {m.side === "status" && <div style={{ width: 6, height: 6, borderRadius: 3, background: m.color, animation: "intercomBlink .15s ease-out, pulse 1.5s 0.15s infinite", flexShrink: 0 }} />}
             {m.side === "done" && <Chk size={11} color={C.green} />}
             {m.text}
           </div>
