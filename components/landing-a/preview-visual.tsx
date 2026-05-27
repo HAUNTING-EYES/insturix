@@ -85,6 +85,99 @@ function Chk({ size = 14, color = C.accent, sw = 2.5 }: { size?: number; color?:
   );
 }
 
+// ─── Film Strip — "Exposing" the video scene by scene ──────────
+
+const FILM_SCENES = [
+  { num: "01", icon: "◆", label: "Logo Reveal", sub: "Brand intro", grad: C.accent },
+  { num: "02", icon: "✎", label: "Editor", sub: "AI timeline", grad: "#5B8DEF" },
+  { num: "03", icon: "✦", label: "Features", sub: "6 rooms", grad: C.pink },
+  { num: "04", icon: "❝", label: "Testimonial", sub: "User story", grad: C.green },
+  { num: "05", icon: "▶", label: "End Card", sub: "CTA + signup", grad: C.red },
+];
+
+function FilmStrip({ editSub }: { editSub: number }) {
+  const done = editSub >= 0.98;
+  const activeIdx = done ? -1 : Math.min(4, Math.floor(editSub * 5));
+  const completedCount = Math.min(5, Math.floor(editSub * 5));
+  const segProgress = done ? 0 : (editSub * 5) - activeIdx;
+  const totalSec = Math.round(editSub * 30);
+  const tc = `${String(Math.floor(totalSec / 60)).padStart(2, "0")}:${String(totalSec % 60).padStart(2, "0")}`;
+
+  const frameW = 110;
+  const gap = 10;
+  const step = frameW + gap;
+  const stripOffset = done ? 0 : -(activeIdx * step + segProgress * step * 0.3) + 180;
+
+  return (
+    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", justifyContent: "center", padding: "12px 20px", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="m" style={{ fontSize: 10, color: C.text, fontWeight: 500, letterSpacing: ".04em" }}>FILM STRIP</span>
+          <div className="m" style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, display: "flex", alignItems: "center", gap: 5, background: done ? `${C.green}10` : `${C.accent}10`, border: `1px solid ${done ? C.green : C.accent}20`, color: done ? C.green : C.accent, letterSpacing: ".05em" }}>
+            <div style={{ width: 5, height: 5, borderRadius: 3, background: done ? C.green : C.accent, animation: done ? "none" : "pulse 1.6s infinite" }} />
+            {done ? "DONE" : "EXPOSING"}
+          </div>
+        </div>
+        <span className="m" style={{ fontSize: 10, color: C.dim }}>{tc} / 00:30</span>
+      </div>
+
+      <div style={{ position: "relative", overflow: "hidden", borderRadius: 8, background: C.s1, border: `1px solid ${C.border}`, flex: 1, minHeight: 0 }}>
+        {[0, 1].map(r => (
+          <div key={r} style={{ position: "absolute", [r ? "bottom" : "top"]: 0, left: 0, right: 0, height: 16, display: "flex", alignItems: "center", zIndex: 2, pointerEvents: "none", background: r ? `linear-gradient(0deg, ${C.s1}f0 50%, transparent)` : `linear-gradient(180deg, ${C.s1}f0 50%, transparent)` }}>
+            <div style={{ display: "flex", gap: 14, padding: "0 10px", width: "100%", overflow: "hidden" }}>
+              {Array.from({ length: 36 }).map((_, i) => (
+                <div key={i} style={{ width: 8, height: 5, borderRadius: 1, background: `${C.dim}30`, flexShrink: 0 }} />
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <div style={{ position: "absolute", top: 0, bottom: 0, display: "flex", alignItems: "center", gap, padding: "0 32px", transition: `transform .5s ${EASE}`, transform: `translateX(${stripOffset}px)` }}>
+          {FILM_SCENES.map((sc, i) => {
+            const st = done ? "done" : i < completedCount ? "exposed" : i === activeIdx ? "exposing" : "off";
+            const lit = st !== "off";
+            return (
+              <div key={i} style={{
+                width: frameW, height: "78%", maxHeight: 160, borderRadius: 4, position: "relative", overflow: "hidden", flexShrink: 0,
+                border: `1.5px solid ${st === "exposing" ? C.accent : lit ? `${C.green}30` : C.border}`,
+                background: C.s2, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
+                boxShadow: st === "exposing" ? `0 0 16px ${C.accent}15` : "none",
+                transition: `border-color .4s ${EASE}, box-shadow .4s ${EASE}`,
+              }}>
+                <div style={{ position: "absolute", inset: 0, background: `linear-gradient(160deg, ${sc.grad}10, ${sc.grad}03)`, opacity: lit ? 1 : 0, transition: `opacity .5s ${EASE}` }} />
+                {st === "exposing" && <div style={{ position: "absolute", left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${C.accent}, transparent)`, opacity: 0.6, top: `${segProgress * 100}%`, transition: "top .15s linear", zIndex: 1 }} />}
+                <span className="m" style={{ position: "absolute", top: 3, left: 4, fontSize: 8, color: st === "exposing" ? C.accent : lit ? C.green : C.dim, zIndex: 2 }}>{sc.num}</span>
+                {(st === "exposed" || st === "done") && (
+                  <div style={{ position: "absolute", top: 2, right: 3, width: 12, height: 12, borderRadius: 6, background: C.green, display: "flex", alignItems: "center", justifyContent: "center", animation: `popIn .35s ${EASE} both`, zIndex: 3 }}>
+                    <svg width={7} height={7} viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke={C.bg} strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </div>
+                )}
+                <div style={{ width: 26, height: 26, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, background: `linear-gradient(135deg, ${sc.grad}, ${sc.grad}80)`, opacity: lit ? 1 : 0.15, transform: lit ? "scale(1)" : "scale(0.8)", transition: `all .5s ${EASE}`, position: "relative", zIndex: 1 }}>{sc.icon}</div>
+                <span style={{ fontSize: 9, fontWeight: 500, color: st === "exposing" ? C.text : lit ? C.muted : C.dim, transition: `color .4s ${EASE}`, zIndex: 1 }}>{sc.label}</span>
+                <span className="m" style={{ fontSize: 7, color: C.dim, zIndex: 1, opacity: lit ? 1 : 0, transition: `opacity .4s ${EASE}` }}>{sc.sub}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ width: 5, height: 5, borderRadius: 3, background: done ? C.green : C.accent, animation: done ? "none" : "pulse 1.6s infinite" }} />
+          <span style={{ fontSize: 11, color: C.muted }}>
+            {done ? <><span style={{ color: C.text, fontWeight: 500 }}>All frames exposed</span> — video complete</> : <>Exposing <span style={{ color: C.text, fontWeight: 500 }}>Scene {activeIdx + 1}</span> of 5</>}
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 2 }}>
+          {[0, 1, 2, 3, 4].map(i => (
+            <div key={i} style={{ width: 24, height: 3, borderRadius: 1, background: (done || i < completedCount) ? C.green : i === activeIdx ? C.accent : C.s3, transition: `background .3s ${EASE}` }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlatformIcon({ name, color, size = 20 }: { name: string; color: string; size?: number }) {
   const s = size;
   const icons: Record<string, React.ReactNode> = {
@@ -581,9 +674,9 @@ export function PreviewVisualInsturix({
         }}
       />
 
-      {/* ──── VISUAL FRAMES (edit phase — always render, opacity-controlled) ──── */}
+      {/* ──── FILM STRIP (edit phase — replaces old crossfading frames) ──── */}
       <div style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", overflow: "hidden", opacity: phaseOpacity("edit"), visibility: phaseOpacity("edit") > 0 ? "visible" : "hidden" }}>
-        <EditVisualFrames editSub={editSub} />
+        <FilmStrip editSub={editSub} />
       </div>
 
       {/* ══ PHASE CONTENT — always rendered, opacity from phaseOpacity() ══
@@ -758,127 +851,7 @@ export function PreviewVisualInsturix({
         </div>
       </div>
 
-      {/* EDIT — DISSOLVE in from script. FLASH FRAME out → analyze. */}
-      <div style={{ position: "absolute", inset: 0, zIndex: 7, opacity: phaseOpacity("edit"), visibility: phaseOpacity("edit") > 0 ? "visible" : "hidden" }}>
-        <>
-          {editSub < 0.06 && (
-            <div
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                height: 2,
-                background: `linear-gradient(90deg,transparent,${C.accent}50,transparent)`,
-                top: `${(editSub / 0.06) * 100}%`,
-                zIndex: 7,
-              }}
-            />
-          )}
-          {editSub >= 0.08 && (
-            <div
-              style={{
-                position: "absolute",
-                top: 20,
-                left: 24,
-                zIndex: 7,
-                background: "rgba(0,0,0,.7)",
-                padding: "8px 20px",
-                borderRadius: 8,
-                animation: `popIn .5s ${EASE} both`,
-              }}
-            >
-              <span style={{ fontSize: 18, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>Insturix</span>
-            </div>
-          )}
-          {editSub >= 0.28 && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 48,
-                left: 24,
-                right: 24,
-                zIndex: 7,
-                animation: `slideUp .4s ${EASE} both`,
-              }}
-            >
-              <div style={{ background: "rgba(0,0,0,.7)", padding: "10px 18px", borderRadius: 8, display: "inline-block" }}>
-                <span style={{ color: "#fff", fontSize: 18, fontWeight: 500 }}>
-                  One platform. <span style={{ color: C.accent }}>Entire production.</span>
-                </span>
-              </div>
-            </div>
-          )}
-          {editSub >= 0.5 && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 52,
-                right: 24,
-                display: "flex",
-                gap: 3,
-                alignItems: "end",
-                height: 36,
-                zIndex: 7,
-                animation: `fadeIn .5s ${EASE}`,
-              }}
-            >
-              {Array.from({ length: 14 }).map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    width: 4,
-                    borderRadius: 2,
-                    background: `${C.pink}50`,
-                    height: "100%",
-                    transformOrigin: "bottom",
-                    animation: `eqBounce ${0.7 + i * 0.12}s ease ${i * 0.06}s infinite alternate`,
-                  }}
-                />
-              ))}
-            </div>
-          )}
-          {editSub >= 0.55 && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 16,
-                left: 24,
-                right: 24,
-                display: "flex",
-                gap: 3,
-                zIndex: 7,
-                animation: `fadeIn .5s ${EASE}`,
-              }}
-            >
-              {Array.from({ length: 20 }).map((_, i) => {
-                const lit = editSub > 0.55 + (i / 20) * 0.25;
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      flex: 1,
-                      height: 4,
-                      borderRadius: 2,
-                      background: lit ? (i % 4 === 0 ? C.accent : "#3a3a3a") : "#1a1a1a",
-                      transition: `background .2s ${EASE}`,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          )}
-          {editSub >= 0.78 && (
-            <div style={{ position: "absolute", top: 20, right: 24, zIndex: 7, animation: `popIn .5s ${EASE} both` }}>
-              <div style={{ background: "rgba(0,0,0,.75)", padding: "12px 22px", borderRadius: 12, textAlign: "center" }}>
-                <div style={{ fontSize: 32, fontWeight: 800, color: C.accent, letterSpacing: "-0.03em" }}>6</div>
-                <div className="m" style={{ fontSize: 11, color: C.muted }}>
-                  ROOMS
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      </div>
+      {/* EDIT — overlays removed. FilmStrip at zIndex 3 handles the full narrative. */}
 
       {/* ANALYZE — FLASH FRAME in (brief white pulse), CUT out → design */}
       <div style={{ position: "absolute", inset: 0, zIndex: 7, opacity: phaseOpacity("analyze"), visibility: phaseOpacity("analyze") > 0 ? "visible" : "hidden" }}>
