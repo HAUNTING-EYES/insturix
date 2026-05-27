@@ -916,11 +916,11 @@ export function PreviewVisualInsturix({
               {analyzeSub > 0.88 && (
                 <div style={{ animation: `popIn .5s ${EASE} both` }}>
                   <span className="m" style={{ fontSize: 64, fontWeight: 500, color: C.text, lineHeight: 0.9, letterSpacing: "-0.06em" }}>
-                    91
+                    {Math.round(91 * Math.min(1, (analyzeSub - 0.88) / 0.08))}
                   </span>
                 </div>
               )}
-              {analyzeSub > 0.88 && (
+              {analyzeSub > 0.92 && (
                 <div style={{ animation: `slideR .4s ${EASE} .1s both` }}>
                   <span style={{ fontSize: 18, color: C.text, lineHeight: 1.35 }}>
                     Platform story lands instantly.{" "}
@@ -940,8 +940,11 @@ export function PreviewVisualInsturix({
               }}
             >
               {SCORES.map((sc, i) => {
-                if (analyzeSub <= i / SCORES.length) return null;
+                const rowThreshold = i / SCORES.length;
+                if (analyzeSub <= rowThreshold) return null;
+                const rowProgress = Math.min(1, (analyzeSub - rowThreshold) * SCORES.length);
                 const scoreColor = sc.score >= 85 ? C.green : sc.score >= 70 ? C.accent : C.red;
+                const barFill = Math.round(rowProgress * sc.score);
                 return (
                   <div
                     key={i}
@@ -952,28 +955,28 @@ export function PreviewVisualInsturix({
                       alignItems: "center",
                       padding: "12px 16px",
                       borderBottom: i < SCORES.length - 1 ? `1px solid ${C.border}` : "none",
-                      animation: `slideR .3s ${EASE} ${i * 0.06}s both`,
+                      animation: `fadeIn .35s ${EASE} both`,
                     }}
                   >
                     <div>
-                      <span style={{ fontSize: 14, color: C.text }}>{sc.label}</span>
+                      <span style={{ fontSize: 14, color: C.text, fontWeight: 500 }}>{sc.label}</span>
                       <div style={{ height: 3, background: `${C.text}06`, borderRadius: 2, overflow: "hidden", marginTop: 6 }}>
                         <div
                           style={{
                             height: "100%",
                             borderRadius: 2,
-                            background: scoreColor,
-                            width: `${sc.score}%`,
-                            transition: `width 1s ${EASE}`,
+                            background: rowProgress > 0.5 ? scoreColor : C.dim,
+                            width: `${barFill}%`,
+                            transition: `width .5s ${EASE}, background .25s ${EASE}`,
                           }}
                         />
                       </div>
                     </div>
                     <span
                       className="m"
-                      style={{ fontSize: 14, color: scoreColor, fontWeight: 500, minWidth: 28, textAlign: "right" }}
+                      style={{ fontSize: 14, color: rowProgress > 0.5 ? scoreColor : C.dim, fontWeight: 500, minWidth: 28, textAlign: "right", transition: `color .25s ${EASE}` }}
                     >
-                      {sc.score}
+                      {barFill}
                     </span>
                   </div>
                 );
@@ -1004,21 +1007,28 @@ export function PreviewVisualInsturix({
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {THUMBS.map((v, i) => {
                 if (designSub <= i * 0.2) return <div key={i} style={{ aspectRatio: "16/10" }} />;
-                const best = i === 1 && designSub > 0.85;
+                const bestRevealed = designSub > 0.85;
+                const isBest = i === 1;
+                const isWinner = isBest && bestRevealed;
+                const isDimmed = bestRevealed && !isBest;
                 return (
                   <div
                     key={i}
                     style={{
                       borderRadius: 12,
                       overflow: "hidden",
-                      border: best ? `1px solid ${C.green}30` : `1px solid ${C.borderL}`,
+                      border: isWinner ? `1.5px solid ${C.green}50` : `1px solid ${C.borderL}`,
                       background: C.s2,
-                      animation: `popIn .4s ${EASE} both`,
+                      animation: `popIn .4s ${EASE} ${i * 0.08}s both`,
                       position: "relative",
+                      opacity: isDimmed ? 0.45 : 1,
+                      transform: isWinner ? "scale(1.03)" : isDimmed ? "scale(0.97)" : "none",
+                      boxShadow: isWinner ? `0 0 20px ${C.green}15, 0 0 40px ${C.green}08` : "none",
+                      transition: `all .5s ${EASE}`,
                     }}
                   >
-                    {best && (
-                      <div style={{ position: "absolute", top: 8, right: 8, background: `${C.green}22`, borderRadius: 4, padding: "4px 8px", zIndex: 1 }}>
+                    {isWinner && (
+                      <div style={{ position: "absolute", top: 8, right: 8, background: `${C.green}22`, borderRadius: 4, padding: "4px 8px", zIndex: 1, animation: `popIn .35s ${EASE} both` }}>
                         <span className="m" style={{ fontSize: 10, color: C.green, fontWeight: 500 }}>
                           Best
                         </span>
@@ -1037,7 +1047,7 @@ export function PreviewVisualInsturix({
                     </div>
                     <div style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between" }}>
                       <span style={{ fontSize: 13, fontWeight: 500 }}>{v.label}</span>
-                      <span className="m" style={{ fontSize: 11, color: best ? C.green : C.muted }}>
+                      <span className="m" style={{ fontSize: 11, color: isWinner ? C.green : C.muted, fontWeight: isWinner ? 800 : 400 }}>
                         {v.ctr}
                       </span>
                     </div>
