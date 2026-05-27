@@ -157,7 +157,6 @@ export function LandingPageA() {
   const [pct, setPct] = useState(0);
   const [showMkt, setShowMkt] = useState(false); // Event-driven — controls visibility + interactivity
   const showMktRef = useRef(false); // Ref mirror avoids stale closure in onUpdate
-  const lastSetPctRef = useRef<number>(0);
 
   // ─── GSAP ScrollTrigger: replaces manual scroll handler ───
   // Layer 1 (60fps): GSAP scrub timeline drives editor fade-out + marketing fade-in
@@ -282,14 +281,12 @@ export function LandingPageA() {
               setShowMkt(shouldShowMkt);
             }
 
-            // ~5fps: React state for logic-only consumers (phase, toasts, elapsed, chat).
-            // Visual properties are now GSAP-owned (60fps above). React only drives
-            // discrete consumers: phase string, toast filtering, elapsed text, chat messages.
-            const now = performance.now();
-            if (now - lastSetPctRef.current > 200) {
-              setPct(p);
-              lastSetPctRef.current = now;
-            }
+            // Every frame: React state drives preview content, chat, toasts, elapsed.
+            // NO THROTTLE. The 200ms throttle made everything look like "blocks moving."
+            // Layers + tracks are GSAP-owned (60fps direct DOM above) so they don't
+            // cause re-renders. The remaining React consumers (preview sub-progress,
+            // chat messages, toasts, elapsed timer) are lightweight — 60fps is fine.
+            setPct(p);
           },
         },
       });
