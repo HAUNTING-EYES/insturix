@@ -858,31 +858,34 @@ function Chat({ phase, pct }: { phase: string; pct: number }) {
             <p style={{ fontSize: 14, color: C.dim, textAlign: "center", lineHeight: 1.65 }}>Give it a prompt<br />to start producing</p>
           </div>
         )}
-        {MSGS.filter((m) => pct >= m.at).map((m, i) => (
-          <div
-            key={i}
-            style={{
-              ...(m.side === "user"
-                ? { alignSelf: "flex-end", background: C.accent, color: C.bg, padding: "10px 16px", borderRadius: "12px 12px 4px 12px", fontWeight: 500 }
-                : m.side === "status"
-                ? { padding: "8px 12px", borderRadius: 8, background: `${m.color}08`, border: `1px solid ${m.color}12`, color: m.color, display: "flex", alignItems: "center", gap: 8 }
-                : m.side === "done"
-                ? { padding: "6px 12px", borderRadius: 8, background: `${C.green}06`, border: `1px solid ${C.green}08`, color: C.soft, display: "flex", alignItems: "center", gap: 8 }
-                : { padding: "16px", borderRadius: 12, textAlign: "center" as const, background: `${C.green}0A`, border: `1px solid ${C.green}18`, fontWeight: 800, color: C.green, lineHeight: 1.5 }),
-              fontSize: 13,
-              lineHeight: 1.5,
-              maxWidth: "100%",
-              animation: m.side === "user" ? `chatUserIn .35s ${EASE} both`
-                : m.side === "complete" ? `chatCompleteIn .5s ${EASE} both`
-                : m.side === "done" ? `chatDoneIn .35s ${EASE} both`
-                : `slideR .25s ${EASE} both`,
-            }}
-          >
-            {m.side === "status" && <div style={{ width: 6, height: 6, borderRadius: 3, background: m.color, animation: "intercomBlink .15s ease-out, pulse 1.5s 0.15s infinite", flexShrink: 0 }} />}
-            {m.side === "done" && <Chk size={11} color={C.green} />}
-            {m.text}
-          </div>
-        ))}
+        {MSGS.filter((m) => pct >= m.at).map((m, i, arr) => {
+          const isLast = i === arr.length - 1;
+          return (
+            <div
+              key={i}
+              style={{
+                ...(m.side === "user"
+                  ? { alignSelf: "flex-end", background: C.accent, color: C.bg, padding: "10px 16px", borderRadius: "12px 12px 4px 12px", fontWeight: 500 }
+                  : m.side === "status"
+                  ? { padding: "8px 12px", borderRadius: 8, background: `${m.color}08`, border: `1px solid ${m.color}12`, color: m.color, display: "flex", alignItems: "center", gap: 8 }
+                  : m.side === "done"
+                  ? { padding: "6px 12px", borderRadius: 8, background: `${C.green}06`, border: `1px solid ${C.green}08`, color: C.soft, display: "flex", alignItems: "center", gap: 8 }
+                  : { padding: "16px", borderRadius: 12, textAlign: "center" as const, background: `${C.green}0A`, border: `1px solid ${C.green}18`, fontWeight: 800, color: C.green, lineHeight: 1.5 }),
+                fontSize: 13,
+                lineHeight: 1.5,
+                maxWidth: "100%",
+                animation: m.side === "user" ? `chatUserIn .35s ${EASE} both`
+                  : m.side === "complete" ? `chatCompleteIn .5s ${EASE} both`
+                  : m.side === "done" ? `chatDoneIn .35s ${EASE} both`
+                  : `slideR .25s ${EASE} both`,
+              }}
+            >
+              {m.side === "status" && <div style={{ width: 6, height: 6, borderRadius: 3, background: m.color, animation: isLast ? "intercomBlink .15s ease-out, pulse 1.5s 0.15s infinite" : "none", opacity: isLast ? 1 : 0.4, flexShrink: 0, transition: `opacity .25s ${EASE}` }} />}
+              {m.side === "done" && <Chk size={11} color={C.green} />}
+              {m.text}
+            </div>
+          );
+        })}
       </div>
       {/* Writable prompt input */}
       <div style={{ padding: "12px 12px", borderTop: `1px solid ${C.border}`, pointerEvents: "auto" }}>
