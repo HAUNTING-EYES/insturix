@@ -158,6 +158,11 @@ export function LandingPageA() {
   const [showMkt, setShowMkt] = useState(false); // Event-driven — controls visibility + interactivity
   const showMktRef = useRef(false); // Ref mirror avoids stale closure in onUpdate
 
+  // Layer animation state: track threshold crossings for one-shot GSAP tweens.
+  // Sets reset on scroll-back so arm pulse / done flash re-trigger on next forward crossing.
+  const armedLayersRef = useRef<Set<number>>(new Set());
+  const doneLayersRef = useRef<Set<number>>(new Set());
+
   // ─── GSAP ScrollTrigger: replaces manual scroll handler ───
   // Layer 1 (60fps): GSAP scrub timeline drives editor fade-out + marketing fade-in
   // Layer 2 (60fps): CSS custom property --pct (compositor-only, no React re-render)
@@ -229,21 +234,54 @@ export function LandingPageA() {
               const el = document.querySelector(`[data-layer-idx="${li}"]`) as HTMLElement;
               if (!el) continue;
               const layer = LAYERS[li];
-              // Reveal progress: 3% pipePct window around threshold
               const revealProg = Math.max(0, Math.min(1, (pp - (layer.at - 0.01)) / 0.03));
               const isActive = layer.phases.includes(curPhase);
-              // Ghost state (opacity 0.05) → armed (opacity 1). No translateX — it was always there.
               gsap.set(el, { opacity: 0.05 + revealProg * 0.95 });
-              // Color bar: tally light
+
               const bar = el.querySelector("[data-layer-bar]") as HTMLElement;
               if (bar) bar.style.opacity = String(isActive ? 1 : revealProg > 0 ? 0.25 : 0);
-              // Layer name readability
+
+              // Tally light pulse — broadcast camera going live.
+              // Scale 1→1.12→1 is intentional overshoot (RESTRAINT exception: communicates "track armed").
+              if (revealProg > 0 && !armedLayersRef.current.has(li)) {
+                armedLayersRef.current.add(li);
+                if (bar) {
+                  gsap.fromTo(bar,
+                    { scaleY: 1, scaleX: 1 },
+                    { scaleY: 1.12, scaleX: 1.12, duration: 0.125, yoyo: true, repeat: 1, ease: "expo.out" }
+                  );
+                }
+              } else if (revealProg === 0 && armedLayersRef.current.has(li)) {
+                armedLayersRef.current.delete(li);
+              }
+
+              // Done: green flash on bar, then checkmark draws itself
+              const isDone = pp >= layer.doneAt;
+              if (isDone && !doneLayersRef.current.has(li)) {
+                doneLayersRef.current.add(li);
+                const flash = el.querySelector("[data-layer-flash]") as HTMLElement;
+                if (flash) {
+                  gsap.fromTo(flash, { opacity: 1 }, { opacity: 0, duration: 0.25, ease: "expo.out" });
+                }
+                const chkSvg = el.querySelector("[data-layer-check]") as SVGElement;
+                const chkPath = chkSvg?.querySelector("path") as SVGPathElement;
+                if (chkSvg && chkPath) {
+                  gsap.to(chkSvg, { opacity: 1, duration: 0.25, delay: 0.25 });
+                  gsap.to(chkPath, { strokeDashoffset: 0, duration: 0.35, ease: "expo.out", delay: 0.25 });
+                }
+              } else if (!isDone && doneLayersRef.current.has(li)) {
+                doneLayersRef.current.delete(li);
+                const chkSvg = el.querySelector("[data-layer-check]") as SVGElement;
+                const chkPath = chkSvg?.querySelector("path") as SVGPathElement;
+                if (chkSvg) gsap.set(chkSvg, { opacity: 0 });
+                if (chkPath) gsap.set(chkPath, { strokeDashoffset: 1 });
+              }
+
               const name = el.querySelector("[data-layer-name]") as HTMLElement;
               if (name) {
                 name.style.color = isActive ? C.text : (revealProg > 0 ? C.muted : C.dim);
                 name.style.fontWeight = isActive ? "500" : "400";
               }
-              // Background
               el.style.background = isActive ? C.s2 : "transparent";
             }
 
@@ -402,6 +440,7 @@ export function LandingPageA() {
         @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
         @keyframes breathe{0%,100%{opacity:.015}50%{opacity:.05}}
         @keyframes checkDraw{from{stroke-dashoffset:20}to{stroke-dashoffset:0}}
+        @keyframes pipeRouteFill{from{transform:scale(0)}to{transform:scale(1)}}
         @keyframes eqBounce{0%,100%{transform:scaleY(.15)}50%{transform:scaleY(1)}}
         @keyframes toastIn{from{opacity:0;transform:translateY(-16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
         .mkt-card{transition:border-color .35s ${EASE},transform .35s ${EASE}}
@@ -577,18 +616,17 @@ export function LandingPageA() {
               <span className="m" style={{ fontSize: 13, color: C.muted, letterSpacing: ".08em" }}>LAYERS</span>
             </div>
             <div style={{ flex: 1, padding: "8px 8px", display: "flex", flexDirection: "column", gap: 2 }}>
-              {LAYERS.map((l, i) => {
-                // "Track Arming" — layers are always present as ghost tracks (opacity 0.05).
-                // GSAP onUpdate drives opacity/color at 60fps. React only provides structure.
-                const doneChk = pipePct >= l.doneAt;
-                return (
-                  <div key={i} data-layer-idx={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, opacity: 0.05, transition: `background .4s ${EASE}` }}>
-                    <div data-layer-bar style={{ width: 4, height: 20, borderRadius: 2, background: l.c, opacity: 0, transition: `opacity .3s ${EASE}` }} />
-                    <span data-layer-name style={{ fontSize: 14, color: C.dim, transition: `all .3s ${EASE}`, flex: 1 }}>{l.name}</span>
-                    {doneChk && <Chk size={12} color={C.green} />}
+              {LAYERS.map((l, i) => (
+                <div key={i} data-layer-idx={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, opacity: 0.05, transition: `background .4s ${EASE}` }}>
+                  <div data-layer-bar style={{ width: 4, height: 20, borderRadius: 2, background: l.c, opacity: 0, transition: `opacity .25s ${EASE}`, position: "relative" }}>
+                    <div data-layer-flash style={{ position: "absolute", inset: 0, borderRadius: "inherit", background: C.green, opacity: 0 }} />
                   </div>
-                );
-              })}
+                  <span data-layer-name style={{ fontSize: 14, color: C.dim, transition: `all .25s ${EASE}`, flex: 1 }}>{l.name}</span>
+                  <svg data-layer-check width={12} height={12} viewBox="0 0 24 24" fill="none" style={{ opacity: 0, flexShrink: 0 }}>
+                    <path d="M5 12l5 5L19 7" stroke={C.green} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" pathLength={1} strokeDasharray={1} strokeDashoffset={1} />
+                  </svg>
+                </div>
+              ))}
             </div>
             {/* Pipeline */}
             <div style={{ padding: "14px 16px", borderTop: `1px solid ${C.border}` }}>
@@ -615,9 +653,18 @@ export function LandingPageA() {
                     onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.8"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
                   >
-                    <div style={{ width: 16, height: 16, borderRadius: 5, background: done ? `${C.green}15` : act ? `${st.c}10` : "transparent", border: done ? `1px solid ${C.green}25` : act ? `1px solid ${st.c}25` : `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", transition: `all .4s ${EASE}` }}>
-                      {done && <Chk size={10} color={C.green} sw={3} />}
-                      {act && !done && <div style={{ width: 5, height: 5, borderRadius: 3, background: st.c, animation: "pulse 1.5s infinite" }} />}
+                    <div style={{ width: 16, height: 16, borderRadius: 5, border: done ? `1px solid ${C.green}25` : act ? `1px solid ${st.c}25` : `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", transition: `border .35s ${EASE}`, position: "relative", overflow: "hidden" }}>
+                      {(act || done) && (
+                        <div style={{ position: "absolute", inset: 0, borderRadius: "inherit", background: done ? `${C.green}20` : `${st.c}15`, animation: `pipeRouteFill .35s ${EASE} both`, transition: `background .35s ${EASE}` }} />
+                      )}
+                      {act && !done && (
+                        <div style={{ width: 5, height: 5, borderRadius: 3, background: st.c, animation: "pulse 1.5s infinite", position: "relative", zIndex: 1 }} />
+                      )}
+                      {done && (
+                        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" style={{ position: "absolute", zIndex: 2 }}>
+                          <path d="M5 12l5 5L19 7" stroke={C.green} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" style={{ strokeDasharray: 20, strokeDashoffset: 0, animation: `checkDraw .35s ${EASE} both` }} />
+                        </svg>
+                      )}
                     </div>
                     <span className="m" style={{ fontSize: 13, color: done ? C.green : act ? st.c : C.dim, transition: `color .3s ${EASE}` }}>{st.label}</span>
                   </button>
