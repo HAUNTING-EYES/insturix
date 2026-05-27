@@ -71,8 +71,8 @@ const MODAL_WAV2VEC_ENDPOINT = process.env.MODAL_WAV2VEC_ENDPOINT
 
 const VALID_VALENCES: Set<string> = new Set(['positive', 'negative', 'neutral', 'mixed']);
 
-const COLD_TIMEOUT_MS = 90_000;  // 90s for batch 1 — accounts for Modal cold start (60-90s)
-const WARM_TIMEOUT_MS = 45_000;  // 45s for batch 2+ — container is warm, 5-15s expected
+const COLD_TIMEOUT_MS = 120_000; // 120s for batch 1 — Modal cold start (60-90s) + large file download
+const WARM_TIMEOUT_MS = 90_000;  // 90s for batch 2+ — Modal re-downloads audio each batch for long videos
 const BATCH_SIZE = 20;           // Reduced from 30 — smaller batches are more reliable on Modal
 
 // ─── Warmup ────────────────────────────────────────────────────────────────
