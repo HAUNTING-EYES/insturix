@@ -1,0 +1,372 @@
+/**
+ * POST /api/internal/workers/tribe-analysis
+ *
+ * QStash worker for TRIBE Phase 2 deep analysis.
+ * Stage 2 of three-stage QStash pipeline:
+ *   Stage 1: /api/internal/workers/video-analysis (transcription, cuts, VU, genre params)
+ *   Stage 2: THIS (V-JEPA, Wav2Vec, Essentia, moment weights, segment analysis)
+ *   Stage 3: /api/internal/workers/director (profile detection, Creative Brief, Director execution)
+ *
+ * Split from video-analysis to prevent 800s Vercel timeout on long videos.
+ * video-analysis (Steps 1-3) ~215s + tribe-analysis (Steps 3.5-3.7) ~500s.
+ *
+ * Flow:
+ * 3.5  V-JEPA + Wav2Vec + Essentia GPU analysis (parallel, Modal)
+ * 3.6  Moment weight map (Phase 2: 50% gemini + 30% vjepa + 20% wav2vec)
+ * 3.7  Unified SegmentAnalysis
+ * 4b   Store Phase 2 results on project doc
+ * 5    Dispatch Director worker via QStash (or run inline in dev)
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+
+export const runtime = 'nodejs';
+export const maxDuration = 800; // GPU analysis can take 5-8min for long videos
+
+interface TribeAnalysisPayload {
+  projectId: string;
+  userId: string;
+  videoUrl: string;
+  segmentInputs: { startMs: number; endMs: number }[];
+  directorPayload: Record<string, unknown>;
+}
+
+async function handler(request: NextRequest) {
+  const startMs = Date.now();
+  console.log('[TribeWorker] Started');
+  let trackedProjectId: string | undefined;
+  let directorDispatched = false;
+
+  try {
+    const payload: TribeAnalysisPayload = await request.json();
+    const { projectId, userId, videoUrl, segmentInputs, directorPayload } = payload;
+    trackedProjectId = projectId;
+
+    if (!projectId || !userId || !videoUrl) {
+      return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
+    }
+
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const db = await getDatabase();
+
+    // ─── Step 3.5: V-JEPA + Wav2Vec + Essentia GPU analysis ────────
+    // Run visual significance (V-JEPA), vocal emotion (Wav2Vec), and music
+    // analysis (Essentia) in parallel. All are non-fatal — pipeline falls
+    // back to Phase 0 (Gemini-only) weights if GPU analysis fails.
+    let vjepaAnalysis: any = null;
+    let wav2vecAnalysis: any = null;
+
+    if (segmentInputs?.length > 0) {
+      try {
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'analyzing_deep' } },
+        );
+
+        console.log(`[TribeWorker] TRIBE Phase 2: Dispatching V-JEPA + Wav2Vec + Essentia for ${segmentInputs.length} segments...`);
+
+        const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
+          (async () => {
+            const { analyzeVideoWithVjepa } = await import('@/lib/editron/services/vjepa-service');
+            return analyzeVideoWithVjepa(videoUrl, segmentInputs);
+          })(),
+          (async () => {
+            const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
+            return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);
+          })(),
+          (async () => {
+            const { analyzeMusicContent } = await import('@/lib/editron/services/music-analysis-service');
+            return analyzeMusicContent(videoUrl);
+          })(),
+        ]);
+
+        // Handle V-JEPA result
+        if (vjepaResult.status === 'fulfilled' && vjepaResult.value) {
+          vjepaAnalysis = vjepaResult.value;
+          const avgSig = vjepaAnalysis.segments.reduce((s: number, r: any) => s + r.visualSignificance, 0) / vjepaAnalysis.segments.length;
+          console.log(`[TribeWorker] V-JEPA: ${vjepaAnalysis.segments.length} segments analyzed (avg significance=${avgSig.toFixed(2)}, ${vjepaAnalysis.processingTimeMs}ms)`);
+        } else {
+          const msg = vjepaResult.status === 'rejected' ? (vjepaResult.reason?.message || String(vjepaResult.reason)) : 'returned null';
+          console.warn(`[TribeWorker] V-JEPA skipped: ${msg}`);
+        }
+
+        // Handle Wav2Vec result
+        if (wav2vecResult.status === 'fulfilled' && wav2vecResult.value) {
+          wav2vecAnalysis = wav2vecResult.value;
+          const avgEmo = wav2vecAnalysis.segments.reduce((s: number, r: any) => s + r.emotionIntensity, 0) / wav2vecAnalysis.segments.length;
+          console.log(`[TribeWorker] Wav2Vec: ${wav2vecAnalysis.segments.length} segments analyzed (avg emotion=${avgEmo.toFixed(2)}, ${wav2vecAnalysis.processingTimeMs}ms)`);
+        } else {
+          const msg = wav2vecResult.status === 'rejected' ? (wav2vecResult.reason?.message || String(wav2vecResult.reason)) : 'returned null';
+          console.warn(`[TribeWorker] Wav2Vec skipped: ${msg}`);
+        }
+
+        // Handle Music Analysis result
+        let musicAnalysis: any = null;
+        if (musicResult.status === 'fulfilled' && musicResult.value) {
+          musicAnalysis = musicResult.value;
+          console.log(`[TribeWorker] Music: BPM=${musicAnalysis.bpm}, ${musicAnalysis.beats.length} beats, presence=${musicAnalysis.musicPresence.toFixed(2)}, ${musicAnalysis.processingTimeMs}ms`);
+        } else {
+          const msg = musicResult.status === 'rejected' ? (musicResult.reason?.message || String(musicResult.reason)) : 'returned null';
+          console.warn(`[TribeWorker] Music analysis skipped: ${msg}`);
+        }
+
+        // Store music analysis on project for Director to read
+        if (musicAnalysis) {
+          try {
+            await db.collection('projects').updateOne(
+              { projectId },
+              { $set: { musicAnalysis } },
+            );
+          } catch { /* non-fatal */ }
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[TribeWorker] TRIBE Phase 2 analysis failed (non-fatal): ${msg}`);
+      }
+    }
+
+    // ─── Step 3.6: Build enriched moment weight map ──────────────────
+    // If V-JEPA/Wav2Vec data is available, build Phase 2 weights:
+    //   50% gemini + 30% vjepa + 20% wav2vec + thompson_adjustment
+    // Otherwise falls back to Phase 0 flat weights.
+    // Reads rawFootageAnalysis from project doc (stored by video-analysis worker).
+    const projectDoc = await db.collection('projects').findOne(
+      { projectId },
+      { projection: { rawFootageAnalysis: 1, syntheticStoryboard: 1 } },
+    );
+    const rawFootageAnalysis = projectDoc?.rawFootageAnalysis;
+    const syntheticStoryboard = projectDoc?.syntheticStoryboard;
+
+    let momentWeightMap: any = null;
+    if (vjepaAnalysis || wav2vecAnalysis) {
+      try {
+        const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores } =
+          await import('@/lib/editron/services/moment-weight-service');
+        const { toVjepaWeightFormat } = await import('@/lib/editron/services/vjepa-service');
+        const { toWav2VecWeightFormat } = await import('@/lib/editron/services/wav2vec-service');
+
+        // Start with flat weights (Phase 0)
+        let weightMap = buildMomentWeightMap(null, rawFootageAnalysis);
+
+        // Integrate V-JEPA visual significance (30% weight)
+        if (vjepaAnalysis) {
+          const vjepaWeights = toVjepaWeightFormat(vjepaAnalysis);
+          weightMap = integrateVjepaScores(weightMap, vjepaWeights);
+        }
+
+        // Integrate Wav2Vec vocal emotion (20% weight)
+        if (wav2vecAnalysis) {
+          const wav2vecWeights = toWav2VecWeightFormat(wav2vecAnalysis);
+          weightMap = integrateWav2vecScores(weightMap, wav2vecWeights);
+        }
+
+        momentWeightMap = weightMap;
+        console.log(`[TribeWorker] Moment weights: Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[TribeWorker] Moment weight computation failed (non-fatal): ${msg}`);
+      }
+    }
+
+    // ─── Step 3.7: Build unified SegmentAnalysis ───────────────────
+    // One source of truth merging all 5 analysis sources per segment.
+    let segmentAnalysis: any = null;
+    if (rawFootageAnalysis?.segments?.length > 0) {
+      try {
+        const { buildSegmentAnalysis } = await import('@/lib/editron/services/segment-analysis-builder');
+        segmentAnalysis = buildSegmentAnalysis(
+          rawFootageAnalysis, syntheticStoryboard,
+          vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
+        );
+        if (segmentAnalysis) {
+          console.log(`[TribeWorker] SegmentAnalysis: ${segmentAnalysis.meta.segmentCount} segments, vjepa=${segmentAnalysis.meta.hasVjepa}, wav2vec=${segmentAnalysis.meta.hasWav2vec}, phase=${segmentAnalysis.meta.momentWeightPhase}`);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[TribeWorker] SegmentAnalysis build failed (non-fatal): ${msg}`);
+      }
+    }
+
+    // ─── Step 4b: Store Phase 2 results on project doc ────────────
+    await db.collection('projects').updateOne(
+      { projectId },
+      {
+        $set: {
+          autoEditStatus: 'analysis_complete',
+          ...(vjepaAnalysis && { vjepaAnalysis }),
+          ...(wav2vecAnalysis && { wav2vecAnalysis }),
+          ...(momentWeightMap && { momentWeightMap }),
+          ...(segmentAnalysis && { segmentAnalysis }),
+          updatedAt: new Date(),
+        },
+      },
+    );
+
+    // ─── Step 5: Dispatch Director to separate worker ─────────────
+    if (process.env.QSTASH_TOKEN) {
+      await db.collection('projects').updateOne(
+        { projectId },
+        { $set: { autoEditStatus: 'directing_queued' } },
+      );
+
+      const qstashBaseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+      const directorUrl = `${qstashBaseUrl}/api/internal/workers/director`;
+      const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${directorUrl}`;
+
+      const dispatchRes = await fetch(qstashUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
+          'Content-Type': 'application/json',
+          'Upstash-Retries': '0',
+          'Upstash-Delay': '3s',
+        },
+        body: JSON.stringify(directorPayload),
+      });
+
+      if (!dispatchRes.ok) {
+        const errBody = await dispatchRes.text().catch(() => 'no body');
+        throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+      }
+
+      directorDispatched = true;
+      const dispatchData = await dispatchRes.json().catch(() => ({}));
+      const totalMs = Date.now() - startMs;
+      console.log(`[TribeWorker] TRIBE complete: ${projectId} in ${totalMs}ms. Director dispatched (messageId=${dispatchData.messageId || 'unknown'}).`);
+      return NextResponse.json({ success: true, totalMs, stage: 'tribe-analysis' });
+    }
+
+    // ─── Dev fallback: no QStash → run Director inline ────────────
+    console.warn(`[TribeWorker] No QSTASH_TOKEN — running Director inline`);
+    await db.collection('projects').updateOne(
+      { projectId },
+      { $set: { autoEditStatus: 'directing' } },
+    );
+
+    const initialProfileId = (directorPayload.profileId as string) || 'G-01';
+    const title = (directorPayload.title as string) || '';
+    const platform = (directorPayload.platform as string) || 'youtube';
+    const userIntent = directorPayload.userIntent as string | undefined;
+    const captionStyle = directorPayload.captionStyle as string | undefined;
+    const transitionPreference = directorPayload.transitionPreference as string | undefined;
+    const zoomBehavior = directorPayload.zoomBehavior as string | undefined;
+    const motionGraphics = directorPayload.motionGraphics as string | undefined;
+    const pacingFeel = directorPayload.pacingFeel as string | undefined;
+    const musicPreference = directorPayload.musicPreference as string | undefined;
+
+    let profileId = initialProfileId;
+    if (rawFootageAnalysis?.contentTypeDetection?.confidence >= 0.5) {
+      profileId = rawFootageAnalysis.contentTypeDetection.profileId;
+      console.log(`[TribeWorker] Profile: ${profileId} (${rawFootageAnalysis.contentTypeDetection.contentType})`);
+    } else {
+      try {
+        const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
+        const { profile } = getAutoSelectedProfile({
+          title: syntheticStoryboard?.title || title,
+          contentType: syntheticStoryboard?.contentType || 'video',
+          platform: syntheticStoryboard?.platform || 'youtube',
+          scenes: syntheticStoryboard?.scenes?.map((s: any) => ({
+            narration: s.descriptor?.narration,
+            visualDescription: s.descriptor?.visualDescription,
+            mood: s.descriptor?.mood,
+            editDirections: s.descriptor?.editDirections,
+          })) || [],
+          globalEditDirections: syntheticStoryboard?.globalEditDirections,
+          overallMusicPrompt: syntheticStoryboard?.overallMusicPrompt,
+        });
+        if (profile?.profileId) profileId = profile.profileId;
+      } catch {
+        console.warn(`[TribeWorker] Profile detection failed, using ${profileId}`);
+      }
+    }
+
+    const editDNA = projectDoc?.referenceEditDNA;
+    let brief: any = undefined;
+    const userPrefs = {
+      ...(captionStyle && { captionStyle }),
+      ...(transitionPreference && { transitionPreference }),
+      ...(zoomBehavior && { zoomBehavior }),
+      ...(motionGraphics && { motionGraphics }),
+      ...(pacingFeel && { pacingFeel }),
+      ...(musicPreference && { musicPreference }),
+      ...(platform && { platform }),
+      ...(userIntent && { intent: userIntent }),
+    };
+    if (editDNA) {
+      brief = {
+        ...userPrefs,
+        overrides: {
+          ...(editDNA.pacing?.overall && { pacing: editDNA.pacing.overall }),
+          ...(editDNA.cutRhythm?.avgCutsPerMinute && { cutsPerMinute: editDNA.cutRhythm.avgCutsPerMinute }),
+          ...(editDNA.transitions?.dominant && { defaultTransition: editDNA.transitions.dominant }),
+          ...(editDNA.graphicsDensity && { graphicsDensity: editDNA.graphicsDensity }),
+        },
+      };
+    } else if (Object.keys(userPrefs).length > 0) {
+      brief = { ...userPrefs, modifiers: [] };
+    }
+
+    const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
+    const directorResult = await executeDirectorPlan(
+      projectId, userId, profileId, brief,
+      (step, total, desc) => console.log(`[TribeWorker] Director ${step}/${total}: ${desc}`),
+    );
+
+    const totalMs = Date.now() - startMs;
+    await db.collection('projects').updateOne(
+      { projectId },
+      {
+        $set: {
+          autoEditStatus: 'complete',
+          autoEditCompletedAt: new Date(),
+          autoEditDurationMs: totalMs,
+          directorProfileUsed: profileId,
+        },
+      },
+    );
+
+    console.log(`[TribeWorker] Complete (inline): ${projectId} in ${totalMs}ms (${directorResult.actionsExecuted} actions)`);
+
+    try {
+      const projectAfterDirector = await db.collection('projects').findOne(
+        { projectId },
+        { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
+      );
+      const qualityScore = projectAfterDirector?.qualityReview?.overallScore ?? 50;
+      const criticalCount = projectAfterDirector?.qualityReview?.criticalCount ?? 0;
+      if (criticalCount <= 5) {
+        const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
+        await recordProjectOutcome(userId, projectId, qualityScore, false, false);
+      }
+    } catch { /* non-fatal */ }
+
+    return NextResponse.json({ success: true, totalMs });
+
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`[TribeWorker] Failed: ${msg}`);
+
+    // Mark project as failed — but only if Director hasn't already been dispatched
+    // (if dispatched, the Director worker owns the final status)
+    if (trackedProjectId && !directorDispatched) {
+      try {
+        const { getDatabase } = await import('@/lib/editron/db/mongodb');
+        const db = await getDatabase();
+        await db.collection('projects').updateOne(
+          { projectId: trackedProjectId },
+          { $set: { autoEditStatus: 'failed', autoEditError: msg } },
+        );
+      } catch { /* best-effort status update */ }
+    }
+
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+  }
+}
+
+// QStash signature verification — skip in dev if signing keys not set
+export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
+  ? verifySignatureAppRouter(handler)
+  : handler;
