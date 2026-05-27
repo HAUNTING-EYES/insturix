@@ -132,6 +132,7 @@ export async function analyzeAudioWithWav2Vec(
     for (let i = 0; i < segments.length; i += BATCH_SIZE) {
       batches.push(segments.slice(i, i + BATCH_SIZE));
     }
+    const batchStartMs = Date.now();
 
     console.log(`[Wav2VecService] ${segments.length} segments → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
     let lastResponseMs = Date.now();
