@@ -154,6 +154,23 @@ function applyEntranceState(progress: number, pattern: EntrancePattern, s: Spati
       return { ...NEUTRAL, opacity: progress, filterBlur: (1 - progress) * 20 };
     case 'draw':
       return { ...NEUTRAL, clipProgress: progress };
+    case 'rotate-in':
+      // ⚠️ 15deg INVENTED — AE practice: 10-20deg for subtle rotation reveals
+      return { ...NEUTRAL, opacity: progress, rotation: (1 - progress) * 15, scaleX: s.scaleFrom + progress * (1 - s.scaleFrom), scaleY: s.scaleFrom + progress * (1 - s.scaleFrom) };
+    case 'skew-in':
+      // ⚠️ 10deg INVENTED — AE practice: 8-15deg for dynamic slide feel (broadcast news style)
+      return { ...NEUTRAL, opacity: progress,
+        skewX: (1 - progress) * 10,
+        translateX: (1 - progress) * -s.horizontalSlidePx * 0.5,
+      };
+    case 'zoom-blur':
+      // Dramatic impact reveal: element starts large + blurred, settles to normal
+      // ⚠️ scale 2.0, blur 30px INVENTED — AE practice for dramatic MG reveals
+      return { ...NEUTRAL, opacity: progress,
+        scaleX: 1 + (1 - progress) * 1.0,
+        scaleY: 1 + (1 - progress) * 1.0,
+        filterBlur: (1 - progress) * 30,
+      };
     default:
       return { ...NEUTRAL, opacity: progress };
   }
@@ -254,6 +271,12 @@ function applyHoldAnimation(frame: number, timing: ComputedChoreography, pattern
       const wave = Math.sin(phase * Math.PI * 2);
       return { ...NEUTRAL, translateY: wave * 3 };
     }
+    case 'glow': {
+      // Pulsing text shadow + brightness for neon/emphasis effect
+      // ⚠️ 8px shadow, 1.1 brightness INVENTED — AE practice: 6-12px glow, 105-115% brightness for neon pulse
+      const wave = (1 + Math.sin(phase * Math.PI * 2)) * 0.5;
+      return { ...NEUTRAL, textShadowBlur: wave * 8, filterBrightness: 1 + wave * 0.1 };
+    }
     case 'static':
     default:
       return { ...NEUTRAL };
@@ -299,6 +322,19 @@ function applyExitState(progress: number, pattern: ExitPattern, s: SpatialConfig
       return { ...NEUTRAL, opacity: inv, filterBlur: progress * 20 };
     case 'draw-reverse':
       return { ...NEUTRAL, clipProgress: inv };
+    case 'rotate-out':
+      return { ...NEUTRAL, opacity: inv, rotation: progress * -15, scaleX: inv, scaleY: inv };
+    case 'skew-out':
+      return { ...NEUTRAL, opacity: inv,
+        skewX: progress * -10,
+        translateX: progress * s.horizontalSlidePx * 0.5,
+      };
+    case 'zoom-blur-out':
+      return { ...NEUTRAL, opacity: inv,
+        scaleX: 1 + progress * 1.0,
+        scaleY: 1 + progress * 1.0,
+        filterBlur: progress * 30,
+      };
     default:
       return { ...NEUTRAL, opacity: inv };
   }

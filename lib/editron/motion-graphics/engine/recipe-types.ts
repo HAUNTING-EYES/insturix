@@ -17,13 +17,13 @@ export type PrimitiveType =
 
 export type ShapeKind = 'rect' | 'circle' | 'line' | 'path' | 'pill';
 
-export type EntrancePattern = 'fade' | 'slide-up' | 'slide-left' | 'slide-down' | 'slide-right' | 'scale-up' | 'pop' | 'blur-in' | 'draw';
-export type ExitPattern = 'fade' | 'slide-down' | 'slide-left' | 'slide-right' | 'slide-up' | 'scale-down' | 'blur-out' | 'draw-reverse';
+export type EntrancePattern = 'fade' | 'slide-up' | 'slide-left' | 'slide-down' | 'slide-right' | 'scale-up' | 'pop' | 'blur-in' | 'draw' | 'rotate-in' | 'skew-in' | 'zoom-blur';
+export type ExitPattern = 'fade' | 'slide-down' | 'slide-left' | 'slide-right' | 'slide-up' | 'scale-down' | 'blur-out' | 'draw-reverse' | 'rotate-out' | 'skew-out' | 'zoom-blur-out';
 export type ExitStyle = 'reverse-stagger' | 'simultaneous-fade' | 'simultaneous-scale' | 'hold-then-fade';
 
 export type ElementAnimation = 'count-up' | 'word-by-word' | 'word-highlight' | 'grow-up' | 'grow-right' | 'typewriter' | 'none';
 
-export type HoldPattern = 'static' | 'pulse' | 'breathe' | 'gentle-float';
+export type HoldPattern = 'static' | 'pulse' | 'breathe' | 'gentle-float' | 'glow';
 
 export type SyncTarget = 'audio-beats' | 'word-timings' | 'even-stagger';
 
