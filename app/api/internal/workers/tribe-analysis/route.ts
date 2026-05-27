@@ -118,7 +118,7 @@ async function handler(request: NextRequest) {
               { projectId },
               { $set: { musicAnalysis } },
             );
-          } catch { /* non-fatal */ }
+          } catch (e) { console.warn(`[TribeWorker] Non-fatal error:`, e instanceof Error ? e.message : e); }
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -341,7 +341,7 @@ async function handler(request: NextRequest) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
         await recordProjectOutcome(userId, projectId, qualityScore, false, false);
       }
-    } catch { /* non-fatal */ }
+    } catch (e) { console.warn(`[TribeWorker] Non-fatal error:`, e instanceof Error ? e.message : e); }
 
     return NextResponse.json({ success: true, totalMs });
 
@@ -359,7 +359,7 @@ async function handler(request: NextRequest) {
           { projectId: trackedProjectId },
           { $set: { autoEditStatus: 'failed', autoEditError: msg } },
         );
-      } catch { /* best-effort status update */ }
+      } catch (e) { console.warn(`[TribeWorker] Status update failed:`, e instanceof Error ? e.message : e); }
     }
 
     return NextResponse.json({ success: false, error: msg }, { status: 500 });

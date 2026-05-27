@@ -135,7 +135,7 @@ async function generateTranscription(
           if (isR2Available()) {
             fileUrl = await getR2PresignedReadUrl(asset.assetId, 3600);
           }
-        } catch { /* R2 not configured — use existing mediaUrl */ }
+        } catch (e) { console.warn(`[Transcription] R2 presigned URL failed, using CDN:`, e instanceof Error ? e.message : e); }
 
         console.log(`[Transcription] Grok STT: downloading ${asset.assetId} for direct file upload...`);
         const dlController = new AbortController();
