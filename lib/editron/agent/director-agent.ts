@@ -491,7 +491,7 @@ export async function executeDirectorPlan(
           console.log(`[Director] Path E: Content routing — speech=${speechCoverage.toFixed(2)}, music=${musicPresence.toFixed(2)}${beatDensityBpm ? ` (${beatDensityBpm} BPM)` : ''}, visual=${visualChangeRate.toFixed(2)}${!vjepaSegs?.length && visualChangeRate > 0 ? ' (segment proxy)' : ''} → ${contentMode}`);
 
           // Generate Creative Brief (Gemini call — context-cached creative doc + decision registry)
-          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams, contentMode);
+          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams, contentMode, pipelineWarnings);
 
           if (creativeBrief && creativeBrief.decisions.length > 0) {
             console.log(`[Director] Path E: Creative Brief generated — ${creativeBrief.decisions.length} decisions, pacing=${creativeBrief.overallPacing}`);
