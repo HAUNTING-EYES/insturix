@@ -115,12 +115,12 @@ assert(
   `corporate top entrance IS fade (got ${corpEntrances[0]?.overlayId.replace('mg.animation.entrance_', '')})`,
 );
 
-// Hold pattern: vlog should prefer pulse, documentary should prefer breathe
+// Hold pattern: vlog should prefer glow or pulse (high energy), documentary should prefer breathe
 const vlogHolds = vlog.selections.filter(r => r.overlayId.startsWith('mg.animation.hold_')).sort((a, b) => b.totalScore - a.totalScore);
 const docHolds = doc.selections.filter(r => r.overlayId.startsWith('mg.animation.hold_')).sort((a, b) => b.totalScore - a.totalScore);
 assert(
-  vlogHolds[0]?.overlayId === 'mg.animation.hold_pulse',
-  `vlog top hold is pulse (got ${vlogHolds[0]?.overlayId.replace('mg.animation.hold_', '')})`,
+  vlogHolds[0]?.overlayId === 'mg.animation.hold_glow' || vlogHolds[0]?.overlayId === 'mg.animation.hold_pulse',
+  `vlog top hold is glow or pulse (got ${vlogHolds[0]?.overlayId.replace('mg.animation.hold_', '')})`,
 );
 assert(
   docHolds[0]?.overlayId === 'mg.animation.hold_breathe',

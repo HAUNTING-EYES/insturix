@@ -1122,7 +1122,9 @@ async function applyGraphic(
           const SELECTION_IDS = new Set([
             'mg.animation.entrance_fade', 'mg.animation.entrance_pop', 'mg.animation.entrance_slide',
             'mg.animation.entrance_blur', 'mg.animation.entrance_scale',
+            'mg.animation.entrance_rotate', 'mg.animation.entrance_skew', 'mg.animation.entrance_zoom_blur',
             'mg.animation.hold_pulse', 'mg.animation.hold_breathe', 'mg.animation.hold_float',
+            'mg.animation.hold_glow',
           ]);
           const propDefs = allMgDefs.filter(d => !SELECTION_IDS.has(d.id));
           const selDefs = allMgDefs.filter(d => SELECTION_IDS.has(d.id));

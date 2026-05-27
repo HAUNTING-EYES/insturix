@@ -2462,6 +2462,115 @@
       { "name": "scaleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
     ]
   },
+  {
+    "id": "mg.animation.entrance_rotate",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Formal content → rotation entrance for gravitas (title reveals)"
+      },
+      {
+        "signalId": "visceral_impact",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Moderate impact → rotation adds weight to reveals"
+      }
+    ],
+    "outputParams": [
+      { "name": "rotateScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.entrance_skew",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Fast pacing → dynamic skew entrance (broadcast style)"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Casual content → skew fits dynamic tone (inverted formality)"
+      }
+    ],
+    "outputParams": [
+      { "name": "skewScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.entrance_zoom_blur",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "polynomial",
+        "params": { "slope": 1, "exponent": 2, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Very high impact → dramatic zoom-blur reveal (squared response — only fires on extreme impact)"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "High enthusiasm → zoom-blur for maximum energy"
+      }
+    ],
+    "outputParams": [
+      { "name": "zoomBlurScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.animation.hold_glow",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High impact → neon glow emphasis during hold"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Energetic → glow adds visual energy"
+      }
+    ],
+    "outputParams": [
+      { "name": "glowScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
 
   {
     "id": "mg.animation.hold_pulse",

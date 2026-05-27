@@ -119,9 +119,31 @@ export function planComposition(
   // Text split resolution: kinetic per-character or per-word animation when signals are high-energy.
   // The renderer executes the split; the planner only decides WHEN.
   const entranceWinner = mgWinner(mgScores, 'mg.animation.entrance_');
+  // Map overlay entrance winner → EntrancePattern value for recipe elements
+  const ENTRANCE_WINNER_MAP: Record<string, EntrancePattern> = {
+    'mg.animation.entrance_fade': 'fade',
+    'mg.animation.entrance_pop': 'pop',
+    'mg.animation.entrance_slide': 'slide-up',
+    'mg.animation.entrance_blur': 'blur-in',
+    'mg.animation.entrance_scale': 'scale-up',
+    'mg.animation.entrance_rotate': 'rotate-in',
+    'mg.animation.entrance_skew': 'skew-in',
+    'mg.animation.entrance_zoom_blur': 'zoom-blur',
+  };
+  if (entranceWinner && ENTRANCE_WINNER_MAP[entranceWinner]) {
+    const overlayEntrance = ENTRANCE_WINNER_MAP[entranceWinner];
+    for (const el of elements) {
+      if (el.primitive === 'text' && el.layer === 'foreground' && !el.entranceOverride) {
+        el.entranceOverride = overlayEntrance;
+      }
+    }
+  }
+
   const isKineticEntrance = entranceWinner === 'mg.animation.entrance_pop'
     || entranceWinner === 'mg.animation.entrance_slide'
-    || entranceWinner === 'mg.animation.entrance_scale';
+    || entranceWinner === 'mg.animation.entrance_scale'
+    || entranceWinner === 'mg.animation.entrance_skew'
+    || entranceWinner === 'mg.animation.entrance_zoom_blur';
   if (isKineticEntrance) {
     // ⚠️ threshold 0.7 INVENTED — chars for high energy, words for moderate
     const splitMode: TextSplitMode = s.enthusiasm > 0.7 ? 'chars' : 'words';
@@ -606,10 +628,15 @@ function resolveKeyframeTracks(
 
 function resolveHoldPattern(signals: PlannerSignals, mgScores?: MgOverlayScores): HoldPattern {
   const winner = mgWinner(mgScores, 'mg.animation.hold_');
-  if (winner) {
+  // ⚠️ threshold 0.15 INVENTED — hold winner must score above this to override static default.
+  // Without this gate, even barely-scoring hold overlays (0.02) would trigger ambient motion
+  // on calm content where static is correct.
+  const winnerScore = winner ? (mgScores?.[winner]?.score ?? 0) : 0;
+  if (winner && winnerScore > 0.15) {
     if (winner === 'mg.animation.hold_pulse') return 'pulse';
     if (winner === 'mg.animation.hold_breathe') return 'breathe';
     if (winner === 'mg.animation.hold_float') return 'gentle-float';
+    if (winner === 'mg.animation.hold_glow') return 'glow';
   }
   if (signals.enthusiasm > 0.6 && signals.pacing_velocity < 0.5) return 'pulse';
   if (signals.warmth > 0.6) return 'breathe';
