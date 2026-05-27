@@ -543,7 +543,9 @@ export function PreviewVisualInsturix({
     if (!r) return 0;
     // Fade in at start of range
     const fadeInW = cutIn.has(name) ? 0.001 : fade;
-    const inProgress = pct <= r.lo ? 0 : pct < r.lo + fadeInW ? (pct - r.lo) / fadeInW : 1;
+    // For phases starting at 0 (welcome): already fully visible, no fade-in.
+    // For other phases: ramp 0→1 over fadeInW window after lo boundary.
+    const inProgress = r.lo === 0 ? 1 : pct < r.lo ? 0 : pct < r.lo + fadeInW ? (pct - r.lo) / fadeInW : 1;
     // Fade out at end of range
     const fadeOutW = cutOut.has(name) ? 0.001 : fade;
     const outProgress = pct < r.hi - fadeOutW ? 1 : pct < r.hi ? 1 - (pct - (r.hi - fadeOutW)) / fadeOutW : 0;
