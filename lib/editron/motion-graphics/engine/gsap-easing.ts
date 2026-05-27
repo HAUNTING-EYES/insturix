@@ -1,11 +1,28 @@
 import { Easing } from 'remotion';
 
-let gsapModule: { parseEase: (name: string) => ((t: number) => number) | undefined } | null = null;
+let gsapModule: { parseEase: (name: string) => ((t: number) => number) | undefined; registerPlugin?: (...args: unknown[]) => void } | null = null;
 
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const g = require('gsap');
   gsapModule = g.gsap || g;
+
+  // Register premium easing plugins — unlocks physics-based bounce, organic wiggle,
+  // and arbitrary SVG-path easing curves. All plugins are installed (gsap 3.13.0 full tier).
+  // After registration, these work as easing names: 'bounce', 'wiggle(...)','CustomEase.create(...)'
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { CustomBounce } = require('gsap/CustomBounce');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { CustomWiggle } = require('gsap/CustomWiggle');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { CustomEase } = require('gsap/CustomEase');
+    if (gsapModule?.registerPlugin) {
+      gsapModule.registerPlugin(CustomBounce, CustomWiggle, CustomEase);
+    }
+  } catch {
+    // Premium plugins not available — base GSAP easing still works
+  }
 } catch {
   // GSAP not available in this environment — Remotion bezier fallback used
 }
