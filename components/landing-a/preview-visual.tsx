@@ -536,8 +536,8 @@ export function PreviewVisualInsturix({
   };
   // CUT transitions have zero fade window (instant on/off at boundary).
   // DISSOLVE transitions overlap by `fade` at each boundary.
-  const cutIn = new Set(["welcome", "analyze"]); // Snap in — no fade-in
-  const cutOut = new Set(["welcome", "analyze"]); // Snap out — no fade-out
+  const cutIn = new Set(["analyze"]); // Snap in — no fade-in. Welcome removed: it dissolves out smoothly.
+  const cutOut = new Set(["analyze"]); // Snap out — no fade-out. Welcome removed: dissolve is gentler.
   function phaseOpacity(name: string): number {
     const r = phaseRanges[name];
     if (!r) return 0;

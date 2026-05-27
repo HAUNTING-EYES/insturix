@@ -183,11 +183,13 @@ export function LandingPageA() {
       gsap.ticker.add((time) => lenis.raf(time * 1000));
       gsap.ticker.lagSmoothing(0);
 
-      // ── Mount animation: editor fades in after 600ms (replaces old `ready` state) ──
+      // ── Mount animation: editor fades in quickly ──
+      // Old: 0.6s delay + 0.5s = 1.1s of blank screen. User saw "text disappears."
+      // New: 0.1s delay + 0.4s = 0.5s total. Just enough to avoid FOUC, fast enough to feel instant.
       gsap.fromTo(
         ".editor-root-animated",
         { opacity: 0 },
-        { opacity: 1, duration: 0.5, ease: "expo.out", delay: 0.6 }
+        { opacity: 1, duration: 0.4, ease: "expo.out", delay: 0.1 }
       );
 
       // ── Scrub timeline: scroll position → visual properties (60fps, compositor) ──
