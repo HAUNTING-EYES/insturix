@@ -1,53 +1,125 @@
 {
-  "_comment": "Curated reference videos for threshold calibration. Each entry covers a different signal profile (not content category). Add YouTube URLs and run: npx tsx scripts/calibrate/calibrate.ts",
+  "_comment": "Curated reference videos for threshold calibration. Each entry covers a different signal profile. Run: npx tsx scripts/calibrate/calibrate.ts",
   "videos": [
     {
       "url": "https://www.youtube.com/watch?v=mY7iweEA_HM",
       "label": "energetic-vlog",
       "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "fast" },
-      "notes": "Iman Gadzhi — CRAZY motion graphics, bold typography, fast pacing, high production"
+      "notes": "Iman Gadzhi — bold MG, fast cuts, luxury brand energy"
     },
     {
-      "url": "",
-      "label": "calm-corporate",
-      "expectedSignals": { "enthusiasm": "low", "formality": "high", "pacing": "slow" },
-      "notes": "e.g. Apple keynote, TED talk — fade transitions, minimal graphics, generous hold"
+      "url": "https://www.youtube.com/watch?v=0e3GPea1Tyg",
+      "label": "talking-head-spectacle",
+      "expectedSignals": { "enthusiasm": "very-high", "formality": "low", "pacing": "fast" },
+      "notes": "MrBeast — $456K Squid Game. 625M views. Fastest cuts, bold graphics, maximum energy"
     },
     {
-      "url": "",
-      "label": "product-ad",
-      "expectedSignals": { "enthusiasm": "high", "formality": "medium", "pacing": "fast" },
-      "notes": "e.g. Nike, Apple ad — beat-synced cuts, bold typography, high saturation"
+      "url": "https://www.youtube.com/watch?v=84WIaK3bl_s",
+      "label": "cinematic-travel",
+      "expectedSignals": { "enthusiasm": "medium", "formality": "low", "pacing": "medium" },
+      "notes": "Casey Neistat — $21K Emirates First Class. Cinematic vlog editing, music-driven, personal"
     },
     {
-      "url": "",
+      "url": "https://www.youtube.com/watch?v=094y1Z2wpJg",
       "label": "documentary-explainer",
       "expectedSignals": { "enthusiasm": "low", "formality": "medium", "pacing": "slow" },
-      "notes": "e.g. Vox, Kurzgesagt — dissolve transitions, warm graphics, breathe hold"
+      "notes": "Veritasium — Collatz Conjecture. Science explainer, clean pacing, data-viz graphics"
     },
     {
-      "url": "",
-      "label": "music-heavy-broll",
-      "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "very-fast" },
-      "notes": "e.g. travel vlog, food montage — beat-synced, minimal speech, bold MG"
+      "url": "https://www.youtube.com/watch?v=h6fcK_fRYaI",
+      "label": "animated-explainer",
+      "expectedSignals": { "enthusiasm": "low", "formality": "medium", "pacing": "slow" },
+      "notes": "Kurzgesagt — The Egg. Warm storytelling, contemplative, music-driven transitions"
     },
     {
-      "url": "",
+      "url": "https://www.youtube.com/watch?v=-uleG_Vecis",
       "label": "tutorial-screencast",
+      "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "very-fast" },
+      "notes": "Fireship — 100+ CS Concepts. Ultra-fast pacing, kinetic text, minimal B-roll"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=SrDEtSlqJC4",
+      "label": "investigative-explainer",
       "expectedSignals": { "enthusiasm": "medium", "formality": "medium", "pacing": "medium" },
-      "notes": "e.g. Fireship, ThePrimeagen — mixed cuts, callout graphics, moderate energy"
+      "notes": "Johnny Harris — McDonalds Ice Cream. Maps, data viz, journalist style MG"
     },
     {
-      "url": "",
-      "label": "talking-head-comedy",
+      "url": "https://www.youtube.com/watch?v=xoxhDk-hwuo",
+      "label": "engineering-entertainment",
       "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "medium" },
-      "notes": "e.g. MrBeast, Hank Green — jump cuts, keyword highlights, high humor"
+      "notes": "Mark Rober — Glitter Bomb vs Package Thieves. Engineering + comedy, clean edits"
     },
     {
-      "url": "",
+      "url": "https://www.youtube.com/watch?v=GdUVtEeg9I4",
+      "label": "sports-spectacle",
+      "expectedSignals": { "enthusiasm": "very-high", "formality": "low", "pacing": "fast" },
+      "notes": "Dude Perfect — Water Bottle Flip. Trick shots, high energy, instant replay edits"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=tYzMYcUty6s",
+      "label": "tech-review-premium",
+      "expectedSignals": { "enthusiasm": "medium", "formality": "medium", "pacing": "medium" },
+      "notes": "MKBHD — iPhone 15 Pro Max review. Clean cuts, product B-roll, controlled energy"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=Unzc731iCUY",
+      "label": "tech-entertainment",
+      "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "fast" },
+      "notes": "Linus Tech Tips — popular build. Fast cuts, humor, tech B-roll, jump cuts"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=bxqLsrlakK8",
+      "label": "vfx-breakdown",
+      "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "medium" },
+      "notes": "Corridor Crew — VFX Artists React. Screen-in-screen, technical overlays, reaction format"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=A0FZIwabctw",
+      "label": "productivity-talking-head",
+      "expectedSignals": { "enthusiasm": "medium", "formality": "medium", "pacing": "medium" },
+      "notes": "Ali Abdaal — productivity/finance. Clean MG, lower-thirds, calm delivery"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=LXb3EKWsInQ",
+      "label": "cold-documentary",
+      "expectedSignals": { "enthusiasm": "low", "formality": "high", "pacing": "slow" },
+      "notes": "ColdFusion — deep tech documentary. Cinematic, slow dissolves, narration-driven"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=JnWbLOkm8mU",
+      "label": "cinematic-broll",
+      "expectedSignals": { "enthusiasm": "medium", "formality": "low", "pacing": "fast" },
+      "notes": "Peter McKinnon — cinematography. Dreamy color grades, music-synced, visual-first"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=kIID5FDi2JQ",
+      "label": "data-journalism",
+      "expectedSignals": { "enthusiasm": "low", "formality": "medium", "pacing": "slow" },
+      "notes": "Vox — Why all world maps are wrong. Data viz, clean MG, explainer format"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+      "label": "adventure-documentary",
+      "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "medium" },
+      "notes": "Yes Theory — seeking discomfort. Adventure B-roll, emotional moments, music-driven"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=PuNIwYsz7PI",
+      "label": "comedy-talking-head",
+      "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "fast" },
+      "notes": "Ryan Trahan — penny challenge. Jump cuts, kinetic text, high humor, fast pacing"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=erLbbextvlY",
       "label": "brand-storytelling",
       "expectedSignals": { "enthusiasm": "medium", "formality": "high", "pacing": "slow" },
-      "notes": "e.g. Patagonia, Airbnb — cinematic, dissolves, subtle MG, warm palette"
+      "notes": "Apple — Shot on iPhone. Cinematic, warm palette, minimal text, premium feel"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=cdiD-9MMpb0",
+      "label": "music-heavy-montage",
+      "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "very-fast" },
+      "notes": "Sam Kolder — travel edit. THE reference for music-synced editing, beat-perfect cuts"
     }
   ]
 }
