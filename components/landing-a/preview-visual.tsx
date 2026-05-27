@@ -604,30 +604,6 @@ export function PreviewVisualInsturix({
           }}
         >
           <div style={{ textAlign: "center", maxWidth: 440, padding: "0 40px" }}>
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 16,
-                margin: "0 auto 32px",
-                border: `1.5px solid ${C.borderL}`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                animation: `fadeIn .5s ${EASE} 0.2s both, breathe 4s ease 1s infinite`,
-              }}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M5 12l5 5L19 7"
-                  stroke={C.accent}
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity=".35"
-                />
-              </svg>
-            </div>
             <h1
               className="hero-done-text"
               style={{
