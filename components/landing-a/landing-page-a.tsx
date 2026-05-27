@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useGSAP } from "@gsap/react";
 import { gsap, ScrollTrigger } from "@/lib/animation/gsap-config";
+import Lenis from "lenis";
 import { SiteFooter } from "@/components/shared/site-footer";
 import { PreviewVisualInsturix } from "./preview-visual";
 
@@ -168,6 +169,20 @@ export function LandingPageA() {
       const scroller = scrollRef.current;
       const spacer = spacerRef.current;
       if (!scroller || !spacer) return;
+
+      // ── Lenis: smooth scroll with momentum on the scroll driver container ──
+      // Without Lenis, the fixed overflowY:auto div has zero inertia — scroll stops
+      // dead when you lift your finger. Lenis adds natural deceleration.
+      const lenis = new Lenis({
+        wrapper: scroller,
+        content: spacer,
+        smoothWheel: true,
+        lerp: 0.08,        // Smooth catchup speed (lower = smoother, higher = snappier)
+        wheelMultiplier: 1, // 1:1 native feel
+      });
+      lenis.on("scroll", ScrollTrigger.update);
+      gsap.ticker.add((time) => lenis.raf(time * 1000));
+      gsap.ticker.lagSmoothing(0);
 
       // ── Mount animation: editor fades in after 600ms (replaces old `ready` state) ──
       gsap.fromTo(
