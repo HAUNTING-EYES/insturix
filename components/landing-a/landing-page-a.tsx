@@ -183,6 +183,9 @@ export function LandingPageA() {
   // Sets reset on scroll-back so arm pulse / done flash re-trigger on next forward crossing.
   const armedLayersRef = useRef<Set<number>>(new Set());
   const doneLayersRef = useRef<Set<number>>(new Set());
+  const prefersReducedMotion = useRef(
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 
   // ─── GSAP ScrollTrigger: replaces manual scroll handler ───
   // Layer 1 (60fps): GSAP scrub timeline drives editor fade-out + marketing fade-in
@@ -266,7 +269,7 @@ export function LandingPageA() {
               // Scale 1→1.12→1 is intentional overshoot (RESTRAINT exception: communicates "track armed").
               if (revealProg > 0 && !armedLayersRef.current.has(li)) {
                 armedLayersRef.current.add(li);
-                if (bar) {
+                if (bar && !prefersReducedMotion.current) {
                   gsap.fromTo(bar,
                     { scaleY: 1, scaleX: 1 },
                     { scaleY: 1.12, scaleX: 1.12, duration: 0.125, yoyo: true, repeat: 1, ease: "expo.out" }
@@ -280,15 +283,17 @@ export function LandingPageA() {
               const isDone = pp >= layer.doneAt;
               if (isDone && !doneLayersRef.current.has(li)) {
                 doneLayersRef.current.add(li);
-                const flash = el.querySelector("[data-layer-flash]") as HTMLElement;
-                if (flash) {
-                  gsap.fromTo(flash, { opacity: 1 }, { opacity: 0, duration: 0.25, ease: "expo.out" });
+                if (!prefersReducedMotion.current) {
+                  const flash = el.querySelector("[data-layer-flash]") as HTMLElement;
+                  if (flash) {
+                    gsap.fromTo(flash, { opacity: 1 }, { opacity: 0, duration: 0.25, ease: "expo.out" });
+                  }
                 }
                 const chkSvg = el.querySelector("[data-layer-check]") as SVGElement;
                 const chkPath = chkSvg?.querySelector("path") as SVGPathElement;
                 if (chkSvg && chkPath) {
-                  gsap.to(chkSvg, { opacity: 1, duration: 0.25, delay: 0.25 });
-                  gsap.to(chkPath, { strokeDashoffset: 0, duration: 0.35, ease: "expo.out", delay: 0.25 });
+                  gsap.to(chkSvg, { opacity: 1, duration: prefersReducedMotion.current ? 0 : 0.25, delay: prefersReducedMotion.current ? 0 : 0.25 });
+                  gsap.to(chkPath, { strokeDashoffset: 0, duration: prefersReducedMotion.current ? 0 : 0.35, ease: "expo.out", delay: prefersReducedMotion.current ? 0 : 0.25 });
                 }
               } else if (!isDone && doneLayersRef.current.has(li)) {
                 doneLayersRef.current.delete(li);
@@ -519,6 +524,17 @@ export function LandingPageA() {
           .mkt-section{padding-left:16px!important;padding-right:16px!important}
           .mkt-section h2{font-size:24px!important}
           .hero-done-text{font-size:18px!important}
+        }
+        /* Reduced motion: respect OS accessibility setting.
+           Disables CSS animations/transitions. GSAP one-shot tweens (arm pulse,
+           done flash) check window.matchMedia in their trigger code. */
+        @media(prefers-reduced-motion:reduce){
+          *,*::before,*::after{
+            animation-duration:0.01ms!important;
+            animation-iteration-count:1!important;
+            transition-duration:0.01ms!important;
+            transition-delay:0ms!important;
+          }
         }
         /* Hide Clerk dev mode keyless banner — targets the fixed-position bottom-right widget */
         [data-clerk-keyless-prompt]{display:none!important}
