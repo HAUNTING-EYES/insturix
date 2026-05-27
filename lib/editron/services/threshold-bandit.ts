@@ -276,7 +276,7 @@ export async function loadThresholdBanditState(userId: string): Promise<Threshol
     if (!doc) return null;
     return {
       userId: doc.userId,
-      arms: new Map(doc.arms || []),
+      arms: doc.arms instanceof Map ? doc.arms : new Map(Object.entries(doc.arms || {})),
       totalOutcomes: doc.totalOutcomes || 0,
       lastUpdated: doc.lastUpdated || 0,
     };

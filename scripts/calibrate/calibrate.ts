@@ -207,7 +207,90 @@ async function analyzeVideo(
       console.warn(`[Calibrate] ✗ Transcription failed: ${e.message}`);
     }
   } else {
-    console.warn('[Calibrate] ✗ XAI_API_KEY not set — skipping transcription');
+    console.log('[Calibrate] XAI_API_KEY not set, trying Whisper...');
+  }
+
+  // Fallback: Whisper on fal.ai (if Grok skipped or failed)
+  if (transcript.words.length === 0) {
+    try {
+      const falKey = process.env.FAL_AI_API_KEY || process.env.FAL_KEY;
+      if (falKey) {
+        const { fal } = await import('@fal-ai/client');
+        fal.config({ credentials: falKey });
+        const whisperResult = await Promise.race([
+          fal.subscribe('fal-ai/wizper', {
+            input: { audio_url: signedUrl, task: 'transcribe', chunk_level: 'segment' },
+            logs: false,
+          }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Whisper timeout (90s)')), 90_000)),
+        ]);
+        const data = whisperResult.data as any;
+        if (data?.chunks?.length) {
+          const words: typeof transcript.words = [];
+          for (const chunk of data.chunks) {
+            const segText = (chunk.text || '').trim();
+            const segStart = (chunk.timestamp?.[0] || 0) * 1000;
+            const segEnd = (chunk.timestamp?.[1] || 0) * 1000;
+            for (const w of segText.split(/\s+/).filter(Boolean)) {
+              const totalChars = segText.split(/\s+/).filter(Boolean).reduce((s: number, w: string) => s + w.length, 0);
+              const dur = (w.length / totalChars) * (segEnd - segStart);
+              words.push({ word: w, startMs: Math.round(segStart), endMs: Math.round(segStart + dur) });
+              // Note: startMs is approximate (segment-level, not word-level)
+            }
+          }
+          transcript = { words, transcript: data.text || words.map(w => w.word).join(' ') };
+          console.log(`[Calibrate] ✓ Transcript: ${transcript.words.length} words via Whisper`);
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[Calibrate] ✗ Whisper failed: ${e.message}`);
+    }
+  }
+
+  // Fallback: Gemini transcription (always available — GEMINI_API_KEY is set)
+  if (transcript.words.length === 0) {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      if (apiKey) {
+        console.log('[Calibrate] Trying Gemini transcription...');
+        const { GoogleGenerativeAI } = await import('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+        // Download a small chunk for transcription (first 5 min = enough for speech coverage signal)
+        const dlCtrl = new AbortController();
+        const dlTimer = setTimeout(() => dlCtrl.abort(), 60_000);
+        const audioResp = await fetch(signedUrl, { signal: dlCtrl.signal });
+        clearTimeout(dlTimer);
+        const buffer = Buffer.from(await audioResp.arrayBuffer());
+        const mimeType = audioResp.headers.get('content-type') || 'video/mp4';
+
+        const result = await Promise.race([
+          model.generateContent([
+            { inlineData: { data: buffer.toString('base64'), mimeType } },
+            { text: 'Transcribe this audio. Return JSON array: [{"word":"the_word","start":0.123,"end":0.456}]. Seconds as decimals. ALL spoken words. Return ONLY the JSON array.' },
+          ]),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Gemini transcription timeout (120s)')), 120_000)),
+        ]);
+
+        let text = result.response.text()?.trim() || '';
+        if (text.startsWith('```')) text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          transcript = {
+            words: parsed.map((w: any) => ({
+              word: String(w.word || ''),
+              startMs: Math.round((w.start || 0) * 1000),
+              endMs: Math.round((w.end || 0) * 1000),
+            })).filter((w: any) => w.word.length > 0),
+            transcript: parsed.map((w: any) => w.word).join(' '),
+          };
+          console.log(`[Calibrate] ✓ Transcript: ${transcript.words.length} words via Gemini`);
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[Calibrate] ✗ Gemini transcription failed: ${e.message}`);
+    }
   }
 
   return { fiveTrack, wav2vec, vjepa, essentia, transcript };
@@ -453,7 +536,7 @@ async function feedBandits(
     const userId = `calibration-${label}`;
     let state = await loadThresholdBanditState(userId);
     if (!state) {
-      state = { userId, totalOutcomes: 0, arms: {} };
+      state = { userId, totalOutcomes: 0, arms: new Map(), lastUpdated: Date.now() };
     }
 
     const speechCov = scoring.signals['content.speech_coverage'] ?? scoring.signals['speech.coverage'] ?? 0;
