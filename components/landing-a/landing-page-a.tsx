@@ -229,9 +229,11 @@ export function LandingPageA() {
               setShowMkt(shouldShowMkt);
             }
 
-            // ~5fps: Throttled React state for logic consumers (phase, toasts, elapsed, children)
+            // ~10fps: Throttled React state for logic consumers (phase, toasts, elapsed, children)
+            // 100ms balances smoothness (no visible state jumps) with perf (90% fewer re-renders vs 0ms).
+            // CSS transitions on scroll-driven elements smooth these 10fps updates to 60fps visually.
             const now = performance.now();
-            if (now - lastSetPctRef.current > 200) {
+            if (now - lastSetPctRef.current > 100) {
               setPct(p);
               lastSetPctRef.current = now;
             }
@@ -524,15 +526,17 @@ export function LandingPageA() {
             </div>
             <div style={{ flex: 1, padding: "8px 8px", display: "flex", flexDirection: "column", gap: 2 }}>
               {LAYERS.map((l, i) => {
-                const vis = pipePct >= l.at;
+                // Progressive reveal: layers materialize over a 3% pipePct window
+                // around their threshold, instead of binary pop at the exact threshold.
+                // "Weight" — elements have mass. They slide from left with deceleration.
+                const revealProg = Math.max(0, Math.min(1, (pipePct - (l.at - 0.01)) / 0.03));
                 const act = l.phases.includes(phase);
-                if (!vis) return <div key={i} style={{ height: 36 }} />;
+                const doneChk = pipePct >= l.doneAt;
                 return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: act ? C.s2 : "transparent", animation: `slideR .35s ${EASE} both`, transition: `background .4s ${EASE}` }}>
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: act ? C.s2 : "transparent", opacity: revealProg, transform: `translateX(${(1 - revealProg) * -12}px)`, transition: `background .4s ${EASE}, opacity .15s ${EASE}, transform .15s ${EASE}` }}>
                     <div style={{ width: 4, height: 20, borderRadius: 2, background: l.c, opacity: act ? 1 : 0.25, transition: `opacity .4s ${EASE}` }} />
-                    {/* FIX #5: fontWeight 600 → 500 */}
                     <span style={{ fontSize: 14, fontWeight: act ? 500 : 400, color: act ? C.text : C.muted, transition: `all .3s ${EASE}`, flex: 1 }}>{l.name}</span>
-                    {pipePct >= l.doneAt && <Chk size={12} color={C.green} />}
+                    {doneChk && <Chk size={12} color={C.green} />}
                   </div>
                 );
               })}
