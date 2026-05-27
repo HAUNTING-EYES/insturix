@@ -164,42 +164,50 @@ async function analyzeVideo(
     console.warn(`[Calibrate] ✗ 5-Track parse failed, using empty`);
   }
 
-  // Transcription via production service (Grok STT primary → Whisper → Gemini → Deepgram fallback chain)
-  console.log('[Calibrate] → Transcription (Grok STT → fallbacks)...');
+  // Transcription via Grok STT directly (no MongoDB asset lookup needed for calibration)
+  console.log('[Calibrate] → Transcription (Grok STT)...');
   let transcript = { words: [] as Array<{ word: string; startMs: number; endMs: number }>, transcript: '' };
-  try {
-    const { getTranscription } = await import('../../lib/editron/services/media/transcription-service');
-    // The production service needs an asset in MongoDB. For calibration, we create a synthetic asset record.
-    const { getDatabase } = await import('../../lib/editron/db/mongodb');
-    const db = await getDatabase();
-    const calibrationAssetId = `calibration-${title.slice(0, 40)}`;
-    const calibrationUserId = 'calibration-system';
+  const xaiKey = process.env.XAI_API_KEY;
+  if (xaiKey) {
+    try {
+      const formData = new FormData();
+      formData.append('url', signedUrl);
+      formData.append('language', 'en');
+      formData.append('format', 'true');
+      formData.append('diarize', 'true');
 
-    // Upsert a minimal asset record so the transcription service can find it
-    await db.collection('media_assets').updateOne(
-      { assetId: calibrationAssetId },
-      { $set: {
-        assetId: calibrationAssetId,
-        userId: calibrationUserId,
-        type: 'video',
-        gcsPath: gcsUri ? gcsUri.replace(/^gs:\/\/[^/]+\//, '') : undefined,
-        cachedUrl: signedUrl,
-        source: 'calibration',
-        createdAt: new Date(),
-      } },
-      { upsert: true },
-    );
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 120_000);
+      const response = await fetch('https://api.x.ai/v1/stt', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${xaiKey}` },
+        body: formData,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
 
-    const result = await getTranscription(calibrationAssetId, calibrationUserId, { forceRefresh: true });
-    if (result.words.length > 0) {
-      transcript = {
-        words: result.words.map(w => ({ word: w.word, startMs: w.startMs, endMs: w.endMs })),
-        transcript: result.transcript,
-      };
+      if (response.ok) {
+        const data = await response.json();
+        if (data.words?.length > 0) {
+          transcript = {
+            words: data.words.map((w: any) => ({
+              word: w.text || '',
+              startMs: Math.round((w.start || 0) * 1000),
+              endMs: Math.round((w.end || 0) * 1000),
+            })),
+            transcript: data.text || data.words.map((w: any) => w.text).join(' '),
+          };
+        }
+        console.log(`[Calibrate] ✓ Transcript: ${transcript.words.length} words via Grok STT`);
+      } else {
+        const body = await response.text().catch(() => '');
+        console.warn(`[Calibrate] ✗ Grok STT ${response.status}: ${body.slice(0, 200)}`);
+      }
+    } catch (e: any) {
+      console.warn(`[Calibrate] ✗ Transcription failed: ${e.message}`);
     }
-    console.log(`[Calibrate] ✓ Transcript: ${transcript.words.length} words (via ${result.words.length > 0 ? 'production chain' : 'empty'})`);
-  } catch (e: any) {
-    console.warn(`[Calibrate] ✗ Transcription failed: ${e.message}`);
+  } else {
+    console.warn('[Calibrate] ✗ XAI_API_KEY not set — skipping transcription');
   }
 
   return { fiveTrack, wav2vec, vjepa, essentia, transcript };
