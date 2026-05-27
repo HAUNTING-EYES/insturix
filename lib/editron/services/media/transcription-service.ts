@@ -122,30 +122,39 @@ async function generateTranscription(
         }
         if (!mediaUrl) throw new Error('No URL for asset');
 
-        // Use presigned R2 URL instead of CDN Worker URL for Grok STT.
-        // CDN Worker serves application/octet-stream when R2 metadata lacks contentType
-        // (edge cache hid this bug until cache expired). Presigned R2 URLs serve correct
-        // Content-Type directly from storage — same pattern as auto-edit/from-asset.
+        // xAI STT API: use `file` parameter (binary upload), NOT `url`.
+        // The `url` parameter was undocumented and xAI broke/deprecated it (~May 2026).
+        // Official docs: "The file parameter must be provided after all other parameters."
+        // See: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text
+        // Download from R2 (same cloud, ~1-2s), upload binary to xAI with correct MIME.
+        // Scale note: holds file in memory (~90MB typical). For 1000+ concurrent, use
+        // xAI Files API (upload once, reference by ID). Documented in scaling phase backlog.
+        let fileUrl = mediaUrl;
         try {
           const { isR2Available, getR2PresignedReadUrl } = await import('../r2-service');
           if (isR2Available()) {
-            mediaUrl = await getR2PresignedReadUrl(asset.assetId, 3600);
+            fileUrl = await getR2PresignedReadUrl(asset.assetId, 3600);
           }
         } catch { /* R2 not configured — use existing mediaUrl */ }
 
-        console.log(`[Transcription] Grok STT: transcribing ${asset.assetId} via ${mediaUrl.includes('r2.cloudflarestorage') ? 'R2 presigned' : 'CDN'} URL...`);
+        console.log(`[Transcription] Grok STT: downloading ${asset.assetId} for direct file upload...`);
+        const dlController = new AbortController();
+        const dlTimer = setTimeout(() => dlController.abort(), 120_000);
+        const dlResponse = await fetch(fileUrl, { signal: dlController.signal });
+        clearTimeout(dlTimer);
+        if (!dlResponse.ok) throw new Error(`File download failed: ${dlResponse.status}`);
+        const fileBuffer = await dlResponse.arrayBuffer();
+        const fileBlob = new Blob([fileBuffer], { type: 'video/mp4' });
+        console.log(`[Transcription] Grok STT: downloaded ${(fileBuffer.byteLength / 1024 / 1024).toFixed(1)}MB, uploading to xAI...`);
 
-        // xAI STT API expects FormData (multipart/form-data), NOT JSON.
-        // Retry on 429 — CDN rate-limits when multiple services download simultaneously
-        // (VideoUnderstanding + multipart upload + Grok all hit CDN around the same time)
         let response: Response | null = null;
         const maxRetries = 3;
         for (let attempt = 0; attempt < maxRetries; attempt++) {
           const formData = new FormData();
-          formData.append('url', mediaUrl);
           formData.append('language', language || 'en');
           formData.append('format', 'true');
           formData.append('diarize', 'true');
+          formData.append('file', fileBlob, `${asset.assetId}.mp4`);
 
           const grokController = new AbortController();
           const grokTimer = setTimeout(() => grokController.abort(), 90_000);
