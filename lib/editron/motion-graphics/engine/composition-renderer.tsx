@@ -7,6 +7,8 @@ import { computeChoreography, type SyncData } from './choreography-computer';
 import { computeAnimationState, buildShapeStyle, buildTextStyle, buildTransformStyle, deriveSpatialConfig, applyAudioReactiveModulation, type SpatialConfig, type SignalCurves, type AnimationState } from './primitive-renderers';
 import type { MGKeyframe, MGKeyframeTrack, MGSpeedRamp } from './recipe-types';
 import { BarChart, PercentageRing, Sparkline } from './data-viz-renderers';
+import { useGSAPTimeline, buildScrambleEntrance, buildScrambleExit, buildDrawSVGEntrance, buildDrawSVGExit, buildMorphHold, areTimelinePluginsAvailable } from './gsap-timeline';
+import { noise2D } from '@remotion/noise';
 
 // Z-ordering: background renders first (behind), foreground last (on top)
 const DEPTH_ORDER: Record<DepthLayer, number> = {
@@ -90,6 +92,7 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
   element,
   timing,
   frame,
+  fps,
   spatial,
   signalCurves,
 }) => {
@@ -114,17 +117,31 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
     case 'shape':
     case 'container':
     case 'decoration':
-    case 'gradient':
+    case 'gradient': {
+      const needsGSAPSVG = element.shape === 'path' && areTimelinePluginsAvailable()
+        && (element.entrancePattern === 'draw' || element.holdAnimation === 'morph');
+      if (needsGSAPSVG) {
+        return <GSAPSVGPathElement element={element} anim={anim} frame={frame} fps={fps} timing={timing} />;
+      }
       return <ShapeElement element={element} anim={anim} />;
+    }
     case 'pattern':
       return <PatternElement element={element} anim={anim} />;
-    case 'text':
+    case 'text': {
+      if (element.entrancePattern === 'scramble' && areTimelinePluginsAvailable()) {
+        return <GSAPScrambleTextElement element={element} anim={anim} frame={frame} fps={fps} timing={timing} />;
+      }
       return <TextElement element={element} anim={anim} frame={frame} timing={timing} spatial={spatial} signalCurves={signalCurves} />;
+    }
     case 'image':
     case 'video-clip':
       return <ImageElement element={element} anim={anim} />;
     case 'data-viz':
       return <DataVizElement element={element} anim={anim} frame={frame} timing={timing} />;
+    case 'particle':
+      return <ParticleElement element={element} anim={anim} frame={frame} timing={timing} />;
+    case 'mask':
+      return <MaskElement element={element} anim={anim} frame={frame} timing={timing} />;
     default:
       console.warn(`[MG-Render] Unknown primitive type: ${element.primitive}`);
       return null;
@@ -342,6 +359,269 @@ const ImageElement: React.FC<{ element: ResolvedElement; anim: ReturnType<typeof
   // eslint-disable-next-line @next/next/no-img-element
   return <img src={src} alt="" style={{ ...style, maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />;
 };
+
+// ─── GSAP-Powered Elements ─────────────────────────────
+// These use GSAP timelines for effects CSS cannot handle.
+// When GSAP plugins are unavailable, the switch in PrimitiveElement
+// falls back to CSS-only TextElement/ShapeElement automatically.
+
+const GSAPScrambleTextElement: React.FC<{
+  element: ResolvedElement;
+  anim: AnimationState;
+  frame: number;
+  fps: number;
+  timing: ComputedChoreography;
+}> = ({ element, anim, frame, fps, timing }) => {
+  const p = element.resolvedProps;
+  const text = String(p.text || '');
+  const scrambleChars = element.scrambleChars;
+  const entranceDur = (timing.enterEndFrame - timing.enterStartFrame) / fps;
+  const exitDur = (timing.exitEndFrame - timing.exitStartFrame) / fps;
+
+  const containerRef = useGSAPTimeline(frame, fps, (tl, container) => {
+    const target = container.querySelector('[data-scramble-target]');
+    if (!target) return;
+
+    buildScrambleEntrance(tl, target, text, entranceDur, scrambleChars);
+
+    if (element.exitPattern === 'scramble-out') {
+      const exitStartSec = (timing.exitStartFrame - timing.enterStartFrame) / fps;
+      tl.to(target, {
+        duration: exitDur,
+        opacity: 0,
+        scrambleText: {
+          text: '',
+          chars: scrambleChars || 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*',
+          revealDelay: 0,
+          speed: 0.6,
+        },
+      }, exitStartSec);
+    }
+  }, timing.enterStartFrame);
+
+  const style = buildTextStyle(element, anim);
+
+  return (
+    <div ref={containerRef} style={style}>
+      <span data-scramble-target />
+    </div>
+  );
+};
+
+const GSAPSVGPathElement: React.FC<{
+  element: ResolvedElement;
+  anim: AnimationState;
+  frame: number;
+  fps: number;
+  timing: ComputedChoreography;
+}> = ({ element, anim, frame, fps, timing }) => {
+  const p = element.resolvedProps;
+  const pathData = String(p.pathData || p.d || '');
+  const morphTarget = element.morphTarget || String(p.morphTarget || '');
+  const strokeColor = String(p.strokeColor || p.color || '#FFFFFF');
+  // ⚠️ strokeWidth default 2 ← CRG constant:animation.accent_line_weight 2-3px
+  const strokeWidth = Number(p.strokeWidth || 2);
+  const fillColor = String(p.fill || 'none');
+  const entranceDur = (timing.enterEndFrame - timing.enterStartFrame) / fps;
+  const holdDur = (timing.holdEndFrame - timing.holdStartFrame) / fps;
+  const exitDur = (timing.exitEndFrame - timing.exitStartFrame) / fps;
+
+  const containerRef = useGSAPTimeline(frame, fps, (tl, container) => {
+    const path = container.querySelector('path');
+    if (!path) return;
+
+    if (element.entrancePattern === 'draw') {
+      buildDrawSVGEntrance(tl, path, entranceDur);
+    }
+
+    if (element.holdAnimation === 'morph' && morphTarget) {
+      buildMorphHold(tl, path, morphTarget, holdDur, entranceDur);
+    }
+
+    if (element.exitPattern === 'draw-reverse') {
+      const exitStartSec = (timing.exitStartFrame - timing.enterStartFrame) / fps;
+      buildDrawSVGExit(tl, path, exitDur, exitStartSec);
+    }
+  }, timing.enterStartFrame);
+
+  const baseStyle = buildTransformStyle(anim);
+  // SVG viewBox from resolvedProps or default 100×100
+  const viewBox = String(p.viewBox || '0 0 100 100');
+
+  return (
+    <div ref={containerRef} style={{ ...baseStyle, lineHeight: 0 }}>
+      <svg viewBox={viewBox} style={{ width: '100%', height: '100%' }} xmlns="http://www.w3.org/2000/svg">
+        <path
+          d={pathData}
+          fill={fillColor}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </div>
+  );
+};
+
+// ─── Math-Driven Particles (Remotion-native, deterministic) ──────
+// Position = f(frame, seed). No simulation, no rAF. Seekable, O(1) per frame.
+// @tsparticles is incompatible with Remotion (forward-only, rAF-dependent).
+
+function mulberry32(seed: number): () => number {
+  return () => {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+interface ParticlePreset {
+  gravity: number;
+  drift: number;
+  speed: number;
+  rotSpeed: number;
+  lifetime: number;
+  shape: 'circle' | 'rect';
+  spawnSpread: number;
+  startYRange: [number, number];
+}
+
+// ⚠️ ALL preset values INVENTED — no CRG nodes exist for particles. Thompson Sampling calibration target.
+const PARTICLE_PRESETS: Record<string, ParticlePreset> = {
+  confetti: { gravity: 0.012, drift: 12, speed: 0.03, rotSpeed: 8, lifetime: 90, shape: 'rect', spawnSpread: 15, startYRange: [-10, 10] },
+  bokeh:    { gravity: 0, drift: 6, speed: 0.008, rotSpeed: 0, lifetime: 150, shape: 'circle', spawnSpread: 30, startYRange: [10, 90] },
+  dust:     { gravity: -0.002, drift: 5, speed: 0.012, rotSpeed: 1, lifetime: 180, shape: 'circle', spawnSpread: 45, startYRange: [20, 80] },
+  sparks:   { gravity: -0.02, drift: 8, speed: 0.05, rotSpeed: 12, lifetime: 45, shape: 'circle', spawnSpread: 8, startYRange: [70, 100] },
+};
+
+const ParticleElement: React.FC<{
+  element: ResolvedElement;
+  anim: AnimationState;
+  frame: number;
+  timing: ComputedChoreography;
+}> = ({ element, anim, frame, timing }) => {
+  const p = element.resolvedProps;
+  const presetName = String(p.particlePreset || 'confetti');
+  const preset = PARTICLE_PRESETS[presetName] || PARTICLE_PRESETS.confetti;
+  // ⚠️ INVENTED — max 100 (DOM perf ceiling), default 40 (moderate density)
+  const count = Math.min(100, Math.max(1, Number(p.particleCount || 40)));
+  const baseColor = String(p.color || '#FFFFFF');
+  const altColor = String(p.secondaryColor || '#FFD700');
+  // ⚠️ INVENTED — 6px base, typical MG overlay particle size
+  const baseSize = Number(p.size || 6);
+
+  const seed = hashString(element.role);
+  const containerStyle = buildTransformStyle(anim);
+  const localFrame = frame - timing.enterStartFrame;
+  if (localFrame < 0) return null;
+
+  const particles: React.ReactNode[] = [];
+  for (let i = 0; i < count; i++) {
+    const rng = mulberry32(seed + i * 7919);
+    const startX = rng() * 100;
+    const startY = preset.startYRange[0] + rng() * (preset.startYRange[1] - preset.startYRange[0]);
+    const size = baseSize * (0.5 + rng() * 1.0);
+    const startRot = rng() * 360;
+    const delay = rng() * preset.spawnSpread;
+    const dir = rng() > 0.5 ? 1 : -1;
+
+    const t = localFrame - delay;
+    if (t <= 0) continue;
+
+    const x = startX + noise2D(i, t * preset.speed, 0) * preset.drift;
+    const y = startY + preset.gravity * t * t + noise2D(i, 0, t * preset.speed) * preset.drift * 0.5;
+    const rot = startRot + t * preset.rotSpeed * dir;
+    // ⚠️ INVENTED — 5-frame fade-in, lifetime-based fade-out
+    const fadeIn = Math.min(1, t / 5);
+    const fadeOut = Math.max(0, 1 - t / preset.lifetime);
+    const alpha = fadeIn * fadeOut * anim.opacity;
+
+    if (alpha <= 0.01 || x < -10 || x > 110 || y < -10 || y > 110) continue;
+
+    particles.push(
+      <div key={i} style={{
+        position: 'absolute',
+        left: `${x}%`,
+        top: `${y}%`,
+        width: size,
+        height: preset.shape === 'circle' ? size : size * 0.6,
+        borderRadius: preset.shape === 'circle' ? '50%' : '2px',
+        backgroundColor: i % 3 === 0 ? altColor : baseColor,
+        opacity: alpha,
+        transform: `translate(-50%, -50%) rotate(${rot}deg)`,
+      }} />,
+    );
+  }
+
+  return (
+    <div style={{ ...containerStyle, position: 'relative', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: 'none' }}>
+      {particles}
+    </div>
+  );
+};
+
+// ─── Mask Element (clip-path reveals) ────────────────────────────
+
+const MaskElement: React.FC<{
+  element: ResolvedElement;
+  anim: AnimationState;
+  frame: number;
+  timing: ComputedChoreography;
+}> = ({ element, anim, frame, timing }) => {
+  const p = element.resolvedProps;
+  const maskShape = element.shape || 'rect';
+  const direction = String(p.direction || 'left');
+
+  const enterDur = Math.max(1, timing.enterEndFrame - timing.enterStartFrame);
+  const exitDur = Math.max(1, timing.exitEndFrame - timing.exitStartFrame);
+  const enterProgress = frame <= timing.enterStartFrame ? 0
+    : frame >= timing.enterEndFrame ? 1
+    : timing.enterEasing((frame - timing.enterStartFrame) / enterDur);
+  const exitProgress = frame < timing.exitStartFrame ? 1
+    : frame >= timing.exitEndFrame ? 0
+    : 1 - timing.exitEasing((frame - timing.exitStartFrame) / exitDur);
+  const progress = Math.min(enterProgress, exitProgress);
+
+  const clipPath = computeMaskClipPath(maskShape, progress, direction);
+  const baseStyle = buildShapeStyle(element, anim);
+
+  return (
+    <div style={{
+      ...baseStyle,
+      clipPath,
+      WebkitClipPath: clipPath,
+    }} />
+  );
+};
+
+function computeMaskClipPath(shape: string, progress: number, direction: string): string {
+  switch (shape) {
+    case 'circle':
+      // ⚠️ INVENTED — 70% max radius covers element without corner clipping
+      return `circle(${progress * 70}% at 50% 50%)`;
+    case 'pill':
+      return `inset(${(1 - progress) * 50}% ${(1 - progress) * 10}% round 999px)`;
+    case 'rect':
+    default:
+      switch (direction) {
+        case 'right': return `inset(0 0 0 ${(1 - progress) * 100}%)`;
+        case 'top': return `inset(0 0 ${(1 - progress) * 100}% 0)`;
+        case 'bottom': return `inset(${(1 - progress) * 100}% 0 0 0)`;
+        case 'left':
+        default: return `inset(0 ${(1 - progress) * 100}% 0 0)`;
+      }
+  }
+}
 
 function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): React.CSSProperties {
   const base: React.CSSProperties = {

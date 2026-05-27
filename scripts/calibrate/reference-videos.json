@@ -47,49 +47,49 @@
       "url": "https://www.youtube.com/watch?v=xoxhDk-hwuo",
       "label": "engineering-entertainment",
       "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "medium" },
-      "notes": "Mark Rober — Glitter Bomb vs Package Thieves. Engineering + comedy, clean edits"
+      "notes": "Mark Rober — Glitter Bomb 1.0 vs Porch Pirates. Engineering + comedy, clean edits"
     },
     {
-      "url": "https://www.youtube.com/watch?v=GdUVtEeg9I4",
+      "url": "https://www.youtube.com/watch?v=P8V_bx0L4RY",
       "label": "sports-spectacle",
       "expectedSignals": { "enthusiasm": "very-high", "formality": "low", "pacing": "fast" },
-      "notes": "Dude Perfect — Water Bottle Flip. Trick shots, high energy, instant replay edits"
+      "notes": "Dude Perfect — Water Bottle Flip Edition. Trick shots, high energy, instant replay edits"
     },
     {
-      "url": "https://www.youtube.com/watch?v=tYzMYcUty6s",
+      "url": "https://www.youtube.com/watch?v=cBpGq-vDr2Y",
       "label": "tech-review-premium",
       "expectedSignals": { "enthusiasm": "medium", "formality": "medium", "pacing": "medium" },
-      "notes": "MKBHD — iPhone 15 Pro Max review. Clean cuts, product B-roll, controlled energy"
+      "notes": "MKBHD — iPhone 15 Pro Review. Clean cuts, product B-roll, controlled energy"
     },
     {
-      "url": "https://www.youtube.com/watch?v=Unzc731iCUY",
+      "url": "https://www.youtube.com/watch?v=v7MYOpFONCU",
       "label": "tech-entertainment",
       "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "fast" },
-      "notes": "Linus Tech Tips — popular build. Fast cuts, humor, tech B-roll, jump cuts"
+      "notes": "Linus Tech Tips — First Person View PC BUILD Guide. Fast cuts, humor, tech B-roll"
     },
     {
-      "url": "https://www.youtube.com/watch?v=bxqLsrlakK8",
+      "url": "https://www.youtube.com/watch?v=_4WrKeoeZhk",
       "label": "vfx-breakdown",
       "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "medium" },
-      "notes": "Corridor Crew — VFX Artists React. Screen-in-screen, technical overlays, reaction format"
+      "notes": "Corridor Crew — VFX Artists React to Bad & Great CGi 1. Screen-in-screen, technical overlays"
     },
     {
-      "url": "https://www.youtube.com/watch?v=A0FZIwabctw",
+      "url": "https://www.youtube.com/watch?v=B8zSpNO8-DI",
       "label": "productivity-talking-head",
       "expectedSignals": { "enthusiasm": "medium", "formality": "medium", "pacing": "medium" },
-      "notes": "Ali Abdaal — productivity/finance. Clean MG, lower-thirds, calm delivery"
+      "notes": "Ali Abdaal — 9 Passive Income Ideas. Clean MG, lower-thirds, calm delivery"
     },
     {
-      "url": "https://www.youtube.com/watch?v=LXb3EKWsInQ",
+      "url": "https://www.youtube.com/watch?v=20BEJouWBgY",
       "label": "cold-documentary",
       "expectedSignals": { "enthusiasm": "low", "formality": "high", "pacing": "slow" },
-      "notes": "ColdFusion — deep tech documentary. Cinematic, slow dissolves, narration-driven"
+      "notes": "ColdFusion — The FTX Disaster. Cinematic, slow dissolves, narration-driven"
     },
     {
-      "url": "https://www.youtube.com/watch?v=JnWbLOkm8mU",
+      "url": "https://www.youtube.com/watch?v=C5XkFPw4xnQ",
       "label": "cinematic-broll",
       "expectedSignals": { "enthusiasm": "medium", "formality": "low", "pacing": "fast" },
-      "notes": "Peter McKinnon — cinematography. Dreamy color grades, music-synced, visual-first"
+      "notes": "Peter McKinnon — 5 Camera Hacks in 100 Seconds. Dreamy color grades, music-synced"
     },
     {
       "url": "https://www.youtube.com/watch?v=kIID5FDi2JQ",
@@ -98,28 +98,28 @@
       "notes": "Vox — Why all world maps are wrong. Data viz, clean MG, explainer format"
     },
     {
-      "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+      "url": "https://www.youtube.com/watch?v=2P4HMCl2WXA",
       "label": "adventure-documentary",
       "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "medium" },
-      "notes": "Yes Theory — seeking discomfort. Adventure B-roll, emotional moments, music-driven"
+      "notes": "Yes Theory — Asking Strangers to Go Skinny Dipping. Adventure B-roll, emotional, music-driven"
     },
     {
-      "url": "https://www.youtube.com/watch?v=PuNIwYsz7PI",
+      "url": "https://www.youtube.com/watch?v=JEqi3VVLYkg",
       "label": "comedy-talking-head",
       "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "fast" },
-      "notes": "Ryan Trahan — penny challenge. Jump cuts, kinetic text, high humor, fast pacing"
+      "notes": "Ryan Trahan — I Survived On $0.01 For 30 Days. Jump cuts, kinetic text, high humor"
     },
     {
-      "url": "https://www.youtube.com/watch?v=erLbbextvlY",
+      "url": "https://www.youtube.com/watch?v=kamsx_g2hnI",
       "label": "brand-storytelling",
       "expectedSignals": { "enthusiasm": "medium", "formality": "high", "pacing": "slow" },
-      "notes": "Apple — Shot on iPhone. Cinematic, warm palette, minimal text, premium feel"
+      "notes": "Apple — Shot on iPhone (original). Cinematic, warm palette, minimal text, premium feel"
     },
     {
-      "url": "https://www.youtube.com/watch?v=cdiD-9MMpb0",
+      "url": "https://www.youtube.com/watch?v=QJbpJQscn9E",
       "label": "music-heavy-montage",
       "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "very-fast" },
-      "notes": "Sam Kolder — travel edit. THE reference for music-synced editing, beat-perfect cuts"
+      "notes": "Sam Kolder — KOLD My Year 2016. THE reference for music-synced editing, beat-perfect cuts"
     }
   ]
 }

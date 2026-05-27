@@ -171,6 +171,10 @@ function applyEntranceState(progress: number, pattern: EntrancePattern, s: Spati
         scaleY: 1 + (1 - progress) * 1.0,
         filterBlur: (1 - progress) * 30,
       };
+    case 'scramble':
+      // CSS fallback for GSAP ScrambleTextPlugin — opacity fade only.
+      // Actual text scramble handled by GSAP timeline in composition-renderer.
+      return { ...NEUTRAL, opacity: progress };
     default:
       return { ...NEUTRAL, opacity: progress };
   }
@@ -212,9 +216,19 @@ function getSettleFrames(pattern: EntrancePattern): number {
     case 'slide-down':
       // ⚠️ 6 frames INVENTED — position overshoots less visibly than scale
       return 6;
+    case 'rotate-in':
+      // ⚠️ 6 frames INVENTED — rotational inertia similar to translational (same class as slide)
+      return 6;
+    case 'skew-in':
+      // ⚠️ 4 frames INVENTED — lighter visual weight than rotation
+      return 4;
+    case 'zoom-blur':
+      // ⚠️ 8 frames INVENTED — heavy visual element, same class as scale
+      return 8;
     case 'fade':
     case 'blur-in':
     case 'draw':
+    case 'scramble':
     default:
       return 0;
   }
@@ -242,6 +256,15 @@ function applyFollowThrough(progress: number, pattern: EntrancePattern): Animati
       return { ...NEUTRAL, translateY: wave * -3 };
     case 'slide-down':
       return { ...NEUTRAL, translateY: wave * 3 };
+    case 'rotate-in':
+      // ⚠️ 1.5deg overshoot INVENTED — 10% of 15deg entrance rotation
+      return { ...NEUTRAL, rotation: wave * -1.5 };
+    case 'skew-in':
+      // ⚠️ 1deg overshoot INVENTED — 10% of 10deg entrance skew
+      return { ...NEUTRAL, skewX: wave * -1 };
+    case 'zoom-blur':
+      // ⚠️ 0.04 (4%) scale overshoot — same range as scale-up/pop
+      return { ...NEUTRAL, scaleX: 1 + wave * 0.04, scaleY: 1 + wave * 0.04 };
     default:
       return { ...NEUTRAL };
   }
@@ -277,6 +300,11 @@ function applyHoldAnimation(frame: number, timing: ComputedChoreography, pattern
       const wave = (1 + Math.sin(phase * Math.PI * 2)) * 0.5;
       return { ...NEUTRAL, textShadowBlur: wave * 8, filterBrightness: 1 + wave * 0.1 };
     }
+    case 'morph':
+      // CSS fallback for GSAP MorphSVGPlugin — subtle scale oscillation.
+      // Actual SVG path morphing handled by GSAP timeline in composition-renderer.
+      // ⚠️ 0.015 amplitude INVENTED — weaker than pulse (0.02), morph is subtle shape change
+      return { ...NEUTRAL, scaleX: 1 + Math.sin(phase * Math.PI * 2) * 0.015, scaleY: 1 + Math.cos(phase * Math.PI * 2) * 0.015 };
     case 'static':
     default:
       return { ...NEUTRAL };
@@ -335,6 +363,9 @@ function applyExitState(progress: number, pattern: ExitPattern, s: SpatialConfig
         scaleY: 1 + progress * 1.0,
         filterBlur: progress * 30,
       };
+    case 'scramble-out':
+      // CSS fallback — opacity fade. Actual text un-scramble handled by GSAP.
+      return { ...NEUTRAL, opacity: inv };
     default:
       return { ...NEUTRAL, opacity: inv };
   }

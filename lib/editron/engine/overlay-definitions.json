@@ -2694,5 +2694,181 @@
     "outputParams": [
       { "name": "entranceSpeed", "mode": "proportional", "minValue": 0.15, "maxValue": 0.6 }
     ]
+  },
+  {
+    "id": "mg.particle.confetti",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "High enthusiasm → celebration confetti burst"
+      },
+      {
+        "signalId": "humor",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Humor → playful confetti accent"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "High formality suppresses confetti (too playful)"
+      }
+    ],
+    "outputParams": [
+      { "name": "particleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.particle.bokeh",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "warmth",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Warm emotional content → dreamy bokeh atmosphere"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Emotionally charged → atmospheric depth"
+      }
+    ],
+    "outputParams": [
+      { "name": "particleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.particle.dust",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 0.8, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Visceral moments → cinematic dust atmosphere"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Formal content → subtle atmospheric texture"
+      }
+    ],
+    "outputParams": [
+      { "name": "particleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.particle.sparks",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High impact → energy sparks"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.7, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic → spark effects"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "High formality suppresses sparks (too flashy)"
+      }
+    ],
+    "outputParams": [
+      { "name": "particleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.mask.circle_reveal",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 2, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High impact → dramatic circle iris reveal"
+      },
+      {
+        "signalId": "cinematic_moment",
+        "curveType": "linear",
+        "params": { "slope": 0.7, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Cinematic moments → iris reveal emphasis"
+      }
+    ],
+    "outputParams": [
+      { "name": "maskScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.mask.wipe_reveal",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Active pacing → directional wipe energy"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Formal content → clean structured reveals"
+      }
+    ],
+    "outputParams": [
+      { "name": "maskScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
   }
 ]

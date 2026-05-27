@@ -292,6 +292,52 @@ function composeElements(
     }
   }
 
+  // Particle effects: atmospheric background decorations (math-driven, not @tsparticles)
+  // ⚠️ budget >= 4 INVENTED — particles are decorative, same tier as brand patterns
+  // ⚠️ score threshold 0.15 INVENTED — prevents low-confidence particle activation
+  const particleWinner = mgWinner(mgScores, 'mg.particle.');
+  if (particleWinner && budget >= 4) {
+    const pScore = mgVal(mgScores, particleWinner, 'particleScore', 0);
+    if (pScore >= 0.15) {
+      const preset = particleWinner.split('.').pop() || 'confetti';
+      // ⚠️ INVENTED — count maps score linearly: 0.15→10, 1.0→70 particles
+      const pCount = Math.round(10 + pScore * 60);
+      elements.push({
+        primitive: 'particle',
+        role: 'ambient-particles',
+        layer: 'background',
+        bind: {
+          particlePreset: preset,
+          particleCount: pCount,
+          color: language.color.accent,
+          secondaryColor: language.color.primary,
+          size: 6,
+        },
+      });
+    }
+  }
+
+  // Mask reveals: cinematic clip-path decorative shapes
+  // ⚠️ budget >= 3 INVENTED — masks are moderate complexity (same tier as accent line)
+  // ⚠️ score threshold 0.2 INVENTED — higher bar than particles (masks are more visually dominant)
+  const maskWinner = mgWinner(mgScores, 'mg.mask.');
+  if (maskWinner && budget >= 3) {
+    const mScore = mgVal(mgScores, maskWinner, 'maskScore', 0);
+    if (mScore >= 0.2) {
+      const isCircle = maskWinner.includes('circle');
+      elements.push({
+        primitive: 'mask',
+        role: 'reveal-mask',
+        layer: 'background',
+        shape: isCircle ? 'circle' : 'rect',
+        bind: {
+          color: `${language.color.accent}33`,
+          direction: isCircle ? 'center' : 'left',
+        },
+      });
+    }
+  }
+
   return elements;
 }
 

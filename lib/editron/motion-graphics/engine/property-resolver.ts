@@ -127,6 +127,9 @@ export function resolveElements(
       resolvedProps,
       entrancePattern,
       exitPattern,
+      textSplit: el.textSplit,
+      scrambleChars: el.scrambleChars,
+      morphTarget: el.morphTarget,
     };
   });
 }
