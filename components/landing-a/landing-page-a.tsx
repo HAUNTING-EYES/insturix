@@ -243,8 +243,8 @@ export function LandingPageA() {
             if (mktEl) {
               const mktProgress = Math.max(0, (p - 0.57) / 0.43);
               gsap.to(mktEl, {
-                opacity: Math.min(1, mktProgress * 10),
-                duration: 0.3,
+                opacity: Math.min(1, mktProgress * 25),
+                duration: 0.15,
                 overwrite: true,
               });
             }

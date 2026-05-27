@@ -152,6 +152,9 @@ function FilmStrip({ editSub }: { editSub: number }) {
                     <svg width={7} height={7} viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke={C.bg} strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" /></svg>
                   </div>
                 )}
+                {(i === 0 || i === 4) && lit && (
+                  <span style={{ fontSize: 10, fontWeight: 800, color: i === 0 ? C.accent : C.text, letterSpacing: "-0.02em", position: "relative", zIndex: 1, opacity: lit ? 0.7 : 0, transition: `opacity .5s ${EASE}`, marginBottom: -2 }}>Insturix</span>
+                )}
                 <div style={{ width: 26, height: 26, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, background: `linear-gradient(135deg, ${sc.grad}, ${sc.grad}80)`, opacity: lit ? 1 : 0.15, transform: lit ? "scale(1)" : "scale(0.8)", transition: `all .5s ${EASE}`, position: "relative", zIndex: 1 }}>{sc.icon}</div>
                 <span style={{ fontSize: 9, fontWeight: 500, color: st === "exposing" ? C.text : lit ? C.muted : C.dim, transition: `color .4s ${EASE}`, zIndex: 1 }}>{sc.label}</span>
                 <span className="m" style={{ fontSize: 7, color: C.dim, zIndex: 1, opacity: lit ? 1 : 0, transition: `opacity .4s ${EASE}` }}>{sc.sub}</span>
