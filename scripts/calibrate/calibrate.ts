@@ -554,7 +554,7 @@ async function feedBandits(
       outcome: o.outcome as 'kept' | 'modified' | 'removed',
     }));
 
-    state = updateThresholdBandit(state, banditOutcomes, context);
+    updateThresholdBandit(state, banditOutcomes, context);
     await saveThresholdBanditState(state);
     console.log(`[Calibrate] Bandit updated: ${state.totalOutcomes} total outcomes for ${userId}`);
   } catch (banditErr: any) {
