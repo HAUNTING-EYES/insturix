@@ -122,15 +122,18 @@ async function generateTranscription(
         }
         if (!mediaUrl) throw new Error('No URL for asset');
 
-        // NOTE: Grok STT 400 "Could not detect audio format" is a known issue.
-        // Root cause: R2 CDN worker (editron-asset-proxy) may not serve headers that
-        // let xAI's format detection work. Fix options (not yet implemented):
-        //   a) R2 Worker: serve Content-Type from stored metadata (separate deploy)
-        //   b) Download file + upload directly as FormData 'file' (doubles bandwidth)
-        //   c) xAI fix: they should detect MP4 from magic bytes regardless of headers
-        // Until fixed: Grok fails with 400, falls through to Whisper (works, no diarization).
+        // Use presigned R2 URL instead of CDN Worker URL for Grok STT.
+        // CDN Worker serves application/octet-stream when R2 metadata lacks contentType
+        // (edge cache hid this bug until cache expired). Presigned R2 URLs serve correct
+        // Content-Type directly from storage — same pattern as auto-edit/from-asset.
+        try {
+          const { isR2Available, getR2PresignedReadUrl } = await import('../../r2-service');
+          if (isR2Available()) {
+            mediaUrl = await getR2PresignedReadUrl(asset.assetId, 3600);
+          }
+        } catch { /* R2 not configured — use existing mediaUrl */ }
 
-        console.log(`[Transcription] Grok STT: transcribing ${asset.assetId} via CDN URL...`);
+        console.log(`[Transcription] Grok STT: transcribing ${asset.assetId} via ${mediaUrl.includes('r2.cloudflarestorage') ? 'R2 presigned' : 'CDN'} URL...`);
 
         // xAI STT API expects FormData (multipart/form-data), NOT JSON.
         // Retry on 429 — CDN rate-limits when multiple services download simultaneously
