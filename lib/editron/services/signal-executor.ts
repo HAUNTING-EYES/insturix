@@ -754,18 +754,28 @@ function getNearestGridSnapshot(timeline: SignalTimeline, frame: number): Signal
 
 const GRAPH_TO_EDL_TRANSITION: Record<string, string> = {
   hard_cut: 'hard-cut',
+  soft_cut: 'soft-cut',
   dissolve: 'dissolve',
   fade_to_black: 'dip-to-black',
   fade_from_black: 'dip-to-black',
   dip_to_white: 'dip-to-white',
   wipe: 'wipe-left',
+  wipe_right: 'wipe-right',
   whip_pan: 'whip-pan',
+  zoom_punch: 'zoom-punch',
+  glitch: 'glitch',
   flash: 'flash',
   film_burn: 'film-burn',
   iris_wipe: 'iris-wipe',
   blur_transition: 'blur-transition',
   slide_transition: 'slide-up',
+  slide_up: 'slide-up',
+  slide_down: 'slide-down',
   j_cut: 'hard-cut',
+  smash_cut: 'smash-cut',
+  match_cut: 'match-cut',
+  jump_cut: 'jump-cut',
+  cut_on_action: 'cut-on-action',
 };
 
 function mapGraphTransitionToEdl(techniqueId: string): string {

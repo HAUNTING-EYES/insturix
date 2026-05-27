@@ -2,10 +2,10 @@
   "_comment": "Curated reference videos for threshold calibration. Each entry covers a different signal profile (not content category). Add YouTube URLs and run: npx tsx scripts/calibrate/calibrate.ts",
   "videos": [
     {
-      "url": "",
+      "url": "https://www.youtube.com/watch?v=mY7iweEA_HM",
       "label": "energetic-vlog",
       "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "fast" },
-      "notes": "e.g. MKBHD, Casey Neistat — fast cuts, high energy, pop entrances"
+      "notes": "Iman Gadzhi — CRAZY motion graphics, bold typography, fast pacing, high production"
     },
     {
       "url": "",

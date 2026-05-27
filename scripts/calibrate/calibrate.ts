@@ -17,8 +17,18 @@
  */
 
 import { execSync } from 'child_process';
-import { existsSync, mkdirSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdirSync, unlinkSync, readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { config } from 'dotenv';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const envPath = join(__dirname, '..', '..', '.env.local');
+if (existsSync(envPath)) {
+  config({ path: envPath });
+  console.log('[Calibrate] Loaded env from .env.local');
+}
 
 // ── Stage 1: Download ──────────────────────────────────────────────
 
@@ -36,7 +46,7 @@ async function downloadVideo(url: string, tempDir: string): Promise<DownloadResu
   console.log(`[Calibrate] Downloading: ${url}`);
 
   const infoJson = execSync(
-    `npx yt-dlp-exec --dump-json --no-download "${url}"`,
+    `yt-dlp --dump-json --no-download "${url}"`,
     { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
   );
   const info = JSON.parse(infoJson);
@@ -46,7 +56,7 @@ async function downloadVideo(url: string, tempDir: string): Promise<DownloadResu
   const outPath = join(tempDir, `${title}.mp4`);
   if (!existsSync(outPath)) {
     execSync(
-      `npx yt-dlp-exec -f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best" --merge-output-format mp4 -o "${outPath}" "${url}"`,
+      `yt-dlp -f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best" --merge-output-format mp4 -o "${outPath}" "${url}"`,
       { stdio: 'inherit', maxBuffer: 50 * 1024 * 1024 },
     );
   } else {
@@ -513,7 +523,7 @@ async function main() {
   }
 
   const configPath = join(__dirname, 'reference-videos.json');
-  const config = JSON.parse(require('fs').readFileSync(configPath, 'utf-8'));
+  const config = JSON.parse(readFileSync(configPath, 'utf-8'));
   const videos = config.videos.filter((v: any) => v.url && v.url.length > 0);
 
   if (videos.length === 0) {

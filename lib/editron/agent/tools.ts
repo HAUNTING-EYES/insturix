@@ -4510,6 +4510,21 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         const project = await loadProject();
         const canvas = getCanvasDimensions(project);
 
+        const MAX_GRAPHICS_PER_TYPE: Record<string, number> = {
+          'logo-reveal': 2, 'logo': 2, 'lower-third': 5, 'stat-counter': 4,
+          'keyword-highlight': 4, 'quote-card': 3, 'callout': 2,
+        };
+        const reqType = input.graphicType || '';
+        const typeCap = MAX_GRAPHICS_PER_TYPE[reqType];
+        if (typeCap !== undefined) {
+          const existing = (project.overlays || []).filter(
+            (o: any) => o.metadata?.graphicType === reqType,
+          );
+          if (existing.length >= typeCap) {
+            return JSON.stringify({ status: 'skipped', message: `${reqType} cap reached (${existing.length}/${typeCap})` });
+          }
+        }
+
         // ── COMPOSITION ENGINE PATH ──
         const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;
         if (useCompositionEngine) {
