@@ -1,0 +1,53 @@
+{
+  "_comment": "Curated reference videos for threshold calibration. Each entry covers a different signal profile (not content category). Add YouTube URLs and run: npx tsx scripts/calibrate/calibrate.ts",
+  "videos": [
+    {
+      "url": "",
+      "label": "energetic-vlog",
+      "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "fast" },
+      "notes": "e.g. MKBHD, Casey Neistat — fast cuts, high energy, pop entrances"
+    },
+    {
+      "url": "",
+      "label": "calm-corporate",
+      "expectedSignals": { "enthusiasm": "low", "formality": "high", "pacing": "slow" },
+      "notes": "e.g. Apple keynote, TED talk — fade transitions, minimal graphics, generous hold"
+    },
+    {
+      "url": "",
+      "label": "product-ad",
+      "expectedSignals": { "enthusiasm": "high", "formality": "medium", "pacing": "fast" },
+      "notes": "e.g. Nike, Apple ad — beat-synced cuts, bold typography, high saturation"
+    },
+    {
+      "url": "",
+      "label": "documentary-explainer",
+      "expectedSignals": { "enthusiasm": "low", "formality": "medium", "pacing": "slow" },
+      "notes": "e.g. Vox, Kurzgesagt — dissolve transitions, warm graphics, breathe hold"
+    },
+    {
+      "url": "",
+      "label": "music-heavy-broll",
+      "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "very-fast" },
+      "notes": "e.g. travel vlog, food montage — beat-synced, minimal speech, bold MG"
+    },
+    {
+      "url": "",
+      "label": "tutorial-screencast",
+      "expectedSignals": { "enthusiasm": "medium", "formality": "medium", "pacing": "medium" },
+      "notes": "e.g. Fireship, ThePrimeagen — mixed cuts, callout graphics, moderate energy"
+    },
+    {
+      "url": "",
+      "label": "talking-head-comedy",
+      "expectedSignals": { "enthusiasm": "high", "formality": "low", "pacing": "medium" },
+      "notes": "e.g. MrBeast, Hank Green — jump cuts, keyword highlights, high humor"
+    },
+    {
+      "url": "",
+      "label": "brand-storytelling",
+      "expectedSignals": { "enthusiasm": "medium", "formality": "high", "pacing": "slow" },
+      "notes": "e.g. Patagonia, Airbnb — cinematic, dissolves, subtle MG, warm palette"
+    }
+  ]
+}
