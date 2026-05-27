@@ -142,10 +142,26 @@ export function planComposition(
     `${speechCoverage > 0 ? `, speechCov=${speechCoverage.toFixed(2)}` : ''}`,
   );
 
+  // E1: Spatial intelligence — override layout position based on center_avoidance overlay score.
+  // High centerAvoidance (face on camera, high speech) → shift from center to corners.
+  // Low centerAvoidance → center is fine (B-roll, no face).
+  let layout = strategy.suggestedLayout;
+  const centerAvoidance = mgVal(mgScores, 'mg.layout.center_avoidance', 'centerAvoidance', -1);
+  if (centerAvoidance >= 0 && layout.position === 'center') {
+    // ⚠️ threshold 0.6 INVENTED — above this, face/speech dominates → move to corner
+    if (centerAvoidance > 0.6) {
+      const positions = ['bottom-left', 'top-right', 'bottom-right', 'top-left'] as const;
+      // Pick position based on score magnitude — higher avoidance = bottom-left (safest for lower-thirds)
+      const idx = Math.min(positions.length - 1, Math.floor((centerAvoidance - 0.6) / 0.1));
+      layout = { ...layout, position: positions[idx] };
+      console.log(`[MG-Planner] Spatial: center→${layout.position} (centerAvoidance=${centerAvoidance.toFixed(2)})`);
+    }
+  }
+
   return {
     id: `composed-${strategy.shapes[0]?.kind || 'unknown'}`,
     elements,
-    layout: strategy.suggestedLayout,
+    layout,
     exitStyle: strategy.suggestedExitStyle,
   };
 }
