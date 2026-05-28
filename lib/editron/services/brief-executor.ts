@@ -284,7 +284,7 @@ function isTransitionType(type: BriefDecisionType): boolean {
 
 // ─── Original-to-Cut Timeline Mapping ──────────────────────────────────────
 
-interface FrameMapResult {
+export interface FrameMapResult {
   frame: number;
   snapped: boolean;
   distance: number;
@@ -302,7 +302,7 @@ interface FrameMapResult {
  * If it falls in a removed gap, snap to the nearest clip boundary (within tolerance).
  * If no clip is within tolerance, return null (decision should be skipped).
  */
-function mapOriginalFrameToCutTimeline(
+export function mapOriginalFrameToCutTimeline(
   originalFrame: number,
   clips: { from: number; durationInFrames: number; sourceStartFrame?: number }[],
   fps: number,

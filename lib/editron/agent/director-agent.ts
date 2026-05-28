@@ -946,6 +946,35 @@ export async function executeDirectorPlan(
               },
             };
 
+            // Remap decision frames from original-video space to cut-timeline space.
+            // Signal executor uses 5-Track data (original frames), but overlays are on the
+            // cut timeline after silence removal. Without remapping, decisions in removed gaps
+            // are lost (was: 8/31 dropped on Hank Green 1175s video).
+            const videoClips = overlays
+              .filter(o => o.type === 'video')
+              .sort((a, b) => ((a as any).sourceStartFrame || 0) - ((b as any).sourceStartFrame || 0));
+            const hasSourceMapping = videoClips.some(c => (c as any).sourceStartFrame !== undefined);
+            if (hasSourceMapping) {
+              const { mapOriginalFrameToCutTimeline } = await import('@/lib/editron/services/brief-executor');
+              const preCount = edl.decisions.length;
+              edl.decisions = edl.decisions.filter(d => {
+                const mapped = mapOriginalFrameToCutTimeline(d.frame, videoClips as any, pathDFps);
+                if (mapped === null) {
+                  console.warn(`[Director] Path D: Decision at frame ${d.frame} (${d.type}) falls in removed gap — SKIPPED`);
+                  return false;
+                }
+                if (mapped.frame !== d.frame) {
+                  d.frame = mapped.frame;
+                }
+                return true;
+              });
+              edl.totalDecisions = edl.decisions.length;
+              const dropped = preCount - edl.decisions.length;
+              if (dropped > 0) {
+                console.log(`[Director] Path D: Frame remapping complete — ${dropped} decisions in removed gaps dropped, ${edl.decisions.length} remain`);
+              }
+            }
+
             // Execute EDL (same as other paths)
             const { executeEDL: executeEDLPathD } = await import('@/lib/editron/services/edl-executor');
             const canvas = project.playerDimensions || { width: 1920, height: 1080 };
