@@ -318,12 +318,12 @@ function composeElements(
   }
 
   // Mask reveals: cinematic clip-path decorative shapes
-  // ⚠️ budget >= 3 INVENTED — masks are moderate complexity (same tier as accent line)
-  // ⚠️ score threshold 0.2 INVENTED — higher bar than particles (masks are more visually dominant)
+  // ⚠️ budget >= 5 INVENTED — masks are visually dominant, only on highest-complexity compositions
+  // ⚠️ score threshold 0.5 INVENTED — masks should be rare accents, not on every graphic
   const maskWinner = mgWinner(mgScores, 'mg.mask.');
-  if (maskWinner && budget >= 3) {
+  if (maskWinner && budget >= 5) {
     const mScore = mgVal(mgScores, maskWinner, 'maskScore', 0);
-    if (mScore >= 0.2) {
+    if (mScore >= 0.5) {
       const isCircle = maskWinner.includes('circle');
       elements.push({
         primitive: 'mask',

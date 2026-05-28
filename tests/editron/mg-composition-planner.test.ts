@@ -263,42 +263,42 @@ describe('particle producer', () => {
 describe('mask producer', () => {
   const tokens = makeTokens();
 
-  it('mask added when budget >= 3 and maskScore >= 0.2', () => {
-    // position_in_video 0.5 → budget 3
+  it('mask added when budget >= 5 and maskScore >= 0.5', () => {
+    // cinematic_moment > 0.6 boosts budget to 4, position_in_video 0.9 → budget 5
     const scores: MgOverlayScores = {
-      'mg.mask.rect_reveal': { score: 0.6, values: { maskScore: 0.3 } },
+      'mg.mask.rect_reveal': { score: 0.8, values: { maskScore: 0.6 } },
     };
-    const recipe = planComposition(numericIntent(), tokens, { position_in_video: 0.5 } as never, scores);
+    const recipe = planComposition(numericIntent(), tokens, { position_in_video: 0.9, cinematic_moment: 0.7 } as never, scores);
     const mask = recipe.elements.find(e => e.primitive === 'mask');
     expect(mask).toBeDefined();
     expect(mask!.role).toBe('reveal-mask');
   });
 
-  it('mask NOT added when budget < 3', () => {
-    // position_in_video 0.1 → budget 1
+  it('mask NOT added when budget < 5', () => {
+    // position_in_video 0.5 → budget 3, not enough
     const scores: MgOverlayScores = {
-      'mg.mask.rect_reveal': { score: 0.6, values: { maskScore: 0.5 } },
+      'mg.mask.rect_reveal': { score: 0.8, values: { maskScore: 0.6 } },
     };
-    const recipe = planComposition(numericIntent(), tokens, { position_in_video: 0.1 } as never, scores);
+    const recipe = planComposition(numericIntent(), tokens, { position_in_video: 0.5 } as never, scores);
     const mask = recipe.elements.find(e => e.primitive === 'mask');
     expect(mask).toBeUndefined();
   });
 
-  it('mask NOT added when maskScore < 0.2 (use 0.19)', () => {
-    // budget 3, but maskScore below threshold
+  it('mask NOT added when maskScore < 0.5 (use 0.49)', () => {
+    // budget 5 but maskScore below threshold
     const scores: MgOverlayScores = {
-      'mg.mask.rect_reveal': { score: 0.6, values: { maskScore: 0.19 } },
+      'mg.mask.rect_reveal': { score: 0.8, values: { maskScore: 0.49 } },
     };
-    const recipe = planComposition(numericIntent(), tokens, { position_in_video: 0.5 } as never, scores);
+    const recipe = planComposition(numericIntent(), tokens, { position_in_video: 0.9, cinematic_moment: 0.7 } as never, scores);
     const mask = recipe.elements.find(e => e.primitive === 'mask');
     expect(mask).toBeUndefined();
   });
 
   it('circle mask from winner ID containing "circle"', () => {
     const scores: MgOverlayScores = {
-      'mg.mask.circle_reveal': { score: 0.8, values: { maskScore: 0.5 } },
+      'mg.mask.circle_reveal': { score: 0.8, values: { maskScore: 0.6 } },
     };
-    const recipe = planComposition(numericIntent(), tokens, { position_in_video: 0.5 } as never, scores);
+    const recipe = planComposition(numericIntent(), tokens, { position_in_video: 0.9, cinematic_moment: 0.7 } as never, scores);
     const mask = recipe.elements.find(e => e.primitive === 'mask');
     expect(mask).toBeDefined();
     expect(mask!.shape).toBe('circle');
@@ -307,9 +307,9 @@ describe('mask producer', () => {
 
   it('rect mask for non-circle winner', () => {
     const scores: MgOverlayScores = {
-      'mg.mask.rect_reveal': { score: 0.8, values: { maskScore: 0.5 } },
+      'mg.mask.rect_reveal': { score: 0.8, values: { maskScore: 0.6 } },
     };
-    const recipe = planComposition(numericIntent(), tokens, { position_in_video: 0.5 } as never, scores);
+    const recipe = planComposition(numericIntent(), tokens, { position_in_video: 0.9, cinematic_moment: 0.7 } as never, scores);
     const mask = recipe.elements.find(e => e.primitive === 'mask');
     expect(mask).toBeDefined();
     expect(mask!.shape).toBe('rect');
