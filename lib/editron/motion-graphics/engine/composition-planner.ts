@@ -682,9 +682,10 @@ function resolveHoldPattern(signals: PlannerSignals, mgScores?: MgOverlayScores)
     if (winner === 'mg.animation.hold_float') return 'gentle-float';
     if (winner === 'mg.animation.hold_glow') return 'glow';
   }
-  if (signals.enthusiasm > 0.6 && signals.pacing_velocity < 0.5) return 'pulse';
-  if (signals.warmth > 0.6) return 'breathe';
-  if (signals.enthusiasm > 0.4) return 'gentle-float';
+  // ⚠️ thresholds INVENTED — lowered from 0.6/0.6/0.4 to prevent "static always" with default signals
+  if (signals.enthusiasm > 0.45 && signals.pacing_velocity < 0.6) return 'pulse';
+  if (signals.warmth > 0.45) return 'breathe';
+  if (signals.enthusiasm > 0.25) return 'gentle-float';
   return 'static';
 }
 

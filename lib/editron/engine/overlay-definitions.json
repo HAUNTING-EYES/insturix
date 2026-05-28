@@ -2324,16 +2324,16 @@
       {
         "signalId": "formality",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 3, "exponent": 2, "xShift": 0, "yShift": 0 },
         "invert": false,
-        "description": "Formal content → fade entrance preferred (CRG: default for formal)"
+        "description": "Formal content → fade wins strongly (slope 3: formal=0.7 scores ~0.95, informal=0.3 scores ~0.15)"
       },
       {
-        "signalId": "warmth",
-        "curveType": "linear",
-        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.3 },
-        "invert": false,
-        "description": "Warm content → gentle fade suits the tone"
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 2, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "High energy suppresses fade (inverted: enthusiasm=0.7 → fade score drops)"
       }
     ],
     "outputParams": [
@@ -2351,23 +2351,23 @@
       {
         "signalId": "enthusiasm",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 3, "exponent": 2, "xShift": 0, "yShift": 0 },
         "invert": false,
-        "description": "Energetic → pop entrance (CRG: overshoot 102-105%)"
+        "description": "Energetic → pop wins strongly (slope 3: enthusiasm=0.5 scores ~0.7, enthusiasm=0.7 scores ~0.95)"
       },
       {
         "signalId": "visceral_impact",
         "curveType": "linear",
-        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 0.8, "exponent": 1, "xShift": 0, "yShift": 0.1 },
         "invert": false,
-        "description": "High impact → snappy pop entrance"
+        "description": "High impact → snappy pop entrance (boosted from 0.6)"
       },
       {
         "signalId": "formality",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 2.5, "exponent": 2, "xShift": 0, "yShift": 0 },
         "invert": true,
-        "description": "CRG anti-pattern: scale_pop when formality > 0.5 (inverted)"
+        "description": "CRG anti-pattern: pop suppressed when formal (slope 2.5 inverted)"
       }
     ],
     "outputParams": [
@@ -2385,16 +2385,16 @@
       {
         "signalId": "pacing_velocity",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 2.5, "exponent": 1.5, "xShift": 0, "yShift": 0 },
         "invert": false,
-        "description": "Faster pacing → dynamic slide entrance"
+        "description": "Faster pacing → slide wins (slope 2.5: pacing=0.5 scores ~0.65)"
       },
       {
         "signalId": "speech.coverage",
         "curveType": "linear",
-        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.2 },
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.25 },
         "invert": false,
-        "description": "Speaking content → sequential/directional slide"
+        "description": "Speaking content → directional slide (boosted baseline)"
       }
     ],
     "outputParams": [

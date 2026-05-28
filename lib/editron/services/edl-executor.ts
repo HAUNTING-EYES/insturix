@@ -79,16 +79,16 @@ export interface ClipBoundaryMatch {
 export function snapToClipBoundary(
   decisionFrame: number,
   overlays: Overlay[],
-  maxTolerance: number = 45,
+  maxTolerance: number = 90,
 ): ClipBoundaryMatch | null {
   const visualOverlays = overlays
     .filter(o => o.type === 'video' || o.type === 'image')
     .sort((a, b) => a.from - b.from);
 
-  // Post-silence-removal projects have many small clips with potential tiny gaps.
-  // Increase tolerance to account for frame rounding gaps between consecutive clips.
+  // Post-silence-removal projects have many small clips with shifted boundaries.
+  // ⚠️ tolerance 90 INVENTED (was 45) — 53% silence removal on 1175s video caused >60-frame gaps
   const effectiveTolerance = visualOverlays.length > 20
-    ? Math.max(maxTolerance, 60)
+    ? Math.max(maxTolerance, 120)
     : maxTolerance;
 
   let best: ClipBoundaryMatch | null = null;
@@ -1081,12 +1081,19 @@ async function applyGraphic(
   // Type-specific durations (CRG-verified at 30fps)
   const GRAPHIC_DURATIONS: Record<string, number> = {
     'stat-counter': 102,      // 3.4s ← constant:animation.stat_counter midpoint (2.2-3.8s)
-    'keyword-highlight': 60,  // 2.0s ← constant:animation.keyword_highlight (1.85-3.0s)
     'lower-third': 141,       // 4.7s ← constant:animation.lower_third midpoint (3.5-5.9s)
     'quote-card': 120,        // 4.0s ← constant:animation.quote_card (3.6-6.0s)
     'logo-reveal': 120,       // 4.0s ← between constant:animation.logo_intro (1.0-2.3s) and logo_outro (2.1-4.6s)
     'callout': 75,            // 2.5s ← no CRG constant, kept as-is
   };
+  // keyword-highlight: duration from text length (CRG range 1.85-3.0s = 55-90 frames)
+  // ⚠️ formula INVENTED — 3 frames per character + 45 base, clamped to CRG range
+  if (graphicType === 'keyword-highlight' && text) {
+    const textLen = typeof text === 'string' ? text.length : 0;
+    GRAPHIC_DURATIONS['keyword-highlight'] = Math.round(Math.max(55, Math.min(90, textLen * 3 + 45)));
+  } else {
+    GRAPHIC_DURATIONS['keyword-highlight'] = 60;
+  }
   let duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
 
   // ── COMPOSITION ENGINE PATH (feature flag) ──
