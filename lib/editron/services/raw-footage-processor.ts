@@ -664,7 +664,7 @@ export async function processRawFootage(
   let speechMs = 0;
   const words = transcription.words;
   if (words.length > 0) {
-    const MAX_GAP_MS = 2000;
+    const MAX_GAP_MS = 2000; // ⚠️ INVENTED — normal speech gaps 200-500ms, 2s covers sentence pauses
     let blockStart = (words[0] as any).startMs ?? (words[0] as any).start ?? 0;
     let blockEnd = (words[0] as any).endMs ?? (words[0] as any).end ?? blockStart;
     for (let i = 1; i < words.length; i++) {
