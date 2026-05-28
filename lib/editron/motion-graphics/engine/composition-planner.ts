@@ -6,7 +6,6 @@ import type {
   ContentShape,
   CompositionStrategy,
   HoldPattern,
-  MGKeyframeTrack,
   TextSplitMode,
 } from './recipe-types';
 import { analyzeContentShape } from './content-shape-analyzer';
