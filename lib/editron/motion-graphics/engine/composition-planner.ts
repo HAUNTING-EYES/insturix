@@ -317,11 +317,11 @@ function composeElements(
     }
   }
 
-  // Mask reveals: cinematic clip-path decorative shapes
+  // Mask reveals: cinematic clip-path decorative shapes — NOT on emphasis (keyword highlights)
   // ⚠️ budget >= 5 INVENTED — masks are visually dominant, only on highest-complexity compositions
   // ⚠️ score threshold 0.5 INVENTED — masks should be rare accents, not on every graphic
   const maskWinner = mgWinner(mgScores, 'mg.mask.');
-  if (maskWinner && budget >= 5) {
+  if (maskWinner && budget >= 5 && primary.kind !== 'emphasis') {
     const mScore = mgVal(mgScores, maskWinner, 'maskScore', 0);
     if (mScore >= 0.5) {
       const isCircle = maskWinner.includes('circle');
@@ -511,7 +511,6 @@ function composeEmphasis(
     primitive: 'text',
     role: 'primary',
     layer: 'foreground',
-    entranceOverride: 'pop',
     bind: {
       text: 'content:text',
       font: 'token:typography.headingFamily',

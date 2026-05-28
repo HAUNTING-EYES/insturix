@@ -257,30 +257,10 @@ async function handler(request: NextRequest) {
     const pacingFeel = directorPayload.pacingFeel as string | undefined;
     const musicPreference = directorPayload.musicPreference as string | undefined;
 
-    let profileId = initialProfileId;
-    if (rawFootageAnalysis?.contentTypeDetection?.confidence >= 0.5) {
-      profileId = rawFootageAnalysis.contentTypeDetection.profileId;
-      console.log(`[TribeWorker] Profile: ${profileId} (${rawFootageAnalysis.contentTypeDetection.contentType})`);
-    } else {
-      try {
-        const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
-        const { profile } = getAutoSelectedProfile({
-          title: syntheticStoryboard?.title || title,
-          contentType: syntheticStoryboard?.contentType || 'video',
-          platform: syntheticStoryboard?.platform || 'youtube',
-          scenes: syntheticStoryboard?.scenes?.map((s: any) => ({
-            narration: s.descriptor?.narration,
-            visualDescription: s.descriptor?.visualDescription,
-            mood: s.descriptor?.mood,
-            editDirections: s.descriptor?.editDirections,
-          })) || [],
-          globalEditDirections: syntheticStoryboard?.globalEditDirections,
-          overallMusicPrompt: syntheticStoryboard?.overallMusicPrompt,
-        });
-        if (profile?.profileId) profileId = profile.profileId;
-      } catch {
-        console.warn(`[TribeWorker] Profile detection failed, using ${profileId}`);
-      }
+    // D-016: Profile selection removed — signal system + Utility AI drive all editing decisions.
+    const profileId = initialProfileId;
+    if (rawFootageAnalysis?.contentTypeDetection) {
+      console.log(`[TribeWorker] Content type: ${rawFootageAnalysis.contentTypeDetection.contentType} (confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)}, profile=${profileId})`);
     }
 
     const editDNA = projectDoc?.referenceEditDNA;

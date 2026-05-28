@@ -84,32 +84,10 @@ async function handler(request: NextRequest) {
       console.warn(`[DirectorWorker] rawFootageAnalysis is null for ${projectId} — Stage 1 data may not have replicated. Director will run with degraded profile detection.`);
     }
 
-    // ─── Profile detection ────────────────────────────────────────
-    let profileId = initialProfileId;
-    if (rawFootageAnalysis?.contentTypeDetection?.confidence >= 0.5) {
-      profileId = rawFootageAnalysis.contentTypeDetection.profileId;
-      console.log(`[DirectorWorker] Profile from content-type detector: ${profileId} (${rawFootageAnalysis.contentTypeDetection.contentType}, confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)})`);
-    } else {
-      try {
-        const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
-        const { profile } = getAutoSelectedProfile({
-          title: syntheticStoryboard?.title || title || '',
-          contentType: syntheticStoryboard?.contentType || 'video',
-          platform: syntheticStoryboard?.platform || 'youtube',
-          scenes: syntheticStoryboard?.scenes?.map((s: any) => ({
-            narration: s.descriptor?.narration,
-            visualDescription: s.descriptor?.visualDescription,
-            mood: s.descriptor?.mood,
-            editDirections: s.descriptor?.editDirections,
-          })) || [],
-          globalEditDirections: syntheticStoryboard?.globalEditDirections,
-          overallMusicPrompt: syntheticStoryboard?.overallMusicPrompt,
-        });
-        if (profile?.profileId) profileId = profile.profileId;
-        console.log(`[DirectorWorker] Profile from SyntheticStoryboard: ${profileId}`);
-      } catch {
-        console.warn(`[DirectorWorker] Profile detection failed, using ${profileId}`);
-      }
+    // D-016: Profile selection removed — signal system + Utility AI drive all editing decisions.
+    const profileId = initialProfileId;
+    if (rawFootageAnalysis?.contentTypeDetection) {
+      console.log(`[DirectorWorker] Content type: ${rawFootageAnalysis.contentTypeDetection.contentType} (confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)}, profile=${profileId})`);
     }
 
     // ─── Build brief from preferences + editDNA (from MongoDB) ────

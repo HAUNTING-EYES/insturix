@@ -25,8 +25,6 @@ export interface ContentTypeDetection {
   confidence: number;
   /** Signals that contributed to the detection */
   signals: string[];
-  /** Mapped edit profile ID */
-  profileId: string;
   /** Silence removal thresholds for this content type */
   silenceThreshold: {
     removeAboveMs: number;
@@ -52,65 +50,8 @@ interface TranscriptFeatures {
   avgWordGapMs: number;
 }
 
-// ─── Profile Mapping ─────────────────────────────────────────────
-
-const CONTENT_TYPE_TO_PROFILE: Record<string, Record<string, string>> = {
-  'talking-head': {
-    default: 'C-08',    // Vlog Modern
-    youtube: 'A-01',    // YouTube Long
-    linkedin: 'C-01',   // Corporate Overview
-    tiktok: 'A-04',     // TikTok
-    instagram: 'A-03',  // Instagram Reel
-  },
-  'tutorial': {
-    default: 'C-02',    // Tutorial/How-To
-    youtube: 'C-02',
-    linkedin: 'C-02',
-  },
-  'interview': {
-    default: 'C-05',    // Testimonial/Interview
-    youtube: 'C-05',
-    linkedin: 'C-05',
-  },
-  'vlog': {
-    default: 'C-08',    // Vlog Modern
-    youtube: 'C-08',
-    tiktok: 'A-04',
-    instagram: 'A-03',
-  },
-  'corporate': {
-    default: 'C-01',    // Corporate Overview
-    linkedin: 'C-01',
-    youtube: 'C-01',
-  },
-  'podcast': {
-    default: 'C-09',    // Podcast
-    youtube: 'C-09',
-  },
-  'ad': {
-    default: 'E-01',    // Product Showcase
-    instagram: 'A-03',
-    tiktok: 'A-04',
-    facebook: 'A-05',
-  },
-  'product-demo': {
-    default: 'E-01',
-    youtube: 'E-01',
-    linkedin: 'E-01',
-  },
-  'documentary': {
-    default: 'C-03',    // Documentary
-    youtube: 'C-03',
-  },
-  'comedy': {
-    default: 'C-08',    // Vlog Modern (closest)
-    youtube: 'C-08',
-    tiktok: 'A-04',
-  },
-  'unknown': {
-    default: 'G-01',    // Universal Clean (fallback)
-  },
-};
+// D-016: CONTENT_TYPE_TO_PROFILE mapping removed — signal system + Utility AI drive editing decisions.
+// Content type is still detected and returned for creative brief context + silence thresholds.
 
 // ─── Feature Extraction ──────────────────────────────────────────
 
@@ -320,22 +261,17 @@ export function detectContentType(
   const features = extractFeatures(words, videoDurationSec, FILLER_SET);
   const { type, confidence, signals } = classify(features, userIntent);
 
-  // Map to profile
-  const platformProfiles = CONTENT_TYPE_TO_PROFILE[type] || CONTENT_TYPE_TO_PROFILE['unknown'];
-  const profileId = (platform && platformProfiles[platform]) || platformProfiles['default'] || 'G-01';
-
   // Get silence threshold for this content type
   const config = DEFAULT_CONFIG.rawFootage;
   const silenceThreshold = config.silenceThresholdByContentType[type]
     || config.silenceThresholdByContentType['talking-head']; // safe fallback
 
-  console.log(`[ContentType] Detected: ${type} (confidence=${confidence.toFixed(2)}, profile=${profileId}) | ${signals.join(', ')}`);
+  console.log(`[ContentType] Detected: ${type} (confidence=${confidence.toFixed(2)}) | ${signals.join(', ')}`);
 
   return {
     contentType: type,
     confidence,
     signals,
-    profileId,
     silenceThreshold,
   };
 }

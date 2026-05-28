@@ -71,7 +71,6 @@ function buildPrompt(
   context: VideoContext,
 ): string {
   const contextLine = [
-    context.contentType && `Content type: ${context.contentType}`,
     context.platform && `Platform: ${context.platform}`,
     context.speakerCount && context.speakerCount > 1 && `Speakers: ${context.speakerCount}`,
   ].filter(Boolean).join('. ');

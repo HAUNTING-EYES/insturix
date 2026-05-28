@@ -29,6 +29,15 @@ import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 
+// D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
+// ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
+function densityFromGenreParams(graphicDensity: number | undefined): 'heavy' | 'moderate' | 'minimal' | undefined {
+  if (graphicDensity == null) return undefined;
+  if (graphicDensity < 2) return 'minimal';
+  if (graphicDensity < 5) return 'moderate';
+  return 'heavy';
+}
+
 /**
  * Execute a Director Agent plan on a project.
  *
@@ -605,7 +614,7 @@ export async function executeDirectorPlan(
             const canvas = project.playerDimensions || { width: 1920, height: 1080 };
             const analysesMap = new Map<string, any>();
             for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
-            await executeEDLPathE(briefResult.edl, projectId, userId, overlays, canvas, analysesMap, effectiveProfile.graphicsDensity);
+            await executeEDLPathE(briefResult.edl, projectId, userId, overlays, canvas, analysesMap, densityFromGenreParams(pathEGenreParams?.graphic_density) || effectiveProfile.graphicsDensity);
 
             // Update summary for downstream quality review
             edlSummary.totalDecisions = humanizedEdl.decisions.length;
@@ -942,7 +951,7 @@ export async function executeDirectorPlan(
             const canvas = project.playerDimensions || { width: 1920, height: 1080 };
             const analysesMap = new Map<string, any>();
             for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
-            await executeEDLPathD(edl, projectId, userId, overlays, canvas, analysesMap, effectiveProfile.graphicsDensity);
+            await executeEDLPathD(edl, projectId, userId, overlays, canvas, analysesMap, densityFromGenreParams(pathDGenreParams?.graphic_density) || effectiveProfile.graphicsDensity);
 
             for (const d of edl.decisions) {
               edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
@@ -1220,27 +1229,58 @@ export async function executeDirectorPlan(
       }
     }
 
-    // ─── Step 2: Check conditions and filter actions ──────────
-    const profileActions = [...effectiveProfile.actions];
-    const hasCaptionAction = profileActions.some(a => a.tool === 'add_captions' || a.tool === 'add_fancy_captions');
+    // ─── Step 2: Standard action sequence (D-016: signal-driven, not profile-driven) ──────────
+    // Filter: no hardcoded filterPresetId — uses effectiveProfile.filterPresetId (Utility AI winner from Step D.4c/1.5).
+    // Transitions: handled by EDL/signal executor (not an action).
+    // MGs: handled by composition engine (not an action).
+    // Captions: injected below if resolvedCaptionStyle is set.
+    const profileActions: EditProfileAction[] = [
+      {
+        tool: 'batch_update_overlays',
+        params: { targetTypes: ['image', 'video'] },
+        description: 'Apply signal-driven filter to all visual overlays',
+        order: 1,
+        failBehavior: 'warn' as const,
+      },
+      {
+        tool: 'audio_ducking',
+        params: {
+          duckLevel: DEFAULT_CONFIG.audio.duckLevel,
+          rampDownMs: DEFAULT_CONFIG.audio.rampDownMs,
+          rampUpMs: DEFAULT_CONFIG.audio.rampUpMs,
+          lookAheadMs: DEFAULT_CONFIG.audio.lookAheadMs,
+        },
+        condition: 'hasBGM' as const,
+        description: 'Audio ducking (standard levels)',
+        order: 6,
+        failBehavior: 'warn' as const,
+      },
+      {
+        tool: 'quality_review',
+        params: { deterministic: true, geminiVision: false },
+        description: 'Quality review (deterministic)',
+        order: 10,
+        failBehavior: 'skip' as const,
+      },
+    ];
+    const hasCaptionAction = false; // standard actions never include captions — injection below handles it
     // Utility AI output takes priority → brief output → profile fallback.
     const resolvedCaptionStyle = briefCaptionStyle || effectiveProfile.captionStyle;
 
-    if (!hasCaptionAction && resolvedCaptionStyle && resolvedCaptionStyle !== 'none') {
-      // User chose a caption style (or profile default is not 'none') but profile has no caption action
+    if (resolvedCaptionStyle && resolvedCaptionStyle !== 'none') {
       const style = resolvedCaptionStyle === 'fancy' ? 'kinetic' : resolvedCaptionStyle;
       const tool = resolvedCaptionStyle === 'fancy' ? 'add_fancy_captions' : 'add_captions';
       profileActions.push({
         tool,
         params: { style },
         condition: 'hasVoiceover' as any,
-        description: `Add ${style} captions (from user selection)`,
+        description: `Add ${style} captions (signal-driven)`,
         order: 5,
         failBehavior: 'warn' as any,
       });
-      console.log(`[Director] Profile ${effectiveProfile.profileId} missing caption action — injecting ${tool}(${style}) from user/profile captionStyle`);
-    } else if (!hasCaptionAction) {
-      console.log(`[Director] Profile ${effectiveProfile.profileId}: no captions (captionStyle=${resolvedCaptionStyle || 'unset'})`);
+      console.log(`[Director] Caption injection: ${tool}(${style}) from ${briefCaptionStyle ? 'Utility AI' : 'profile fallback'}`);
+    } else {
+      console.log(`[Director] No captions (resolvedCaptionStyle=${resolvedCaptionStyle || 'unset'})`);
     }
 
     const actions = profileActions

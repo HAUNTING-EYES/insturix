@@ -94,11 +94,11 @@ test('quotation -> quote text with minSize 42', () => {
   assert(primary!.bind.minSize === 42, `Expected minSize 42 (CRG quote_card), got ${primary!.bind.minSize}`);
 });
 
-test('emphasis -> pop entrance, top-left', () => {
+test('emphasis -> no hardcoded entrance (defers to overlay scoring), top-left', () => {
   const recipe = planComposition({ kind: 'emphasis', content: { text: 'WOW' } }, tokens, { ...signals, formality: 0.2 });
   assert(recipe.layout.position === 'top-left', `Expected top-left, got ${recipe.layout.position}`);
   const primary = recipe.elements.find(e => e.role === 'primary');
-  assert(primary!.entranceOverride === 'pop', `Expected pop entrance, got ${primary!.entranceOverride}`);
+  assert(!primary!.entranceOverride, `Expected no hardcoded entrance (overlay scoring or role default decides), got ${primary!.entranceOverride}`);
 });
 
 test('brand -> hold-then-fade exit', () => {
