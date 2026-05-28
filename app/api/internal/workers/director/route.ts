@@ -180,7 +180,7 @@ async function handler(request: NextRequest) {
           { projectId: trackedProjectId },
           { $set: { autoEditStatus: 'failed', autoEditError: `Director: ${msg}` } },
         );
-      } catch { /* best-effort status update */ }
+      } catch (err: unknown) { console.warn('[DirectorWorker] best-effort status update failed:', err instanceof Error ? err.message : err); }
     }
 
     return NextResponse.json({ success: false, error: msg }, { status: 500 });

@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     try {
       const authResult = await auth();
       userId = authResult.userId;
-    } catch {}
+    } catch (err: unknown) { console.warn('[ToolCall] auth fallback:', err instanceof Error ? err.message : err); }
 
     if (!userId) {
       return NextResponse.json({ status: 'error', message: 'Unauthorized' }, { status: 401 });
@@ -52,7 +52,8 @@ export async function POST(req: NextRequest) {
     let result: any;
     try {
       result = JSON.parse(resultStr);
-    } catch {
+    } catch (err: unknown) {
+      console.warn('[ToolCall] result JSON parse failed, wrapping as string:', err instanceof Error ? err.message : err);
       result = { status: 'success', data: resultStr };
     }
 

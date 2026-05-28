@@ -87,8 +87,9 @@ export async function POST(request: NextRequest) {
       if (isR2Available()) {
         serverVideoUrl = await getR2PresignedReadUrl(assetId, 3600); // 1hr expiry
       }
-    } catch {
+    } catch (err: unknown) {
       // R2 not configured — use Worker URL (existing behavior)
+      console.warn('[FromAsset] R2 presigned URL failed:', err instanceof Error ? err.message : err);
     }
 
     // 3. Compute dimensions from aspect ratio
@@ -135,8 +136,9 @@ export async function POST(request: NextRequest) {
       if (isR2Available()) {
         overlaySrc = getR2PublicUrl(assetId);
       }
-    } catch {
+    } catch (err: unknown) {
       // R2 not available — use resolveAssetUrl result
+      console.warn('[FromAsset] R2 public URL failed:', err instanceof Error ? err.message : err);
     }
 
     const videoOverlay = {
@@ -177,8 +179,9 @@ export async function POST(request: NextRequest) {
       const { warmupWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
       warmupVjepa();
       warmupWav2Vec();
-    } catch {
+    } catch (err: unknown) {
       // Non-fatal — GPU analysis is optional
+      console.warn('[FromAsset] GPU warmup failed:', err instanceof Error ? err.message : err);
     }
 
     // 6. Mark project + dispatch heavy processing to QStash worker.

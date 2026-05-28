@@ -21,7 +21,7 @@ export async function POST(
 ) {
   try {
     let userId: string | null = null;
-    try { const a = await auth(); userId = a.userId; } catch {}
+    try { const a = await auth(); userId = a.userId; } catch (err: unknown) { console.warn('[PrefetchSfx] auth fallback:', err instanceof Error ? err.message : err); }
     const body = await req.json().catch(() => ({}));
     if (!userId && body.userId) userId = body.userId;
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

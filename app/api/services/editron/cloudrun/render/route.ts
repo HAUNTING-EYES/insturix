@@ -80,7 +80,7 @@ export async function POST(request: Request) {
       // Save job reference
       try {
         await createJob(jobId, userId, projectId || 'unknown', 'chapter-render');
-      } catch {}
+      } catch (err: unknown) { console.warn('[Render] chapter render job save failed:', err instanceof Error ? err.message : err); }
 
       return NextResponse.json({
         type: 'success',

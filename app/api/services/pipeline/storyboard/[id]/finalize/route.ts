@@ -209,7 +209,7 @@ export async function POST(
                     subOverlay.metadata.slopRangesAvoided = slopRanges.length;
                   }
                 }
-              } catch { /* analysis not available — use clip from start */ }
+              } catch (err: unknown) { console.warn('[Finalize] sub-shot smart clip selection failed:', err instanceof Error ? err.message : err); }
             }
             overlays.push(subOverlay);
           } else if (sub.imageUrl) {
@@ -371,7 +371,7 @@ export async function POST(
                 (mainVideoOverlay as any).metadata = { ...(mainVideoOverlay as any).metadata, slopRangesAvoided: slopRanges.length };
               }
             }
-          } catch { /* analysis not available — use clip from start */ }
+          } catch (err: unknown) { console.warn('[Finalize] main video smart clip selection failed:', err instanceof Error ? err.message : err); }
         }
         overlays.push(mainVideoOverlay);
       }

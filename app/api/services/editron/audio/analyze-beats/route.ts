@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     try {
       const authResult = await auth();
       userId = authResult.userId;
-    } catch {}
+    } catch (err: unknown) { console.warn('[AnalyzeBeats] auth fallback:', err instanceof Error ? err.message : err); }
 
     const body = await request.json();
     if (!userId && body.userId) userId = body.userId;

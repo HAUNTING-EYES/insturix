@@ -376,8 +376,9 @@ async function handler(request: NextRequest) {
             }),
           });
         }
-      } catch {
+      } catch (err: unknown) {
         // Non-fatal — graph enrichment is best-effort
+        console.warn('[VideoAnalysisWorker] graph enrichment dispatch failed:', err instanceof Error ? err.message : err);
       }
     }
 
@@ -520,7 +521,7 @@ async function handler(request: NextRequest) {
               { projectId },
               { $set: { musicAnalysis: musicResult.value } },
             );
-          } catch { /* non-fatal */ }
+          } catch (err: unknown) { console.warn('[VideoAnalysisWorker] music analysis store failed:', err instanceof Error ? err.message : err); }
         }
 
         // Build moment weight map
@@ -535,7 +536,7 @@ async function handler(request: NextRequest) {
             if (vjepaAnalysis) weightMap = integrateVjepaScores(weightMap, toVjepaWeightFormat(vjepaAnalysis));
             if (wav2vecAnalysis) weightMap = integrateWav2vecScores(weightMap, toWav2VecWeightFormat(wav2vecAnalysis));
             momentWeightMap = weightMap;
-          } catch { /* non-fatal */ }
+          } catch (err: unknown) { console.warn('[VideoAnalysisWorker] moment weight map build failed:', err instanceof Error ? err.message : err); }
         }
 
         // Build segment analysis
@@ -546,7 +547,7 @@ async function handler(request: NextRequest) {
             rawFootageAnalysis, syntheticStoryboard,
             vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
           );
-        } catch { /* non-fatal */ }
+        } catch (err: unknown) { console.warn('[VideoAnalysisWorker] segment analysis build failed:', err instanceof Error ? err.message : err); }
 
         // Store Phase 2 data
         await db.collection('projects').updateOne(
@@ -636,7 +637,7 @@ async function handler(request: NextRequest) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
         await recordProjectOutcome(userId, projectId, qualityScore, false, false);
       }
-    } catch { /* non-fatal */ }
+    } catch (err: unknown) { console.warn('[VideoAnalysisWorker] bandit outcome recording failed:', err instanceof Error ? err.message : err); }
 
     return NextResponse.json({ success: true, totalMs });
 
@@ -654,7 +655,7 @@ async function handler(request: NextRequest) {
           { projectId: trackedProjectId },
           { $set: { autoEditStatus: 'failed', autoEditError: msg } },
         );
-      } catch { /* best-effort status update */ }
+      } catch (err: unknown) { console.warn('[VideoAnalysisWorker] best-effort status update failed:', err instanceof Error ? err.message : err); }
     }
 
     return NextResponse.json({ success: false, error: msg }, { status: 500 });

@@ -87,9 +87,7 @@ export async function searchTemplates(
     if (results.length > 0) {
       return results as unknown as MotionGraphicTemplate[];
     }
-  } catch {
-    // Text index might not exist — fall through to regex
-  }
+  } catch (err: unknown) { console.warn('[MG-Service] Text index might not exist — falling through to regex:', err instanceof Error ? err.message : err); }
 
   // Fallback: case-insensitive regex on tags + semanticDescription + name
   const words = query

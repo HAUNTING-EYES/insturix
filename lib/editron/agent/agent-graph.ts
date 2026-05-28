@@ -706,7 +706,8 @@ export const createAgent = (userId: string, projectContext?: string) => {
                 (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
               try {
                 parsed[key] = JSON.parse(trimmed);
-              } catch {
+              } catch (err: unknown) {
+                console.warn('[AgentGraph] JSON parse fallback for key', key, ':', err instanceof Error ? err.message : err);
                 parsed[key] = value;
               }
             } else {

@@ -27,14 +27,10 @@ function ensureGSAPWithPlugins(): GSAPModule | null {
         const { MorphSVGPlugin } = require('gsap/MorphSVGPlugin');
         gsapModule.registerPlugin(ScrambleTextPlugin, DrawSVGPlugin, MorphSVGPlugin);
         pluginsRegistered = true;
-      } catch {
-        // Premium timeline plugins not available — CSS fallbacks used in renderer
-      }
+      } catch (err: unknown) { console.warn('[GSAPTimeline] Premium timeline plugins not available — CSS fallbacks used in renderer:', err instanceof Error ? err.message : err); }
     }
     return gsapModule;
-  } catch {
-    return null;
-  }
+  } catch (err: unknown) { console.warn('[GSAPTimeline] GSAP not available:', err instanceof Error ? err.message : err); return null; }
 }
 
 export type TimelineBuilder = (tl: GSAPTimeline, container: HTMLElement) => void;

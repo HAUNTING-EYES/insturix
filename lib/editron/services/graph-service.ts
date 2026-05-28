@@ -874,7 +874,8 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
     const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
     const result = await model.embedContent(text);
     return result.embedding?.values ?? null;
-  } catch {
+  } catch (err: unknown) {
+    console.warn('[GraphService] embedding failed:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -957,7 +958,8 @@ export async function searchGraphitiFacts(
     );
 
     return rows.map((r) => r.fact).filter(Boolean);
-  } catch {
+  } catch (err: unknown) {
+    console.warn('[GraphService] brand facts query failed:', err instanceof Error ? err.message : err);
     return [];
   }
 }

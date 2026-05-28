@@ -20,12 +20,8 @@ try {
     if (gsapModule?.registerPlugin) {
       gsapModule.registerPlugin(CustomBounce, CustomWiggle, CustomEase);
     }
-  } catch {
-    // Premium plugins not available — base GSAP easing still works
-  }
-} catch {
-  // GSAP not available in this environment — Remotion bezier fallback used
-}
+  } catch (err: unknown) { console.warn('[GSAP] Premium plugins not available — base GSAP easing still works:', err instanceof Error ? err.message : err); }
+} catch (err: unknown) { console.warn('[GSAP] GSAP not available in this environment — Remotion bezier fallback used:', err instanceof Error ? err.message : err); }
 
 const BEZIER_FALLBACKS: Record<string, [number, number, number, number]> = {
   'power1.out': [0, 0, 0.58, 1],

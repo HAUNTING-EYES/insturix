@@ -297,10 +297,10 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
           try {
             const stat = fs.statSync(path.join(os.tmpdir(), f));
             if (now - stat.mtimeMs > 60000) fs.unlinkSync(path.join(os.tmpdir(), f));
-          } catch {}
+          } catch (err: unknown) { console.warn('[VideoUnderstanding] orphan tmp cleanup failed:', err instanceof Error ? err.message : err); }
         }
       }
-    } catch {}
+    } catch (err: unknown) { console.warn('[VideoUnderstanding] tmp dir scan failed:', err instanceof Error ? err.message : err); }
 
     const tmpPath = path.join(os.tmpdir(), `vu_${Date.now()}.mp4`);
 
@@ -349,7 +349,7 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
         try {
           const check = await fileManager.getFile(fileName!);
           state = check?.state;
-        } catch {}
+        } catch (err: unknown) { console.warn('[VideoUnderstanding] getFile poll failed:', err instanceof Error ? err.message : err); }
         retries++;
       }
 
@@ -360,7 +360,7 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
 
       return fileUri;
     } finally {
-      try { fs.unlinkSync(tmpPath); } catch {}
+      try { fs.unlinkSync(tmpPath); } catch (err: unknown) { console.warn('[VideoUnderstanding] tmp cleanup failed:', err instanceof Error ? err.message : err); }
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

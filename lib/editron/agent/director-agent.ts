@@ -248,7 +248,7 @@ export async function executeDirectorPlan(
                 console.log(`[Director] Scene ${i}: matching footage found in library — ${match.assetId} (score=${match.score.toFixed(2)})`);
                 result.warnings.push(`Scene ${i}: user footage "${match.filename}" matches this scene (score=${match.score.toFixed(2)}) — consider reusing`);
               }
-            } catch { /* non-fatal: no media assets or no Gemini key */ }
+            } catch (err: unknown) { console.warn('[Director] non-fatal: no media assets or no Gemini key:', err instanceof Error ? err.message : err); }
           }
 
           // Check cache first
@@ -287,7 +287,7 @@ export async function executeDirectorPlan(
                   words = voAsset.wordTimestamps;
                   console.log(`[Director] Scene ${i}: using REAL word timestamps (${words.length} words)`);
                 }
-              } catch { /* non-fatal */ }
+              } catch (err: unknown) { console.warn('[Director] non-fatal word timestamp lookup:', err instanceof Error ? err.message : err); }
             }
 
             // Fallback: proportional estimate with variable word-length weighting
@@ -537,7 +537,7 @@ export async function executeDirectorPlan(
             try {
               const { loadGraph } = await import('@/lib/editron/services/graph-query');
               graphIndex = loadGraph();
-            } catch { /* constraint enforcement optional if graph unavailable */ }
+            } catch (err: unknown) { console.warn('[Director] constraint enforcement optional, graph unavailable:', err instanceof Error ? err.message : err); }
 
             if (graphIndex) {
               const constraintResult = enforceConstraints(
@@ -650,7 +650,7 @@ export async function executeDirectorPlan(
                   { projectId },
                   { $set: { 'intelligence.decisionLog': decisionLog } },
                 );
-              } catch { /* persistence is non-fatal */ }
+              } catch (err: unknown) { console.warn('[Director] persistence is non-fatal:', err instanceof Error ? err.message : err); }
               console.log(`[Director] Path E: Snapshotted ${decisionLog.snapshots.length} decisions for calibration`);
             } catch (snapErr: any) {
               console.warn(`[Director] Path E: Decision snapshot failed (non-fatal): ${snapErr.message}`);
@@ -1193,7 +1193,7 @@ export async function executeDirectorPlan(
                 'intelligence.lastRun': new Date(),
               }},
             );
-          } catch { /* non-fatal */ }
+          } catch (err: unknown) { console.warn('[Director] non-fatal intelligence persistence:', err instanceof Error ? err.message : err); }
         } catch (edlErr: any) {
           console.error(`[Director] EDL generation/execution failed: ${edlErr.message}`);
           result.warnings.push(`EDL: ${edlErr.message}`);
@@ -1218,7 +1218,7 @@ export async function executeDirectorPlan(
               'intelligence.message': failMsg,
             }},
           );
-        } catch { /* non-fatal */ }
+        } catch (err: unknown) { console.warn('[Director] non-fatal intelligence failure persistence:', err instanceof Error ? err.message : err); }
       }
     }
 
@@ -1806,7 +1806,7 @@ export async function executeDirectorPlan(
         projectId, userId, 'failed', 'director_error',
         { message: err.message, service: 'editron' },
       );
-    } catch { /* best-effort */ }
+    } catch (err: unknown) { console.warn('[Director] best-effort status transition failed:', err instanceof Error ? err.message : err); }
   }
 
   // E2 FIX: Release project lock (always, even on error)
@@ -1817,7 +1817,7 @@ export async function executeDirectorPlan(
       { projectId },
       { $unset: { directorLock: '', directorLockAt: '' } },
     );
-  } catch {}
+  } catch (err: unknown) { console.warn('[Director] lock release failed:', err instanceof Error ? err.message : err); }
 
   result.executionMs = Date.now() - startTime;
   const pwAll = pipelineWarnings.getAll();
@@ -2138,7 +2138,7 @@ async function executeAction(
               transType = preferred;
             }
           }
-        } catch { /* Graphiti unavailable — use profile default */ }
+        } catch (err: unknown) { console.warn('[Director] Graphiti unavailable, using profile default:', err instanceof Error ? err.message : err); }
       }
 
       // 'hard-cut' means no transition overlay — skip entirely
@@ -2382,8 +2382,8 @@ async function executeAction(
               },
             },
           );
-        } catch {
-          // Non-fatal — quality review storage is best-effort
+        } catch (err: unknown) {
+          console.warn('[Director] non-fatal quality review storage:', err instanceof Error ? err.message : err);
         }
       } catch (qrErr: any) {
         console.error(`[Director] Quality review failed: ${qrErr.message}`);

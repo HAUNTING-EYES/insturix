@@ -182,9 +182,7 @@ export class MultipartUploader {
             abort: true,
           }),
         });
-      } catch {
-        // Best-effort — cron will clean up stale uploads
-      }
+      } catch (err: unknown) { console.warn('[Uploader] abort cleanup failed — cron will clean up stale uploads:', err instanceof Error ? err.message : err); }
     }
   }
 

@@ -405,7 +405,7 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
                 const parsed = JSON.parse(visionText.replace(/```json\n?|\n?```/g, '').trim());
                 visionScore = Math.max(0, Math.min(10, parsed.score || 5));
                 visionIssues = parsed.issues || [];
-              } catch { visionScore = null; }
+              } catch (err: unknown) { console.warn('[VideoWorker] vision JSON parse failed:', err instanceof Error ? err.message : err); visionScore = null; }
             }
           } catch (visionErr: any) {
             console.warn(`[VideoWorker] Vision quality check failed (non-fatal): ${visionErr.message}`);
@@ -456,7 +456,7 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
                 },
               );
             }
-          } catch { /* non-fatal */ }
+          } catch (err: unknown) { console.warn('[VideoWorker] quality warning push failed:', err instanceof Error ? err.message : err); }
         } else {
           console.log(`[VideoWorker] Quality OK (${qualityScore}/100) for scene ${sceneIndex} (5-Track derived)`);
         }

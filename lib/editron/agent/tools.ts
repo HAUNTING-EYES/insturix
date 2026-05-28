@@ -255,7 +255,8 @@ export const createTools = (userId: string, projectId: string) => {
         }
 
         return successEnvelope(parsed, "continue");
-      } catch {
+      } catch (err: unknown) {
+        console.warn('[Tools] JSON parse fallback:', err instanceof Error ? err.message : err);
         return successEnvelope({ text: trimmed }, "continue");
       }
     }
@@ -3765,7 +3766,8 @@ ${sceneContext}
         let placements: any[];
         try {
           placements = JSON.parse(jsonStr);
-        } catch {
+        } catch (err: unknown) {
+          console.warn('[Tools] failed to parse Gemini motion graphic suggestions:', err instanceof Error ? err.message : err);
           return JSON.stringify({ status: 'error', message: 'Failed to parse Gemini motion graphic suggestions' });
         }
 

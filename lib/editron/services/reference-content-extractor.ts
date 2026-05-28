@@ -191,15 +191,14 @@ async function importUploader() {
           let retries = 0;
           while (state !== 'ACTIVE' && retries < 20) {
             await new Promise(r => setTimeout(r, 2000));
-            try { const c = await fileManager.getFile(fileName!); state = c?.state; } catch {}
+            try { const c = await fileManager.getFile(fileName!); state = c?.state; } catch (err: unknown) { console.warn('[RefExtractor] getFile poll failed:', err instanceof Error ? err.message : err); }
             retries++;
           }
           return state === 'ACTIVE' ? fileUri : null;
         } finally {
-          try { fs.unlinkSync(tmpPath); } catch {}
+          try { fs.unlinkSync(tmpPath); } catch (err: unknown) { console.warn('[RefExtractor] tmp cleanup failed:', err instanceof Error ? err.message : err); }
         }
-      } catch {
-        return null;
+      } catch (err: unknown) { console.warn('[RefExtractor] video upload failed:', err instanceof Error ? err.message : err); return null;
       }
     },
   };

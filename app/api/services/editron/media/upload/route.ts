@@ -66,7 +66,8 @@ export async function POST(request: NextRequest) {
       try {
         const headRes = await fetch(readUrl, { method: 'HEAD' });
         exists = headRes.ok;
-      } catch {
+      } catch (err: unknown) {
+        console.warn('[Upload] HEAD check failed, assuming exists:', err instanceof Error ? err.message : err);
         exists = true; // Assume exists if HEAD fails (CDN might not support HEAD)
       }
     }

@@ -313,10 +313,10 @@ async function uploadToGeminiFiles(
           try {
             const stat = fs.statSync(path.join(tmpDir, f));
             if (now - stat.mtimeMs > 60000) fs.unlinkSync(path.join(tmpDir, f));
-          } catch {}
+          } catch (err: unknown) { console.warn('[5Track] tmp cleanup failed:', err instanceof Error ? err.message : err); }
         }
       }
-    } catch {}
+    } catch (err: unknown) { console.warn('[5Track] tmp dir scan failed:', err instanceof Error ? err.message : err); }
 
     const tmpPath = path.join(os.tmpdir(), `gemini_${assetId}_${Date.now()}.mp4`);
 
@@ -371,7 +371,7 @@ async function uploadToGeminiFiles(
         try {
           const checkResult = await fileManager.getFile(fileName!);
           fileState = checkResult?.state;
-        } catch {}
+        } catch (err: unknown) { console.warn('[5Track] file state check failed:', err instanceof Error ? err.message : err); }
         retries++;
       }
 
@@ -382,7 +382,7 @@ async function uploadToGeminiFiles(
 
       return fileUri;
     } finally {
-      try { fs.unlinkSync(tmpPath); } catch {}
+      try { fs.unlinkSync(tmpPath); } catch (err: unknown) { console.warn('[5Track] tmp file cleanup failed:', err instanceof Error ? err.message : err); }
     }
   } catch (err: any) {
     console.error(`[GeminiFiles] Failed: ${err.message}`);

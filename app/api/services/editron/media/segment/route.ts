@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
         let url = seg.cachedUrl || '';
         try {
           url = await (assetResolver as any).getOrRefreshUrl(seg) || url;
-        } catch { /* use cached */ }
+        } catch (err: unknown) { console.warn('[Segment] URL refresh failed, using cached:', err instanceof Error ? err.message : err); }
         return {
           assetId: seg.assetId,
           parentAssetId: seg.parentAssetId,

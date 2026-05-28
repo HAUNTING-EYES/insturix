@@ -308,8 +308,9 @@ async function handleBrandUpdated(
   try {
     const { invalidateCache } = await import('@/lib/shared/brand-registry');
     invalidateCache(event.userId);
-  } catch {
+  } catch (err: unknown) {
     // brand-registry may not be loadable in all contexts
+    console.warn('[BrandLearning] brand-registry cache invalidation failed:', err instanceof Error ? err.message : err);
   }
   return {
     action: 'cache_invalidated',
