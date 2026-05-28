@@ -2583,16 +2583,16 @@
       {
         "signalId": "enthusiasm",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 2.5, "exponent": 2, "xShift": 0, "yShift": 0 },
         "invert": false,
-        "description": "Energetic → rhythmic pulse during hold"
+        "description": "Energetic → pulse (slope 2.5: enthusiasm=0.5 scores ~0.6, enough to clear 0.15 threshold)"
       },
       {
         "signalId": "pacing_velocity",
         "curveType": "linear",
-        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 0.8, "exponent": 1, "xShift": 0, "yShift": 0.15 },
         "invert": false,
-        "description": "Fast pace → rhythmic pulse"
+        "description": "Fast pace → rhythmic pulse (boosted baseline)"
       }
     ],
     "outputParams": [
@@ -2610,9 +2610,9 @@
       {
         "signalId": "warmth",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 2.5, "exponent": 2, "xShift": 0, "yShift": 0 },
         "invert": false,
-        "description": "Warm content → gentle breathing hold"
+        "description": "Warm content → breathe (slope 2.5: warmth=0.5 scores ~0.6)"
       },
       {
         "signalId": "pacing_velocity",
@@ -2644,16 +2644,16 @@
       {
         "signalId": "enthusiasm",
         "curveType": "linear",
-        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "params": { "slope": 0.8, "exponent": 1, "xShift": 0, "yShift": 0.2 },
         "invert": false,
-        "description": "Mild enthusiasm → playful float"
+        "description": "Mild enthusiasm → float (boosted baseline 0.2: even default 0.5 scores 0.6)"
       },
       {
         "signalId": "warmth",
         "curveType": "linear",
-        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.2 },
         "invert": false,
-        "description": "Warm content → friendly floating"
+        "description": "Warm content → friendly floating (boosted baseline)"
       },
       {
         "signalId": "humor",

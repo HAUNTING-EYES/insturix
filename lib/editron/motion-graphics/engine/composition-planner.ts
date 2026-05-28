@@ -682,11 +682,9 @@ function resolveHoldPattern(signals: PlannerSignals, mgScores?: MgOverlayScores)
     if (winner === 'mg.animation.hold_float') return 'gentle-float';
     if (winner === 'mg.animation.hold_glow') return 'glow';
   }
-  // ⚠️ thresholds INVENTED — lowered from 0.6/0.6/0.4 to prevent "static always" with default signals
-  if (signals.enthusiasm > 0.45 && signals.pacing_velocity < 0.6) return 'pulse';
-  if (signals.warmth > 0.45) return 'breathe';
-  if (signals.enthusiasm > 0.25) return 'gentle-float';
-  return 'static';
+  // D-016: No hardcoded if-statement fallbacks. Overlay scoring is the decision system.
+  // gentle-float is the universal minimum — static (zero motion) looks dead.
+  return 'gentle-float';
 }
 
 function makeContainer(language: MotionTokens): RecipeElement {

@@ -1086,14 +1086,11 @@ async function applyGraphic(
     'logo-reveal': 120,       // 4.0s ← between constant:animation.logo_intro (1.0-2.3s) and logo_outro (2.1-4.6s)
     'callout': 75,            // 2.5s ← no CRG constant, kept as-is
   };
-  // keyword-highlight: duration from text length (CRG range 1.85-3.0s = 55-90 frames)
-  // ⚠️ formula INVENTED — 3 frames per character + 45 base, clamped to CRG range
-  if (graphicType === 'keyword-highlight' && text) {
-    const textLen = typeof text === 'string' ? text.length : 0;
-    GRAPHIC_DURATIONS['keyword-highlight'] = Math.round(Math.max(55, Math.min(90, textLen * 3 + 45)));
-  } else {
-    GRAPHIC_DURATIONS['keyword-highlight'] = 60;
-  }
+  // keyword-highlight: duration from signal-computed graphicsDensity (CRG range 1.85-3.0s = 55-90 frames)
+  // High density = many MGs = shorter each. Low density = few MGs = longer each.
+  // graphicsDensity comes from genre-parameter-computer (entity_rate + formality).
+  const KW_DURATION: Record<string, number> = { minimal: 90, moderate: 72, heavy: 55 };
+  GRAPHIC_DURATIONS['keyword-highlight'] = KW_DURATION[graphicsDensity || 'moderate'] || 72;
   let duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
 
   // ── COMPOSITION ENGINE PATH (feature flag) ──
