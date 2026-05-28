@@ -131,14 +131,27 @@ function extractFeatures(
     };
   }
 
-  // Sum individual word durations (actual speech time, not span).
-  // Span method (first→last word) reports ~100% for any video where someone speaks
-  // near the start and near the end, ignoring all pauses/gaps between words.
-  const speechSumMs = words.reduce((sum, w) => {
-    const dur = (w.endMs ?? 0) - (w.startMs ?? 0);
-    return sum + (dur > 0 ? dur : 0);
-  }, 0);
-  const speechSpanMs = (words[words.length - 1].endMs ?? 0) - (words[0].startMs ?? 0);
+  // Gap-based speech coverage: merge consecutive words with < 2s gap into blocks.
+  // Robust against STT timestamp style (Grok file upload = tight ~200ms per word,
+  // old url path = inclusive ~500ms). Per-word-duration-sum gave 49% for a 99% speech
+  // video when timestamps changed. Gap-based gives ~95% regardless of style.
+  const MAX_GAP_MS = 2000; // ⚠️ INVENTED — normal speech gaps 200-500ms, 2s covers sentence pauses
+  let speechSumMs = 0;
+  if (words.length > 0) {
+    let blockStart = words[0].startMs ?? 0;
+    let blockEnd = words[0].endMs ?? blockStart;
+    for (let i = 1; i < words.length; i++) {
+      const wStart = words[i].startMs ?? 0;
+      const wEnd = words[i].endMs ?? wStart;
+      if (wStart - blockEnd > MAX_GAP_MS) {
+        speechSumMs += Math.max(0, blockEnd - blockStart);
+        blockStart = wStart;
+      }
+      blockEnd = Math.max(blockEnd, wEnd);
+    }
+    speechSumMs += Math.max(0, blockEnd - blockStart);
+  }
+  const speechSpanMs = words.length > 0 ? ((words[words.length - 1].endMs ?? 0) - (words[0].startMs ?? 0)) : 0;
   const speechCoverage = Math.min(1.0, speechSumMs / (videoDurationSec * 1000));
 
   let fillerCount = 0;
