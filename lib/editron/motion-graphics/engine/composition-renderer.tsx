@@ -142,10 +142,64 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
       return <ParticleElement element={element} anim={anim} frame={frame} timing={timing} />;
     case 'mask':
       return <MaskElement element={element} anim={anim} frame={frame} timing={timing} />;
+    case 'group':
+      return <GroupElement element={element} anim={anim} />;
     default:
       console.warn(`[MG-Render] Unknown primitive type: ${element.primitive}`);
       return null;
   }
+};
+
+// Neutral animation for group CHILDREN — the group animates as one unit, so its children
+// render statically inside it (their visual arrangement is fixed; only the group moves).
+const GROUP_CHILD_NEUTRAL: AnimationState = {
+  opacity: 1, translateX: 0, translateY: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0,
+  clipProgress: 1, filterBlur: 0, filterBrightness: 1, filterContrast: 1, filterSaturate: 1,
+  letterSpacing: 0, fontSize: 1, textShadowBlur: 0, strokeDashoffset: 0,
+};
+
+/** Render one group child with optional explicit box positioning (static sub-structure). */
+function renderGroupChild(child: ResolvedElement, key: number): React.ReactNode {
+  const cp = child.resolvedProps;
+  const base = child.primitive === 'text'
+    ? buildTextStyle(child, GROUP_CHILD_NEUTRAL)
+    : buildShapeStyle(child, GROUP_CHILD_NEUTRAL);
+  const style: React.CSSProperties = { ...base };
+  if (cp.width != null) style.width = `${Number(cp.width)}px`;
+  if (cp.height != null) style.height = `${Number(cp.height)}px`;
+  if (cp.top != null) { style.position = 'absolute'; style.top = `${Number(cp.top)}px`; }
+  if (cp.left != null) { style.position = 'absolute'; style.left = `${Number(cp.left)}px`; }
+  if (cp.right != null) { style.position = 'absolute'; style.right = `${Number(cp.right)}px`; }
+  if (cp.bottom != null) { style.position = 'absolute'; style.bottom = `${Number(cp.bottom)}px`; }
+  return child.primitive === 'text'
+    ? <div key={key} style={style}>{String(cp.text ?? '')}</div>
+    : <div key={key} style={style} />;
+}
+
+/**
+ * Group: a sub-composition. Children are positioned relative to the group box (a positioning
+ * context) via flex (default centering), anchor (block-fill/edge), or explicit coords. The
+ * WHOLE group animates as one cohesive unit — see GROUP_CHILD_NEUTRAL.
+ */
+const GroupElement: React.FC<{ element: ResolvedElement; anim: AnimationState }> = ({ element, anim }) => {
+  const p = element.resolvedProps;
+  const style: React.CSSProperties = {
+    ...buildTransformStyle(anim),
+    position: 'absolute',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  };
+  if (p.width != null) style.width = `${Number(p.width)}px`;
+  if (p.height != null) style.height = `${Number(p.height)}px`;
+  if (p.top != null) style.top = `${Number(p.top)}px`;
+  if (p.left != null) style.left = `${Number(p.left)}px`;
+  if (p.right != null) style.right = `${Number(p.right)}px`;
+  if (p.bottom != null) style.bottom = `${Number(p.bottom)}px`;
+  if (p.gap != null) style.gap = `${Number(p.gap)}px`;
+  if (p.justify != null) style.justifyContent = String(p.justify);
+
+  return <div style={style}>{element.children?.map((c, i) => renderGroupChild(c, i))}</div>;
 };
 
 const ShapeElement: React.FC<{ element: ResolvedElement; anim: ReturnType<typeof computeAnimationState> }> = ({

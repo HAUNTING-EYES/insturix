@@ -13,7 +13,8 @@ export type PrimitiveType =
   | 'data-viz'
   | 'particle'
   | 'gradient'
-  | 'pattern';
+  | 'pattern'
+  | 'group'; // sub-composition: child primitives positioned relative to the group, animated as one unit
 
 export type ShapeKind = 'rect' | 'circle' | 'line' | 'path' | 'pill';
 
@@ -90,6 +91,7 @@ export interface RecipeElement {
   repeat?: string;
   bind: Record<string, BindingExpr>;
   anchor?: ElementAnchor;
+  children?: RecipeElement[]; // for 'group' primitive — sub-primitives positioned relative to the group
   entranceOverride?: EntrancePattern;
   exitOverride?: ExitPattern;
   holdAnimation?: HoldPattern;
@@ -130,6 +132,7 @@ export interface ResolvedElement {
   holdAnimation?: HoldPattern;
   layer?: DepthLayer;
   anchor?: ElementAnchor;
+  children?: ResolvedElement[]; // resolved sub-primitives for a 'group'
   enterOrder: number;
   resolvedProps: Record<string, string | number | boolean>;
   entrancePattern: EntrancePattern;

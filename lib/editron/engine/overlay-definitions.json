@@ -3018,5 +3018,106 @@
     "outputParams": [
       { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
     ]
+  },
+  {
+    "id": "mg.structure.badge",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Ranked/numbered/structured content → numbered chip"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.brackets",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Editorial register → bracket framing"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Composed editorial tone, not high-arousal"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.corner_marks",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "cinematic_moment",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Premium/cinematic production moment → broadcast corner-mark framing"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Formal/produced content reinforces the broadcast package look"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.annotation",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "High-impact rhetorical beat → pointing annotation callout"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Emphatic moment → callout draws the eye"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
   }
 ]

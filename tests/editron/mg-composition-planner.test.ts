@@ -188,6 +188,45 @@ describe('planComposition — structural-move vocabulary', () => {
     expect(withTitle.elements.find(e => e.role === 'sm-divider')).toBeDefined();
     expect(noTitle.elements.find(e => e.role === 'sm-divider')).toBeUndefined();
   });
+
+  it('badge group fires with content.badge (group primitive + children)', () => {
+    const scores: MgOverlayScores = {
+      'mg.structure.badge': { score: 0.6, values: { structureScore: 0.6 } },
+    };
+    const recipe = planComposition({ content: { value: '42', badge: '1' } }, tokens, { cinematic_moment: 0.3 } as never, scores);
+    const badge = recipe.elements.find(e => e.role === 'sm-badge');
+    expect(badge).toBeDefined();
+    expect(badge!.primitive).toBe('group');
+    expect((badge!.children?.length ?? 0)).toBeGreaterThan(0); // pill + number
+  });
+
+  it('badge does NOT fire without content.badge', () => {
+    const scores: MgOverlayScores = {
+      'mg.structure.badge': { score: 0.6, values: { structureScore: 0.6 } },
+    };
+    const recipe = planComposition({ content: { value: '42' } }, tokens, { cinematic_moment: 0.3 } as never, scores);
+    expect(recipe.elements.find(e => e.role === 'sm-badge')).toBeUndefined();
+  });
+
+  it('annotation callout fires with content.annotation at budget >= 4', () => {
+    const scores: MgOverlayScores = {
+      'mg.structure.annotation': { score: 0.6, values: { structureScore: 0.6 } },
+    };
+    const recipe = planComposition({ content: { value: '85%', annotation: 'DOUBLED' } }, tokens, { cinematic_moment: 0.6 } as never, scores);
+    const annot = recipe.elements.find(e => e.role === 'sm-annotation');
+    expect(annot).toBeDefined();
+    expect(annot!.primitive).toBe('group');
+  });
+
+  it('corner-marks and brackets are mutually exclusive (corner-marks wins at budget 5)', () => {
+    const scores: MgOverlayScores = {
+      'mg.structure.corner_marks': { score: 0.6, values: { structureScore: 0.6 } },
+      'mg.structure.brackets': { score: 0.6, values: { structureScore: 0.6 } },
+    };
+    const recipe = planComposition({ content: { value: '42' } }, tokens, { cinematic_moment: 0.9 } as never, scores);
+    expect(recipe.elements.find(e => e.role === 'sm-corner-marks')).toBeDefined();
+    expect(recipe.elements.find(e => e.role === 'sm-brackets')).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

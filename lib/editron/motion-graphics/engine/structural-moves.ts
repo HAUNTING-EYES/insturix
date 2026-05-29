@@ -110,3 +110,83 @@ export function moveKicker(text: string): RecipeElement[] {
     },
   }];
 }
+
+// ─── Group-based moves (sub-composition: child primitives positioned within the group) ──────
+
+/** Numbered/ranked chip pinned to the top-left corner of the block. Pill + centered number. */
+export function moveBadge(value: string): RecipeElement[] {
+  return [{
+    primitive: 'group',
+    role: 'sm-badge',
+    layer: 'foreground',
+    bind: { width: 46, height: 46, top: -24, left: -24 }, // ⚠️ size/offset INVENTED — corner chip
+    children: [
+      {
+        primitive: 'container', role: 'sm-badge-pill', shape: 'circle',
+        anchor: { mode: 'block-fill', inset: 0 }, // pill fills the group
+        bind: { fill: 'token:color.accent' },
+      },
+      {
+        primitive: 'text', role: 'sm-badge-num',
+        // surfaceBase (background color) contrasts with the accent pill; structural-gate verifies.
+        bind: { text: value, font: 'token:typography.headingFamily', weight: 800, color: 'token:color.surfaceBase', minSize: 20 },
+      },
+    ],
+  }];
+}
+
+/** Editorial framing brackets ([ ]) on the left and right edges of the block. */
+export function moveBrackets(): RecipeElement[] {
+  const arm = 16, w = 3; // ⚠️ INVENTED — bracket arm length + stroke width
+  const side = (role: string, e: 'left' | 'right'): RecipeElement[] => {
+    const edge = e === 'left' ? { left: 0 } : { right: 0 };
+    return [
+      { primitive: 'shape', role: `${role}-v`, bind: { ...edge, top: 0, bottom: 0, width: w, fill: 'token:color.accent' } },
+      { primitive: 'shape', role: `${role}-t`, bind: { ...edge, top: 0, width: arm, height: w, fill: 'token:color.accent' } },
+      { primitive: 'shape', role: `${role}-b`, bind: { ...edge, bottom: 0, width: arm, height: w, fill: 'token:color.accent' } },
+    ];
+  };
+  return [{
+    primitive: 'group', role: 'sm-brackets', layer: 'midground',
+    anchor: { mode: 'block-fill', inset: -10 }, // group frames the content block
+    children: [...side('sm-bracket-l', 'left'), ...side('sm-bracket-r', 'right')],
+  }];
+}
+
+/** Four L-marks at the block corners (broadcast-package framing). */
+export function moveCornerMarks(): RecipeElement[] {
+  const arm = 18, w = 3; // ⚠️ INVENTED — mark arm length + stroke width
+  const corner = (role: string, v: 'top' | 'bottom', h: 'left' | 'right'): RecipeElement[] => {
+    const vEdge = v === 'top' ? { top: 0 } : { bottom: 0 };
+    const hEdge = h === 'left' ? { left: 0 } : { right: 0 };
+    return [
+      { primitive: 'shape', role: `${role}-h`, bind: { ...vEdge, ...hEdge, width: arm, height: w, fill: 'token:color.accent' } },
+      { primitive: 'shape', role: `${role}-v`, bind: { ...vEdge, ...hEdge, width: w, height: arm, fill: 'token:color.accent' } },
+    ];
+  };
+  return [{
+    primitive: 'group', role: 'sm-corner-marks', layer: 'midground',
+    anchor: { mode: 'block-fill', inset: -8 },
+    children: [
+      ...corner('sm-cm-tl', 'top', 'left'),
+      ...corner('sm-cm-tr', 'top', 'right'),
+      ...corner('sm-cm-bl', 'bottom', 'left'),
+      ...corner('sm-cm-br', 'bottom', 'right'),
+    ],
+  }];
+}
+
+/** A short label with a connector line — points at the content (the rhetorical beat). */
+export function moveAnnotationCallout(text: string): RecipeElement[] {
+  return [{
+    primitive: 'group', role: 'sm-annotation', layer: 'foreground',
+    bind: { top: -10, right: -8, gap: 6, justify: 'flex-end' }, // top-right: connector + label, flex row
+    children: [
+      { primitive: 'shape', role: 'sm-annot-line', bind: { width: 20, height: 2, fill: 'token:color.accent' } },
+      {
+        primitive: 'text', role: 'sm-annot-label',
+        bind: { text, font: 'token:typography.bodyFamily', weight: 'token:typography.headingWeight', color: 'token:color.accent', transform: 'uppercase', tracking: '0.1em', minSize: 13 },
+      },
+    ],
+  }];
+}

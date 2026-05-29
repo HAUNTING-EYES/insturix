@@ -12,6 +12,7 @@ import { analyzeContentShape } from './content-shape-analyzer';
 import {
   moveAccentLine, moveSideBar, moveBackdropCard,
   moveDivider, moveUnderline, moveKicker,
+  moveBadge, moveBrackets, moveCornerMarks, moveAnnotationCallout,
 } from './structural-moves';
 import { generateBrandPattern } from './brand-pattern-generator';
 import { deriveBrandRules } from './brand-composition-rules';
@@ -737,6 +738,28 @@ function runStructuralMoves(
     const moves = moveKicker(kickerText);
     if (pIdx >= 0) elements.splice(pIdx, 0, ...moves);
     else elements.unshift(...moves);
+  }
+
+  // ── Group moves (sub-compositions, absolute-positioned → order-independent) ──
+  // Badge: numbered/ranked chip (needs a value from content).
+  const badgeVal = typeof content.badge === 'string' ? content.badge
+    : typeof content.rank === 'string' ? content.rank
+    : typeof content.rank === 'number' ? String(content.rank) : '';
+  if (budget >= 3 && badgeVal && score('mg.structure.badge') >= GATE) {
+    elements.push(...moveBadge(badgeVal));
+  }
+
+  // Framing: corner-marks (premium, budget 5) OR brackets (budget 4) — mutually exclusive.
+  if (budget >= 5 && score('mg.structure.corner_marks') >= GATE) {
+    elements.push(...moveCornerMarks());
+  } else if (budget >= 4 && score('mg.structure.brackets') >= GATE) {
+    elements.push(...moveBrackets());
+  }
+
+  // Annotation callout: label + connector (needs the annotation text from content).
+  const annotText = typeof content.annotation === 'string' ? content.annotation : '';
+  if (budget >= 4 && annotText && score('mg.structure.annotation') >= GATE) {
+    elements.push(...moveAnnotationCallout(annotText));
   }
 }
 

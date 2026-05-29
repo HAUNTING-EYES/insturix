@@ -124,6 +124,9 @@ export function resolveElements(
       speedRamp: el.speedRamp,
       layer: el.layer,
       anchor: el.anchor,
+      // 'group' primitive: resolve sub-primitives recursively so their token/content
+      // bindings resolve too. Children render inside the group (see GroupElement).
+      children: el.children ? resolveElements(el.children, tokens, content) : undefined,
       enterOrder,
       resolvedProps,
       entrancePattern,
