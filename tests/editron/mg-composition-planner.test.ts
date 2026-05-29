@@ -150,10 +150,11 @@ describe('planComposition — structural-move vocabulary', () => {
       'mg.structure.backdrop_card': { score: 0.6, values: { structureScore: 0.6 } },
       'mg.structure.side_bar': { score: 0.5, values: { structureScore: 0.5 } },
     };
+    // cinematic_moment 0.6 → budget 4 → top-K cap = 2, so both moves compose.
     const recipe = planComposition(
       { content: { values: [10, 85, 40, 60] } },
       tokens,
-      { position_in_video: 0.5 } as never,
+      { cinematic_moment: 0.6 } as never,
       scores,
     );
     const chart = recipe.elements.find(e => e.primitive === 'data-viz');
@@ -171,8 +172,9 @@ describe('planComposition — structural-move vocabulary', () => {
     const editorialScores: MgOverlayScores = {
       'mg.structure.side_bar': { score: 0.6, values: { structureScore: 0.6 } },
     };
-    const news = planComposition(identityIntent(), tokens, { position_in_video: 0.5 } as never, newsScores);
-    const editorial = planComposition(identityIntent(), tokens, { position_in_video: 0.5 } as never, editorialScores);
+    // budget 4 (cinematic_moment 0.6) → cap = 2, so the news register gets both moves.
+    const news = planComposition(identityIntent(), tokens, { cinematic_moment: 0.6 } as never, newsScores);
+    const editorial = planComposition(identityIntent(), tokens, { cinematic_moment: 0.6 } as never, editorialScores);
     expect(news.elements.find(e => e.role === 'sm-backdrop')).toBeDefined();
     expect(news.elements.find(e => e.role === 'sm-accent-line')).toBeDefined();
     expect(editorial.elements.find(e => e.role === 'sm-backdrop')).toBeUndefined();
@@ -218,14 +220,29 @@ describe('planComposition — structural-move vocabulary', () => {
     expect(annot!.primitive).toBe('group');
   });
 
-  it('corner-marks and brackets are mutually exclusive (corner-marks wins at budget 5)', () => {
+  it('corner-marks and brackets are mutually exclusive (higher score wins the frame group)', () => {
+    // Same conflict group ('frame') → only the top scorer survives. corner-marks scores higher.
     const scores: MgOverlayScores = {
-      'mg.structure.corner_marks': { score: 0.6, values: { structureScore: 0.6 } },
-      'mg.structure.brackets': { score: 0.6, values: { structureScore: 0.6 } },
+      'mg.structure.corner_marks': { score: 0.7, values: { structureScore: 0.7 } },
+      'mg.structure.brackets': { score: 0.5, values: { structureScore: 0.5 } },
     };
     const recipe = planComposition({ content: { value: '42' } }, tokens, { cinematic_moment: 0.9 } as never, scores);
     expect(recipe.elements.find(e => e.role === 'sm-corner-marks')).toBeDefined();
     expect(recipe.elements.find(e => e.role === 'sm-brackets')).toBeUndefined();
+  });
+
+  it('top-K cap limits structural clutter (budget 3 → at most 1 structural move)', () => {
+    // Many moves score high, but a budget-3 composition gets only the single top move.
+    const scores: MgOverlayScores = {
+      'mg.structure.backdrop_card': { score: 0.9, values: { structureScore: 0.9 } },
+      'mg.structure.side_bar': { score: 0.8, values: { structureScore: 0.8 } },
+      'mg.structure.accent_line': { score: 0.7, values: { structureScore: 0.7 } },
+    };
+    // No importance signals → baseline budget 3 → cap = 1.
+    const recipe = planComposition(identityIntent(), tokens, {} as never, scores);
+    const structural = recipe.elements.filter(e => typeof e.role === 'string' && e.role.startsWith('sm-'));
+    expect(structural.length).toBe(1);
+    expect(structural[0].role).toBe('sm-backdrop'); // highest score wins
   });
 });
 

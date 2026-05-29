@@ -684,10 +684,13 @@ function resolveHoldPattern(signals: PlannerSignals, mgScores?: MgOverlayScores)
 }
 
 // ─── Structural-move vocabulary runner ──────────────────────────────────────
-// Signal-selected structural register. Reads mg.structure.* overlay scores and
-// composes the moves that clear their budget tier + score gate, resolving conflicts
-// and inserting flow moves at the right position relative to content. This is the
-// Tier 3 selection mechanism — structure emerges from signals, not preset skeletons.
+// Signal-selected structural register. Scores every mg.structure.* move, resolves
+// mutually-exclusive conflict groups, and composes only the TOP-K by score — where K
+// scales with budget. A director uses 1-3 structural treatments, never 6, so the cap
+// (not just a per-move gate) is the primary anti-clutter control. The independent
+// per-move gating this replaced over-decorated content (verified against real scorer
+// output: casual vlogs picked up editorial brackets + side-bars). Structure emerges
+// from signals, not preset skeletons — but a director's restraint is part of the craft.
 function runStructuralMoves(
   elements: RecipeElement[],
   language: MotionTokens,
@@ -698,69 +701,67 @@ function runStructuralMoves(
 ): void {
   const hasAccent = language.color.accent !== language.color.primary;
   const score = (id: string): number => mgScores?.[id]?.score ?? 0;
-  // ⚠️ gate 0.3 INVENTED — structural moves are mid-intrusive (mask 0.5, particle 0.15)
-  const GATE = 0.3;
+  // ⚠️ GATE 0.45 INVENTED — recalibrated from 0.3. Real additive scores floor near ~0.4 even
+  // for weak signals (verified against content scenarios), so 0.3 fired on casual content.
+  // 0.45 clears that baseline; the top-K cap below is the primary anti-clutter control.
+  const GATE = 0.45;
 
-  // Block/background moves: layer-sorted + absolute, so array position is irrelevant.
-  if (budget >= 2 && score('mg.structure.backdrop_card') >= GATE) {
-    elements.push(...moveBackdropCard(language));
-  }
-  if (budget >= 2 && score('mg.structure.side_bar') >= GATE) {
-    elements.push(...moveSideBar());
-  }
-
-  // Horizontal accent rule: accent-line (block bottom) vs underline (under primary).
-  // They conflict — both are accent rules. Keep the higher scorer; avoid redundant lines.
-  if (budget >= 3 && hasAccent) {
-    const aLine = score('mg.structure.accent_line');
-    const aUnder = score('mg.structure.underline');
-    if (aUnder >= GATE && aUnder >= aLine) {
-      const pIdx = elements.findIndex(e => e.role === 'primary' || e.role === 'counter');
-      const moves = moveUnderline();
-      if (pIdx >= 0) elements.splice(pIdx + 1, 0, ...moves);
-      else elements.push(...moves);
-    } else if (aLine >= GATE) {
-      elements.push(...moveAccentLine());
-    }
-  }
-
-  // Divider: between primary and secondary — only meaningful when secondary exists.
-  if (budget >= 3 && score('mg.structure.divider') >= GATE) {
-    const secIdx = elements.findIndex(e => e.role === 'secondary');
-    if (secIdx >= 0) elements.splice(secIdx, 0, ...moveDivider());
-  }
-
-  // Kicker: small label above primary — only when content provides a kicker/category.
+  const hasSecondary = elements.some(e => e.role === 'secondary');
   const kickerText = typeof content.kicker === 'string' ? content.kicker
     : typeof content.category === 'string' ? content.category : '';
-  if (budget >= 2 && kickerText && score('mg.structure.kicker') >= GATE) {
-    const pIdx = elements.findIndex(e => e.role === 'primary' || e.role === 'counter');
-    const moves = moveKicker(kickerText);
-    if (pIdx >= 0) elements.splice(pIdx, 0, ...moves);
-    else elements.unshift(...moves);
-  }
-
-  // ── Group moves (sub-compositions, absolute-positioned → order-independent) ──
-  // Badge: numbered/ranked chip (needs a value from content).
   const badgeVal = typeof content.badge === 'string' ? content.badge
     : typeof content.rank === 'string' ? content.rank
     : typeof content.rank === 'number' ? String(content.rank) : '';
-  if (budget >= 3 && badgeVal && score('mg.structure.badge') >= GATE) {
-    elements.push(...moveBadge(badgeVal));
-  }
-
-  // Framing: corner-marks (premium, budget 5) OR brackets (budget 4) — mutually exclusive.
-  if (budget >= 5 && score('mg.structure.corner_marks') >= GATE) {
-    elements.push(...moveCornerMarks());
-  } else if (budget >= 4 && score('mg.structure.brackets') >= GATE) {
-    elements.push(...moveBrackets());
-  }
-
-  // Annotation callout: label + connector (needs the annotation text from content).
   const annotText = typeof content.annotation === 'string' ? content.annotation : '';
-  if (budget >= 4 && annotText && score('mg.structure.annotation') >= GATE) {
-    elements.push(...moveAnnotationCallout(annotText));
-  }
+
+  const insertBeforePrimary = (moves: RecipeElement[]): void => {
+    const i = elements.findIndex(e => e.role === 'primary' || e.role === 'counter');
+    if (i >= 0) elements.splice(i, 0, ...moves); else elements.unshift(...moves);
+  };
+  const insertAfterPrimary = (moves: RecipeElement[]): void => {
+    const i = elements.findIndex(e => e.role === 'primary' || e.role === 'counter');
+    if (i >= 0) elements.splice(i + 1, 0, ...moves); else elements.push(...moves);
+  };
+  const insertBeforeSecondary = (moves: RecipeElement[]): void => {
+    const i = elements.findIndex(e => e.role === 'secondary');
+    if (i >= 0) elements.splice(i, 0, ...moves);
+  };
+
+  // Candidate moves. `available` gates on content/structure prerequisites; `group` marks
+  // mutually-exclusive families (only the top scorer in a group survives).
+  interface Candidate { id: string; minBudget: number; available: boolean; group?: string; emit: () => void }
+  const candidates: Candidate[] = [
+    { id: 'mg.structure.backdrop_card', minBudget: 2, available: true, emit: () => elements.push(...moveBackdropCard(language)) },
+    { id: 'mg.structure.side_bar', minBudget: 2, available: true, emit: () => elements.push(...moveSideBar()) },
+    { id: 'mg.structure.accent_line', minBudget: 3, available: hasAccent, group: 'h-rule', emit: () => elements.push(...moveAccentLine()) },
+    { id: 'mg.structure.underline', minBudget: 3, available: hasAccent, group: 'h-rule', emit: () => insertAfterPrimary(moveUnderline()) },
+    { id: 'mg.structure.divider', minBudget: 3, available: hasSecondary, emit: () => insertBeforeSecondary(moveDivider()) },
+    { id: 'mg.structure.kicker', minBudget: 2, available: !!kickerText, emit: () => insertBeforePrimary(moveKicker(kickerText)) },
+    { id: 'mg.structure.badge', minBudget: 3, available: !!badgeVal, emit: () => elements.push(...moveBadge(badgeVal)) },
+    { id: 'mg.structure.brackets', minBudget: 4, available: true, group: 'frame', emit: () => elements.push(...moveBrackets()) },
+    { id: 'mg.structure.corner_marks', minBudget: 5, available: true, group: 'frame', emit: () => elements.push(...moveCornerMarks()) },
+    { id: 'mg.structure.annotation', minBudget: 4, available: !!annotText, emit: () => elements.push(...moveAnnotationCallout(annotText)) },
+  ];
+
+  // Eligible = budget tier + availability + gate, ranked by score (highest first).
+  const ranked = candidates
+    .filter(c => budget >= c.minBudget && c.available && score(c.id) >= GATE)
+    .map(c => ({ c, s: score(c.id) }))
+    .sort((a, b) => b.s - a.s);
+
+  // Conflict resolution: within a mutually-exclusive group, only the top scorer survives.
+  const usedGroups = new Set<string>();
+  const deconflicted = ranked.filter(({ c }) => {
+    if (!c.group) return true;
+    if (usedGroups.has(c.group)) return false;
+    usedGroups.add(c.group);
+    return true;
+  });
+
+  // Top-K cap — a director uses few structural treatments, even when many would "fit".
+  // ⚠️ cap mapping INVENTED — budget 2-3 → 1, budget 4 → 2, budget 5 → 3.
+  const cap = budget >= 5 ? 3 : budget >= 4 ? 2 : 1;
+  for (const { c } of deconflicted.slice(0, cap)) c.emit();
 }
 
 function makeTextElement(
