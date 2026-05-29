@@ -44,6 +44,7 @@ tsconfig.tsbuildinfo
 /cloud-run-renderer/package-lock.json
 .vercel
 .env*.local
+.env.local.*
 .env.neo4j
 
 # Claude Code context file (not part of codebase)
@@ -79,3 +80,4 @@ thinkforge-ui.html
 DESIGN_BIBLE.md
 yarn.lock
 package-lock.json
+.gstack/
