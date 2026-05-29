@@ -533,6 +533,18 @@ export function buildTextStyle(
     style.textShadow = `0 0 ${anim.textShadowBlur}px ${shadowColor}`;
   }
 
+  // Gradient text fill (composable, planner-gated to rare brand/hero moments). The fill is
+  // clipped to the glyphs via background-clip:text — supported by Remotion's headless
+  // Chromium and already used in this project's editor overlay templates. The planner never
+  // sets textSplit on a gradient element (a per-char split would break the continuous fill).
+  if (p.textGradient) {
+    style.background = String(p.textGradient);
+    style.backgroundClip = 'text';
+    style.WebkitBackgroundClip = 'text';
+    style.WebkitTextFillColor = 'transparent';
+    style.color = 'transparent';
+  }
+
   return style;
 }
 

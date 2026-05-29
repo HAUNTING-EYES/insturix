@@ -283,6 +283,19 @@ describe('planComposition — content styling', () => {
     const primary = recipe.elements.find(e => e.role === 'primary' && e.primitive === 'text');
     expect(primary!.bind.transform).toBe('token:typography.headingTransform');
   });
+
+  it('gradient wordmark: brand + high energy → textGradient on primary (and no split)', () => {
+    const recipe = planComposition({ content: { text: 'NIKE', brand: true } }, tokens, { enthusiasm: 0.9 } as never);
+    const primary = recipe.elements.find(e => e.role === 'primary' && e.primitive === 'text');
+    expect(String(primary!.bind.textGradient)).toContain('linear-gradient');
+    expect(primary!.textSplit).toBeUndefined(); // gradient elements are never split
+  });
+
+  it('calm brand moment → no gradient wordmark', () => {
+    const recipe = planComposition({ content: { text: 'NIKE', brand: true } }, tokens, { enthusiasm: 0.3, emotional_arousal: 0.3 } as never);
+    const primary = recipe.elements.find(e => e.role === 'primary' && e.primitive === 'text');
+    expect(primary!.bind.textGradient).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

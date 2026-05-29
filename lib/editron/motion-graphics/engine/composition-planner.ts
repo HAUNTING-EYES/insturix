@@ -152,7 +152,9 @@ export function planComposition(
     // ⚠️ threshold 0.7 INVENTED — chars for high energy, words for moderate
     const splitMode: TextSplitMode = s.enthusiasm > 0.7 ? 'chars' : 'words';
     for (const el of elements) {
-      if (el.primitive === 'text' && el.layer === 'foreground' && !el.textSplit) {
+      // Never split a gradient-filled element — per-char spans would each get their own
+      // gradient and break the continuous fill across the word.
+      if (el.primitive === 'text' && el.layer === 'foreground' && !el.textSplit && !el.bind.textGradient) {
         el.textSplit = splitMode;
       }
     }
@@ -225,7 +227,7 @@ function composeElements(
       composeEmphasis(elements, primary, language, signals, mgScores);
       break;
     case 'brand':
-      composeBrand(elements, primary, language, mgScores);
+      composeBrand(elements, primary, language, signals, mgScores);
       break;
     case 'structured':
       composeStructured(elements, primary, language, mgScores);
@@ -542,6 +544,7 @@ function composeBrand(
   elements: RecipeElement[],
   shape: Extract<ContentShape, { kind: 'brand' }>,
   language: MotionTokens,
+  signals: PlannerSignals,
   mgScores?: MgOverlayScores,
 ): void {
   const letterTracking = mgVal(mgScores, 'mg.typography.letter_tracking', 'letterTracking', 0.08);
@@ -559,6 +562,15 @@ function composeBrand(
     });
   }
 
+  // Gradient wordmark: a rare premium accent for energetic brand moments. Derived from the
+  // brand's own primary→accent tokens (not invented colours), gated on a real colour contrast
+  // existing AND high-energy delivery. ⚠️ 0.6 energy threshold INVENTED.
+  const deliveryEnergy = Math.max(
+    typeof signals.enthusiasm === 'number' ? signals.enthusiasm : 0,
+    typeof signals.emotional_arousal === 'number' ? signals.emotional_arousal : 0,
+  );
+  const useGradient = language.color.accent !== language.color.primary && deliveryEnergy > 0.6;
+
   elements.push({
     primitive: 'text',
     role: 'primary',
@@ -570,6 +582,7 @@ function composeBrand(
       color: 'token:color.primary',
       tracking: `${letterTracking.toFixed(3)}em`,
       transform: textTransform > 0.35 ? 'uppercase' : 'none',
+      ...(useGradient ? { textGradient: `linear-gradient(135deg, ${language.color.primary}, ${language.color.accent})` } : {}),
     },
   });
 }
