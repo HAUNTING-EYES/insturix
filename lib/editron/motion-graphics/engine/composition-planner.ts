@@ -8,7 +8,7 @@ import type {
   HoldPattern,
   TextSplitMode,
 } from './recipe-types';
-import { analyzeContentShape } from './content-shape-analyzer';
+import { analyzeContentShape, isCountUpValue } from './content-shape-analyzer';
 import {
   moveAccentLine, moveSideBar, moveBackdropCard,
   moveDivider, moveUnderline, moveKicker,
@@ -353,7 +353,9 @@ function composeNumeric(
     primitive: 'text',
     role: 'counter',
     layer: 'foreground',
-    animation: 'count-up',
+    // count-up only for plain magnitudes; fractions/ratios/suffixed values render statically
+    // (the renderer's count-up does parseFloat → would mangle "1/3" to "1"). Static still fades in.
+    animation: isCountUpValue(shape.value) ? 'count-up' : 'none',
     bind: {
       text: 'content:value',
       prefix: 'content:prefix',
@@ -370,6 +372,9 @@ function composeNumeric(
   });
 
   if (shape.label) {
+    // CRG-floored size: without minSize, buildTextStyle leaves fontSize undefined → ~16px default
+    // on a 1080p canvas (illegible). Same pattern as composeIdentity title / composeStructured body.
+    const labelSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.LOWER_THIRD_TITLE_MIN_FONT) * 0.75);
     elements.push({
       primitive: 'text',
       role: 'label',
@@ -380,6 +385,7 @@ function composeNumeric(
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
         tracking: letterTracking > 0 ? `${letterTracking.toFixed(3)}em` : 'token:typography.headingTracking',
+        minSize: labelSize,
         lineHeight: secondaryLineHeight,
       },
     });
@@ -471,6 +477,8 @@ function composeQuotation(
 
   if (shape.author) {
     const authorLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.2);
+    // CRG-floored size so the author line is legible (without minSize, fontSize is undefined → ~16px).
+    const authorSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.LOWER_THIRD_TITLE_MIN_FONT) * 0.75);
 
     elements.push({
       primitive: 'text',
@@ -481,6 +489,7 @@ function composeQuotation(
         font: 'token:typography.bodyFamily',
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
+        minSize: authorSize,
         lineHeight: authorLineHeight,
       },
     });

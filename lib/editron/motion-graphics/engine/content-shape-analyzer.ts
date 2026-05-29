@@ -101,10 +101,35 @@ function detectShapes(
 }
 
 
+// Stat values arrive in several display forms. count-up animation only makes sense for a plain
+// incrementable magnitude — a fraction ("1/3"), ratio ("2:1"), or magnitude-suffixed value
+// ("100M", "10x") must render STATICALLY, because count-up does parseFloat(value) and
+// parseFloat("1/3") === 1 would display "1" (and the old detector rejected these entirely →
+// empty free-text → blank graphic). CRG technique:graphic.stat_counter allows count-up | pop |
+// fade and lists "count (10x)" as a valid format, so these ARE stats — just not count-up-able.
+const COUNTABLE_VALUE_RE = /^[$€£¥₹]?\d[\d,]*\.?\d*%?$/;          // 42, 42%, $1,200, 0.02
+const FRACTION_VALUE_RE = /^\d[\d.]*\/\d[\d.]*$/;                 // 1/3, 3.5/5
+const RATIO_VALUE_RE = /^\d[\d.]*:\d[\d.]*$/;                     // 2:1
+// ⚠️ suffix set K/M/B/T/x/× INVENTED — common magnitude/multiplier suffixes; extend as needed.
+const MAGNITUDE_VALUE_RE = /^[$€£¥₹]?\d[\d,]*\.?\d*[KMBTkmbtx×]$/; // 100M, $1.2B, 10x
+
+function numericValueForm(value: unknown): 'countable' | 'static' | null {
+  if (value == null) return null;
+  const str = String(value).replace(/\s/g, '');
+  if (!/\d/.test(str)) return null; // must contain a digit (anchored REs reject prose)
+  if (COUNTABLE_VALUE_RE.test(str)) return 'countable';
+  if (FRACTION_VALUE_RE.test(str) || RATIO_VALUE_RE.test(str) || MAGNITUDE_VALUE_RE.test(str)) return 'static';
+  return null;
+}
+
 function hasNumericValue(content: Record<string, unknown>): boolean {
-  if (content.value == null) return false;
-  const str = String(content.value);
-  return /^[\d,.$%+\-]+$/.test(str.replace(/\s/g, ''));
+  return numericValueForm(content.value) !== null;
+}
+
+/** Whether a numeric stat value should count-up (plain magnitude) vs render statically
+ *  (fraction/ratio/suffixed — parseFloat would mangle it). Consumed by composeNumeric. */
+export function isCountUpValue(value: unknown): boolean {
+  return numericValueForm(value) === 'countable';
 }
 
 function layoutForShape(
