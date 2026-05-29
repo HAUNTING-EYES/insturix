@@ -9,6 +9,10 @@ import type {
   TextSplitMode,
 } from './recipe-types';
 import { analyzeContentShape } from './content-shape-analyzer';
+import {
+  moveAccentLine, moveSideBar, moveBackdropCard,
+  moveDivider, moveUnderline, moveKicker,
+} from './structural-moves';
 import { generateBrandPattern } from './brand-pattern-generator';
 import { deriveBrandRules } from './brand-composition-rules';
 import { getCompositionTemplate } from './composition-templates';
@@ -84,7 +88,7 @@ export function planComposition(
     return { id: 'suppressed', elements: [], layout: strategy.suggestedLayout, exitStyle: strategy.suggestedExitStyle };
   }
 
-  const elements = composeElements(strategy, language, s, mgScores);
+  const elements = composeElements(strategy, language, s, intent.content, mgScores);
 
   // D1: emotional_alignment — boost confidence when face+voice agree
   // ⚠️ threshold 0.7 INVENTED — high alignment = face and voice express same emotion
@@ -191,30 +195,19 @@ function composeElements(
   strategy: CompositionStrategy,
   language: MotionTokens,
   signals: PlannerSignals,
+  content: Record<string, unknown>,
   mgScores?: MgOverlayScores,
 ): RecipeElement[] {
   const elements: RecipeElement[] = [];
-  const formality = signals.formality;
-  // cinematic_moment: composite signal (speech energy + motion + music). High = visually important.
-  // Boost budget by 1 tier for cinematic moments → richer composition (more elements, accent lines).
-  // ← signal:composite.cinematic_moment → budget. ⚠️ threshold 0.6 INVENTED, needs calibration
-  const cinematicBoost = typeof signals.cinematic_moment === 'number' && isFinite(signals.cinematic_moment) && signals.cinematic_moment > 0.6 ? 1 : 0;
-  const budget = Math.min(5, strategy.complexityBudget + cinematicBoost);
-  const hasAccent = language.color.accent !== language.color.primary;
+  // Budget is owned entirely by computeComplexityBudget (content-shape-analyzer), which is
+  // now importance-driven and already factors in cinematic_moment. Single source of truth —
+  // no separate cinematic boost here (that double-counted importance).
+  const budget = strategy.complexityBudget;
 
   const primary = strategy.shapes[0];
   if (!primary) {
     elements.push(makeTextElement('primary', 'content:text', language));
     return elements;
-  }
-
-  const overlayOpacity = mgVal(mgScores, 'mg.styling.container_opacity', 'containerOpacity', -1);
-  if (overlayOpacity >= 0) {
-    if (budget >= 2 && overlayOpacity > 0.4) {
-      elements.push(makeContainer(language));
-    }
-  } else if (budget >= 2 && formality >= CRG.FORMALITY_MEDIUM) {
-    elements.push(makeContainer(language));
   }
 
   switch (primary.kind) {
@@ -251,10 +244,6 @@ function composeElements(
     }
   }
 
-  if (budget >= 3 && hasAccent) {
-    elements.push(makeAccentLine());
-  }
-
   const holdPattern = resolveHoldPattern(signals, mgScores);
   if (holdPattern !== 'static') {
     for (const el of elements) {
@@ -263,6 +252,11 @@ function composeElements(
       }
     }
   }
+
+  // Tier 3: signal-selected structural-move vocabulary. Runs AFTER the hold loop so
+  // structural elements (rules, bars, kicker) stay stable — no ambient bob. Replaces
+  // the old inline makeContainer/makeAccentLine with overlay-scored selection.
+  runStructuralMoves(elements, language, signals, budget, content, mgScores);
 
   // Brand pattern: subtle background texture derived from brand tokens
   // Budget >= 4 required — pattern is lowest priority decorative element
@@ -590,22 +584,23 @@ function composeDataSeries(
   shape: Extract<ContentShape, { kind: 'data-series' }>,
   language: MotionTokens,
 ): void {
-  // Compute chart type from data shape — not a preset, a function of the data.
-  // 1 value (0-100 range) → percentage ring
-  // 2+ values with 5+ entries → sparkline (time series pattern)
-  // else → bar chart (comparison)
-  // ⚠️ INVENTED heuristic for sparkline detection (>= 5 values = time series). Needs calibration.
   const values = shape.values || [];
-  let chartRole = 'bar-chart';
-  if (values.length === 1 && values[0] >= 0 && values[0] <= 100) {
-    chartRole = 'percentage-ring';
-  } else if (values.length >= 5) {
-    chartRole = 'sparkline';
-  }
+  if (values.length === 0) return;
+
+  // Chart TYPE is inferred from the data shape — NOT a preset:
+  //   1 value in 0-100 → percentage ring (part-of-whole)
+  //   5+ values        → sparkline (time-series trend)
+  //   else             → bar chart (comparison)
+  // ⚠️ sparkline threshold (>= 5 values) INVENTED — needs calibration.
+  // Rendered by DataVizElement as animated SVG (the data-viz primitive); colors/font
+  // bind to brand tokens; the structural-move vocabulary wraps it (backdrop, kicker…).
+  let role = 'bar-chart';
+  if (values.length === 1 && values[0] >= 0 && values[0] <= 100) role = 'percentage-ring';
+  else if (values.length >= 5) role = 'sparkline';
 
   elements.push({
     primitive: 'data-viz',
-    role: chartRole,
+    role,
     layer: 'foreground',
     animation: 'grow-up',
     bind: {
@@ -687,37 +682,62 @@ function resolveHoldPattern(signals: PlannerSignals, mgScores?: MgOverlayScores)
   return 'gentle-float';
 }
 
-function makeContainer(language: MotionTokens): RecipeElement {
-  return {
-    primitive: 'container',
-    role: 'container',
-    layer: 'background',
-    shape: language.surface.style === 'glass' ? 'rect' : language.surface.cornerRadius > 12 ? 'pill' : 'rect',
-    bind: {
-      fill: 'token:color.surfaceBase',
-      opacity: 'token:surface.surfaceOpacity',
-      blur: 'token:surface.backdropBlur',
-      radius: 'token:surface.cornerRadius',
-      borderWeight: 'token:surface.borderWeight',
-      borderOpacity: 'token:surface.borderOpacity',
-      shadow: 'token:surface.shadow',
-    },
-  };
-}
+// ─── Structural-move vocabulary runner ──────────────────────────────────────
+// Signal-selected structural register. Reads mg.structure.* overlay scores and
+// composes the moves that clear their budget tier + score gate, resolving conflicts
+// and inserting flow moves at the right position relative to content. This is the
+// Tier 3 selection mechanism — structure emerges from signals, not preset skeletons.
+function runStructuralMoves(
+  elements: RecipeElement[],
+  language: MotionTokens,
+  signals: PlannerSignals,
+  budget: number,
+  content: Record<string, unknown>,
+  mgScores?: MgOverlayScores,
+): void {
+  const hasAccent = language.color.accent !== language.color.primary;
+  const score = (id: string): number => mgScores?.[id]?.score ?? 0;
+  // ⚠️ gate 0.3 INVENTED — structural moves are mid-intrusive (mask 0.5, particle 0.15)
+  const GATE = 0.3;
 
-function makeAccentLine(): RecipeElement {
-  return {
-    primitive: 'decoration',
-    role: 'accent',
-    layer: 'midground',
-    shape: 'line',
-    bind: {
-      color: 'token:color.accent',
-      width: 3,
-      anchorX: 0,
-      anchorY: 0.5,
-    },
-  };
+  // Block/background moves: layer-sorted + absolute, so array position is irrelevant.
+  if (budget >= 2 && score('mg.structure.backdrop_card') >= GATE) {
+    elements.push(...moveBackdropCard(language));
+  }
+  if (budget >= 2 && score('mg.structure.side_bar') >= GATE) {
+    elements.push(...moveSideBar());
+  }
+
+  // Horizontal accent rule: accent-line (block bottom) vs underline (under primary).
+  // They conflict — both are accent rules. Keep the higher scorer; avoid redundant lines.
+  if (budget >= 3 && hasAccent) {
+    const aLine = score('mg.structure.accent_line');
+    const aUnder = score('mg.structure.underline');
+    if (aUnder >= GATE && aUnder >= aLine) {
+      const pIdx = elements.findIndex(e => e.role === 'primary' || e.role === 'counter');
+      const moves = moveUnderline();
+      if (pIdx >= 0) elements.splice(pIdx + 1, 0, ...moves);
+      else elements.push(...moves);
+    } else if (aLine >= GATE) {
+      elements.push(...moveAccentLine());
+    }
+  }
+
+  // Divider: between primary and secondary — only meaningful when secondary exists.
+  if (budget >= 3 && score('mg.structure.divider') >= GATE) {
+    const secIdx = elements.findIndex(e => e.role === 'secondary');
+    if (secIdx >= 0) elements.splice(secIdx, 0, ...moveDivider());
+  }
+
+  // Kicker: small label above primary — only when content provides a kicker/category.
+  const kickerText = typeof content.kicker === 'string' ? content.kicker
+    : typeof content.category === 'string' ? content.category : '';
+  if (budget >= 2 && kickerText && score('mg.structure.kicker') >= GATE) {
+    const pIdx = elements.findIndex(e => e.role === 'primary' || e.role === 'counter');
+    const moves = moveKicker(kickerText);
+    if (pIdx >= 0) elements.splice(pIdx, 0, ...moves);
+    else elements.unshift(...moves);
+  }
 }
 
 function makeTextElement(

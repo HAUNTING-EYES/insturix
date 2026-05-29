@@ -455,6 +455,39 @@ export function buildShapeStyle(
     style.borderRadius = '50%';
   }
 
+  // Structural-move anchoring: position relative to the content block via CSS.
+  // Deterministic (no DOM measurement) — Remotion-safe. The content flex container
+  // is the positioning context (see resolveLayout: position absolute + isolation).
+  if (el.anchor && el.anchor.mode !== 'flow') {
+    const a = el.anchor;
+    if (a.mode === 'flow-span') {
+      // Stays in the flex flow (between elements) but stretches to full column width.
+      // For rules (divider/underline): thickness sets the line height.
+      style.alignSelf = 'stretch';
+      style.width = '100%';
+      if (a.thickness != null) style.height = `${a.thickness}px`;
+    } else {
+      style.position = 'absolute';
+      if (a.mode === 'block-fill') {
+        const ins = a.inset ?? 0;
+        style.top = `${ins}px`;
+        style.right = `${ins}px`;
+        style.bottom = `${ins}px`;
+        style.left = `${ins}px`;
+        // Backdrop sits BEHIND static-flow content. z-index:-1 + wrapper isolation
+        // keeps it contained below the text without touching every text element.
+        if (el.layer === 'background') style.zIndex = -1;
+      } else if (a.mode === 'block-edge') {
+        const t = a.thickness ?? 4;
+        const side = a.side ?? 'bottom';
+        if (side === 'left') { style.left = 0; style.top = 0; style.bottom = 0; style.width = `${t}px`; style.height = undefined; }
+        else if (side === 'right') { style.right = 0; style.top = 0; style.bottom = 0; style.width = `${t}px`; style.height = undefined; }
+        else if (side === 'top') { style.top = 0; style.left = 0; style.right = 0; style.height = `${t}px`; }
+        else { style.bottom = 0; style.left = 0; style.right = 0; style.height = `${t}px`; }
+      }
+    }
+  }
+
   return style;
 }
 

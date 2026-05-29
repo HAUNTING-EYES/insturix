@@ -154,6 +154,8 @@ const CTA_PATTERNS = /\b(?:subscribe|sign up|click|visit|download|get started|tr
 const QUESTION_PATTERN = /\?\s*$/;
 const HEDGED_PATTERNS = /\b(?:maybe|perhaps|around|about|roughly|approximately|could be|might be|probably|I think|it seems)\b/i;
 const NAME_PATTERN = /\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b/; // "John Smith", "Apple Inc"
+// ⚠️ Lookahead window 4 INVENTED — typical comparison phrase "from X to Y" spans ~4 words between numbers.
+const COMPARISON_CONNECTORS = /^(?:to|vs|versus|and|or|compared|than|over|under|from|between)$/i;
 
 // ─── V-JEPA / Wav2Vec Segment Lookup ───────────────────────────────────────
 // Both services produce segments with startMs/endMs. Grid points may fall
@@ -475,6 +477,24 @@ export function buildSignalTimeline(
           value: true,
           context: word.word,
         });
+
+        // Number sequence: "from 10% to 85%", "50 vs 300", "between 2 and 5"
+        // Look ahead up to 4 words for a second number with a comparison connector.
+        for (let j = i + 1; j <= Math.min(i + 4, words.length - 1); j++) {
+          if (NUMBER_PATTERN.test(words[j].word)) {
+            const between = words.slice(i + 1, j).map(w => w.word);
+            if (between.length === 0 || between.some(w => COMPARISON_CONNECTORS.test(w))) {
+              timeline.eventSignals.push({
+                timestampMs: word.startMs,
+                frame,
+                signal: 'entity.number',
+                value: true,
+                context: words.slice(i, j + 1).map(w => w.word).join(' '),
+              });
+            }
+            break;
+          }
+        }
       }
 
       // Entity: CTA

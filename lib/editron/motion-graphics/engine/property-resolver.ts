@@ -123,6 +123,7 @@ export function resolveElements(
       keyframeTracks: el.keyframeTracks,
       speedRamp: el.speedRamp,
       layer: el.layer,
+      anchor: el.anchor,
       enterOrder,
       resolvedProps,
       entrancePattern,

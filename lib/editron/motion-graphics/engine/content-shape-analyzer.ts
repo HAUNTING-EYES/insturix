@@ -13,10 +13,10 @@ const DEFAULT_COMPLEXITY = 3;
 
 export function analyzeContentShape(
   content: Record<string, unknown>,
-  kind?: ContentShapeKind,
+  _kind?: ContentShapeKind,
   signals?: Partial<PlannerSignals>,
 ): CompositionStrategy {
-  const shapes = detectShapes(content, kind);
+  const shapes = detectShapes(content);
   const primary = shapes[0] || { kind: 'free-text' as const, text: '' };
 
   return {
@@ -30,13 +30,7 @@ export function analyzeContentShape(
 
 function detectShapes(
   content: Record<string, unknown>,
-  kind?: ContentShapeKind,
 ): ContentShape[] {
-  if (kind) {
-    const shaped = buildShapeFromKind(kind, content);
-    if (shaped) return [shaped];
-  }
-
   const shapes: ContentShape[] = [];
 
   if (hasNumericValue(content)) {
@@ -106,62 +100,6 @@ function detectShapes(
   return shapes;
 }
 
-function buildShapeFromKind(
-  kind: ContentShapeKind,
-  content: Record<string, unknown>,
-): ContentShape | null {
-  switch (kind) {
-    case 'numeric':
-      return {
-        kind: 'numeric',
-        value: String(content.value ?? '0'),
-        label: content.label != null ? String(content.label) : undefined,
-        prefix: content.prefix != null ? String(content.prefix) : undefined,
-        suffix: content.suffix != null ? String(content.suffix) : undefined,
-      };
-    case 'identity':
-      return {
-        kind: 'identity',
-        name: String(content.name ?? ''),
-        title: content.title != null ? String(content.title) : undefined,
-      };
-    case 'quotation':
-      return {
-        kind: 'quotation',
-        quote: String(content.quote ?? content.text ?? ''),
-        author: content.author != null ? String(content.author) : undefined,
-      };
-    case 'emphasis':
-      return {
-        kind: 'emphasis',
-        text: String(content.text ?? content.keyword ?? ''),
-        weight: 'medium',
-      };
-    case 'data-series': {
-      const vals = Array.isArray(content.values)
-        ? content.values.filter((v): v is number => typeof v === 'number' && isFinite(v))
-        : [];
-      return { kind: 'data-series', values: vals, labels: Array.isArray(content.labels) ? content.labels.map(String) : undefined };
-    }
-    case 'brand':
-      return {
-        kind: 'brand',
-        text: String(content.text ?? content.name ?? ''),
-        logo: content.logo != null ? String(content.logo) : undefined,
-      };
-    case 'structured':
-      return {
-        kind: 'structured',
-        title: String(content.title ?? ''),
-        body: content.body != null ? String(content.body) : undefined,
-        items: Array.isArray(content.items) ? content.items.map(String) : undefined,
-      };
-    case 'free-text':
-      return { kind: 'free-text', text: String(content.text ?? '') };
-    default:
-      return null;
-  }
-}
 
 function hasNumericValue(content: Record<string, unknown>): boolean {
   if (content.value == null) return false;
@@ -216,33 +154,40 @@ function exitStyleForShape(
 function computeComplexityBudget(signals?: Partial<PlannerSignals>): number {
   if (!signals) return DEFAULT_COMPLEXITY;
   const s = signals as Record<string, unknown>;
+  const num = (k: string): number => (typeof s[k] === 'number' && isFinite(s[k] as number) ? (s[k] as number) : 0);
 
-  // Montage mode: music-driven section, no speech → suppress graphics entirely
-  // CRG signal:composite.montage_mode — "music is dominant, not speech"
-  const montageMode = typeof s.montage_mode === 'number' ? s.montage_mode : 0;
-  if (montageMode > 0.5) return 0;
+  // Hard suppressors (unchanged).
+  // Montage mode: music-driven section, no speech → suppress graphics entirely.
+  // CRG signal:composite.montage_mode — "music is dominant, not speech".
+  if (num('montage_mode') > 0.5) return 0;
+  // Too many overlays already visible → suppress. CRG constraint:overlay.simultaneous_overlay_max.
+  if (num('active_overlay_count') >= 3) return 0;
 
-  // Active overlay count: too many overlays already visible → suppress
-  // CRG constraint:overlay.simultaneous_overlay_max
-  const activeOverlays = typeof s.active_overlay_count === 'number' ? s.active_overlay_count : 0;
-  if (activeOverlays >= 3) return 0;
+  // Importance-driven base budget — REPLACES the old position-in-video ramp.
+  // A moment's visual richness should come from how much it MATTERS, not where it sits
+  // in the timeline (a stat at 0:10 deserves the same treatment as one at 5:00).
+  // `max` of importance signals (not average) so a single strong peak justifies richness,
+  // and it stays robust when some composites (e.g. cinematic_moment) aren't computed —
+  // formality is almost always available from the transcript.
+  // ⚠️ secondary weights (0.8/0.7) + the 2..5 mapping INVENTED — bounds for the bandit
+  // to calibrate, not fixed magic values.
+  const importance = Math.max(
+    num('cinematic_moment'),
+    num('visceral_impact'),
+    num('emotional_arousal') * 0.8,
+    num('formality') * 0.7,
+  );
+  let budget = 2 + Math.round(Math.min(1, importance) * 3); // 2..5
 
-  // Position-based budget (existing)
-  const position = typeof s.position_in_video === 'number' ? s.position_in_video : 0.5;
-  let budget: number;
-  if (position < 0.2) budget = 1;
-  else if (position < 0.6) budget = 3;
-  else if (position < 0.8) budget = 4;
-  else budget = 5;
+  // Pacing penalty: fast pacing → less time to read → simpler composition.
+  // ⚠️ threshold 0.7 INVENTED
+  if (num('pacing_velocity') > 0.7) budget = Math.max(2, budget - 1);
 
-  // Visual significance: frame content is already visually rich → reduce complexity
-  // ⚠️ threshold 0.7 INVENTED — high-significance frames shouldn't compete with graphics
-  const significance = typeof s.visual_significance === 'number' ? s.visual_significance : 0;
-  if (significance > 0.7) {
-    budget = Math.max(1, budget - 2);
-  }
+  // Visual significance: frame is already visually rich → graphics shouldn't compete.
+  // ⚠️ threshold 0.7 INVENTED
+  if (num('visual_significance') > 0.7) budget = Math.max(1, budget - 2);
 
-  return budget;
+  return Math.min(5, Math.max(1, budget));
 }
 
 function computeHoldDuration(signals?: Partial<PlannerSignals>): number {

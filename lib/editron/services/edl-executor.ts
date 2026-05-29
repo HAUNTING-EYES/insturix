@@ -22,7 +22,6 @@ import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-te
 import { resolveMotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
-import type { ContentShapeKind } from '@/lib/editron/motion-graphics/engine/recipe-types';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -1022,7 +1021,7 @@ async function applyGraphic(
   // Creative brief outputs technique like 'graphic_stat_counter' — convert to 'stat-counter'
   // which matches the switch cases and GRAPHIC_DURATIONS keys.
   const graphicType = decision.params.graphicType
-    || (decision as any).technique?.replace('graphic_', '').replace(/_/g, '-')
+    || (decision as any).technique?.replace(/^technique:graphic\./, '').replace('graphic_', '').replace(/_/g, '-')
     || 'keyword-highlight';
   const hasContent = text || decision.params.name || decision.params.value || decision.params.quote || decision.params.title;
   if (!hasContent) return null;
@@ -1102,17 +1101,6 @@ async function applyGraphic(
     const rawSignals = decision.params.signals || {};
     const tokens = resolveMotionTokens(rawSignals, decision.params.brand || {});
 
-    const kindMap: Record<string, ContentShapeKind> = {
-      'stat-counter': 'numeric',
-      'lower-third': 'identity',
-      'keyword-highlight': 'emphasis',
-      'callout': 'structured',
-      'quote-card': 'quotation',
-      'logo-reveal': 'brand',
-      'logo': 'brand',
-      'text-overlay': 'free-text',
-    };
-
     const contentMap: Record<string, unknown> = { ...decision.params };
     if (text) contentMap.text = text;
 
@@ -1145,7 +1133,7 @@ async function applyGraphic(
     }
 
     const recipe = planComposition(
-      { kind: kindMap[graphicType], content: contentMap, triggerMoment: decision.reason },
+      { content: contentMap, triggerMoment: decision.reason },
       tokens,
       rawSignals,
       mgScores,

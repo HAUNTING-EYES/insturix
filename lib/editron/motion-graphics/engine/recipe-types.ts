@@ -66,6 +66,20 @@ export type DepthLayer = 'background' | 'midground' | 'foreground';
 
 export type TextSplitMode = 'none' | 'chars' | 'words';
 
+// Structural-move anchoring. Lets a primitive attach RELATIVE to the content block
+// instead of flowing in the flex column. Resolved deterministically via CSS (no DOM
+// measurement — Remotion renders frame-by-frame and must stay deterministic).
+//   flow       → normal flex child; array order positions it (kicker, divider, underline)
+//   block-fill → position:absolute, inset around content block (backdrop, corner frame)
+//   block-edge → pinned to one side of the block (side-bar = left, accent-line = bottom)
+export interface ElementAnchor {
+  mode: 'flow' | 'flow-span' | 'block-fill' | 'block-edge';
+  side?: 'top' | 'bottom' | 'left' | 'right';
+  thickness?: number; // px — bar width (left/right) or height (top/bottom) for block-edge;
+                      // also the line height for flow-span rules (divider/underline)
+  inset?: number;     // px — padding around content for block-fill (negative bleeds past)
+}
+
 export interface RecipeElement {
   primitive: PrimitiveType;
   role: string;
@@ -75,6 +89,7 @@ export interface RecipeElement {
   count?: number;
   repeat?: string;
   bind: Record<string, BindingExpr>;
+  anchor?: ElementAnchor;
   entranceOverride?: EntrancePattern;
   exitOverride?: ExitPattern;
   holdAnimation?: HoldPattern;
@@ -114,6 +129,7 @@ export interface ResolvedElement {
   animation?: ElementAnimation;
   holdAnimation?: HoldPattern;
   layer?: DepthLayer;
+  anchor?: ElementAnchor;
   enterOrder: number;
   resolvedProps: Record<string, string | number | boolean>;
   entrancePattern: EntrancePattern;

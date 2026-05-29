@@ -629,6 +629,9 @@ function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): Re
     display: 'flex',
     flexDirection: 'column',
     gap: '4px',
+    // Force a stacking context so block-fill backdrops (z-index:-1) stay contained
+    // behind this composition's content and don't bleed below the video layer.
+    isolation: 'isolate',
   };
 
   // captionZoneAware: shift bottom-positioned graphics above caption zone

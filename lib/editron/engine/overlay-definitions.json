@@ -2870,5 +2870,153 @@
     "outputParams": [
       { "name": "maskScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
     ]
+  },
+  {
+    "id": "mg.structure.accent_line",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Formal/structured content → clean horizontal rule"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Calm content favors structural rules; energetic content does not"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.side_bar",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Broadcast/authoritative register → vertical side bar"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Composed/authoritative tone, not high-arousal"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.backdrop_card",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visual_dependency",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Busy/visually-dependent scene → card separates text from background"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Clean modern card reads as produced/formal"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.divider",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Editorial/structured content → hairline separating stacked text"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.underline",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic content → bold accent stroke under the headline"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High arousal → marker-style emphasis"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.kicker",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "News/category register → small uppercase kicker label above headline"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
   }
 ]

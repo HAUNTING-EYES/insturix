@@ -61,10 +61,13 @@ test('empty content fallback', () => {
   assert(strategy.shapes[0].kind === 'free-text', `Expected free-text, got ${strategy.shapes[0].kind}`);
 });
 
-test('complexity budget from position_in_video', () => {
-  const early = analyzeContentShape({ text: 'hi' }, 'emphasis', { ...signals, position_in_video: 0.05 } as any);
-  const late = analyzeContentShape({ text: 'hi' }, 'emphasis', { ...signals, position_in_video: 0.9 } as any);
-  assert(early.complexityBudget < late.complexityBudget, `Expected early (${early.complexityBudget}) < late (${late.complexityBudget})`);
+test('complexity budget driven by importance, not timeline position', () => {
+  const lowImportance = analyzeContentShape({ text: 'hi' }, 'emphasis',
+    { ...signals, formality: 0, emotional_arousal: 0, visceral_impact: 0, cinematic_moment: 0 } as any);
+  const highImportance = analyzeContentShape({ text: 'hi' }, 'emphasis',
+    { ...signals, cinematic_moment: 0.9 } as any);
+  assert(highImportance.complexityBudget > lowImportance.complexityBudget,
+    `Expected high-importance (${highImportance.complexityBudget}) > low (${lowImportance.complexityBudget})`);
 });
 
 // --- Composition Planner ---
@@ -94,15 +97,19 @@ test('quotation -> quote text with minSize 42', () => {
   assert(primary!.bind.minSize === 42, `Expected minSize 42 (CRG quote_card), got ${primary!.bind.minSize}`);
 });
 
-test('emphasis -> no hardcoded entrance (defers to overlay scoring), top-left', () => {
-  const recipe = planComposition({ kind: 'emphasis', content: { text: 'WOW' } }, tokens, { ...signals, formality: 0.2 });
-  assert(recipe.layout.position === 'top-left', `Expected top-left, got ${recipe.layout.position}`);
+test('emphasis -> no hardcoded entrance (defers to overlay scoring), corner position', () => {
+  const recipe = planComposition({ content: { text: 'WOW' } }, tokens, { ...signals, formality: 0.2 });
+  // emphasis layout rotates through the 4 corners (global counter), so assert membership,
+  // not a fixed position — the exact corner is order-dependent.
+  const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+  assert(corners.includes(recipe.layout.position), `Expected a corner, got ${recipe.layout.position}`);
   const primary = recipe.elements.find(e => e.role === 'primary');
   assert(!primary!.entranceOverride, `Expected no hardcoded entrance (overlay scoring or role default decides), got ${primary!.entranceOverride}`);
 });
 
 test('brand -> hold-then-fade exit', () => {
-  const recipe = planComposition({ kind: 'brand', content: { text: 'INSTURIX' } }, tokens, signals);
+  // Content-inferred: brand shape requires a brand marker (logo or brand:true), not a kind label.
+  const recipe = planComposition({ content: { text: 'INSTURIX', brand: true } }, tokens, signals);
   assert(recipe.exitStyle === 'hold-then-fade', `Expected hold-then-fade, got ${recipe.exitStyle}`);
 });
 
