@@ -59,7 +59,10 @@ export function moveBackdropCard(tokens: MotionTokens): RecipeElement[] {
     anchor: { mode: 'block-fill', inset: -14 }, // ⚠️ -14px INVENTED — card padding around text
     bind: {
       fill: 'token:color.surfaceBase',
-      opacity: 'token:surface.surfaceOpacity',
+      // surfaceOpacity lives under `color` (MotionTokens.color.surfaceOpacity), NOT `surface`.
+      // The wrong namespace resolved to undefined → applyOpacity emitted invalid `rgba(r,g,b,)`
+      // → the backdrop silently never painted (caught by real-resolver render check, 2026-05-30).
+      opacity: 'token:color.surfaceOpacity',
       blur: 'token:surface.backdropBlur',
       radius: 'token:surface.cornerRadius',
       borderWeight: 'token:surface.borderWeight',

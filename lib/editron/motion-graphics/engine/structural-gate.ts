@@ -14,7 +14,7 @@
  * If gate fails, recipe is logged but NOT blocked (first iteration = observe, not enforce).
  */
 
-import type { Recipe, RecipeElement } from './recipe-types';
+import type { Recipe } from './recipe-types';
 import type { MotionTokens } from '../types';
 
 export interface StructuralIssue {
@@ -103,8 +103,10 @@ export function checkCompositionStructure(
     if (brightness > 0.7 && textBright) {
       // ⚠️ threshold 0.7 INVENTED — light text on bright frame = low contrast
       issues.push({ dimension: 'brightness-match', severity: 'medium', description: `Light text on bright frame (frame=${brightness.toFixed(2)}) — may be hard to read without surface` });
-      // Check if surface provides contrast
-      const surfaceOpacity = tokens.surface.surfaceOpacity;
+      // Check if surface provides contrast. surfaceOpacity lives under `color`, not `surface`
+      // (MotionTokens.color.surfaceOpacity) — the wrong namespace was undefined, so this
+      // legibility deduction silently never fired (found via real-resolver render check 2026-05-30).
+      const surfaceOpacity = tokens.color.surfaceOpacity;
       if (surfaceOpacity < 0.3) {
         deductions += 15;
       }
