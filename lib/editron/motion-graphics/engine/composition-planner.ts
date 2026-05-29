@@ -395,6 +395,19 @@ function composeIdentity(
   const primaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.1);
   const letterTracking = mgVal(mgScores, 'mg.typography.letter_tracking', 'letterTracking', 0);
 
+  // Avatar/headshot (when content provides one — e.g. from the brief or a future brand layer).
+  // Consumer-ready: renders a circular headshot leading the lower-third. No producer wires
+  // content.avatar yet, so this is dormant until one does (then it activates automatically).
+  // ⚠️ 64px INVENTED — standard lower-third headshot size.
+  if (shape.avatar) {
+    elements.push({
+      primitive: 'image',
+      role: 'icon',
+      layer: 'foreground',
+      bind: { src: 'content:avatar', width: 64, height: 64, radius: 999 },
+    });
+  }
+
   elements.push({
     primitive: 'text',
     role: 'primary',
@@ -517,12 +530,24 @@ function composeEmphasis(
 
 function composeBrand(
   elements: RecipeElement[],
-  _shape: Extract<ContentShape, { kind: 'brand' }>,
+  shape: Extract<ContentShape, { kind: 'brand' }>,
   language: MotionTokens,
   mgScores?: MgOverlayScores,
 ): void {
   const letterTracking = mgVal(mgScores, 'mg.typography.letter_tracking', 'letterTracking', 0.08);
   const textTransform = mgVal(mgScores, 'mg.typography.text_transform_tendency', 'textTransformScore', 1);
+
+  // Brand logo (when content provides one — future brand/Graphiti layer). Consumer-ready:
+  // renders the logo above the brand name. Dormant until a producer wires content.logo.
+  // ⚠️ 96x40 INVENTED — wide logo lockup; objectFit contain preserves aspect ratio.
+  if (shape.logo) {
+    elements.push({
+      primitive: 'image',
+      role: 'icon',
+      layer: 'foreground',
+      bind: { src: 'content:logo', height: 40 },
+    });
+  }
 
   elements.push({
     primitive: 'text',

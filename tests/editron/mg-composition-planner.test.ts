@@ -244,6 +244,25 @@ describe('planComposition — structural-move vocabulary', () => {
     expect(structural.length).toBe(1);
     expect(structural[0].role).toBe('sm-backdrop'); // highest score wins
   });
+
+  it('avatar wiring: content.avatar → image element (consumer-ready)', () => {
+    const recipe = planComposition({ content: { name: 'Hank Green', title: 'Creator', avatar: 'https://x/a.jpg' } }, tokens, {} as never);
+    const img = recipe.elements.find(e => e.primitive === 'image' && e.role === 'icon');
+    expect(img).toBeDefined();
+    expect(img!.bind.src).toBe('content:avatar');
+  });
+
+  it('no avatar in content → no image element', () => {
+    const recipe = planComposition({ content: { name: 'Hank Green', title: 'Creator' } }, tokens, {} as never);
+    expect(recipe.elements.find(e => e.primitive === 'image')).toBeUndefined();
+  });
+
+  it('logo wiring: content.logo → image element on brand shape', () => {
+    const recipe = planComposition({ content: { text: 'Nike', brand: true, logo: 'https://x/l.svg' } }, tokens, {} as never);
+    const img = recipe.elements.find(e => e.primitive === 'image' && e.role === 'icon');
+    expect(img).toBeDefined();
+    expect(img!.bind.src).toBe('content:logo');
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -408,10 +408,24 @@ const ImageElement: React.FC<{ element: ResolvedElement; anim: ReturnType<typeof
   anim,
 }) => {
   const style = buildTransformStyle(anim);
-  const src = String(element.resolvedProps.src || '');
+  const p = element.resolvedProps;
+  const src = String(p.src || '');
   if (!src) return null;
+  const imgStyle: React.CSSProperties = { ...style };
+  // Explicit dimensions (avatar headshot, brand logo) → fixed box, cover-cropped.
+  // No dimensions → scale to container, contain (original behavior).
+  if (p.width != null) imgStyle.width = `${Number(p.width)}px`;
+  if (p.height != null) imgStyle.height = `${Number(p.height)}px`;
+  if (p.radius != null) imgStyle.borderRadius = `${Number(p.radius)}px`;
+  if (p.width != null || p.height != null) {
+    imgStyle.objectFit = 'cover';
+  } else {
+    imgStyle.maxWidth = '100%';
+    imgStyle.maxHeight = '100%';
+    imgStyle.objectFit = 'contain';
+  }
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt="" style={{ ...style, maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />;
+  return <img src={src} alt="" style={imgStyle} />;
 };
 
 // ─── GSAP-Powered Elements ─────────────────────────────
