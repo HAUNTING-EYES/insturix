@@ -640,7 +640,7 @@ function composeStructured(
 function composeDataSeries(
   elements: RecipeElement[],
   shape: Extract<ContentShape, { kind: 'data-series' }>,
-  language: MotionTokens,
+  _language: MotionTokens,
 ): void {
   const values = shape.values || [];
   if (values.length === 0) return;
@@ -824,7 +824,7 @@ function runStructuralMoves(
 function makeTextElement(
   role: string,
   textBinding: string,
-  language: MotionTokens,
+  _language: MotionTokens,
 ): RecipeElement {
   return {
     primitive: 'text',
