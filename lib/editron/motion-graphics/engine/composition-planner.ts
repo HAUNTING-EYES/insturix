@@ -514,6 +514,15 @@ function composeEmphasis(
 
   const keywordSize = Math.max(CRG.KEYWORD_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.KEYWORD_MIN_FONT));
 
+  // Energy-responsive caps: a high-energy delivery "shouts" the keyword in uppercase.
+  // Driven by enthusiasm/emotional_arousal (reliable personality signals) — NOT the Wav2Vec
+  // speech-energy baseline, which is often 0 when the model fails. ⚠️ 0.7 threshold INVENTED.
+  const deliveryEnergy = Math.max(
+    typeof signals.enthusiasm === 'number' ? signals.enthusiasm : 0,
+    typeof signals.emotional_arousal === 'number' ? signals.emotional_arousal : 0,
+  );
+  const emphaticCaps = deliveryEnergy > 0.7;
+
   elements.push({
     primitive: 'text',
     role: 'primary',
@@ -524,6 +533,7 @@ function composeEmphasis(
       weight: 'token:typography.headingWeight',
       color: informal ? 'token:color.accent' : 'token:color.textPrimary',
       minSize: keywordSize,
+      transform: emphaticCaps ? 'uppercase' : 'token:typography.headingTransform',
     },
   });
 }

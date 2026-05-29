@@ -266,6 +266,26 @@ describe('planComposition — structural-move vocabulary', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 2c. Content styling (energy caps)
+// ---------------------------------------------------------------------------
+
+describe('planComposition — content styling', () => {
+  const tokens = makeTokens();
+
+  it('high-energy delivery → uppercase emphasis keyword', () => {
+    const recipe = planComposition({ content: { text: 'amazing' } }, tokens, { enthusiasm: 0.9, emotional_arousal: 0.8 } as never);
+    const primary = recipe.elements.find(e => e.role === 'primary' && e.primitive === 'text');
+    expect(primary!.bind.transform).toBe('uppercase');
+  });
+
+  it('calm delivery → no forced caps (defers to token transform)', () => {
+    const recipe = planComposition({ content: { text: 'blockchain' } }, tokens, { enthusiasm: 0.3, emotional_arousal: 0.3 } as never);
+    const primary = recipe.elements.find(e => e.role === 'primary' && e.primitive === 'text');
+    expect(primary!.bind.transform).toBe('token:typography.headingTransform');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 3. Overlay-driven layout
 // ---------------------------------------------------------------------------
 
