@@ -349,7 +349,7 @@ export async function executeEDL(
     }
 
     try {
-      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, usedGraphicTemplateIds);
+      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, usedGraphicTemplateIds, graphicsDensity);
       if (applied) {
         budget.commit(decision as any);
         result.decisionsExecuted++;
@@ -420,6 +420,7 @@ async function applyDecision(
   decisionIndex: number = 0,
   sfxCache?: Map<string, { audioUrl: string; audioAssetId: string; durationMs: number } | null>,
   graphicTemplateIds?: Set<string>,
+  graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
 ): Promise<{ created: number; modified: number } | null> {
 
   switch (decision.type) {
@@ -436,7 +437,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicTemplateIds);
+      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicTemplateIds, graphicsDensity);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -467,7 +468,7 @@ async function applyDecision(
         params: { ...decision.params, text: emphasisWord, graphicType: 'keyword-highlight' },
         durationFrames: 60, // 2s pop
       };
-      return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
+      return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex, undefined, graphicsDensity);
     }
 
     case 'sfx':
@@ -1015,6 +1016,7 @@ async function applyGraphic(
   idEpoch: number = 0,
   decisionIndex: number = 0,
   usedTemplateIds?: Set<string>,
+  graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
 ): Promise<{ created: number; modified: number } | null> {
   const { text, position } = decision.params;
   // Extract graphicType from params (signal executor) or technique (creative brief).
