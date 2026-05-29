@@ -483,7 +483,10 @@ export function buildSignalTimeline(
         for (let j = i + 1; j <= Math.min(i + 4, words.length - 1); j++) {
           if (NUMBER_PATTERN.test(words[j].word)) {
             const between = words.slice(i + 1, j).map(w => w.word);
-            if (between.length === 0 || between.some(w => COMPARISON_CONNECTORS.test(w))) {
+            // EVERY between-word must be a connector — a real comparison has only connectors
+            // between the two numbers. `.some` over-consolidated sentences like
+            // "6 and left at 8" into a false sequence (adversarial sweep finding).
+            if (between.length === 0 || between.every(w => COMPARISON_CONNECTORS.test(w))) {
               timeline.eventSignals.push({
                 timestampMs: word.startMs,
                 frame,
