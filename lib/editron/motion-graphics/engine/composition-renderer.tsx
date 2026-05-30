@@ -290,6 +290,19 @@ const DataVizElement: React.FC<{
 // check. INVENTED (industry hero text ~6-10% of frame height); owned by G-7 calibration.
 const FOCAL_FRAC: Record<string, number> = { primary: 0.09, counter: 0.09, secondary: 0.055, label: 0.055 };
 
+// G-1b: exact text width via the render's own canvas (no extra dependency). Measures the
+// ACTUALLY-rendered glyphs, so the estimator's wide-glyph (W/M) under-count can't spill the card.
+// Returns NaN outside a browser (Node scripts/tests) → fitFontSize uses its deterministic estimator.
+let _measureCanvas: HTMLCanvasElement | null = null;
+function measureWordWidthPx(word: string, fontPx: number, fontFamily: string, weight: number): number {
+  if (typeof document === 'undefined' || fontPx <= 0) return NaN;
+  _measureCanvas = _measureCanvas || document.createElement('canvas');
+  const ctx = _measureCanvas.getContext('2d');
+  if (!ctx) return NaN;
+  ctx.font = `${weight} ${fontPx}px ${fontFamily}`;
+  return ctx.measureText(word).width;
+}
+
 /** Render-time fitted font size for a text element, or undefined to fall back to the legacy floor. */
 function computeFittedSize(el: ResolvedElement, text: string, boxWidthPx: number, canvasHeight: number): number | undefined {
   const p = el.resolvedProps;
@@ -301,7 +314,12 @@ function computeFittedSize(el: ResolvedElement, text: string, boxWidthPx: number
   const minReadable = Math.min(desired, 36 * (canvasHeight / 1080)); // CRG type-min floor, resolution-scaled
   const uppercase = /upper/i.test(String(p.transform || ''));
   const bold = Number(p.weight || 400) >= 600;
-  return fitFontSize(text, boxWidthPx, desired, minReadable, { uppercase, bold });
+  const fontFamily = String(p.font || 'sans-serif');
+  const weight = Number(p.weight || 400);
+  // Exact glyph measurement when rendering in the browser (uppercased to match textTransform);
+  // NaN in Node → fitFontSize falls back to its estimator.
+  const measure = (t: string, px: number) => measureWordWidthPx(uppercase ? t.toUpperCase() : t, px, fontFamily, weight);
+  return fitFontSize(text, boxWidthPx, desired, minReadable, { uppercase, bold }, measure);
 }
 
 const TextElement: React.FC<{

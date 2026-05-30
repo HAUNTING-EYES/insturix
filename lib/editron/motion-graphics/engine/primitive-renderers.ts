@@ -533,13 +533,21 @@ export function fitFontSize(
   desiredPx: number,
   minReadablePx: number,
   opts?: TextFitOpts,
+  measure?: (text: string, fontPx: number) => number, // G-1b: exact width (canvas) in the render browser; NaN → estimator
 ): number {
   if (!text || boxWidthPx <= 0 || desiredPx <= 0) return desiredPx;
   const safe = boxWidthPx * (opts?.safeFraction ?? 0.9);
   // Longest word governs single-line fit; whitespace lets the phrase wrap to more lines.
   const longestWord = text.split(/\s+/).reduce((a, b) => (b.length > a.length ? b : a), '');
   const target = longestWord || text;
-  const widthAtDesired = estimateTextWidth(target, desiredPx, opts);
+  // G-1b: prefer exact measurement when the caller supplies one (browser canvas); fall back to the
+  // conservative estimator (Node scripts/tests, or measurement unavailable). measureText is ~linear
+  // in fontSize, so the single-step scale below stays accurate.
+  const widthAt = (px: number): number => {
+    const m = measure ? measure(target, px) : NaN;
+    return Number.isFinite(m) ? m : estimateTextWidth(target, px, opts);
+  };
+  const widthAtDesired = widthAt(desiredPx);
   let size = widthAtDesired <= safe ? desiredPx : desiredPx * (safe / widthAtDesired);
   if (size < minReadablePx) {
     console.warn(`[MG-Fit] "${target}" cannot fit ${Math.round(boxWidthPx)}px box at min ${Math.round(minReadablePx)}px — wrap/truncate`);
