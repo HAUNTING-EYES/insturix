@@ -491,16 +491,78 @@ export function buildShapeStyle(
   return style;
 }
 
+// ─── Text fit-to-box (G-1 brushwork) ─────────────────────────────────────────
+// buildTextStyle is a PURE style builder with no DOM/canvas access, so the actual
+// fit (which needs the container px width) is computed by the renderer component via
+// fitFontSize() and passed into buildTextStyle as `fittedSizePx`. Absent → legacy floor.
+//
+// Measurement is a CONSERVATIVE estimator: it OVER-estimates width so the fit can never
+// overflow. It is isolated behind estimateTextWidth() so @remotion/layout-utils measureText
+// can replace it for pixel precision later (G-1b) without touching any caller.
+// ⚠️ glyph-advance ratios INVENTED — conservative-by-design; calibrate / replace with layout-utils.
+const GLYPH_ADVANCE_RATIO = 0.6;        // avg glyph width / fontSize, mixed-case geometric sans
+const GLYPH_ADVANCE_RATIO_CAPS = 0.68;  // uppercase runs wider
+const BOLD_WIDTH_FACTOR = 1.05;         // bold adds ~5% advance
+
+export interface TextFitOpts {
+  uppercase?: boolean;
+  bold?: boolean;
+  letterSpacingPx?: number;
+  safeFraction?: number; // fraction of the box the text may occupy (title-safe margin)
+}
+
+/** Conservative single-line width estimate (px). Over-estimates so a fit never overflows. */
+export function estimateTextWidth(text: string, fontSizePx: number, opts?: TextFitOpts): number {
+  if (!text || fontSizePx <= 0) return 0;
+  const ratio = opts?.uppercase ? GLYPH_ADVANCE_RATIO_CAPS : GLYPH_ADVANCE_RATIO;
+  const boldFactor = opts?.bold ? BOLD_WIDTH_FACTOR : 1;
+  const glyphs = fontSizePx * ratio * boldFactor * text.length;
+  const tracking = (opts?.letterSpacingPx || 0) * Math.max(0, text.length - 1);
+  return glyphs + tracking;
+}
+
+/**
+ * Largest font size (px) at which `text` fits its box without overflowing or breaking a word.
+ * The LONGEST WORD must fit on one line within boxWidthPx (multi-word phrases wrap at spaces).
+ * Returns clamp(desired, minReadable, fitCap). If even minReadablePx can't fit the longest word,
+ * returns minReadablePx and logs (fail-loud) — the caller wraps/truncates, never overflows silently.
+ */
+export function fitFontSize(
+  text: string,
+  boxWidthPx: number,
+  desiredPx: number,
+  minReadablePx: number,
+  opts?: TextFitOpts,
+): number {
+  if (!text || boxWidthPx <= 0 || desiredPx <= 0) return desiredPx;
+  const safe = boxWidthPx * (opts?.safeFraction ?? 0.9);
+  // Longest word governs single-line fit; whitespace lets the phrase wrap to more lines.
+  const longestWord = text.split(/\s+/).reduce((a, b) => (b.length > a.length ? b : a), '');
+  const target = longestWord || text;
+  const widthAtDesired = estimateTextWidth(target, desiredPx, opts);
+  let size = widthAtDesired <= safe ? desiredPx : desiredPx * (safe / widthAtDesired);
+  if (size < minReadablePx) {
+    console.warn(`[MG-Fit] "${target}" cannot fit ${Math.round(boxWidthPx)}px box at min ${Math.round(minReadablePx)}px — wrap/truncate`);
+    size = minReadablePx;
+  }
+  return Math.min(size, desiredPx);
+}
+
 export function buildTextStyle(
   el: ResolvedElement,
   anim: AnimationState,
+  fittedSizePx?: number, // G-1: render-time fit-to-box result; overrides the legacy floor when present
 ): React.CSSProperties {
   const base = buildTransformStyle(anim);
   const p = el.resolvedProps;
 
-  const baseFontSize = p.minSize
-    ? Math.max(Number(p.minSize), 64 * (Number(p.sizeScale) || 1))
-    : undefined;
+  // G-1: prefer the render-time fitted size (fits the title-safe box, never overflows).
+  // Legacy floor only when no fit was supplied (group children, scripts) — backward-compatible.
+  const baseFontSize = fittedSizePx != null
+    ? fittedSizePx
+    : p.minSize
+      ? Math.max(Number(p.minSize), 64 * (Number(p.sizeScale) || 1))
+      : undefined;
 
   const computedFontSize = baseFontSize && anim.fontSize !== 1
     ? baseFontSize * anim.fontSize
@@ -520,6 +582,10 @@ export function buildTextStyle(
     letterSpacing: computedLetterSpacing,
     textTransform: p.transform as React.CSSProperties['textTransform'] || undefined,
     lineHeight: p.lineHeight != null ? Number(p.lineHeight) : 1.2,
+    // G-1: never break inside a word. Long words are sized to fit (fitFontSize); multi-word
+    // phrases wrap at spaces. Explicit here to override any inherited mid-word-break behaviour.
+    overflowWrap: 'normal',
+    wordBreak: 'normal',
   };
 
   if (p.anchorX != null || p.anchorY != null) {

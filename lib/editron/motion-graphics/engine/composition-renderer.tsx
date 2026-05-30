@@ -4,7 +4,7 @@ import type { CompositionRendererProps } from './recipe-types';
 import type { ResolvedElement, ComputedChoreography, DepthLayer } from './recipe-types';
 import { resolveElements } from './property-resolver';
 import { computeChoreography, type SyncData } from './choreography-computer';
-import { computeAnimationState, buildShapeStyle, buildTextStyle, buildTransformStyle, deriveSpatialConfig, applyAudioReactiveModulation, type SpatialConfig, type SignalCurves, type AnimationState } from './primitive-renderers';
+import { computeAnimationState, buildShapeStyle, buildTextStyle, fitFontSize, buildTransformStyle, deriveSpatialConfig, applyAudioReactiveModulation, type SpatialConfig, type SignalCurves, type AnimationState } from './primitive-renderers';
 import type { MGKeyframe, MGKeyframeTrack, MGSpeedRamp } from './recipe-types';
 import { BarChart, PercentageRing, Sparkline } from './data-viz-renderers';
 import { useGSAPTimeline, buildScrambleEntrance, buildScrambleExit, buildDrawSVGEntrance, buildDrawSVGExit, buildMorphHold, areTimelinePluginsAvailable } from './gsap-timeline';
@@ -31,7 +31,7 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   signalCurves,
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, width, height } = useVideoConfig();
 
   const resolvedElements = resolveElements(recipe.elements, language, content);
   const spatial = deriveSpatialConfig(language);
@@ -54,6 +54,8 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   });
 
   const layoutStyle = resolveLayout(recipe.layout);
+  // G-1: px box width for text fit = canvas width × the layout's max-width fraction.
+  const boxWidthPx = width * layoutMaxWidthFraction(recipe.layout.position);
 
   return (
     <div style={layoutStyle}>
@@ -71,6 +73,8 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
             content={content}
             spatial={spatial}
             signalCurves={signalCurves}
+            boxWidthPx={boxWidthPx}
+            canvasHeight={height}
           />
         );
       })}
@@ -86,6 +90,8 @@ interface PrimitiveElementProps {
   content: Record<string, unknown>;
   spatial: SpatialConfig;
   signalCurves?: SignalCurves;
+  boxWidthPx: number;
+  canvasHeight: number;
 }
 
 const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
@@ -95,6 +101,8 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
   fps,
   spatial,
   signalCurves,
+  boxWidthPx,
+  canvasHeight,
 }) => {
   // D8: Speed ramp — remap frame through speed curve before computing animation
   const effectiveFrame = element.speedRamp
@@ -131,7 +139,7 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
       if (element.entrancePattern === 'scramble' && areTimelinePluginsAvailable()) {
         return <GSAPScrambleTextElement element={element} anim={anim} frame={frame} fps={fps} timing={timing} />;
       }
-      return <TextElement element={element} anim={anim} frame={frame} timing={timing} spatial={spatial} signalCurves={signalCurves} />;
+      return <TextElement element={element} anim={anim} frame={frame} timing={timing} spatial={spatial} signalCurves={signalCurves} boxWidthPx={boxWidthPx} canvasHeight={canvasHeight} />;
     }
     case 'image':
     case 'video-clip':
@@ -278,6 +286,24 @@ const DataVizElement: React.FC<{
   );
 };
 
+// G-1: focal-size cap as a fraction of frame height, by role — keeps the "13% of frame" oversize in
+// check. INVENTED (industry hero text ~6-10% of frame height); owned by G-7 calibration.
+const FOCAL_FRAC: Record<string, number> = { primary: 0.09, counter: 0.09, secondary: 0.055, label: 0.055 };
+
+/** Render-time fitted font size for a text element, or undefined to fall back to the legacy floor. */
+function computeFittedSize(el: ResolvedElement, text: string, boxWidthPx: number, canvasHeight: number): number | undefined {
+  const p = el.resolvedProps;
+  if (p.minSize == null || !text || boxWidthPx <= 0) return undefined;
+  // desired = the signal-driven loudness (planner value), capped to a sane fraction of frame height.
+  const desiredRaw = Math.max(Number(p.minSize), 64 * (Number(p.sizeScale) || 1));
+  const capPx = canvasHeight * (FOCAL_FRAC[el.role] ?? 0.07);
+  const desired = Math.min(desiredRaw, capPx);
+  const minReadable = Math.min(desired, 36 * (canvasHeight / 1080)); // CRG type-min floor, resolution-scaled
+  const uppercase = /upper/i.test(String(p.transform || ''));
+  const bold = Number(p.weight || 400) >= 600;
+  return fitFontSize(text, boxWidthPx, desired, minReadable, { uppercase, bold });
+}
+
 const TextElement: React.FC<{
   element: ResolvedElement;
   anim: ReturnType<typeof computeAnimationState>;
@@ -285,15 +311,19 @@ const TextElement: React.FC<{
   timing: ComputedChoreography;
   spatial: SpatialConfig;
   signalCurves?: SignalCurves;
-}> = ({ element, anim, frame, timing, spatial, signalCurves }) => {
-  const style = buildTextStyle(element, anim);
+  boxWidthPx: number;
+  canvasHeight: number;
+}> = ({ element, anim, frame, timing, spatial, signalCurves, boxWidthPx, canvasHeight }) => {
   const p = element.resolvedProps;
+  const text = String(p.text || '');
+  // G-1: shrink text to fit its title-safe box (and cap focal size). undefined → legacy floor.
+  const fittedSizePx = computeFittedSize(element, text, boxWidthPx, canvasHeight);
+  const style = buildTextStyle(element, anim, fittedSizePx);
 
   if (element.animation === 'count-up') {
     return <CountUpText element={element} style={style} frame={frame} timing={timing} />;
   }
 
-  const text = String(p.text || '');
   const splitMode = element.textSplit;
   if (splitMode && splitMode !== 'none' && text.length > 1) {
     return (
@@ -306,6 +336,7 @@ const TextElement: React.FC<{
         spatial={spatial}
         signalCurves={signalCurves}
         containerStyle={style}
+        fittedSizePx={fittedSizePx}
       />
     );
   }
@@ -322,39 +353,52 @@ const SplitTextElement: React.FC<{
   spatial: SpatialConfig;
   signalCurves?: SignalCurves;
   containerStyle: React.CSSProperties;
-}> = ({ element, text, splitMode, frame, timing, spatial, signalCurves, containerStyle }) => {
-  const units = splitMode === 'chars' ? text.split('') : text.split(/(\s+)/);
-  const nonEmpty = units.filter(u => u.trim().length > 0);
+  fittedSizePx?: number; // G-1: render-time fit-to-box size (threaded by TextElement)
+}> = ({ element, text, splitMode, frame, timing, spatial, signalCurves, containerStyle, fittedSizePx }) => {
+  // ROOT FIX for the "SUPERHER/O" mid-word break: split into WORDS first; each word is a
+  // white-space:nowrap inline-block, so a word can NEVER break across lines mid-glyph. The flex
+  // container wraps only BETWEEN words (multi-line is fine). Chars animate individually inside a word.
+  const words = text.split(/(\s+)/); // keeps whitespace tokens as wrap opportunities
+  const totalAtoms = splitMode === 'chars'
+    ? text.replace(/\s+/g, '').length
+    : words.filter(w => w.trim().length > 0).length;
   const entranceDuration = timing.enterEndFrame - timing.enterStartFrame;
-  // ⚠️ stagger ratio 0.6 INVENTED — 60% of entrance for stagger spread, 40% overlap
+  // stagger ratio 0.6 INVENTED — 60% of entrance for stagger spread, 40% overlap
   const staggerTotal = Math.round(entranceDuration * 0.6);
-  const perUnitDelay = nonEmpty.length > 1 ? staggerTotal / (nonEmpty.length - 1) : 0;
+  const perAtomDelay = totalAtoms > 1 ? staggerTotal / (totalAtoms - 1) : 0;
 
-  let unitIdx = 0;
+  let atomIdx = 0;
+  const renderAtom = (str: string, key: string) => {
+    const delay = Math.round(atomIdx * perAtomDelay);
+    atomIdx++;
+    const offsetTiming: ComputedChoreography = {
+      ...timing,
+      enterStartFrame: timing.enterStartFrame + delay,
+      enterEndFrame: timing.enterEndFrame + delay,
+    };
+    const unitAnim = computeAnimationState(
+      frame, offsetTiming, element.entrancePattern, element.exitPattern, spatial, element.holdAnimation,
+    );
+    const modulatedAnim = signalCurves
+      ? applyAudioReactiveModulation(unitAnim, frame, offsetTiming, signalCurves)
+      : unitAnim;
+    const unitStyle = buildTextStyle(element, modulatedAnim, fittedSizePx);
+    return <span key={key} style={{ ...unitStyle, display: 'inline-block' }}>{str}</span>;
+  };
+
   return (
     <div style={{ ...containerStyle, display: 'flex', flexWrap: 'wrap' }}>
-      {units.map((unit, i) => {
-        if (unit.trim().length === 0) {
-          return <span key={i} style={{ whiteSpace: 'pre' }}>{unit}</span>;
+      {words.map((word, wi) => {
+        if (word.trim().length === 0) {
+          return <span key={`ws-${wi}`} style={{ whiteSpace: 'pre' }}>{word}</span>;
         }
-        const delay = Math.round(unitIdx * perUnitDelay);
-        unitIdx++;
-        const offsetTiming: ComputedChoreography = {
-          ...timing,
-          enterStartFrame: timing.enterStartFrame + delay,
-          enterEndFrame: timing.enterEndFrame + delay,
-        };
-        const unitAnim = computeAnimationState(
-          frame, offsetTiming, element.entrancePattern, element.exitPattern, spatial, element.holdAnimation,
-        );
-        const modulatedAnim = signalCurves
-          ? applyAudioReactiveModulation(unitAnim, frame, offsetTiming, signalCurves)
-          : unitAnim;
-        const unitStyle = buildTextStyle(element, modulatedAnim);
-
+        if (splitMode === 'words') {
+          return renderAtom(word, `w-${wi}`);
+        }
+        // chars mode: the word is a non-breaking group; its chars animate individually.
         return (
-          <span key={i} style={{ ...unitStyle, display: 'inline-block' }}>
-            {splitMode === 'chars' ? (unit === ' ' ? ' ' : unit) : unit}
+          <span key={`w-${wi}`} style={{ whiteSpace: 'nowrap', display: 'inline-block' }}>
+            {word.split('').map((ch, ci) => renderAtom(ch, `w-${wi}-c-${ci}`))}
           </span>
         );
       })}
@@ -691,6 +735,17 @@ function computeMaskClipPath(shape: string, progress: number, direction: string)
   }
 }
 
+// G-1: box-width fraction per layout position (mirrors resolveLayout's maxWidth) — used by the text
+// fit to size text against its container in px.
+function layoutMaxWidthFraction(position: string): number {
+  switch (position) {
+    case 'center': return 0.70;
+    case 'full-width-bottom':
+    case 'full-width-top': return 0.90;
+    default: return 0.45; // corners
+  }
+}
+
 function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): React.CSSProperties {
   const base: React.CSSProperties = {
     position: 'absolute',
@@ -706,15 +761,16 @@ function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): Re
   // ⚠️ 22% bottom offset INVENTED — typical captions occupy bottom 15-20%
   const bottomOffset = layout.captionZoneAware ? '22%' : '12%';
 
+  // G-1: insets >=5% keep the block inside the title-safe zone (center 90% / 5% margin, SMPTE ST 2046-1).
   switch (layout.position) {
     case 'bottom-left':
-      return { ...base, bottom: bottomOffset, left: '4%', maxWidth: '45%' };
+      return { ...base, bottom: bottomOffset, left: '5%', maxWidth: '45%' };
     case 'bottom-right':
-      return { ...base, bottom: bottomOffset, right: '4%', maxWidth: '45%', alignItems: 'flex-end' };
+      return { ...base, bottom: bottomOffset, right: '5%', maxWidth: '45%', alignItems: 'flex-end' };
     case 'top-left':
-      return { ...base, top: '8%', left: '4%', maxWidth: '45%' };
+      return { ...base, top: '8%', left: '5%', maxWidth: '45%' };
     case 'top-right':
-      return { ...base, top: '8%', right: '4%', maxWidth: '45%', alignItems: 'flex-end' };
+      return { ...base, top: '8%', right: '5%', maxWidth: '45%', alignItems: 'flex-end' };
     case 'center':
       return { ...base, top: '50%', left: '50%', transform: 'translate(-50%, -50%)', alignItems: 'center', textAlign: 'center', maxWidth: '70%' };
     case 'full-width-bottom':
@@ -722,7 +778,7 @@ function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): Re
     case 'full-width-top':
       return { ...base, top: '8%', left: '5%', right: '5%', alignItems: 'center' };
     default:
-      return { ...base, bottom: '12%', left: '4%', maxWidth: '45%' };
+      return { ...base, bottom: '12%', left: '5%', maxWidth: '45%' };
   }
 }
 
