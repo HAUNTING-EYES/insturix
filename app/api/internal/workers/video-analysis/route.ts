@@ -423,6 +423,13 @@ async function handler(request: NextRequest) {
             'Content-Type': 'application/json',
             'Upstash-Retries': '1',
             'Upstash-Delay': '2s',
+            // QStash's default response-wait (~2min) is far shorter than this worker's ~8min
+            // (V-JEPA/Wav2Vec GPU analysis runs synchronously). Without this header, QStash
+            // times out the still-running worker and fires its retry → a SECOND concurrent
+            // tribe worker → both fight over the Modal GPU → V-JEPA/Wav2Vec abort → per-moment
+            // signals come back empty → monotonous graphics. 800s matches this stage's
+            // maxDuration (tribe route) and is ≤ the QStash free-plan max (900s/15min). 2026-05-30.
+            'Upstash-Timeout': '800',
           },
           body: JSON.stringify(tribePayload),
         });
