@@ -165,7 +165,9 @@ export async function POST(request: NextRequest) {
             'Authorization': `Bearer ${qstashToken}`,
             'Content-Type': 'application/json',
             'Upstash-Retries': '2',
-            'Upstash-Timeout': '300',
+            // MUST carry a unit — QStash parses as a Go duration; bare '300' → HTTP 400
+            // "missing unit in duration" (same class of bug as the tribe dispatch, fixed 2026-05-30).
+            'Upstash-Timeout': '300s',
           },
           body: JSON.stringify({
             assetId,
