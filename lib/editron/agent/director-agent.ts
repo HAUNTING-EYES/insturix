@@ -604,9 +604,36 @@ export async function executeDirectorPlan(
               'speech.coverage': speechCoverage,
               'content.formality': genreFormality,
             };
+            // Per-frame signal injection: give each decision the signals of the MOMENT it lands on,
+            // not one video-level average. Previously every decision shared `signalCtx`, so every MG
+            // got identical treatment (the monotony, confirmed on real runs 2026-05-30). V-JEPA gives
+            // per-segment visual significance/motion; Wav2Vec gives per-segment vocal energy/emotion.
+            // Look up the segment covering each decision's frame and override the per-moment signals.
+            const signalsAtFrame = (frameNum: number): Record<string, number> => {
+              const timeMs = (frameNum / pathEFps) * 1000;
+              const out: Record<string, number> = { ...signalCtx };
+              if (vjepaSegs?.length) {
+                const v = vjepaSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs);
+                if (v) {
+                  out.visual_change_rate = v.motionIntensity ?? out.visual_change_rate;
+                  out.visual_significance = v.visualSignificance ?? 0;
+                  // visualSignificance = "this moment visually stands out" → feeds the MG complexity
+                  // budget via visceral_impact, so standout moments earn richer graphics.
+                  out.visceral_impact = Math.max(out.visceral_impact, v.visualSignificance ?? 0);
+                }
+              }
+              if (w2vSegs?.length) {
+                const w = w2vSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs);
+                if (w) {
+                  out.emotional_arousal = w.emotionIntensity ?? out.emotional_arousal;
+                  out.enthusiasm = Math.min(1, (w.energy ?? 0) * 1.2);
+                }
+              }
+              return out;
+            };
             for (const d of briefResult.edl.decisions) {
               if (!d.params.signals) {
-                d.params.signals = signalCtx;
+                d.params.signals = signalsAtFrame(d.frame);
               }
             }
 
