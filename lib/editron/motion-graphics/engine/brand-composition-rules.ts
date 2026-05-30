@@ -16,6 +16,7 @@
  */
 
 import type { BrandInputs } from '../types';
+import type { UnifiedBrand } from '@/lib/shared/brand-registry';
 
 // ─── Font Classification ────────────────────────────────
 // creative_production_knowledge_v3:4411-4437
@@ -215,4 +216,54 @@ function approximateLuminance(hex: string): number {
   const b = parseInt(hex.slice(5, 7), 16) / 255;
   // sRGB relative luminance (Rec. 709)
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+// ─── Brand → BrandInputs role mapping (G-2: seed of the VisualLanguage spine) ───
+// UnifiedBrand stores a FLAT hex palette with no role labels (brand.visual.colors). Assign the
+// ACCENT (emphasis) role to the brand's signature colour — the most SATURATED colour still legible
+// on the dark MG surface — so graphics render in the customer's colour, not DEFAULT_BRAND gold.
+// Text/surface/fonts keep the legible defaults until the full role spine (G-2.2 / G-3).
+// Deterministic, no LLM. Legibility = WCAG contrast against the dark surface (sourced, not invented):
+// a near-black brand colour (e.g. #1A1A2E) is unreadable on the canvas and must NOT become the accent.
+const SURFACE_HEX = '#0B0B0A';    // ← DEFAULT_BRAND.backgroundColor (keep in sync)
+const MIN_ACCENT_CONTRAST = 3.0;  // ← WCAG 2.1 AA large-text minimum (SC 1.4.3); keyword/focal text is large
+
+/** WCAG contrast ratio of a colour against the dark MG surface (>=3:1 ⇒ legible large text). */
+function contrastOnSurface(hex: string): number {
+  const a = approximateLuminance(hex), b = approximateLuminance(SURFACE_HEX);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+function normalizeHex(c: unknown): string | null {
+  if (typeof c !== 'string') return null;
+  const s = c.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(s)) return s;
+  if (/^#[0-9a-f]{3}$/.test(s)) return '#' + s.slice(1).split('').map(x => x + x).join('');
+  return null;
+}
+
+/** HSL saturation (0-1) of a #RRGGBB colour — how vivid it is. */
+function saturationOf(hex: string): number {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  if (max === min) return 0; // grey
+  const l = (max + min) / 2, d = max - min;
+  return l > 0.5 ? d / (2 - max - min) : d / (max + min);
+}
+
+/**
+ * Map a UnifiedBrand to motion-graphics BrandInputs (the input resolveMotionTokens already accepts).
+ * Picks the brand's signature colour as the ACCENT so MGs stop rendering DEFAULT_BRAND gold.
+ * Returns {} when there is no usable/legible brand colour, so the resolver falls back to DEFAULT_BRAND
+ * unchanged (fail-safe — never worse than today). G-2.1: accent only; fonts + full roles are G-2.2/G-3.
+ */
+export function brandInputsFromUnifiedBrand(brand: UnifiedBrand | null | undefined): Partial<BrandInputs> {
+  const palette = (brand?.visual?.colors ?? []).map(normalizeHex).filter((c): c is string => c !== null);
+  if (palette.length === 0) return {};
+  const legible = palette.filter(c => contrastOnSurface(c) >= MIN_ACCENT_CONTRAST);
+  if (legible.length === 0) return {}; // no colour reads on the dark surface → keep DEFAULT (legible); surface flip = G-3
+  const accentColor = legible.reduce((best, c) => (saturationOf(c) > saturationOf(best) ? c : best), legible[0]);
+  return { accentColor };
 }

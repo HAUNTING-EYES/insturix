@@ -19,7 +19,8 @@ import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, audioDescriptionToSearchQuery } from '@/lib/pipeline/sfx-library-service';
 import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
-import { resolveMotionTokens } from '@/lib/editron/data/motion-theme-resolver';
+import { resolveMotionTokens, type BrandInputs } from '@/lib/editron/data/motion-theme-resolver';
+import { brandInputsFromUnifiedBrand } from '@/lib/editron/motion-graphics/engine/brand-composition-rules';
 import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
 
@@ -248,6 +249,29 @@ export async function executeEDL(
   // FIX: inclusive >= lets budget system be the gatekeeper (as designed).
   const minConfidence = DEFAULT_CONFIG.analysis.minConfidenceForDecisions;
   const actionable = edl.decisions.filter(d => d.confidence >= minConfidence);
+
+  // ── G-2: resolve the customer's brand ONCE and stamp it onto graphic decisions ──
+  // The renderer already reads decision.params.brand (applyGraphic → resolveMotionTokens at the two
+  // composition sites), but NOTHING ever populated it → every MG rendered DEFAULT_BRAND gold. Populate
+  // it here, the single sink all four director paths reach. Empty/no brand → {} → DEFAULT (unchanged).
+  let projectBrand: Partial<BrandInputs> = {};
+  try {
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const projectDoc = await (await getDatabase()).collection('projects').findOne({ projectId });
+    if (projectDoc?.brandId && userId) {
+      const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
+      projectBrand = brandInputsFromUnifiedBrand(await getUnifiedBrand(userId, projectDoc.brandId));
+      if (projectBrand.accentColor) console.log(`[EDL] Brand accent ${projectBrand.accentColor} → MG (brand ${projectDoc.brandId})`);
+    }
+  } catch (e) {
+    console.warn('[EDL] brand resolve failed (non-fatal, using DEFAULT_BRAND):', e instanceof Error ? e.message : e);
+  }
+  for (const d of actionable) {
+    if (d.type === 'graphic' || d.type === 'caption-emphasis') {
+      d.params = d.params || {};
+      if (d.params.brand == null) d.params.brand = projectBrand;
+    }
+  }
 
   // Keep decisions in frame-first order (as produced by signal executor / reactive engine).
   // OLD: sorted by confidence descending — a high-confidence zoom at minute 8 consumed
