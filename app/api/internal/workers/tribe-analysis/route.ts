@@ -50,6 +50,31 @@ async function handler(request: NextRequest) {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
 
+    // ─── Idempotency guard ─────────────────────────────────────────
+    // QStash can redeliver this message (the worker runs ~8min, longer than QStash's effective
+    // response wait even with Upstash-Timeout), spawning a SECOND concurrent tribe worker that
+    // fights this one over the Modal GPU → V-JEPA/Wav2Vec abort (confirmed on real runs). Atomically
+    // CLAIM the project so a duplicate delivery bails instead of double-running. Stale claims (>15min,
+    // a crashed worker) are reclaimable; 15min > this route's maxDuration (800s) so a still-running
+    // worker keeps the lock.
+    const TRIBE_LOCK_STALE_MS = 15 * 60 * 1000;
+    const claim = await db.collection('projects').updateOne(
+      {
+        projectId,
+        $or: [
+          { tribeLockAt: { $exists: false } },
+          { tribeLockAt: null },
+          { tribeLockAt: { $lt: new Date(Date.now() - TRIBE_LOCK_STALE_MS) } },
+        ],
+      },
+      { $set: { tribeLockAt: new Date() } },
+    );
+    if (claim.matchedCount === 0) {
+      console.log(`[TribeWorker] ${projectId} already claimed by a concurrent worker (duplicate QStash delivery) — skipping to avoid GPU contention`);
+      return NextResponse.json({ success: true, skipped: 'duplicate-delivery', stage: 'tribe-analysis' });
+    }
+    console.log(`[TribeWorker] Claimed ${projectId} (tribe lock acquired)`);
+
     // ─── Step 3.5: V-JEPA + Wav2Vec + Essentia GPU analysis ────────
     // Run visual significance (V-JEPA), vocal emotion (Wav2Vec), and music
     // analysis (Essentia) in parallel. All are non-fatal — pipeline falls
