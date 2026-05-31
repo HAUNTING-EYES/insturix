@@ -18,6 +18,12 @@ import { planComposition } from '@/lib/editron/motion-graphics/engine/compositio
 import type { MotionTokens } from '@/lib/editron/motion-graphics/types';
 import type { Recipe } from '@/lib/editron/motion-graphics/engine/recipe-types';
 import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
+// Phase 0.1: load the MG default font families at module-eval (side-effect import). Without this,
+// the render path loaded ZERO fonts and every graphic fell back to Chromium default — corrupting
+// both the visible type AND G-1b's canvas measureText fit (composition-renderer.tsx:297). This is
+// the single shared entry for the harness (scripts/mg-still/root.tsx) and production
+// (core/layer-content.tsx), so importing here loads fonts on both paths. See mg-fonts.ts.
+import '@/lib/editron/motion-graphics/mg-fonts';
 
 interface MotionGraphicLayerContentProps {
   overlay: MotionGraphicOverlay;
