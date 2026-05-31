@@ -1158,6 +1158,18 @@ async function applyGraphic(
       }
     }
 
+    // Overlays-as-signals: the mg.typography.font_weight dial (signal→curve→[300..800]) is the
+    // source of boldness — feed it into the typography token every MG composer binds
+    // (token:typography.headingWeight), so weight comes from the CURVE, not the resolver's
+    // competing lerp (consolidation onto the dial infra). Body stays −200 subordinate (resolver
+    // convention). No dial (no signals) → the lerp value stands as the fallback.
+    const weightDial = mgScores?.['mg.typography.font_weight']?.values?.fontWeight;
+    if (typeof weightDial === 'number' && isFinite(weightDial)) {
+      const hw = Math.round(weightDial);
+      tokens.typography.headingWeight = hw;
+      tokens.typography.bodyWeight = Math.max(300, Math.min(600, hw - 200));
+    }
+
     const recipe = planComposition(
       { content: contentMap, triggerMoment: decision.reason },
       tokens,
