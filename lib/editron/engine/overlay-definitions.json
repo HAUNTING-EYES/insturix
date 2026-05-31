@@ -2191,6 +2191,34 @@
   },
 
   {
+    "id": "mg.emphasis.scale_contrast",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic content -> dramatic size hierarchy (larger modular-scale steps)"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Formal content -> gentle, measured hierarchy (smaller scale steps, inverted)"
+      }
+    ],
+    "outputParams": [
+      { "name": "scaleContrast", "mode": "proportional", "minValue": 1.4, "maxValue": 2.2 }
+    ]
+  },
+
+  {
     "id": "mg.layout.center_avoidance",
     "category": "mg-property",
     "rank": 50,

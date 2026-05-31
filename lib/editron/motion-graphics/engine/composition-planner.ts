@@ -415,9 +415,18 @@ function composeComparison(
   _language: MotionTokens,
   mgScores?: MgOverlayScores,
 ): void {
+  // Emphasis is SCORED, not a frozen ratio: mg.emphasis.scale_contrast outputs a modular type-scale
+  // ratio (gentle -> dramatic) from THIS moment's signals (energetic = punchy hierarchy, formal =
+  // measured). Every tier is one scale-step down from the hero: from = value/r, label = value/r^2,
+  // connector = value/r^1.5 (a relational glyph sitting between the subordinate value and its caption).
+  // Deriving all tiers from ONE ratio GUARANTEES the hierarchy law (value > from > connector > label
+  // for any r > 1) — independent per-tier ratios could invert it (the old connector*1.3 did, at the
+  // floor). Bounds 1.4-2.2 are standard modular-scale steps (root2 aug-4th .. 2.0 octave); the curve
+  // is INVENTED, calibration-pending (reference-video tuning) — the MECHANISM is the law, params are not.
+  const scaleContrast = Math.max(1.05, mgVal(mgScores, 'mg.emphasis.scale_contrast', 'scaleContrast', 2.0)); // floor > 1 keeps the hero largest
   const valueSize = Math.max(CRG.STAT_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.STAT_MIN_FONT));
-  const fromSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, valueSize * 0.5);  // ⚠️ 0.5 INVENTED — "before" is subordinate
-  const labelSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, valueSize * 0.3); // ⚠️ 0.3 INVENTED
+  const fromSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, valueSize / scaleContrast);
+  const labelSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, valueSize / (scaleContrast * scaleContrast));
   const lineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.1);
   // Connector follows the SCORED arrangement: → drives a horizontal row, ↓ a vertical stack.
   const horizontal = mgWinner(mgScores, 'mg.arrangement.') === 'mg.arrangement.horizontal';
@@ -446,7 +455,7 @@ function composeComparison(
     primitive: 'text', role: 'label', layer: 'foreground',
     bind: {
       text: connector, font: 'token:typography.headingFamily', weight: 700,
-      color: 'token:color.accent', minSize: Math.round(labelSize * 1.3), lineHeight: 1,
+      color: 'token:color.accent', minSize: Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, Math.round(valueSize / Math.pow(scaleContrast, 1.5))), lineHeight: 1,
     },
   });
 
