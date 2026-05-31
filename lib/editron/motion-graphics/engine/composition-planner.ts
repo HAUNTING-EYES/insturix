@@ -186,6 +186,15 @@ export function planComposition(
     }
   }
 
+  // Arrangement (row vs column) is SCORED, not hardcoded per form — the engine picks horizontal
+  // (dynamic side-by-side) vs vertical (stacked) from THIS moment's signals, exactly like the
+  // position override above. mg.arrangement.horizontal vs .vertical compete; the winner sets the
+  // flow. No signals → defaults vertical (graceful). This is what makes layout emergent, not preset.
+  const arrangement = mgWinner(mgScores, 'mg.arrangement.') === 'mg.arrangement.horizontal'
+    ? 'horizontal-distributed' as const
+    : 'vertical-stack' as const;
+  layout = { ...layout, arrangement };
+
   return {
     id: `composed-${strategy.shapes[0]?.kind || 'unknown'}`,
     elements,
@@ -234,6 +243,9 @@ function composeElements(
       break;
     case 'data-series':
       composeDataSeries(elements, primary, language);
+      break;
+    case 'comparison':
+      composeComparison(elements, primary, language, mgScores);
       break;
     case 'free-text':
     default: {
@@ -387,6 +399,71 @@ function composeNumeric(
         tracking: letterTracking > 0 ? `${letterTracking.toFixed(3)}em` : 'token:typography.headingTracking',
         minSize: labelSize,
         lineHeight: secondaryLineHeight,
+      },
+    });
+  }
+}
+
+// Comparison (before/after or versus). The "to" is the visual PAYOFF (accent colour, full size,
+// hero role); the "from" is de-emphasized (secondary colour, smaller); a connector glyph drives
+// the eye to the resolution. Sizes come from the signal dial; colours from brand/semantic tokens —
+// the LOOK is never baked into the form (Rule 11). Flow text in the centered column (reliable);
+// a horizontal group layout is a later refinement.
+function composeComparison(
+  elements: RecipeElement[],
+  shape: Extract<ContentShape, { kind: 'comparison' }>,
+  _language: MotionTokens,
+  mgScores?: MgOverlayScores,
+): void {
+  const valueSize = Math.max(CRG.STAT_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.STAT_MIN_FONT));
+  const fromSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, valueSize * 0.5);  // ⚠️ 0.5 INVENTED — "before" is subordinate
+  const labelSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, valueSize * 0.3); // ⚠️ 0.3 INVENTED
+  const lineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.1);
+  // Connector follows the SCORED arrangement: → drives a horizontal row, ↓ a vertical stack.
+  const horizontal = mgWinner(mgScores, 'mg.arrangement.') === 'mg.arrangement.horizontal';
+  const connector = shape.relation === 'vs' ? 'vs' : (horizontal ? '→' : '↓');
+
+  // FROM — the "before", de-emphasized
+  elements.push({
+    primitive: 'text', role: 'secondary', layer: 'foreground',
+    bind: {
+      text: 'content:from', font: 'token:typography.headingFamily', weight: 'token:typography.bodyWeight',
+      color: 'token:color.textSecondary', minSize: fromSize, lineHeight,
+    },
+  });
+  if (shape.fromLabel) {
+    elements.push({
+      primitive: 'text', role: 'label', layer: 'foreground',
+      bind: {
+        text: 'content:fromLabel', font: 'token:typography.bodyFamily', weight: 'token:typography.bodyWeight',
+        color: 'token:color.textSecondary', transform: 'uppercase', tracking: '0.08em', minSize: labelSize, lineHeight: 1.2,
+      },
+    });
+  }
+
+  // CONNECTOR — accent glyph driving to the payoff (↓ transformation, vs comparison)
+  elements.push({
+    primitive: 'text', role: 'label', layer: 'foreground',
+    bind: {
+      text: connector, font: 'token:typography.headingFamily', weight: 700,
+      color: 'token:color.accent', minSize: Math.round(labelSize * 1.3), lineHeight: 1,
+    },
+  });
+
+  // TO — the PAYOFF: accent colour, full size, hero role (one focal point → passes the gate)
+  elements.push({
+    primitive: 'text', role: 'primary', layer: 'foreground',
+    bind: {
+      text: 'content:to', font: 'token:typography.headingFamily', weight: 'token:typography.headingWeight',
+      color: 'token:color.accent', minSize: valueSize, lineHeight,
+    },
+  });
+  if (shape.toLabel) {
+    elements.push({
+      primitive: 'text', role: 'label', layer: 'foreground',
+      bind: {
+        text: 'content:toLabel', font: 'token:typography.bodyFamily', weight: 'token:typography.bodyWeight',
+        color: 'token:color.textPrimary', transform: 'uppercase', tracking: '0.08em', minSize: labelSize, lineHeight: 1.2,
       },
     });
   }

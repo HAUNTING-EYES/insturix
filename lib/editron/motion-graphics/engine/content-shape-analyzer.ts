@@ -88,6 +88,20 @@ function detectShapes(
     });
   }
 
+  // Comparison: two comparable values present (before/after or versus). The 2-value structure
+  // IS the affordance (a fact about the content) — detected here, never an LLM/preset choice.
+  if (typeof content.from === 'string' && content.from.length > 0
+      && typeof content.to === 'string' && content.to.length > 0) {
+    shapes.push({
+      kind: 'comparison',
+      from: content.from,
+      to: content.to,
+      fromLabel: content.fromLabel != null ? String(content.fromLabel) : undefined,
+      toLabel: content.toLabel != null ? String(content.toLabel) : undefined,
+      relation: content.relation === 'vs' ? 'vs' : 'arrow',
+    });
+  }
+
   if (shapes.length === 0 && typeof content.text === 'string') {
     shapes.push({ kind: 'emphasis', text: content.text, weight: 'medium' });
   }
@@ -153,6 +167,8 @@ function layoutForShape(
     }
     case 'data-series':
       return { position: 'center', maxWidth: '80%' };
+    case 'comparison':
+      return { position: 'center', maxWidth: '85%' };
     case 'structured':
       return { position: 'top-right' };
     case 'free-text':
@@ -168,6 +184,7 @@ function exitStyleForShape(
   switch (shape.kind) {
     case 'numeric':
     case 'identity':
+    case 'comparison':
       return 'reverse-stagger';
     case 'brand':
       return 'hold-then-fade';

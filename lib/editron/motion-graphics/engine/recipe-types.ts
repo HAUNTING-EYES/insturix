@@ -192,6 +192,7 @@ export type ContentShapeKind =
   | 'data-series'
   | 'brand'
   | 'structured'
+  | 'comparison'
   | 'free-text';
 
 export type ContentShape =
@@ -202,6 +203,7 @@ export type ContentShape =
   | { kind: 'data-series'; values: number[]; labels?: string[] }
   | { kind: 'brand'; text: string; logo?: string }
   | { kind: 'structured'; title: string; body?: string; items?: string[] }
+  | { kind: 'comparison'; from: string; to: string; fromLabel?: string; toLabel?: string; relation?: 'arrow' | 'vs' }
   | { kind: 'free-text'; text: string };
 
 export interface CompositionStrategy {

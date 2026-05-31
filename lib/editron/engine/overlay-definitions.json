@@ -2135,6 +2135,62 @@
   },
 
   {
+    "id": "mg.arrangement.horizontal",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic content -> dynamic side-by-side (horizontal) flow"
+      },
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.2 },
+        "invert": false,
+        "description": "Fast pacing -> horizontal punch, read left-to-right quickly"
+      }
+    ],
+    "outputParams": [
+      { "name": "arrangementScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.arrangement.vertical",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Formal content -> composed vertical stack"
+      },
+      {
+        "signalId": "warmth",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.25 },
+        "invert": false,
+        "description": "Warm content -> calm stacked reveal"
+      }
+    ],
+    "outputParams": [
+      { "name": "arrangementScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
     "id": "mg.layout.center_avoidance",
     "category": "mg-property",
     "rank": 50,

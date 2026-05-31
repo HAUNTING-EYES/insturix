@@ -765,11 +765,16 @@ function layoutMaxWidthFraction(position: string): number {
 }
 
 function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): React.CSSProperties {
+  // Arrangement is SIGNAL-SCORED (mg.arrangement.*), not hardcoded per form — horizontal = a
+  // dynamic side-by-side row, vertical/default = a stacked column. The form's elements flow into
+  // whichever direction the engine scored for THIS moment (set in composition-planner).
+  const isHorizontal = layout.arrangement === 'horizontal-distributed';
   const base: React.CSSProperties = {
     position: 'absolute',
     display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
+    flexDirection: isHorizontal ? 'row' : 'column',
+    gap: isHorizontal ? '28px' : '4px',
+    alignItems: isHorizontal ? 'center' : undefined,
     // Force a stacking context so block-fill backdrops (z-index:-1) stay contained
     // behind this composition's content and don't bleed below the video layer.
     isolation: 'isolate',
