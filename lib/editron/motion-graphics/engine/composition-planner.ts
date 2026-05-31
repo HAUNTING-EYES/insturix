@@ -36,6 +36,14 @@ function mgWinner(scores: MgOverlayScores | undefined, prefix: string): string |
   return best?.id;
 }
 
+// Emphasis = the modular type-scale ratio (gentle -> dramatic) scored from signals via
+// mg.emphasis.scale_contrast. Composers derive their subordinate tiers from this ONE ratio
+// (secondary = hero / r), so the size hierarchy emerges from the moment instead of a frozen
+// per-composer ratio. Floor > 1 keeps the hero the largest element however the dial is calibrated.
+function emphasisRatio(scores: MgOverlayScores | undefined): number {
+  return Math.max(1.05, mgVal(scores, 'mg.emphasis.scale_contrast', 'scaleContrast', 2.0));
+}
+
 const CRG = {
   STAT_MIN_FONT: 64,              // constant:typography.stat_counter_min_font → 64px
   LOWER_THIRD_MIN_FONT: 48,      // constant:typography.lower_third_name_min_font → 48px
@@ -186,11 +194,16 @@ export function planComposition(
     }
   }
 
-  // Arrangement (row vs column) is SCORED, not hardcoded per form — the engine picks horizontal
-  // (dynamic side-by-side) vs vertical (stacked) from THIS moment's signals, exactly like the
-  // position override above. mg.arrangement.horizontal vs .vertical compete; the winner sets the
-  // flow. No signals → defaults vertical (graceful). This is what makes layout emergent, not preset.
-  const arrangement = mgWinner(mgScores, 'mg.arrangement.') === 'mg.arrangement.horizontal'
+  // Arrangement (row vs column) is SCORED — but LICENSED by an affordance first. Horizontal
+  // (side-by-side) reads well ONLY when the shape has two PEER elements (comparison's before|after).
+  // For hero+caption shapes (stat/identity/quote/callout) the second element is a SUBORDINATE caption
+  // that belongs BELOW the hero, not in a column beside it — so they always stack vertical, however
+  // the signal scores. The signal still picks the flow, but only among shapes a row can actually
+  // serve. Same affordance x fit gate as form-selection ("a caption sits below its hero" is a law,
+  // not a taste); without it, horizontal split stat/name/quote into disconnected, over-wrapped columns.
+  const PEER_SHAPES = new Set<string>(['comparison']); // co-equal-peer shapes; extend as such shapes are added
+  const supportsHorizontal = PEER_SHAPES.has(strategy.shapes[0]?.kind ?? '');
+  const arrangement = (supportsHorizontal && mgWinner(mgScores, 'mg.arrangement.') === 'mg.arrangement.horizontal')
     ? 'horizontal-distributed' as const
     : 'vertical-stack' as const;
   layout = { ...layout, arrangement };
@@ -386,7 +399,7 @@ function composeNumeric(
   if (shape.label) {
     // CRG-floored size: without minSize, buildTextStyle leaves fontSize undefined → ~16px default
     // on a 1080p canvas (illegible). Same pattern as composeIdentity title / composeStructured body.
-    const labelSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.LOWER_THIRD_TITLE_MIN_FONT) * 0.75);
+    const labelSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, fontSize / emphasisRatio(mgScores)); // caption one modular step below the hero (was *0.75)
     elements.push({
       primitive: 'text',
       role: 'label',
@@ -423,7 +436,7 @@ function composeComparison(
   // for any r > 1) — independent per-tier ratios could invert it (the old connector*1.3 did, at the
   // floor). Bounds 1.4-2.2 are standard modular-scale steps (root2 aug-4th .. 2.0 octave); the curve
   // is INVENTED, calibration-pending (reference-video tuning) — the MECHANISM is the law, params are not.
-  const scaleContrast = Math.max(1.05, mgVal(mgScores, 'mg.emphasis.scale_contrast', 'scaleContrast', 2.0)); // floor > 1 keeps the hero largest
+  const scaleContrast = emphasisRatio(mgScores);
   const valueSize = Math.max(CRG.STAT_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.STAT_MIN_FONT));
   const fromSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, valueSize / scaleContrast);
   const labelSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, valueSize / (scaleContrast * scaleContrast));
@@ -519,7 +532,7 @@ function composeIdentity(
   });
 
   if (shape.title) {
-    const titleSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.LOWER_THIRD_TITLE_MIN_FONT) * 0.75);
+    const titleSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, primarySize / emphasisRatio(mgScores)); // subtitle one modular step below the name (was *0.75)
     const titleLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.3);
 
     elements.push({
@@ -564,7 +577,7 @@ function composeQuotation(
   if (shape.author) {
     const authorLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.2);
     // CRG-floored size so the author line is legible (without minSize, fontSize is undefined → ~16px).
-    const authorSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.LOWER_THIRD_TITLE_MIN_FONT) * 0.75);
+    const authorSize = Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, quoteSize / emphasisRatio(mgScores)); // attribution one modular step below the quote (was *0.75)
 
     elements.push({
       primitive: 'text',
@@ -704,7 +717,7 @@ function composeStructured(
   });
 
   if (shape.body) {
-    const bodySize = Math.max(CRG.CALLOUT_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.CALLOUT_MIN_FONT) * 0.75);
+    const bodySize = Math.max(CRG.CALLOUT_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.CALLOUT_MIN_FONT) / emphasisRatio(mgScores)); // body one modular step below the title-tier size (was *0.75)
     const bodyLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.4);
 
     elements.push({
