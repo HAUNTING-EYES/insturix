@@ -702,6 +702,9 @@ function composeStructured(
   mgScores?: MgOverlayScores,
 ): void {
   const primaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.1);
+  // Title is the HERO — it MUST carry an explicit size, else the renderer leaves fontSize undefined
+  // (~16px) and the body reads larger than the title (inverted hierarchy). Body sits one step below.
+  const titleSize = Math.max(CRG.KEYWORD_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.KEYWORD_MIN_FONT));
 
   elements.push({
     primitive: 'text',
@@ -712,12 +715,13 @@ function composeStructured(
       font: 'token:typography.headingFamily',
       weight: 'token:typography.headingWeight',
       color: 'token:color.textPrimary',
+      minSize: titleSize,
       lineHeight: primaryLineHeight,
     },
   });
 
   if (shape.body) {
-    const bodySize = Math.max(CRG.CALLOUT_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.CALLOUT_MIN_FONT) / emphasisRatio(mgScores)); // body one modular step below the title-tier size (was *0.75)
+    const bodySize = Math.max(CRG.CALLOUT_MIN_FONT, titleSize / emphasisRatio(mgScores)); // body one modular step below the title hero
     const bodyLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.4);
 
     elements.push({

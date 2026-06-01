@@ -126,6 +126,10 @@ const FRACTION_VALUE_RE = /^\d[\d.]*\/\d[\d.]*$/;                 // 1/3, 3.5/5
 const RATIO_VALUE_RE = /^\d[\d.]*:\d[\d.]*$/;                     // 2:1
 // ⚠️ suffix set K/M/B/T/x/× INVENTED — common magnitude/multiplier suffixes; extend as needed.
 const MAGNITUDE_VALUE_RE = /^[$€£¥₹]?\d[\d,]*\.?\d*[KMBTkmbtx×]$/; // 100M, $1.2B, 10x
+// Any remaining number-like value (negative -15, EU 1.234,56, accounting (15), range 10-20, currency)
+// is still a STAT — rendered STATICALLY as the exact string. Value-glyphs only, never prose. Without
+// this these fell through to free-text → a BLANK graphic; a stat with no number is the worst outcome.
+const STATIC_NUMERIC_RE = /^[\d.,:/%×xX()$€£¥₹+\- ]+$/;
 
 function numericValueForm(value: unknown): 'countable' | 'static' | null {
   if (value == null) return null;
@@ -133,6 +137,7 @@ function numericValueForm(value: unknown): 'countable' | 'static' | null {
   if (!/\d/.test(str)) return null; // must contain a digit (anchored REs reject prose)
   if (COUNTABLE_VALUE_RE.test(str)) return 'countable';
   if (FRACTION_VALUE_RE.test(str) || RATIO_VALUE_RE.test(str) || MAGNITUDE_VALUE_RE.test(str)) return 'static';
+  if (STATIC_NUMERIC_RE.test(str)) return 'static'; // negative / EU / accounting / range / signed → exact static stat
   return null;
 }
 

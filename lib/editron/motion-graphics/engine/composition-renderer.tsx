@@ -431,7 +431,9 @@ const CountUpText: React.FC<{
   timing: ComputedChoreography;
 }> = ({ element, style, frame, timing }) => {
   const p = element.resolvedProps;
-  const targetValue = parseFloat(String(p.text || '0'));
+  // Strip thousands separators (and spaces) before parsing so "1,234,567" -> 1234567, not 1.
+  // formatCounterValue re-adds grouping via toLocaleString, so the count animates AND displays correctly.
+  const targetValue = parseFloat(String(p.text || '0').replace(/[,\s]/g, ''));
 
   const counterStart = timing.enterEndFrame;
   const counterDuration = Math.min(45, timing.holdEndFrame - timing.holdStartFrame);
