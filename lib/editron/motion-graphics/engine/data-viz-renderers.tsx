@@ -196,6 +196,10 @@ export const Sparkline: React.FC<DataVizProps> = ({
   width,
   height,
 }) => {
+  // Unique gradient id per instance (hook MUST precede the early return). A hardcoded global id
+  // collides when two charts render in one frame: SVG resolves url(#id) to the FIRST match → wrong
+  // fill, silently. useId is deterministic per render tree position.
+  const fillId = `sparkFill-${React.useId().replace(/:/g, '')}`;
   if (values.length < 2) return null;
 
   const safeValues = values.map(v => isFinite(v) ? v : 0);
@@ -224,7 +228,7 @@ export const Sparkline: React.FC<DataVizProps> = ({
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
       {/* Gradient fill under the line */}
       <defs>
-        <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity={0.2 * progress} />
           <stop offset="100%" stopColor={color} stopOpacity={0} />
         </linearGradient>
@@ -233,7 +237,7 @@ export const Sparkline: React.FC<DataVizProps> = ({
       {progress > 0.3 && (
         <path
           d={`${pathD} L ${points[points.length - 1].x.toFixed(1)} ${height} L ${points[0].x.toFixed(1)} ${height} Z`}
-          fill="url(#sparkFill)"
+          fill={`url(#${fillId})`}
           opacity={Math.min(1, (progress - 0.3) * 2)}
         />
       )}

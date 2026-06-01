@@ -2234,7 +2234,7 @@
         "description": "Low visual dependency (face dominant) → avoid center (inverted)"
       },
       {
-        "signalId": "speech.coverage",
+        "signalId": "speech_coverage",
         "curveType": "logistic",
         "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
         "invert": false,
@@ -2474,7 +2474,7 @@
         "description": "Faster pacing → slide wins (slope 2.5: pacing=0.5 scores ~0.65)"
       },
       {
-        "signalId": "speech.coverage",
+        "signalId": "speech_coverage",
         "curveType": "linear",
         "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.25 },
         "invert": false,

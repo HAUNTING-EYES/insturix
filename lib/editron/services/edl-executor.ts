@@ -284,7 +284,15 @@ export async function executeEDL(
 
   // Deterministic epoch for overlay IDs — stable within this Director run, unique across runs.
   // Derived from projectId hash so the same EDL on the same project always produces the same IDs.
-  const idEpoch = Math.floor(Date.now() / 1000);
+  // Stable per-PROJECT epoch so the same project renders identical overlay IDs every run (Lambda
+  // caching + A/B comparisons). Was Date.now() — wall-clock changed every render, which is exactly
+  // what deterministicOverlayId (line 32) was built to avoid; the old comment claimed projectId-stable
+  // but used the clock. FNV-1a of projectId mirrors the helper's fold; empty id → stable constant.
+  let idEpoch = 2166136261 >>> 0;
+  for (let i = 0; i < projectId.length; i += 1) {
+    idEpoch ^= projectId.charCodeAt(i);
+    idEpoch = Math.imul(idEpoch, 16777619) >>> 0;
+  }
 
   // Pre-resolve unique SFX tokens so the decision loop doesn't make
   // per-decision API calls. One Freesound search per unique token.
@@ -1127,7 +1135,12 @@ async function applyGraphic(
     const rawSignals = decision.params.signals || {};
     const tokens = resolveMotionTokens(rawSignals, decision.params.brand || {});
 
-    const contentMap: Record<string, unknown> = { ...decision.params };
+    // `brand` is RENDER TOKENS (consumed by resolveMotionTokens above), NOT graphic content. Passing
+    // it through as content.brand mis-fires the brand SHAPE detector (content-shape-analyzer.ts:74,
+    // `text && content.brand`) so every keyword/text graphic in a BRANDED project renders as a
+    // wordmark instead of emphasis. Keep render tokens out of the content map.
+    const { brand: _brandTokens, ...contentParams } = decision.params;
+    const contentMap: Record<string, unknown> = { ...contentParams };
     if (text) contentMap.text = text;
 
     let mgScores: MgOverlayScores | undefined = decision.params.mgOverlayScores as MgOverlayScores | undefined;
