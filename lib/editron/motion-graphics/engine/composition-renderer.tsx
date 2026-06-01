@@ -53,13 +53,23 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
     return aDepth - bDepth;
   });
 
-  const layoutStyle = resolveLayout(recipe.layout);
+  // Horizontal (side-by-side) arrangement needs a LANDSCAPE frame; in a square/portrait canvas a
+  // 2-3 element row overflows and clips off-frame. Fall back to a vertical stack when the frame
+  // isn't wide enough. ⚠️ 1.35 aspect threshold INVENTED (just above 4:3) — calibration-pending.
+  const flipped = recipe.layout.arrangement === 'horizontal-distributed' && width / height < 1.35;
+  const renderLayout = flipped ? { ...recipe.layout, arrangement: 'vertical-stack' as const } : recipe.layout;
+  const layoutStyle = resolveLayout(renderLayout);
   // G-1: px box width for text fit = canvas width × the layout's max-width fraction.
-  const boxWidthPx = width * layoutMaxWidthFraction(recipe.layout.position);
+  const boxWidthPx = width * layoutMaxWidthFraction(renderLayout.position);
+  // When a horizontal comparison is flipped to a vertical stack (above), its baked horizontal
+  // connector glyph ("→") would point the wrong way in a column — remap it to the vertical "↓".
+  const elementsToRender = flipped
+    ? sorted.map((el) => (el.resolvedProps?.text === '→' ? { ...el, resolvedProps: { ...el.resolvedProps, text: '↓' } } : el))
+    : sorted;
 
   return (
     <div style={layoutStyle}>
-      {sorted.map((el, idx) => {
+      {elementsToRender.map((el, idx) => {
         const timing = choreographyMap.get(el.role);
         if (!timing) return null;
 

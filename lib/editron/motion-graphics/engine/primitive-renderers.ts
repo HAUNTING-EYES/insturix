@@ -524,8 +524,8 @@ export function estimateTextWidth(text: string, fontSizePx: number, opts?: TextF
 /**
  * Largest font size (px) at which `text` fits its box without overflowing or breaking a word.
  * The LONGEST WORD must fit on one line within boxWidthPx (multi-word phrases wrap at spaces).
- * Returns clamp(desired, minReadable, fitCap). If even minReadablePx can't fit the longest word,
- * returns minReadablePx and logs (fail-loud) — the caller wraps/truncates, never overflows silently.
+ * Returns min(desired, width-fit). If even the readable floor can't fit the longest word, returns the
+ * smaller width-fit size (stays on-frame) and logs (fail-loud) — fit always beats the floor, never overflows.
  */
 export function fitFontSize(
   text: string,
@@ -550,8 +550,10 @@ export function fitFontSize(
   const widthAtDesired = widthAt(desiredPx);
   let size = widthAtDesired <= safe ? desiredPx : desiredPx * (safe / widthAtDesired);
   if (size < minReadablePx) {
-    console.warn(`[MG-Fit] "${target}" cannot fit ${Math.round(boxWidthPx)}px box at min ${Math.round(minReadablePx)}px — wrap/truncate`);
-    size = minReadablePx;
+    // The longest word can't reach the readable floor in this box. FIT WINS over the floor — a slightly
+    // small word that stays on-frame beats one clamped up to minReadable and clipped off-frame (the
+    // 9:16 / 1:1 narrow-box overflow bug). `size` already fits `safe` by construction, so keep it.
+    console.warn(`[MG-Fit] "${target}" fits ${Math.round(boxWidthPx)}px only at ${Math.round(size)}px (< min ${Math.round(minReadablePx)}px) — kept small to avoid overflow`);
   }
   return Math.min(size, desiredPx);
 }
