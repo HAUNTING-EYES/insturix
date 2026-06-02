@@ -23,6 +23,7 @@
 
 import type { EditProfile, EditProfileAction, DirectorResult, ProjectBrief, ProfileId } from '@/lib/editron/data/edit-profile-types';
 import type { GateResult } from '@/lib/editron/services/quality-gate';
+import type { OverlayCategory } from '@/lib/editron/engine/utility-types';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import { projectService } from '@/lib/editron/services/project-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -842,6 +843,10 @@ export async function executeDirectorPlan(
               let utilityAboveMin = 0;
               const sampleLogs: string[] = [];
               const gridPointDecisions: Array<{ frame: number; timestampMs: number; winners: Record<string, any> }> = [];
+              // Persisted ACROSS grid points so selectWinners can enforce each category's min-gap (its required
+              // 2nd arg). The latent crash lived here: the live call passed `frame` (a number) into this Map slot,
+              // so recentDecisions.get() threw — and the catch below silently swallowed it (path looked "skipped").
+              const recentDecisions = new Map<OverlayCategory, number>();
               for (const frame of gridFrames) {
                 const snap = signalTimeline.gridSignals.get(frame)!;
                 const numericSnap: Record<string, number> = {};
@@ -854,8 +859,12 @@ export async function executeDirectorPlan(
                 utilityTotal += overlayDefs.length;
                 utilityAboveMin += results.length;
                 if (useUtilityLive) {
-                  const winners = selectWinners(results, frame);
+                  const winners = selectWinners(results, recentDecisions, frame);
                   gridPointDecisions.push({ frame, timestampMs: (snap as any).timestampMs ?? (frame / pathDFps * 1000), winners });
+                  // Record each fired category's frame so subsequent grid points respect its min-gap.
+                  for (const [cat, winner] of Object.entries(winners)) {
+                    if (winner) recentDecisions.set(cat as OverlayCategory, frame);
+                  }
                 }
                 if (results.length > 0 && sampleLogs.length < 5) {
                   const decision = { frame, timestampMs: (snap as any).timestampMs ?? 0, winners: {} as any, allScores: results };
@@ -874,7 +883,14 @@ export async function executeDirectorPlan(
                 console.log(`[Director] Utility AI LIVE: ${utilityEdl.decisions.length} overlay decisions produced (${utilityEdl.metadata.executionTimeMs}ms). Merged with ${signalEdl.decisions.filter(d => d.type === 'graphic').length} signal-executor graphics.`);
               }
             } catch (utilityErr) {
-              console.log(`[Director] Utility AI scoring: skipped (${utilityErr instanceof Error ? utilityErr.message : 'unknown error'})`);
+              const msg = utilityErr instanceof Error ? utilityErr.message : 'unknown error';
+              // FAIL LOUD (R18N): this catch silently swallowed a hard crash for ages, making a dead path
+              // look "skipped". In dev, surface it so it can't hide again; in prod, log loudly but stay
+              // non-fatal — utility scoring is optional/shadow and must not abort the director run.
+              if (process.env.NODE_ENV !== 'production') {
+                throw new Error(`[Director] Utility AI scoring crashed (failing loud in dev): ${msg}`);
+              }
+              console.error(`[Director] Utility AI scoring failed (non-fatal): ${msg}`);
             }
 
             // Step D.4c: Utility AI profile override — real signals (Phase 2.4)
