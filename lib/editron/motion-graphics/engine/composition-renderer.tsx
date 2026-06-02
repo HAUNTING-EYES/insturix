@@ -441,9 +441,14 @@ const CountUpText: React.FC<{
   timing: ComputedChoreography;
 }> = ({ element, style, frame, timing }) => {
   const p = element.resolvedProps;
+  const rawText = String(p.text || '0');
   // Strip thousands separators (and spaces) before parsing so "1,234,567" -> 1234567, not 1.
   // formatCounterValue re-adds grouping via toLocaleString, so the count animates AND displays correctly.
-  const targetValue = parseFloat(String(p.text || '0').replace(/[,\s]/g, ''));
+  const targetValue = parseFloat(rawText.replace(/[,\s]/g, ''));
+  // "%" is the only unit COUNTABLE_VALUE_RE permits inside a count-up value (e.g. "90%"). parseFloat
+  // drops it and there is no separate suffix field, so carry it through — else the count shows "90", not "90%".
+  const suffixProp = String(p.suffix || '');
+  const valueUnit = /%\s*$/.test(rawText) && !suffixProp.includes('%') ? '%' : '';
 
   const counterStart = timing.enterEndFrame;
   const counterDuration = Math.min(45, timing.holdEndFrame - timing.holdStartFrame);
@@ -460,7 +465,7 @@ const CountUpText: React.FC<{
     displayValue = targetValue * progress;
   }
 
-  const formatted = formatCounterValue(displayValue, targetValue, String(p.prefix || ''), String(p.suffix || ''));
+  const formatted = formatCounterValue(displayValue, targetValue, String(p.prefix || ''), suffixProp + valueUnit);
 
   return <div style={style}>{formatted}</div>;
 };
