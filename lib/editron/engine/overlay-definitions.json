@@ -2747,18 +2747,18 @@
     "minGapFrames": 0,
     "considerations": [
       {
-        "signalId": "pacing_velocity",
+        "signalId": "visceral_impact",
         "curveType": "polynomial",
         "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
         "invert": true,
-        "description": "Fast pacing → shorter entrance duration (inverted: high signal → low output → fast)"
+        "description": "High impact → shorter/snappier entrance (PER-MOMENT primary; inverted: high signal → low duration → fast). (default curve — Phase-2 tuner calibrates)"
       },
       {
-        "signalId": "enthusiasm",
+        "signalId": "pacing_velocity",
         "curveType": "linear",
         "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
         "invert": true,
-        "description": "Energetic → snappier entrance (inverted: high signal → low output → fast)"
+        "description": "Fast video pacing → snappier baseline (brand-character; inverted)"
       }
     ],
     "outputParams": [
