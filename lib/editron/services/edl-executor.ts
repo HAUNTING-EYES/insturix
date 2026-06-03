@@ -23,6 +23,7 @@ import { resolveMotionTokens, type BrandInputs } from '@/lib/editron/data/motion
 import { brandInputsFromUnifiedBrand } from '@/lib/editron/motion-graphics/engine/brand-composition-rules';
 import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
+import { buildZoomKeyframes } from '@/lib/editron/services/zoom-keyframes';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -854,37 +855,7 @@ function applyZoom(
   const zoomType = decision.params.zoomType
     || (scaleTo < scaleFrom ? 'pull-back' : (duration >= sceneEnd * 0.5 ? 'slow-push' : 'punch-in'));
 
-  type Easing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
-  let keyframes: Array<{ frame: number; value: number; easing: Easing }>;
-
-  switch (zoomType) {
-    case 'punch-in':
-      // Quick zoom to target at decision frame, then HOLD at that scale
-      // 3 keyframes: before → punch → hold at scene end
-      keyframes = [
-        { frame: Math.max(0, localFrame - 5), value: scaleFrom, easing: 'ease-in' },
-        { frame: localFrame + Math.min(duration, 15), value: scaleTo, easing: 'ease-out' },
-        { frame: sceneEnd, value: scaleTo, easing: 'linear' }, // HOLD — don't bounce back
-      ];
-      break;
-
-    case 'pull-back':
-      // Start zoomed in, gradually pull back to normal
-      keyframes = [
-        { frame: Math.max(0, localFrame), value: scaleTo, easing: 'ease-in-out' },
-        { frame: Math.min(localFrame + duration, sceneEnd), value: scaleFrom, easing: 'ease-out' },
-      ];
-      break;
-
-    case 'slow-push':
-    default:
-      // Gentle zoom over the full scene duration (cinematic push)
-      keyframes = [
-        { frame: 0, value: scaleFrom, easing: 'ease-in-out' },
-        { frame: sceneEnd, value: scaleTo, easing: 'ease-in-out' },
-      ];
-      break;
-  }
+  const keyframes = buildZoomKeyframes(zoomType, scaleFrom, scaleTo, localFrame, duration, sceneEnd);
 
   videoOverlay.keyframeTracks.push({
     property: 'scale',
