@@ -81,8 +81,14 @@ describe('signals-contract: moment-driven dials must track the moment', () => {
   // INVARIANT 2 (behavioral): across distinct synthetic moments the entrance winner
   // VARIES — catches a dial that nominally reads a per-moment signal but whose curve
   // pins one winner anyway.
-  it('entrance winner varies across distinct moments', () => {
-    const entrance = defs.filter((d) => d.id.startsWith('mg.animation.entrance_'));
+  // NOTE: entrance dials are SELECTION dials → scored MULTIPLICATIVELY in the real pipeline
+  // (edl-executor.ts:1153-1163 puts mg.animation.entrance_* in SELECTION_IDS → 'multiplicative').
+  // The test MUST use the same method or it validates a scoring path production never runs.
+  // entrance_speed is NOT a selection dial (absent from SELECTION_IDS) → exclude it from the winner pool.
+  it('entrance winner varies across distinct moments (multiplicative — the real method)', () => {
+    const entrance = defs.filter(
+      (d) => d.id.startsWith('mg.animation.entrance_') && d.id !== 'mg.animation.entrance_speed',
+    );
     const moments: SignalSnapshot[] = [
       { visceral_impact: 0.15, visual_change_rate: 0.12, visual_significance: 0.10, formality: 0.40, warmth: 0.30 },
       { visceral_impact: 0.92, visual_change_rate: 0.50, visual_significance: 0.85, formality: 0.30, warmth: 0.30 },
@@ -92,7 +98,7 @@ describe('signals-contract: moment-driven dials must track the moment', () => {
     ] as SignalSnapshot[];
     const winners = new Set<string>();
     for (const m of moments) {
-      const top = scoreAllOverlays(entrance, m, 'additive')[0];
+      const top = scoreAllOverlays(entrance, m, 'multiplicative')[0];
       if (top) winners.add(top.overlayId);
     }
     expect(
