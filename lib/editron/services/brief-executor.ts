@@ -353,3 +353,28 @@ export function mapOriginalFrameToCutTimeline(
   // Gap too large — decision was for deeply removed content
   return null;
 }
+
+/**
+ * Inverse of mapOriginalFrameToCutTimeline: CUT-timeline frame → ORIGINAL-timeline frame.
+ *
+ * The cut timeline is contiguous (clips laid end-to-end, no gaps), so a cut frame falls inside
+ * exactly one clip — map it back through that clip's source range. Returns null only if the frame
+ * is beyond all clips (no original correspondence).
+ *
+ * Why this exists: V-JEPA / Wav2Vec segments and word timestamps live on the ORIGINAL timeline,
+ * while MG decision `frame`s are on the CUT timeline (clean ≈ 50% of original after silence removal).
+ * Querying segments with a raw cut-frame time lands later decisions in removed-silence gaps → no
+ * segment → per-moment signals fall back to video-level constants. That was the root cause of the
+ * 6/13 missing-signal bug on proj_OzG2qgoYudFa (2026-06-03). Map cut→original BEFORE the lookup.
+ */
+export function mapCutFrameToOriginalFrame(
+  cutFrame: number,
+  clips: { from: number; durationInFrames: number; sourceStartFrame?: number }[],
+): number | null {
+  for (const clip of clips) {
+    if (cutFrame >= clip.from && cutFrame < clip.from + clip.durationInFrames) {
+      return (clip.sourceStartFrame ?? 0) + (cutFrame - clip.from);
+    }
+  }
+  return null;
+}

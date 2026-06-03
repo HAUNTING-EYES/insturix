@@ -609,12 +609,40 @@ export async function executeDirectorPlan(
             // not one video-level average. Previously every decision shared `signalCtx`, so every MG
             // got identical treatment (the monotony, confirmed on real runs 2026-05-30). V-JEPA gives
             // per-segment visual significance/motion; Wav2Vec gives per-segment vocal energy/emotion.
-            // Look up the segment covering each decision's frame and override the per-moment signals.
+            //
+            // TIMELINE FIX (2026-06-03): V-JEPA / Wav2Vec segments are timestamped on the ORIGINAL
+            // video; a decision `frame` is on the CUT timeline (clean ≈ 50% of original). Querying the
+            // raw cut-frame time landed later decisions in removed-silence gaps → no segment → constant
+            // fallback (6/13 MGs on proj_OzG2qgoYudFa). Map cut→original BEFORE the lookup.
+            const { mapCutFrameToOriginalFrame } = await import('@/lib/editron/services/brief-executor');
+            const cutToOriginalClips = (overlays as any[])
+              .filter((o) => o.type === 'video')
+              .map((o) => ({ from: o.from, durationInFrames: o.durationInFrames, sourceStartFrame: o.sourceStartFrame ?? o.videoStartTime }));
+            // Boundary/rounding safety net: if no segment strictly contains the mapped time, use the
+            // nearest one within tolerance (graceful) — but it still counts as a coverage MISS so the
+            // warning below stays honest about mapping quality.
+            const SEG_SNAP_MS = 5 * 1000; // mirrors brief-executor SNAP_TOLERANCE (fps*5 frames)
+            const nearestSeg = (segs: any[], timeMs: number): any => {
+              let best: any = null; let bestDist = Infinity;
+              for (const s of segs) {
+                const dist = timeMs < s.startMs ? s.startMs - timeMs : (timeMs >= s.endMs ? timeMs - s.endMs : 0);
+                if (dist < bestDist) { bestDist = dist; best = s; }
+              }
+              return bestDist <= SEG_SNAP_MS ? best : null;
+            };
+            let sigCoverageTotal = 0;
+            let sigCoverageMiss = 0;
             const signalsAtFrame = (frameNum: number): Record<string, number> => {
-              const timeMs = (frameNum / pathEFps) * 1000;
+              // Cut-timeline frame → ORIGINAL-timeline ms (the clock the segments use).
+              const originalFrame = mapCutFrameToOriginalFrame(frameNum, cutToOriginalClips);
+              const timeMs = ((originalFrame ?? frameNum) / pathEFps) * 1000;
               const out: Record<string, number> = { ...signalCtx };
+              sigCoverageTotal++;
+              let covered = false;
               if (vjepaSegs?.length) {
-                const v = vjepaSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs);
+                const exact = vjepaSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs);
+                if (exact) covered = true;
+                const v = exact ?? nearestSeg(vjepaSegs, timeMs);
                 if (v) {
                   out.visual_change_rate = v.motionIntensity ?? out.visual_change_rate;
                   out.visual_significance = v.visualSignificance ?? 0;
@@ -624,17 +652,30 @@ export async function executeDirectorPlan(
                 }
               }
               if (w2vSegs?.length) {
-                const w = w2vSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs);
+                const w = w2vSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs)
+                  ?? nearestSeg(w2vSegs, timeMs);
                 if (w) {
                   out.emotional_arousal = w.emotionIntensity ?? out.emotional_arousal;
                   out.enthusiasm = Math.min(1, (w.energy ?? 0) * 1.2);
                 }
               }
+              if (!covered) sigCoverageMiss++;
               return out;
             };
             for (const d of briefResult.edl.decisions) {
               if (!d.params.signals) {
                 d.params.signals = signalsAtFrame(d.frame);
+              }
+            }
+            // LOUD FALLBACK (R18N): silent no-segment misses are exactly what hid the timeline bug.
+            // Warn if a meaningful fraction of decisions get no exact per-moment coverage even after the
+            // cut→original map. Threshold 15% chosen as "more than ~1 in 7 starved" — operational, tunable.
+            if (sigCoverageTotal > 0) {
+              const missPct = Math.round((sigCoverageMiss / sigCoverageTotal) * 100);
+              if (missPct > 15) {
+                console.warn(`[Director] Path E: SIGNAL COVERAGE LOW — ${sigCoverageMiss}/${sigCoverageTotal} decisions (${missPct}%) found no V-JEPA segment even after cut→original mapping; per-moment signals fell back to video-level constants for those. Check segment coverage / the clip mapping.`);
+              } else {
+                console.log(`[Director] Path E: signal coverage ${sigCoverageTotal - sigCoverageMiss}/${sigCoverageTotal} (${100 - missPct}%) matched a V-JEPA segment.`);
               }
             }
 
@@ -656,8 +697,11 @@ export async function executeDirectorPlan(
             try {
               const vjepaLookup = vjepaSegs?.length
                 ? (frameNum: number) => {
-                    const timeMs = frameNum / pathEFps * 1000;
-                    const seg = vjepaSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs);
+                    // Same cut→original mapping as signalsAtFrame (the calibration snapshot must agree).
+                    const origFrame = mapCutFrameToOriginalFrame(frameNum, cutToOriginalClips);
+                    const timeMs = ((origFrame ?? frameNum) / pathEFps) * 1000;
+                    const seg = vjepaSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs)
+                      ?? nearestSeg(vjepaSegs, timeMs);
                     return {
                       speech_coverage: speechCoverage,
                       visual_change_rate: seg?.motionIntensity ?? visualChangeRate,
