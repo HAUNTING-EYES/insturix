@@ -7,6 +7,17 @@ const isProtectedRoute = createRouteMatcher([
   '/api/services(.*)',
 ]);
 
+// QStash background workers live under /api/services/* (so isProtectedRoute matches them),
+// but Upstash QStash calls them server-to-server with NO Clerk session. They authenticate
+// via their own QStash signature check (verifySignatureAppRouter). Clerk's auth.protect()
+// returns a 404 for these session-less requests, which silently kills Alyzitron analysis
+// and Musitron generation (the QStash worker never runs). Exclude them from Clerk; the
+// route's own QStash signature verification stays the auth boundary.
+const isQStashWorkerRoute = createRouteMatcher([
+  '/api/services/alyzitron/processor',
+  '/api/services/musitron/processor',
+]);
+
 // Resolve authorized parties from env or dynamic Vercel URLs
 const getAuthorizedParties = () => {
   const envParties = process.env.NEXT_PUBLIC_AUTHORIZED_PARTIES?.split(',') || [];
@@ -24,6 +35,9 @@ const getAuthorizedParties = () => {
 };
 
 export default clerkMiddleware(async (auth, req) => {
+  // QStash workers self-authenticate via their QStash signature; never gate them behind
+  // Clerk login, or auth.protect() 404s the queue's session-less call (kills async jobs).
+  if (isQStashWorkerRoute(req)) return;
   if (isProtectedRoute(req)) {
     await auth.protect();
   }
