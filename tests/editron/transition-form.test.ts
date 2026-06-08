@@ -71,4 +71,22 @@ describe('resolveAtomicTransitionForm', () => {
     expect(form.direction.x).toBeGreaterThan(0.2);
     expect(form.direction.magnitude).toBeLessThan(0.3);
   });
+
+  it('lets strong primitive motion atoms override an upstream soft-cut hint', () => {
+    const form = resolveAtomicTransitionForm({
+      params: { transitionType: 'soft-cut' },
+      signals: {
+        motion_vector_x: -0.74,
+        motion_intensity: 0.86,
+        beat_strength: 0.82,
+        speech_energy: 0.78,
+        text_on_screen: 0,
+        visual_complexity: 0.12,
+      },
+    });
+
+    expect(form.compatibilityType).toBe('whip-pan');
+    expect(form.intent).toBe('motion-transfer');
+    expect(form.sfxRole).toBe('fast-whoosh');
+  });
 });

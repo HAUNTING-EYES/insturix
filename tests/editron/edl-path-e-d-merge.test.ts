@@ -342,4 +342,83 @@ describe('EDL Path E+D merge', () => {
     expect(graphic?.content.contextPhrase).toBe('this is the one thing that changed everything');
     expect(graphic?.recipe.id).toBe('composed-structured');
   });
+
+  it('keeps naked keyword emphasis in captions instead of creating weak standalone MGs', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = [
+      {
+        id: 501,
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 120,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/source.mp4',
+        src: 'https://example.com/source.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+    ];
+
+    const edl: EditDecisionList = {
+      projectId: 'path-e-d-naked-keyword-test',
+      generatedAt: new Date('2026-06-07T00:00:00.000Z'),
+      totalDecisions: 2,
+      decisions: [
+        {
+          type: 'caption-emphasis',
+          frame: 48,
+          durationFrames: 30,
+          priority: 2,
+          source: 'signal-executor:test',
+          signal: 'word_importance',
+          reason: 'Plain word emphasis belongs in caption styling',
+          confidence: 0.9,
+          params: {
+            emphasisWord: 'process',
+            signals: {
+              speech_energy: 0.88,
+              word_importance: 0.92,
+            },
+          },
+        } as any,
+        {
+          type: 'graphic',
+          frame: 80,
+          durationFrames: 60,
+          priority: 2,
+          source: 'creative-brief:test',
+          signal: 'emphasis',
+          reason: 'Naked keyword should not become a standalone MG',
+          confidence: 0.9,
+          params: {
+            text: 'process',
+            graphicType: 'keyword-highlight',
+            signals: {
+              speech_energy: 0.88,
+              word_importance: 0.92,
+            },
+          },
+        } as any,
+      ],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 1,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.9,
+      },
+    };
+
+    await executeEDL(edl, 'path-e-d-naked-keyword-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(overlays.some((overlay: any) => overlay.metadata?.sourceType === 'edl-graphic')).toBe(false);
+  });
 });

@@ -172,14 +172,6 @@ function resolveCompatibilityType(input: {
     return input.topicShift >= 0.72 && input.intensity < 0.78 ? 'dissolve' : 'soft-cut';
   }
 
-  if (input.explicitType && !HARD_CUTS.has(input.explicitType)) {
-    if ((input.explicitType === 'glitch' || input.explicitType === 'flash' || input.explicitType === 'zoom-punch') && input.visualPressure > 0.62) {
-      return 'soft-cut';
-    }
-    return input.explicitType;
-  }
-
-  if (input.topicShift >= 0.74 && input.intensity < 0.72) return 'dissolve';
   if (input.intensity >= 0.84 && input.visualPressure < 0.58) {
     return input.direction.magnitude >= 0.38 ? 'whip-pan' : 'zoom-punch';
   }
@@ -188,6 +180,15 @@ function resolveCompatibilityType(input: {
     return 'whip-pan';
   }
   if (input.beatStrength >= 0.72 && input.visualPressure < 0.55) return 'flash';
+
+  if (input.explicitType && !HARD_CUTS.has(input.explicitType)) {
+    if ((input.explicitType === 'glitch' || input.explicitType === 'flash' || input.explicitType === 'zoom-punch') && input.visualPressure > 0.62) {
+      return 'soft-cut';
+    }
+    return input.explicitType;
+  }
+
+  if (input.topicShift >= 0.74 && input.intensity < 0.72) return 'dissolve';
   if (input.emotion >= 0.62 || input.topicShift >= 0.56) return 'dissolve';
   return 'soft-cut';
 }

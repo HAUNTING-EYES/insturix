@@ -1400,16 +1400,17 @@ async function applyDecision(
       return null;
 
     case 'caption-emphasis': {
-      // Create a keyword-highlight graphic overlay for the emphasized word.
-      // The proper fix (per-word styling in caption renderer) requires type system +
-      // renderer changes. For now, route through applyGraphic with the emphasis word
-      // as a visual pop-up overlay — same technique used by keyword-highlight graphics.
+      // Caption emphasis stays in the caption layer unless it carries enough
+      // structure to become a real atomic MG.
       const emphasisWord = (decision as any).params?.emphasisWord;
       if (!emphasisWord) return null;
-      // Inject text and graphicType into the decision params for applyGraphic
+      if (!hasContextualGraphicEvidence((decision as any).params ?? {})) {
+        console.log(`[EDL-Exec] Caption emphasis at frame ${decision.frame}: kept in caption layer, not promoted to standalone MG`);
+        return null;
+      }
       const emphasisDecision = {
         ...decision,
-        params: { ...decision.params, text: emphasisWord, graphicType: 'keyword-highlight' },
+        params: { ...decision.params, text: emphasisWord, graphicType: 'atomic-graphic' },
         durationFrames: 60, // 2s pop
       };
       return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex, undefined, graphicsDensity);
@@ -2270,6 +2271,31 @@ function applyPlacementRegionGeometry(
   };
 }
 
+function hasContextualGraphicEvidence(params: Record<string, unknown>): boolean {
+  const contextualKeys = [
+    'contextPhrase',
+    'title',
+    'body',
+    'items',
+    'value',
+    'label',
+    'name',
+    'quote',
+    'author',
+    'from',
+    'to',
+    'logo',
+    'mediaUrl',
+    'imageUrl',
+  ];
+  return contextualKeys.some((key) => {
+    const value = params[key];
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'string') return value.trim().length > 0;
+    return value !== undefined && value !== null;
+  });
+}
+
 async function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
@@ -2300,6 +2326,10 @@ async function applyGraphic(
     : 'atomic-graphic';
   const hasContent = text || decision.params.name || decision.params.value || decision.params.quote || decision.params.title;
   if (!hasContent) return null;
+  if (graphicType === 'keyword-highlight' && !hasContextualGraphicEvidence(decision.params)) {
+    console.log(`[EDL-Exec] KEYWORD FILTER: skipped standalone keyword MG "${text}" - captions should carry naked word emphasis`);
+    return null;
+  }
 
   // ── RC-8 FIX: Filler/vague word filter for keyword-highlights ──
   // A professional editor would NEVER highlight "good", "stuff", "thing".
