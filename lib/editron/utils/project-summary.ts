@@ -6,7 +6,11 @@
  * for the agent to call read_project_file for basic awareness.
  */
 
-import { OverlayType } from '../core/physics';
+import {
+  formatAtomicOverlayReport,
+  summarizeAtomicOverlayPlans,
+  type AtomicOverlayReport,
+} from '../motion-graphics/engine/atomic-overlay-inspector';
 
 interface OverlaySummary {
   id: number;
@@ -38,6 +42,8 @@ export interface ProjectSummary {
   };
   fps: number;
   overlayCount: number;
+  atomicOverlayReport: AtomicOverlayReport;
+  atomicOverlayText: string;
   tracks: TrackSummary[];
   textContent: string;  // ASCII timeline view
 }
@@ -138,6 +144,8 @@ export function generateProjectSummary(project: any): ProjectSummary {
   
   // Generate ASCII timeline
   const textContent = generateAsciiTimeline(tracks, durationFrames, fps);
+  const atomicOverlayReport = summarizeAtomicOverlayPlans(overlays);
+  const atomicOverlayText = formatAtomicOverlayReport(atomicOverlayReport);
   
   return {
     projectName: project.name || 'Untitled',
@@ -149,6 +157,8 @@ export function generateProjectSummary(project: any): ProjectSummary {
     },
     fps,
     overlayCount: overlays.length,
+    atomicOverlayReport,
+    atomicOverlayText,
     tracks,
     textContent
   };
@@ -206,6 +216,9 @@ export function formatSummaryForPrompt(summary: ProjectSummary): string {
 - Overlays: ${summary.overlayCount} items
 
 ${summary.textContent}
+
+**Atomic Overlay Plans:**
+${summary.atomicOverlayText}
 
 **Available IDs:** ${summary.tracks.flatMap(t => t.overlays.map(o => o.id)).join(', ') || 'None'}
 `.trim();

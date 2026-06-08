@@ -26,6 +26,10 @@
     "canary:creative-chain": "node scripts/creative-chain-canary.mjs",
     "test:email": "tsx --test lib/services/email/__tests__/*.test.ts",
     "test:intent": "tsx --test lib/thinkforge/tests/intent-gate.test.ts",
+    "calibrate:editron": "tsx scripts/calibrate/calibrate.ts",
+    "calibrate:editron:auto": "tsx scripts/calibrate/calibrate.ts --shuffle",
+    "calibrate:vjepa": "tsx scripts/probe-vjepa-coverage.ts",
+    "calibrate:bundles": "tsx scripts/build-moment-bundles.ts",
     "deploy:remotion:dev": "bash scripts/deploy-remotion-site.sh dev",
     "deploy:remotion:prod": "bash scripts/deploy-remotion-site.sh prod"
   },

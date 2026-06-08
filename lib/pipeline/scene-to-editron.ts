@@ -21,6 +21,12 @@
  */
 
 import type { SceneDescriptor, SubShot } from './schemas/storyboard';
+import {
+  buildOverlayAtomicReceipt,
+  overlayAtom,
+  type AtomicOverlayAtom,
+  type AtomicOverlayFamily,
+} from '../editron/engine/atomic-overlay-core';
 
 // ─── Constants ─────────────────────────────────────────────────
 
@@ -60,6 +66,150 @@ const MOOD_GRADIENTS: Record<string, { from: string; to: string }> = {
 
 let overlayIdCounter = 1;
 function nextId(): number { return overlayIdCounter++; }
+
+function pushSceneOverlay(
+  overlays: any[],
+  overlay: any,
+  scene: SceneDescriptor,
+  input: {
+    family: AtomicOverlayFamily;
+    intent: string;
+    reason: string;
+    source?: string;
+    signals?: Record<string, unknown>;
+    atoms?: AtomicOverlayAtom[];
+  },
+): void {
+  const existingReceipts = Array.isArray(overlay.metadata?.atomicOverlayReceipts)
+    ? overlay.metadata.atomicOverlayReceipts
+    : [];
+  const receipt = buildOverlayAtomicReceipt({
+    family: input.family,
+    intent: input.intent,
+    frame: overlay.from,
+    durationFrames: overlay.durationInFrames,
+    source: input.source ?? 'scene-to-editron',
+    reason: input.reason,
+    signals: input.signals ?? sceneSignals(scene, input.family),
+    target: {
+      overlayId: overlay.id,
+      row: overlay.row,
+      x: overlay.left,
+      y: overlay.top,
+      width: overlay.width,
+      height: overlay.height,
+    },
+    payload: {
+      sceneIndex: scene.sceneIndex,
+      sceneType: (scene as any).sceneType || 'continuous',
+      generationUnitId: (scene as any).generationUnitId,
+    },
+    atoms: [
+      ...sceneOverlayAtoms(overlay, scene, input.family),
+      ...(input.atoms ?? []),
+    ],
+  });
+
+  overlay.metadata = {
+    ...(overlay.metadata ?? {}),
+    atomicOverlayReceipt: receipt,
+    atomicOverlayReceipts: [...existingReceipts, receipt],
+    atomicPlanObserveMode: true,
+  };
+  overlays.push(overlay);
+}
+
+function sceneSignals(scene: SceneDescriptor, family: AtomicOverlayFamily): Record<string, unknown> {
+  const sceneType = (scene as any).sceneType || 'continuous';
+  const narration = scene.narration || '';
+  const textCoverage = family === 'text'
+    ? Math.min(narration.length / 900, 0.72)
+    : sceneType === 'text-card' || sceneType === 'logo-reveal'
+      ? 0.38
+      : 0;
+  const motionHint = scene.cameraDirection || scene.videoMotionPrompt || scene.editDirections?.cameraRig;
+
+  return {
+    visual_complexity: sceneType === 'montage' ? 0.62 : sceneType === 'text-card' ? 0.5 : 0.32,
+    text_on_screen: textCoverage > 0 ? 1 : 0,
+    text_coverage: textCoverage,
+    speech_energy: narration.trim() ? 0.56 : 0,
+    word_importance: narration.trim() ? Math.min(narration.split(/\s+/).length / 42, 1) : 0,
+    emotional_arousal: moodArousal(scene.mood),
+    rhythm_density: pacingDensity(scene.editDirections?.pacing),
+    visual_action_type: motionHint ? 'motion-directed' : undefined,
+    visual_motion_type: motionHint ? 'camera_moving' : undefined,
+    brand_vibe: scene.mood,
+    screen_region: family === 'text' ? 'lower-third' : 'full-frame',
+    safe_zone: family === 'text' ? 'caption-band' : 'full-frame',
+  };
+}
+
+function sceneOverlayAtoms(overlay: any, scene: SceneDescriptor, family: AtomicOverlayFamily): AtomicOverlayAtom[] {
+  const atoms: AtomicOverlayAtom[] = [
+    overlayAtom('scene-index', 'scene.index', scene.sceneIndex, 1, 'edl'),
+    overlayAtom('scene-title', 'scene.title', scene.title || '', scene.title ? 1 : 0, 'transcript'),
+    overlayAtom('scene-type', 'scene.type', (scene as any).sceneType || 'continuous', 1, 'edl'),
+    overlayAtom('content-channel', 'overlay.family', family, 1, 'edl'),
+    overlayAtom('overlay-row', 'overlay.row', overlay.row, 1, 'layout-analysis'),
+    overlayAtom('position-x', 'overlay.x', overlay.left ?? 0, 1, 'layout-analysis'),
+    overlayAtom('position-y', 'overlay.y', overlay.top ?? 0, 1, 'layout-analysis'),
+    overlayAtom('size-width', 'overlay.width', overlay.width ?? 0, 1, 'layout-analysis'),
+    overlayAtom('size-height', 'overlay.height', overlay.height ?? 0, 1, 'layout-analysis'),
+  ];
+
+  if (overlay.styles?.opacity !== undefined) {
+    atoms.push(overlayAtom('opacity', 'overlay.opacity', Number(overlay.styles.opacity), 1, 'decision-param'));
+  }
+  if (overlay.styles?.volume !== undefined) {
+    atoms.push(overlayAtom('volume', 'audio.volume', Number(overlay.styles.volume), 1, 'decision-param'));
+  }
+  if (overlay.assetId) {
+    atoms.push(overlayAtom('asset-id', 'media.asset_id', overlay.assetId, 1, 'edl'));
+  }
+  if (overlay.src) {
+    atoms.push(overlayAtom('media-source', 'media.src', overlay.src, 1, 'edl'));
+  }
+  if (typeof overlay.content === 'string' && overlay.content.trim()) {
+    atoms.push(overlayAtom('text-content', 'content.text', overlay.content.slice(0, 240), 1, 'transcript'));
+  }
+
+  return atoms;
+}
+
+function moodArousal(mood: string | undefined): number {
+  switch ((mood || '').toLowerCase()) {
+    case 'energetic':
+    case 'dramatic':
+    case 'playful':
+      return 0.78;
+    case 'inspirational':
+    case 'mysterious':
+      return 0.58;
+    case 'calm':
+      return 0.24;
+    case 'serious':
+      return 0.38;
+    default:
+      return 0.45;
+  }
+}
+
+function pacingDensity(pacing: NonNullable<SceneDescriptor['editDirections']>['pacing'] | undefined): number {
+  switch (pacing) {
+    case 'fast':
+    case 'beat-synced':
+      return 0.82;
+    case 'building':
+      return 0.68;
+    case 'slow':
+      return 0.28;
+    case 'medium':
+      return 0.5;
+    default:
+      return 0.45;
+  }
+}
 
 // ─── Main Converter ────────────────────────────────────────────
 
@@ -111,7 +261,7 @@ export function scenesToOverlays(
       for (const sub of subShots) {
         const subDur = Math.round(sub.targetDurationSeconds * fps);
         if (sbImage) {
-          overlays.push({
+          pushSceneOverlay(overlays, {
             id: nextId(),
             type: 'image',
             from: subFrame,
@@ -130,11 +280,16 @@ export function scenesToOverlays(
               sceneIndex: scene.sceneIndex,
               sceneType,
             },
+          }, scene, {
+            family: 'image',
+            intent: 'scene-subshot-visual',
+            reason: 'montage sub-shot image overlay from storyboard media',
+            signals: { ...sceneSignals(scene, 'image'), visual_action_type: sub.description },
           });
         } else {
           // Placeholder for sub-shot (will be replaced when video arrives)
           const gradient = MOOD_GRADIENTS[scene.mood] || MOOD_GRADIENTS.neutral;
-          overlays.push({
+          pushSceneOverlay(overlays, {
             id: nextId(),
             type: 'html-scene',
             from: subFrame,
@@ -152,6 +307,11 @@ export function scenesToOverlays(
               sceneIndex: scene.sceneIndex,
               sceneType,
             },
+          }, scene, {
+            family: 'html-scene',
+            intent: 'scene-subshot-placeholder',
+            reason: 'montage sub-shot html placeholder until generated media is available',
+            signals: { ...sceneSignals(scene, 'html-scene'), text_on_screen: 1, text_coverage: Math.min(sub.description.length / 360, 0.55) },
           });
         }
         subFrame += subDur;
@@ -159,7 +319,7 @@ export function scenesToOverlays(
     } else {
       // CONTINUOUS / LOGO / TEXT-CARD / TALKING-HEAD: One overlay for the full scene
       if (sbImage) {
-        overlays.push({
+        pushSceneOverlay(overlays, {
           id: nextId(),
           type: 'image',
           from: currentFrame,
@@ -176,10 +336,14 @@ export function scenesToOverlays(
             sceneType,
             isPrimaryVisual: isPrimary,
           },
+        }, scene, {
+          family: 'image',
+          intent: 'scene-visual',
+          reason: 'scene image overlay from storyboard media',
         });
       } else {
         const gradient = MOOD_GRADIENTS[scene.mood] || MOOD_GRADIENTS.neutral;
-        overlays.push({
+        pushSceneOverlay(overlays, {
           id: nextId(),
           type: 'html-scene',
           from: currentFrame,
@@ -194,6 +358,11 @@ export function scenesToOverlays(
             sceneIndex: scene.sceneIndex,
             sceneType,
           },
+        }, scene, {
+          family: 'html-scene',
+          intent: 'scene-placeholder',
+          reason: 'html placeholder until generated media is available',
+          signals: { ...sceneSignals(scene, 'html-scene'), text_on_screen: 1, text_coverage: Math.min(scene.title.length / 360, 0.5) },
         });
       }
     }
@@ -201,7 +370,7 @@ export function scenesToOverlays(
     // ─── Row 3: Voiceover Placeholder ────────────────────────
     // Actual audio gets added by TTS worker. This reserves the slot.
     if (scene.narration && scene.narration.trim()) {
-      overlays.push({
+      pushSceneOverlay(overlays, {
         id: nextId(),
         type: 'sound',
         from: currentFrame,
@@ -218,6 +387,10 @@ export function scenesToOverlays(
           narrationText: scene.narration,
           generationUnitId: unitId,
         },
+      }, scene, {
+        family: 'sound',
+        intent: 'scene-voiceover-slot',
+        reason: 'voiceover placeholder reserved for scene narration audio',
       });
     }
 
@@ -225,7 +398,7 @@ export function scenesToOverlays(
     // Simple text overlay for narration. Director Agent upgrades to
     // proper caption overlays with word timing after TTS completes.
     if (scene.narration && scene.narration.trim()) {
-      overlays.push({
+      pushSceneOverlay(overlays, {
         id: nextId(),
         type: 'text',
         from: currentFrame,
@@ -255,6 +428,11 @@ export function scenesToOverlays(
           sceneIndex: scene.sceneIndex,
           isNarrationCaption: true,
         },
+      }, scene, {
+        family: 'text',
+        intent: 'scene-narration-caption',
+        reason: 'readable narration caption generated from scene text',
+        signals: { ...sceneSignals(scene, 'text'), text_on_screen: 1 },
       });
     }
 

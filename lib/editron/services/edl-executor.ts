@@ -16,14 +16,27 @@ import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
-import { searchAndDownloadSFX, isSFXLibraryAvailable, audioDescriptionToSearchQuery } from '@/lib/pipeline/sfx-library-service';
+import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult } from '@/lib/pipeline/sfx-library-service';
 import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
 import { resolveMotionTokens, type BrandInputs } from '@/lib/editron/data/motion-theme-resolver';
-import { brandInputsFromUnifiedBrand } from '@/lib/editron/motion-graphics/engine/brand-composition-rules';
+import { brandInputsFromUnifiedBrandAtomic } from '@/lib/editron/motion-graphics/engine/brand-composition-rules';
 import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
-import { buildZoomKeyframes } from '@/lib/editron/services/zoom-keyframes';
+import { buildAtomicOverlayPlan } from '@/lib/editron/motion-graphics/engine/atomic-overlay-plan';
+import { decideAtomicOverlay } from '@/lib/editron/motion-graphics/engine/atomic-overlay-decision';
+import { resolveAtomicZoomForm } from '@/lib/editron/services/zoom-form';
+import { resolveAtomicTransitionForm } from '@/lib/editron/services/transition-form';
+import { evaluateAtomicSfxAssetCandidate, resolveAtomicSfxForm, type AtomicSfxCandidateEvaluation, type AtomicSfxForm } from '@/lib/editron/services/sfx-form';
+import { resolveAtomicPlacement } from '@/lib/editron/services/atomic-placement';
+import { buildAtomicMomentBundle, type AtomicMomentBundle, type MomentAtom } from '@/lib/editron/services/moment-bundle';
+import { resolveMomentBundleGrammar, type AtomicMomentGrammar } from '@/lib/editron/services/moment-bundle-grammar';
+import {
+  buildOverlayAtomicReceipt,
+  overlayAtom,
+  type AtomicOverlayReceipt,
+} from '@/lib/editron/engine/atomic-overlay-core';
+import type { OverlayCategory, OverlayDefinition, ScoringResult } from '@/lib/editron/engine/utility-types';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -198,6 +211,29 @@ export interface ExecutionResult {
   zoomedAssetIds: Set<string>;
 }
 
+interface EDLSignalContext {
+  vjepaSegments?: Array<Record<string, unknown>>;
+  wav2vecSegments?: Array<Record<string, unknown>>;
+}
+
+type ScoreAllOverlaysFn = typeof import('@/lib/editron/engine/utility-scorer').scoreAllOverlays;
+
+interface UtilityScoringRuntime {
+  definitions: OverlayDefinition[];
+  scoreAllOverlays: ScoreAllOverlaysFn;
+}
+
+interface SfxCacheEntry {
+  audioUrl: string;
+  audioAssetId: string;
+  durationMs: number;
+  source?: SFXLibraryResult['source'];
+  originalTitle?: string;
+  assetQuality: AtomicSfxCandidateEvaluation;
+}
+
+type SfxAssetCache = Map<string, SfxCacheEntry | null>;
+
 // ─── Executor ────────────────────────────────────────────────────
 
 /**
@@ -256,12 +292,17 @@ export async function executeEDL(
   // composition sites), but NOTHING ever populated it → every MG rendered DEFAULT_BRAND gold. Populate
   // it here, the single sink all four director paths reach. Empty/no brand → {} → DEFAULT (unchanged).
   let projectBrand: Partial<BrandInputs> = {};
+  let projectSignalContext: EDLSignalContext = {};
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const projectDoc = await (await getDatabase()).collection('projects').findOne({ projectId });
+    projectSignalContext = {
+      vjepaSegments: arrayOrUndefined(projectDoc?.vjepaAnalysis?.segments),
+      wav2vecSegments: arrayOrUndefined(projectDoc?.wav2vecAnalysis?.segments),
+    };
     if (projectDoc?.brandId && userId) {
       const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
-      projectBrand = brandInputsFromUnifiedBrand(await getUnifiedBrand(userId, projectDoc.brandId));
+      projectBrand = brandInputsFromUnifiedBrandAtomic(await getUnifiedBrand(userId, projectDoc.brandId));
       if (projectBrand.accentColor) console.log(`[EDL] Brand accent ${projectBrand.accentColor} → MG (brand ${projectDoc.brandId})`);
     }
   } catch (e) {
@@ -295,28 +336,28 @@ export async function executeEDL(
     idEpoch = Math.imul(idEpoch, 16777619) >>> 0;
   }
 
-  // Pre-resolve unique SFX tokens so the decision loop doesn't make
-  // per-decision API calls. One Freesound search per unique token.
-  const sfxCache = new Map<string, { audioUrl: string; audioAssetId: string; durationMs: number } | null>();
-  if (isSFXLibraryAvailable()) {
-    // Resolve SFX from both signal executor ('sfx-trigger' with params.sfxType)
-    // and creative brief ('sfx' with technique name like 'sfx_whoosh' in decision.technique)
+  // Pre-resolve unique atomic SFX queries when enough cue/signal data exists.
+  // The apply path re-resolves after enrichment and lazily fetches misses.
+  const sfxCache: SfxAssetCache | null = isSFXLibraryAvailable() ? new Map() : null;
+  if (sfxCache) {
+    // Resolve SFX from both signal executor and creative brief decisions.
     const sfxDecisions = actionable.filter(d => d.type === 'sfx-trigger' || d.type === 'sfx');
-    const uniqueTokens = new Set(sfxDecisions.map(d => {
-      return (d as any).params?.sfxType || (d as any).technique?.replace('sfx_', '') || undefined;
-    }).filter(Boolean));
-    for (const token of uniqueTokens) {
+    const uniqueForms = new Map<string, AtomicSfxForm>();
+    for (const decision of sfxDecisions) {
+      const form = resolveDecisionAtomicSfxForm(decision);
+      if (form?.shouldPlace) uniqueForms.set(atomicSfxSearchQuery(form), form);
+    }
+    for (const [searchQuery, form] of uniqueForms) {
       try {
-        // Normalize raw technique names to atomic Freesound search terms via KB token mapping.
-        // Without this, "audio_bed_select" searches Freesound literally → "Coin Pickup SFX".
-        // With this, "audio_bed_select" → audioDescriptionToSearchQuery → "ambient" → proper results.
-        const searchQuery = audioDescriptionToSearchQuery(token as string);
-        const result = await searchAndDownloadSFX(searchQuery, userId, 3);
-        sfxCache.set(token as string, result ? { audioUrl: result.audioUrl, audioAssetId: result.audioAssetId, durationMs: result.durationMs } : null);
-        console.log(`[EDL-Exec] SFX pre-resolve: "${token}" → query="${searchQuery}" → ${result ? 'found' : 'null'}`);
-      } catch (err: any) {
-        sfxCache.set(token as string, null);
-        console.warn(`[EDL-Exec] SFX pre-resolve failed for "${token}": ${err.message}`);
+        // Atomic SFX form converts raw labels/signals into concrete search terms and timing.
+        const result = await searchAndDownloadSFX(searchQuery, userId, form.asset.maxDurationSec, form);
+        const accepted = acceptedSfxCacheEntry(form, result);
+        sfxCache.set(searchQuery, accepted);
+        const token = form.intent;
+        console.log(`[EDL-Exec] SFX pre-resolve: "${token}" → query="${searchQuery}" → ${accepted ? 'accepted' : 'null/rejected'}`);
+      } catch (err: unknown) {
+        sfxCache.set(searchQuery, null);
+        console.warn(`[EDL-Exec] SFX pre-resolve failed for "${searchQuery}": ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -331,6 +372,21 @@ export async function executeEDL(
   // individually during the execution loop. We compare 5-Track keyframe colors
   // on either side of the boundary. Same colors = same scene = suppress.
   // Different colors = visual change = allow. No data = allow (respect intelligence).
+  let utilityScoringRuntime: UtilityScoringRuntime | null = null;
+  try {
+    const [{ scoreAllOverlays }, { getOverlayDefinitions }] = await Promise.all([
+      import('@/lib/editron/engine/utility-scorer'),
+      import('@/lib/editron/engine/overlay-definitions-loader'),
+    ]);
+    utilityScoringRuntime = {
+      definitions: getOverlayDefinitions(),
+      scoreAllOverlays,
+    };
+    console.log(`[EDL-Exec] Path E+D merge: loaded ${utilityScoringRuntime.definitions.length} utility curve definitions`);
+  } catch (utilityErr) {
+    console.warn('[EDL-Exec] Path E+D merge unavailable; continuing without utility scoring:', utilityErr instanceof Error ? utilityErr.message : utilityErr);
+  }
+
   const videoOverlaysForSourceCheck = overlays.filter(o => o.type === 'video').sort((a: any, b: any) => a.from - b.from);
   const uniqueSourceAssets = new Set(
     videoOverlaysForSourceCheck.map(o => (o as any).assetId).filter(Boolean)
@@ -344,6 +400,15 @@ export async function executeEDL(
 
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
+
+    try {
+      enrichDecisionSignals(decision, overlays, analyses, projectSignalContext);
+      if (utilityScoringRuntime) {
+        enrichDecisionWithUtilityScoring(decision, utilityScoringRuntime);
+      }
+    } catch (enrichErr) {
+      console.warn(`[EDL-Exec] decision enrichment failed for ${decision.type} @${decision.frame} (non-fatal):`, enrichErr instanceof Error ? enrichErr.message : enrichErr);
+    }
 
     const budgetResult = budget.evaluate(decision as any);
     if (!budgetResult.allowed) {
@@ -442,6 +507,852 @@ export async function executeEDL(
 
 // ─── Per-Decision Handlers ───────────────────────────────────────
 
+function enrichDecisionSignals(
+  decision: EditDecision,
+  overlays: Overlay[],
+  analyses?: Map<string, any>,
+  projectSignalContext: EDLSignalContext = {},
+): void {
+  decision.params = decision.params || {};
+  const existingSignals = normalizePlannerSignals(decision.params.signals);
+  const derivedSignals = deriveSignalsAtDecisionFrame(decision.frame, overlays, analyses, projectSignalContext);
+  const mergedSignals = normalizePlannerSignals({ ...derivedSignals, ...existingSignals });
+
+  if (Object.keys(mergedSignals).length > 0) {
+    decision.params.signals = mergedSignals;
+  }
+  enrichDecisionMomentBundle(decision, overlays, mergedSignals);
+}
+
+function enrichDecisionMomentBundle(
+  decision: EditDecision,
+  overlays: Overlay[],
+  signals: Record<string, number | string>,
+): void {
+  decision.params = decision.params || {};
+  const frameRef = resolveSourceFrame(decision.frame, overlays);
+  const fps = DEFAULT_CONFIG.timing.fps;
+  const bundle = buildAtomicMomentBundle({
+    frame: decision.frame,
+    fps,
+    snapshot: momentSnapshotFromSignals(signals, frameRef.sourceFrame, fps),
+    sourceFrame: frameRef.sourceFrame,
+    sourceTimestampMs: (frameRef.sourceFrame / fps) * 1000,
+    overlayAtoms: activeOverlayMomentAtomsAt(overlays, decision.frame),
+  });
+  decision.params.atomicMomentBundle = bundle;
+  decision.params.atomicMomentGrammar = resolveMomentBundleGrammar({ bundle });
+}
+
+function momentSnapshotFromSignals(
+  signals: Record<string, number | string>,
+  sourceFrame: number,
+  fps: number,
+): Record<string, unknown> {
+  const snapshot: Record<string, unknown> = {
+    frame: sourceFrame,
+    timestampMs: (sourceFrame / fps) * 1000,
+  };
+  const signedKeys = new Set(['visual.motion_vector.x', 'visual.motion_vector.y']);
+
+  for (const [key, value] of Object.entries(signals)) {
+    if (!key.includes('.')) continue;
+    setMomentSnapshotValue(snapshot, key, value, signedKeys.has(key));
+  }
+
+  const aliases: Array<[string, string[]]> = [
+    ['speech.energy', ['speech_energy']],
+    ['speech.emotion_intensity', ['emotion_intensity', 'emotional_arousal']],
+    ['speech.emotional_valence', ['emotional_valence']],
+    ['audio.music_beat', ['music_beat']],
+    ['audio.music_energy', ['music_energy']],
+    ['visual.significance', ['visual_significance']],
+    ['visual.motion_intensity', ['motion_intensity', 'visual_change_rate']],
+    ['visual.motion_vector.x', ['motion_vector_x']],
+    ['visual.motion_vector.y', ['motion_vector_y']],
+    ['visual.action_type', ['visual_action_type']],
+    ['visual.motion_type', ['visual_motion_type']],
+    ['visual.face_present', ['face_present']],
+    ['visual.face_emotion', ['visual_face_emotion']],
+    ['visual.eye_contact', ['visual_eye_contact']],
+    ['visual.shot_scale', ['shot_scale']],
+    ['visual.main_subject.x', ['main_subject_x']],
+    ['visual.main_subject.y', ['main_subject_y']],
+    ['visual.main_subject.width', ['main_subject_width']],
+    ['visual.main_subject.height', ['main_subject_height']],
+    ['visual.text_coverage', ['text_coverage']],
+    ['visual.text_box_count', ['text_box_count']],
+    ['visual.negative_space.top', ['negative_space_top']],
+    ['visual.negative_space.right', ['negative_space_right']],
+    ['visual.negative_space.bottom', ['negative_space_bottom']],
+    ['visual.negative_space.left', ['negative_space_left']],
+    ['visual.text_on_screen', ['text_on_screen']],
+    ['visual.complexity', ['visual_complexity']],
+    ['composite.cinematic_moment', ['cinematic_moment']],
+    ['composite.narrative_pressure', ['narrative_pressure']],
+    ['structural.position_in_video', ['position_in_video']],
+    ['structural.time_since_last_cut', ['time_since_last_cut']],
+  ];
+
+  for (const [target, sourceKeys] of aliases) {
+    if (snapshot[target] != null) continue;
+    for (const sourceKey of sourceKeys) {
+      const value = signals[sourceKey];
+      if (value == null) continue;
+      setMomentSnapshotValue(snapshot, target, value, signedKeys.has(target));
+      break;
+    }
+  }
+
+  return snapshot;
+}
+
+function setMomentSnapshotValue(
+  target: Record<string, unknown>,
+  key: string,
+  value: number | string,
+  signedValue = false,
+): void {
+  if (typeof value === 'number' && isFinite(value)) {
+    target[key] = signedValue ? clampSigned(value) : clamp01(value);
+  } else if (typeof value === 'string' && value.trim()) {
+    target[key] = value;
+  }
+}
+
+function activeOverlayMomentAtomsAt(overlays: Overlay[], frame: number): MomentAtom[] {
+  return overlays
+    .filter((overlay) => overlay.type !== 'video' && overlay.type !== 'image')
+    .filter((overlay) => frame >= overlay.from && frame < overlay.from + overlay.durationInFrames)
+    .map((overlay) => ({
+      channel: 'overlay' as const,
+      key: `active.${overlay.type}`,
+      value: String(overlay.id ?? overlay.type),
+      strength: 1,
+      source: 'overlay' as const,
+      level: 'derived' as const,
+    }));
+}
+
+function deriveSignalsAtDecisionFrame(
+  frame: number,
+  overlays: Overlay[],
+  analyses?: Map<string, any>,
+  projectSignalContext: EDLSignalContext = {},
+): Record<string, number | string> {
+  const frameRef = resolveSourceFrame(frame, overlays);
+  const analysis = analysisForAsset(analyses, frameRef.assetId);
+  const sourceFrame = frameRef.sourceFrame;
+  const sourceMs = (sourceFrame / DEFAULT_CONFIG.timing.fps) * 1000;
+  const signals: Record<string, number | string> = {};
+
+  const vjepaSegments = arrayOrUndefined(analysis?.vjepaAnalysis?.segments)
+    ?? arrayOrUndefined(analysis?.vjepa?.segments)
+    ?? projectSignalContext.vjepaSegments;
+  const vjepa = findTimeSegment(vjepaSegments, sourceMs);
+  if (vjepa) {
+    setNumericSignal(signals, 'visual_significance', readNumber(vjepa, 'visualSignificance', 'visual_significance'));
+    setNumericSignal(signals, 'motion_intensity', readNumber(vjepa, 'motionIntensity', 'motion_intensity'));
+    setSignedSignal(signals, 'motion_vector_x', readSignedNumber(vjepa, 'motionVectorX', 'motion_vector_x', 'subjectMotionX', 'subject_motion_x', 'cameraMotionX', 'camera_motion_x'));
+    setSignedSignal(signals, 'motion_vector_y', readSignedNumber(vjepa, 'motionVectorY', 'motion_vector_y', 'subjectMotionY', 'subject_motion_y', 'cameraMotionY', 'camera_motion_y'));
+    setNumericSignal(signals, 'face_present', vjepa.faceEmotion != null || vjepa.eyeContact != null ? 1 : undefined);
+    setStringSignal(signals, 'visual_action_type', readString(vjepa, 'actionType', 'action_type'));
+    setStringSignal(signals, 'visual_motion_type', readString(vjepa, 'motionType', 'motion_type'));
+    setStringSignal(signals, 'visual_face_emotion', readString(vjepa, 'faceEmotion', 'face_emotion'));
+    setNumericSignal(signals, 'visual_eye_contact', readBoolean(vjepa, 'eyeContact', 'eye_contact'));
+    setNumericSignal(signals, 'main_subject_x', readNumber(vjepa, 'mainSubjectX', 'main_subject_x', 'subjectX', 'subject_x'));
+    setNumericSignal(signals, 'main_subject_y', readNumber(vjepa, 'mainSubjectY', 'main_subject_y', 'subjectY', 'subject_y'));
+    setNumericSignal(signals, 'main_subject_width', readNumber(vjepa, 'mainSubjectWidth', 'main_subject_width', 'subjectWidth', 'subject_width'));
+    setNumericSignal(signals, 'main_subject_height', readNumber(vjepa, 'mainSubjectHeight', 'main_subject_height', 'subjectHeight', 'subject_height'));
+    setNumericSignal(signals, 'text_coverage', readNumber(vjepa, 'textCoverage', 'text_coverage'));
+    setUnboundedNumericSignal(signals, 'text_box_count', readNumber(vjepa, 'textBoxCount', 'text_box_count'));
+    setUnboundedNumericSignal(signals, 'object_count', readNumber(vjepa, 'objectCount', 'object_count'));
+    setUnboundedNumericSignal(signals, 'face_count', readNumber(vjepa, 'faceCount', 'face_count'));
+    setNumericSignal(signals, 'negative_space_top', readNumber(vjepa, 'negativeSpaceTop', 'negative_space_top'));
+    setNumericSignal(signals, 'negative_space_right', readNumber(vjepa, 'negativeSpaceRight', 'negative_space_right'));
+    setNumericSignal(signals, 'negative_space_bottom', readNumber(vjepa, 'negativeSpaceBottom', 'negative_space_bottom'));
+    setNumericSignal(signals, 'negative_space_left', readNumber(vjepa, 'negativeSpaceLeft', 'negative_space_left'));
+  }
+
+  const wav2vecSegments = arrayOrUndefined(analysis?.wav2vecAnalysis?.segments)
+    ?? arrayOrUndefined(analysis?.wav2vec?.segments)
+    ?? projectSignalContext.wav2vecSegments;
+  const wav2vec = findTimeSegment(wav2vecSegments, sourceMs);
+  if (wav2vec) {
+    setNumericSignal(signals, 'emotion_intensity', readNumber(wav2vec, 'emotionIntensity', 'emotion_intensity'));
+    setNumericSignal(signals, 'emotional_arousal', readNumber(wav2vec, 'emotionIntensity', 'emotion_intensity'));
+    setNumericSignal(signals, 'speech_energy', readNumber(wav2vec, 'energy', 'speech_energy'));
+  }
+
+  const motion = findFrameSegment(arrayOrUndefined(analysis?.motionSegments), sourceFrame);
+  if (motion && signals.motion_intensity == null) {
+    setNumericSignal(signals, 'motion_intensity', readNumber(motion, 'motionIntensity', 'motion_intensity'));
+  }
+
+  const keyframe = nearestKeyframe(arrayOrUndefined(analysis?.keyframeAnalyses), sourceFrame);
+  if (keyframe) {
+    setNumericSignal(signals, 'shot_scale', shotScaleSignal(keyframe.shotType));
+    setNumericSignal(signals, 'visual_complexity', visualComplexitySignal(keyframe));
+    setNumericSignal(signals, 'text_on_screen', keyframeHasText(keyframe) ? 1 : 0);
+    const existingFaceSignal = typeof signals.face_present === 'number' ? signals.face_present : undefined;
+    setNumericSignal(signals, 'face_present', existingFaceSignal ?? (keyframeHasPerson(keyframe) ? 1 : 0));
+  }
+
+  if (signals.motion_intensity != null && signals.visual_change_rate == null) {
+    signals.visual_change_rate = signals.motion_intensity;
+  }
+
+  return signals;
+}
+
+function resolveSourceFrame(frame: number, overlays: Overlay[]): { sourceFrame: number; assetId?: string } {
+  const match = findClipAtFrame(frame, overlays, 20);
+  if (!match) return { sourceFrame: frame };
+
+  const clip = match.clip as Overlay & { sourceStartFrame?: number; videoStartTime?: number };
+  const sourceStartFrame = typeof clip.sourceStartFrame === 'number'
+    ? clip.sourceStartFrame
+    : typeof clip.videoStartTime === 'number'
+      ? clip.videoStartTime
+      : 0;
+  const localFrame = Math.max(0, match.snappedFrame - clip.from);
+  return { sourceFrame: sourceStartFrame + localFrame, assetId: clip.assetId };
+}
+
+function analysisForAsset(analyses: Map<string, any> | undefined, assetId?: string): any | undefined {
+  if (!analyses || analyses.size === 0) return undefined;
+  if (assetId && analyses.has(assetId)) return analyses.get(assetId);
+  if (analyses.size === 1) return Array.from(analyses.values())[0];
+  return undefined;
+}
+
+function normalizePlannerSignals(value: unknown): Record<string, number | string> {
+  if (!value || typeof value !== 'object') return {};
+  const source = value as Record<string, unknown>;
+  const signals: Record<string, number | string> = {};
+  const signedKeys = new Set(['motion_vector_x', 'motion_vector_y', 'visual.motion_vector.x', 'visual.motion_vector.y']);
+  const unboundedNumericKeys = new Set([
+    'object_count', 'visual.object_count',
+    'face_count', 'visual.face_count',
+    'text_box_count', 'visual.text_box_count',
+    'active_overlay_count', 'structural.active_overlays_count',
+    'speaking_rate_wpm', 'speech.speaking_rate_wpm',
+    'silence_duration_ms', 'speech.silence_duration_ms',
+    'time_since_last_cut', 'structural.time_since_last_cut',
+    'bpm', 'audio.bpm',
+  ]);
+
+  for (const [key, raw] of Object.entries(source)) {
+    if (typeof raw === 'number' && isFinite(raw)) {
+      signals[key] = signedKeys.has(key)
+        ? clampSigned(raw)
+        : unboundedNumericKeys.has(key)
+          ? raw
+          : clamp01(raw);
+    } else if (typeof raw === 'boolean') {
+      signals[key] = raw ? 1 : 0;
+    } else if (typeof raw === 'string' && raw.trim()) {
+      signals[key] = raw;
+    }
+  }
+
+  const aliases: Array<[string, string]> = [
+    ['visual.motion_intensity', 'motion_intensity'],
+    ['visual.significance', 'visual_significance'],
+    ['visual.motion_vector.x', 'motion_vector_x'],
+    ['visual.motion_vector.y', 'motion_vector_y'],
+    ['visual.action_type', 'visual_action_type'],
+    ['visual.motion_type', 'visual_motion_type'],
+    ['visual.face_emotion', 'visual_face_emotion'],
+    ['visual.complexity', 'visual_complexity'],
+    ['visual.text_on_screen', 'text_on_screen'],
+    ['visual.text_coverage', 'text_coverage'],
+    ['visual.text_box_count', 'text_box_count'],
+    ['visual.object_count', 'object_count'],
+    ['visual.face_count', 'face_count'],
+    ['visual.shot_scale', 'shot_scale'],
+    ['visual.face_present', 'face_present'],
+    ['visual.eye_contact', 'visual_eye_contact'],
+    ['visual.main_subject.x', 'main_subject_x'],
+    ['visual.main_subject.y', 'main_subject_y'],
+    ['visual.main_subject.width', 'main_subject_width'],
+    ['visual.main_subject.height', 'main_subject_height'],
+    ['visual.negative_space.top', 'negative_space_top'],
+    ['visual.negative_space.right', 'negative_space_right'],
+    ['visual.negative_space.bottom', 'negative_space_bottom'],
+    ['visual.negative_space.left', 'negative_space_left'],
+    ['speech.emotion_intensity', 'emotion_intensity'],
+    ['speech.emotional_valence', 'emotional_valence'],
+    ['speech.energy', 'speech_energy'],
+    ['speech.energy_delta', 'energy_delta'],
+    ['speech.energy_ema', 'speech_energy_ema'],
+    ['speech.energy_surprise', 'energy_surprise'],
+    ['speech.pitch_variability', 'pitch_variability'],
+    ['speech.speaking_rate_wpm', 'speaking_rate_wpm'],
+    ['speech.silence_duration_ms', 'silence_duration_ms'],
+    ['speech.silence_normalized', 'silence_normalized'],
+    ['speech.coverage', 'speech_coverage'],
+    ['speech.stress_detected', 'stress_detected'],
+    ['audio.music_beat', 'music_beat'],
+    ['audio.music_energy', 'music_energy'],
+    ['audio.music_tatum', 'music_tatum'],
+    ['audio.bpm', 'bpm'],
+    ['composite.cinematic_moment', 'cinematic_moment'],
+    ['composite.narrative_pressure', 'narrative_pressure'],
+    ['composite.montage_mode', 'montage_mode'],
+    ['composite.emotional_alignment', 'emotional_alignment'],
+    ['structural.position_in_video', 'position_in_video'],
+    ['structural.time_since_last_cut', 'time_since_last_cut'],
+    ['structural.active_overlays_count', 'active_overlay_count'],
+  ];
+  for (const [from, to] of aliases) {
+    if (signals[to] == null && signals[from] != null) signals[to] = signals[from];
+    if (signals[from] == null && signals[to] != null) signals[from] = signals[to];
+  }
+  if (signals.motion_intensity == null && typeof signals.visual_change_rate === 'number') {
+    signals.motion_intensity = signals.visual_change_rate;
+  }
+
+  return signals;
+}
+
+function findTimeSegment(
+  segments: Array<Record<string, unknown>> | undefined,
+  timestampMs: number,
+): Record<string, unknown> | undefined {
+  if (!segments?.length) return undefined;
+  const exact = segments.find((segment) => {
+    const startMs = readNumber(segment, 'startMs', 'start_ms') ?? 0;
+    const endMs = readNumber(segment, 'endMs', 'end_ms') ?? startMs;
+    return timestampMs >= startMs && timestampMs < endMs;
+  });
+  if (exact) return exact;
+
+  let best: Record<string, unknown> | undefined;
+  let bestDistance = Infinity;
+  for (const segment of segments) {
+    const startMs = readNumber(segment, 'startMs', 'start_ms') ?? 0;
+    const endMs = readNumber(segment, 'endMs', 'end_ms') ?? startMs;
+    const distance = timestampMs < startMs ? startMs - timestampMs : timestampMs - endMs;
+    if (distance >= 0 && distance < bestDistance) {
+      bestDistance = distance;
+      best = segment;
+    }
+  }
+
+  return bestDistance <= 5000 ? best : undefined;
+}
+
+function findFrameSegment(
+  segments: Array<Record<string, unknown>> | undefined,
+  frame: number,
+): Record<string, unknown> | undefined {
+  if (!segments?.length) return undefined;
+  return segments.find((segment) => {
+    const startFrame = readNumber(segment, 'startFrame', 'start_frame') ?? 0;
+    const endFrame = readNumber(segment, 'endFrame', 'end_frame') ?? startFrame;
+    return frame >= startFrame && frame < endFrame;
+  });
+}
+
+function nearestKeyframe(
+  keyframes: Array<Record<string, unknown>> | undefined,
+  frame: number,
+): Record<string, unknown> | undefined {
+  if (!keyframes?.length) return undefined;
+  let best = keyframes[0];
+  let bestDistance = Infinity;
+  for (const keyframe of keyframes) {
+    const keyframeFrame = readNumber(keyframe, 'frame') ?? 0;
+    const distance = Math.abs(keyframeFrame - frame);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = keyframe;
+    }
+  }
+  return bestDistance <= 150 ? best : undefined;
+}
+
+function shotScaleSignal(shotType: unknown): number | undefined {
+  if (typeof shotType !== 'string') return undefined;
+  if (shotType === 'extreme-close-up') return 1;
+  if (shotType === 'close-up') return 0.85;
+  if (shotType === 'medium') return 0.55;
+  if (shotType === 'wide') return 0.25;
+  return undefined;
+}
+
+function visualComplexitySignal(keyframe: Record<string, unknown>): number {
+  const colors = Array.isArray(keyframe.dominantColors) ? keyframe.dominantColors.length : 0;
+  const subjects = Array.isArray(keyframe.subjects) ? keyframe.subjects.length : 0;
+  const brightness = readNumber(keyframe, 'brightness') ?? 0.5;
+  const energy = readNumber(keyframe, 'energyLevel', 'energy_level') ?? 0.5;
+  return clamp01(
+    (Math.min(1, colors / 8) * 0.35)
+    + (Math.min(1, subjects / 6) * 0.25)
+    + (Math.abs(brightness - 0.5) * 2 * 0.2)
+    + (energy * 0.2),
+  );
+}
+
+function keyframeHasText(keyframe: Record<string, unknown>): boolean {
+  const subjects = Array.isArray(keyframe.subjects) ? keyframe.subjects : [];
+  return subjects.some((subject) => {
+    if (!subject || typeof subject !== 'object') return false;
+    const label = String((subject as Record<string, unknown>).label ?? '').toLowerCase();
+    return label.includes('text') || label.includes('subtitle') || label.includes('caption')
+      || label.includes('logo') || label.includes('sign') || label.includes('screen');
+  });
+}
+
+function keyframeHasPerson(keyframe: Record<string, unknown>): boolean {
+  const subjects = Array.isArray(keyframe.subjects) ? keyframe.subjects : [];
+  return subjects.some((subject) => {
+    if (!subject || typeof subject !== 'object') return false;
+    const label = String((subject as Record<string, unknown>).label ?? '').toLowerCase();
+    return label.includes('person') || label.includes('face') || label.includes('speaker')
+      || label.includes('man') || label.includes('woman');
+  });
+}
+
+function readNumber(source: Record<string, unknown>, ...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'number' && isFinite(value)) return value;
+    if (typeof value === 'boolean') return value ? 1 : 0;
+  }
+  return undefined;
+}
+
+function readSignedNumber(source: Record<string, unknown>, ...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'number' && isFinite(value)) return Math.max(-1, Math.min(1, value));
+    if (typeof value === 'boolean') return value ? 1 : 0;
+  }
+  return undefined;
+}
+
+function readString(source: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function readBoolean(source: Record<string, unknown>, ...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'boolean') return value ? 1 : 0;
+    if (typeof value === 'number' && isFinite(value)) return value >= 0.5 ? 1 : 0;
+  }
+  return undefined;
+}
+
+function setNumericSignal(target: Record<string, number | string>, key: string, value: number | undefined): void {
+  if (typeof value === 'number' && isFinite(value)) target[key] = clamp01(value);
+}
+
+function setUnboundedNumericSignal(target: Record<string, number | string>, key: string, value: number | undefined): void {
+  if (typeof value === 'number' && isFinite(value)) target[key] = value;
+}
+
+function setSignedSignal(target: Record<string, number | string>, key: string, value: number | undefined): void {
+  if (typeof value === 'number' && isFinite(value)) target[key] = clampSigned(value);
+}
+
+function setStringSignal(target: Record<string, number | string>, key: string, value: string | undefined): void {
+  if (typeof value === 'string' && value.trim()) target[key] = value;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function clampSigned(value: number): number {
+  return Math.max(-1, Math.min(1, value));
+}
+
+function arrayOrUndefined(value: unknown): Array<Record<string, unknown>> | undefined {
+  return Array.isArray(value) ? value as Array<Record<string, unknown>> : undefined;
+}
+
+function appendAtomicOverlayReceipt(overlay: Record<string, any>, receipt: AtomicOverlayReceipt): void {
+  overlay.metadata = overlay.metadata || {};
+  const receipts = Array.isArray(overlay.metadata.atomicOverlayReceipts)
+    ? overlay.metadata.atomicOverlayReceipts
+    : [];
+  overlay.metadata.atomicOverlayReceipts = [...receipts, receipt];
+  overlay.metadata.atomicOverlayReceipt = receipt;
+  const forms = Array.isArray(overlay.metadata.atomicOverlayForms)
+    ? overlay.metadata.atomicOverlayForms
+    : [];
+  overlay.metadata.atomicOverlayForms = [...forms, receipt.form];
+  overlay.metadata.atomicOverlayForm = receipt.form;
+  overlay.metadata.atomicPlanObserveMode = true;
+}
+
+function decisionMomentBundle(decision: EditDecision): AtomicMomentBundle | undefined {
+  const bundle = decision.params?.atomicMomentBundle;
+  if (!bundle || typeof bundle !== 'object') return undefined;
+  return (bundle as AtomicMomentBundle).version === 'moment-bundle-v1'
+    ? bundle as AtomicMomentBundle
+    : undefined;
+}
+
+function decisionMomentGrammar(decision: EditDecision): AtomicMomentGrammar | undefined {
+  const grammar = decision.params?.atomicMomentGrammar;
+  if (!grammar || typeof grammar !== 'object') return undefined;
+  return (grammar as AtomicMomentGrammar).version === 'moment-bundle-grammar-v1'
+    ? grammar as AtomicMomentGrammar
+    : undefined;
+}
+
+function atomicMomentBundleMetadata(
+  decision: EditDecision,
+): { atomicMomentBundle?: AtomicMomentBundle; atomicMomentGrammar?: AtomicMomentGrammar } {
+  const bundle = decisionMomentBundle(decision);
+  const grammar = decisionMomentGrammar(decision);
+  return {
+    ...(bundle ? { atomicMomentBundle: bundle } : {}),
+    ...(grammar ? { atomicMomentGrammar: grammar } : {}),
+  };
+}
+
+function attachAtomicMomentBundleMetadata(overlay: Record<string, any>, decision: EditDecision): void {
+  const bundle = decisionMomentBundle(decision);
+  const grammar = decisionMomentGrammar(decision);
+  if (!bundle && !grammar) return;
+  overlay.metadata = overlay.metadata || {};
+  if (bundle) overlay.metadata.atomicMomentBundle = bundle;
+  if (grammar) overlay.metadata.atomicMomentGrammar = grammar;
+}
+
+function decisionSignals(decision: EditDecision): Record<string, unknown> {
+  return decision.params?.signals && typeof decision.params.signals === 'object'
+    ? decision.params.signals as Record<string, unknown>
+    : {};
+}
+
+function resolveDecisionAtomicSfxForm(decision: EditDecision): AtomicSfxForm | null {
+  const cue = decisionSfxCue(decision);
+  const params: Record<string, unknown> = {
+    ...(decision.params ?? {}),
+    frame: decision.frame,
+    ...(cue ? { sfxCue: cue } : {}),
+  };
+  if (typeof decision.durationFrames === 'number') params.durationFrames = decision.durationFrames;
+
+  const form = resolveAtomicSfxForm({
+    signals: decisionSignals(decision),
+    params,
+    momentBundle: decisionMomentBundle(decision),
+    frame: decision.frame,
+    durationFrames: decision.durationFrames,
+    sceneRemainingFrames: decision.durationFrames ?? 90,
+  });
+
+  return form.shouldPlace ? form : null;
+}
+
+function decisionSfxCue(decision: EditDecision): string | undefined {
+  const params = decision.params ?? {};
+  const technique = typeof (decision as any).technique === 'string'
+    ? (decision as any).technique.replace(/^sfx_/, '')
+    : undefined;
+  const cueParts = [
+    params.sfxCue,
+    params.sfxType,
+    params.audioDescription,
+    params.soundDescription,
+    params.intent,
+    technique,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.trim());
+  return cueParts.length > 0 ? cueParts.join(' ') : undefined;
+}
+
+function atomicSfxSearchQuery(form: AtomicSfxForm): string {
+  return form.asset.queryTerms.length > 0
+    ? form.asset.queryTerms.join(' ')
+    : form.compatibilityToken;
+}
+
+function acceptedSfxCacheEntry(form: AtomicSfxForm, result: SFXLibraryResult | null): SfxCacheEntry | null {
+  const assetQuality = evaluateAtomicSfxAssetCandidate(form, result);
+  if (!result || !assetQuality.accepted) return null;
+  return {
+    audioUrl: result.audioUrl,
+    audioAssetId: result.audioAssetId,
+    durationMs: result.durationMs,
+    source: result.source,
+    originalTitle: result.originalTitle,
+    assetQuality,
+  };
+}
+
+function enrichDecisionWithUtilityScoring(
+  decision: EditDecision,
+  runtime: UtilityScoringRuntime,
+): void {
+  const category = utilityCategoryForDecision(decision);
+  if (!category) return;
+
+  const signalSnapshot = buildUtilitySignalSnapshot(decisionSignals(decision));
+  if (Object.keys(signalSnapshot).length === 0) return;
+
+  const definitions = runtime.definitions.filter((definition) => definition.category === category);
+  if (definitions.length === 0) return;
+
+  const results = runtime.scoreAllOverlays(definitions, signalSnapshot);
+  if (results.length === 0) return;
+
+  const winner = selectUtilityWinnerForDecision(category, results, runtime);
+  decision.params = decision.params || {};
+  decision.params.atomicUtilityScoring = {
+    version: 'path-e-d-utility-merge-v1',
+    source: 'edl-shared-executor',
+    category,
+    selection: {
+      method: 'support-aware-curve-fit',
+      coverage: round4(utilitySignalCoverage(winner, runtime)),
+      rawTopOverlayId: results[0]?.overlayId,
+    },
+    winner: summarizeUtilityResult(winner),
+    alternatives: results.slice(1, 4).map(summarizeUtilityResult),
+  };
+  mergeUtilityOutputValues(decision, category, winner.outputValues);
+}
+
+function selectUtilityWinnerForDecision(
+  category: OverlayCategory,
+  results: ScoringResult[],
+  runtime: UtilityScoringRuntime,
+): ScoringResult {
+  if (results.length <= 1) return results[0];
+
+  const definitionsById = new Map(runtime.definitions.map((definition) => [definition.id, definition]));
+  const ranked = results.map((result) => {
+    const coverage = utilitySignalCoverage(result, runtime, definitionsById);
+    const outputFit = utilityOutputFit(category, result.outputValues);
+    return {
+      result,
+      coverage,
+      outputFit,
+      supportAwareScore: result.totalScore * coverage,
+    };
+  });
+
+  ranked.sort((a, b) => {
+    if (b.supportAwareScore !== a.supportAwareScore) return b.supportAwareScore - a.supportAwareScore;
+    if (b.outputFit !== a.outputFit) return b.outputFit - a.outputFit;
+    if (b.result.rank !== a.result.rank) return b.result.rank - a.result.rank;
+    return b.result.totalScore - a.result.totalScore;
+  });
+
+  return ranked[0].result;
+}
+
+function utilitySignalCoverage(
+  result: ScoringResult,
+  runtime: UtilityScoringRuntime,
+  definitionsById = new Map(runtime.definitions.map((definition) => [definition.id, definition])),
+): number {
+  const definition = definitionsById.get(result.overlayId);
+  const required = definition?.considerations.length ?? result.considerationScores.length;
+  if (required <= 0) return 1;
+  return Math.max(0, Math.min(1, result.considerationScores.length / required));
+}
+
+function utilityOutputFit(
+  category: OverlayCategory,
+  outputValues: Record<string, number | string | boolean>,
+): number {
+  if (category === 'zoom') {
+    const scaleTo = typeof outputValues.scaleTo === 'number' ? outputValues.scaleTo : 1;
+    return Math.abs(scaleTo - 1);
+  }
+
+  const duration = outputValues.durationFrames;
+  if ((category === 'transition' || category === 'sfx' || category === 'camera') && typeof duration === 'number') {
+    return Math.max(0, Math.min(1, duration / 60)) * 0.01;
+  }
+
+  return 0;
+}
+
+function utilityCategoryForDecision(decision: EditDecision): OverlayCategory | undefined {
+  switch (decision.type) {
+    case 'zoom':
+      return 'zoom';
+    case 'transition':
+      return 'transition';
+    case 'graphic':
+    case 'caption-emphasis':
+      return decision.type === 'graphic' ? 'graphic' : 'caption';
+    case 'sfx':
+    case 'sfx-trigger':
+      return 'sfx';
+    case 'camera-shake':
+    case 'speed-change':
+      return 'camera';
+    case 'cut':
+      return 'cut';
+    case 'filter-change':
+      return 'filter';
+    default:
+      return undefined;
+  }
+}
+
+function summarizeUtilityResult(result: ScoringResult): Record<string, unknown> {
+  return {
+    overlayId: result.overlayId,
+    score: round4(result.totalScore),
+    rank: result.rank,
+    outputValues: result.outputValues,
+    placementAdjustment: result.placementAdjustment,
+    considerations: result.considerationScores.map((score) => ({
+      signalId: score.signalId,
+      rawInput: round4(score.rawInput),
+      curveOutput: round4(score.curveOutput),
+      compensated: round4(score.compensated),
+    })),
+  };
+}
+
+function mergeUtilityOutputValues(
+  decision: EditDecision,
+  category: OverlayCategory,
+  outputValues: Record<string, number | string | boolean>,
+): void {
+  const params = decision.params as Record<string, unknown>;
+  const copy = (key: string, mode: 'override' | 'fill' = 'override') => {
+    const value = outputValues[key];
+    if (value === undefined || value === null) return;
+    if (mode === 'fill' && params[key] !== undefined && params[key] !== null) return;
+    params[key] = value;
+  };
+
+  if (category === 'graphic') {
+    // Do not let the old utility graphicType menu become the new source of truth.
+    // MG form should emerge from content atoms + signals + brand. We keep the score
+    // evidence above for calibration and future no-preset resolving.
+    return;
+  }
+
+  if (category === 'zoom') {
+    copy('scaleTo');
+    copy('scaleFrom', 'fill');
+    copy('zoomType');
+    copy('durationFrames');
+    if (typeof params.scaleTo === 'number' && params.scaleTo < 1 && params.scaleFrom == null) {
+      params.scaleFrom = 1;
+    }
+    return;
+  }
+
+  if (category === 'transition') {
+    copy('transitionType');
+    copy('durationFrames');
+    return;
+  }
+
+  if (category === 'sfx') {
+    copy('sfxType');
+    copy('volume');
+    copy('durationFrames');
+    return;
+  }
+
+  if (category === 'camera') {
+    copy('speedMult');
+    copy('intensity');
+    copy('durationFrames');
+    return;
+  }
+
+  if (category === 'caption' || category === 'filter') {
+    for (const key of Object.keys(outputValues)) copy(key, 'fill');
+  }
+}
+
+function buildUtilitySignalSnapshot(source: Record<string, unknown>): Record<string, number> {
+  const signals: Record<string, number> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'number' && isFinite(value)) {
+      signals[key] = value;
+    } else if (typeof value === 'boolean') {
+      signals[key] = value ? 1 : 0;
+    }
+  }
+
+  const aliases: Array<[string, string]> = [
+    ['speech_energy', 'speech.energy'],
+    ['energy_delta', 'speech.energy_delta'],
+    ['speech_energy_ema', 'speech.energy_ema'],
+    ['energy_surprise', 'speech.energy_surprise'],
+    ['emotion_intensity', 'speech.emotion_intensity'],
+    ['emotional_arousal', 'speech.emotion_intensity'],
+    ['speaking_rate_wpm', 'speech.speaking_rate_wpm'],
+    ['silence_normalized', 'speech.silence_normalized'],
+    ['silence_duration_ms', 'speech.silence_duration_ms'],
+    ['speech_coverage', 'speech.coverage'],
+    ['visual_change_rate', 'visual.motion_intensity'],
+    ['motion_intensity', 'visual.motion_intensity'],
+    ['visual_significance', 'visual.significance'],
+    ['face_present', 'visual.face_present'],
+    ['shot_scale', 'visual.shot_scale'],
+    ['visual_complexity', 'visual.complexity'],
+    ['text_on_screen', 'visual.text_on_screen'],
+    ['text_coverage', 'visual.text_coverage'],
+    ['text_box_count', 'visual.text_box_count'],
+    ['object_count', 'visual.object_count'],
+    ['face_count', 'visual.face_count'],
+    ['motion_vector_x', 'visual.motion_vector.x'],
+    ['motion_vector_y', 'visual.motion_vector.y'],
+    ['main_subject_x', 'visual.main_subject.x'],
+    ['main_subject_y', 'visual.main_subject.y'],
+    ['main_subject_width', 'visual.main_subject.width'],
+    ['main_subject_height', 'visual.main_subject.height'],
+    ['negative_space_top', 'visual.negative_space.top'],
+    ['negative_space_right', 'visual.negative_space.right'],
+    ['negative_space_bottom', 'visual.negative_space.bottom'],
+    ['negative_space_left', 'visual.negative_space.left'],
+    ['cinematic_moment', 'composite.cinematic_moment'],
+    ['montage_mode', 'composite.montage_mode'],
+    ['narrative_pressure', 'composite.narrative_pressure'],
+    ['position_in_video', 'structural.position_in_video'],
+    ['time_since_last_cut', 'structural.time_since_last_cut'],
+    ['music_energy', 'audio.music_energy'],
+    ['music_beat', 'audio.music_beat'],
+    ['music_tatum', 'audio.music_tatum'],
+    ['bpm', 'audio.bpm'],
+    ['formality', 'content.formality'],
+  ];
+
+  for (const [from, to] of aliases) {
+    if (signals[to] == null && typeof signals[from] === 'number') {
+      signals[to] = signals[from];
+    }
+    if (signals[from] == null && typeof signals[to] === 'number') {
+      signals[from] = signals[to];
+    }
+  }
+
+  return signals;
+}
+
+function buildMotionGraphicSignalSnapshot(decision: EditDecision): Record<string, number | string> {
+  return normalizePlannerSignals(decisionSignals(decision));
+}
+
+function round4(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
 async function applyDecision(
   decision: EditDecision,
   overlays: Overlay[],
@@ -451,7 +1362,7 @@ async function applyDecision(
   analyses?: Map<string, any>,
   idEpoch: number = 0,
   decisionIndex: number = 0,
-  sfxCache?: Map<string, { audioUrl: string; audioAssetId: string; durationMs: number } | null>,
+  sfxCache?: SfxAssetCache | null,
   graphicTemplateIds?: Set<string>,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
 ): Promise<{ created: number; modified: number } | null> {
@@ -508,37 +1419,98 @@ async function applyDecision(
     case 'sfx-trigger': {
       // 'sfx-trigger' from signal executor (Path D) has params.sfxType
       // 'sfx' from creative brief (Path E) has technique name like 'sfx_whoosh'
-      const sfxType = (decision as any).params?.sfxType
-        || (decision as any).technique?.replace('sfx_', '')
-        || undefined;
-      if (!sfxType) {
+      const atomicSfxForm = resolveDecisionAtomicSfxForm(decision);
+      const sfxType = atomicSfxForm?.shouldPlace ? atomicSfxForm.compatibilityToken : undefined;
+      if (!atomicSfxForm || !sfxType || sfxType === 'none') {
         console.warn(`[EDL-Exec] SFX at frame ${decision.frame}: no sfxType or technique — SKIPPED (not guessing)`);
         return null;
       }
       if (!sfxCache) return null;
-      const cached = sfxCache.get(sfxType);
+      const searchQuery = atomicSfxSearchQuery(atomicSfxForm);
+      let cached = sfxCache.get(searchQuery);
+      if (cached === undefined) {
+        const fetched = await searchAndDownloadSFX(searchQuery, userId, atomicSfxForm.asset.maxDurationSec, atomicSfxForm);
+        cached = acceptedSfxCacheEntry(atomicSfxForm, fetched);
+        sfxCache.set(searchQuery, cached);
+      }
       if (!cached) return null;
 
-      const fps = DEFAULT_CONFIG.timing.fps;
-      const sfxDurFrames = Math.max(1, Math.min(Math.round((cached.durationMs / 1000) * fps), 90));
+      const sfxStartFrame = atomicSfxForm.timing.startFrame;
+      const sfxDurFrames = atomicSfxForm.timing.durationFrames;
       const sfxId = deterministicOverlayId(idEpoch, 'sfx-trigger', decision.frame, decisionIndex);
+      const atomicOverlayReceipt = buildOverlayAtomicReceipt({
+        family: 'sfx',
+        intent: atomicSfxForm.intent,
+        frame: sfxStartFrame,
+        durationFrames: sfxDurFrames,
+        source: decision.source,
+        reason: decision.reason,
+        signals: decisionSignals(decision),
+        target: { overlayId: sfxId },
+        payload: {
+          formVersion: atomicSfxForm.version,
+          sfxType,
+          sfxIntent: atomicSfxForm.intent,
+          primarySearchToken: atomicSfxForm.asset.primarySearchToken,
+          searchQuery,
+          fallbackPolicy: atomicSfxForm.asset.fallbackPolicy,
+          syncAnchor: atomicSfxForm.timing.anchor,
+          attackFrames: atomicSfxForm.timing.attackFrames,
+          tailFrames: atomicSfxForm.timing.tailFrames,
+          volume: atomicSfxForm.mix.volume,
+          mixPressure: atomicSfxForm.mixPressure,
+          transientSharpness: atomicSfxForm.transientSharpness,
+          assetQualityScore: cached.assetQuality.score,
+          assetQualityFloor: cached.assetQuality.qualityFloor,
+          assetQualityDecision: cached.assetQuality.decision,
+          assetQualityReasons: cached.assetQuality.reasons.join('|'),
+          assetSource: cached.source,
+          assetTitle: cached.originalTitle,
+        },
+        atoms: [
+          overlayAtom('temporal-anchor', 'timeline.frame', atomicSfxForm.timing.syncFrame, 1, 'edl'),
+          overlayAtom('start-frame', 'sfx.start_frame', atomicSfxForm.timing.startFrame, 1, 'derived-signal'),
+          overlayAtom('end-frame', 'sfx.end_frame', atomicSfxForm.timing.endFrame, 1, 'derived-signal'),
+          overlayAtom('duration', 'sfx.duration_frames', atomicSfxForm.timing.durationFrames, atomicSfxForm.intensity, 'derived-signal'),
+          overlayAtom('audio-hit', 'sfx.token', sfxType, decision.confidence, 'decision-param'),
+          overlayAtom('volume', 'audio.volume', atomicSfxForm.mix.volume, atomicSfxForm.mix.volume, 'decision-param'),
+          overlayAtom('audio-hit', 'audio.asset_quality', cached.assetQuality.score, cached.assetQuality.score, 'audio-library'),
+        ],
+      });
 
       overlays.push({
         id: sfxId,
         type: 'sound',
-        from: decision.frame,
+        from: sfxStartFrame,
         durationInFrames: sfxDurFrames,
+        startFromSound: atomicSfxForm.timing.sourceOffsetFrames,
+        audioStartFrame: atomicSfxForm.timing.startFrame,
+        audioEndFrame: atomicSfxForm.timing.endFrame,
         row: ROW.SFX,
         left: 0, top: 0, width: 0, height: 0,
         isDragging: false, rotation: 0,
         content: cached.audioUrl,
         src: cached.audioUrl,
         assetId: cached.audioAssetId,
-        styles: { volume: DEFAULT_CONFIG.audio.defaultSfxVolume, opacity: 1 },
-        metadata: { source: 'edl-sfx-trigger', sfxType },
+        styles: { volume: atomicSfxForm.mix.volume, opacity: 1 },
+        metadata: {
+          source: 'edl-sfx-trigger',
+          sfxType,
+          sfxQuery: searchQuery,
+          sfxIntent: atomicSfxForm.intent,
+          sfxAssetQuality: cached.assetQuality,
+          ...atomicMomentBundleMetadata(decision),
+          atomicSfxForm,
+          atomicSfxForms: [atomicSfxForm],
+          atomicOverlayReceipt,
+          atomicOverlayReceipts: [atomicOverlayReceipt],
+          atomicOverlayForm: atomicOverlayReceipt.form,
+          atomicOverlayForms: [atomicOverlayReceipt.form],
+          atomicPlanObserveMode: true,
+        },
       } as any);
 
-      console.log(`[EDL-Exec] sfx-trigger: placed "${sfxType}" at frame ${decision.frame}`);
+      console.log(`[EDL-Exec] sfx-trigger: placed "${sfxType}" intent="${atomicSfxForm.intent}" at frame ${sfxStartFrame}`);
       return { created: 1, modified: 0 };
     }
 
@@ -590,6 +1562,22 @@ function applyCameraShake(
   if (!video.keyframeTracks) video.keyframeTracks = [];
   video.keyframeTracks.push({ property: 'x', keyframes: xKeyframes });
   video.keyframeTracks.push({ property: 'y', keyframes: yKeyframes });
+  appendAtomicOverlayReceipt(video, buildOverlayAtomicReceipt({
+    family: 'camera-shake',
+    intent: 'impact-shake',
+    frame,
+    durationFrames,
+    source: decision.source,
+    reason: decision.reason,
+    signals: decisionSignals(decision),
+    target: { overlayId: video.id, localFrame: relativeStart },
+    payload: { intensity: Number(intensity), maxOffset, shakeFrames },
+    atoms: [
+      overlayAtom('temporal-anchor', 'timeline.frame', frame, 1, 'edl'),
+      overlayAtom('motion-curve', 'camera-shake.xy-jitter', maxOffset, Number(intensity), 'keyframe'),
+    ],
+  }));
+  attachAtomicMomentBundleMetadata(video, decision);
 
   return { created: 0, modified: 1 };
 }
@@ -603,16 +1591,22 @@ function applyTransition(
   idEpoch: number = 0,
   decisionIndex: number = 0,
 ): { created: number; modified: number } | null {
-  const transType = (decision.params.transitionType || 'soft-cut') as string;
-  let durationFrames = decision.durationFrames || (DEFAULT_TRANSITION_FRAMES as any)[transType] || 15;
+  decision.params = decision.params || {};
+  const requestedTransType = (decision.params.transitionType || 'soft-cut') as string;
   // Dissolve needs minimum duration to feel like a real crossfade, not a flash.
   // Intelligence layer often sets 15 frames (0.5s) → too fast. Clamp to 30+ (1s).
-  if (transType === 'dissolve' && durationFrames < 30) {
-    durationFrames = Math.max(durationFrames, DEFAULT_TRANSITION_FRAMES['dissolve'] || 36);
-  }
+  const transitionForm = resolveAtomicTransitionForm({
+    signals: decisionSignals(decision),
+    params: decision.params,
+    momentBundle: decisionMomentBundle(decision),
+    durationFrames: decision.durationFrames,
+    defaultDurationFrames: (DEFAULT_TRANSITION_FRAMES as any)[requestedTransType] || 15,
+  });
+  const transType = transitionForm.compatibilityType;
+  const durationFrames = transitionForm.durationFrames;
 
   // hard-cut and editorial cuts don't produce visual transitions
-  if (['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
+  if (['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(requestedTransType)) {
     return null;
   }
 
@@ -681,11 +1675,54 @@ function applyTransition(
     metadata: {
       isTransition: true,
       transitionType: transType,
-      keyframeBased: transType === 'dissolve',
+      keyframeBased: transitionForm.keyframeBased,
       source: 'edl',
       edlReason: decision.reason,
+      ...atomicMomentBundleMetadata(decision),
+      atomicTransitionForm: transitionForm,
+      atomicOverlayReceipt: buildOverlayAtomicReceipt({
+        family: 'transition',
+        intent: transitionForm.intent,
+        frame: anchorFrame,
+        durationFrames,
+        source: decision.source,
+        reason: decision.reason,
+        signals: decisionSignals(decision),
+        target: { clipAId: clipA.id, clipBId: clipB.id, boundaryFrame: anchorFrame },
+        payload: {
+          formVersion: transitionForm.version,
+          transitionType: transType,
+          directionX: transitionForm.direction.x,
+          directionY: transitionForm.direction.y,
+          directionLabel: transitionForm.direction.label,
+          durationFrames,
+          softness: transitionForm.softness,
+          blurPx: transitionForm.blurPx,
+          smear: transitionForm.smear,
+          exposure: transitionForm.exposure,
+          maskFeather: transitionForm.maskFeather,
+          visualPressure: transitionForm.visualPressure,
+          intensity: transitionForm.intensity,
+          sfxRole: transitionForm.sfxRole,
+          keyframeBased: transitionForm.keyframeBased,
+        },
+        atoms: [
+          overlayAtom('temporal-anchor', 'timeline.boundary_frame', anchorFrame, 1, 'edl'),
+          overlayAtom('transition-relation', 'transition.clip_pair', `${clipA.id}->${clipB.id}`, decision.confidence, 'edl'),
+          overlayAtom('direction-x', 'transition.direction_x', transitionForm.direction.x, transitionForm.direction.magnitude, 'derived-signal'),
+          overlayAtom('direction-y', 'transition.direction_y', transitionForm.direction.y, transitionForm.direction.magnitude, 'derived-signal'),
+          overlayAtom('duration', 'transition.duration_frames', durationFrames, transitionForm.intensity, 'derived-signal'),
+          overlayAtom('softness', 'transition.softness', transitionForm.softness, transitionForm.softness, 'derived-signal'),
+          overlayAtom('blur', 'transition.blur_px', transitionForm.blurPx, transitionForm.intensity, 'derived-signal'),
+          overlayAtom('exposure', 'transition.exposure', transitionForm.exposure, transitionForm.exposure, 'derived-signal'),
+        ],
+      }),
+      atomicPlanObserveMode: true,
     },
   };
+  (transitionOverlay.metadata as any).atomicOverlayReceipts = [(transitionOverlay.metadata as any).atomicOverlayReceipt];
+  (transitionOverlay.metadata as any).atomicOverlayForm = (transitionOverlay.metadata as any).atomicOverlayReceipt.form;
+  (transitionOverlay.metadata as any).atomicOverlayForms = [(transitionOverlay.metadata as any).atomicOverlayReceipt.form];
 
   overlays.push(transitionOverlay as any);
 
@@ -770,6 +1807,7 @@ function applyZoom(
     console.log(`[EDL-Exec] Zoom at frame ${decision.frame}: snapped to clip at ${clipMatch.clip.from} (drift: ${clipMatch.drift} frames)`);
   }
   const videoOverlay = clipMatch.clip;
+  decision.params = decision.params || {};
 
   // Guard: hook zone — creative graph mapping:structural.hook_zone_treatment
   // says first 5% of VIDEO needs strong visual opening without jarring zooms.
@@ -836,9 +1874,14 @@ function applyZoom(
 
   const localFrame = decision.frame - videoOverlay.from;
   const sceneEnd = videoOverlay.durationInFrames;
-  const duration = decision.durationFrames || 20;
-  const scaleFrom = decision.params.scaleFrom || 1.0;
-  const scaleTo = decision.params.scaleTo || 1.1;
+  const zoomForm = resolveAtomicZoomForm({
+    signals: decisionSignals(decision),
+    params: decision.params,
+    momentBundle: decisionMomentBundle(decision),
+    localFrame,
+    sceneEnd,
+    durationFrames: decision.durationFrames,
+  });
 
   // Add scale keyframe track
   if (!videoOverlay.keyframeTracks) videoOverlay.keyframeTracks = [];
@@ -848,19 +1891,47 @@ function applyZoom(
     (t: KeyframeTrack) => t.property !== 'scale',
   );
 
-  // Determine zoom subtype from params or infer from scale values
-  // punch-in: quick zoom to target, HOLD for rest of scene (Z-010)
-  // slow-push: gradual zoom over full scene duration (Z-001)
-  // pull-back: zoom out from close to wide (Z-020)
-  const zoomType = decision.params.zoomType
-    || (scaleTo < scaleFrom ? 'pull-back' : (duration >= sceneEnd * 0.5 ? 'slow-push' : 'punch-in'));
-
-  const keyframes = buildZoomKeyframes(zoomType, scaleFrom, scaleTo, localFrame, duration, sceneEnd);
+  videoOverlay.styles = videoOverlay.styles || {};
+  (videoOverlay.styles as any).transformOrigin = zoomForm.focal.transformOrigin;
 
   videoOverlay.keyframeTracks.push({
     property: 'scale',
-    keyframes,
+    keyframes: zoomForm.keyframes,
   });
+  appendAtomicOverlayReceipt(videoOverlay as any, buildOverlayAtomicReceipt({
+    family: 'zoom',
+    intent: zoomForm.intent,
+    frame: decision.frame,
+    durationFrames: zoomForm.durationFrames,
+    source: decision.source,
+    reason: decision.reason,
+    signals: decisionSignals(decision),
+    target: { overlayId: videoOverlay.id, localFrame },
+    payload: {
+      formVersion: zoomForm.version,
+      zoomType: zoomForm.compatibilityType,
+      direction: zoomForm.direction,
+      scaleFrom: zoomForm.scaleFrom,
+      scaleTo: zoomForm.scaleTo,
+      scaleDelta: zoomForm.scaleDelta,
+      focalX: zoomForm.focal.x,
+      focalY: zoomForm.focal.y,
+      transformOrigin: zoomForm.focal.transformOrigin,
+      attackFrames: zoomForm.attackFrames,
+      holdFrames: zoomForm.holdFrames,
+      visualPressure: zoomForm.visualPressure,
+      intensity: zoomForm.intensity,
+    },
+    atoms: [
+      overlayAtom('temporal-anchor', 'timeline.frame', decision.frame, 1, 'edl'),
+      overlayAtom('scale-delta', 'zoom.scale_delta', zoomForm.scaleDelta, Math.abs(zoomForm.scaleDelta), 'derived-signal'),
+      overlayAtom('duration', 'zoom.duration_frames', zoomForm.durationFrames, zoomForm.intensity, 'derived-signal'),
+      overlayAtom('focal-x', 'zoom.focal_x', zoomForm.focal.x, zoomForm.focal.strength, 'derived-signal'),
+      overlayAtom('focal-y', 'zoom.focal_y', zoomForm.focal.y, zoomForm.focal.strength, 'derived-signal'),
+      overlayAtom('motion-curve', 'zoom.scale_keyframes', zoomForm.keyframes.length, Math.abs(zoomForm.scaleDelta), 'keyframe'),
+    ],
+  }));
+  attachAtomicMomentBundleMetadata(videoOverlay as any, decision);
 
   return { created: 0, modified: 1 };
 }
@@ -906,6 +1977,22 @@ function applySpeedChange(
   }
 
   videoOverlay.speedCurve = validated;
+  appendAtomicOverlayReceipt(videoOverlay, buildOverlayAtomicReceipt({
+    family: 'speed',
+    intent: 'speed-ramp',
+    frame: decision.frame,
+    durationFrames: duration,
+    source: decision.source,
+    reason: decision.reason,
+    signals: decisionSignals(decision),
+    target: { overlayId: videoOverlay.id, localFrame },
+    payload: { speedFrom: Number(speedFrom), speedTo: Number(speedTo), speedBack: Number(speedBack) },
+    atoms: [
+      overlayAtom('temporal-anchor', 'timeline.frame', decision.frame, 1, 'edl'),
+      overlayAtom('speed-curve', 'video.speed_curve', validated.length, Math.abs(Number(speedTo) - Number(speedFrom)), 'keyframe'),
+    ],
+  }));
+  attachAtomicMomentBundleMetadata(videoOverlay, decision);
   return { created: 0, modified: 1 };
 }
 
@@ -933,6 +2020,22 @@ function applyFade(
       { frame: localFrame + duration, value: toOpacity, easing: 'linear' },
     ],
   });
+  appendAtomicOverlayReceipt(overlay as any, buildOverlayAtomicReceipt({
+    family: 'fade',
+    intent: 'opacity-fade',
+    frame: decision.frame,
+    durationFrames: duration,
+    source: decision.source,
+    reason: decision.reason,
+    signals: decisionSignals(decision),
+    target: { overlayId: overlay.id, localFrame },
+    payload: { fromOpacity: Number(fromOpacity), toOpacity: Number(toOpacity) },
+    atoms: [
+      overlayAtom('temporal-anchor', 'timeline.frame', decision.frame, 1, 'edl'),
+      overlayAtom('opacity-curve', 'video.opacity_curve', Number(toOpacity) - Number(fromOpacity), Math.abs(Number(toOpacity) - Number(fromOpacity)), 'keyframe'),
+    ],
+  }));
+  attachAtomicMomentBundleMetadata(overlay as any, decision);
 
   return { created: 0, modified: 1 };
 }
@@ -1010,6 +2113,163 @@ function fillTemplateWithSlotValues(
   return html;
 }
 
+type OverlayPlacementRegion =
+  | 'top-left'
+  | 'top-center'
+  | 'top-right'
+  | 'middle-left'
+  | 'middle-center'
+  | 'middle-right'
+  | 'bottom-left'
+  | 'bottom-center'
+  | 'bottom-right'
+  | 'full-frame';
+
+type OverlayPlacementAdjustment = {
+  candidateRegion?: OverlayPlacementRegion;
+  multiplier?: number;
+  penalty?: number;
+  bonus?: number;
+  avoidHits?: string[];
+  preferHits?: string[];
+  constraints?: string[];
+};
+
+type OverlayGeometry = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter((item): item is string => typeof item === 'string');
+  return strings.length > 0 ? strings : undefined;
+}
+
+function normalizePlacementRegion(value: unknown): OverlayPlacementRegion | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.toLowerCase().replace(/_/g, '-');
+  const aliases: Record<string, OverlayPlacementRegion> = {
+    center: 'middle-center',
+    'center-left': 'middle-left',
+    'center-right': 'middle-right',
+    'safe-top-left': 'top-left',
+    'safe-top-center': 'top-center',
+    'safe-top-right': 'top-right',
+    'safe-middle-left': 'middle-left',
+    'safe-middle-center': 'middle-center',
+    'safe-middle-right': 'middle-right',
+    'safe-bottom-left': 'bottom-left',
+    'safe-bottom-center': 'bottom-center',
+    'safe-bottom-right': 'bottom-right',
+    fullscreen: 'full-frame',
+  };
+  const region = aliases[normalized] ?? normalized;
+  return isPlacementRegion(region) ? region : undefined;
+}
+
+function isPlacementRegion(value: string): value is OverlayPlacementRegion {
+  return [
+    'top-left',
+    'top-center',
+    'top-right',
+    'middle-left',
+    'middle-center',
+    'middle-right',
+    'bottom-left',
+    'bottom-center',
+    'bottom-right',
+    'full-frame',
+  ].includes(value);
+}
+
+function readPlacementAdjustment(value: unknown): OverlayPlacementAdjustment | undefined {
+  if (!isObjectRecord(value)) return undefined;
+  return {
+    candidateRegion: normalizePlacementRegion(value.candidateRegion),
+    multiplier: readFiniteNumber(value.multiplier),
+    penalty: readFiniteNumber(value.penalty),
+    bonus: readFiniteNumber(value.bonus),
+    avoidHits: readStringArray(value.avoidHits),
+    preferHits: readStringArray(value.preferHits),
+    constraints: readStringArray(value.constraints),
+  };
+}
+
+function mergePlacementAdjustment(
+  base: OverlayPlacementAdjustment | undefined,
+  atomic: OverlayPlacementAdjustment | undefined,
+): OverlayPlacementAdjustment | undefined {
+  if (!base) return atomic;
+  if (!atomic) return base;
+  return {
+    candidateRegion: atomic.candidateRegion ?? base.candidateRegion,
+    multiplier: atomic.multiplier !== undefined && atomic.multiplier !== 1
+      ? atomic.multiplier
+      : base.multiplier,
+    penalty: Math.max(base.penalty ?? 0, atomic.penalty ?? 0),
+    bonus: Math.max(base.bonus ?? 0, atomic.bonus ?? 0),
+    avoidHits: mergeStringList(base.avoidHits, atomic.avoidHits),
+    preferHits: mergeStringList(base.preferHits, atomic.preferHits),
+    constraints: mergeStringList(base.constraints, atomic.constraints),
+  };
+}
+
+function mergeStringList(
+  base: string[] | undefined,
+  atomic: string[] | undefined,
+): string[] | undefined {
+  const merged = [...(base ?? []), ...(atomic ?? [])].filter((value, index, array) => array.indexOf(value) === index);
+  return merged.length > 0 ? merged : undefined;
+}
+
+function isPointPosition(value: unknown): value is { x?: number; y?: number } {
+  return isObjectRecord(value);
+}
+
+function applyPlacementRegionGeometry(
+  region: OverlayPlacementRegion | undefined,
+  geometry: OverlayGeometry,
+  canvas: { width: number; height: number },
+  safeMargin: number,
+): OverlayGeometry {
+  if (!region || region === 'full-frame') return geometry;
+
+  const verticalMargin = canvas.height * 0.05;
+  const width = Math.min(Math.max(geometry.width, 120), canvas.width - safeMargin * 2);
+  const height = Math.min(Math.max(geometry.height, 48), canvas.height - verticalMargin * 2);
+  const [, horizontal] = region.split('-');
+  const vertical = region.startsWith('top-') ? 'top' : region.startsWith('bottom-') ? 'bottom' : 'middle';
+
+  const left = horizontal === 'left'
+    ? safeMargin
+    : horizontal === 'right'
+      ? canvas.width - width - safeMargin
+      : (canvas.width - width) / 2;
+  const top = vertical === 'top'
+    ? verticalMargin
+    : vertical === 'bottom'
+      ? canvas.height - height - verticalMargin
+      : (canvas.height - height) / 2;
+
+  return {
+    left: Math.round(left),
+    top: Math.round(top),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
 async function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
@@ -1022,12 +2282,22 @@ async function applyGraphic(
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
 ): Promise<{ created: number; modified: number } | null> {
   const { text, position } = decision.params;
+  const requestedPlacementAdjustment = readPlacementAdjustment(decision.params.placementAdjustment);
+  const requestedPlacementRegion = requestedPlacementAdjustment?.candidateRegion ?? normalizePlacementRegion(position);
+  const atomicPlacement = resolveAtomicPlacement({
+    family: 'graphic',
+    momentBundle: decisionMomentBundle(decision),
+    signals: decisionSignals(decision),
+    requestedRegion: requestedPlacementRegion,
+  });
+  const placementRegion = atomicPlacement.candidateRegion ?? requestedPlacementRegion;
+  const placementAdjustment = mergePlacementAdjustment(requestedPlacementAdjustment, atomicPlacement.placementAdjustment);
   // Extract graphicType from params (signal executor) or technique (creative brief).
   // Creative brief outputs technique like 'graphic_stat_counter' — convert to 'stat-counter'
   // which matches the switch cases and GRAPHIC_DURATIONS keys.
-  const graphicType = decision.params.graphicType
-    || (decision as any).technique?.replace(/^technique:graphic\./, '').replace('graphic_', '').replace(/_/g, '-')
-    || 'keyword-highlight';
+  const graphicType = typeof decision.params.graphicType === 'string'
+    ? decision.params.graphicType
+    : 'atomic-graphic';
   const hasContent = text || decision.params.name || decision.params.value || decision.params.quote || decision.params.title;
   if (!hasContent) return null;
 
@@ -1103,14 +2373,23 @@ async function applyGraphic(
   const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;
 
   if (useCompositionEngine) {
-    const rawSignals = decision.params.signals || {};
+    const rawSignals = buildMotionGraphicSignalSnapshot(decision);
     const tokens = resolveMotionTokens(rawSignals, decision.params.brand || {});
 
     // `brand` is RENDER TOKENS (consumed by resolveMotionTokens above), NOT graphic content. Passing
     // it through as content.brand mis-fires the brand SHAPE detector (content-shape-analyzer.ts:74,
     // `text && content.brand`) so every keyword/text graphic in a BRANDED project renders as a
     // wordmark instead of emphasis. Keep render tokens out of the content map.
-    const { brand: _brandTokens, ...contentParams } = decision.params;
+    const {
+      brand: _brandTokens,
+      signals: _signals,
+      mgOverlayScores: _mgOverlayScores,
+      graphicType: _graphicType,
+      creativeDecisionType: _creativeDecisionType,
+      placementAdjustment: _placementAdjustment,
+      position: _position,
+      ...contentParams
+    } = decision.params;
     const contentMap: Record<string, unknown> = { ...contentParams };
     if (text) contentMap.text = text;
 
@@ -1166,6 +2445,8 @@ async function applyGraphic(
     if (!gateResult.pass) {
       console.warn(`[EDL] Structural gate WARN for ${graphicType} @frame ${decision.frame}: score=${gateResult.score}/100, issues=${gateResult.issues.length}`);
     }
+    const atomicOverlayPlan = buildAtomicOverlayPlan(recipe, tokens, contentMap, rawSignals, mgScores, decision.params.brand || {});
+    const atomicOverlayDecision = decideAtomicOverlay(atomicOverlayPlan);
 
     const snappedFrame = findClipAtFrame(decision.frame, overlays, 20)?.snappedFrame ?? decision.frame;
     const compositionDuration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
@@ -1191,6 +2472,13 @@ async function applyGraphic(
         sourceType: 'edl-graphic',
         graphicType,
         compositionEngine: true,
+        placementRegion,
+        placementAdjustment,
+        atomicPlacement,
+        atomicOverlayPlan,
+        atomicOverlayDecision,
+        atomicPlanObserveMode: true,
+        ...atomicMomentBundleMetadata(decision),
         edlSource: decision.source,
         edlReason: decision.reason,
       },
@@ -1250,7 +2538,7 @@ async function applyGraphic(
 
     case 'callout': {
       // Positioned near subject with arrow indicator — for product/feature callouts
-      if (position) {
+      if (isPointPosition(position)) {
         left = Math.min(Math.max((position.x || 0.5) * canvas.width - 150, 20), canvas.width - 340);
         top = Math.max(20, ((position.y || 0.5) * canvas.height) - 60);
       }
@@ -1363,6 +2651,12 @@ async function applyGraphic(
     }
   }
 
+  const placedGeometry = applyPlacementRegionGeometry(placementRegion, { left, top, width, height }, canvas, safeMargin);
+  left = placedGeometry.left;
+  top = placedGeometry.top;
+  width = placedGeometry.width;
+  height = placedGeometry.height;
+
   // ── Template upgrade: replace inline CSS with curated template if available ──
   // Runs at pipeline time (Director phase) so async MongoDB access is safe.
   // Falls back to the inline CSS html from the switch above if no template matches.
@@ -1434,6 +2728,10 @@ async function applyGraphic(
       metadata: {
         sourceType: 'edl-graphic',
         graphicType,
+        placementRegion,
+        placementAdjustment,
+        atomicPlacement,
+        ...atomicMomentBundleMetadata(decision),
         edlSource: decision.source,
         edlReason: decision.reason,
       },
@@ -1469,6 +2767,10 @@ async function applyGraphic(
     metadata: {
       sourceType: 'edl-graphic',
       graphicType,
+      placementRegion,
+      placementAdjustment,
+      atomicPlacement,
+      ...atomicMomentBundleMetadata(decision),
       edlSource: decision.source,
       edlReason: decision.reason,
     },

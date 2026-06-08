@@ -75,6 +75,11 @@ scripts/debug-proj.mjs
 scripts/debug-proj-storyboard.mjs
 graphify-out/
 
+# Local Editron verification artifacts
+.calibration-temp/
+__pycache__/
+modal/__pycache__/
+
 
 thinkforge-ui.html
 DESIGN_BIBLE.md

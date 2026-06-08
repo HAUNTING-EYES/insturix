@@ -247,7 +247,7 @@ describe('planComposition — structural-move vocabulary', () => {
 
   it('avatar wiring: content.avatar → image element (consumer-ready)', () => {
     const recipe = planComposition({ content: { name: 'Hank Green', title: 'Creator', avatar: 'https://x/a.jpg' } }, tokens, {} as never);
-    const img = recipe.elements.find(e => e.primitive === 'image' && e.role === 'icon');
+    const img = recipe.elements.find(e => e.primitive === 'image' && e.role === 'avatar');
     expect(img).toBeDefined();
     expect(img!.bind.src).toBe('content:avatar');
   });
@@ -259,7 +259,7 @@ describe('planComposition — structural-move vocabulary', () => {
 
   it('logo wiring: content.logo → image element on brand shape', () => {
     const recipe = planComposition({ content: { text: 'Nike', brand: true, logo: 'https://x/l.svg' } }, tokens, {} as never);
-    const img = recipe.elements.find(e => e.primitive === 'image' && e.role === 'icon');
+    const img = recipe.elements.find(e => e.primitive === 'image' && e.role === 'logo');
     expect(img).toBeDefined();
     expect(img!.bind.src).toBe('content:logo');
   });
@@ -367,6 +367,23 @@ describe('planComposition — overlay-driven layout', () => {
       expect(el.textSplit).toBe('words');
     }
   });
+
+  it("busy visual frame downgrades high-energy char split to word split", () => {
+    const scores: MgOverlayScores = {
+      'mg.animation.entrance_pop': { score: 0.9, values: {} },
+    };
+    const recipe = planComposition(numericIntent(), tokens, {
+      position_in_video: 0.5,
+      enthusiasm: 0.9,
+      text_on_screen: 0.85,
+      motion_intensity: 0.82,
+    } as never, scores);
+    const textEls = recipe.elements.filter(e => e.primitive === 'text' && e.layer === 'foreground' && e.textSplit);
+    expect(textEls.length).toBeGreaterThan(0);
+    for (const el of textEls) {
+      expect(el.textSplit).toBe('words');
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -428,6 +445,18 @@ describe('particle producer', () => {
     expect(particle).toBeDefined();
     expect(particle!.bind.particlePreset).toBe('sparkle');
   });
+
+  it('particle NOT added on text-heavy visual frames even when budget and score pass', () => {
+    const scores: MgOverlayScores = {
+      'mg.particle.sparkle': { score: 0.8, values: { particleScore: 0.5 } },
+    };
+    const recipe = planComposition(numericIntent(), tokens, {
+      cinematic_moment: 0.6,
+      text_on_screen: 0.9,
+    } as never, scores);
+    const particle = recipe.elements.find(e => e.primitive === 'particle');
+    expect(particle).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -488,5 +517,18 @@ describe('mask producer', () => {
     expect(mask).toBeDefined();
     expect(mask!.shape).toBe('rect');
     expect(mask!.bind.direction).toBe('left');
+  });
+
+  it('mask NOT added on high-motion complex frames even when budget and score pass', () => {
+    const scores: MgOverlayScores = {
+      'mg.mask.rect_reveal': { score: 0.8, values: { maskScore: 0.6 } },
+    };
+    const recipe = planComposition(numericIntent(), tokens, {
+      cinematic_moment: 0.9,
+      motion_intensity: 0.9,
+      visual_complexity: 0.8,
+    } as never, scores);
+    const mask = recipe.elements.find(e => e.primitive === 'mask');
+    expect(mask).toBeUndefined();
   });
 });

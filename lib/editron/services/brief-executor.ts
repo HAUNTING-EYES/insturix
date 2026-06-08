@@ -149,6 +149,7 @@ function resolveDecisionToFrame(
   let targetMs: number | null = null;
   let snappedToEnergy = false;
   let coordinateSource: 'timestamp' | 'beat' | 'word' = 'word';
+  let targetWordIdxForContext: number | null = null;
 
   // Priority 1: Direct timestamp (music/visual mode)
   if (decision.targetTimestampMs !== undefined && decision.targetTimestampMs >= 0) {
@@ -204,6 +205,7 @@ function resolveDecisionToFrame(
     }
 
     const word = transcription[targetWordIdx];
+    targetWordIdxForContext = targetWordIdx;
     targetMs = word.startMs;
 
     // For transition decisions, snap to BETWEEN words
@@ -222,6 +224,10 @@ function resolveDecisionToFrame(
     }
   }
 
+  if (targetWordIdxForContext === null && targetMs !== null) {
+    targetWordIdxForContext = nearestTranscriptWordIndex(transcription, targetMs);
+  }
+
   const frame = Math.round(targetMs / 1000 * fps);
   if (frame < 0 || frame > maxFrame) return null;
 
@@ -231,7 +237,7 @@ function resolveDecisionToFrame(
     confidence,
     source: `creative-brief:${reason}:${coordinateSource}`,
     technique: type,
-    params: { ...params },
+    params: normalizeBriefDecisionParams(type, params, transcription, targetWordIdxForContext),
     reason: reason,
   };
 
@@ -280,6 +286,105 @@ function shouldSnapToEnergy(type: BriefDecisionType): boolean {
 
 function isTransitionType(type: BriefDecisionType): boolean {
   return type.startsWith('transition_');
+}
+
+function normalizeBriefDecisionParams(
+  type: BriefDecisionType,
+  params: Record<string, number | string>,
+  transcription: { word: string; startMs: number; endMs: number }[] = [],
+  targetWordIdx: number | null = null,
+): Record<string, number | string> {
+  const normalized: Record<string, number | string> = { ...(params ?? {}) };
+
+  // Path E owns intent and timing hints only. Concrete legacy form labels are
+  // resolved later by atomic/utility resolvers in executeEDL.
+  delete normalized.zoomType;
+  delete normalized.transitionType;
+  delete normalized.graphicType;
+  delete normalized.scaleFrom;
+  delete normalized.scaleTo;
+  delete normalized.durationFrames;
+  delete normalized.durationMs;
+  delete normalized.direction;
+
+  normalized.creativeDecisionType = type;
+  if (type.startsWith('graphic_')) {
+    enrichGraphicDecisionWithTranscriptAtoms(normalized, transcription, targetWordIdx);
+  }
+
+  return normalized;
+}
+
+function nearestTranscriptWordIndex(
+  transcription: { word: string; startMs: number; endMs: number }[],
+  targetMs: number,
+): number | null {
+  if (transcription.length === 0 || !Number.isFinite(targetMs)) return null;
+  let bestIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < transcription.length; index += 1) {
+    const word = transcription[index];
+    const center = (word.startMs + word.endMs) / 2;
+    const distance = Math.abs(center - targetMs);
+    if (distance < bestDistance) {
+      bestIndex = index;
+      bestDistance = distance;
+    }
+  }
+  return bestIndex;
+}
+
+function enrichGraphicDecisionWithTranscriptAtoms(
+  normalized: Record<string, number | string>,
+  transcription: { word: string; startMs: number; endMs: number }[],
+  targetWordIdx: number | null,
+): void {
+  if (targetWordIdx === null || targetWordIdx < 0 || targetWordIdx >= transcription.length) return;
+  const phrase = transcriptPhraseAroundWord(transcription, targetWordIdx);
+  if (!phrase) return;
+
+  normalized.contextPhrase = phrase;
+  normalized.contextStartMs = Math.round(transcription[Math.max(0, targetWordIdx - 6)]?.startMs ?? transcription[targetWordIdx].startMs);
+  normalized.contextEndMs = Math.round(transcription[Math.min(transcription.length - 1, targetWordIdx + 8)]?.endMs ?? transcription[targetWordIdx].endMs);
+  normalized.targetWord = cleanTranscriptToken(transcription[targetWordIdx].word);
+
+  const existingText = normalized.text ?? normalized.title ?? normalized.quote ?? normalized.name ?? normalized.value;
+  if (existingText !== undefined) {
+    normalized.keyword = String(existingText);
+  }
+}
+
+function transcriptPhraseAroundWord(
+  transcription: { word: string; startMs: number; endMs: number }[],
+  targetWordIdx: number,
+): string {
+  const maxBefore = 7;
+  const maxAfter = 9;
+  let start = targetWordIdx;
+  while (start > 0 && targetWordIdx - start < maxBefore && !endsSentence(transcription[start - 1].word)) {
+    start -= 1;
+  }
+
+  let end = targetWordIdx;
+  while (end < transcription.length - 1 && end - targetWordIdx < maxAfter && !endsSentence(transcription[end].word)) {
+    end += 1;
+  }
+
+  return transcription
+    .slice(start, end + 1)
+    .map((word) => cleanTranscriptToken(word.word))
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanTranscriptToken(token: string): string {
+  return String(token ?? '').replace(/^[\s"'“”‘’([{]+|[\s"'“”‘’)\]}]+$/g, '').trim();
+}
+
+function endsSentence(token: string): boolean {
+  return /[.!?]\s*$/.test(String(token ?? ''));
 }
 
 // ─── Original-to-Cut Timeline Mapping ──────────────────────────────────────

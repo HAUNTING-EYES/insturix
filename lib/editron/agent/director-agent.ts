@@ -632,11 +632,24 @@ export async function executeDirectorPlan(
             };
             let sigCoverageTotal = 0;
             let sigCoverageMiss = 0;
-            const signalsAtFrame = (frameNum: number): Record<string, number> => {
+            const setNumericSignal = (target: Record<string, number | string>, key: string, value: unknown): void => {
+              if (typeof value === 'number' && Number.isFinite(value)) target[key] = value;
+              else if (typeof value === 'boolean') target[key] = value ? 1 : 0;
+            };
+            const setStringSignal = (target: Record<string, number | string>, key: string, value: unknown): void => {
+              if (typeof value === 'string' && value.trim()) target[key] = value;
+            };
+            const mirrorSignal = (target: Record<string, number | string>, flatKey: string, dotKey: string): void => {
+              const flat = target[flatKey];
+              const dot = target[dotKey];
+              if (dot == null && flat != null) target[dotKey] = flat;
+              if (flat == null && dot != null) target[flatKey] = dot;
+            };
+            const signalsAtFrame = (frameNum: number): Record<string, number | string> => {
               // Cut-timeline frame → ORIGINAL-timeline ms (the clock the segments use).
               const originalFrame = mapCutFrameToOriginalFrame(frameNum, cutToOriginalClips);
               const timeMs = ((originalFrame ?? frameNum) / pathEFps) * 1000;
-              const out: Record<string, number> = { ...signalCtx };
+              const out: Record<string, number | string> = { ...signalCtx };
               sigCoverageTotal++;
               let covered = false;
               if (vjepaSegs?.length) {
@@ -644,19 +657,72 @@ export async function executeDirectorPlan(
                 if (exact) covered = true;
                 const v = exact ?? nearestSeg(vjepaSegs, timeMs);
                 if (v) {
-                  out.visual_change_rate = v.motionIntensity ?? out.visual_change_rate;
-                  out.visual_significance = v.visualSignificance ?? 0;
+                  setNumericSignal(out, 'motion_intensity', v.motionIntensity ?? v.motion_intensity);
+                  setNumericSignal(out, 'visual_change_rate', v.motionIntensity ?? v.motion_intensity);
+                  setNumericSignal(out, 'visual_significance', v.visualSignificance ?? v.visual_significance);
+                  setStringSignal(out, 'visual_action_type', v.actionType ?? v.action_type);
+                  setStringSignal(out, 'visual_motion_type', v.motionType ?? v.motion_type);
+                  setStringSignal(out, 'visual_face_emotion', v.faceEmotion ?? v.face_emotion);
+                  setNumericSignal(out, 'visual_eye_contact', v.eyeContact ?? v.eye_contact);
+                  setNumericSignal(out, 'motion_vector_x', v.motionVectorX ?? v.motion_vector_x);
+                  setNumericSignal(out, 'motion_vector_y', v.motionVectorY ?? v.motion_vector_y);
+                  setNumericSignal(out, 'main_subject_x', v.mainSubjectX ?? v.main_subject_x);
+                  setNumericSignal(out, 'main_subject_y', v.mainSubjectY ?? v.main_subject_y);
+                  setNumericSignal(out, 'main_subject_width', v.mainSubjectWidth ?? v.main_subject_width);
+                  setNumericSignal(out, 'main_subject_height', v.mainSubjectHeight ?? v.main_subject_height);
+                  setNumericSignal(out, 'text_coverage', v.textCoverage ?? v.text_coverage);
+                  setNumericSignal(out, 'text_box_count', v.textBoxCount ?? v.text_box_count);
+                  setNumericSignal(out, 'object_count', v.objectCount ?? v.object_count);
+                  setNumericSignal(out, 'face_count', v.faceCount ?? v.face_count);
+                  setNumericSignal(out, 'negative_space_top', v.negativeSpaceTop ?? v.negative_space_top);
+                  setNumericSignal(out, 'negative_space_right', v.negativeSpaceRight ?? v.negative_space_right);
+                  setNumericSignal(out, 'negative_space_bottom', v.negativeSpaceBottom ?? v.negative_space_bottom);
+                  setNumericSignal(out, 'negative_space_left', v.negativeSpaceLeft ?? v.negative_space_left);
+                  if (out.face_present == null && (out.visual_face_emotion != null || out.visual_eye_contact != null || out.face_count != null)) {
+                    out.face_present = Number(out.face_count ?? 1) > 0 ? 1 : 0;
+                  }
+                  mirrorSignal(out, 'motion_intensity', 'visual.motion_intensity');
+                  mirrorSignal(out, 'visual_significance', 'visual.significance');
+                  mirrorSignal(out, 'visual_action_type', 'visual.action_type');
+                  mirrorSignal(out, 'visual_motion_type', 'visual.motion_type');
+                  mirrorSignal(out, 'visual_face_emotion', 'visual.face_emotion');
+                  mirrorSignal(out, 'visual_eye_contact', 'visual.eye_contact');
+                  mirrorSignal(out, 'motion_vector_x', 'visual.motion_vector.x');
+                  mirrorSignal(out, 'motion_vector_y', 'visual.motion_vector.y');
+                  mirrorSignal(out, 'main_subject_x', 'visual.main_subject.x');
+                  mirrorSignal(out, 'main_subject_y', 'visual.main_subject.y');
+                  mirrorSignal(out, 'main_subject_width', 'visual.main_subject.width');
+                  mirrorSignal(out, 'main_subject_height', 'visual.main_subject.height');
+                  mirrorSignal(out, 'text_coverage', 'visual.text_coverage');
+                  mirrorSignal(out, 'text_box_count', 'visual.text_box_count');
+                  mirrorSignal(out, 'object_count', 'visual.object_count');
+                  mirrorSignal(out, 'face_count', 'visual.face_count');
+                  mirrorSignal(out, 'negative_space_top', 'visual.negative_space.top');
+                  mirrorSignal(out, 'negative_space_right', 'visual.negative_space.right');
+                  mirrorSignal(out, 'negative_space_bottom', 'visual.negative_space.bottom');
+                  mirrorSignal(out, 'negative_space_left', 'visual.negative_space.left');
+                  mirrorSignal(out, 'face_present', 'visual.face_present');
                   // visualSignificance = "this moment visually stands out" → feeds the MG complexity
                   // budget via visceral_impact, so standout moments earn richer graphics.
-                  out.visceral_impact = Math.max(out.visceral_impact, v.visualSignificance ?? 0);
+                  out.visceral_impact = Math.max(Number(out.visceral_impact ?? 0), Number(out.visual_significance ?? 0));
                 }
               }
               if (w2vSegs?.length) {
                 const w = w2vSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs)
                   ?? nearestSeg(w2vSegs, timeMs);
                 if (w) {
-                  out.emotional_arousal = w.emotionIntensity ?? out.emotional_arousal;
-                  out.enthusiasm = Math.min(1, (w.energy ?? 0) * 1.2);
+                  setNumericSignal(out, 'emotion_intensity', w.emotionIntensity ?? w.emotion_intensity);
+                  setNumericSignal(out, 'emotional_arousal', w.emotionIntensity ?? w.emotion_intensity);
+                  setNumericSignal(out, 'speech_energy', w.energy ?? w.speech_energy);
+                  setNumericSignal(out, 'pitch_variability', w.pitchVariability ?? w.pitch_variability);
+                  setNumericSignal(out, 'stress_detected', w.stressDetected ?? w.stress_detected);
+                  setStringSignal(out, 'emotional_valence', w.emotionalValence ?? w.emotional_valence);
+                  mirrorSignal(out, 'emotion_intensity', 'speech.emotion_intensity');
+                  mirrorSignal(out, 'emotional_valence', 'speech.emotional_valence');
+                  mirrorSignal(out, 'speech_energy', 'speech.energy');
+                  mirrorSignal(out, 'pitch_variability', 'speech.pitch_variability');
+                  mirrorSignal(out, 'stress_detected', 'speech.stress_detected');
+                  out.enthusiasm = Math.min(1, Number(out.speech_energy ?? 0) * 1.2);
                 }
               }
               if (!covered) sigCoverageMiss++;

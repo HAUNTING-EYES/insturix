@@ -150,6 +150,7 @@ class VJEPAAnalyzer:
 
             # Motion type from spatial distribution of changes
             mtype = _motion_type(frames)
+            primitives = _visual_primitives(frames)
 
             results.append({
                 "start_ms": seg["start_ms"],
@@ -160,6 +161,7 @@ class VJEPAAnalyzer:
                 "motion_type": mtype,
                 "face_emotion": None,
                 "eye_contact": None,
+                **primitives,
             })
 
         # ── 3. Visual significance = adaptive z-score against video's own distribution ─
@@ -457,6 +459,222 @@ def _motion_type(frames) -> str:
         return "subject_moving"
 
 
+def _visual_primitives(frames) -> dict:
+    """Extract stable geometry primitives for overlay planning."""
+    subject = _subject_bbox(frames)
+    text_boxes = _text_boxes(frames)
+    motion_x, motion_y = _motion_vector(frames)
+    negative_space = _negative_space(subject, text_boxes)
+
+    text_coverage = min(1.0, max(0.0, sum(
+        b["width"] * b["height"] for b in text_boxes
+    )))
+
+    return {
+        "motion_vector_x": motion_x,
+        "motion_vector_y": motion_y,
+        "main_subject": subject,
+        "main_subject_x": subject["x"],
+        "main_subject_y": subject["y"],
+        "main_subject_width": subject["width"],
+        "main_subject_height": subject["height"],
+        "text_boxes": text_boxes,
+        "text_box_count": len(text_boxes),
+        "text_coverage": text_coverage,
+        "object_count": 1 if subject["confidence"] > 0.25 else 0,
+        "face_count": 0,
+        "negative_space_top": negative_space["top"],
+        "negative_space_right": negative_space["right"],
+        "negative_space_bottom": negative_space["bottom"],
+        "negative_space_left": negative_space["left"],
+    }
+
+
+def _motion_vector(frames) -> tuple[float, float]:
+    """Signed dominant frame translation, normalized to roughly -1..1."""
+    import cv2
+    import numpy as np
+
+    if frames is None or len(frames) < 2:
+        return 0.0, 0.0
+
+    first = cv2.cvtColor(frames[0], cv2.COLOR_RGB2GRAY)
+    last = cv2.cvtColor(frames[-1], cv2.COLOR_RGB2GRAY)
+    width = 240
+    scale = width / max(1, first.shape[1])
+    height = max(1, int(first.shape[0] * scale))
+    first = cv2.resize(first, (width, height), interpolation=cv2.INTER_AREA)
+    last = cv2.resize(last, (width, height), interpolation=cv2.INTER_AREA)
+
+    shift, response = cv2.phaseCorrelate(
+        first.astype(np.float32),
+        last.astype(np.float32),
+    )
+    if response < 0.05:
+        return 0.0, 0.0
+
+    dx = _clamp_signed(float(shift[0]) / max(1.0, width * 0.12))
+    dy = _clamp_signed(float(shift[1]) / max(1.0, height * 0.12))
+    return dx, dy
+
+
+def _subject_bbox(frames) -> dict:
+    """Motion/salience-derived subject bbox with confidence, not identity."""
+    import cv2
+    import numpy as np
+
+    fallback = {"x": 0.25, "y": 0.15, "width": 0.5, "height": 0.7, "confidence": 0.1}
+    if frames is None or len(frames) < 2:
+        return fallback
+
+    h, w = frames[0].shape[:2]
+    diffs = []
+    sample_count = min(6, len(frames) - 1)
+    indices = np.linspace(0, len(frames) - 2, sample_count, dtype=int)
+    for i in indices:
+        a = cv2.cvtColor(frames[int(i)], cv2.COLOR_RGB2GRAY)
+        b = cv2.cvtColor(frames[int(i) + 1], cv2.COLOR_RGB2GRAY)
+        diffs.append(cv2.absdiff(a, b))
+
+    if not diffs:
+        return fallback
+
+    motion = np.mean(diffs, axis=0).astype(np.uint8)
+    motion = cv2.GaussianBlur(motion, (9, 9), 0)
+    _, mask = cv2.threshold(motion, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((17, 17), np.uint8))
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    boxes = []
+    min_area = max(64, int(w * h * 0.01))
+    for contour in contours:
+        x, y, bw, bh = cv2.boundingRect(contour)
+        area = bw * bh
+        if area >= min_area:
+            boxes.append((x, y, bw, bh, area))
+
+    if not boxes:
+        return fallback
+
+    boxes = sorted(boxes, key=lambda b: b[4], reverse=True)[:3]
+    x1 = min(b[0] for b in boxes)
+    y1 = min(b[1] for b in boxes)
+    x2 = max(b[0] + b[2] for b in boxes)
+    y2 = max(b[1] + b[3] for b in boxes)
+    area_ratio = ((x2 - x1) * (y2 - y1)) / max(1, w * h)
+
+    if area_ratio > 0.85:
+        return {**fallback, "confidence": 0.18}
+
+    pad_x = int(w * 0.04)
+    pad_y = int(h * 0.04)
+    x1 = max(0, x1 - pad_x)
+    y1 = max(0, y1 - pad_y)
+    x2 = min(w, x2 + pad_x)
+    y2 = min(h, y2 + pad_y)
+
+    return {
+        "x": _clamp01(x1 / w),
+        "y": _clamp01(y1 / h),
+        "width": _clamp01((x2 - x1) / w),
+        "height": _clamp01((y2 - y1) / h),
+        "confidence": _clamp01(0.35 + min(0.55, area_ratio)),
+    }
+
+
+def _text_boxes(frames) -> list[dict]:
+    """Detect text-like high-contrast horizontal regions without OCR."""
+    import cv2
+    import numpy as np
+
+    if frames is None or len(frames) == 0:
+        return []
+
+    frame = frames[len(frames) // 2]
+    h, w = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    edges = cv2.Canny(gray, 80, 180)
+    kernel_w = max(9, int(w * 0.025))
+    kernel_h = max(3, int(h * 0.006))
+    dilated = cv2.dilate(edges, np.ones((kernel_h, kernel_w), np.uint8), iterations=1)
+
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    candidates = []
+    for contour in contours:
+        x, y, bw, bh = cv2.boundingRect(contour)
+        area_ratio = (bw * bh) / max(1, w * h)
+        aspect = bw / max(1, bh)
+        if (
+            aspect >= 1.8
+            and 0.006 <= area_ratio <= 0.18
+            and bw >= w * 0.05
+            and h * 0.012 <= bh <= h * 0.18
+        ):
+            candidates.append({
+                "x": _clamp01(x / w),
+                "y": _clamp01(y / h),
+                "width": _clamp01(bw / w),
+                "height": _clamp01(bh / h),
+                "confidence": _clamp01(0.35 + min(0.45, aspect / 12.0)),
+            })
+
+    candidates.sort(key=lambda b: b["width"] * b["height"], reverse=True)
+    kept = []
+    for box in candidates:
+        if all(_box_iou(box, existing) < 0.35 for existing in kept):
+            kept.append(box)
+        if len(kept) >= 8:
+            break
+    return kept
+
+
+def _negative_space(subject: dict, text_boxes: list[dict]) -> dict:
+    left = subject["x"]
+    right = 1.0 - (subject["x"] + subject["width"])
+    top = subject["y"]
+    bottom = 1.0 - (subject["y"] + subject["height"])
+
+    for box in text_boxes:
+        cx = box["x"] + box["width"] / 2
+        cy = box["y"] + box["height"] / 2
+        penalty = min(0.25, box["width"] * box["height"] * 2)
+        if cy < 0.35:
+            top -= penalty
+        if cy > 0.65:
+            bottom -= penalty
+        if cx < 0.35:
+            left -= penalty
+        if cx > 0.65:
+            right -= penalty
+
+    return {
+        "top": _clamp01(top),
+        "right": _clamp01(right),
+        "bottom": _clamp01(bottom),
+        "left": _clamp01(left),
+    }
+
+
+def _box_iou(a: dict, b: dict) -> float:
+    ax1, ay1 = a["x"], a["y"]
+    ax2, ay2 = a["x"] + a["width"], a["y"] + a["height"]
+    bx1, by1 = b["x"], b["y"]
+    bx2, by2 = b["x"] + b["width"], b["y"] + b["height"]
+    inter_w = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+    inter_h = max(0.0, min(ay2, by2) - max(ay1, by1))
+    inter = inter_w * inter_h
+    union = a["width"] * a["height"] + b["width"] * b["height"] - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _clamp01(value: float) -> float:
+    return min(1.0, max(0.0, float(value)))
+
+
+def _clamp_signed(value: float) -> float:
+    return min(1.0, max(-1.0, float(value)))
+
+
 def _empty(seg: dict) -> dict:
     return {
         "start_ms": seg.get("start_ms", 0),
@@ -467,4 +685,20 @@ def _empty(seg: dict) -> dict:
         "motion_type": "static",
         "face_emotion": None,
         "eye_contact": None,
+        "motion_vector_x": 0.0,
+        "motion_vector_y": 0.0,
+        "main_subject": {"x": 0.25, "y": 0.15, "width": 0.5, "height": 0.7, "confidence": 0.0},
+        "main_subject_x": 0.25,
+        "main_subject_y": 0.15,
+        "main_subject_width": 0.5,
+        "main_subject_height": 0.7,
+        "text_boxes": [],
+        "text_box_count": 0,
+        "text_coverage": 0.0,
+        "object_count": 0,
+        "face_count": 0,
+        "negative_space_top": 0.15,
+        "negative_space_right": 0.25,
+        "negative_space_bottom": 0.15,
+        "negative_space_left": 0.25,
     }

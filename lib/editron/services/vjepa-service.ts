@@ -36,6 +36,28 @@ export type VjepaFaceEmotion =
   | 'happy' | 'sad' | 'angry' | 'surprised'
   | 'fearful' | 'disgusted' | 'neutral' | 'contempt';
 
+export interface VjepaPrimitiveBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  confidence?: number;
+}
+
+export interface VjepaTextBox extends VjepaPrimitiveBox {
+  text?: string;
+}
+
+export interface VjepaPrimitivePresence {
+  motionVector: boolean;
+  mainSubject: boolean;
+  textBoxes: boolean;
+  textCoverage: boolean;
+  objectCount: boolean;
+  faceCount: boolean;
+  negativeSpace: boolean;
+}
+
 export interface VjepaSegmentResult {
   startMs: number;
   endMs: number;
@@ -45,6 +67,23 @@ export interface VjepaSegmentResult {
   motionType: VjepaMotionType;
   faceEmotion: VjepaFaceEmotion | null;
   eyeContact: boolean | null;
+  motionVectorX: number;         // -1..1, signed dominant visual movement
+  motionVectorY: number;         // -1..1, signed dominant visual movement
+  mainSubject: VjepaPrimitiveBox;
+  mainSubjectX: number;
+  mainSubjectY: number;
+  mainSubjectWidth: number;
+  mainSubjectHeight: number;
+  textBoxes: VjepaTextBox[];
+  textBoxCount: number;
+  textCoverage: number;
+  objectCount: number;
+  faceCount: number;
+  negativeSpaceTop: number;
+  negativeSpaceRight: number;
+  negativeSpaceBottom: number;
+  negativeSpaceLeft: number;
+  primitivePresence: VjepaPrimitivePresence;
 }
 
 export interface VjepaAnalysisResult {
@@ -64,6 +103,22 @@ interface ModalVjepaSegment {
   motion_type?: string;
   face_emotion?: string;
   eye_contact?: boolean;
+  motion_vector_x?: number;
+  motion_vector_y?: number;
+  main_subject?: Partial<VjepaPrimitiveBox>;
+  main_subject_x?: number;
+  main_subject_y?: number;
+  main_subject_width?: number;
+  main_subject_height?: number;
+  text_boxes?: Array<Partial<VjepaTextBox>>;
+  text_box_count?: number;
+  text_coverage?: number;
+  object_count?: number;
+  face_count?: number;
+  negative_space_top?: number;
+  negative_space_right?: number;
+  negative_space_bottom?: number;
+  negative_space_left?: number;
 }
 
 interface ModalVjepaResponse {
@@ -180,6 +235,7 @@ export async function analyzeVideoWithVjepa(
             end_ms: s.endMs,
           })),
           features: ['visual_significance', 'motion', 'action', 'face', 'gaze'],
+          primitive_features: ['motion_vector', 'main_subject', 'text_boxes', 'text_coverage', 'object_count', 'face_count', 'negative_space'],
         }),
         signal: controller.signal,
       });
@@ -199,16 +255,7 @@ export async function analyzeVideoWithVjepa(
         return null;
       }
 
-      const mapped: VjepaSegmentResult[] = data.segments.map(s => ({
-        startMs: s.start_ms,
-        endMs: s.end_ms,
-        visualSignificance: clamp(s.visual_significance, 0, 1),
-        motionIntensity: clamp(s.motion_intensity, 0, 1),
-        actionType: parseActionType(s.action_type),
-        motionType: parseMotionType(s.motion_type),
-        faceEmotion: parseFaceEmotion(s.face_emotion),
-        eyeContact: s.eye_contact ?? null,
-      }));
+      const mapped: VjepaSegmentResult[] = data.segments.map(normalizeModalVjepaSegment);
 
       allResults.push(...mapped);
       console.log(`[VjepaService] Batch ${b + 1}/${batches.length}: ${mapped.length} segments analyzed`);
@@ -263,6 +310,78 @@ export function toSignalEnrichment(
 
 // ─── Parsers ────────────────────────────────────────────────────────────────
 
+export function normalizeModalVjepaSegment(s: ModalVjepaSegment): VjepaSegmentResult {
+  const primitivePresence: VjepaPrimitivePresence = {
+    motionVector: isFiniteNumber(s.motion_vector_x) && isFiniteNumber(s.motion_vector_y),
+    mainSubject: hasCompleteBox(s.main_subject) || (
+      isFiniteNumber(s.main_subject_x) &&
+      isFiniteNumber(s.main_subject_y) &&
+      isFiniteNumber(s.main_subject_width) &&
+      isFiniteNumber(s.main_subject_height)
+    ),
+    textBoxes: Array.isArray(s.text_boxes) || isFiniteNumber(s.text_box_count),
+    textCoverage: isFiniteNumber(s.text_coverage),
+    objectCount: isFiniteNumber(s.object_count),
+    faceCount: isFiniteNumber(s.face_count),
+    negativeSpace: (
+      isFiniteNumber(s.negative_space_top) &&
+      isFiniteNumber(s.negative_space_right) &&
+      isFiniteNumber(s.negative_space_bottom) &&
+      isFiniteNumber(s.negative_space_left)
+    ),
+  };
+  const mainSubject = normalizeBox(s.main_subject, {
+    x: s.main_subject_x,
+    y: s.main_subject_y,
+    width: s.main_subject_width,
+    height: s.main_subject_height,
+    confidence: s.main_subject?.confidence,
+  });
+  const textBoxes = Array.isArray(s.text_boxes)
+    ? s.text_boxes
+      .map(box => normalizeBox(box, { x: 0, y: 0, width: 0, height: 0, confidence: 0 }))
+      .filter(box => box.width > 0 && box.height > 0)
+    : [];
+
+  return {
+    startMs: s.start_ms,
+    endMs: s.end_ms,
+    visualSignificance: clampNumber(s.visual_significance, 0, 1, 0.5),
+    motionIntensity: clampNumber(s.motion_intensity, 0, 1, 0),
+    actionType: parseActionType(s.action_type),
+    motionType: parseMotionType(s.motion_type),
+    faceEmotion: parseFaceEmotion(s.face_emotion),
+    eyeContact: s.eye_contact ?? null,
+    motionVectorX: clampNumber(s.motion_vector_x, -1, 1, 0),
+    motionVectorY: clampNumber(s.motion_vector_y, -1, 1, 0),
+    mainSubject,
+    mainSubjectX: mainSubject.x,
+    mainSubjectY: mainSubject.y,
+    mainSubjectWidth: mainSubject.width,
+    mainSubjectHeight: mainSubject.height,
+    textBoxes,
+    textBoxCount: Math.max(0, Math.round(s.text_box_count ?? textBoxes.length)),
+    textCoverage: clampNumber(s.text_coverage, 0, 1, textBoxes.reduce((sum, box) => sum + box.width * box.height, 0)),
+    objectCount: Math.max(0, Math.round(s.object_count ?? (mainSubject.confidence && mainSubject.confidence > 0.25 ? 1 : 0))),
+    faceCount: Math.max(0, Math.round(s.face_count ?? 0)),
+    negativeSpaceTop: clampNumber(s.negative_space_top, 0, 1, mainSubject.y),
+    negativeSpaceRight: clampNumber(s.negative_space_right, 0, 1, 1 - (mainSubject.x + mainSubject.width)),
+    negativeSpaceBottom: clampNumber(s.negative_space_bottom, 0, 1, 1 - (mainSubject.y + mainSubject.height)),
+    negativeSpaceLeft: clampNumber(s.negative_space_left, 0, 1, mainSubject.x),
+    primitivePresence,
+  };
+}
+
+function hasCompleteBox(box: Partial<VjepaPrimitiveBox> | undefined): boolean {
+  return (
+    !!box &&
+    isFiniteNumber(box.x) &&
+    isFiniteNumber(box.y) &&
+    isFiniteNumber(box.width) &&
+    isFiniteNumber(box.height)
+  );
+}
+
 function parseActionType(v: string | undefined): VjepaActionType {
   if (v && VALID_ACTION_TYPES.has(v)) return v as VjepaActionType;
   return 'other';
@@ -276,6 +395,28 @@ function parseMotionType(v: string | undefined): VjepaMotionType {
 function parseFaceEmotion(v: string | undefined): VjepaFaceEmotion | null {
   if (v && VALID_FACE_EMOTIONS.has(v)) return v as VjepaFaceEmotion;
   return null;
+}
+
+function normalizeBox(
+  box: Partial<VjepaPrimitiveBox> | undefined,
+  fallback?: Partial<VjepaPrimitiveBox>,
+): VjepaPrimitiveBox {
+  return {
+    x: clampNumber(box?.x, 0, 1, clampNumber(fallback?.x, 0, 1, 0.25)),
+    y: clampNumber(box?.y, 0, 1, clampNumber(fallback?.y, 0, 1, 0.15)),
+    width: clampNumber(box?.width, 0, 1, clampNumber(fallback?.width, 0, 1, 0.5)),
+    height: clampNumber(box?.height, 0, 1, clampNumber(fallback?.height, 0, 1, 0.7)),
+    confidence: clampNumber(box?.confidence, 0, 1, clampNumber(fallback?.confidence, 0, 1, 0)),
+  };
+}
+
+function clampNumber(value: number | undefined, min: number, max: number, fallback: number): number {
+  if (!isFiniteNumber(value)) return fallback;
+  return clamp(value, min, max);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
 }
 
 function clamp(value: number, min: number, max: number): number {

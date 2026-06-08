@@ -29,6 +29,7 @@ export interface AnimationState {
   opacity: number;
   translateX: number;
   translateY: number;
+  translateZ?: number;
   scaleX: number;
   scaleY: number;
   rotation: number;
@@ -373,8 +374,10 @@ function applyExitState(progress: number, pattern: ExitPattern, s: SpatialConfig
 
 export function buildTransformStyle(anim: AnimationState): React.CSSProperties {
   const transforms: string[] = [];
+  if ((anim.translateZ ?? 0) !== 0) transforms.push('perspective(800px)');
   if (anim.translateX !== 0) transforms.push(`translateX(${anim.translateX}px)`);
   if (anim.translateY !== 0) transforms.push(`translateY(${anim.translateY}px)`);
+  if ((anim.translateZ ?? 0) !== 0) transforms.push(`translateZ(${anim.translateZ}px)`);
   if (anim.scaleX !== 1 || anim.scaleY !== 1) {
     transforms.push(anim.scaleX === anim.scaleY
       ? `scale(${anim.scaleX})`
@@ -392,6 +395,7 @@ export function buildTransformStyle(anim: AnimationState): React.CSSProperties {
   return {
     opacity: anim.opacity,
     transform: transforms.length > 0 ? transforms.join(' ') : undefined,
+    transformStyle: (anim.translateZ ?? 0) !== 0 ? 'preserve-3d' : undefined,
     filter: filters.length > 0 ? filters.join(' ') : undefined,
     willChange: 'transform, opacity',
   };

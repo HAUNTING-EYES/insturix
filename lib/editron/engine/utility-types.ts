@@ -79,6 +79,7 @@ export interface ScoringResult {
   totalScore: number;
   considerationScores: ConsiderationScore[];
   outputValues: Record<string, number | string | boolean>;
+  placementAdjustment?: PlacementAdjustment;
 }
 
 export interface GridPointDecision {
@@ -91,3 +92,50 @@ export interface GridPointDecision {
 export type ScoringMethod = 'multiplicative' | 'additive';
 
 export type SignalSnapshot = Record<string, number>;
+
+export type PlacementRegion =
+  | 'top-left'
+  | 'top-center'
+  | 'top-right'
+  | 'middle-left'
+  | 'middle-center'
+  | 'middle-right'
+  | 'bottom-left'
+  | 'bottom-center'
+  | 'bottom-right'
+  | 'full-frame';
+
+export interface PlacementBox {
+  kind: 'avoid' | 'prefer';
+  reason: string;
+  region: PlacementRegion;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  strength: number;
+}
+
+export interface PlacementHints {
+  density: 'open' | 'balanced' | 'restrained';
+  legibilityRisk: number;
+  screenBusyness: number;
+  avoid: PlacementBox[];
+  prefer: PlacementBox[];
+  constraints: string[];
+}
+
+export interface PlacementAdjustment {
+  candidateRegion?: PlacementRegion;
+  multiplier: number;
+  penalty: number;
+  bonus: number;
+  avoidHits: string[];
+  preferHits: string[];
+  constraints: string[];
+}
+
+export interface ScoringContext {
+  placementHints?: PlacementHints;
+  candidateRegion?: PlacementRegion;
+}

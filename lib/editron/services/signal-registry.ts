@@ -200,6 +200,12 @@ function findWav2VecSegmentAt(
  *   - Wav2Vec: replaces heuristic speech.energy, adds speech.emotion_intensity,
  *              speech.emotional_valence, speech.pitch_variability, speech.stress_detected
  */
+function setOptionalNumber(snapshot: SignalSnapshot, key: string, value: unknown): void {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    snapshot[key] = value;
+  }
+}
+
 export function buildSignalTimeline(
   analyses: AssetAnalysis[],
   rawFootage: RawFootageAnalysis | null,
@@ -301,6 +307,20 @@ export function buildSignalTimeline(
         if (vjepaSeg.eyeContact !== null && vjepaSeg.eyeContact !== undefined) {
           snapshot['visual.eye_contact'] = vjepaSeg.eyeContact;
         }
+        setOptionalNumber(snapshot, 'visual.motion_vector.x', vjepaSeg.motionVectorX);
+        setOptionalNumber(snapshot, 'visual.motion_vector.y', vjepaSeg.motionVectorY);
+        setOptionalNumber(snapshot, 'visual.main_subject.x', vjepaSeg.mainSubjectX);
+        setOptionalNumber(snapshot, 'visual.main_subject.y', vjepaSeg.mainSubjectY);
+        setOptionalNumber(snapshot, 'visual.main_subject.width', vjepaSeg.mainSubjectWidth);
+        setOptionalNumber(snapshot, 'visual.main_subject.height', vjepaSeg.mainSubjectHeight);
+        setOptionalNumber(snapshot, 'visual.text_coverage', vjepaSeg.textCoverage);
+        setOptionalNumber(snapshot, 'visual.text_box_count', vjepaSeg.textBoxCount);
+        setOptionalNumber(snapshot, 'visual.object_count', vjepaSeg.objectCount);
+        setOptionalNumber(snapshot, 'visual.face_count', vjepaSeg.faceCount);
+        setOptionalNumber(snapshot, 'visual.negative_space.top', vjepaSeg.negativeSpaceTop);
+        setOptionalNumber(snapshot, 'visual.negative_space.right', vjepaSeg.negativeSpaceRight);
+        setOptionalNumber(snapshot, 'visual.negative_space.bottom', vjepaSeg.negativeSpaceBottom);
+        setOptionalNumber(snapshot, 'visual.negative_space.left', vjepaSeg.negativeSpaceLeft);
         // Enrich scene_type with V-JEPA action semantics (more accurate than heuristic)
         if (vjepaSeg.actionType === 'talking' || vjepaSeg.actionType === 'still') {
           snapshot['visual.scene_type'] = 'talking-head';

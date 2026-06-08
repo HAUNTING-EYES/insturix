@@ -1,9 +1,14 @@
 import type {
   ContentShape,
   ContentShapeKind,
+  ContentStructurePart,
+  ContentStructureRelation,
+  ContentStructureSignature,
+  ContentPrimitiveChannel,
   CompositionStrategy,
   RecipeLayout,
   ExitStyle,
+  DataSeriesVisualForm,
 } from './recipe-types';
 import type { PlannerSignals } from './composition-planner';
 
@@ -16,11 +21,13 @@ export function analyzeContentShape(
   _kind?: ContentShapeKind,
   signals?: Partial<PlannerSignals>,
 ): CompositionStrategy {
-  const shapes = detectShapes(content);
+  const structure = deriveContentStructure(content);
+  const shapes = detectShapes(content, structure);
   const primary = shapes[0] || { kind: 'free-text' as const, text: '' };
 
   return {
     shapes,
+    structure,
     suggestedLayout: layoutForShape(primary, signals),
     suggestedExitStyle: exitStyleForShape(primary, signals),
     complexityBudget: computeComplexityBudget(signals),
@@ -28,12 +35,147 @@ export function analyzeContentShape(
   };
 }
 
+export function deriveContentStructure(content: Record<string, unknown>): ContentStructureSignature {
+  const parts: ContentStructurePart[] = [];
+  const relations: ContentStructureRelation[] = [];
+  const addPart = (
+    role: ContentStructurePart['role'],
+    channel: ContentPrimitiveChannel,
+    sourceKey: string,
+    value: ContentStructurePart['value'],
+    confidence = 1,
+  ) => {
+    parts.push({ role, channel, sourceKey, value, confidence });
+  };
+
+  if (hasNumericValue(content)) {
+    addPart('primary-value', 'scalar', 'value', String(content.value));
+    if (content.label != null) {
+      addPart('supporting-label', 'text', 'label', String(content.label), 0.9);
+      relations.push({ type: 'label-of', fromRole: 'supporting-label', toRole: 'primary-value' });
+    }
+  }
+
+  if (typeof content.name === 'string' && content.name.length > 0) {
+    addPart('name', 'identity', 'name', content.name);
+    if (content.title != null) {
+      addPart('title', 'text', 'title', String(content.title), 0.85);
+      relations.push({ type: 'title-of', fromRole: 'title', toRole: 'name' });
+    }
+    if (content.avatar != null) {
+      addPart('avatar', 'media', 'avatar', String(content.avatar), 0.75);
+      relations.push({ type: 'portrait-of', fromRole: 'avatar', toRole: 'name' });
+    }
+  }
+
+  if (typeof content.quote === 'string' && content.quote.length > 0) {
+    addPart('quote', 'text', 'quote', content.quote);
+    if (content.author != null) {
+      addPart('author', 'identity', 'author', String(content.author), 0.8);
+      relations.push({ type: 'authored-by', fromRole: 'quote', toRole: 'author' });
+    }
+  }
+
+  if (Array.isArray(content.values) && content.values.length > 0) {
+    const nums = content.values.filter((v): v is number => typeof v === 'number' && isFinite(v));
+    if (nums.length > 0) {
+      addPart('series-values', 'series', 'values', nums);
+      if (Array.isArray(content.labels)) {
+        addPart('series-labels', 'text', 'labels', content.labels.map(String), 0.8);
+        relations.push({ type: 'label-of', fromRole: 'series-labels', toRole: 'series-values' });
+      }
+    }
+  }
+
+  if (typeof content.logo === 'string') {
+    addPart('logo', 'media', 'logo', content.logo);
+    relations.push({ type: 'brand-mark', fromRole: 'logo', toRole: 'brand-text' });
+  }
+  if (typeof content.text === 'string' && content.brand) {
+    addPart('brand-text', 'brand', 'text', content.text);
+  }
+
+  if (typeof content.title === 'string' && typeof content.body === 'string') {
+    addPart('title', 'text', 'title', content.title);
+    addPart('body', 'text', 'body', content.body, 0.85);
+    if (Array.isArray(content.items)) {
+      addPart('list-items', 'text', 'items', content.items.map(String), 0.8);
+      relations.push({ type: 'contains-list', fromRole: 'body', toRole: 'list-items' });
+    }
+  }
+
+  if (typeof content.from === 'string' && content.from.length > 0
+      && typeof content.to === 'string' && content.to.length > 0) {
+    addPart('compare-from', 'relation', 'from', content.from);
+    addPart('compare-to', 'relation', 'to', content.to);
+    relations.push({ type: 'compares', fromRole: 'compare-from', toRole: 'compare-to' });
+    if (content.fromLabel != null) addPart('supporting-label', 'text', 'fromLabel', String(content.fromLabel), 0.7);
+    if (content.toLabel != null) addPart('supporting-label', 'text', 'toLabel', String(content.toLabel), 0.7);
+  }
+
+  if (typeof content.contextPhrase === 'string' && content.contextPhrase.trim().length > 0) {
+    const keyword = typeof content.keyword === 'string' && content.keyword.trim().length > 0
+      ? content.keyword
+      : typeof content.text === 'string'
+        ? content.text
+        : '';
+    if (keyword) {
+      addPart('keyword', 'text', 'keyword', keyword, 0.75);
+    }
+    addPart('context-phrase', 'text', 'contextPhrase', content.contextPhrase, 0.88);
+    if (keyword) relations.push({ type: 'context-for', fromRole: 'context-phrase', toRole: 'keyword' });
+  }
+
+  if (parts.length === 0 && typeof content.text === 'string') {
+    addPart('emphasis-text', 'text', 'text', content.text, 0.8);
+  }
+
+  if (parts.length === 0) {
+    const fallbackText = content.text ?? content.keyword ?? content.title ?? '';
+    addPart('fallback-text', 'text', 'fallback', String(fallbackText), 0.4);
+  }
+
+  const channels: ContentStructureSignature['channels'] = {};
+  for (const part of parts) {
+    channels[part.channel] = Math.max(channels[part.channel] ?? 0, part.confidence);
+  }
+
+  const seriesValues = parts.find((part) => part.role === 'series-values')?.value;
+  const seriesNums = Array.isArray(seriesValues)
+    ? seriesValues.filter((v): v is number => typeof v === 'number' && isFinite(v))
+    : [];
+  const seriesLabels = parts.find((part) => part.role === 'series-labels')?.value;
+  const seriesAnalysis = analyzeDataSeriesStructure(
+    seriesNums,
+    Array.isArray(seriesLabels) ? seriesLabels.map(String) : undefined,
+  );
+
+  return {
+    parts,
+    relations,
+    channels,
+    evidence: {
+      hasScalar: !!channels.scalar,
+      hasSeries: !!channels.series,
+      hasIdentity: !!channels.identity,
+      hasMedia: !!channels.media,
+      hasRelation: !!channels.relation,
+      hasBrand: !!channels.brand || !!relations.find((r) => r.type === 'brand-mark'),
+      partCount: parts.length,
+      relationCount: relations.length,
+      ...(seriesAnalysis.seriesCardinality > 0 ? seriesAnalysis : {}),
+    },
+    primaryChannel: choosePrimaryChannel(channels),
+  };
+}
+
 function detectShapes(
   content: Record<string, unknown>,
+  structure: ContentStructureSignature,
 ): ContentShape[] {
   const shapes: ContentShape[] = [];
 
-  if (hasNumericValue(content)) {
+  if (hasPart(structure, 'primary-value')) {
     shapes.push({
       kind: 'numeric',
       value: String(content.value),
@@ -43,35 +185,37 @@ function detectShapes(
     });
   }
 
-  if (typeof content.name === 'string' && content.name.length > 0) {
+  if (hasPart(structure, 'name')) {
     shapes.push({
       kind: 'identity',
-      name: content.name,
+      name: String(content.name),
       title: content.title != null ? String(content.title) : undefined,
       avatar: content.avatar != null ? String(content.avatar) : undefined,
     });
   }
 
-  if (typeof content.quote === 'string' && content.quote.length > 0) {
+  if (hasPart(structure, 'quote')) {
     shapes.push({
       kind: 'quotation',
-      quote: content.quote,
+      quote: String(content.quote),
       author: content.author != null ? String(content.author) : undefined,
     });
   }
 
-  if (Array.isArray(content.values) && content.values.length > 0) {
-    const nums = content.values.filter((v): v is number => typeof v === 'number' && isFinite(v));
+  if (hasPart(structure, 'series-values')) {
+    const rawValues = Array.isArray(content.values) ? content.values : [];
+    const nums = rawValues.filter((v): v is number => typeof v === 'number' && isFinite(v));
     if (nums.length > 0) {
       shapes.push({
         kind: 'data-series',
         values: nums,
         labels: Array.isArray(content.labels) ? content.labels.map(String) : undefined,
+        visualForm: inferDataSeriesVisualForm(nums, Array.isArray(content.labels) ? content.labels.map(String) : undefined),
       });
     }
   }
 
-  if (typeof content.logo === 'string' || (typeof content.text === 'string' && content.brand)) {
+  if (hasPart(structure, 'logo') || hasPart(structure, 'brand-text')) {
     shapes.push({
       kind: 'brand',
       text: String(content.text || content.name || ''),
@@ -79,31 +223,40 @@ function detectShapes(
     });
   }
 
-  if (typeof content.title === 'string' && typeof content.body === 'string') {
+  if (hasPart(structure, 'title') && hasPart(structure, 'body')) {
     shapes.push({
       kind: 'structured',
-      title: content.title,
-      body: content.body,
+      title: String(content.title),
+      body: String(content.body),
       items: Array.isArray(content.items) ? content.items.map(String) : undefined,
     });
   }
 
   // Comparison: two comparable values present (before/after or versus). The 2-value structure
   // IS the affordance (a fact about the content) — detected here, never an LLM/preset choice.
-  if (typeof content.from === 'string' && content.from.length > 0
-      && typeof content.to === 'string' && content.to.length > 0) {
+  if (hasPart(structure, 'compare-from') && hasPart(structure, 'compare-to')) {
     shapes.push({
       kind: 'comparison',
-      from: content.from,
-      to: content.to,
+      from: String(content.from),
+      to: String(content.to),
       fromLabel: content.fromLabel != null ? String(content.fromLabel) : undefined,
       toLabel: content.toLabel != null ? String(content.toLabel) : undefined,
       relation: content.relation === 'vs' ? 'vs' : 'arrow',
     });
   }
 
-  if (shapes.length === 0 && typeof content.text === 'string') {
-    shapes.push({ kind: 'emphasis', text: content.text, weight: 'medium' });
+  if (shapes.length === 0 && hasPart(structure, 'context-phrase')) {
+    const keyword = content.keyword ?? content.text ?? '';
+    const phrase = String(content.contextPhrase ?? '');
+    shapes.push({
+      kind: 'structured',
+      title: String(keyword || phrase).trim(),
+      body: keyword ? phrase : undefined,
+    });
+  }
+
+  if (shapes.length === 0 && hasPart(structure, 'emphasis-text')) {
+    shapes.push({ kind: 'emphasis', text: String(content.text), weight: 'medium' });
   }
 
   if (shapes.length === 0) {
@@ -114,6 +267,71 @@ function detectShapes(
   return shapes;
 }
 
+function hasPart(structure: ContentStructureSignature, role: ContentStructurePart['role']): boolean {
+  return structure.parts.some((part) => part.role === role);
+}
+
+function choosePrimaryChannel(
+  channels: ContentStructureSignature['channels'],
+): ContentPrimitiveChannel {
+  for (const channel of ['series', 'scalar', 'relation', 'identity', 'brand', 'media', 'text'] as const) {
+    if ((channels[channel] ?? 0) > 0) return channel;
+  }
+  return 'text';
+}
+
+interface DataSeriesStructureAnalysis {
+  dataSeriesVisualForm?: DataSeriesVisualForm;
+  seriesCardinality: number;
+  seriesTrend: 'single' | 'rising' | 'falling' | 'mixed' | 'flat';
+  seriesVariance: number;
+  seriesComparison: boolean;
+  seriesRanked: boolean;
+}
+
+function analyzeDataSeriesStructure(values: number[], labels?: string[]): DataSeriesStructureAnalysis {
+  if (values.length === 0) {
+    return {
+      seriesCardinality: 0,
+      seriesTrend: 'flat',
+      seriesVariance: 0,
+      seriesComparison: false,
+      seriesRanked: false,
+    };
+  }
+
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / values.length;
+  const normalizedVariance = Math.min(1, Math.sqrt(variance) / Math.max(1, Math.abs(mean)));
+  const deltas = values.slice(1).map((value, index) => value - values[index]);
+  const rising = deltas.length > 0 && deltas.every((delta) => delta >= 0);
+  const falling = deltas.length > 0 && deltas.every((delta) => delta <= 0);
+  const flat = deltas.every((delta) => Math.abs(delta) < 0.0001);
+  const ranked = values.length > 1 && falling && !!labels?.length;
+  const comparison = values.length <= 4 || ranked || (!!labels?.length && normalizedVariance > 0.35);
+
+  return {
+    dataSeriesVisualForm: inferDataSeriesVisualForm(values, labels),
+    seriesCardinality: values.length,
+    seriesTrend: values.length === 1 ? 'single' : flat ? 'flat' : rising ? 'rising' : falling ? 'falling' : 'mixed',
+    seriesVariance: Number(normalizedVariance.toFixed(3)),
+    seriesComparison: comparison,
+    seriesRanked: ranked,
+  };
+}
+
+export function inferDataSeriesVisualForm(values: number[], labels?: string[]): DataSeriesVisualForm {
+  const analysis = values.length === 0 ? undefined : {
+    cardinality: values.length,
+    hasLabels: !!labels?.length,
+    ranked: values.length > 1 && values.slice(1).every((value, index) => value <= values[index]) && !!labels?.length,
+  };
+
+  if (values.length === 1 && values[0] >= 0 && values[0] <= 100) return 'percentage-ring';
+  if (analysis?.ranked || values.length <= 4) return 'bar-chart';
+  if (values.length >= 5) return 'sparkline';
+  return 'bar-chart';
+}
 
 // Stat values arrive in several display forms. count-up animation only makes sense for a plain
 // incrementable magnitude — a fraction ("1/3"), ratio ("2:1"), or magnitude-suffixed value

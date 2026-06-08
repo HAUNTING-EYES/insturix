@@ -9,6 +9,8 @@ import type { MGKeyframe, MGKeyframeTrack, MGSpeedRamp } from './recipe-types';
 import { BarChart, PercentageRing, Sparkline } from './data-viz-renderers';
 import { useGSAPTimeline, buildScrambleEntrance, buildScrambleExit, buildDrawSVGEntrance, buildDrawSVGExit, buildMorphHold, areTimelinePluginsAvailable } from './gsap-timeline';
 import { noise2D } from '@remotion/noise';
+import { atomicElementRenderKey, type AtomicElementPlan, type AtomicKeyframe, type AtomicMotionPhase, type AtomicMotionProperty, type AtomicOverlayPlan } from './atomic-overlay-plan';
+import type { AtomicOverlayDecision } from './atomic-overlay-decision';
 
 // Z-ordering: background renders first (behind), foreground last (on top)
 const DEPTH_ORDER: Record<DepthLayer, number> = {
@@ -20,6 +22,20 @@ const DEPTH_ORDER: Record<DepthLayer, number> = {
 interface CompositionRendererInternalProps extends CompositionRendererProps {
   syncData?: SyncData;
   signalCurves?: SignalCurves;
+  atomicPlan?: AtomicOverlayPlan;
+  atomicDecision?: AtomicOverlayDecision;
+}
+
+const atomicFallbackWarnings = new Set<string>();
+
+function warnAtomicFallback(reason: string, details?: string): void {
+  const key = `${reason}:${details ?? ''}`;
+  if (atomicFallbackWarnings.has(key)) return;
+  atomicFallbackWarnings.add(key);
+  console.warn(
+    `[MG-Render] Atomic metadata malformed: ${reason}` +
+    `${details ? ` (${details})` : ''}. Falling back to legacy MG behavior.`,
+  );
 }
 
 export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = ({
@@ -29,6 +45,8 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   durationInFrames,
   syncData,
   signalCurves,
+  atomicPlan,
+  atomicDecision,
 }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
@@ -47,7 +65,10 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   });
 
   // Z-order: sort by depth layer so background renders first, foreground last
-  const sorted = [...resolvedElements].sort((a, b) => {
+  const sorted = resolvedElements.map((element, index) => ({
+    ...element,
+    renderKey: atomicElementRenderKey(element, [index]),
+  })).sort((a, b) => {
     const aDepth = DEPTH_ORDER[a.layer || 'foreground'];
     const bDepth = DEPTH_ORDER[b.layer || 'foreground'];
     return aDepth - bDepth;
@@ -75,7 +96,7 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
 
         return (
           <PrimitiveElement
-            key={`${el.role}-${idx}`}
+            key={el.renderKey ?? `${el.role}-${idx}`}
             element={el}
             timing={timing}
             frame={frame}
@@ -83,6 +104,8 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
             content={content}
             spatial={spatial}
             signalCurves={signalCurves}
+            atomicElement={findAtomicElement(atomicPlan, el, el.renderKey)}
+            atomicDecision={atomicDecision}
             boxWidthPx={boxWidthPx}
             canvasHeight={height}
           />
@@ -100,6 +123,8 @@ interface PrimitiveElementProps {
   content: Record<string, unknown>;
   spatial: SpatialConfig;
   signalCurves?: SignalCurves;
+  atomicElement?: AtomicElementPlan;
+  atomicDecision?: AtomicOverlayDecision;
   boxWidthPx: number;
   canvasHeight: number;
 }
@@ -111,6 +136,8 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
   fps,
   spatial,
   signalCurves,
+  atomicElement,
+  atomicDecision,
   boxWidthPx,
   canvasHeight,
 }) => {
@@ -127,7 +154,9 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
     : baseAnim;
 
   // Audio-reactive modulation: beat pulse, energy breathing, emotion scale (hold phase only)
-  const anim = applyAudioReactiveModulation(keyframedAnim, frame, timing, signalCurves);
+  const modulatedAnim = applyAudioReactiveModulation(keyframedAnim, frame, timing, signalCurves);
+  const atomicAnim = applyAtomicMotionTracks(modulatedAnim, atomicElement, frame, timing, atomicDecision);
+  const anim = applyAtomicRenderDecision(atomicAnim, atomicDecision);
 
   if (anim.opacity <= 0.001) return null;
 
@@ -141,15 +170,15 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
       if (needsGSAPSVG) {
         return <GSAPSVGPathElement element={element} anim={anim} frame={frame} fps={fps} timing={timing} />;
       }
-      return <ShapeElement element={element} anim={anim} />;
+      return <ShapeElement element={element} anim={anim} atomicElement={atomicElement} atomicDecision={atomicDecision} />;
     }
     case 'pattern':
-      return <PatternElement element={element} anim={anim} />;
+      return <PatternElement element={element} anim={anim} atomicElement={atomicElement} atomicDecision={atomicDecision} />;
     case 'text': {
       if (element.entrancePattern === 'scramble' && areTimelinePluginsAvailable()) {
         return <GSAPScrambleTextElement element={element} anim={anim} frame={frame} fps={fps} timing={timing} />;
       }
-      return <TextElement element={element} anim={anim} frame={frame} timing={timing} spatial={spatial} signalCurves={signalCurves} boxWidthPx={boxWidthPx} canvasHeight={canvasHeight} />;
+      return <TextElement element={element} anim={anim} frame={frame} timing={timing} spatial={spatial} signalCurves={signalCurves} atomicElement={atomicElement} atomicDecision={atomicDecision} boxWidthPx={boxWidthPx} canvasHeight={canvasHeight} />;
     }
     case 'image':
     case 'video-clip':
@@ -157,7 +186,7 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
     case 'data-viz':
       return <DataVizElement element={element} anim={anim} frame={frame} timing={timing} />;
     case 'particle':
-      return <ParticleElement element={element} anim={anim} frame={frame} timing={timing} />;
+      return <ParticleElement element={element} anim={anim} frame={frame} timing={timing} atomicDecision={atomicDecision} />;
     case 'mask':
       return <MaskElement element={element} anim={anim} frame={frame} timing={timing} />;
     case 'group':
@@ -168,10 +197,312 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
   }
 };
 
-// Neutral animation for group CHILDREN — the group animates as one unit, so its children
-// render statically inside it (their visual arrangement is fixed; only the group moves).
+export function applyAtomicRenderDecision(
+  anim: AnimationState,
+  decision?: AtomicOverlayDecision,
+): AnimationState {
+  const safeDecision = normalizeAtomicDecision(decision);
+  if (!safeDecision) return anim;
+  if (!safeDecision.licenses.allowOverlay) {
+    return { ...anim, opacity: 0 };
+  }
+
+  const capped = capAtomicMotionChannels(anim, safeDecision);
+  const motionAmplitude = safeDecision.multipliers.motionAmplitude;
+  const typographyScale = safeDecision.multipliers.typographyScale;
+  const opacityRange = safeDecision.multipliers.opacityRange;
+
+  return {
+    ...capped,
+    opacity: 1 - ((1 - capped.opacity) * opacityRange),
+    translateX: capped.translateX * motionAmplitude,
+    translateY: capped.translateY * motionAmplitude,
+    translateZ: (capped.translateZ ?? 0) * motionAmplitude * safeDecision.multipliers.depthParallax,
+    rotation: capped.rotation * motionAmplitude,
+    skewX: capped.skewX * motionAmplitude,
+    filterBlur: capped.filterBlur * motionAmplitude,
+    scaleX: 1 + ((capped.scaleX - 1) * motionAmplitude),
+    scaleY: 1 + ((capped.scaleY - 1) * motionAmplitude),
+    fontSize: capped.fontSize * typographyScale,
+    textShadowBlur: capped.textShadowBlur * motionAmplitude,
+  };
+}
+
+function capAtomicMotionChannels(anim: AnimationState, decision: AtomicOverlayDecision): AnimationState {
+  const allowed = new Set<AtomicMotionProperty>(
+    decision.dominantMotionProperties.slice(0, decision.licenses.maxMotionChannels),
+  );
+  const result = { ...anim };
+
+  if (!allowed.has('x')) result.translateX = 0;
+  if (!allowed.has('y')) result.translateY = 0;
+  if (!allowed.has('z')) result.translateZ = 0;
+  if (!allowed.has('rotateZ')) result.rotation = 0;
+  if (!allowed.has('skewX')) result.skewX = 0;
+  if (!allowed.has('blur')) result.filterBlur = 0;
+  if (!allowed.has('clip')) result.clipProgress = 1;
+  if (!allowed.has('scaleX')) result.scaleX = 1;
+  if (!allowed.has('scaleY')) result.scaleY = 1;
+  return result;
+}
+
+export function applyAtomicMotionTracks(
+  anim: AnimationState,
+  element: AtomicElementPlan | undefined,
+  frame: number,
+  timing: ComputedChoreography,
+  decision?: AtomicOverlayDecision,
+): AnimationState {
+  const safeDecision = normalizeAtomicDecision(decision);
+  if (!element || !safeDecision?.licenses.allowOverlay) return anim;
+  if (!Array.isArray(element.motion?.tracks)) {
+    warnAtomicFallback('atomic element motion tracks are missing', element?.role);
+    return anim;
+  }
+
+  let next = anim;
+  for (const track of element.motion.tracks) {
+    if (!isAtomicTrackRenderable(track) || !shouldApplyAtomicTrack(track, frame, timing, safeDecision)) continue;
+    next = assignAtomicTrackValue(
+      next,
+      track.property,
+      interpolateAtomicTrack(track.keyframes, phaseProgress(frame, timing, track.phase)),
+    );
+  }
+
+  return next;
+}
+
+export function findAtomicElement(
+  plan: AtomicOverlayPlan | undefined,
+  element: ResolvedElement,
+  renderKey?: string,
+): AtomicElementPlan | undefined {
+  if (!plan) return undefined;
+  if (!Array.isArray((plan as Partial<AtomicOverlayPlan>).elements)) {
+    warnAtomicFallback('atomic plan elements are missing', plan.recipeId);
+    return undefined;
+  }
+  const elements = plan.elements.filter(isAtomicElementRenderable);
+
+  const keyed = renderKey
+    ? elements.find((candidate) => candidate.renderKey === renderKey)
+    : undefined;
+  if (keyed) return keyed;
+
+  const legacyCandidates = elements.filter((candidate) =>
+    candidate.role === element.role && candidate.primitive === element.primitive,
+  );
+  return legacyCandidates.length === 1 ? legacyCandidates[0] : undefined;
+}
+
+export function applyAtomicStyleAtoms(
+  style: React.CSSProperties,
+  element: AtomicElementPlan | undefined,
+  decision?: AtomicOverlayDecision,
+): React.CSSProperties {
+  const safeDecision = normalizeAtomicDecision(decision);
+  if (!element || !safeDecision?.licenses.allowOverlay || !isAtomicElementRenderable(element)) return style;
+
+  const next: React.CSSProperties = { ...style };
+  if (element.primitive === 'text' || element.primitive === 'data-viz') {
+    applyAtomicTypography(next, element);
+    applyAtomicTextColor(next, element);
+  } else {
+    applyAtomicShapeColor(next, element);
+  }
+
+  return next;
+}
+
+function normalizeAtomicDecision(decision?: AtomicOverlayDecision): AtomicOverlayDecision | undefined {
+  if (!decision) return undefined;
+  if (decision.version !== 'atomic-decision-v1') {
+    warnAtomicFallback('atomic decision version is unsupported', String((decision as Partial<AtomicOverlayDecision>).version ?? 'missing'));
+    return undefined;
+  }
+
+  const licenses = decision.licenses;
+  const multipliers = decision.multipliers;
+  if (!licenses || !multipliers) {
+    warnAtomicFallback('atomic decision licenses or multipliers are missing');
+    return undefined;
+  }
+  if (!Number.isFinite(licenses.maxMotionChannels) || !Number.isFinite(licenses.maxElementCount)) {
+    warnAtomicFallback('atomic decision license limits are invalid');
+    return undefined;
+  }
+  if (
+    !Number.isFinite(multipliers.motionAmplitude)
+    || !Number.isFinite(multipliers.typographyScale)
+    || !Number.isFinite(multipliers.structureDensity)
+    || !Number.isFinite(multipliers.opacityRange)
+    || !Number.isFinite(multipliers.depthParallax)
+  ) {
+    warnAtomicFallback('atomic decision multipliers are invalid');
+    return undefined;
+  }
+  if (!Array.isArray(decision.dominantMotionProperties)) {
+    warnAtomicFallback('atomic decision dominant motion properties are missing');
+    return undefined;
+  }
+  return decision;
+}
+
+function isAtomicElementRenderable(element: AtomicElementPlan | undefined): element is AtomicElementPlan {
+  const renderable = !!element
+    && typeof element.role === 'string'
+    && typeof element.primitive === 'string'
+    && !!element.motion
+    && Array.isArray(element.motion.tracks)
+    && !!element.color
+    && typeof element.color.accent === 'string';
+  if (element && !renderable) {
+    warnAtomicFallback('atomic element is incomplete', element.role ?? element.id);
+  }
+  return renderable;
+}
+
+function isAtomicTrackRenderable(track: AtomicElementPlan['motion']['tracks'][number] | undefined): boolean {
+  const renderable = !!track
+    && typeof track.property === 'string'
+    && typeof track.phase === 'string'
+    && Array.isArray(track.keyframes)
+    && track.keyframes.every((keyframe) =>
+      typeof keyframe.t === 'number'
+      && Number.isFinite(keyframe.t)
+      && typeof keyframe.value === 'number'
+      && Number.isFinite(keyframe.value),
+    );
+  if (track && !renderable) {
+    warnAtomicFallback('atomic motion track is invalid', `${track.property ?? 'unknown'}:${track.phase ?? 'unknown'}`);
+  }
+  return renderable;
+}
+
+function applyAtomicTypography(style: React.CSSProperties, element: AtomicElementPlan): void {
+  const typography = element.typography;
+  if (!typography) return;
+
+  if (typography.family) style.fontFamily = typography.family;
+  if (typography.weight != null) style.fontWeight = typography.weight;
+  if (typography.lineHeight != null) style.lineHeight = typography.lineHeight;
+  if (typography.tracking) style.letterSpacing = typography.tracking;
+  if (typography.transform) style.textTransform = typography.transform as React.CSSProperties['textTransform'];
+  if (typography.sizePx != null && style.fontSize == null) style.fontSize = `${typography.sizePx}px`;
+}
+
+function applyAtomicTextColor(style: React.CSSProperties, element: AtomicElementPlan): void {
+  if (element.color.gradient) {
+    style.background = element.color.gradient;
+    style.backgroundClip = 'text';
+    style.WebkitBackgroundClip = 'text';
+    style.WebkitTextFillColor = 'transparent';
+    style.color = 'transparent';
+    return;
+  }
+
+  if (element.color.text) style.color = element.color.text;
+}
+
+function applyAtomicShapeColor(style: React.CSSProperties, element: AtomicElementPlan): void {
+  if (element.color.fill) style.backgroundColor = element.color.fill;
+  if (element.color.stroke) style.borderColor = element.color.stroke;
+}
+
+function shouldApplyAtomicTrack(
+  track: AtomicElementPlan['motion']['tracks'][number],
+  frame: number,
+  timing: ComputedChoreography,
+  decision: AtomicOverlayDecision,
+): boolean {
+  if (track.property === 'z' && !decision.licenses.allowDepthMotion) return false;
+  if (track.phase === 'entrance') return decision.licenses.allowKineticEntrance && frame <= timing.enterEndFrame;
+  if (track.phase === 'hold') return decision.licenses.allowHoldMotion
+    && frame > timing.enterEndFrame
+    && frame < timing.exitStartFrame;
+  if (track.phase === 'exit') return frame >= timing.exitStartFrame;
+  return decision.licenses.allowHoldMotion;
+}
+
+function assignAtomicTrackValue(
+  anim: AnimationState,
+  property: AtomicMotionProperty,
+  value: number,
+): AnimationState {
+  switch (property) {
+    case 'x':
+      return { ...anim, translateX: value };
+    case 'y':
+      return { ...anim, translateY: value };
+    case 'z':
+      return { ...anim, translateZ: value };
+    case 'scaleX':
+      return { ...anim, scaleX: value };
+    case 'scaleY':
+      return { ...anim, scaleY: value };
+    case 'opacity':
+      return { ...anim, opacity: value };
+    case 'rotateZ':
+      return { ...anim, rotation: value };
+    case 'skewX':
+      return { ...anim, skewX: value };
+    case 'blur':
+      return { ...anim, filterBlur: value };
+    case 'clip':
+      return { ...anim, clipProgress: value };
+    default:
+      return anim;
+  }
+}
+
+function phaseProgress(frame: number, timing: ComputedChoreography, phase: AtomicMotionPhase): number {
+  if (phase === 'hold') return normalizeFrame(frame, timing.holdStartFrame, timing.holdEndFrame);
+  if (phase === 'exit') return normalizeFrame(frame, timing.exitStartFrame, timing.exitEndFrame);
+  return normalizeFrame(frame, timing.enterStartFrame, timing.enterEndFrame);
+}
+
+function normalizeFrame(frame: number, from: number, to: number): number {
+  return Math.max(0, Math.min(1, (frame - from) / Math.max(1, to - from)));
+}
+
+function interpolateAtomicTrack(keyframes: AtomicKeyframe[], progress: number): number {
+  if (keyframes.length === 0) return 0;
+
+  const sorted = [...keyframes].sort((a, b) => a.t - b.t);
+  if (progress <= sorted[0].t) return sorted[0].value;
+  if (progress >= sorted[sorted.length - 1].t) return sorted[sorted.length - 1].value;
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    if (progress >= a.t && progress <= b.t) {
+      const t = (progress - a.t) / Math.max(0.0001, b.t - a.t);
+      const eased = applyAtomicEasing(t, b.easing);
+      return a.value + ((b.value - a.value) * eased);
+    }
+  }
+
+  return sorted[sorted.length - 1].value;
+}
+
+function applyAtomicEasing(t: number, easing: AtomicKeyframe['easing']): number {
+  switch (easing) {
+    case 'ease-in':
+      return t * t;
+    case 'ease-out':
+      return 1 - ((1 - t) * (1 - t));
+    case 'ease-in-out':
+      return t < 0.5 ? 2 * t * t : 1 - (2 * (1 - t) * (1 - t));
+    case 'linear':
+    default:
+      return t;
+  }
+}
+
+// Neutral animation for group children: the group animates as one unit, so its children render statically.
 const GROUP_CHILD_NEUTRAL: AnimationState = {
-  opacity: 1, translateX: 0, translateY: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0,
+  opacity: 1, translateX: 0, translateY: 0, translateZ: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0,
   clipProgress: 1, filterBlur: 0, filterBrightness: 1, filterContrast: 1, filterSaturate: 1,
   letterSpacing: 0, fontSize: 1, textShadowBlur: 0, strokeDashoffset: 0,
 };
@@ -220,20 +551,34 @@ const GroupElement: React.FC<{ element: ResolvedElement; anim: AnimationState }>
   return <div style={style}>{element.children?.map((c, i) => renderGroupChild(c, i))}</div>;
 };
 
-const ShapeElement: React.FC<{ element: ResolvedElement; anim: ReturnType<typeof computeAnimationState> }> = ({
+const ShapeElement: React.FC<{
+  element: ResolvedElement;
+  anim: AnimationState;
+  atomicElement?: AtomicElementPlan;
+  atomicDecision?: AtomicOverlayDecision;
+}> = ({
   element,
   anim,
+  atomicElement,
+  atomicDecision,
 }) => {
-  const style = buildShapeStyle(element, anim);
+  const style = applyAtomicStyleAtoms(buildShapeStyle(element, anim), atomicElement, atomicDecision);
   return <div style={style} />;
 };
 
 /** Pattern element: renders brand background patterns via CSS background-image (SVG data URIs). */
-const PatternElement: React.FC<{ element: ResolvedElement; anim: ReturnType<typeof computeAnimationState> }> = ({
+const PatternElement: React.FC<{
+  element: ResolvedElement;
+  anim: AnimationState;
+  atomicElement?: AtomicElementPlan;
+  atomicDecision?: AtomicOverlayDecision;
+}> = ({
   element,
   anim,
+  atomicElement,
+  atomicDecision,
 }) => {
-  const base = buildShapeStyle(element, anim);
+  const base = applyAtomicStyleAtoms(buildShapeStyle(element, anim), atomicElement, atomicDecision);
   const p = element.resolvedProps;
 
   const patternStyle: React.CSSProperties = {
@@ -242,11 +587,16 @@ const PatternElement: React.FC<{ element: ResolvedElement; anim: ReturnType<type
     backgroundRepeat: 'repeat',
     backgroundSize: 'auto',
     // Pattern opacity from generator (layered on top of shape opacity)
-    opacity: p.patternOpacity != null ? Number(p.patternOpacity) * (base.opacity ?? 1) : base.opacity,
+    opacity: p.patternOpacity != null ? Number(p.patternOpacity) * numericOpacity(base.opacity) : base.opacity,
   };
 
   return <div style={patternStyle} />;
 };
+
+function numericOpacity(value: React.CSSProperties['opacity']): number {
+  const opacity = typeof value === 'number' ? value : Number(value ?? 1);
+  return isFinite(opacity) ? opacity : 1;
+}
 
 /** Data-viz element: dispatches to BarChart, PercentageRing, or Sparkline based on role. */
 const DataVizElement: React.FC<{
@@ -339,14 +689,16 @@ const TextElement: React.FC<{
   timing: ComputedChoreography;
   spatial: SpatialConfig;
   signalCurves?: SignalCurves;
+  atomicElement?: AtomicElementPlan;
+  atomicDecision?: AtomicOverlayDecision;
   boxWidthPx: number;
   canvasHeight: number;
-}> = ({ element, anim, frame, timing, spatial, signalCurves, boxWidthPx, canvasHeight }) => {
+}> = ({ element, anim, frame, timing, spatial, signalCurves, atomicElement, atomicDecision, boxWidthPx, canvasHeight }) => {
   const p = element.resolvedProps;
   const text = String(p.text || '');
   // G-1: shrink text to fit its title-safe box (and cap focal size). undefined → legacy floor.
   const fittedSizePx = computeFittedSize(element, text, boxWidthPx, canvasHeight);
-  const style = buildTextStyle(element, anim, fittedSizePx);
+  const style = applyAtomicStyleAtoms(buildTextStyle(element, anim, fittedSizePx), atomicElement, atomicDecision);
 
   if (element.animation === 'count-up') {
     return <CountUpText element={element} style={style} frame={frame} timing={timing} />;
@@ -363,6 +715,8 @@ const TextElement: React.FC<{
         timing={timing}
         spatial={spatial}
         signalCurves={signalCurves}
+        atomicElement={atomicElement}
+        atomicDecision={atomicDecision}
         containerStyle={style}
         fittedSizePx={fittedSizePx}
       />
@@ -380,9 +734,11 @@ const SplitTextElement: React.FC<{
   timing: ComputedChoreography;
   spatial: SpatialConfig;
   signalCurves?: SignalCurves;
+  atomicElement?: AtomicElementPlan;
+  atomicDecision?: AtomicOverlayDecision;
   containerStyle: React.CSSProperties;
   fittedSizePx?: number; // G-1: render-time fit-to-box size (threaded by TextElement)
-}> = ({ element, text, splitMode, frame, timing, spatial, signalCurves, containerStyle, fittedSizePx }) => {
+}> = ({ element, text, splitMode, frame, timing, spatial, signalCurves, atomicElement, atomicDecision, containerStyle, fittedSizePx }) => {
   // ROOT FIX for the "SUPERHER/O" mid-word break: split into WORDS first; each word is a
   // white-space:nowrap inline-block, so a word can NEVER break across lines mid-glyph. The flex
   // container wraps only BETWEEN words (multi-line is fine). Chars animate individually inside a word.
@@ -410,7 +766,11 @@ const SplitTextElement: React.FC<{
     const modulatedAnim = signalCurves
       ? applyAudioReactiveModulation(unitAnim, frame, offsetTiming, signalCurves)
       : unitAnim;
-    const unitStyle = buildTextStyle(element, modulatedAnim, fittedSizePx);
+    const unitStyle = applyAtomicStyleAtoms(
+      buildTextStyle(element, applyAtomicRenderDecision(modulatedAnim, atomicDecision), fittedSizePx),
+      atomicElement,
+      atomicDecision,
+    );
     return <span key={key} style={{ ...unitStyle, display: 'inline-block' }}>{str}</span>;
   };
 
@@ -656,12 +1016,14 @@ const ParticleElement: React.FC<{
   anim: AnimationState;
   frame: number;
   timing: ComputedChoreography;
-}> = ({ element, anim, frame, timing }) => {
+  atomicDecision?: AtomicOverlayDecision;
+}> = ({ element, anim, frame, timing, atomicDecision }) => {
   const p = element.resolvedProps;
   const presetName = String(p.particlePreset || 'confetti');
   const preset = PARTICLE_PRESETS[presetName] || PARTICLE_PRESETS.confetti;
   // ⚠️ INVENTED — max 100 (DOM perf ceiling), default 40 (moderate density)
-  const count = Math.min(100, Math.max(1, Number(p.particleCount || 40)));
+  const density = atomicDecision?.multipliers.structureDensity ?? 1;
+  const count = Math.min(100, Math.max(1, Math.round(Number(p.particleCount || 40) * density)));
   const baseColor = String(p.color || '#FFFFFF');
   const altColor = String(p.secondaryColor || '#FFD700');
   // ⚠️ INVENTED — 6px base, typical MG overlay particle size

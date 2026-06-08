@@ -195,19 +195,74 @@ export type ContentShapeKind =
   | 'comparison'
   | 'free-text';
 
+export type DataSeriesVisualForm = 'bar-chart' | 'percentage-ring' | 'sparkline';
+
 export type ContentShape =
   | { kind: 'numeric'; value: string; label?: string; prefix?: string; suffix?: string }
   | { kind: 'identity'; name: string; title?: string; avatar?: string }
   | { kind: 'quotation'; quote: string; author?: string }
   | { kind: 'emphasis'; text: string; weight: 'light' | 'medium' | 'heavy' }
-  | { kind: 'data-series'; values: number[]; labels?: string[] }
+  | { kind: 'data-series'; values: number[]; labels?: string[]; visualForm: DataSeriesVisualForm }
   | { kind: 'brand'; text: string; logo?: string }
   | { kind: 'structured'; title: string; body?: string; items?: string[] }
   | { kind: 'comparison'; from: string; to: string; fromLabel?: string; toLabel?: string; relation?: 'arrow' | 'vs' }
   | { kind: 'free-text'; text: string };
 
+export type ContentPrimitiveChannel =
+  | 'scalar'
+  | 'text'
+  | 'series'
+  | 'identity'
+  | 'media'
+  | 'relation'
+  | 'brand';
+
+export type ContentPartRole =
+  | 'primary-value'
+  | 'supporting-label'
+  | 'name'
+  | 'title'
+  | 'quote'
+  | 'author'
+  | 'series-values'
+  | 'series-labels'
+  | 'brand-text'
+  | 'logo'
+  | 'avatar'
+  | 'body'
+  | 'list-items'
+  | 'compare-from'
+  | 'compare-to'
+  | 'keyword'
+  | 'context-phrase'
+  | 'emphasis-text'
+  | 'fallback-text';
+
+export interface ContentStructurePart {
+  role: ContentPartRole;
+  channel: ContentPrimitiveChannel;
+  sourceKey: string;
+  value?: string | number | string[] | number[];
+  confidence: number;
+}
+
+export interface ContentStructureRelation {
+  type: 'label-of' | 'title-of' | 'authored-by' | 'compares' | 'brand-mark' | 'portrait-of' | 'contains-list' | 'context-for';
+  fromRole: ContentPartRole;
+  toRole: ContentPartRole;
+}
+
+export interface ContentStructureSignature {
+  parts: ContentStructurePart[];
+  relations: ContentStructureRelation[];
+  channels: Partial<Record<ContentPrimitiveChannel, number>>;
+  evidence: Record<string, number | string | boolean>;
+  primaryChannel: ContentPrimitiveChannel;
+}
+
 export interface CompositionStrategy {
   shapes: ContentShape[];
+  structure: ContentStructureSignature;
   suggestedLayout: RecipeLayout;
   suggestedExitStyle: ExitStyle;
   complexityBudget: number;

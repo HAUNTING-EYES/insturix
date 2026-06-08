@@ -33,7 +33,14 @@ const GRAPHIC_CONTEXT_RESOLVERS: Record<string, (events: EventSignal[], frame: n
     if (!evt?.context) return null;
     const ctx = evt.context;
     const match = ctx.match(/^([^0-9]*)([\d,.]+)(.*)$/);
-    if (match) return { value: match[2], prefix: match[1].trim(), suffix: match[3].trim(), text: ctx };
+    if (match) {
+      const payload: Record<string, string> = { value: match[2] ?? ctx, text: ctx };
+      const prefix = match[1]?.trim();
+      const suffix = match[3]?.trim();
+      if (prefix) payload.prefix = prefix;
+      if (suffix) payload.suffix = suffix;
+      return payload;
+    }
     return { value: ctx, text: ctx };
   },
   lower_third(events, frame, gi) {
@@ -75,8 +82,17 @@ const SIGNAL_MAP: Array<[string, string]> = [
   ['speech.silence_normalized', 'silence_normalized'], ['speech.coverage', 'speech_coverage'],
   ['visual.motion_intensity', 'motion_intensity'], ['visual.face_present', 'face_present'],
   ['visual.engagement', 'visual_engagement'], ['visual.significance', 'visual_significance'],
+  ['visual.motion_vector.x', 'motion_vector_x'], ['visual.motion_vector.y', 'motion_vector_y'],
   ['visual.scene_type', 'scene_type'], ['visual.complexity', 'visual_complexity'],
-  ['visual.shot_scale', 'shot_scale'], ['visual.eye_contact', 'eye_contact'],
+  ['visual.text_on_screen', 'text_on_screen'], ['visual.shot_scale', 'shot_scale'],
+  ['visual.text_coverage', 'text_coverage'], ['visual.text_box_count', 'text_box_count'],
+  ['visual.object_count', 'object_count'], ['visual.face_count', 'face_count'],
+  ['visual.main_subject.x', 'main_subject_x'], ['visual.main_subject.y', 'main_subject_y'],
+  ['visual.main_subject.width', 'main_subject_width'], ['visual.main_subject.height', 'main_subject_height'],
+  ['visual.negative_space.top', 'negative_space_top'], ['visual.negative_space.right', 'negative_space_right'],
+  ['visual.negative_space.bottom', 'negative_space_bottom'], ['visual.negative_space.left', 'negative_space_left'],
+  ['visual.action_type', 'action_type'], ['visual.motion_type', 'motion_type'],
+  ['visual.face_emotion', 'face_emotion'], ['visual.eye_contact', 'eye_contact'],
   ['composite.cinematic_moment', 'cinematic_moment'], ['composite.montage_mode', 'montage_mode'],
   ['composite.narrative_pressure', 'narrative_pressure'],
   ['structural.position_in_video', 'position_in_video'],
@@ -85,13 +101,16 @@ const SIGNAL_MAP: Array<[string, string]> = [
   ['audio.bpm', 'bpm'], ['audio.music_tatum', 'music_tatum'],
 ];
 
-function buildSignalSnapshot(gridSignals: Record<string, number | boolean | string>, globalSignals: Record<string, number | boolean | string>): Record<string, number | string> {
-  const snapshot: Record<string, number | string> = {};
+function buildSignalSnapshot(
+  gridSignals: Record<string, number | boolean | string>,
+  globalSignals: Record<string, number | boolean | string>,
+): Record<string, number | boolean | string> {
+  const snapshot: Record<string, number | boolean | string> = {};
   const merged = { ...globalSignals, ...gridSignals };
   for (const [registryKey, flatKey] of SIGNAL_MAP) {
     const val = merged[registryKey];
     if (val != null && val !== '') {
-      snapshot[flatKey] = typeof val === 'number' ? val : String(val);
+      snapshot[flatKey] = val;
     }
   }
   return snapshot;
@@ -123,6 +142,12 @@ export function overlayResultsToEditDecisions(
       for (const [k, v] of Object.entries(winner.outputValues)) {
         if (v != null) params[k] = typeof v === 'boolean' ? (v ? 1 : 0) : v;
       }
+      if (winner.placementAdjustment) {
+        (params as Record<string, unknown>).placementAdjustment = winner.placementAdjustment;
+        if (winner.placementAdjustment.candidateRegion && !params.position) {
+          params.position = winner.placementAdjustment.candidateRegion;
+        }
+      }
 
       if (edlType === 'graphic') {
         const graphicType = params.graphicType as string;
@@ -138,10 +163,10 @@ export function overlayResultsToEditDecisions(
 
       const gridSnap = timeline.gridSignals.get(gd.frame);
       if (gridSnap) {
-        params.signals = JSON.stringify(buildSignalSnapshot(
+        (params as Record<string, unknown>).signals = buildSignalSnapshot(
           gridSnap as Record<string, number | boolean | string>,
           timeline.globalSignals as Record<string, number | boolean | string>,
-        ));
+        );
       }
 
       decisions.push({

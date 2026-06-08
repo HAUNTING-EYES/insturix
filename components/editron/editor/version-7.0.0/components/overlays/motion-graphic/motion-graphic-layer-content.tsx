@@ -14,9 +14,12 @@ import type { MotionGraphicOverlay } from '../../../types';
 import { MotionThemeProvider } from '@/lib/editron/motion-graphics/context/MotionThemeContext';
 import { StatCounter } from '@/lib/editron/motion-graphics/structures/StatCounter';
 import { SafeCompositionRenderer } from '@/lib/editron/motion-graphics/engine/composition-renderer';
-import { planComposition } from '@/lib/editron/motion-graphics/engine/composition-planner';
+import { planComposition, type PlannerSignals } from '@/lib/editron/motion-graphics/engine/composition-planner';
+import { resolveMotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 import type { MotionTokens } from '@/lib/editron/motion-graphics/types';
 import type { Recipe } from '@/lib/editron/motion-graphics/engine/recipe-types';
+import type { AtomicOverlayPlan } from '@/lib/editron/motion-graphics/engine/atomic-overlay-plan';
+import type { AtomicOverlayDecision } from '@/lib/editron/motion-graphics/engine/atomic-overlay-decision';
 import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
 // Phase 0.1: load the MG default font families at module-eval (side-effect import). Without this,
 // the render path loaded ZERO fonts and every graphic fell back to Chromium default — corrupting
@@ -32,14 +35,18 @@ interface MotionGraphicLayerContentProps {
 export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps> = ({
   overlay,
 }) => {
-  const tokens = overlay.resolvedTokens as MotionTokens;
-  const content = (overlay.content || {}) as Record<string, string>;
-  const signals = overlay.contentSignals;
+  const signals = sanitizeSignals(overlay.contentSignals);
+  const tokens = isMotionTokens(overlay.resolvedTokens)
+    ? overlay.resolvedTokens as MotionTokens
+    : resolveMotionTokens(signals);
+  const content = sanitizeContent(overlay.content);
 
   // Composition engine path: recipe pre-computed at pipeline time.
   // Use it directly -- don't re-plan at render time.
   const preComputedRecipe = (overlay as Record<string, unknown>).recipe as Recipe | undefined;
   if (preComputedRecipe && preComputedRecipe.elements?.length > 0) {
+    const atomicPlan = (overlay as any).metadata?.atomicOverlayPlan as AtomicOverlayPlan | undefined;
+    const atomicDecision = (overlay as any).metadata?.atomicOverlayDecision as AtomicOverlayDecision | undefined;
     // Synthesize per-frame SignalCurves from scalar contentSignals snapshot.
     // This enables audio-reactive modulation (beat pulse, energy, emotion) at render time.
     // Scalar→constant array: each signal value is replicated for every frame of the composition.
@@ -54,6 +61,8 @@ export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps>
           content={content}
           durationInFrames={overlay.durationInFrames}
           signalCurves={signalCurves}
+          atomicPlan={atomicPlan}
+          atomicDecision={atomicDecision}
         />
       </MotionThemeProvider>
     );
@@ -78,7 +87,7 @@ interface StructureDispatchProps {
   content: Record<string, string>;
   durationInFrames: number;
   tokens: MotionTokens;
-  signals?: MotionGraphicOverlay['contentSignals'];
+  signals?: Record<string, number | string>;
 }
 
 const LEGACY_STAT_COUNTER = 'stat-counter-legacy';
@@ -129,6 +138,49 @@ function synthesizeSignalCurves(
   return curves;
 }
 
+function sanitizeSignals(signals: unknown): Record<string, number | string> | undefined {
+  if (!signals || typeof signals !== 'object') return undefined;
+  const safe: Record<string, number | string> = {};
+
+  for (const [key, value] of Object.entries(signals as Record<string, unknown>)) {
+    if (typeof value === 'number' && isFinite(value)) {
+      safe[key] = value;
+    } else if (typeof value === 'boolean') {
+      safe[key] = value ? 1 : 0;
+    } else if (typeof value === 'string' && value.trim()) {
+      safe[key] = value;
+    }
+  }
+
+  return Object.keys(safe).length > 0 ? safe : undefined;
+}
+
+function sanitizeContent(content: unknown): Record<string, string> {
+  if (!content || typeof content !== 'object' || Array.isArray(content)) return {};
+  const safe: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(content as Record<string, unknown>)) {
+    if (value == null) continue;
+    if (typeof value === 'string') {
+      safe[key] = value;
+    } else if (typeof value === 'number' || typeof value === 'boolean') {
+      safe[key] = String(value);
+    }
+  }
+
+  return safe;
+}
+
+function isMotionTokens(value: unknown): value is MotionTokens {
+  if (!value || typeof value !== 'object') return false;
+  const tokens = value as Partial<Record<keyof MotionTokens, unknown>>;
+  return !!tokens.animation
+    && !!tokens.typography
+    && !!tokens.color
+    && !!tokens.surface
+    && !!tokens.layout;
+}
+
 const StructureDispatch: React.FC<StructureDispatchProps> = ({
   structureType,
   content,
@@ -154,7 +206,7 @@ const StructureDispatch: React.FC<StructureDispatchProps> = ({
   const recipe = planComposition(
     { kind: undefined, content },
     tokens,
-    signals,
+    plannerSignalsFromSignals(signals),
   );
 
   return (
@@ -166,3 +218,14 @@ const StructureDispatch: React.FC<StructureDispatchProps> = ({
     />
   );
 };
+
+function plannerSignalsFromSignals(signals: Record<string, number | string> | undefined): Partial<PlannerSignals> | undefined {
+  if (!signals) return undefined;
+  const numericSignals: Record<string, number> = {};
+
+  for (const [key, value] of Object.entries(signals)) {
+    if (typeof value === 'number' && isFinite(value)) numericSignals[key] = value;
+  }
+
+  return Object.keys(numericSignals).length > 0 ? numericSignals : undefined;
+}

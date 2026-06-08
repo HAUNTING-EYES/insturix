@@ -7,6 +7,9 @@ import type {
   CompositionStrategy,
   HoldPattern,
   TextSplitMode,
+  EntrancePattern,
+  ContentStructureSignature,
+  ContentPartRole,
 } from './recipe-types';
 import { analyzeContentShape, isCountUpValue } from './content-shape-analyzer';
 import {
@@ -44,6 +47,29 @@ function emphasisRatio(scores: MgOverlayScores | undefined): number {
   return Math.max(1.05, mgVal(scores, 'mg.emphasis.scale_contrast', 'scaleContrast', 2.0));
 }
 
+function signalNum(signals: PlannerSignals, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = signals[key];
+    if (typeof value === 'number' && isFinite(value)) return value;
+  }
+  return 0;
+}
+
+function visualFormRisk(signals: PlannerSignals): number {
+  return clamp01(Math.max(
+    signalNum(signals, 'visual_complexity', 'visual.complexity'),
+    signalNum(signals, 'text_on_screen', 'visual.text_on_screen') * 0.95,
+    signalNum(signals, 'text_coverage', 'visual.text_coverage'),
+    signalNum(signals, 'motion_intensity', 'visual.motion_intensity') * 0.9,
+    signalNum(signals, 'visual_significance', 'visual.significance') * 0.7,
+  ));
+}
+
+function clamp01(value: number): number {
+  if (!isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
 const CRG = {
   STAT_MIN_FONT: 64,              // constant:typography.stat_counter_min_font → 64px
   LOWER_THIRD_MIN_FONT: 48,      // constant:typography.lower_third_name_min_font → 48px
@@ -64,7 +90,7 @@ export interface PlannerSignals {
   humor: number;
   visceral_impact: number;
   visual_dependency: number;
-  [key: string]: number;
+  [key: string]: number | string | undefined;
 }
 
 export const DEFAULT_SIGNALS: PlannerSignals = {
@@ -158,7 +184,7 @@ export function planComposition(
     || entranceWinner === 'mg.animation.entrance_zoom_blur';
   if (isKineticEntrance) {
     // ⚠️ threshold 0.7 INVENTED — chars for high energy, words for moderate
-    const splitMode: TextSplitMode = s.enthusiasm > 0.7 ? 'chars' : 'words';
+    const splitMode: TextSplitMode = visualFormRisk(s) >= 0.72 ? 'words' : s.enthusiasm > 0.7 ? 'chars' : 'words';
     for (const el of elements) {
       // Never split a gradient-filled element — per-char spans would each get their own
       // gradient and break the continuous fill across the word.
@@ -228,6 +254,7 @@ function composeElements(
   // now importance-driven and already factors in cinematic_moment. Single source of truth —
   // no separate cinematic boost here (that double-counted importance).
   const budget = strategy.complexityBudget;
+  const allowDecorativeVisuals = visualFormRisk(signals) < 0.72;
 
   const primary = strategy.shapes[0];
   if (!primary) {
@@ -235,42 +262,7 @@ function composeElements(
     return elements;
   }
 
-  switch (primary.kind) {
-    case 'numeric':
-      composeNumeric(elements, primary, language, signals, mgScores);
-      break;
-    case 'identity':
-      composeIdentity(elements, primary, language, signals, mgScores);
-      break;
-    case 'quotation':
-      composeQuotation(elements, primary, language, mgScores);
-      break;
-    case 'emphasis':
-      composeEmphasis(elements, primary, language, signals, mgScores);
-      break;
-    case 'brand':
-      composeBrand(elements, primary, language, signals, mgScores);
-      break;
-    case 'structured':
-      composeStructured(elements, primary, language, mgScores);
-      break;
-    case 'data-series':
-      composeDataSeries(elements, primary, language);
-      break;
-    case 'comparison':
-      composeComparison(elements, primary, language, mgScores);
-      break;
-    case 'free-text':
-    default: {
-      const template = getCompositionTemplate(primary.kind);
-      if (template) {
-        elements.push(...template.compose(strategy.shapes[0] as unknown as Record<string, unknown>, language, signals));
-      } else {
-        elements.push(makeTextElement('primary', 'content:text', language));
-      }
-      break;
-    }
-  }
+  composeFromStructure(elements, strategy, language, signals, mgScores);
 
   const holdPattern = resolveHoldPattern(signals, mgScores);
   if (holdPattern !== 'static') {
@@ -317,7 +309,7 @@ function composeElements(
   // ⚠️ budget >= 4 INVENTED — particles are decorative, same tier as brand patterns
   // ⚠️ score threshold 0.15 INVENTED — prevents low-confidence particle activation
   const particleWinner = mgWinner(mgScores, 'mg.particle.');
-  if (particleWinner && budget >= 4) {
+  if (particleWinner && budget >= 4 && allowDecorativeVisuals) {
     const pScore = mgVal(mgScores, particleWinner, 'particleScore', 0);
     if (pScore >= 0.15) {
       const preset = particleWinner.split('.').pop() || 'confetti';
@@ -342,7 +334,7 @@ function composeElements(
   // ⚠️ budget >= 5 INVENTED — masks are visually dominant, only on highest-complexity compositions
   // ⚠️ score threshold 0.5 INVENTED — masks should be rare accents, not on every graphic
   const maskWinner = mgWinner(mgScores, 'mg.mask.');
-  if (maskWinner && budget >= 5 && primary.kind !== 'emphasis') {
+  if (maskWinner && budget >= 5 && primary.kind !== 'emphasis' && allowDecorativeVisuals) {
     const mScore = mgVal(mgScores, maskWinner, 'maskScore', 0);
     if (mScore >= 0.5) {
       const isCircle = maskWinner.includes('circle');
@@ -360,6 +352,67 @@ function composeElements(
   }
 
   return elements;
+}
+
+function composeFromStructure(
+  elements: RecipeElement[],
+  strategy: CompositionStrategy,
+  language: MotionTokens,
+  signals: PlannerSignals,
+  mgScores?: MgOverlayScores,
+): void {
+  const shape = <K extends ContentShape['kind']>(kind: K): Extract<ContentShape, { kind: K }> | undefined => (
+    strategy.shapes.find((candidate): candidate is Extract<ContentShape, { kind: K }> => candidate.kind === kind)
+  );
+
+  if (hasRelation(strategy.structure, 'compares')) {
+    const comparison = shape('comparison');
+    if (comparison) return composeComparison(elements, comparison, language, mgScores);
+  }
+  if (hasPart(strategy.structure, 'series-values')) {
+    const series = shape('data-series');
+    if (series) return composeDataSeries(elements, series, language);
+  }
+  if (hasPart(strategy.structure, 'primary-value')) {
+    const numeric = shape('numeric');
+    if (numeric) return composeNumeric(elements, numeric, language, signals, mgScores);
+  }
+  if (hasPart(strategy.structure, 'name')) {
+    const identity = shape('identity');
+    if (identity) return composeIdentity(elements, identity, language, signals, mgScores);
+  }
+  if (hasPart(strategy.structure, 'quote')) {
+    const quotation = shape('quotation');
+    if (quotation) return composeQuotation(elements, quotation, language, mgScores);
+  }
+  if (hasPart(strategy.structure, 'brand-text') || hasPart(strategy.structure, 'logo')) {
+    const brand = shape('brand');
+    if (brand) return composeBrand(elements, brand, language, signals, mgScores);
+  }
+  if (hasPart(strategy.structure, 'title') && hasPart(strategy.structure, 'body')) {
+    const structured = shape('structured');
+    if (structured) return composeStructured(elements, structured, language, mgScores);
+  }
+  if (hasPart(strategy.structure, 'emphasis-text')) {
+    const emphasis = shape('emphasis');
+    if (emphasis) return composeEmphasis(elements, emphasis, language, signals, mgScores);
+  }
+
+  const fallback = shape('free-text') ?? strategy.shapes[0];
+  const template = fallback ? getCompositionTemplate(fallback.kind) : undefined;
+  if (template && fallback) {
+    elements.push(...template.compose(fallback as unknown as Record<string, unknown>, language, signals));
+  } else {
+    elements.push(makeTextElement('primary', 'content:text', language));
+  }
+}
+
+function hasPart(structure: ContentStructureSignature, role: ContentPartRole): boolean {
+  return structure.parts.some((part) => part.role === role);
+}
+
+function hasRelation(structure: ContentStructureSignature, type: ContentStructureSignature['relations'][number]['type']): boolean {
+  return structure.relations.some((relation) => relation.type === type);
 }
 
 function composeNumeric(
@@ -509,7 +562,7 @@ function composeIdentity(
   if (shape.avatar) {
     elements.push({
       primitive: 'image',
-      role: 'icon',
+      role: 'avatar',
       layer: 'foreground',
       bind: { src: 'content:avatar', width: 64, height: 64, radius: 999 },
     });
@@ -664,7 +717,7 @@ function composeBrand(
   if (shape.logo) {
     elements.push({
       primitive: 'image',
-      role: 'icon',
+      role: 'logo',
       layer: 'foreground',
       bind: { src: 'content:logo', height: 40 },
     });
@@ -755,9 +808,7 @@ function composeDataSeries(
   // ⚠️ sparkline threshold (>= 5 values) INVENTED — needs calibration.
   // Rendered by DataVizElement as animated SVG (the data-viz primitive); colors/font
   // bind to brand tokens; the structural-move vocabulary wraps it (backdrop, kicker…).
-  let role = 'bar-chart';
-  if (values.length === 1 && values[0] >= 0 && values[0] <= 100) role = 'percentage-ring';
-  else if (values.length >= 5) role = 'sparkline';
+  const role = shape.visualForm;
 
   elements.push({
     primitive: 'data-viz',

@@ -1,12 +1,12 @@
 /**
  * SFX Library Service
  *
- * Searches royalty-free sound effects from external libraries.
- * Tier 2 approach: deterministic SFX from curated libraries instead of
- * AI generation (which is slow/unreliable via beatoven/mirelo).
+ * Searches provider sound-effect APIs and materializes only the selected asset.
+ * Tier 2 approach: deterministic SFX from vetted libraries instead of AI generation
+ * when possible.
  *
- * Primary: Pixabay SFX API (zero licensing, commercial use, no attribution)
- * Fallback: Freesound API (filter CC0 only)
+ * Primary provider: Freesound API (filter CC0 only)
+ * Storage: uploadMedia, which is R2-first when Cloudflare is configured.
  *
  * Usage:
  *   const sfx = await searchSFXLibrary("whoosh futuristic");
@@ -14,6 +14,11 @@
  */
 
 import { uploadMedia } from '@/lib/editron/services/upload-service';
+import {
+  evaluateAtomicSfxAssetCandidate,
+  type AtomicSfxCandidateEvaluation,
+  type AtomicSfxForm,
+} from '@/lib/editron/services/sfx-form';
 import { nanoid } from 'nanoid';
 
 export interface SFXLibraryResult {
@@ -25,58 +30,35 @@ export interface SFXLibraryResult {
   originalTitle?: string;
 }
 
-// ─── Pixabay SFX API ─────────────────────────────────────────────
-// Docs: https://pixabay.com/api/docs/#api_search_music
-// All sounds are Pixabay License — free for commercial use, no attribution.
-
-async function searchPixabay(
-  query: string,
-  maxDuration?: number,
-): Promise<{ url: string; title: string; duration: number } | null> {
-  const apiKey = process.env.PIXABAY_API_KEY;
-  if (!apiKey) {
-    console.warn('[SFXLib] PIXABAY_API_KEY not set');
-    return null;
-  }
-
-  try {
-    // Pixabay audio search endpoint
-    // Docs: https://pixabay.com/api/docs/ — use media_type=audio for sounds
-    const params = new URLSearchParams({
-      key: apiKey,
-      q: query,
-      per_page: '5',
-      safesearch: 'true',
-    });
-
-    const res = await fetch(`https://pixabay.com/api/?${params}`);
-    if (!res.ok) {
-      console.warn(`[SFXLib] Pixabay search failed: ${res.status} ${res.statusText}`);
-      return null;
-    }
-
-    {
-      const audioData = await res.json();
-      const hits = audioData.hits || [];
-      if (hits.length === 0) return null;
-
-      // Pick the best match (shortest that fits the duration)
-      const sorted = maxDuration
-        ? hits.filter((h: any) => h.duration <= maxDuration + 5).sort((a: any, b: any) => b.downloads - a.downloads)
-        : hits.sort((a: any, b: any) => b.downloads - a.downloads);
-
-      const best = sorted[0] || hits[0];
-      return {
-        url: best.previewURL || best.webformatURL || best.largeImageURL,
-        title: best.tags || query,
-        duration: best.duration || 5,
-      };
-    }
-  } catch (err: any) {
-    console.error(`[SFXLib] Pixabay error: ${err.message}`);
-    return null;
-  }
+interface SFXProviderCandidate {
+  id?: string;
+  url: string;
+  title: string;
+  duration: number;
+  source: Exclude<SFXLibraryResult['source'], 'local'>;
+  tags: string[];
+  rating?: number;
 }
+
+interface SFXSearchProvider {
+  source: SFXProviderCandidate['source'];
+  search(query: string, maxDuration?: number): Promise<SFXProviderCandidate[]>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+const SFX_SEARCH_PROVIDERS: SFXSearchProvider[] = [
+  {
+    source: 'freesound',
+    search: searchFreesound,
+  },
+];
 
 // ─── Freesound API ───────────────────────────────────────────────
 // Docs: https://freesound.org/docs/api/
@@ -85,20 +67,20 @@ async function searchPixabay(
 async function searchFreesound(
   query: string,
   maxDuration?: number,
-): Promise<{ url: string; title: string; duration: number } | null> {
+): Promise<SFXProviderCandidate[]> {
   const apiKey = process.env.FREESOUND_API_KEY;
   if (!apiKey) {
     console.error('[SFXLib] FREESOUND_API_KEY not set — SFX search unavailable. Set this env var on Vercel to enable sound effects. Free key: https://freesound.org/apiv2/apply/');
-    return null;
+    return [];
   }
 
   try {
     const params = new URLSearchParams({
       query,
       token: apiKey,
-      fields: 'id,name,duration,previews,license',
+      fields: 'id,name,duration,previews,license,tags,avg_rating',
       filter: 'license:"Creative Commons 0"', // CC0 only
-      page_size: '5',
+      page_size: '8',
       sort: 'rating_desc',
     });
 
@@ -109,68 +91,76 @@ async function searchFreesound(
     const res = await fetch(`https://freesound.org/apiv2/search/text/?${params}`);
     if (!res.ok) {
       console.warn(`[SFXLib] Freesound search failed: ${res.status}`);
-      return null;
+      return [];
     }
 
-    const data = await res.json();
-    const results = data.results || [];
-    if (results.length === 0) return null;
-
-    const best = results[0];
-    const previewUrl = best.previews?.['preview-hq-mp3'] || best.previews?.['preview-lq-mp3'];
-    if (!previewUrl) return null;
-
-    return {
-      url: previewUrl,
-      title: best.name || query,
-      duration: Math.round(best.duration || 5),
-    };
-  } catch (err: any) {
-    console.error(`[SFXLib] Freesound error: ${err.message}`);
-    return null;
+    const data = await res.json() as { results?: unknown };
+    const results = Array.isArray(data.results) ? data.results : [];
+    return results
+      .map((item): SFXProviderCandidate | null => {
+        if (!isRecord(item)) return null;
+        const previews = isRecord(item.previews) ? item.previews : {};
+        const previewUrl = stringValue(previews['preview-hq-mp3']) || stringValue(previews['preview-lq-mp3']);
+        if (!previewUrl) return null;
+        return {
+          id: item.id !== undefined ? String(item.id) : undefined,
+          url: previewUrl,
+          title: stringValue(item.name) || query,
+          duration: Math.max(0.1, Number(item.duration) || 5),
+          source: 'freesound',
+          tags: Array.isArray(item.tags) ? item.tags.filter((tag: unknown): tag is string => typeof tag === 'string') : [],
+          rating: typeof item.avg_rating === 'number' ? item.avg_rating : undefined,
+        };
+      })
+      .filter((candidate): candidate is SFXProviderCandidate => Boolean(candidate));
+  } catch (err: unknown) {
+    console.error(`[SFXLib] Freesound error: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
   }
 }
 
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
- * Search for a sound effect from library sources.
- * Tries Pixabay first (zero licensing), then Freesound (CC0 only).
+ * Search for a sound effect from provider APIs.
+ * Atomic forms score provider candidates before any download/upload happens.
  *
  * @param query - Search keywords (e.g., "whoosh futuristic", "city ambient", "UI click")
- * @param userId - For GCS upload
+ * @param userId - For upload scoping
  * @param maxDurationSec - Maximum clip duration in seconds
- * @returns SFX result with GCS URL, or null if nothing found
+ * @param atomicForm - Optional atomic SFX form used as the quality gate
+ * @returns SFX result with playable CDN URL, or null if nothing acceptable was found
  */
 export async function searchAndDownloadSFX(
   query: string,
   userId: string,
   maxDurationSec?: number,
+  atomicForm?: AtomicSfxForm,
 ): Promise<SFXLibraryResult | null> {
-  console.log(`[SFXLib] Searching: "${query}" (maxDuration=${maxDurationSec || 'any'}s)`);
+  console.log(`[SFXLib] Searching providers: "${query}" (maxDuration=${maxDurationSec || 'any'}s)`);
 
-  // Try Freesound first (actual audio search API).
-  // Pixabay's general API returns images, not audio — their music API needs special access.
-  let found = await searchFreesound(query, maxDurationSec);
-  let source: 'pixabay' | 'freesound' = 'freesound';
+  const candidates = await searchProviderCandidates(query, maxDurationSec);
 
   // NOTE: Pixabay fallback REMOVED — their general API (/api/) returns images, not audio.
   // The image URLs (previewURL, webformatURL) were being downloaded as "audio" files,
   // resulting in JPEG data stored with audio/mpeg content type. These never play.
   // Pixabay's actual audio API (/api/music/) requires special access we don't have.
 
-  if (!found || !found.url) {
-    console.warn(`[SFXLib] No results for "${query}"`);
+  const selected = selectProviderCandidate(query, candidates, maxDurationSec, atomicForm);
+  if (!selected) {
+    console.warn(`[SFXLib] No acceptable provider candidates for "${query}"`);
     return null;
   }
 
-  console.log(`[SFXLib] Found on ${source}: "${found.title}" (${found.duration}s)`);
+  const { candidate, quality } = selected;
+  console.log(`[SFXLib] Selected ${candidate.source}: "${candidate.title}" (${candidate.duration}s, score=${selected.score.toFixed(2)})`);
 
-  // Download and upload to GCS
+  // Download and upload through the existing media service. That service is R2-first
+  // when Cloudflare credentials are configured, with GCS as fallback.
   try {
-    const response = await fetch(found.url);
+    const response = await fetch(candidate.url);
     if (!response.ok) {
-      console.error(`[SFXLib] Failed to download from ${source}: ${response.status}`);
+      console.error(`[SFXLib] Failed to download from ${candidate.source}: ${response.status}`);
       return null;
     }
 
@@ -191,7 +181,7 @@ export async function searchAndDownloadSFX(
     }
 
     const assetId = `sfx_lib_${nanoid(8)}`;
-    const ext = found.url.includes('.wav') ? 'wav' : 'mp3';
+    const ext = candidate.url.includes('.wav') ? 'wav' : 'mp3';
     const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`, { customAssetId: assetId });
 
     // Persist to media_assets so asset-resolver can find it later.
@@ -208,12 +198,21 @@ export async function searchAndDownloadSFX(
             userId,
             type: 'audio',
             filename: `${assetId}.${ext}`,
-            source: `freesound-${source}`,
+            source: `sfx-provider-${candidate.source}`,
             cachedUrl: uploadResult.signedUrl,
             gcsPath: uploadResult.gcsPath,
             r2Key: uploadResult.r2Key,
-            duration: found.duration,
+            duration: candidate.duration,
             size: buffer.length,
+            originalTitle: candidate.title,
+            sfxQuery: query,
+            sfxProviderId: candidate.id,
+            sfxLibrarySource: candidate.source,
+            tags: normalizedSfxQueryTerms(`${query} ${candidate.title} ${candidate.tags.join(' ')}`),
+            providerCandidateAccepted: true,
+            assetQualityScore: quality?.score,
+            assetQualityFloor: quality?.qualityFloor,
+            assetQualityReasons: quality?.reasons,
             uploadedAt: new Date(),
           },
         },
@@ -226,16 +225,136 @@ export async function searchAndDownloadSFX(
 
     return {
       audioUrl: uploadResult.signedUrl,
-      gcsPath: uploadResult.gcsPath!,
+      gcsPath: uploadResult.gcsPath ?? '',
       audioAssetId: uploadResult.assetId,
-      durationMs: found.duration * 1000,
-      source,
-      originalTitle: found.title,
+      durationMs: Math.round(candidate.duration * 1000),
+      source: candidate.source,
+      originalTitle: candidate.title,
     };
   } catch (err: any) {
     console.error(`[SFXLib] Download/upload failed: ${err.message}`);
     return null;
   }
+}
+
+function selectProviderCandidate(
+  query: string,
+  candidates: SFXProviderCandidate[],
+  maxDurationSec?: number,
+  atomicForm?: AtomicSfxForm,
+): { candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation } | null {
+  if (candidates.length === 0) return null;
+
+  const ranked = candidates
+    .map((candidate) => {
+      if (atomicForm) {
+        const quality = evaluateAtomicSfxAssetCandidate(atomicForm, {
+          source: candidate.source,
+          originalTitle: candidate.title,
+          durationMs: Math.round(candidate.duration * 1000),
+          tags: candidate.tags,
+          providerId: candidate.id,
+          rating: candidate.rating,
+        });
+        return {
+          candidate,
+          quality,
+          score: quality.accepted ? quality.score + providerRatingScore(candidate) * 0.04 : -1,
+        };
+      }
+
+      return {
+        candidate,
+        score: scoreProviderCandidateByQuery(query, candidate, maxDurationSec),
+        quality: undefined,
+      };
+    })
+    .filter((item) => item.score >= (atomicForm ? 0 : 0.52))
+    .sort((a, b) =>
+      b.score - a.score
+      || providerRatingScore(b.candidate) - providerRatingScore(a.candidate)
+      || a.candidate.duration - b.candidate.duration
+      || a.candidate.title.localeCompare(b.candidate.title),
+    );
+
+  return ranked[0] ?? null;
+}
+
+async function searchProviderCandidates(
+  query: string,
+  maxDurationSec?: number,
+): Promise<SFXProviderCandidate[]> {
+  const providerResults = await Promise.all(
+    SFX_SEARCH_PROVIDERS.map(async (provider) => {
+      try {
+        return await provider.search(query, maxDurationSec);
+      } catch (err: unknown) {
+        console.warn(`[SFXLib] ${provider.source} provider failed: ${err instanceof Error ? err.message : String(err)}`);
+        return [];
+      }
+    }),
+  );
+  return providerResults.flat();
+}
+
+function scoreProviderCandidateByQuery(
+  query: string,
+  candidate: SFXProviderCandidate,
+  maxDurationSec?: number,
+): number {
+  const text = candidateSearchText(candidate);
+  const terms = normalizedSfxQueryTerms(query);
+  const matchedTerms = terms.filter((term) => termMatchesText(term, text));
+  const durationOk = !maxDurationSec || candidate.duration <= maxDurationSec + 1;
+  const badAudioRole = /\b(voiceover|narration|bgm|music|song|vocal|meme|distorted|clipping|noisy)\b/.test(text);
+
+  let score = 0;
+  if (candidate.url) score += 0.18;
+  if (durationOk) score += 0.18;
+  if (matchedTerms.length > 0) score += 0.36;
+  score += Math.min(0.18, Math.max(0, matchedTerms.length - 1) * 0.06);
+  score += providerRatingScore(candidate) * 0.08;
+  if (badAudioRole) score -= 0.42;
+  if (!durationOk) score -= 0.36;
+
+  return score;
+}
+
+function providerRatingScore(candidate: SFXProviderCandidate): number {
+  if (typeof candidate.rating !== 'number' || !Number.isFinite(candidate.rating)) return 0;
+  return Math.max(0, Math.min(1, candidate.rating / 5));
+}
+
+function candidateSearchText(candidate: SFXProviderCandidate): string {
+  return [
+    candidate.id,
+    candidate.title,
+    candidate.source,
+    candidate.tags.join(' '),
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+}
+
+function normalizedSfxQueryTerms(query: string): string[] {
+  const terms = new Set<string>();
+  const normalized = (query || '').toLowerCase().replace(/[^\w\s-]/g, ' ');
+  for (const word of normalized.split(/\s+/)) {
+    const term = word.trim();
+    if (term.length >= 3 && !SFX_STOP_WORDS.has(term)) terms.add(term);
+    if (terms.size >= 6) break;
+  }
+  return [...terms];
+}
+
+function termMatchesText(term: string, text: string): boolean {
+  if (!term || !text) return false;
+  return new RegExp(`\\b${escapeRegExp(term.toLowerCase())}`).test(text);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**

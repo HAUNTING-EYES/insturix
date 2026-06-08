@@ -7,6 +7,7 @@
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { assetResolver } from './asset-resolver';
 import type { Overlay, AspectRatio } from '@/components/editron/editor/version-7.0.0/types';
+import { ensureAtomicOverlayReceipt, withAtomicOverlayUpdateReceipt } from '../engine/overlay-atomic-receipts';
 import { nanoid } from 'nanoid';
 import { orgMemberService } from '@/lib/services/orgMemberService';
 import { removeProjectFromLinks } from '@/lib/shared/project-links';
@@ -272,7 +273,10 @@ export class ProjectService {
     // Merge: browser overlays + any worker-added overlays not already in browser set
     const browserOverlayIds = new Set(cleanOverlays.map((o: any) => o.id));
     const missingWorkerOverlays = workerOverlays.filter((o: any) => !browserOverlayIds.has(o.id));
-    const mergedOverlays = [...cleanOverlays, ...missingWorkerOverlays];
+    const mergedOverlays = stampPersistedOverlays(
+      [...cleanOverlays, ...missingWorkerOverlays],
+      'project-service-save',
+    );
 
     if (missingWorkerOverlays.length > 0) {
       console.log(`[saveProject] Preserved ${missingWorkerOverlays.length} worker-added overlays (BGM/SFX/captions)`);
@@ -419,7 +423,10 @@ export class ProjectService {
     const workerOverlays = (currentProject?.overlays || []).filter((o: any) => o._workerAdded === true);
     const browserOverlayIds = new Set(cleanOverlays.map((o: any) => o.id));
     const missingWorkerOverlays = workerOverlays.filter((o: any) => !browserOverlayIds.has(o.id));
-    const mergedOverlays = [...cleanOverlays, ...missingWorkerOverlays];
+    const mergedOverlays = stampPersistedOverlays(
+      [...cleanOverlays, ...missingWorkerOverlays],
+      'project-service-autosave',
+    );
 
     // Update existing project only (no upsert for autosave)
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
@@ -605,10 +612,15 @@ export class ProjectService {
    */
   async addOverlay(userId: string, projectId: string, overlay: Overlay): Promise<void> {
     const db = await getDatabase();
+    const overlayWithReceipt = ensureAtomicOverlayReceipt(overlay, {
+      source: 'project-service-add-overlay',
+      intent: `persist-${overlay.type}`,
+      reason: 'overlay persisted through ProjectService.addOverlay',
+    });
     await db.collection(COLLECTIONS.PROJECTS).updateOne(
       { projectId, userId },
       { 
-        $push: { overlays: overlay } as any,
+        $push: { overlays: overlayWithReceipt } as any,
         $set: { updatedAt: new Date() }
       }
     );
@@ -619,39 +631,36 @@ export class ProjectService {
    */
   async updateOverlay(userId: string, projectId: string, overlayId: number, updates: Partial<Overlay>): Promise<void> {
     const db = await getDatabase();
-    
-    // Construct dot notation for nested updates to avoid overwriting entire objects
-    const setOperations: Record<string, any> = { updatedAt: new Date() };
-    
-    for (const [key, value] of Object.entries(updates)) {
-      if (key === 'styles' && typeof value === 'object') {
-        // For styles, we might want to merge, but for now let's replace or use dot notation if needed.
-        // To keep it simple and robust, we'll replace the styles object if provided, 
-        // or we could flatten it. Given the tool sends "styles" as a partial, 
-        // we should probably merge it. But MongoDB $set on "overlays.$[elem].styles" replaces it.
-        // To merge, we'd need "overlays.$[elem].styles.color": value.color
-        // Let's assume for now we replace the styles object or the tool sends the full merged styles?
-        // Actually, the tool sends partial styles. 
-        // If we want to merge, we need to read-modify-write OR use dot notation for every style prop.
-        // Let's use dot notation for top-level properties.
-        setOperations[`overlays.$[elem].${key}`] = value;
-      } else {
-        setOperations[`overlays.$[elem].${key}`] = value;
-      }
+
+    const project = await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId, userId },
+      { projection: { overlays: 1 } },
+    ) as unknown as Pick<Project, 'overlays'> | null;
+    const currentOverlay = project?.overlays?.find((overlay) => overlay.id === overlayId);
+
+    if (!currentOverlay) {
+      console.warn(`[ProjectService] updateOverlay skipped: overlay ${overlayId} not found in ${projectId}`);
+      return;
     }
 
-    // Special handling for styles merging if needed:
-    // If 'styles' is present, we might want to use dot notation for its children to avoid wiping other styles.
-    if (updates.styles) {
-       for (const [styleKey, styleValue] of Object.entries(updates.styles)) {
-         setOperations[`overlays.$[elem].styles.${styleKey}`] = styleValue;
-       }
-       delete setOperations[`overlays.$[elem].styles`]; // Remove the full object replacement
-    }
+    const updatedOverlay = withAtomicOverlayUpdateReceipt(
+      currentOverlay,
+      updates,
+      {
+        source: 'project-service-update-overlay',
+        intent: `update-${currentOverlay.type}`,
+        reason: 'overlay mutated through ProjectService.updateOverlay',
+      },
+    );
 
     await db.collection(COLLECTIONS.PROJECTS).updateOne(
       { projectId, userId },
-      { $set: setOperations },
+      {
+        $set: {
+          "overlays.$[elem]": updatedOverlay,
+          updatedAt: new Date(),
+        },
+      },
       { arrayFilters: [{ "elem.id": overlayId }] }
     );
   }
@@ -685,6 +694,16 @@ export class ProjectService {
       }
     );
   }
+}
+
+function stampPersistedOverlays(overlays: Overlay[], source: string): Overlay[] {
+  return overlays.map((overlay) =>
+    ensureAtomicOverlayReceipt(overlay, {
+      source,
+      intent: `persist-${overlay.type}`,
+      reason: 'overlay persisted in project state',
+    }),
+  );
 }
 
 // Singleton instance

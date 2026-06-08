@@ -1,0 +1,281 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  buildOverlayAtomicReceipt,
+  overlayAtom,
+  type AtomicOverlayAtom,
+  type AtomicOverlayFamily,
+  type AtomicOverlayReceipt,
+} from '../../lib/editron/engine/atomic-overlay-core';
+import {
+  scoreRenderedFrameAesthetic,
+  type RenderedOverlayEvidence,
+} from '../../lib/editron/motion-graphics/engine/eval/rendered-aesthetic';
+
+const FRAME = {
+  width: 1080,
+  height: 1920,
+  fps: 30,
+};
+
+describe('rendered frame aesthetic scoring', () => {
+  it('passes a readable caption with clean rendered evidence', () => {
+    const receipt = captionReceipt({
+      words: ['one', 'clear', 'idea', 'wins'],
+      maxWordsPerLine: 2,
+      durationFrames: 66,
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 10.5, alphaMean: 1 },
+      overlays: [{
+        id: 'caption-clean',
+        receipt,
+        box: {
+          x: 220,
+          y: 1380,
+          width: 640,
+          height: 180,
+          opacity: 1,
+          visiblePixelRatio: 0.08,
+          contrastRatio: 5.8,
+          textPixelHeight: 68,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('pass');
+    expect(result.score).toBeGreaterThanOrEqual(0.9);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  it('fails blank or missing rendered output before trusting overlay metadata', () => {
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 0.2, alphaMean: 1 },
+      overlays: [],
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.render.status).toMatchObject({ ok: false, reason: 'blank' });
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dimension: 'render', severity: 'fail' }),
+    ]));
+  });
+
+  it('fails overlays that are clipped by the actual frame', () => {
+    const receipt = textReceipt('Framework not motivation', 'top-left', {
+      x: -18,
+      y: 260,
+      width: 560,
+      height: 120,
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 12, alphaMean: 1 },
+      overlays: [{
+        id: 'clipped-text',
+        receipt,
+        box: {
+          x: -18,
+          y: 260,
+          width: 560,
+          height: 120,
+          opacity: 1,
+          visiblePixelRatio: 0.04,
+          contrastRatio: 6,
+          textPixelHeight: 54,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'safe-area',
+        severity: 'fail',
+        message: expect.stringContaining('clipped'),
+      }),
+    ]));
+  });
+
+  it('fails rendered overlays covering protected V-JEPA subject regions', () => {
+    const receipt = buildOverlayAtomicReceipt({
+      family: 'motion-graphic',
+      intent: 'keyword-emphasis',
+      frame: 42,
+      durationFrames: 30,
+      signals: {
+        face_present: true,
+        visual_eye_contact: true,
+        visual_complexity: 0.62,
+        main_subject_x: 0.5,
+        main_subject_y: 0.42,
+        main_subject_width: 0.34,
+        main_subject_height: 0.48,
+      },
+      atoms: [
+        overlayAtom('text-content', 'content.text', 'ONE THING', 1, 'transcript'),
+        overlayAtom('font-size', 'text.font_size', '76', 1, 'decision-param'),
+        overlayAtom('text-color', 'text.color', '#ffffff', 1, 'decision-param'),
+      ],
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 11, alphaMean: 1 },
+      overlays: [{
+        id: 'subject-covered',
+        receipt,
+        box: {
+          x: 360,
+          y: 600,
+          width: 360,
+          height: 360,
+          opacity: 1,
+          visiblePixelRatio: 0.08,
+          contrastRatio: 5,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dimension: 'occlusion', severity: 'fail' }),
+    ]));
+  });
+
+  it('fails dense one-row captions with low local contrast', () => {
+    const receipt = captionReceipt({
+      words: ['this', 'is', 'the', 'one', 'thing', 'that', 'changed', 'everything', 'forever'],
+      maxWordsPerLine: 9,
+      durationFrames: 42,
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 13, alphaMean: 1 },
+      overlays: [{
+        id: 'dense-caption',
+        receipt,
+        box: {
+          x: 180,
+          y: 1360,
+          width: 720,
+          height: 190,
+          opacity: 1,
+          visiblePixelRatio: 0.1,
+          contrastRatio: 1.7,
+          textPixelHeight: 64,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dimension: 'text', severity: 'fail' }),
+      expect.objectContaining({ dimension: 'contrast', severity: 'fail' }),
+    ]));
+  });
+
+  it('fails overlapping and cluttered rendered overlay combinations', () => {
+    const overlays = [
+      visualOverlay('shape-a', 'shape', { x: 200, y: 500, width: 300, height: 220 }),
+      visualOverlay('shape-b', 'shape', { x: 260, y: 540, width: 300, height: 220 }),
+      visualOverlay('sticker-a', 'sticker', { x: 700, y: 360, width: 180, height: 180 }),
+      visualOverlay('image-a', 'image', { x: 140, y: 1180, width: 190, height: 190 }),
+      visualOverlay('mg-a', 'motion-graphic', { x: 650, y: 1260, width: 260, height: 160 }),
+    ];
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 15, alphaMean: 1 },
+      overlays,
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dimension: 'overlap', severity: 'fail' }),
+      expect.objectContaining({ dimension: 'clutter', severity: 'fail' }),
+    ]));
+  });
+});
+
+function captionReceipt(input: {
+  words: string[];
+  maxWordsPerLine: number;
+  durationFrames?: number;
+}): AtomicOverlayReceipt {
+  const atoms: AtomicOverlayAtom[] = [
+    overlayAtom('caption-mode', 'caption.mode', 'phrase', 1, 'decision-param'),
+    overlayAtom('caption-words-per-group', 'caption.words_per_group', input.words.length, 1, 'decision-param'),
+    overlayAtom('caption-max-words-per-line', 'caption.max_words_per_line', input.maxWordsPerLine, 1, 'decision-param'),
+    overlayAtom('text-row-strategy', 'text.row_strategy', 'timed-fill', 1, 'decision-param'),
+    overlayAtom('text-row-capacity', 'text.row_capacity', input.maxWordsPerLine, 1, 'decision-param'),
+    overlayAtom('text-wrap-unit', 'text.wrap_unit', 'word', 1, 'decision-param'),
+    overlayAtom('font-family', 'text.font_family', 'Inter', 1, 'decision-param'),
+    overlayAtom('font-size', 'text.font_size', '68', 1, 'decision-param'),
+    overlayAtom('text-color', 'text.color', '#ffffff', 1, 'decision-param'),
+    overlayAtom('text-contrast-mode', 'text.contrast_mode', 'light-on-dark', 1, 'decision-param'),
+  ];
+
+  input.words.forEach((word, index) => {
+    atoms.push(overlayAtom('caption-word', `caption.word.${index}`, word, 1, 'transcript'));
+    atoms.push(overlayAtom('glyph-line-index', `caption.word.${index}.line_index`, Math.floor(index / input.maxWordsPerLine), 1, 'decision-param'));
+  });
+
+  return buildOverlayAtomicReceipt({
+    family: 'caption',
+    intent: 'keyword-caption',
+    frame: 24,
+    durationFrames: input.durationFrames ?? 54,
+    signals: { negative_space_bottom: 0.7 },
+    atoms,
+  });
+}
+
+function textReceipt(
+  text: string,
+  region: string,
+  target: Record<string, number>,
+): AtomicOverlayReceipt {
+  return buildOverlayAtomicReceipt({
+    family: 'text',
+    intent: 'supporting-text',
+    frame: 60,
+    durationFrames: 72,
+    signals: { screen_region: region },
+    target,
+    atoms: [
+      overlayAtom('text-content', 'content.text', text, 1, 'transcript'),
+      overlayAtom('font-family', 'text.font_family', 'Inter', 1, 'decision-param'),
+      overlayAtom('font-size', 'text.font_size', '54', 1, 'decision-param'),
+      overlayAtom('text-color', 'text.color', '#ffffff', 1, 'decision-param'),
+      overlayAtom('text-contrast-mode', 'text.contrast_mode', 'light-on-dark', 1, 'decision-param'),
+    ],
+  });
+}
+
+function visualOverlay(
+  id: string,
+  family: AtomicOverlayFamily,
+  box: { x: number; y: number; width: number; height: number },
+): RenderedOverlayEvidence {
+  return {
+    id,
+    receipt: buildOverlayAtomicReceipt({
+      family,
+      intent: 'visual-accent',
+      frame: 80,
+      durationFrames: 24,
+      target: box,
+    }),
+    box: {
+      ...box,
+      opacity: 1,
+      visiblePixelRatio: 0.03,
+    },
+  };
+}

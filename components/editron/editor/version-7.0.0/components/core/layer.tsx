@@ -43,6 +43,7 @@ export const Layer: React.FC<{
     let scale = 1;
     let opacity = (overlay as any).styles?.opacity ?? 1;
     let rotation = overlay.rotation || 0;
+    const transformOrigin = (overlay as any).styles?.transformOrigin || "center center";
 
     if (hasKeyframes) {
       const localFrame = globalFrame - overlay.from;
@@ -64,7 +65,7 @@ export const Layer: React.FC<{
       width: overlay.width,
       height: overlay.height,
       transform: `rotate(${rotation}deg)${scaleTransform}`,
-      transformOrigin: "center center",
+      transformOrigin,
       zIndex,
       opacity,
       pointerEvents: isSelected ? "all" : "none",
