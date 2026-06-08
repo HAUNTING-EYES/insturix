@@ -61,7 +61,7 @@ export interface BriefDecision {
   targetBeatIdx?: number;
   confidence: number;
   reason: DecisionReason;
-  params: Record<string, number | string>;
+  params: Record<string, unknown>;
 }
 
 export type NarrativeSectionLabel =
@@ -342,6 +342,25 @@ Use ONLY these exact reason strings: ${validReasonsBlock}
 </anti_patterns>
 
 <graphic_rules>
+The type is only a timing/budget category, not a visual preset. For every graphic decision, put the real meaning in params.semanticAtoms so the atomic MG resolver can choose form from structure + signals.
+
+semanticAtoms schema (include only facts supported by transcript/video evidence):
+{
+  "concept": "core idea or term",
+  "claim": "short factual claim in speaker words",
+  "evidencePhrase": "nearby transcript phrase proving this graphic",
+  "keyword": "exact term to emphasize when useful",
+  "relation": { "from": "before/source/group A", "to": "after/result/group B", "relation": "vs|arrow" },
+  "values": [numbers only],
+  "labels": ["labels for values"],
+  "items": ["list/ranked steps when explicitly present"],
+  "badge": "rank/status label",
+  "annotation": "small explanatory note",
+  "kicker": "short category label"
+}
+
+Never invent atom facts. If the transcript only supports a simple fact, emit simple atoms. If it supports comparison, list, rank, or multiple numbers, emit those atoms instead of flattening the idea into only title/body/text.
+
 Graphics are NOT decoration — they surface KEY INFORMATION. Use the MOST SPECIFIC type for each moment:
 
 graphic_stat_counter — ONLY when a specific, impactful number is spoken. params: { value: "73%", label: "user satisfaction" }. Use the EXACT number from the transcript. Never invent numbers. "seventy-three percent" → value="73%". Skip vague quantities ("a few", "some", "2 or 3").
@@ -373,7 +392,7 @@ Do NOT default to keyword-highlight for everything. If a number is spoken, use s
 {
   "video_understanding": { "primary_content": string, "shot_scale": string, "lighting": string, "production_quality": 0-1, "environment": string, "speaker_count": number, "has_b_roll": boolean },
   "narrative_arc": [{ "section_id": number, "start_word_idx": number, "end_word_idx": number, "label": "setup"|"build"|"peak"|"resolve"|"transition"|"hook"|"closing", "energy_level": "low"|"building"|"high"|"declining"|"neutral", "mood": string, "pacing_feel": "calm"|"measured"|"balanced"|"energetic"|"fast" }],
-  "decisions": [{ "type": "<valid_type>", "target_word_idx": number, "confidence": 0.55-0.95, "reason": "<valid_reason>", "params": { ...required_params_for_type } }],
+  "decisions": [{ "type": "<valid_type>", "target_word_idx": number, "confidence": 0.55-0.95, "reason": "<valid_reason>", "params": { "...required_params_for_type": "...", "semanticAtoms": { "concept": string, "claim": string, "evidencePhrase": string, "relation": { "from": string, "to": string, "relation": "vs|arrow" }, "values": number[], "labels": string[], "items": string[], "annotation": string, "badge": string, "kicker": string } } }],
   "audio_design": { "ambient_bed": string, "ducking_profile": "standard_speech"|"music_dominant"|"balanced" },
   "caption_style": "word_by_word"|"sentence"|"key_phrases"|"none",
   "overall_pacing": "calm"|"measured"|"balanced"|"energetic"|"fast"

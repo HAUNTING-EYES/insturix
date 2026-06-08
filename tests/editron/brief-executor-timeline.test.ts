@@ -150,12 +150,84 @@ describe('brief decision conversion', () => {
     expect(output.edl.decisions[0]).toMatchObject({
       type: 'transition',
       technique: 'transition_dissolve',
-      params: { creativeDecisionType: 'transition_dissolve' },
+      params: { creativeDecisionType: 'transition_dissolve', transitionType: 'dissolve' },
     });
     expect(output.edl.decisions[1]).toMatchObject({
       type: 'graphic',
       technique: 'graphic_stat_counter',
       params: { creativeDecisionType: 'graphic_stat_counter', value: '42%', label: 'lift' },
     });
+  });
+
+  it('converts semantic MG facts into structure atoms before executeEDL', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_callout',
+        targetWordIdx: 2,
+        confidence: 0.9,
+        reason: 'emphasis_word',
+        params: {
+          semanticAtoms: {
+            concept: 'Selection Bias',
+            claim: 'Comments overrepresent angry people',
+            contrast: {
+              from: 'quiet majority',
+              to: 'angry commenters',
+              relation: 'vs',
+            },
+            items: ['quiet majority', 'angry commenters'],
+            annotation: 'Sample is skewed',
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions[0]).toMatchObject({
+      type: 'graphic',
+      technique: 'graphic_callout',
+      params: {
+        creativeDecisionType: 'graphic_callout',
+        title: 'Selection Bias',
+        body: 'Comments overrepresent angry people',
+        from: 'quiet majority',
+        to: 'angry commenters',
+        relation: 'vs',
+        items: ['quiet majority', 'angry commenters'],
+        annotation: 'Sample is skewed',
+      },
+    });
+  });
+
+  it('lets semantic MG atoms overwrite empty registry defaults', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_callout',
+        targetWordIdx: 2,
+        confidence: 0.9,
+        reason: 'emphasis_word',
+        params: {
+          title: '',
+          body: '',
+          semanticAtoms: {
+            concept: 'Audience Bias',
+            claim: 'The loudest comments distort the sample',
+            evidencePhrase: 'only angry people comment',
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions[0].params).toEqual(expect.objectContaining({
+      title: 'Audience Bias',
+      body: 'The loudest comments distort the sample',
+      contextPhrase: 'we grew fast',
+      keyword: 'Audience Bias',
+    }));
   });
 });

@@ -749,7 +749,8 @@ export async function executeDirectorPlan(
             const canvas = project.playerDimensions || { width: 1920, height: 1080 };
             const analysesMap = new Map<string, any>();
             for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
-            await executeEDLPathE(briefResult.edl, projectId, userId, overlays, canvas, analysesMap, densityFromGenreParams(pathEGenreParams?.graphic_density) || effectiveProfile.graphicsDensity);
+            const pathEEdlForExecutor = briefResult.edl as unknown as Parameters<typeof executeEDLPathE>[0];
+            await executeEDLPathE(pathEEdlForExecutor, projectId, userId, overlays, canvas, analysesMap, densityFromGenreParams(pathEGenreParams?.graphic_density) || effectiveProfile.graphicsDensity);
 
             // Update summary for downstream quality review
             edlSummary.totalDecisions = humanizedEdl.decisions.length;

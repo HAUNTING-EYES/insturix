@@ -237,7 +237,7 @@ function resolveDecisionToFrame(
     confidence,
     source: `creative-brief:${reason}:${coordinateSource}`,
     technique: type,
-    params: normalizeBriefDecisionParams(type, params, transcription, targetWordIdxForContext),
+    params: normalizeBriefDecisionParams(type, params, transcription, targetWordIdxForContext) as EditDecision['params'],
     reason: reason,
   };
 
@@ -290,16 +290,15 @@ function isTransitionType(type: BriefDecisionType): boolean {
 
 function normalizeBriefDecisionParams(
   type: BriefDecisionType,
-  params: Record<string, number | string>,
+  params: Record<string, unknown>,
   transcription: { word: string; startMs: number; endMs: number }[] = [],
   targetWordIdx: number | null = null,
-): Record<string, number | string> {
-  const normalized: Record<string, number | string> = { ...(params ?? {}) };
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...(params ?? {}) };
 
   // Path E owns intent and timing hints only. Concrete legacy form labels are
   // resolved later by atomic/utility resolvers in executeEDL.
   delete normalized.zoomType;
-  delete normalized.transitionType;
   delete normalized.graphicType;
   delete normalized.scaleFrom;
   delete normalized.scaleTo;
@@ -308,11 +307,33 @@ function normalizeBriefDecisionParams(
   delete normalized.direction;
 
   normalized.creativeDecisionType = type;
+  if (type.startsWith('transition_')) {
+    const transitionType = transitionCompatibilityFromBriefType(type);
+    if (transitionType) normalized.transitionType = transitionType;
+  }
   if (type.startsWith('graphic_')) {
-    enrichGraphicDecisionWithTranscriptAtoms(normalized, transcription, targetWordIdx);
+    atomizeGraphicDecision(normalized, transcription, targetWordIdx);
   }
 
   return normalized;
+}
+
+function transitionCompatibilityFromBriefType(type: BriefDecisionType): string | undefined {
+  switch (type) {
+    case 'transition_dissolve': return 'dissolve';
+    case 'transition_hard_cut': return 'hard-cut';
+    case 'transition_whip_pan': return 'whip-pan';
+    case 'transition_fade_to_black': return 'dip-to-black';
+    case 'transition_flash': return 'flash';
+    case 'transition_soft_cut': return 'soft-cut';
+    case 'transition_wipe': return 'wipe-left';
+    case 'transition_j_cut':
+      return 'hard-cut';
+    case 'transition_l_cut':
+      return 'hard-cut';
+    default:
+      return undefined;
+  }
 }
 
 function nearestTranscriptWordIndex(
@@ -334,8 +355,51 @@ function nearestTranscriptWordIndex(
   return bestIndex;
 }
 
+function atomizeGraphicDecision(
+  normalized: Record<string, unknown>,
+  transcription: { word: string; startMs: number; endMs: number }[],
+  targetWordIdx: number | null,
+): void {
+  flattenSemanticGraphicAtoms(normalized);
+  enrichGraphicDecisionWithTranscriptAtoms(normalized, transcription, targetWordIdx);
+  deriveGraphicAtomsFromText(normalized);
+}
+
+function flattenSemanticGraphicAtoms(normalized: Record<string, unknown>): void {
+  const atoms = objectParam(normalized.semanticAtoms) ?? objectParam(normalized.contentAtoms) ?? objectParam(normalized.atoms);
+  if (!atoms) return;
+
+  copyStringAtom(atoms, normalized, 'concept', 'title');
+  copyStringAtom(atoms, normalized, 'claim', 'body');
+  copyStringAtom(atoms, normalized, 'evidencePhrase', 'contextPhrase');
+  copyStringAtom(atoms, normalized, 'keyword', 'keyword');
+  copyStringAtom(atoms, normalized, 'badge', 'badge');
+  copyStringAtom(atoms, normalized, 'rank', 'rank');
+  copyStringAtom(atoms, normalized, 'annotation', 'annotation');
+  copyStringAtom(atoms, normalized, 'kicker', 'kicker');
+  copyStringAtom(atoms, normalized, 'category', 'category');
+  copyStringAtom(atoms, normalized, 'avatar', 'avatar');
+  copyStringAtom(atoms, normalized, 'logo', 'logo');
+
+  const relation = objectParam(atoms.relation) ?? objectParam(atoms.contrast) ?? objectParam(atoms.comparison);
+  if (relation) {
+    copyStringAtom(relation, normalized, 'from', 'from');
+    copyStringAtom(relation, normalized, 'to', 'to');
+    copyStringAtom(relation, normalized, 'fromLabel', 'fromLabel');
+    copyStringAtom(relation, normalized, 'toLabel', 'toLabel');
+    copyStringAtom(relation, normalized, 'relation', 'relation');
+  }
+
+  const values = numberArrayParam(atoms.values);
+  if (values.length > 0 && !Array.isArray(normalized.values)) normalized.values = values;
+  const labels = stringArrayParam(atoms.labels);
+  if (labels.length > 0 && !Array.isArray(normalized.labels)) normalized.labels = labels;
+  const items = stringArrayParam(atoms.items);
+  if (items.length > 0 && !Array.isArray(normalized.items)) normalized.items = items;
+}
+
 function enrichGraphicDecisionWithTranscriptAtoms(
-  normalized: Record<string, number | string>,
+  normalized: Record<string, unknown>,
   transcription: { word: string; startMs: number; endMs: number }[],
   targetWordIdx: number | null,
 ): void {
@@ -352,6 +416,80 @@ function enrichGraphicDecisionWithTranscriptAtoms(
   if (existingText !== undefined) {
     normalized.keyword = String(existingText);
   }
+}
+
+function deriveGraphicAtomsFromText(normalized: Record<string, unknown>): void {
+  const text = stringParam(normalized.contextPhrase)
+    || stringParam(normalized.body)
+    || stringParam(normalized.text)
+    || stringParam(normalized.title)
+    || '';
+  if (!text) return;
+
+  if (!Array.isArray(normalized.values)) {
+    const numericMatches = [...text.matchAll(/(?:[$€£¥₹]\s*)?\d[\d,.]*(?:\.\d+)?%?/g)];
+    const values = numericMatches
+      .map((match) => parseFloat(match[0].replace(/[^0-9.-]/g, '')))
+      .filter((value) => Number.isFinite(value));
+    if (values.length >= 2) {
+      normalized.values = values;
+      normalized.labels = numericMatches.map((match) => match[0].trim());
+    }
+  }
+
+  if (!normalized.from && !normalized.to) {
+    const comparison = parseComparison(text);
+    if (comparison) {
+      normalized.from = comparison.from;
+      normalized.to = comparison.to;
+      normalized.relation = comparison.relation;
+    }
+  }
+}
+
+function parseComparison(text: string): { from: string; to: string; relation: 'vs' | 'arrow' } | null {
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  const vsMatch = cleaned.match(/\b(.{2,48}?)\s+(?:vs\.?|versus)\s+(.{2,48})\b/i);
+  if (vsMatch) return { from: trimComparisonSide(vsMatch[1]), to: trimComparisonSide(vsMatch[2]), relation: 'vs' };
+
+  const fromToMatch = cleaned.match(/\bfrom\s+(.{2,48}?)\s+to\s+(.{2,48})\b/i);
+  if (fromToMatch) return { from: trimComparisonSide(fromToMatch[1]), to: trimComparisonSide(fromToMatch[2]), relation: 'arrow' };
+
+  return null;
+}
+
+function trimComparisonSide(value: string): string {
+  return value
+    .replace(/[,.!?;:]+$/g, '')
+    .replace(/^(the|a|an)\s+/i, '')
+    .trim();
+}
+
+function objectParam(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringParam(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function copyStringAtom(source: Record<string, unknown>, target: Record<string, unknown>, fromKey: string, toKey: string): void {
+  if (typeof target[toKey] === 'string' && target[toKey].trim().length > 0) return;
+  if (target[toKey] != null && typeof target[toKey] !== 'string') return;
+  const value = stringParam(source[fromKey]);
+  if (value) target[toKey] = value;
+}
+
+function numberArrayParam(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => typeof item === 'number' ? item : typeof item === 'string' ? parseFloat(item.replace(/,/g, '')) : NaN)
+    .filter((item) => Number.isFinite(item));
+}
+
+function stringArrayParam(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(String).map((item) => item.trim()).filter(Boolean);
 }
 
 function transcriptPhraseAroundWord(
