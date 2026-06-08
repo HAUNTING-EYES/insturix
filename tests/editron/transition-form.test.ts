@@ -89,4 +89,23 @@ describe('resolveAtomicTransitionForm', () => {
     expect(form.intent).toBe('motion-transfer');
     expect(form.sfxRole).toBe('fast-whoosh');
   });
+
+  it('keeps upstream soft-cut requests as invisible polish instead of long mini-dissolves', () => {
+    const form = resolveAtomicTransitionForm({
+      params: { transitionType: 'soft-cut' },
+      durationFrames: 20,
+      defaultDurationFrames: 24,
+      signals: {
+        speech_energy: 0.78,
+        motion_intensity: 0.59,
+        visual_complexity: 0.12,
+        text_on_screen: 0,
+      },
+    });
+
+    expect(form.compatibilityType).toBe('soft-cut');
+    expect(form.durationFrames).toBeGreaterThanOrEqual(3);
+    expect(form.durationFrames).toBeLessThanOrEqual(6);
+    expect(form.sfxRole).toBe('none');
+  });
 });

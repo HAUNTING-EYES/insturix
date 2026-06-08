@@ -269,13 +269,14 @@ function defaultDurationFor(type: TransitionStyle): number {
   if (type === 'whip-pan' || type === 'glitch') return 10;
   if (type === 'slide-up' || type === 'slide-down') return 15;
   if (type === 'dissolve') return 36;
-  if (type === 'soft-cut') return 24;
+  if (type === 'soft-cut') return 5;
   return 15;
 }
 
 function clampFrames(frames: number, type: TransitionStyle): number {
+  if (type === 'soft-cut') return Math.max(3, Math.min(6, frames));
   const min = type === 'dissolve' ? 30 : 4;
-  const max = type === 'dissolve' || type === 'soft-cut' ? 60 : 30;
+  const max = type === 'dissolve' ? 60 : 30;
   return Math.max(min, Math.min(max, frames));
 }
 

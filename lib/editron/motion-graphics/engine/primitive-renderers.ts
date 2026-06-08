@@ -541,17 +541,23 @@ export function fitFontSize(
 ): number {
   if (!text || boxWidthPx <= 0 || desiredPx <= 0) return desiredPx;
   const safe = boxWidthPx * (opts?.safeFraction ?? 0.9);
-  // Longest word governs single-line fit; whitespace lets the phrase wrap to more lines.
+  // The longest word guards no-mid-word breaks; the full phrase guards browser layouts that keep
+  // short multi-word titles on one line.
   const longestWord = text.split(/\s+/).reduce((a, b) => (b.length > a.length ? b : a), '');
-  const target = longestWord || text;
+  const wordTarget = longestWord || text;
+  const phraseTarget = text.trim();
   // G-1b: prefer exact measurement when the caller supplies one (browser canvas); fall back to the
   // conservative estimator (Node scripts/tests, or measurement unavailable). measureText is ~linear
   // in fontSize, so the single-step scale below stays accurate.
-  const widthAt = (px: number): number => {
+  const widthAt = (target: string, px: number): number => {
     const m = measure ? measure(target, px) : NaN;
     return Number.isFinite(m) ? m : estimateTextWidth(target, px, opts);
   };
-  const widthAtDesired = widthAt(desiredPx);
+  const wordWidthAtDesired = widthAt(wordTarget, desiredPx);
+  const phraseWidthAtDesired = widthAt(phraseTarget, desiredPx);
+  const widthAtDesired = Math.max(wordWidthAtDesired, phraseWidthAtDesired);
+  const logTarget = phraseWidthAtDesired >= wordWidthAtDesired ? phraseTarget : wordTarget;
+  const target = logTarget;
   let size = widthAtDesired <= safe ? desiredPx : desiredPx * (safe / widthAtDesired);
   if (size < minReadablePx) {
     // The longest word can't reach the readable floor in this box. FIT WINS over the floor — a slightly
@@ -598,6 +604,9 @@ export function buildTextStyle(
     lineHeight: p.lineHeight != null ? Number(p.lineHeight) : 1.2,
     // G-1: never break inside a word. Long words are sized to fit (fitFontSize); multi-word
     // phrases wrap at spaces. Explicit here to override any inherited mid-word-break behaviour.
+    minWidth: 0,
+    maxWidth: '100%',
+    whiteSpace: 'normal',
     overflowWrap: 'normal',
     wordBreak: 'normal',
   };

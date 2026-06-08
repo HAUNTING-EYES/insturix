@@ -3,7 +3,7 @@ import { applyAtomicMotionTracks, applyAtomicRenderDecision, applyAtomicStyleAto
 import type { AtomicOverlayDecision } from '../../lib/editron/motion-graphics/engine/atomic-overlay-decision';
 import type { AtomicElementPlan, AtomicOverlayPlan } from '../../lib/editron/motion-graphics/engine/atomic-overlay-plan';
 import type { ComputedChoreography, ResolvedElement } from '../../lib/editron/motion-graphics/engine/recipe-types';
-import type { AnimationState } from '../../lib/editron/motion-graphics/engine/primitive-renderers';
+import { buildTextStyle, fitFontSize, type AnimationState } from '../../lib/editron/motion-graphics/engine/primitive-renderers';
 
 const baseAnim: AnimationState = {
   opacity: 0.5,
@@ -232,6 +232,37 @@ describe('atomic render decision adapter', () => {
     expect(style.lineHeight).toBe(1.05);
     expect(style.letterSpacing).toBe('0.04em');
     expect(style.textTransform).toBe('uppercase');
+  });
+
+  it('allows MG text flex items to shrink and wrap inside the fitted layout box', () => {
+    const style = buildTextStyle({
+      ...renderElement,
+      role: 'primary',
+      resolvedProps: {
+        text: 'Selection Bias',
+        minSize: 140,
+        lineHeight: 1.1,
+      },
+    }, { ...baseAnim, opacity: 1, translateX: 0, translateY: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, filterBlur: 0, textShadowBlur: 0 }, 88);
+
+    expect(style.minWidth).toBe(0);
+    expect(style.maxWidth).toBe('100%');
+    expect(style.whiteSpace).toBe('normal');
+    expect(style.wordBreak).toBe('normal');
+  });
+
+  it('fits multi-word MG titles against the whole phrase, not only the longest word', () => {
+    const size = fitFontSize(
+      'Selection Bias',
+      864,
+      98,
+      36,
+      {},
+      (text, px) => text.length * px * 0.62,
+    );
+
+    expect(size).toBeLessThan(98);
+    expect('Selection Bias'.length * size * 0.62).toBeLessThanOrEqual(864 * 0.9);
   });
 
   it('applies gradient text atoms as glyph-clipped color', () => {
