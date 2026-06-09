@@ -65,12 +65,15 @@ function formatWordsForPrompt(words: TranscriptionWord[], includeSpeaker: boolea
 
 // ─── Prompt ─────────────────────────────────────────────────────────
 
-function buildPrompt(
+export function buildTranscriptEditPrompt(
   wordList: string,
   wordCount: number,
   context: VideoContext,
 ): string {
   const contextLine = [
+    // Content type is context, not a profile preset: it helps the editor
+    // interpret raw-footage intent without selecting a hardcoded style.
+    context.contentType && `Content type: ${context.contentType}`,
     context.platform && `Platform: ${context.platform}`,
     context.speakerCount && context.speakerCount > 1 && `Speakers: ${context.speakerCount}`,
   ].filter(Boolean).join('. ');
@@ -124,7 +127,7 @@ async function callGemini(
 
   const includeSpeaker = (context.speakerCount ?? 1) > 1;
   const wordList = formatWordsForPrompt(words, includeSpeaker);
-  const prompt = buildPrompt(wordList, words.length, context);
+  const prompt = buildTranscriptEditPrompt(wordList, words.length, context);
 
   console.log(`[TranscriptEditor] Sending ${words.length} words to Gemini 3.1 Pro...`);
 
@@ -149,10 +152,44 @@ async function callGemini(
 
 // ─── Validation ─────────────────────────────────────────────────────
 
-function validateKeepRanges(
+const LONG_RAW_FOOTAGE_MS = 10 * 60 * 1000;
+const MAX_LONG_RAW_CLEAN_RATIO = 0.68;
+
+const PRESERVE_INTENT_PATTERN = /\b(keep\s+(all|everything|full|pauses)|no\s+cuts?|uncut|raw\s+only|preserve)\b/i;
+const PRODUCTION_META_PATTERN = /\b(mic\s+(is\s+)?on|mic\s+check|let\s+me\s+(check|restart)|cut\s+that|edit\s+this\s+out|put\s+this\s+at\s+the\s+beginning|talking\s+to\s+you\s+on\s+(a\s+)?camera|editing\s+challenge|whole\s+process\s+of\s+me\s+making|this\s+is\s+the\s+middle|decided\s+to\s+edit\s+this|note\s+to\s+editor|script\s+over\s+here)\b/i;
+
+function estimateCleanDurationFromKeepRanges(
+  keepRanges: TranscriptEditKeepRange[],
+  words: TranscriptionWord[],
+  videoDurationMs: number,
+): number {
+  const removals = keepRangesToRemovalActions(keepRanges, words, videoDurationMs);
+  const removedMs = removals.reduce((sum, action) => {
+    if (action.action === 'remove') return sum + Math.max(0, action.endMs - action.startMs);
+    if (action.action === 'shorten') return sum + Math.max(0, action.endMs - action.startMs - (action.shortenToMs || 0));
+    return sum;
+  }, 0);
+  return Math.max(0, videoDurationMs - removedMs);
+}
+
+function keptTextContainsProductionMeta(
+  keepRanges: TranscriptEditKeepRange[],
+  words: TranscriptionWord[],
+): boolean {
+  for (const range of keepRanges) {
+    const text = words.slice(range.s, range.e + 1).map(w => w.word).join(' ');
+    if (PRODUCTION_META_PATTERN.test(text)) return true;
+  }
+  return false;
+}
+
+export function validateKeepRangesForTranscriptEdit(
   ranges: TranscriptEditKeepRange[],
-  wordCount: number,
+  words: TranscriptionWord[],
+  videoDurationMs: number,
+  context: VideoContext = {},
 ): TranscriptEditKeepRange[] | null {
+  const wordCount = words.length;
   if (!ranges || ranges.length === 0) {
     console.warn('[TranscriptEditor] Empty keep-ranges — validation failed');
     return null;
@@ -201,6 +238,23 @@ function validateKeepRanges(
   if (ratio > MAX_KEPT_RATIO) {
     console.warn(`[TranscriptEditor] Kept ratio ${(ratio * 100).toFixed(1)}% above maximum ${MAX_KEPT_RATIO * 100}% — Gemini found almost nothing to cut`);
     return null;
+  }
+
+  if (keptTextContainsProductionMeta(sorted, words)) {
+    console.warn('[TranscriptEditor] Keep-ranges include production meta — validation failed');
+    return null;
+  }
+
+  if (
+    videoDurationMs >= LONG_RAW_FOOTAGE_MS
+    && !PRESERVE_INTENT_PATTERN.test(context.userIntent || '')
+  ) {
+    const cleanDurationMs = estimateCleanDurationFromKeepRanges(sorted, words, videoDurationMs);
+    const cleanRatio = cleanDurationMs / videoDurationMs;
+    if (cleanRatio > MAX_LONG_RAW_CLEAN_RATIO) {
+      console.warn(`[TranscriptEditor] Clean duration ${(cleanRatio * 100).toFixed(1)}% exceeds long raw-footage guard ${(MAX_LONG_RAW_CLEAN_RATIO * 100).toFixed(0)}% — validation failed`);
+      return null;
+    }
   }
 
   return sorted;
@@ -394,7 +448,7 @@ export async function editTranscript(
     if (chunks.length === 1) {
       // Single call — most common case (up to ~3 hours of video)
       const raw = await callGemini(words, context);
-      const validated = validateKeepRanges(raw, words.length);
+      const validated = validateKeepRangesForTranscriptEdit(raw, words, videoDurationMs, context);
       if (!validated) throw new Error('Keep-range validation failed');
       allKeepRanges = validated;
     } else {
@@ -404,7 +458,7 @@ export async function editTranscript(
         chunks.map(chunk => callGemini(chunk.words, context)),
       );
       allKeepRanges = mergeChunkResults(chunks, chunkResults);
-      const validated = validateKeepRanges(allKeepRanges, words.length);
+      const validated = validateKeepRangesForTranscriptEdit(allKeepRanges, words, videoDurationMs, context);
       if (!validated) throw new Error('Chunked keep-range validation failed');
       allKeepRanges = validated;
     }

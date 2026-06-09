@@ -331,6 +331,12 @@ async function handler(request: NextRequest) {
     // ─── Step 4: Store Phase 1 results on project ──────────────────
     // Phase 2 fields (vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
     // segmentAnalysis) are written by the TRIBE worker, not here.
+    let persistedRawFootageAnalysis: any = null;
+    if (rawFootageAnalysis) {
+      const { compactRawFootageAnalysisForProject } = await import('@/lib/editron/services/raw-footage-persistence');
+      persistedRawFootageAnalysis = compactRawFootageAnalysisForProject(rawFootageAnalysis);
+    }
+
     await db.collection('projects').updateOne(
       { projectId },
       {
@@ -339,7 +345,7 @@ async function handler(request: NextRequest) {
           ...(syntheticStoryboard && { syntheticStoryboard }),
           ...(syntheticStoryboard?.geminiFileUri && { geminiFileUri: syntheticStoryboard.geminiFileUri }),
           ...(editDNA && { referenceEditDNA: editDNA }),
-          ...(rawFootageAnalysis && { rawFootageAnalysis }),
+          ...(persistedRawFootageAnalysis && { rawFootageAnalysis: persistedRawFootageAnalysis }),
           ...(genreParameters && { genreParameters }),
           ...(genreParametersSignalComputed && { genreParametersSignalComputed }),
           updatedAt: new Date(),

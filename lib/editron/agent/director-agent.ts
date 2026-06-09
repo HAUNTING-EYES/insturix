@@ -367,12 +367,22 @@ export async function executeDirectorPlan(
           const pathEFps = project.fps || 30;
           const rfa = projectDoc.rawFootageAnalysis;
 
-          // Build transcription from rawFootageAnalysis segments
-          const transcription: { word: string; startMs: number; endMs: number }[] = [];
-          for (const seg of rfa.segments || []) {
-            if (seg.words && Array.isArray(seg.words)) {
-              for (const w of seg.words) {
-                transcription.push({ word: w.word || w.text || '', startMs: w.startMs ?? w.start ?? 0, endMs: w.endMs ?? w.end ?? 0 });
+          // Build transcription from the single persisted word-timing source.
+          // Older projects may still have segment.words, so keep a compatibility fallback.
+          const transcription: { word: string; startMs: number; endMs: number }[] =
+            Array.isArray(rfa.transcription?.words)
+              ? rfa.transcription.words.map((w: any) => ({
+                word: w.word || w.text || '',
+                startMs: w.startMs ?? w.start ?? 0,
+                endMs: w.endMs ?? w.end ?? 0,
+              }))
+              : [];
+          if (transcription.length === 0) {
+            for (const seg of rfa.segments || []) {
+              if (seg.words && Array.isArray(seg.words)) {
+                for (const w of seg.words) {
+                  transcription.push({ word: w.word || w.text || '', startMs: w.startMs ?? w.start ?? 0, endMs: w.endMs ?? w.end ?? 0 });
+                }
               }
             }
           }
