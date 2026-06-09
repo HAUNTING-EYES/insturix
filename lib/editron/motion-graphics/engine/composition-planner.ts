@@ -11,7 +11,7 @@ import type {
   ContentStructureSignature,
   ContentPartRole,
 } from './recipe-types';
-import { analyzeContentShape, isCountUpValue } from './content-shape-analyzer';
+import { analyzeContentShape, analyzeNumericValueForm, isCountUpValue } from './content-shape-analyzer';
 import {
   moveAccentLine, moveSideBar, moveBackdropCard,
   moveDivider, moveUnderline, moveKicker,
@@ -263,6 +263,7 @@ function composeElements(
   }
 
   composeFromStructure(elements, strategy, language, signals, mgScores);
+  applyStructuralAffordanceMotion(elements, strategy, signals);
 
   const holdPattern = resolveHoldPattern(signals, mgScores);
   if (holdPattern !== 'static') {
@@ -369,13 +370,20 @@ function composeFromStructure(
     const comparison = shape('comparison');
     if (comparison) return composeComparison(elements, comparison, language, mgScores);
   }
+  const seriesCardinality = typeof strategy.structure.evidence.seriesCardinality === 'number'
+    ? strategy.structure.evidence.seriesCardinality
+    : 0;
+  if (hasPart(strategy.structure, 'primary-value') && seriesCardinality <= 1) {
+    const numeric = shape('numeric');
+    if (numeric) return composeNumeric(elements, numeric, strategy.structure, language, signals, mgScores);
+  }
   if (hasPart(strategy.structure, 'series-values')) {
     const series = shape('data-series');
     if (series) return composeDataSeries(elements, series, language);
   }
   if (hasPart(strategy.structure, 'primary-value')) {
     const numeric = shape('numeric');
-    if (numeric) return composeNumeric(elements, numeric, language, signals, mgScores);
+    if (numeric) return composeNumeric(elements, numeric, strategy.structure, language, signals, mgScores);
   }
   if (hasPart(strategy.structure, 'name')) {
     const identity = shape('identity');
@@ -415,9 +423,60 @@ function hasRelation(structure: ContentStructureSignature, type: ContentStructur
   return structure.relations.some((relation) => relation.type === type);
 }
 
+type NumericVisualMode = 'count' | 'rate' | 'fraction' | 'ratio' | 'percent' | 'currency' | 'magnitude' | 'static';
+
+function resolveNumericVisualMode(shape: Extract<ContentShape, { kind: 'numeric' }>): NumericVisualMode {
+  const analysis = analyzeNumericValueForm(shape.value);
+  const label = String(shape.label ?? '').toLowerCase();
+  if (!analysis) return 'static';
+  if (analysis.form === 'fraction') return 'fraction';
+  if (analysis.form === 'ratio') return 'ratio';
+  if (analysis.form === 'percent') return 'percent';
+  if (analysis.form === 'currency') return 'currency';
+  if (analysis.form === 'magnitude') return 'magnitude';
+  if (analysis.form === 'tiny-decimal') return 'rate';
+  if (/\b(per|rate|daily|weekly|monthly|yearly|frequency|average)\b/.test(label)) return 'rate';
+  return analysis.canCountUp ? 'count' : 'static';
+}
+
+function numericAnimationForMode(mode: NumericVisualMode, value: unknown): 'count-up' | 'none' {
+  if (mode === 'count' || mode === 'percent' || mode === 'currency') {
+    return isCountUpValue(value) ? 'count-up' : 'none';
+  }
+  return 'none';
+}
+
+function applyStructuralAffordanceMotion(
+  elements: RecipeElement[],
+  strategy: CompositionStrategy,
+  signals: PlannerSignals,
+): void {
+  const evidence = strategy.structure.evidence;
+  const salience = typeof evidence.salience === 'number' ? evidence.salience : 0;
+  const lowVisualRisk = visualFormRisk(signals) < 0.62;
+
+  for (const element of elements) {
+    if (element.role === 'proportion-boundary-rule' || element.role === 'truth-negation-strike') {
+      element.entranceOverride = 'draw';
+      element.exitOverride = 'draw-reverse';
+    }
+
+    if (
+      salience >= 0.85
+      && lowVisualRisk
+      && element.layer === 'foreground'
+      && (element.role === 'primary' || element.role === 'counter')
+      && !element.entranceOverride
+    ) {
+      element.entranceOverride = evidence.negationAffordance === true ? 'slide-left' : 'pop';
+    }
+  }
+}
+
 function composeNumeric(
   elements: RecipeElement[],
   shape: Extract<ContentShape, { kind: 'numeric' }>,
+  structure: ContentStructureSignature,
   language: MotionTokens,
   signals: PlannerSignals,
   mgScores?: MgOverlayScores,
@@ -426,6 +485,21 @@ function composeNumeric(
   const primaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.1);
   const secondaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.3);
   const letterTracking = mgVal(mgScores, 'mg.typography.letter_tracking', 'letterTracking', 0);
+  const visualMode = resolveNumericVisualMode(shape);
+  const evidence = structure.evidence;
+  const isProportion = evidence.proportionAffordance === true
+    || evidence.quantityKind === 'percent'
+    || evidence.quantityKind === 'percentage'
+    || evidence.quantityKind === 'fraction'
+    || evidence.quantityKind === 'ratio';
+  const isNegated = evidence.negationAffordance === true
+    || evidence.negated === true
+    || evidence.refuted === true
+    || evidence.polarity === 'false'
+    || evidence.polarity === 'negative';
+  const monoValue = visualMode === 'rate' || visualMode === 'fraction' || visualMode === 'ratio';
+  const compactStatic = visualMode === 'rate' || visualMode === 'fraction' || visualMode === 'ratio' || visualMode === 'magnitude';
+  const valueSize = compactStatic ? Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, fontSize / 1.18) : fontSize;
 
   elements.push({
     primitive: 'text',
@@ -433,21 +507,66 @@ function composeNumeric(
     layer: 'foreground',
     // count-up only for plain magnitudes; fractions/ratios/suffixed values render statically
     // (the renderer's count-up does parseFloat → would mangle "1/3" to "1"). Static still fades in.
-    animation: isCountUpValue(shape.value) ? 'count-up' : 'none',
+    animation: numericAnimationForMode(visualMode, shape.value),
     bind: {
       text: 'content:value',
       prefix: 'content:prefix',
       suffix: 'content:suffix',
-      font: signals.formality > CRG.FORMALITY_HIGH
-        ? 'token:typography.headingFamily'
-        : 'token:typography.monoFamily',
+      font: monoValue || signals.formality <= CRG.FORMALITY_HIGH
+        ? 'token:typography.monoFamily'
+        : 'token:typography.headingFamily',
       weight: 'token:typography.headingWeight',
-      color: 'token:color.textPrimary',
+      color: visualMode === 'percent' ? 'token:color.accent' : 'token:color.textPrimary',
       sizeScale: 'token:typography.sizeScale',
-      minSize: fontSize,
+      minSize: valueSize,
       lineHeight: primaryLineHeight,
     },
   });
+
+  if (visualMode === 'rate' || visualMode === 'fraction' || visualMode === 'ratio') {
+    elements.push({
+      primitive: 'decoration',
+      role: `numeric-${visualMode}-rule`,
+      layer: 'foreground',
+      shape: 'line',
+      anchor: { mode: 'flow-span', thickness: visualMode === 'rate' ? 2 : 1 },
+      bind: {
+        color: 'token:color.accent',
+        width: visualMode === 'rate' ? 2 : 1,
+        opacity: visualMode === 'rate' ? 0.7 : 0.45,
+      },
+    });
+  }
+
+  if (isProportion) {
+    elements.push({
+      primitive: 'decoration',
+      role: 'proportion-boundary-rule',
+      layer: 'foreground',
+      shape: 'line',
+      anchor: { mode: 'flow-span', thickness: evidence.boundedRange === true ? 3 : 2 },
+      bind: {
+        color: 'token:color.accent',
+        width: evidence.boundedRange === true ? 3 : 2,
+        opacity: evidence.boundedRange === true ? 0.72 : 0.55,
+      },
+    });
+  }
+
+  if (isNegated) {
+    elements.push({
+      primitive: 'decoration',
+      role: 'truth-negation-strike',
+      layer: 'foreground',
+      shape: 'line',
+      anchor: { mode: 'flow-span', thickness: 3 },
+      bind: {
+        color: 'token:color.accent',
+        width: 3,
+        opacity: 0.82,
+      },
+    });
+  }
 
   if (shape.label) {
     // CRG-floored size: without minSize, buildTextStyle leaves fontSize undefined → ~16px default
@@ -462,7 +581,9 @@ function composeNumeric(
         font: 'token:typography.bodyFamily',
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
-        tracking: letterTracking > 0 ? `${letterTracking.toFixed(3)}em` : 'token:typography.headingTracking',
+        tracking: visualMode === 'rate'
+          ? '0.08em'
+          : letterTracking > 0 ? `${letterTracking.toFixed(3)}em` : 'token:typography.headingTracking',
         minSize: labelSize,
         lineHeight: secondaryLineHeight,
       },

@@ -230,4 +230,55 @@ describe('brief decision conversion', () => {
       keyword: 'Audience Bias',
     }));
   });
+
+  it('flattens quantity and truth atoms for downstream MG form resolving', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_stat_counter',
+        targetWordIdx: 2,
+        confidence: 0.9,
+        reason: 'number_mentioned',
+        params: {
+          semanticAtoms: {
+            quantity: {
+              displayText: '1/3',
+              label: 'claim being rejected',
+              kind: 'fraction',
+              denominator: 3,
+              bounded: true,
+            },
+            relation: {
+              kind: 'part_of_whole',
+            },
+            truth: {
+              polarity: 'false',
+              negated: true,
+              refuted: true,
+              warranted: true,
+            },
+            salience: 0.92,
+            captionRedundancy: 0.15,
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions[0].params).toEqual(expect.objectContaining({
+      value: '1/3',
+      label: 'claim being rejected',
+      quantityKind: 'fraction',
+      denominator: 3,
+      bounded: true,
+      relationKind: 'part_of_whole',
+      polarity: 'false',
+      negated: true,
+      refuted: true,
+      warranted: true,
+      salience: 0.92,
+      captionRedundancy: 0.15,
+    }));
+  });
 });

@@ -7,6 +7,9 @@ import {
   type AtomicOverlayFamily,
   type AtomicOverlayReceipt,
 } from '../../lib/editron/engine/atomic-overlay-core';
+import { resolveMotionTokens } from '../../lib/editron/data/motion-theme-resolver';
+import { buildAtomicOverlayPlan } from '../../lib/editron/motion-graphics/engine/atomic-overlay-plan';
+import { planComposition } from '../../lib/editron/motion-graphics/engine/composition-planner';
 import {
   scoreRenderedFrameAesthetic,
   type RenderedOverlayEvidence,
@@ -199,6 +202,76 @@ describe('rendered frame aesthetic scoring', () => {
     expect(result.issues).toEqual(expect.arrayContaining([
       expect.objectContaining({ dimension: 'overlap', severity: 'fail' }),
       expect.objectContaining({ dimension: 'clutter', severity: 'fail' }),
+    ]));
+  });
+
+  it('scores generated MG plan atoms against actual rendered frame evidence', () => {
+    const signals = {
+      enthusiasm: 0.9,
+      emotional_arousal: 0.86,
+      pacing_velocity: 0.8,
+      visceral_impact: 0.7,
+      visual_dependency: 0.3,
+      caption_redundancy: 0.12,
+    };
+    const tokens = resolveMotionTokens(signals, {
+      accentColor: '#f43f5e',
+      primaryColor: '#ffffff',
+      headingFont: 'Inter',
+      bodyFont: 'Inter',
+      monoFont: 'JetBrains Mono',
+    });
+    const content = {
+      value: '1/3',
+      label: 'of the room understood',
+      quantityKind: 'fraction',
+      denominator: 3,
+      bounded: true,
+      warranted: true,
+      salience: 0.93,
+    };
+    const recipe = planComposition({ content }, tokens, signals);
+    const atomic = buildAtomicOverlayPlan(recipe, tokens, content, signals);
+    const primaryElement = atomic.elements.find((element) => element.role === 'counter') ?? atomic.elements[0];
+    const receipt = buildOverlayAtomicReceipt({
+      family: 'motion-graphic',
+      intent: atomic.recipeId,
+      frame: 96,
+      durationFrames: 36,
+      signals,
+      atoms: [
+        overlayAtom('text-content', 'content.text', primaryElement?.structure.text?.lines.join(' ') ?? content.value, 1, 'decision-param'),
+        overlayAtom('font-size', 'text.font_size', primaryElement?.typography?.sizePx ?? 48, 1, 'decision-param'),
+        overlayAtom('text-color', 'text.color', primaryElement?.color.text ?? tokens.color.accent, 1, 'decision-param'),
+      ],
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 9, alphaMean: 1 },
+      overlays: [{
+        id: 'generated-mg-bad-render',
+        receipt,
+        box: {
+          x: 420,
+          y: 820,
+          width: 220,
+          height: 92,
+          opacity: 1,
+          visiblePixelRatio: 0.002,
+          contrastRatio: 1.6,
+          textPixelHeight: 18,
+        },
+      }],
+    });
+
+    expect(atomic.recipeId).toBe('composed-numeric');
+    expect(atomic.elements.some((element) => element.role === 'proportion-boundary-rule')).toBe(true);
+    expect(result.status).toBe('fail');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dimension: 'visibility', severity: 'fail' }),
+      expect.objectContaining({ dimension: 'text' }),
+      expect.objectContaining({ dimension: 'contrast', severity: 'fail' }),
     ]));
   });
 });

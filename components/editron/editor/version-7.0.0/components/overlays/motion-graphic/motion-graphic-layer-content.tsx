@@ -39,7 +39,7 @@ export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps>
   const tokens = isMotionTokens(overlay.resolvedTokens)
     ? overlay.resolvedTokens as MotionTokens
     : resolveMotionTokens(signals);
-  const content = sanitizeContent(overlay.content);
+  const content = sanitizeMotionGraphicContent(overlay.content);
 
   // Composition engine path: recipe pre-computed at pipeline time.
   // Use it directly -- don't re-plan at render time.
@@ -84,7 +84,7 @@ export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps>
 
 interface StructureDispatchProps {
   structureType: string;
-  content: Record<string, string>;
+  content: Record<string, unknown>;
   durationInFrames: number;
   tokens: MotionTokens;
   signals?: Record<string, number | string>;
@@ -155,20 +155,33 @@ function sanitizeSignals(signals: unknown): Record<string, number | string> | un
   return Object.keys(safe).length > 0 ? safe : undefined;
 }
 
-function sanitizeContent(content: unknown): Record<string, string> {
+type MotionGraphicContentPrimitive = string | number | boolean;
+
+export function sanitizeMotionGraphicContent(content: unknown): Record<string, MotionGraphicContentPrimitive | MotionGraphicContentPrimitive[]> {
   if (!content || typeof content !== 'object' || Array.isArray(content)) return {};
-  const safe: Record<string, string> = {};
+  const safe: Record<string, MotionGraphicContentPrimitive | MotionGraphicContentPrimitive[]> = {};
 
   for (const [key, value] of Object.entries(content as Record<string, unknown>)) {
     if (value == null) continue;
-    if (typeof value === 'string') {
+    if (isContentPrimitive(value)) {
       safe[key] = value;
-    } else if (typeof value === 'number' || typeof value === 'boolean') {
-      safe[key] = String(value);
+    } else if (Array.isArray(value) && value.length > 0 && value.every(isContentPrimitive)) {
+      safe[key] = [...value];
     }
   }
 
   return safe;
+}
+
+function isContentPrimitive(value: unknown): value is MotionGraphicContentPrimitive {
+  return typeof value === 'string'
+    || (typeof value === 'number' && Number.isFinite(value))
+    || typeof value === 'boolean';
+}
+
+function contentString(value: unknown): string | undefined {
+  if (value == null || Array.isArray(value) || typeof value === 'object') return undefined;
+  return String(value);
 }
 
 function isMotionTokens(value: unknown): value is MotionTokens {
@@ -192,10 +205,10 @@ const StructureDispatch: React.FC<StructureDispatchProps> = ({
     return (
       <StatCounter
         content={{
-          value: content.value || '0',
-          prefix: content.prefix,
-          suffix: content.suffix,
-          label: content.label || '',
+          value: contentString(content.value) || '0',
+          prefix: contentString(content.prefix),
+          suffix: contentString(content.suffix),
+          label: contentString(content.label) || '',
         }}
         durationInFrames={durationInFrames}
       />

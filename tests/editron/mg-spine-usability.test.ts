@@ -141,6 +141,177 @@ describe('MG spine usability', () => {
     expect(dataSeries.elements.find((e) => e.primitive === 'data-viz')?.role).toBe('bar-chart');
   });
 
+  it('keeps scalar stat atoms out of one-point data-viz shells', () => {
+    const tokens = resolveMotionTokens(energeticSignals);
+    const scores = mgScoresFor(energeticSignals);
+    const recipe = planComposition(
+      {
+        content: {
+          value: '0.02',
+          label: 'human beings per day',
+          values: [0.02],
+          labels: ['human beings per day'],
+        },
+        triggerMoment: 'spoken scalar stat',
+      },
+      tokens,
+      energeticSignals,
+      scores,
+    );
+
+    expect(recipe.id).toBe('composed-numeric');
+    expect(recipe.elements.some((element) => element.primitive === 'data-viz')).toBe(false);
+    expect(recipe.elements).toEqual(expect.arrayContaining([
+      expect.objectContaining({ primitive: 'text', role: 'counter' }),
+      expect.objectContaining({ primitive: 'text', role: 'label' }),
+      expect.objectContaining({ primitive: 'decoration', role: 'numeric-rate-rule' }),
+    ]));
+    expect(recipe.elements.find((element) => element.role === 'counter')?.animation).toBe('none');
+  });
+
+  it('varies numeric motion by atomic value form instead of one stat preset', () => {
+    const tokens = resolveMotionTokens(energeticSignals);
+    const scores = mgScoresFor(energeticSignals);
+    const make = (value: string, label: string) => planComposition(
+      { content: { value, label }, triggerMoment: 'scalar stat' },
+      tokens,
+      energeticSignals,
+      scores,
+    );
+
+    const fraction = make('1/3', 'of people');
+    const percent = make('90%', 'good people');
+    const count = make('100,000', 'people');
+
+    expect(fraction.elements.find((element) => element.role === 'counter')?.animation).toBe('none');
+    expect(fraction.elements.some((element) => element.role === 'numeric-fraction-rule')).toBe(true);
+    expect(percent.elements.find((element) => element.role === 'counter')?.animation).toBe('count-up');
+    expect(percent.elements.find((element) => element.role === 'counter')?.bind.color).toBe('token:color.accent');
+    expect(count.elements.find((element) => element.role === 'counter')?.animation).toBe('count-up');
+  });
+
+  it('licenses proportion and negation form from content atoms', () => {
+    const tokens = resolveMotionTokens(energeticSignals);
+    const scores = mgScoresFor(energeticSignals);
+    const proportionStrategy = analyzeContentShape({
+      value: '90%',
+      label: 'good people',
+      quantityKind: 'percent',
+      relationKind: 'part_of_whole',
+      bounded: true,
+      polarity: 'positive',
+      salience: 0.9,
+    });
+    const negatedStrategy = analyzeContentShape({
+      value: '1/3',
+      label: 'claim being rejected',
+      quantityKind: 'fraction',
+      relationKind: 'part_of_whole',
+      bounded: true,
+      polarity: 'false',
+      negated: true,
+      refuted: true,
+    });
+
+    const proportion = planComposition(
+      {
+        kind: 'emphasis',
+        content: {
+          value: '90%',
+          label: 'good people',
+          quantityKind: 'percent',
+          relationKind: 'part_of_whole',
+          bounded: true,
+          polarity: 'positive',
+          salience: 0.9,
+        },
+        triggerMoment: 'scalar proportion',
+      },
+      tokens,
+      energeticSignals,
+      scores,
+    );
+    const negated = planComposition(
+      {
+        kind: 'emphasis',
+        content: {
+          value: '1/3',
+          label: 'claim being rejected',
+          quantityKind: 'fraction',
+          relationKind: 'part_of_whole',
+          bounded: true,
+          polarity: 'false',
+          negated: true,
+          refuted: true,
+        },
+        triggerMoment: 'negated proportion',
+      },
+      tokens,
+      energeticSignals,
+      scores,
+    );
+
+    expect(proportionStrategy.structure.evidence.proportionAffordance).toBe(true);
+    expect(proportionStrategy.structure.evidence.quantityKind).toBe('percent');
+    expect(proportionStrategy.structure.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'quantity-kind', channel: 'control', value: 'percent' }),
+      expect.objectContaining({ role: 'salience-score', channel: 'control', value: 0.9 }),
+    ]));
+    expect(proportion.elements.some((element) => element.role === 'proportion-boundary-rule')).toBe(true);
+    expect(proportion.id).toBe('composed-numeric');
+
+    expect(negatedStrategy.structure.evidence.proportionAffordance).toBe(true);
+    expect(negatedStrategy.structure.evidence.negationAffordance).toBe(true);
+    expect(negatedStrategy.structure.relations).toContainEqual({
+      type: 'refutes',
+      fromRole: 'truth-negation',
+      toRole: 'primary-value',
+    });
+    expect(negated.elements.find((element) => element.role === 'counter')?.animation).toBe('none');
+    expect(negated.elements.some((element) => element.role === 'numeric-fraction-rule')).toBe(true);
+    expect(negated.elements.some((element) => element.role === 'truth-negation-strike')).toBe(true);
+    expect(negated.elements.find((element) => element.role === 'truth-negation-strike')?.entranceOverride).toBe('draw');
+  });
+
+  it('uses support and salience atoms as form gates, not graphic labels', () => {
+    const tokens = resolveMotionTokens(energeticSignals);
+    const scores = mgScoresFor(energeticSignals);
+    const unsupported = planComposition(
+      {
+        content: {
+          value: '200%',
+          label: 'maybe improvement',
+          quantityKind: 'percent',
+          warranted: false,
+        },
+      },
+      tokens,
+      energeticSignals,
+      scores,
+    );
+    const salient = planComposition(
+      {
+        content: {
+          value: '90%',
+          label: 'good people',
+          quantityKind: 'percent',
+          relationKind: 'part_of_whole',
+          bounded: true,
+          salience: 0.95,
+          warranted: true,
+        },
+      },
+      tokens,
+      { ...energeticSignals, visual_complexity: 0.1, text_on_screen: 0.1 },
+      scores,
+    );
+
+    expect(unsupported.id).toBe('suppressed');
+    expect(salient.id).toBe('composed-numeric');
+    expect(salient.elements.find((element) => element.role === 'counter')?.entranceOverride).toBe('pop');
+    expect(salient.elements.find((element) => element.role === 'proportion-boundary-rule')?.entranceOverride).toBe('draw');
+  });
+
   it('derives an atomic structural signature before projecting legacy shape kind', () => {
     const strategy = analyzeContentShape({
       value: '47%',
@@ -209,11 +380,13 @@ describe('MG spine usability', () => {
   it('infers data-viz form in the structural signature before planning', () => {
     const bar = analyzeContentShape({ values: [12, 19, 31, 47], labels: ['Q1', 'Q2', 'Q3', 'Q4'] });
     const ring = analyzeContentShape({ values: [72], labels: ['Progress'] });
+    const arbitraryScalar = analyzeContentShape({ values: [0.02], labels: ['human beings per day'] });
     const spark = analyzeContentShape({ values: [12, 19, 31, 47, 51], labels: ['A', 'B', 'C', 'D', 'E'] });
     const ranked = analyzeContentShape({ values: [92, 78, 64, 51, 33], labels: ['A', 'B', 'C', 'D', 'E'] });
 
     expect(bar.structure.evidence.dataSeriesVisualForm).toBe('bar-chart');
     expect(ring.structure.evidence.dataSeriesVisualForm).toBe('percentage-ring');
+    expect(arbitraryScalar.structure.evidence.dataSeriesVisualForm).toBe('bar-chart');
     expect(spark.structure.evidence.dataSeriesVisualForm).toBe('sparkline');
     expect(ranked.structure.evidence.dataSeriesVisualForm).toBe('bar-chart');
     expect(spark.structure.evidence.seriesCardinality).toBe(5);

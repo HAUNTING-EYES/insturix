@@ -199,6 +199,101 @@ describe('EDL Path E+D merge', () => {
     expect(scaleTrack).toBeUndefined();
   });
 
+  it('does not let utility transition scoring erase explicit Path E transition intent', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = [
+      {
+        id: 601,
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 100,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/a.mp4',
+        src: 'https://example.com/a.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+      {
+        id: 602,
+        type: OverlayType.VIDEO,
+        from: 100,
+        durationInFrames: 100,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/b.mp4',
+        src: 'https://example.com/b.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+    ];
+
+    const edl: EditDecisionList = {
+      projectId: 'path-e-d-transition-intent-test',
+      generatedAt: new Date('2026-06-07T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [
+        {
+          type: 'transition',
+          frame: 100,
+          durationFrames: 20,
+          priority: 3,
+          source: 'creative-brief:closing_zone:word',
+          signal: 'closing_zone',
+          reason: 'Path E requested a chapter-ending visual fade',
+          confidence: 0.95,
+          technique: 'transition_fade_to_black',
+          params: {
+            transitionType: 'dip-to-black',
+            creativeDecisionType: 'transition_fade_to_black',
+            signals: {
+              speech_coverage: 0.7584,
+              'speech.coverage': 0.7584,
+              face_present: 0,
+              'visual.face_present': 0,
+              formality: 0.4,
+            },
+          },
+        } as any,
+      ],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 1,
+        graphicCount: 0,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.95,
+      },
+    };
+
+    await executeEDL(edl, 'path-e-d-transition-intent-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(edl.decisions[0].params.atomicUtilityScoring).toMatchObject({
+      category: 'transition',
+      winner: {
+        outputValues: {
+          transitionType: 'l-cut',
+        },
+      },
+    });
+    expect(edl.decisions[0].params.transitionType).toBe('dip-to-black');
+
+    const transition = overlays.find((overlay) => overlay.type === 'transition') as any;
+    expect(transition?.transitionStyle).toBe('dip-to-black');
+    expect(transition?.metadata.transitionType).toBe('dip-to-black');
+    expect(transition?.metadata.atomicTransitionForm.compatibilityType).toBe('dip-to-black');
+  });
+
   it('does not add a duplicate D utility zoom near an existing Path E zoom', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -343,6 +438,78 @@ describe('EDL Path E+D merge', () => {
     expect(graphic?.recipe.id).toBe('composed-structured');
   });
 
+  it('uses atomic graphic content and word timing instead of defaulting every MG to 90 frames', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = [
+      {
+        id: 701,
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 180,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/source.mp4',
+        src: 'https://example.com/source.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+    ];
+
+    const edl: EditDecisionList = {
+      projectId: 'path-e-d-graphic-duration-test',
+      generatedAt: new Date('2026-06-08T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [
+        {
+          type: 'graphic',
+          frame: 60,
+          priority: 3,
+          source: 'creative-brief:test',
+          signal: 'number',
+          reason: 'Scalar stat should be readable but not bleed across the next phrase',
+          confidence: 0.95,
+          params: {
+            value: '0.02',
+            label: 'human beings per day',
+            creativeDecisionType: 'graphic_stat_counter',
+            targetWordStartMs: 2000,
+            targetWordEndMs: 2250,
+            signals: {
+              speech_energy: 0.85,
+              visceral_impact: 0.75,
+              enthusiasm: 0.7,
+              formality: 0.4,
+            },
+          },
+        } as any,
+      ],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 1,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.95,
+      },
+    };
+
+    await executeEDL(edl, 'path-e-d-graphic-duration-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    const graphic = overlays.find((overlay: any) => overlay.metadata?.sourceType === 'edl-graphic') as any;
+    expect(graphic?.metadata.graphicType).toBe('atomic-graphic');
+    expect(graphic?.durationInFrames).toBeLessThan(90);
+    expect(graphic?.durationInFrames).toBeGreaterThanOrEqual(36);
+    expect(graphic?.recipe.id).toBe('composed-numeric');
+    expect(graphic?.recipe.elements.some((element: any) => element.primitive === 'data-viz')).toBe(false);
+    expect(graphic?.recipe.elements.some((element: any) => element.role === 'counter')).toBe(true);
+  });
+
   it('keeps naked keyword emphasis in captions instead of creating weak standalone MGs', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -418,6 +585,70 @@ describe('EDL Path E+D merge', () => {
     };
 
     await executeEDL(edl, 'path-e-d-naked-keyword-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(overlays.some((overlay: any) => overlay.metadata?.sourceType === 'edl-graphic')).toBe(false);
+  });
+
+  it('skips Path E keyword-only atomic graphics even after graphicType is removed', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = [
+      {
+        id: 801,
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 120,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/source.mp4',
+        src: 'https://example.com/source.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+    ];
+
+    const edl: EditDecisionList = {
+      projectId: 'path-e-d-atomic-keyword-skip-test',
+      generatedAt: new Date('2026-06-09T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [
+        {
+          type: 'graphic',
+          frame: 48,
+          durationFrames: 60,
+          priority: 2,
+          source: 'creative-brief:test',
+          signal: 'emphasis',
+          reason: 'Path E keyword-only MG should stay in captions',
+          confidence: 0.9,
+          technique: 'graphic_keyword_highlight',
+          params: {
+            text: 'people',
+            keyword: 'people',
+            creativeDecisionType: 'graphic_keyword_highlight',
+            signals: {
+              speech_energy: 0.88,
+              word_importance: 0.82,
+            },
+          },
+        } as any,
+      ],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 1,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.9,
+      },
+    };
+
+    await executeEDL(edl, 'path-e-d-atomic-keyword-skip-test', 'user-1', overlays, { width: 1920, height: 1080 });
 
     expect(overlays.some((overlay: any) => overlay.metadata?.sourceType === 'edl-graphic')).toBe(false);
   });

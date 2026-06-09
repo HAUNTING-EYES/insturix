@@ -30,8 +30,8 @@ export function analyzeContentShape(
     structure,
     suggestedLayout: layoutForShape(primary, signals),
     suggestedExitStyle: exitStyleForShape(primary, signals),
-    complexityBudget: computeComplexityBudget(signals),
-    holdDurationFrames: computeHoldDuration(signals),
+    complexityBudget: computeComplexityBudget(signals, structure),
+    holdDurationFrames: computeHoldDuration(signals, structure),
   };
 }
 
@@ -50,9 +50,25 @@ export function deriveContentStructure(content: Record<string, unknown>): Conten
 
   if (hasNumericValue(content)) {
     addPart('primary-value', 'scalar', 'value', String(content.value));
+    const quantityKind = stringContent(content, 'quantityKind');
+    const quantityUnit = stringContent(content, 'unit') ?? stringContent(content, 'quantityUnit');
+    const bounded = booleanContent(content, 'bounded') ?? booleanContent(content, 'hasBoundedRange');
+    const denominator = numberContent(content, 'denominator');
+    if (quantityKind) addPart('quantity-kind', 'control', 'quantityKind', quantityKind, 0.82);
+    if (quantityUnit) addPart('quantity-unit', 'control', quantityUnit === stringContent(content, 'unit') ? 'unit' : 'quantityUnit', quantityUnit, 0.78);
+    if (bounded !== undefined) addPart('quantity-bounds', 'control', content.bounded !== undefined ? 'bounded' : 'hasBoundedRange', bounded, 0.76);
+    if (denominator !== undefined) addPart('quantity-bounds', 'control', 'denominator', denominator, 0.72);
     if (content.label != null) {
       addPart('supporting-label', 'text', 'label', String(content.label), 0.9);
       relations.push({ type: 'label-of', fromRole: 'supporting-label', toRole: 'primary-value' });
+    }
+    const relationKind = stringContent(content, 'relationKind') ?? stringContent(content, 'relation');
+    if (isPartOfWholeRelation(relationKind, quantityKind, String(content.label ?? ''), String(content.value ?? ''))) {
+      relations.push({
+        type: 'part-of-whole',
+        fromRole: 'primary-value',
+        toRole: quantityKind ? 'quantity-kind' : content.label != null ? 'supporting-label' : 'primary-value',
+      });
     }
   }
 
@@ -126,6 +142,24 @@ export function deriveContentStructure(content: Record<string, unknown>): Conten
     if (keyword) relations.push({ type: 'context-for', fromRole: 'context-phrase', toRole: 'keyword' });
   }
 
+  const polarity = stringContent(content, 'polarity');
+  const negated = booleanContent(content, 'negated');
+  const refuted = booleanContent(content, 'refuted');
+  const salience = numberContent(content, 'salience');
+  const warranted = booleanContent(content, 'warranted');
+  const captionRedundancy = numberContent(content, 'captionRedundancy');
+  const negationSignal = negated === true || refuted === true || polarity === 'false' || polarity === 'negative';
+  if (polarity) addPart('truth-polarity', 'control', 'polarity', polarity, 0.78);
+  if (negated !== undefined) addPart('truth-negation', 'control', 'negated', negated, 0.8);
+  if (refuted !== undefined) addPart('truth-negation', 'control', 'refuted', refuted, 0.82);
+  if (negationSignal && negated === undefined && refuted === undefined) addPart('truth-negation', 'control', 'polarity', true, 0.76);
+  if (salience !== undefined) addPart('salience-score', 'control', 'salience', salience, 0.72);
+  if (warranted !== undefined) addPart('warranted-state', 'control', 'warranted', warranted, 0.7);
+  if (captionRedundancy !== undefined) addPart('caption-redundancy', 'control', 'captionRedundancy', captionRedundancy, 0.68);
+  if (negationSignal && hasNumericValue(content)) {
+    relations.push({ type: 'refutes', fromRole: 'truth-negation', toRole: 'primary-value' });
+  }
+
   if (parts.length === 0 && typeof content.text === 'string') {
     addPart('emphasis-text', 'text', 'text', content.text, 0.8);
   }
@@ -161,8 +195,10 @@ export function deriveContentStructure(content: Record<string, unknown>): Conten
       hasMedia: !!channels.media,
       hasRelation: !!channels.relation,
       hasBrand: !!channels.brand || !!relations.find((r) => r.type === 'brand-mark'),
+      hasControl: !!channels.control,
       partCount: parts.length,
       relationCount: relations.length,
+      ...structuralControlEvidence(content, parts, relations),
       ...(seriesAnalysis.seriesCardinality > 0 ? seriesAnalysis : {}),
     },
     primaryChannel: choosePrimaryChannel(channels),
@@ -280,6 +316,83 @@ function choosePrimaryChannel(
   return 'text';
 }
 
+function structuralControlEvidence(
+  content: Record<string, unknown>,
+  parts: ContentStructurePart[],
+  relations: ContentStructureRelation[],
+): Record<string, number | string | boolean> {
+  const quantityKind = stringContent(content, 'quantityKind');
+  const quantityUnit = stringContent(content, 'unit') ?? stringContent(content, 'quantityUnit');
+  const boundedRange = booleanContent(content, 'bounded') ?? booleanContent(content, 'hasBoundedRange');
+  const denominator = numberContent(content, 'denominator');
+  const polarity = stringContent(content, 'polarity');
+  const negated = booleanContent(content, 'negated');
+  const refuted = booleanContent(content, 'refuted');
+  const salience = numberContent(content, 'salience');
+  const warranted = booleanContent(content, 'warranted');
+  const captionRedundancy = numberContent(content, 'captionRedundancy');
+  const hasProportion = relations.some((relation) => relation.type === 'part-of-whole')
+    || quantityKind === 'percent'
+    || quantityKind === 'percentage'
+    || quantityKind === 'fraction'
+    || quantityKind === 'ratio';
+
+  return {
+    ...(quantityKind ? { quantityKind } : {}),
+    ...(quantityUnit ? { quantityUnit } : {}),
+    ...(boundedRange !== undefined ? { boundedRange } : {}),
+    ...(denominator !== undefined ? { denominator } : {}),
+    ...(polarity ? { polarity } : {}),
+    ...(negated !== undefined ? { negated } : {}),
+    ...(refuted !== undefined ? { refuted } : {}),
+    ...(salience !== undefined ? { salience } : {}),
+    ...(warranted !== undefined ? { warranted } : {}),
+    ...(captionRedundancy !== undefined ? { captionRedundancy } : {}),
+    ...(hasProportion ? { proportionAffordance: true } : {}),
+    ...((negated === true || refuted === true || polarity === 'false' || polarity === 'negative') ? { negationAffordance: true } : {}),
+    ...(parts.some((part) => part.role === 'salience-score') ? { hasSalienceAtom: true } : {}),
+  };
+}
+
+function isPartOfWholeRelation(
+  relationKind: string | undefined,
+  quantityKind: string | undefined,
+  label: string,
+  value: string,
+): boolean {
+  const relation = String(relationKind ?? '').toLowerCase().replace(/_/g, '-');
+  if (relation === 'part-of-whole' || relation === 'proportion' || relation === 'share') return true;
+  const kind = String(quantityKind ?? '').toLowerCase();
+  if (kind === 'percent' || kind === 'percentage' || kind === 'fraction' || kind === 'ratio') return true;
+  return /%|^\d[\d.]*\/\d[\d.]*$/.test(value) || /\b(percent|percentage|share|portion|of total|out of)\b/i.test(label);
+}
+
+function stringContent(content: Record<string, unknown>, key: string): string | undefined {
+  const value = content[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function numberContent(content: Record<string, unknown>, key: string): number | undefined {
+  const value = content[key];
+  if (typeof value === 'number' && isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function booleanContent(content: Record<string, unknown>, key: string): boolean | undefined {
+  const value = content[key];
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const text = value.trim().toLowerCase();
+    if (text === 'true') return true;
+    if (text === 'false') return false;
+  }
+  return undefined;
+}
+
 interface DataSeriesStructureAnalysis {
   dataSeriesVisualForm?: DataSeriesVisualForm;
   seriesCardinality: number;
@@ -327,10 +440,15 @@ export function inferDataSeriesVisualForm(values: number[], labels?: string[]): 
     ranked: values.length > 1 && values.slice(1).every((value, index) => value <= values[index]) && !!labels?.length,
   };
 
-  if (values.length === 1 && values[0] >= 0 && values[0] <= 100) return 'percentage-ring';
+  if (values.length === 1 && values[0] >= 0 && values[0] <= 100 && isPartOfWholeSeries(labels)) return 'percentage-ring';
   if (analysis?.ranked || values.length <= 4) return 'bar-chart';
   if (values.length >= 5) return 'sparkline';
   return 'bar-chart';
+}
+
+function isPartOfWholeSeries(labels?: string[]): boolean {
+  const text = (labels ?? []).join(' ').toLowerCase();
+  return /\b(percent|percentage|progress|completion|complete|share|portion|ratio|coverage|of total)\b/.test(text);
 }
 
 // Stat values arrive in several display forms. count-up animation only makes sense for a plain
@@ -349,14 +467,54 @@ const MAGNITUDE_VALUE_RE = /^[$€£¥₹]?\d[\d,]*\.?\d*[KMBTkmbtx×]$/; // 100
 // this these fell through to free-text → a BLANK graphic; a stat with no number is the worst outcome.
 const STATIC_NUMERIC_RE = /^[\d.,:/%×xX()$€£¥₹+\- ]+$/;
 
-function numericValueForm(value: unknown): 'countable' | 'static' | null {
+export type NumericValueForm =
+  | 'integer'
+  | 'decimal'
+  | 'tiny-decimal'
+  | 'percent'
+  | 'currency'
+  | 'fraction'
+  | 'ratio'
+  | 'magnitude'
+  | 'signed'
+  | 'range'
+  | 'static';
+
+export interface NumericValueAnalysis {
+  form: NumericValueForm;
+  canCountUp: boolean;
+  exactText: string;
+}
+
+export function analyzeNumericValueForm(value: unknown): NumericValueAnalysis | null {
   if (value == null) return null;
   const str = String(value).replace(/\s/g, '');
-  if (!/\d/.test(str)) return null; // must contain a digit (anchored REs reject prose)
-  if (COUNTABLE_VALUE_RE.test(str)) return 'countable';
-  if (FRACTION_VALUE_RE.test(str) || RATIO_VALUE_RE.test(str) || MAGNITUDE_VALUE_RE.test(str)) return 'static';
-  if (STATIC_NUMERIC_RE.test(str)) return 'static'; // negative / EU / accounting / range / signed → exact static stat
+  if (!/\d/.test(str)) return null;
+  if (FRACTION_VALUE_RE.test(str)) return { form: 'fraction', canCountUp: false, exactText: str };
+  if (RATIO_VALUE_RE.test(str)) return { form: 'ratio', canCountUp: false, exactText: str };
+  if (MAGNITUDE_VALUE_RE.test(str)) return { form: 'magnitude', canCountUp: false, exactText: str };
+  if (COUNTABLE_VALUE_RE.test(str)) {
+    const plain = str.replace(/[,$%]/g, '');
+    const numeric = Number(plain.replace(/[^\d.-]/g, ''));
+    const isPercent = /%$/.test(str);
+    const isCurrency = /^[^\d]/.test(str) && !/^[+\-]/.test(str);
+    const hasDecimal = /\./.test(plain);
+    if (isPercent) return { form: 'percent', canCountUp: Math.abs(numeric) >= 1, exactText: str };
+    if (isCurrency) return { form: 'currency', canCountUp: Math.abs(numeric) >= 1, exactText: str };
+    if (hasDecimal && Math.abs(numeric) < 1) return { form: 'tiny-decimal', canCountUp: false, exactText: str };
+    if (hasDecimal) return { form: 'decimal', canCountUp: true, exactText: str };
+    return { form: 'integer', canCountUp: true, exactText: str };
+  }
+  if (/^[+\-]/.test(str) || /^\(.+\)$/.test(str)) return { form: 'signed', canCountUp: false, exactText: str };
+  if (/^\d[\d,.]*-\d[\d,.]*$/.test(str)) return { form: 'range', canCountUp: false, exactText: str };
+  if (STATIC_NUMERIC_RE.test(str)) return { form: 'static', canCountUp: false, exactText: str };
   return null;
+}
+
+function numericValueForm(value: unknown): 'countable' | 'static' | null {
+  const analysis = analyzeNumericValueForm(value);
+  if (!analysis) return null;
+  return analysis.canCountUp ? 'countable' : 'static';
 }
 
 function hasNumericValue(content: Record<string, unknown>): boolean {
@@ -416,7 +574,8 @@ function exitStyleForShape(
   }
 }
 
-function computeComplexityBudget(signals?: Partial<PlannerSignals>): number {
+function computeComplexityBudget(signals?: Partial<PlannerSignals>, structure?: ContentStructureSignature): number {
+  if (structure?.evidence.warranted === false && structure.evidence.negationAffordance !== true) return 0;
   if (!signals) return DEFAULT_COMPLEXITY;
   const s = signals as Record<string, unknown>;
   const num = (k: string): number => (typeof s[k] === 'number' && isFinite(s[k] as number) ? (s[k] as number) : 0);
@@ -452,13 +611,32 @@ function computeComplexityBudget(signals?: Partial<PlannerSignals>): number {
   // ⚠️ threshold 0.7 INVENTED
   if (num('visual_significance') > 0.7) budget = Math.max(1, budget - 2);
 
+  const salience = typeof structure?.evidence.salience === 'number' ? structure.evidence.salience : 0;
+  if (salience >= 0.85) budget = Math.max(budget, 4);
+  else if (salience >= 0.65) budget = Math.max(budget, 3);
+
+  const captionRedundancy = typeof structure?.evidence.captionRedundancy === 'number'
+    ? structure.evidence.captionRedundancy
+    : 0;
+  const isPureText = structure?.evidence.hasScalar !== true
+    && structure?.evidence.hasSeries !== true
+    && structure?.evidence.hasRelation !== true
+    && structure?.evidence.hasIdentity !== true;
+  if (captionRedundancy >= 0.8 && isPureText) budget = Math.min(budget, 1);
+
   return Math.min(5, Math.max(1, budget));
 }
 
-function computeHoldDuration(signals?: Partial<PlannerSignals>): number {
+function computeHoldDuration(signals?: Partial<PlannerSignals>, structure?: ContentStructureSignature): number {
   if (!signals) return DEFAULT_HOLD_FRAMES;
   const wpm = (signals as Record<string, unknown>).speaking_rate_wpm;
-  if (typeof wpm !== 'number' || wpm <= 0) return DEFAULT_HOLD_FRAMES;
+  if (typeof wpm !== 'number' || wpm <= 0) {
+    return structure?.evidence.salience === 1 || (typeof structure?.evidence.salience === 'number' && structure.evidence.salience >= 0.85)
+      ? DEFAULT_HOLD_FRAMES + 12
+      : DEFAULT_HOLD_FRAMES;
+  }
   const clamped = Math.max(80, Math.min(220, wpm));
-  return Math.round(180 - (clamped - 80) * (120 / 140));
+  const base = Math.round(180 - (clamped - 80) * (120 / 140));
+  const salience = typeof structure?.evidence.salience === 'number' ? structure.evidence.salience : 0;
+  return salience >= 0.85 ? Math.min(120, base + 12) : base;
 }

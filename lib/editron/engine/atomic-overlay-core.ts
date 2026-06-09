@@ -1041,7 +1041,7 @@ function buildAtomicTextForm(
   atoms: AtomicOverlayAtom[],
   ctx: AtomicVisualContext,
 ): AtomicTextForm | undefined {
-  if (family !== 'text' && family !== 'caption') return undefined;
+  if (family !== 'text' && family !== 'caption' && family !== 'motion-graphic') return undefined;
 
   const display = textDisplayFromAtoms(atoms);
   const rawText = stringAtom(atoms, 'text-content') ?? captionTextFromAtoms(atoms);

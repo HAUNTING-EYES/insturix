@@ -254,6 +254,7 @@ function dataShapeForRole(role: string): AtomicStructure['dataShape'] {
   if (role === 'bar-chart') return 'bar-chart';
   if (role === 'percentage-ring') return 'percentage-ring';
   if (role === 'sparkline') return 'sparkline';
+  if (role === 'proportion-boundary-rule') return 'percentage-ring';
   return undefined;
 }
 

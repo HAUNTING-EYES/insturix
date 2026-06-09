@@ -215,7 +215,8 @@ export type ContentPrimitiveChannel =
   | 'identity'
   | 'media'
   | 'relation'
-  | 'brand';
+  | 'brand'
+  | 'control';
 
 export type ContentPartRole =
   | 'primary-value'
@@ -236,18 +237,26 @@ export type ContentPartRole =
   | 'keyword'
   | 'context-phrase'
   | 'emphasis-text'
+  | 'quantity-kind'
+  | 'quantity-unit'
+  | 'quantity-bounds'
+  | 'truth-polarity'
+  | 'truth-negation'
+  | 'salience-score'
+  | 'warranted-state'
+  | 'caption-redundancy'
   | 'fallback-text';
 
 export interface ContentStructurePart {
   role: ContentPartRole;
   channel: ContentPrimitiveChannel;
   sourceKey: string;
-  value?: string | number | string[] | number[];
+  value?: string | number | boolean | string[] | number[];
   confidence: number;
 }
 
 export interface ContentStructureRelation {
-  type: 'label-of' | 'title-of' | 'authored-by' | 'compares' | 'brand-mark' | 'portrait-of' | 'contains-list' | 'context-for';
+  type: 'label-of' | 'title-of' | 'authored-by' | 'compares' | 'brand-mark' | 'portrait-of' | 'contains-list' | 'context-for' | 'part-of-whole' | 'qualified-by' | 'refutes';
   fromRole: ContentPartRole;
   toRole: ContentPartRole;
 }

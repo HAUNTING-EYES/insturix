@@ -1255,7 +1255,10 @@ function mergeUtilityOutputValues(
   }
 
   if (category === 'transition') {
-    copy('transitionType');
+    // Path E's semantic transition intent is already normalized by brief-executor
+    // (for example transition_fade_to_black -> dip-to-black). Utility curves may
+    // fill missing form hints, but must not erase that explicit intent.
+    copy('transitionType', 'fill');
     copy('durationFrames');
     return;
   }
@@ -2296,6 +2299,70 @@ function hasContextualGraphicEvidence(params: Record<string, unknown>): boolean 
   });
 }
 
+function isKeywordGraphicIntent(decision: EditDecision, graphicType: string): boolean {
+  return graphicType === 'keyword-highlight'
+    || decision.params.creativeDecisionType === 'graphic_keyword_highlight';
+}
+
+function graphicTypeFromCreativeDecisionType(value: unknown): string | undefined {
+  switch (value) {
+    case 'graphic_stat_counter':
+      return 'stat-counter';
+    case 'graphic_lower_third':
+      return 'lower-third';
+    case 'graphic_quote_card':
+      return 'quote-card';
+    case 'graphic_logo_reveal':
+      return 'logo-reveal';
+    case 'graphic_callout':
+      return 'callout';
+    case 'graphic_keyword_highlight':
+      return 'keyword-highlight';
+    default:
+      return undefined;
+  }
+}
+
+function resolveGraphicDwellFrames(
+  baseDurationFrames: number,
+  params: Record<string, unknown>,
+  content: Record<string, unknown>,
+): number {
+  const base = Math.max(30, Math.round(baseDurationFrames || 90));
+  const isScalarStat = content.value != null && !Array.isArray(content.values);
+  const maxDwell = isScalarStat ? Math.min(base, 72) : base;
+  const words = readableGraphicWords(content);
+  const readFrames = words > 0
+    ? Math.max(36, Math.min(maxDwell, Math.round(12 + words * 10)))
+    : maxDwell;
+  const startMs = readNumber(params, 'targetWordStartMs');
+  const endMs = readNumber(params, 'targetWordEndMs');
+
+  if (startMs != null && endMs != null && endMs > startMs) {
+    const wordFrames = Math.round(((endMs - startMs) / 1000) * DEFAULT_CONFIG.timing.fps);
+    return Math.max(36, Math.min(maxDwell, Math.max(readFrames, wordFrames + 24)));
+  }
+
+  return readFrames;
+}
+
+function readableGraphicWords(content: Record<string, unknown>): number {
+  const text = [
+    content.value,
+    content.label,
+    content.title,
+    content.body,
+    content.quote,
+    content.name,
+    content.text,
+  ]
+    .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
+    .map(String)
+    .join(' ')
+    .trim();
+  return text ? text.split(/\s+/).filter(Boolean).length : 0;
+}
+
 async function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
@@ -2326,7 +2393,7 @@ async function applyGraphic(
     : 'atomic-graphic';
   const hasContent = text || decision.params.name || decision.params.value || decision.params.quote || decision.params.title;
   if (!hasContent) return null;
-  if (graphicType === 'keyword-highlight' && !hasContextualGraphicEvidence(decision.params)) {
+  if (isKeywordGraphicIntent(decision, graphicType) && !hasContextualGraphicEvidence(decision.params)) {
     console.log(`[EDL-Exec] KEYWORD FILTER: skipped standalone keyword MG "${text}" - captions should carry naked word emphasis`);
     return null;
   }
@@ -2334,7 +2401,7 @@ async function applyGraphic(
   // ── RC-8 FIX: Filler/vague word filter for keyword-highlights ──
   // A professional editor would NEVER highlight "good", "stuff", "thing".
   // ⚠️ INVENTED banned list — needs calibration against real video transcripts.
-  if (graphicType === 'keyword-highlight' && text) {
+  if (isKeywordGraphicIntent(decision, graphicType) && text) {
     const BANNED_KEYWORDS = new Set([
       'good', 'bad', 'thing', 'things', 'stuff', 'like', 'really', 'very',
       'just', 'actually', 'basically', 'literally', 'pretty', 'kind', 'sort',
@@ -2395,7 +2462,11 @@ async function applyGraphic(
   // graphicsDensity comes from genre-parameter-computer (entity_rate + formality).
   const KW_DURATION: Record<string, number> = { minimal: 90, moderate: 72, heavy: 55 };
   GRAPHIC_DURATIONS['keyword-highlight'] = KW_DURATION[graphicsDensity || 'moderate'] || 72;
-  let duration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
+  const durationGraphicType = graphicTypeFromCreativeDecisionType(decision.params.creativeDecisionType);
+  let duration = decision.durationFrames
+    || GRAPHIC_DURATIONS[graphicType]
+    || (durationGraphicType ? GRAPHIC_DURATIONS[durationGraphicType] : undefined)
+    || 90;
 
   // ── COMPOSITION ENGINE PATH (feature flag) ──
   // When enabled, ALL graphic types route through planComposition → MOTION_GRAPHIC (Remotion).
@@ -2439,8 +2510,9 @@ async function applyGraphic(
           ]);
           const propDefs = allMgDefs.filter(d => !SELECTION_IDS.has(d.id));
           const selDefs = allMgDefs.filter(d => SELECTION_IDS.has(d.id));
-          const propResults = scoreAllOverlays(propDefs, rawSignals, 'additive');
-          const selResults = scoreAllOverlays(selDefs, rawSignals, 'multiplicative');
+          const scoringSignals = buildUtilitySignalSnapshot(rawSignals);
+          const propResults = scoreAllOverlays(propDefs, scoringSignals, 'additive');
+          const selResults = scoreAllOverlays(selDefs, scoringSignals, 'multiplicative');
           mgScores = {};
           for (const r of [...propResults, ...selResults]) {
             mgScores[r.overlayId] = { score: r.totalScore, values: r.outputValues };
@@ -2479,7 +2551,7 @@ async function applyGraphic(
     const atomicOverlayDecision = decideAtomicOverlay(atomicOverlayPlan);
 
     const snappedFrame = findClipAtFrame(decision.frame, overlays, 20)?.snappedFrame ?? decision.frame;
-    const compositionDuration = decision.durationFrames || GRAPHIC_DURATIONS[graphicType] || 90;
+    const compositionDuration = resolveGraphicDwellFrames(duration, decision.params, contentMap);
 
     const motionOverlay = {
       id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),

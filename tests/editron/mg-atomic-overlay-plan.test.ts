@@ -92,7 +92,7 @@ describe('atomic overlay plan', () => {
     expect(counter!.typography?.family).toBe('JetBrains Mono');
     expect(counter!.typography?.sizePx).toBe(96);
     expect(counter!.typography?.lineHeight).toBe(1.08);
-    expect(counter!.color.text).toBe(tokens.color.textPrimary);
+    expect(counter!.color.text).toBe(tokens.color.accent);
     expect(counter!.color.accent).toBe('#00ff00');
     expect(counter!.motion.coordinateSystem).toBe('screen-xyz');
     expect(counter!.motion.neutralPosition).toEqual({ x: 0, y: 0, z: 0 });
