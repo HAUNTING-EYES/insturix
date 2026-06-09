@@ -507,7 +507,7 @@ export class ProjectService {
     sortOrder[sortBy] = sortBy === 'name' ? 1 : -1;
 
     const projects = await collection
-      .find({ userId }, { allowDiskUse: true })
+      .find({ userId })
       .project({
         projectId: 1,
         name: 1,
@@ -522,6 +522,7 @@ export class ProjectService {
         sourceSessionId: 1,
       })
       .sort(sortOrder)
+      .allowDiskUse(true)
       .skip(skip)
       .limit(limit)
       .toArray() as unknown as ProjectListItem[];
@@ -566,7 +567,7 @@ export class ProjectService {
     sortOrder[sortBy] = sortBy === 'name' ? 1 : -1;
 
     const projects = await collection
-      .find(query, { allowDiskUse: true })
+      .find(query)
       .project({
         projectId: 1,
         name: 1,
@@ -579,6 +580,7 @@ export class ProjectService {
         userId: 1,
       })
       .sort(sortOrder)
+      .allowDiskUse(true)
       .skip(skip)
       .limit(limit)
       .toArray() as unknown as ProjectListItem[];
