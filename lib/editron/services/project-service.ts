@@ -507,7 +507,7 @@ export class ProjectService {
     sortOrder[sortBy] = sortBy === 'name' ? 1 : -1;
 
     const projects = await collection
-      .find({ userId })
+      .find({ userId }, { allowDiskUse: true })
       .project({
         projectId: 1,
         name: 1,
@@ -566,7 +566,7 @@ export class ProjectService {
     sortOrder[sortBy] = sortBy === 'name' ? 1 : -1;
 
     const projects = await collection
-      .find(query)
+      .find(query, { allowDiskUse: true })
       .project({
         projectId: 1,
         name: 1,
