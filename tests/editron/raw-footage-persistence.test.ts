@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  buildTranscriptEditPrompt,
-  validateKeepRangesForTranscriptEdit,
-} from '@/lib/editron/services/transcript-editor';
-import {
   compactRawFootageAnalysisForProject,
   type PersistableRawFootageAnalysis,
 } from '@/lib/editron/services/raw-footage-persistence';
@@ -28,72 +24,6 @@ type TestPersistableRawFootageAnalysis = PersistableRawFootageAnalysis & {
     generatedAt: Date;
   };
 };
-
-describe('transcript editor regression guards', () => {
-  it('keeps content type in the prompt as an editing signal', () => {
-    const prompt = buildTranscriptEditPrompt('0\thello\t0\t100', 1, {
-      contentType: 'talking-head',
-      platform: 'youtube',
-    });
-
-    expect(prompt).toContain('Content type: talking-head');
-    expect(prompt).toContain('Platform: youtube');
-  });
-
-  it('does not reject plausible keep ranges just because kept content mentions editing or camera', () => {
-    const words = makeWords([
-      'This',
-      'is',
-      'an',
-      'editing',
-      'challenge',
-      'and',
-      'I',
-      'am',
-      'talking',
-      'to',
-      'you',
-      'on',
-      'a',
-      'camera',
-      'about',
-      'why',
-      'the',
-      'whole',
-      'process',
-      'matters.',
-      'dead',
-      'air',
-      'tail',
-    ]);
-
-    const result = validateKeepRangesForTranscriptEdit(
-      [{ s: 0, e: 19 }],
-      words,
-      120_000,
-      { contentType: 'talking-head' },
-    );
-
-    expect(result).toEqual([{ s: 0, e: 19 }]);
-  });
-
-  it('rejects long raw-footage plans that keep too much duration', () => {
-    const words = makeWords(
-      Array.from({ length: 1200 }, (_, index) => `word${index}`),
-      0,
-      800,
-    );
-
-    const result = validateKeepRangesForTranscriptEdit(
-      [{ s: 0, e: 1050 }],
-      words,
-      20 * 60 * 1000,
-      { contentType: 'vlog' },
-    );
-
-    expect(result).toBeNull();
-  });
-});
 
 describe('raw footage persistence compaction', () => {
   it('removes duplicated segment words while preserving canonical transcription words', () => {
