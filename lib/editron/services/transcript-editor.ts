@@ -241,8 +241,7 @@ export function validateKeepRangesForTranscriptEdit(
   }
 
   if (keptTextContainsProductionMeta(sorted, words)) {
-    console.warn('[TranscriptEditor] Keep-ranges include production meta — validation failed');
-    return null;
+    console.warn('[TranscriptEditor] Keep-ranges include production-meta language; preserving transcript-editor result because production-meta semantics are prompt/editor decisions, not regex validation');
   }
 
   if (

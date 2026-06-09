@@ -40,38 +40,41 @@ describe('transcript editor regression guards', () => {
     expect(prompt).toContain('Platform: youtube');
   });
 
-  it('rejects keep ranges that preserve production meta', () => {
+  it('does not reject plausible keep ranges just because kept content mentions editing or camera', () => {
     const words = makeWords([
-      'Hello!',
+      'This',
+      'is',
+      'an',
+      'editing',
+      'challenge',
+      'and',
       'I',
-      'think',
-      'my',
-      'mic',
-      'is',
+      'am',
+      'talking',
+      'to',
+      'you',
       'on',
-      'let',
-      'me',
-      'check.',
-      'Real',
-      'content',
-      'starts',
-      'now.',
-      'Here',
-      'is',
+      'a',
+      'camera',
+      'about',
+      'why',
       'the',
-      'actual',
-      'point',
-      'today.',
+      'whole',
+      'process',
+      'matters.',
+      'dead',
+      'air',
+      'tail',
     ]);
 
     const result = validateKeepRangesForTranscriptEdit(
-      [{ s: 0, e: 13 }],
+      [{ s: 0, e: 19 }],
       words,
       120_000,
       { contentType: 'talking-head' },
     );
 
-    expect(result).toBeNull();
+    expect(result).toEqual([{ s: 0, e: 19 }]);
   });
 
   it('rejects long raw-footage plans that keep too much duration', () => {
