@@ -670,7 +670,7 @@ export function buildSignalTimeline(
 
   // V-JEPA face coverage (if available)
   const vjFace = hasVjepa && vjepaSegments?.length
-    ? vjepaSegments.filter(s => (s.eyeContact ?? 0) > 0.3 || s.faceEmotion != null).length / vjepaSegments.length
+    ? vjepaSegments.filter(s => s.eyeContact === true || s.faceEmotion != null).length / vjepaSegments.length
     : (speechCov > 0.3 ? 0.5 : 0.2); // ⚠️ INVENTED fallback
 
   // enthusiasm ← vocal energy + emotion boost. Fallback: speechCoverage proxy.
@@ -1142,7 +1142,7 @@ function getBrightnessStabilityAt(analysis: AssetAnalysis, frame: number): numbe
   return Math.max(0, 1 - delta * 3);
 }
 
-function computeVES(snapshot: Record<string, number | boolean | string>): number {
+function computeVES(snapshot: SignalSnapshot): number {
   let weightSum = 0;
   let valueSum = 0;
   const components: Array<{ key: string; weight: number }> = [
@@ -1183,15 +1183,48 @@ export function buildSignalTimelineFromAnalysis(
 
   for (const seg of segmentAnalysis.segments) {
     if (seg.visual) {
+      const visual = seg.visual;
+      const mainSubject = visual.mainSubject ?? {
+        x: visual.mainSubjectX ?? 0,
+        y: visual.mainSubjectY ?? 0,
+        width: visual.mainSubjectWidth ?? 0,
+        height: visual.mainSubjectHeight ?? 0,
+        confidence: 0,
+      };
       vjepaSegments.push({
         startMs: seg.startMs,
         endMs: seg.endMs,
-        visualSignificance: seg.visual.significance,
-        motionIntensity: seg.visual.motionIntensity,
-        actionType: seg.visual.actionType,
-        motionType: seg.visual.motionType,
-        faceEmotion: seg.visual.faceEmotion,
-        eyeContact: seg.visual.eyeContact,
+        visualSignificance: visual.significance,
+        motionIntensity: visual.motionIntensity,
+        actionType: visual.actionType,
+        motionType: visual.motionType,
+        faceEmotion: visual.faceEmotion,
+        eyeContact: visual.eyeContact,
+        motionVectorX: visual.motionVectorX ?? 0,
+        motionVectorY: visual.motionVectorY ?? 0,
+        mainSubject,
+        mainSubjectX: visual.mainSubjectX ?? mainSubject.x,
+        mainSubjectY: visual.mainSubjectY ?? mainSubject.y,
+        mainSubjectWidth: visual.mainSubjectWidth ?? mainSubject.width,
+        mainSubjectHeight: visual.mainSubjectHeight ?? mainSubject.height,
+        textBoxes: visual.textBoxes ?? [],
+        textBoxCount: visual.textBoxCount ?? 0,
+        textCoverage: visual.textCoverage ?? 0,
+        objectCount: visual.objectCount ?? 0,
+        faceCount: visual.faceCount ?? 0,
+        negativeSpaceTop: visual.negativeSpaceTop ?? 0,
+        negativeSpaceRight: visual.negativeSpaceRight ?? 0,
+        negativeSpaceBottom: visual.negativeSpaceBottom ?? 0,
+        negativeSpaceLeft: visual.negativeSpaceLeft ?? 0,
+        primitivePresence: visual.primitivePresence ?? {
+          motionVector: false,
+          mainSubject: false,
+          textBoxes: false,
+          textCoverage: false,
+          objectCount: false,
+          faceCount: false,
+          negativeSpace: false,
+        },
       });
     }
     if (seg.vocal) {
