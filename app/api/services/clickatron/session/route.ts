@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
-import { CreateSessionRequestSchema } from '@/types/clickatron';
+import { CreateSessionRequestSchema, type ClickatronSourceContext } from '@/types/clickatron';
 import { z } from 'zod';
 import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { createJob } from '@/lib/clickatron-jobs';
@@ -35,9 +35,32 @@ export async function POST(request: Request) {
       prompt: formData.get('prompt') || '',
       aspectRatio: formData.get('aspectRatio') || '16:9',
       modelId: formData.get('modelId') || 'fal-ai/flux-kontext/dev',
+      brandId: formData.get('brandId'),
+      projectId: formData.get('projectId'),
+      universalId: formData.get('universalId'),
+      sourceService: formData.get('sourceService'),
+      sourceSessionId: formData.get('sourceSessionId'),
+      sourceScriptId: formData.get('sourceScriptId'),
+      metadata: formData.get('metadata'),
     });
 
     const isBlankProject = !validatedData.prompt || validatedData.prompt.trim() === '';
+    const sourceContext = Object.fromEntries(
+      Object.entries({
+        sourceService: validatedData.sourceService,
+        sourceSessionId: validatedData.sourceSessionId,
+        sourceScriptId: validatedData.sourceScriptId,
+        universalId: validatedData.universalId,
+        brandId: validatedData.brandId,
+        projectId: validatedData.projectId,
+      }).filter(([, value]) => value != null)
+    ) as ClickatronSourceContext;
+    const hasSourceContext = Object.keys(sourceContext).length > 0;
+    const creationMetadata = {
+      ...(validatedData.metadata || {}),
+      ...(hasSourceContext ? { sourceContext } : {}),
+    };
+    const hasCreationMetadata = Object.keys(creationMetadata).length > 0;
 
     const referenceImages = formData.getAll('referenceImage') as File[];
     const referenceImageRefs: string[] = [];
@@ -63,6 +86,13 @@ export async function POST(request: Request) {
       clerkUserId: userId,
       orgId: orgId || undefined,  // Store org context (undefined = personal)
       createdByName,  // Store creator name for org display
+      brandId: validatedData.brandId,
+      projectId: validatedData.projectId,
+      universalId: validatedData.universalId,
+      sourceService: validatedData.sourceService,
+      sourceSessionId: validatedData.sourceSessionId,
+      sourceScriptId: validatedData.sourceScriptId,
+      metadata: hasCreationMetadata ? creationMetadata : undefined,
       title: `project ${validatedData.aspectRatio} #${Date.now()}`, // Use a generic title
       details: {
         // The videoIdea field is now repurposed to store the initial prompt
@@ -90,6 +120,7 @@ export async function POST(request: Request) {
       imageRef: '',
       thumbnailRef: '',
       referenceImageRefs: [],
+      ...(hasCreationMetadata ? { metadata: creationMetadata } : {}),
     };
 
     // 3. Upload reference images if they exist
@@ -126,6 +157,7 @@ export async function POST(request: Request) {
         modelId: validatedData.modelId as string,
         aspectRatio: validatedData.aspectRatio as string,
         referenceImageRefs,
+        ...(hasCreationMetadata ? { metadata: creationMetadata } : {}),
       };
 
       console.log('Creating job with data:', jobData);

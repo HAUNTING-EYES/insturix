@@ -4,6 +4,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
 import axios from "axios";
 import FormData from "form-data";
+import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
 export async function POST(req: Request) {
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
     let videoDoc = null;
 
     if (videoUuid) {
-      videoDoc = await UploaderXVideo.findOne({ videoUuid });
+      videoDoc = await UploaderXVideo.findOne({ userId: session.userId, videoUuid });
       if (videoDoc?.metadata?.facebook?.videoId) {
         existingFbVideoId = videoDoc.metadata.facebook.videoId;
       }
@@ -130,7 +131,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const videoAsset = await resolveUploaderXVideo({ videoUuid, gcsPath });
+    const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid, gcsPath });
     const fileSize = Number(videoAsset.size || 0);
     const fileName = videoAsset.filename || gcsPath.split("/").pop() || "video.mp4";
     const contentType = videoAsset.contentType || "video/mp4";
@@ -166,7 +167,7 @@ export async function POST(req: Request) {
           const facebookUrl = `https://www.facebook.com/${targetPage.pageId}/videos/${simpleData.id}`;
           if (videoUuid) {
             await UploaderXVideo.updateOne(
-              { videoUuid },
+              { userId: session.userId, videoUuid },
               {
                 $set: {
                   "metadata.facebook.videoId": simpleData.id,
@@ -176,6 +177,17 @@ export async function POST(req: Request) {
                   "metadata.facebook.lastUploadedAt": new Date(),
                 },
               }
+            );
+            await emitUploaderXVideoPublished({
+              userId: session.userId,
+              videoUuid,
+              platform: "facebook",
+              platformPostId: simpleData.id,
+              platformUrl: facebookUrl,
+              accountUsername: targetPage.pageName,
+              mediaType: "video",
+            }).catch((eventErr) =>
+              console.warn("[UploaderX:Facebook] video_published event failed:", eventErr),
             );
           }
 
@@ -292,7 +304,7 @@ export async function POST(req: Request) {
     const facebookUrl = `https://www.facebook.com/${targetPage.pageId}/videos/${videoId}`;
     if (videoUuid) {
       await UploaderXVideo.updateOne(
-        { videoUuid },
+        { userId: session.userId, videoUuid },
         {
           $set: {
             "metadata.facebook.videoId": videoId,
@@ -302,6 +314,17 @@ export async function POST(req: Request) {
             "metadata.facebook.lastUploadedAt": new Date(),
           },
         }
+      );
+      await emitUploaderXVideoPublished({
+        userId: session.userId,
+        videoUuid,
+        platform: "facebook",
+        platformPostId: videoId,
+        platformUrl: facebookUrl,
+        accountUsername: targetPage.pageName,
+        mediaType: "video",
+      }).catch((eventErr) =>
+        console.warn("[UploaderX:Facebook] video_published event failed:", eventErr),
       );
     }
 

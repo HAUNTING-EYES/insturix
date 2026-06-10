@@ -14,7 +14,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
-import { markEventConsumed, type BrandEvent } from '@/lib/shared/brand-events';
+import {
+  claimEventForConsumer,
+  markEventConsumed,
+  releaseEventClaim,
+  type BrandEvent,
+} from '@/lib/shared/brand-events';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -23,26 +28,48 @@ const CONSUMER_ID = 'brand-learning-worker';
 
 interface WorkerPayload {
   eventId: string;
-  event: BrandEvent;
+  event?: BrandEvent;
 }
 
 async function handler(request: NextRequest) {
   const startMs = Date.now();
+  let claimedEventId: string | null = null;
 
   try {
-    const payload: WorkerPayload = await request.json();
-    const { eventId, event } = payload;
+    const payload = (await request.json()) as Partial<WorkerPayload>;
+    const eventId = nonEmptyString(payload.eventId);
 
-    if (!eventId || !event?.type) {
+    if (!eventId) {
       return NextResponse.json(
-        { error: 'Missing eventId or event.type' },
+        { error: 'Missing eventId' },
         { status: 400 },
       );
     }
 
-    // Idempotency: skip if already consumed (QStash has at-least-once delivery)
-    if (event.consumedBy?.includes(CONSUMER_ID)) {
+    const claim = await claimEventForConsumer(eventId, CONSUMER_ID);
+    if (claim.status === 'already_consumed') {
       return NextResponse.json({ success: true, eventId, action: 'already_consumed' });
+    }
+    if (claim.status === 'in_progress') {
+      return NextResponse.json({ success: true, eventId, action: 'in_progress' });
+    }
+    if (claim.status === 'missing') {
+      return NextResponse.json(
+        { success: false, eventId, error: 'Persisted brand event not found' },
+        { status: 404 },
+      );
+    }
+
+    claimedEventId = eventId;
+    const event = claim.event;
+    const validationError = validatePersistedEvent(event, eventId);
+    if (validationError) {
+      await releaseEventClaim(eventId, CONSUMER_ID);
+      claimedEventId = null;
+      return NextResponse.json(
+        { success: false, eventId, error: validationError },
+        { status: 400 },
+      );
     }
 
     console.log(`[BrandLearning] Processing ${event.type} (${eventId}) for user ${event.userId}`);
@@ -70,15 +97,34 @@ async function handler(request: NextRequest) {
         result = await handleVideoPublished(event);
         break;
 
+      case 'thumbnail_created':
+        result = await handleThumbnailCreated(event);
+        break;
+
       default:
         result = { action: 'acknowledged', detail: `No handler for ${event.type} yet` };
         break;
     }
 
     // Only mark consumed if handler succeeded — failed events should be retried by QStash
-    if (!result.action.includes('_failed')) {
-      await markEventConsumed(eventId, CONSUMER_ID);
+    if (shouldRetryResult(result)) {
+      await releaseEventClaim(eventId, CONSUMER_ID);
+      claimedEventId = null;
+      const durationMs = Date.now() - startMs;
+      return NextResponse.json(
+        {
+          success: false,
+          eventId,
+          type: event.type,
+          ...result,
+          durationMs,
+        },
+        { status: 500 },
+      );
     }
+
+    await markEventConsumed(eventId, CONSUMER_ID);
+    claimedEventId = null;
 
     const durationMs = Date.now() - startMs;
     console.log(
@@ -95,6 +141,11 @@ async function handler(request: NextRequest) {
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error('[BrandLearning] Worker error:', msg);
+    if (claimedEventId) {
+      await releaseEventClaim(claimedEventId, CONSUMER_ID).catch((releaseErr) =>
+        console.error('[BrandLearning] Failed to release event claim:', releaseErr),
+      );
+    }
     return NextResponse.json(
       { success: false, error: msg },
       { status: 500 },
@@ -188,6 +239,9 @@ async function handleVideoRendered(
       const pmResult = await runPostMortemAgent({
         userId,
         sessionId,
+        projectId,
+        brandId: nonEmptyString(event.brandId),
+        qualityScore: qualityScore ?? undefined,
         projectTitle: typeof payload.projectName === 'string'
           ? payload.projectName
           : undefined,
@@ -212,9 +266,13 @@ async function handleQualityReviewed(
   event: BrandEvent,
 ): Promise<{ action: string; detail?: string }> {
   const { userId, projectId, payload } = event;
-  const qualityScore = typeof payload.qualityScore === 'number'
+  let qualityScore = typeof payload.qualityScore === 'number'
     ? payload.qualityScore
     : null;
+
+  if (qualityScore === null && typeof payload.score === 'number') {
+    qualityScore = payload.score;
+  }
 
   if (!projectId || qualityScore === null) {
     return {
@@ -293,6 +351,139 @@ async function handleVideoPublished(
     console.error(`[BrandLearning] Publish bandit failed: ${msg}`);
     return { action: 'bandit_failed', detail: msg };
   }
+}
+
+/**
+ * Thumbnail committed in Clickatron.
+ * Store the selected thumbnail as a brand-scoped Graphiti episode so future
+ * thumbnail and creative decisions can learn from chosen outcomes.
+ */
+async function handleThumbnailCreated(
+  event: BrandEvent,
+): Promise<{ action: string; detail?: string }> {
+  const brandId = nonEmptyString(event.brandId);
+
+  if (!brandId) {
+    return { action: 'skipped', detail: 'No brandId on thumbnail_created event' };
+  }
+
+  const { payload } = event;
+  const sourceContext = asRecord(payload.sourceContext);
+  const thumbnailId = nonEmptyString(payload.thumbnailId) || event.eventId;
+  const projectId =
+    nonEmptyString(event.projectId) ||
+    nonEmptyString(payload.projectId) ||
+    nonEmptyString(sourceContext?.projectId);
+  const universalId =
+    nonEmptyString(payload.universalId) ||
+    nonEmptyString(sourceContext?.universalId);
+  const prompt = truncateText(nonEmptyString(payload.prompt), 320);
+  const sourceService =
+    nonEmptyString(payload.sourceService) ||
+    nonEmptyString(sourceContext?.sourceService);
+  const sourceSessionId =
+    nonEmptyString(payload.sourceSessionId) ||
+    nonEmptyString(sourceContext?.sourceSessionId);
+  const sourceScriptId =
+    nonEmptyString(payload.sourceScriptId) ||
+    nonEmptyString(sourceContext?.sourceScriptId);
+
+  const lines = [
+    `A Clickatron thumbnail was committed for brand ${brandId}.`,
+    `Thumbnail id: ${thumbnailId}.`,
+    optionalLine('Clickatron session', nonEmptyString(payload.sessionId)),
+    optionalLine('Clickatron variation', nonEmptyString(payload.variationId)),
+    optionalLine('Linked project', projectId),
+    optionalLine('Universal project link', universalId),
+    optionalLine('Aspect ratio', nonEmptyString(payload.aspectRatio)),
+    optionalLine('Dimensions', nonEmptyString(payload.dimensions)),
+    optionalLine('Model', nonEmptyString(payload.modelId)),
+    optionalLine('Source service', sourceService),
+    optionalLine('Source session', sourceSessionId),
+    optionalLine('Source script', sourceScriptId),
+    prompt ? `Selected prompt summary: ${prompt}` : undefined,
+    'This selected thumbnail is a positive creative signal for future thumbnail composition, typography, color, tone, and platform fit for this brand.',
+  ].filter((line): line is string => Boolean(line));
+
+  try {
+    const { addGraphitiEpisode } = await import(
+      '@/lib/editron/services/graph-service'
+    );
+    const result = await addGraphitiEpisode({
+      type: 'thumbnail_created',
+      name: `thumbnail_created_${safeEpisodeNamePart(brandId)}_${safeEpisodeNamePart(thumbnailId)}`,
+      body: lines.join('\n'),
+      sourceDescription: 'clickatron_thumbnail_commit',
+      groupId: brandId,
+    });
+
+    if (!result.ok) {
+      return {
+        action: 'graphiti_failed',
+        detail: result.error || 'Graphiti episode dispatch failed',
+      };
+    }
+
+    return {
+      action: 'graphiti_episode_dispatched',
+      detail: `thumbnailId=${thumbnailId}`,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[BrandLearning] Thumbnail Graphiti episode failed: ${msg}`);
+    return { action: 'graphiti_failed', detail: msg };
+  }
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function truncateText(value: string | undefined, maxLength: number): string | undefined {
+  if (!value || value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function optionalLine(label: string, value: string | undefined): string | undefined {
+  return value ? `${label}: ${value}.` : undefined;
+}
+
+function safeEpisodeNamePart(value: string): string {
+  const safe = value.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return safe.slice(0, 80) || 'unknown';
+}
+
+function validatePersistedEvent(event: BrandEvent, expectedEventId: string): string | null {
+  if (event.eventId !== expectedEventId) {
+    return 'Persisted eventId does not match payload eventId';
+  }
+  if (!nonEmptyString(event.userId)) {
+    return 'Persisted event is missing userId';
+  }
+  if (!nonEmptyString(event.service)) {
+    return 'Persisted event is missing service';
+  }
+  if (!nonEmptyString(event.type)) {
+    return 'Persisted event is missing type';
+  }
+  if (!asRecord(event.payload)) {
+    return 'Persisted event payload must be an object';
+  }
+  return null;
+}
+
+function shouldRetryResult(result: { action: string }): boolean {
+  return result.action === 'bandit_failed' || result.action === 'graphiti_failed';
 }
 
 // ==================== Export ====================

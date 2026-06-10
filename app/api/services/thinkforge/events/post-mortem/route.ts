@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { runPostMortemAgent } from '@/lib/thinkforge/agents/post-mortem-agent';
+import { resolvePostMortemScope } from '@/lib/thinkforge/agents/post-mortem-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,16 +32,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { sessionId, projectTitle } = body;
+  const sessionId = nonEmptyString(body?.sessionId);
+  const projectTitle = nonEmptyString(body?.projectTitle);
   if (!sessionId) {
     return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
   }
 
   try {
-    const result = await runPostMortemAgent({ userId, sessionId, projectTitle });
+    const scoped = await resolvePostMortemScope({ userId, sessionId, projectTitle });
+    if (!scoped) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const result = await runPostMortemAgent(scoped.input);
     return NextResponse.json({ success: true, ...result });
   } catch (error: any) {
     console.error('[PostMortem] Agent failed:', error);
     return NextResponse.json({ error: 'Post-mortem compression failed' }, { status: 500 });
   }
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
 }

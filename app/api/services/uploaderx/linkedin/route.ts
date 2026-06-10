@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
+import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
+import {
+  getExistingLinkedInPublishedPost,
+  linkedinOrganizationMetadataKey,
+  normalizeLinkedInPostTarget,
+} from "@/lib/uploaderx/linkedin-publish-state";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
 export async function POST(req: Request) {
@@ -13,6 +19,7 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     let { gcsPath, videoUuid, title, description, postType = "personal", organizationId } = body;
+    postType = normalizeLinkedInPostTarget(postType);
     const postText = title || description || "Posted via Insturix UploaderX";
     const hasMedia = !!gcsPath;
 
@@ -180,12 +187,35 @@ export async function POST(req: Request) {
       authorUrn = `urn:li:person:${userId}`;
     }
 
+    let videoDoc = null;
+    if (videoUuid) {
+      videoDoc = await UploaderXVideo.findOne({ userId: session.userId, videoUuid });
+      const existingPost = getExistingLinkedInPublishedPost(
+        videoDoc?.metadata,
+        postType,
+        postType === "organization" ? organizationId : null,
+      );
+
+      if (existingPost) {
+        return NextResponse.json({
+          success: true,
+          postUrl: existingPost.postUrl,
+          postId: existingPost.postId,
+          mediaType: existingPost.mediaType || (hasMedia ? "media" : "text"),
+          postType,
+          organizationId: existingPost.organizationId,
+          updated: false,
+          note: "LinkedIn post already exists for this target. Returning existing post.",
+        });
+      }
+    }
+
     let mediaType = "NONE";
     let assetUrn: string | undefined;
     let fileName = title || "LinkedIn post";
 
     if (hasMedia) {
-      const videoAsset = await resolveUploaderXVideo({ videoUuid, gcsPath });
+      const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid, gcsPath });
       fileName = videoAsset.filename || gcsPath.split("/").pop() || "file";
       const contentType = videoAsset.contentType || "application/octet-stream";
       const fileBuffer = await fetchUploaderXBuffer(videoAsset.publicUrl);
@@ -307,20 +337,40 @@ export async function POST(req: Request) {
     const postUrl = `https://www.linkedin.com/feed/update/${postId}`;
 
     if (videoUuid) {
+      const linkedInMetadata = {
+        postId,
+        postUrl,
+        assetUrn,
+        mediaType,
+        organizationId: postType === "organization" ? organizationId : null,
+        uploadedAt: new Date(),
+      };
+      const metadataSet: Record<string, unknown> = {
+        [`metadata.linkedin.${postType}`]: linkedInMetadata,
+      };
+      const organizationMetadataKey =
+        postType === "organization" ? linkedinOrganizationMetadataKey(organizationId) : null;
+      if (organizationMetadataKey) {
+        metadataSet[`metadata.linkedin.organizations.${organizationMetadataKey}`] = linkedInMetadata;
+      }
+
       await UploaderXVideo.updateOne(
-        { videoUuid },
+        { userId: session.userId, videoUuid },
         {
-          $set: {
-            [`metadata.linkedin.${postType === "organization" ? "organization" : "personal"}`]: {
-              postId,
-              postUrl,
-              assetUrn,
-              mediaType,
-              organizationId: postType === "organization" ? organizationId : null,
-              uploadedAt: new Date(),
-            },
-          },
+          $set: metadataSet,
         }
+      );
+      await emitUploaderXVideoPublished({
+        userId: session.userId,
+        videoUuid,
+        platform: "linkedin",
+        platformPostId: postId,
+        platformUrl: postUrl,
+        mediaType: hasMedia ? mediaType : "text",
+        postType,
+        organizationId: postType === "organization" ? organizationId : null,
+      }).catch((eventErr) =>
+        console.warn("[UploaderX:LinkedIn] video_published event failed:", eventErr),
       );
     }
 

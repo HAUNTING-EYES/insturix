@@ -10,6 +10,11 @@ import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
 import { CLICKATRON_MODELS, generateModelPayload, processParentVariationImage, processReferenceImages, modelSupportsSeed } from '@/lib/config/clickatron-models';
 import { CreditsService } from '@/lib/services/creditsService';
+import {
+  buildClickatronGenerationPrompt,
+  resolveClickatronBrandContextBlock,
+  resolveClickatronPromptBrandId,
+} from '@/lib/clickatron/brand-prompt-context';
 import sharp from 'sharp';
 
 // Configure Fal AI client
@@ -88,6 +93,12 @@ function parseAspectRatio(aspectRatio: string): { width: number; height: number;
     // Portrait
     return { width: Math.round(maxSize * ratio), height: maxSize, ratio: `${width}:${height}` };
   }
+}
+
+function asPromptMetadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 async function handler(req: Request) {
@@ -219,6 +230,28 @@ async function handler(req: Request) {
           job.prompt = systemPrompt;
         }
         console.log('[Worker] Updated prompt for sketch-to-edit:', job.prompt);
+      }
+
+      const promptMetadata = {
+        ...asPromptMetadataRecord(task.metadata),
+        ...asPromptMetadataRecord(job.metadata),
+        ...asPromptMetadataRecord(variation.metadata),
+      };
+      const promptBrandId = resolveClickatronPromptBrandId(task.brandId, promptMetadata);
+      const brandContextBlock = await resolveClickatronBrandContextBlock(job.userId, promptBrandId);
+      const enrichedPrompt = buildClickatronGenerationPrompt({
+        prompt: job.prompt,
+        metadata: promptMetadata,
+        brandContextBlock,
+      });
+
+      if (enrichedPrompt !== job.prompt) {
+        job.prompt = enrichedPrompt;
+        generationParams.promptContextApplied = true;
+        console.log('[Worker] Clickatron prompt context applied:', {
+          hasBrandContext: Boolean(brandContextBlock),
+          hasSourceContext: Boolean(promptMetadata.sourceContext),
+        });
       }
 
       // Process mask URL if it exists (for inpainting/generative fill)

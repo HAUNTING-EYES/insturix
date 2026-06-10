@@ -3,7 +3,11 @@ import { auth, clerkClient } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
 import { projectService } from '@/lib/editron/services/project-service';
-import { createProjectLink, findLinkBySessionId } from '@/lib/shared/project-links';
+import {
+  addProjectToLinkBySessionId,
+  createProjectLink,
+  findLinkBySessionId,
+} from '@/lib/shared/project-links';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -52,7 +56,10 @@ export async function POST(req: Request) {
     // Fail-open: project creation failure must never block session functionality.
     if (!sessionId) {
       try {
-        const scriptTitle = projectMeta?.title || projectMeta?.topic || 'Untitled Script';
+        const projectMetaRecord = projectMeta as Record<string, unknown> | undefined;
+        const title = typeof projectMetaRecord?.title === 'string' ? projectMetaRecord.title.trim() : '';
+        const topic = typeof projectMetaRecord?.topic === 'string' ? projectMetaRecord.topic.trim() : '';
+        const scriptTitle = title || topic || 'Untitled Script';
         const project = await projectService.createScriptStageProject(
           userId,
           session._id,
@@ -65,8 +72,11 @@ export async function POST(req: Request) {
           if (!existingLink) {
             await createProjectLink(userId, {
               sessionId: session._id,
+              projectId: project.projectId,
               brandId: (projectMeta as any)?.brandId,
             });
+          } else if (!existingLink.projectIds?.includes(project.projectId)) {
+            await addProjectToLinkBySessionId(userId, session._id, project.projectId);
           }
           console.log(`[ThinkForge] Script-stage project ${project.projectId} created for session ${session._id}`);
         }

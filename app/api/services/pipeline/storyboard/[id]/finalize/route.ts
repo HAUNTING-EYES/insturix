@@ -1112,9 +1112,12 @@ export async function POST(
       // Phase 4b: Graphiti preference boost (server-side only)
       try {
         const { searchGraphitiFacts } = await import('@/lib/editron/services/graph-service');
+        const graphitiGroupId = typeof brandId === 'string' && brandId.trim()
+          ? brandId.trim()
+          : userId;
         const facts = await searchGraphitiFacts(
           'What editing profile does this user prefer or override to?',
-          userId,
+          graphitiGroupId,
           3,
         );
         if (facts.length > 0) {

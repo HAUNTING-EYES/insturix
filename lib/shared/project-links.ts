@@ -12,10 +12,29 @@ export interface ProjectLink {
   storyboardIds: string[];
   projectIds: string[];
   videoIds: string[];
+  thumbnailIds?: string[];
   schemaVersion: number;
   metadata?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ProjectLinkThumbnailRecord {
+  thumbnailId: string;
+  sessionId: string;
+  variationId: string;
+  thumbnailUrl: string;
+  imageRef?: string;
+  thumbnailRef?: string;
+  prompt?: string;
+  aspectRatio?: string;
+  modelId?: string;
+  sourceService?: string;
+  sourceSessionId?: string;
+  sourceScriptId?: string;
+  projectId?: string;
+  brandId?: string;
+  committedAt: string;
 }
 
 async function getCollection() {
@@ -29,6 +48,7 @@ export async function createProjectLink(
     sessionId?: string;
     sourceScriptId?: string;
     storyboardId?: string;
+    projectId?: string;
     brandId?: string;
     metadata?: Record<string, unknown>;
   },
@@ -43,8 +63,9 @@ export async function createProjectLink(
     sessionId: fields.sessionId,
     sourceScriptId: fields.sourceScriptId,
     storyboardIds: fields.storyboardId ? [fields.storyboardId] : [],
-    projectIds: [],
+    projectIds: fields.projectId ? [fields.projectId] : [],
     videoIds: [],
+    thumbnailIds: [],
     schemaVersion: 1,
     metadata: fields.metadata,
     createdAt: now,
@@ -81,6 +102,19 @@ export async function addProjectToLink(
   return result.matchedCount > 0;
 }
 
+export async function addProjectToLinkBySessionId(
+  userId: string,
+  sessionId: string,
+  projectId: string,
+): Promise<boolean> {
+  const col = await getCollection();
+  const result = await col.updateOne(
+    { userId, sessionId },
+    { $addToSet: { projectIds: projectId }, $set: { updatedAt: new Date() } },
+  );
+  return result.matchedCount > 0;
+}
+
 export async function addVideoToLink(
   userId: string,
   projectId: string,
@@ -90,6 +124,43 @@ export async function addVideoToLink(
   const result = await col.updateOne(
     { userId, projectIds: projectId },
     { $addToSet: { videoIds: videoId }, $set: { updatedAt: new Date() } },
+  );
+  return result.matchedCount > 0;
+}
+
+export async function recordThumbnailOnLink(
+  userId: string,
+  universalId: string,
+  thumbnail: ProjectLinkThumbnailRecord,
+): Promise<boolean> {
+  const col = await getCollection();
+  await col.updateOne(
+    { userId, universalId },
+    {
+      $pull: {
+        'metadata.clickatron.committedThumbnails': {
+          thumbnailId: thumbnail.thumbnailId,
+        },
+      },
+    } as any,
+  );
+
+  const result = await col.updateOne(
+    { userId, universalId },
+    {
+      $addToSet: { thumbnailIds: thumbnail.thumbnailId },
+      $push: {
+        'metadata.clickatron.committedThumbnails': {
+          $each: [thumbnail],
+          $slice: -20,
+        },
+      },
+      $set: {
+        'metadata.clickatron.lastCommittedThumbnail': thumbnail,
+        'metadata.clickatron.lastCommittedAt': new Date(thumbnail.committedAt),
+        updatedAt: new Date(),
+      },
+    } as any,
   );
   return result.matchedCount > 0;
 }

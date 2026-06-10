@@ -152,6 +152,7 @@ export type EpisodeType =
   | 'brand_created'
   | 'brand_updated'
   | 'project_outcome'
+  | 'thumbnail_created'
   | 'user_override'
   | 'asset_removal'
   | 'asset_reuse'

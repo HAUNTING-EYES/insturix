@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { createModelByTier, ModelTier } from '@/lib/thinkforge/agents/model-factory';
-import { addDataBankEntry, type DataBankScope } from '@/lib/thinkforge/services/db';
+import { addDataBankEntry, getSession, type DataBankScope } from '@/lib/thinkforge/services/db';
 import { embedDataBankEntry, checkDuplicateBeforeSave, processPendingEmbeddings } from '@/lib/thinkforge/services/embedding-service';
 
 export const runtime = 'nodejs';
@@ -42,13 +42,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { text, sessionId, source } = body;
+  const { text, source } = body;
+  const sessionId = nonEmptyString(body.sessionId);
   if (!text || typeof text !== 'string' || text.trim().length < 50) {
     return NextResponse.json({ accepted: true, reason: 'too_short_or_invalid' }, { status: 202 });
   }
 
-  // Cost Optimization: Skip if text is nearly identical to what we just processed
-  // (This prevents redundant calls when the user is just idling or making tiny edits)
+  if (!sessionId) {
+    return NextResponse.json({ accepted: false, reason: 'missing_session' }, { status: 202 });
+  }
+
+  const session = await getSession(sessionId, userId);
+  if (!session) {
+    return NextResponse.json({ error: 'Session not found or not owned by user' }, { status: 404 });
+  }
+
+  // Cost Optimization: Skip if text is nearly identical to what we just processed.
+  // Persisted observer facts are quarantined to the session until trusted outcome gates promote them.
   processObservation(userId, text.trim(), sessionId, source).catch((err) =>
     console.error('[Observer] Background extraction failed:', err),
   );
@@ -59,7 +69,7 @@ export async function POST(req: Request) {
 async function processObservation(
   userId: string,
   text: string,
-  sessionId?: string,
+  sessionId: string,
   source?: string,
 ) {
   let model;
@@ -111,30 +121,50 @@ ${text.slice(0, 1500)}
       ? 'brand_insight' as const
       : 'atomic_fact' as const;
 
-    const isDuplicate = await checkDuplicateBeforeSave(userId, fact.content, fact.scope as DataBankScope);
+    const storageScope: DataBankScope = 'project';
+    const isDuplicate = await checkDuplicateBeforeSave(userId, fact.content, storageScope);
     if (isDuplicate) {
       console.log('[Observer] Duplicate skipped:', fact.content.slice(0, 60));
       continue;
     }
 
-    const entry = await addDataBankEntry(sessionId || '', userId, {
+    const entry = await addDataBankEntry(sessionId, userId, {
       type: entryType,
       title: fact.content.slice(0, 120),
       content: {
         claim: fact.content,
         factType: fact.type,
         confidence: fact.confidence,
+        llmScope: fact.scope,
+        memoryScope: 'project',
+        promotionReason: 'observer_project_quarantine',
         source: source || 'observer',
       },
-      tags: [fact.type, 'auto-extracted'],
-      scope: fact.scope as DataBankScope,
+      tags: [fact.type, 'auto-extracted', 'memory:project', 'promotion:observer_project_quarantine', `llm_scope:${fact.scope}`],
+      projectId: sessionId,
+      scope: storageScope,
     });
 
-    console.log('[Observer] Saved fact:', fact.content.slice(0, 60), '| scope:', fact.scope, '| id:', (entry as any)._id);
+    console.log(
+      '[Observer] Saved fact:',
+      fact.content.slice(0, 60),
+      '| llm scope:',
+      fact.scope,
+      '| stored scope:',
+      storageScope,
+      '| id:',
+      (entry as any)._id,
+    );
     embedDataBankEntry(entry).catch((err) => console.error('[Observer] Embedding failed:', err));
   }
 
   processPendingEmbeddings(20).catch((err) =>
     console.error('[Observer] Batch embedding sweep failed:', err),
   );
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
 }

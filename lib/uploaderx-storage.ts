@@ -77,12 +77,23 @@ export async function deleteUploaderXObject(key: string) {
 }
 
 export async function resolveUploaderXVideo(params: {
+  userId?: string;
   videoUuid?: string;
   gcsPath?: string;
 }): Promise<ResolvedUploaderXVideo> {
   await connectToDatabase();
 
-  const query = params.videoUuid ? { videoUuid: params.videoUuid } : { gcsPath: params.gcsPath };
+  const lookup = params.videoUuid
+    ? { videoUuid: params.videoUuid }
+    : params.gcsPath
+      ? { gcsPath: params.gcsPath }
+      : null;
+
+  if (!lookup) {
+    throw new Error("UploaderX video lookup key required");
+  }
+
+  const query = params.userId ? { userId: params.userId, ...lookup } : lookup;
   const video = await UploaderXVideo.findOne(query).lean<ResolvedUploaderXVideo | null>();
 
   if (!video?.gcsPath) {

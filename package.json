@@ -22,6 +22,8 @@
     "update-thinkforge-plans": "node scripts/updateThinkForgePlans.js",
     "migrate:socialize": "node --loader ts-node/esm scripts/run-migrate-socialize.mjs",
     "test": "vitest run",
+    "test:creative-chain": "node scripts/run-creative-chain-tests.mjs",
+    "canary:creative-chain": "node scripts/creative-chain-canary.mjs",
     "test:email": "tsx --test lib/services/email/__tests__/*.test.ts",
     "test:intent": "tsx --test lib/thinkforge/tests/intent-gate.test.ts",
     "deploy:remotion:dev": "bash scripts/deploy-remotion-site.sh dev",

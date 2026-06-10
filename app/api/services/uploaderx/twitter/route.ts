@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
+import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
 export async function POST(req: Request) {
@@ -105,7 +106,7 @@ export async function POST(req: Request) {
     let videoDoc = null;
 
     if (videoUuid) {
-      videoDoc = await UploaderXVideo.findOne({ videoUuid });
+      videoDoc = await UploaderXVideo.findOne({ userId: session.userId, videoUuid });
       if (videoDoc?.metadata?.twitter?.tweetId) {
         existingTweetId = videoDoc.metadata.twitter.tweetId;
       }
@@ -148,7 +149,7 @@ export async function POST(req: Request) {
     let mediaId: string | undefined;
     let processingState: string | undefined;
     if (gcsPath) {
-      const videoAsset = await resolveUploaderXVideo({ videoUuid, gcsPath });
+      const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid, gcsPath });
       const fileSize = Number(videoAsset.size || 0);
       const fileBuffer = await fetchUploaderXBuffer(videoAsset.publicUrl);
 
@@ -319,7 +320,7 @@ export async function POST(req: Request) {
 
     if (videoUuid) {
       await UploaderXVideo.updateOne(
-        { videoUuid },
+        { userId: session.userId, videoUuid },
         {
           $set: {
             "metadata.twitter.mediaId": mediaId,
@@ -329,6 +330,17 @@ export async function POST(req: Request) {
             "metadata.twitter.processingState": processingState,
           },
         }
+      );
+      await emitUploaderXVideoPublished({
+        userId: session.userId,
+        videoUuid,
+        platform: "twitter",
+        platformPostId: tweetId,
+        platformUrl: tweetUrl,
+        accountUsername: twitterTokens.userName,
+        mediaType: mediaId ? "video" : "text",
+      }).catch((eventErr) =>
+        console.warn("[UploaderX:Twitter] video_published event failed:", eventErr),
       );
     }
 

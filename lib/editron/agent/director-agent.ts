@@ -28,6 +28,8 @@ import { projectService } from '@/lib/editron/services/project-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
+import type { GridPointDecision, OverlayCategory } from '@/lib/editron/engine/utility-types';
+import { resolveDirectorBrandScope } from '@/lib/editron/agent/director-brand-scope';
 
 /**
  * Execute a Director Agent plan on a project.
@@ -597,7 +599,7 @@ export async function executeDirectorPlan(
             };
             for (const d of briefResult.edl.decisions) {
               if (!d.params.signals) {
-                d.params.signals = signalCtx;
+                (d.params as Record<string, unknown>).signals = signalCtx;
               }
             }
 
@@ -605,7 +607,7 @@ export async function executeDirectorPlan(
             const canvas = project.playerDimensions || { width: 1920, height: 1080 };
             const analysesMap = new Map<string, any>();
             for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
-            await executeEDLPathE(briefResult.edl, projectId, userId, overlays, canvas, analysesMap, effectiveProfile.graphicsDensity);
+            await executeEDLPathE(briefResult.edl as any, projectId, userId, overlays, canvas, analysesMap, effectiveProfile.graphicsDensity);
 
             // Update summary for downstream quality review
             edlSummary.totalDecisions = humanizedEdl.decisions.length;
@@ -767,13 +769,14 @@ export async function executeDirectorPlan(
             // Step D.3b: Threshold bandit — sample adjusted thresholds for this project
             try {
               const { loadThresholdBanditState, sampleThresholdAdjustments } = await import('@/lib/editron/services/threshold-bandit');
+              const { buildSpeechCoverageBucket, buildDurationBucket } = await import('@/lib/editron/services/genre-parameter-bandit');
               const banditState = await loadThresholdBanditState(userId);
               if (banditState) {
                 const rfa = projectDoc.rawFootageAnalysis;
                 const banditContext = {
                   contentType: rfa?.contentTypeDetection?.contentType || 'unknown',
-                  speechCoverageBucket: rfa?.speechCoverage != null ? (rfa.speechCoverage < 0.3 ? 'low' : rfa.speechCoverage < 0.7 ? 'medium' : 'high') : 'unknown',
-                  durationBucket: ((project.durationInFrames || 900) / pathDFps) < 60 ? 'short' : ((project.durationInFrames || 900) / pathDFps) < 300 ? 'medium' : 'long',
+                  speechCoverageBucket: buildSpeechCoverageBucket(rfa?.speechCoverage ?? 0),
+                  durationBucket: buildDurationBucket((project.durationInFrames || 900) / pathDFps),
                   platform: projectDoc.syntheticStoryboard?.platform || 'youtube',
                 };
                 const adj = sampleThresholdAdjustments(banditState, banditContext);
@@ -801,11 +804,12 @@ export async function executeDirectorPlan(
               const overlayDefs = getOverlayDefinitions();
               const { projectEventsOntoGrid } = await import('@/lib/editron/services/signal-registry');
               projectEventsOntoGrid(signalTimeline);
-              const gridFrames = Array.from(signalTimeline.gridSignals.keys()).sort((a: number, b: number) => a - b);
+              const gridFrames = Array.from(signalTimeline.gridSignals.keys()).map(Number).sort((a, b) => a - b);
+              const recentUtilityDecisions = new Map<OverlayCategory, number>();
               let utilityTotal = 0;
               let utilityAboveMin = 0;
               const sampleLogs: string[] = [];
-              const gridPointDecisions: Array<{ frame: number; timestampMs: number; winners: Record<string, any> }> = [];
+              const gridPointDecisions: GridPointDecision[] = [];
               for (const frame of gridFrames) {
                 const snap = signalTimeline.gridSignals.get(frame)!;
                 const numericSnap: Record<string, number> = {};
@@ -818,11 +822,14 @@ export async function executeDirectorPlan(
                 utilityTotal += overlayDefs.length;
                 utilityAboveMin += results.length;
                 if (useUtilityLive) {
-                  const winners = selectWinners(results, frame);
-                  gridPointDecisions.push({ frame, timestampMs: (snap as any).timestampMs ?? (frame / pathDFps * 1000), winners });
+                  const winners = selectWinners(results, recentUtilityDecisions, frame);
+                  for (const [category, winner] of Object.entries(winners) as Array<[OverlayCategory, GridPointDecision['winners'][OverlayCategory]]>) {
+                    if (winner) recentUtilityDecisions.set(category, frame);
+                  }
+                  gridPointDecisions.push({ frame, timestampMs: (snap as any).timestampMs ?? (frame / pathDFps * 1000), winners, allScores: results });
                 }
                 if (results.length > 0 && sampleLogs.length < 5) {
-                  const decision = { frame, timestampMs: (snap as any).timestampMs ?? 0, winners: {} as any, allScores: results };
+                  const decision: GridPointDecision = { frame, timestampMs: (snap as any).timestampMs ?? 0, winners: {} as GridPointDecision['winners'], allScores: results };
                   sampleLogs.push(formatInspectorLog(inspectGridPoint(decision)));
                 }
               }
@@ -1043,7 +1050,7 @@ export async function executeDirectorPlan(
               overlays,
               context.fps,
               effectiveProfile.graphicsDensity,
-              pathEGenreParams as Record<string, number> | undefined,
+              pathDGenreParams as Record<string, number> | undefined,
             );
 
             if (translation.warnings.length > 0) {
@@ -1363,6 +1370,8 @@ export async function executeDirectorPlan(
     const { takeSnapshot, compareSnapshots, summarizeGateSession } = await import('@/lib/editron/services/quality-gate');
     const gateResults: GateResult[] = [];
     const fps = project.fps || 30;
+    const directorBrandScope = resolveDirectorBrandScope(project.brandId, userId);
+    const graphitiGroupId = directorBrandScope.graphitiGroupId;
 
     // ─── Step 3: Execute actions sequentially ────────────────
     for (let i = 0; i < filteredActions.length; i++) {
@@ -1370,9 +1379,9 @@ export async function executeDirectorPlan(
       onProgress?.(i + 1, totalSteps, action.description);
 
       try {
-        const beforeSnapshot = takeSnapshot(overlays, fps);
-        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, pathDConstraintViolations, pathDGenreParams);
-        const afterSnapshot = takeSnapshot(overlays, fps);
+        const beforeSnapshot = takeSnapshot(overlays as any[], fps);
+        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, pathDConstraintViolations, pathDGenreParams, briefCaptionStyle, graphitiGroupId);
+        const afterSnapshot = takeSnapshot(overlays as any[], fps);
         const gateResult = compareSnapshots(beforeSnapshot, afterSnapshot, action.description);
         gateResults.push(gateResult);
 
@@ -1562,7 +1571,7 @@ export async function executeDirectorPlan(
       const duckAction = profileActions.find(a => a.tool === 'audio_ducking');
       if (duckAction) {
         try {
-          const modified = await executeAction(duckAction, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis);
+          const modified = await executeAction(duckAction, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, undefined, undefined, briefCaptionStyle, graphitiGroupId);
           result.overlaysModified += modified;
           console.log(`[Director] Step 4.5: audio ducking applied post-merge (BGM arrived async) — ${modified} modified`);
         } catch (duckErr: any) {
@@ -1616,6 +1625,7 @@ export async function executeDirectorPlan(
       emitBrandEvent({
         userId,
         projectId,
+        brandId: directorBrandScope.brandId,
         service: 'editron',
         type: 'director_completed',
         payload: {
@@ -1721,7 +1731,7 @@ export async function executeDirectorPlan(
             + `Duration: ${Math.round((project.durationInFrames || 0) / (project.fps || 30))}s. `
             + `Profile was ${profile.profileId !== effectiveProfile.profileId ? `overridden from ${profile.profileId} to ${effectiveProfile.profileId}` : 'auto-detected'}.`,
           sourceDescription: 'director_completion',
-          groupId: userId,
+          groupId: graphitiGroupId,
         });
       }
     } catch (graphErr: any) {
@@ -1775,6 +1785,8 @@ async function executeAction(
   constraintViolations?: any[],
   /** Path D: computed genre params for pacing validation */
   genreParams?: any,
+  captionStyleOverride?: string,
+  graphitiGroupId?: string,
 ): Promise<number> {
   let modified = 0;
 
@@ -1995,7 +2007,7 @@ async function executeAction(
         action = { ...action, params: { ...action.params, style: signalStyle, displayMode } };
       }
       // These are AI tools — delegate to invokeAITool which handles per-video iteration
-      modified = await invokeAITool(action, userId, projectId, profile, overlays, briefCaptionStyle);
+      modified = await invokeAITool(action, userId, projectId, profile, overlays, captionStyleOverride);
       break;
     }
 
@@ -2054,7 +2066,7 @@ async function executeAction(
           const { searchGraphitiFacts } = await import('@/lib/editron/services/graph-service');
           const brandFacts = await searchGraphitiFacts(
             `What transitions work best for this content type and mood?`,
-            userId,
+            graphitiGroupId || userId,
             3,
           );
           if (brandFacts.length > 0) {

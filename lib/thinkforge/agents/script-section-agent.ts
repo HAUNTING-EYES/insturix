@@ -127,9 +127,9 @@ export class ScriptSectionAgent extends StructuredAgent<z.infer<typeof sectionSc
 ${DOCUMENT_AUTHORING_CONTRACT}
 
 <task>
-Write the section "${section.title}" for project: ${context.projectSummary || ‘(No project context)’}
+Write the section "${section.title}" for project: ${context.projectSummary || '(No project context)'}
 Goal: ${section.goal}
-Tone: ${contract.tone || section.tone || ‘confident and grounded’} | Medium: ${contract.medium}
+Tone: ${contract.tone || section.tone || 'confident and grounded'} | Medium: ${contract.medium}
 
 Before writing, silently plan: H2/H3 hierarchy, callout placement, list structure. Then write blocks following that plan.
 </task>
@@ -171,10 +171,10 @@ JSON only, no markdown fences:
 
 <input_data>
 Section: ${section.title}
-Actions: ${section.primary_actions || ‘spell out concrete steps’}
-Inputs: ${section.required_inputs || ‘list tangible inputs’}
-Outputs: ${section.expected_outputs || ‘name the deliverables’}
-Risks: ${section.risks || ‘highlight failure modes to avoid’}
+Actions: ${section.primary_actions || 'spell out concrete steps'}
+Inputs: ${section.required_inputs || 'list tangible inputs'}
+Outputs: ${section.expected_outputs || 'name the deliverables'}
+Risks: ${section.risks || 'highlight failure modes to avoid'}
 
 Prior sections (do NOT restate):
 ${prior}

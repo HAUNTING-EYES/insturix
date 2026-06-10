@@ -4,7 +4,9 @@ import {
     addDataBankEntry,
     getDataBankEntries,
     getDataBankEntriesByUser,
+    getDataBankEntry,
     getProjectScopedEntries,
+    getSession,
     deleteDataBankEntry,
     promoteEntryToGlobal,
     type DataBankEntryType,
@@ -18,6 +20,9 @@ const VALID_TYPES: DataBankEntryType[] = [
     'url_brief', 'note', 'reference', 'research',
     'atomic_fact', 'brand_insight', 'rejection_pattern',
 ];
+const PROMOTABLE_TYPES = new Set<DataBankEntryType>(['brand_insight', 'rejection_pattern']);
+const DIRECT_GLOBAL_WRITE_ERROR =
+    'Direct global DataBank writes are not allowed. Save project-scoped content and promote it from a trusted outcome or explicit owner action.';
 
 /**
  * DataBank API - tiered knowledge storage
@@ -92,7 +97,8 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const { sessionId, projectId, type, title, content, sourceUrl, sourceEntryId, tags, scope: bodyScope } = body;
+    const { type, title, content, sourceUrl, sourceEntryId, tags, scope: bodyScope } = body;
+    const sessionId = nonEmptyString(body.sessionId);
 
     if (!type || !title) {
         return NextResponse.json(
@@ -105,16 +111,29 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` }, { status: 400 });
     }
 
+    if (bodyScope === 'global') {
+        return NextResponse.json({ error: DIRECT_GLOBAL_WRITE_ERROR }, { status: 400 });
+    }
+
+    if (!sessionId) {
+        return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
+    }
+
     try {
-        const entry = await addDataBankEntry(sessionId || '', userId, {
+        const session = await getSession(sessionId, userId);
+        if (!session) {
+            return NextResponse.json({ error: 'Session not found or not owned by user' }, { status: 404 });
+        }
+
+        const entry = await addDataBankEntry(sessionId, userId, {
             type,
             title,
             content: content || {},
             sourceUrl,
             sourceEntryId,
-            tags,
-            projectId,
-            scope: bodyScope === 'global' ? 'global' : 'project',
+            tags: normalizeTags(tags),
+            projectId: sessionId,
+            scope: 'project',
         });
         return NextResponse.json({ entry }, { status: 201 });
     } catch (error: any) {
@@ -135,6 +154,19 @@ export async function PATCH(req: Request) {
 
     try {
         if (action === 'promote') {
+            const entry = await getDataBankEntry(id, userId);
+            if (!entry) {
+                return NextResponse.json({ error: 'Entry not found or not owned by user' }, { status: 404 });
+            }
+            if (entry.scope === 'global') {
+                return NextResponse.json({ success: true, action: 'already_global' });
+            }
+            if (!PROMOTABLE_TYPES.has(entry.type)) {
+                return NextResponse.json(
+                    { error: 'Only brand_insight or rejection_pattern entries can be promoted globally' },
+                    { status: 400 },
+                );
+            }
             await promoteEntryToGlobal(id);
             return NextResponse.json({ success: true });
         }
@@ -166,4 +198,18 @@ export async function DELETE(req: Request) {
         console.error('Error deleting databank entry:', error);
         return NextResponse.json({ error: 'Failed to delete entry' }, { status: 500 });
     }
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim().length > 0
+        ? value.trim()
+        : undefined;
+}
+
+function normalizeTags(value: unknown): string[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const tags = value
+        .map((tag) => nonEmptyString(tag))
+        .filter((tag): tag is string => Boolean(tag));
+    return tags.length > 0 ? tags : undefined;
 }

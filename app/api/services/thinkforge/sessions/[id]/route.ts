@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import * as db from '@/lib/thinkforge/services/db';
 import { runPostMortemAgent } from '@/lib/thinkforge/agents/post-mortem-agent';
+import { resolvePostMortemScope } from '@/lib/thinkforge/agents/post-mortem-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -100,8 +101,10 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     // Run Post-Mortem compression before deletion to preserve learned insights
     try {
-      const title = session.projectMeta?.title || session.projectMeta?.idea;
-      await runPostMortemAgent({ userId, sessionId, projectTitle: typeof title === 'string' ? title : undefined });
+      const scoped = await resolvePostMortemScope({ userId, sessionId, session });
+      if (scoped) {
+        await runPostMortemAgent(scoped.input);
+      }
     } catch (pmErr) {
       console.warn('[Sessions] Post-mortem failed, proceeding with deletion:', pmErr);
     }

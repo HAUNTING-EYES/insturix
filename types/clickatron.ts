@@ -1,9 +1,59 @@
 import { z } from 'zod';
 
+export const ClickatronSourceServiceSchema = z.enum([
+  'thinkforge',
+  'editron',
+  'pipeline',
+  'alyzitron',
+  'clickatron',
+  'musitron',
+  'uploaderx',
+]);
+
+const OptionalNonEmptyStringSchema = z.preprocess((value) => {
+  if (value == null) return undefined;
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}, z.string().min(1).optional());
+
+const MetadataInputSchema = z.preprocess((value) => {
+  if (value == null || value === '') return undefined;
+  if (typeof value !== 'string') return value;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}, z.record(z.string(), z.unknown()).refine((value) => !Array.isArray(value), {
+  message: 'metadata must be an object',
+}).optional());
+
+export type ClickatronSourceService = z.infer<typeof ClickatronSourceServiceSchema>;
+
+export interface ClickatronSourceContext {
+  sourceService?: ClickatronSourceService;
+  sourceSessionId?: string;
+  sourceScriptId?: string;
+  universalId?: string;
+  brandId?: string;
+  projectId?: string;
+}
+
 // Main Task Interface (matches the new MongoDB schema)
 export interface IClickatronTask {
   _id?: string;
   clerkUserId: string;
+  orgId?: string;
+  createdByName?: string;
+  brandId?: string;
+  projectId?: string;
+  universalId?: string;
+  sourceService?: ClickatronSourceService;
+  sourceSessionId?: string;
+  sourceScriptId?: string;
+  metadata?: Record<string, unknown>;
   title?: string;
   status?: 'pending' | 'processing' | 'completed' | 'failed';
   details: {
@@ -34,6 +84,40 @@ export interface ChatMessage {
 export interface Canvas {
   variations: Variation[];
   chatHistory: ChatMessage[];
+}
+
+export interface SketchPoint {
+  x: number;
+  y: number;
+}
+
+export interface SketchStroke {
+  points: SketchPoint[];
+  color: string;
+  lineWidth: number;
+  tool: 'pencil' | 'eraser';
+}
+
+export interface TextAnnotation {
+  id?: string;
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+}
+
+export interface ImageAnnotation {
+  src: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SketchAnnotations {
+  strokes: SketchStroke[];
+  textElements: TextAnnotation[];
+  imageOverlays?: ImageAnnotation[];
 }
 
 export interface Variation {
@@ -86,6 +170,13 @@ export const CreateSessionRequestSchema = z.object({
     .regex(/^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/, "Aspect ratio must be in format 'W:H'")
     .optional(),
   modelId: z.string().optional(),
+  brandId: OptionalNonEmptyStringSchema,
+  projectId: OptionalNonEmptyStringSchema,
+  universalId: OptionalNonEmptyStringSchema,
+  sourceService: ClickatronSourceServiceSchema.optional(),
+  sourceSessionId: OptionalNonEmptyStringSchema,
+  sourceScriptId: OptionalNonEmptyStringSchema,
+  metadata: MetadataInputSchema,
 });
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;

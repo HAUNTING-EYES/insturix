@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
+import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
 export const maxDuration = 300;
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
     let videoDoc = null;
 
     if (videoUuid) {
-      videoDoc = await UploaderXVideo.findOne({ videoUuid });
+      videoDoc = await UploaderXVideo.findOne({ userId: session.userId, videoUuid });
       if (videoDoc?.metadata) {
         const meta = videoDoc.metadata;
         if (meta.instagram) {
@@ -88,27 +89,29 @@ export async function POST(req: Request) {
       }
     }
 
-    const existingIgMediaId = videoDoc?.metadata?.instagram?.mediaId || null;
-    const videoAsset = await resolveUploaderXVideo({ videoUuid, gcsPath });
-    const mediaUrl = videoAsset.publicUrl;
-    const contentType = videoAsset.contentType || "video/mp4";
-    const isVideo = contentType.startsWith("video/");
-    const mediaType = isVideo ? "REELS" : "IMAGE";
-    const fullCaption = finalCaption ? `${finalCaption}\n\n${finalDescription}`.trim() : finalDescription;
-
     const igAccountId = targetAccount.instagramAccountId;
+    const existingInstagram = videoDoc?.metadata?.instagram || null;
+    const existingIgMediaId = existingInstagram?.mediaId || null;
+    const existingIgAccountId = existingInstagram?.instagramAccountId || null;
 
-    if (existingIgMediaId) {
+    if (existingIgMediaId && (!existingIgAccountId || String(existingIgAccountId) === String(igAccountId))) {
       return NextResponse.json({
         success: true,
         instagramUrl: `https://www.instagram.com/p/${existingIgMediaId}`,
         mediaId: existingIgMediaId,
         accountUsername: targetAccount.instagramUsername,
-        mediaType,
+        mediaType: existingInstagram?.mediaType || "MEDIA",
         updated: false,
         note: "Instagram doesn't support updating published media captions. Returning existing media.",
       });
     }
+
+    const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid, gcsPath });
+    const mediaUrl = videoAsset.publicUrl;
+    const contentType = videoAsset.contentType || "video/mp4";
+    const isVideo = contentType.startsWith("video/");
+    const mediaType = isVideo ? "REELS" : "IMAGE";
+    const fullCaption = finalCaption ? `${finalCaption}\n\n${finalDescription}`.trim() : finalDescription;
 
     const createContainerUrl = `https://graph.instagram.com/v21.0/me/media`;
     const containerParams = new URLSearchParams();
@@ -193,7 +196,7 @@ export async function POST(req: Request) {
 
     if (videoUuid) {
       await UploaderXVideo.updateOne(
-        { videoUuid },
+        { userId: session.userId, videoUuid },
         {
           $set: {
             "metadata.instagram.mediaId": mediaId,
@@ -203,6 +206,17 @@ export async function POST(req: Request) {
             "metadata.instagram.lastUploadedAt": new Date(),
           },
         }
+      );
+      await emitUploaderXVideoPublished({
+        userId: session.userId,
+        videoUuid,
+        platform: "instagram",
+        platformPostId: mediaId,
+        platformUrl: instagramUrl,
+        accountUsername: targetAccount.instagramUsername,
+        mediaType,
+      }).catch((eventErr) =>
+        console.warn("[UploaderX:Instagram] video_published event failed:", eventErr),
       );
     }
 

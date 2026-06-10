@@ -52,6 +52,8 @@ export interface FetchContextOptions {
   userId: string;
   projectId?: string;
   sessionId?: string;
+  /** Current brand scope. Brand-scoped global memory is visible only when this matches. */
+  brandId?: string;
   /** The current user prompt – used to match relevant facts by keyword overlap */
   currentPrompt?: string;
   /** Current script content – used for keyword extraction */
@@ -157,12 +159,13 @@ async function fetchGlobalContext(
   keywords: string[],
   maxFacts: number,
   queryText: string,
+  brandId?: string,
 ): Promise<SemanticFact[]> {
   try {
-    const vectorResults = await fetchWarmVectorContext(userId, queryText, maxFacts, 'global');
+    const vectorResults = await fetchWarmVectorContext(userId, queryText, maxFacts, 'global', brandId);
     if (vectorResults.length > 0) return vectorResults;
 
-    return await fetchWarmKeywordContext(userId, keywords, maxFacts);
+    return await fetchWarmKeywordContext(userId, keywords, maxFacts, brandId);
   } catch (error) {
     console.warn('[fetchContextSources] Global fetch failed:', error);
     return [];
@@ -174,6 +177,7 @@ async function fetchWarmVectorContext(
   queryText: string,
   maxFacts: number,
   scope?: 'project' | 'global',
+  brandId?: string,
 ): Promise<SemanticFact[]> {
   if (!queryText.trim()) return [];
 
@@ -191,7 +195,11 @@ async function fetchWarmVectorContext(
       .filter((r) => entryMap.has(r.id))
       .map((r) => entryMap.get(r.id)!);
 
-    return orderedEntries.map((entry) => ({
+    const visibleEntries = scope === 'global'
+      ? orderedEntries.filter((entry) => isVisibleGlobalEntry(entry, brandId))
+      : orderedEntries;
+
+    return visibleEntries.map((entry) => ({
       id: entry._id.toString(),
       title: entry.title,
       summary: extractSummary(entry),
@@ -225,11 +233,13 @@ async function fetchWarmKeywordContext(
   userId: string,
   keywords: string[],
   maxFacts: number,
+  brandId?: string,
 ): Promise<SemanticFact[]> {
-  const entries = await getDataBankEntriesByUser(userId, { limit: 200 });
+  const entries = await getDataBankEntriesByUser(userId, { limit: 200, scope: 'global' });
   if (entries.length === 0) return [];
 
   const scored = entries
+    .filter((entry) => isVisibleGlobalEntry(entry, brandId))
     .map((e) => ({ entry: e, score: scoreEntryByKeywords(e, keywords) }))
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
@@ -251,6 +261,28 @@ function extractSummary(entry: DataBankEntry): string {
   if (c?.text) return String(c.text).slice(0, 300);
   if (c?.claim) return String(c.claim).slice(0, 300);
   return entry.title;
+}
+
+function isVisibleGlobalEntry(entry: DataBankEntry, brandId?: string): boolean {
+  if (entry.scope !== 'global') return false;
+  const entryBrandId = getEntryBrandId(entry);
+  const isBrandScoped = Boolean(entryBrandId)
+    || Boolean(entry.tags?.some((tag) => tag === 'memory:brand' || tag.startsWith('brand:')));
+  if (!isBrandScoped) return true;
+  return Boolean(brandId && entryBrandId === brandId);
+}
+
+function getEntryBrandId(entry: DataBankEntry): string | undefined {
+  const taggedBrandId = entry.tags
+    ?.find((tag) => tag.startsWith('brand:'))
+    ?.slice('brand:'.length)
+    .trim();
+  if (taggedBrandId) return taggedBrandId;
+
+  const content = entry.content as Record<string, unknown> | undefined;
+  return typeof content?.brandId === 'string' && content.brandId.trim()
+    ? content.brandId.trim()
+    : undefined;
 }
 
 // ==================== Hot Tier: Interaction Patterns ====================
@@ -341,6 +373,7 @@ export async function fetchContextSources(
     userId,
     projectId,
     sessionId,
+    brandId,
     currentPrompt,
     currentScript,
     maxFacts = 5,
@@ -357,7 +390,7 @@ export async function fetchContextSources(
       [],
     ),
     withTimeout(
-      fetchGlobalContext(userId, keywords, maxFacts, combinedText),
+      fetchGlobalContext(userId, keywords, maxFacts, combinedText, brandId),
       [],
     ),
     withTimeout(

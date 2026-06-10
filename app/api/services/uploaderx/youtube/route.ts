@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
+import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXStream, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
 export async function POST(req: Request) {
@@ -66,7 +67,7 @@ export async function POST(req: Request) {
     if (videoUuid) {
       try {
         await connectToDatabase();
-        const video = await UploaderXVideo.findOne({ videoUuid });
+        const video = await UploaderXVideo.findOne({ userId: session.userId, videoUuid });
 
         if (video?.metadata) {
           if (video.metadata.youtube?.videoId) {
@@ -137,7 +138,7 @@ export async function POST(req: Request) {
       videoId = existingVideoId;
       youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
     } else {
-      const videoAsset = await resolveUploaderXVideo({ videoUuid, gcsPath });
+      const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid, gcsPath });
       const { stream } = await fetchUploaderXStream(videoAsset.publicUrl);
 
       const res = await youtube.videos.insert({
@@ -158,7 +159,7 @@ export async function POST(req: Request) {
 
       if (videoUuid) {
         await UploaderXVideo.updateOne(
-          { videoUuid },
+          { userId: session.userId, videoUuid },
           {
             $set: {
               "metadata.youtube.videoId": videoId,
@@ -166,6 +167,16 @@ export async function POST(req: Request) {
               "metadata.youtube.lastUploadedAt": new Date(),
             },
           }
+        );
+        await emitUploaderXVideoPublished({
+          userId: session.userId,
+          videoUuid,
+          platform: "youtube",
+          platformPostId: videoId,
+          platformUrl: youtubeUrl,
+          mediaType: "video",
+        }).catch((eventErr) =>
+          console.warn("[UploaderX:YouTube] video_published event failed:", eventErr),
         );
       }
     }

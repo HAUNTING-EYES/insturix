@@ -58,17 +58,37 @@ export async function GET(request: Request) {
         if (renderJob?.userId && renderJob?.projectId) {
           const { emitBrandEvent } = await import('@/lib/shared/brand-events');
           const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+          const project = await db.collection('projects').findOne(
+            { projectId: renderJob.projectId, userId: renderJob.userId },
+            { projection: { brandId: 1, name: 1, qualityScore: 1, sourceSessionId: 1 } },
+          );
+          const brandId = typeof project?.brandId === 'string' && project.brandId.trim()
+            ? project.brandId.trim()
+            : undefined;
+          const qualityScore = typeof project?.qualityScore === 'number'
+            ? project.qualityScore
+            : undefined;
+          const sessionId = typeof project?.sourceSessionId === 'string' && project.sourceSessionId.trim()
+            ? project.sourceSessionId.trim()
+            : undefined;
+          const projectName = typeof project?.name === 'string' && project.name.trim()
+            ? project.name.trim()
+            : undefined;
 
           await transitionProjectStatus(renderJob.projectId, renderJob.userId, 'rendered', 'render_complete');
 
           emitBrandEvent({
             userId: renderJob.userId,
             projectId: renderJob.projectId,
+            brandId,
             service: 'editron',
             type: 'video_rendered',
             payload: {
               outputSize: progress.outputSizeInBytes || 0,
               renderId,
+              ...(qualityScore !== undefined ? { qualityScore } : {}),
+              ...(sessionId ? { sessionId } : {}),
+              ...(projectName ? { projectName } : {}),
             },
           }).catch((e) => console.warn('[RenderProgress] Brand event failed:', e));
 

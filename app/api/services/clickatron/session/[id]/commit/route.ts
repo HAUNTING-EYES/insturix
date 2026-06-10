@@ -4,6 +4,7 @@ import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
 import { z } from 'zod';
+import { buildClickatronThumbnailCommitContext } from '@/lib/clickatron/thumbnail-commit-context';
 
 // Enhanced commit request schema
 const CommitVariationRequestSchema = z.object({
@@ -83,6 +84,40 @@ export async function POST(
     };
     variation.updatedAt = new Date();
 
+    const commitContext = buildClickatronThumbnailCommitContext(
+      {
+        brandId: task.brandId,
+        projectId: task.projectId,
+        universalId: task.universalId,
+        sourceService: task.sourceService,
+        sourceSessionId: task.sourceSessionId,
+        sourceScriptId: task.sourceScriptId,
+        metadata: task.metadata,
+      },
+      {
+        id: variation.id,
+        prompt: variation.prompt,
+        imageRef: variation.imageRef,
+        thumbnailRef: variation.thumbnailRef,
+        aspectRatio: variation.aspectRatio,
+        modelId: variation.modelId,
+        metadata: variation.metadata,
+      },
+      {
+        sessionId: id,
+        variationId: validatedData.variationId,
+        thumbnailUrl: validatedData.gcsPath,
+        editronProjectId: validatedData.editronProjectId,
+        metadata: validatedData.metadata,
+      },
+    );
+
+    variation.metadata.committedThumbnail = {
+      thumbnailId: commitContext.thumbnailId,
+      universalId: commitContext.universalId,
+      projectId: commitContext.projectId,
+      brandId: commitContext.brandId,
+    };
 
     // Update task timestamps (keep status as is for ongoing canvas work)
     task.updatedAt = new Date();
@@ -91,10 +126,10 @@ export async function POST(
     await task.save();
 
     // If linked to an Editron project, update its pipeline stage to "thumbnails"
-    if (validatedData.editronProjectId) {
+    if (commitContext.projectId) {
       try {
         const { projectService } = await import('@/lib/editron/services/project-service');
-        await projectService.updateProjectMetadata(validatedData.editronProjectId, {
+        await projectService.updateProjectMetadata(commitContext.projectId, {
           pipelineStage: 'thumbnails',
         });
       } catch (e) {
@@ -102,13 +137,49 @@ export async function POST(
       }
     }
 
+    if (commitContext.universalId) {
+      try {
+        const { recordThumbnailOnLink } = await import('@/lib/shared/project-links');
+        const linked = await recordThumbnailOnLink(
+          userId,
+          commitContext.universalId,
+          commitContext.linkRecord,
+        );
+        if (!linked) {
+          console.warn('[clickatron/commit] Project link not found for thumbnail commit:', {
+            universalId: commitContext.universalId,
+            thumbnailId: commitContext.thumbnailId,
+          });
+        }
+      } catch (e) {
+        console.warn('[clickatron/commit] Failed to record thumbnail on project link:', e);
+      }
+    }
+
+    try {
+      const { emitBrandEvent } = await import('@/lib/shared/brand-events');
+      await emitBrandEvent({
+        userId,
+        brandId: commitContext.brandId,
+        projectId: commitContext.projectId,
+        service: 'clickatron',
+        type: 'thumbnail_created',
+        payload: commitContext.brandEventPayload,
+      });
+    } catch (e) {
+      console.warn('[clickatron/commit] Failed to emit thumbnail_created brand event:', e);
+    }
+
     return NextResponse.json({
       success: true,
       thumbnailUrl: validatedData.gcsPath,
+      thumbnailId: commitContext.thumbnailId,
+      universalId: commitContext.universalId,
       taskId: id,
       committedVariation: {
         id: variation.id,
         prompt: variation.prompt,
+        thumbnailId: commitContext.thumbnailId,
         timestamp: variation.timestamp,
       },
     });
@@ -117,7 +188,7 @@ export async function POST(
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Validation failed', details: error.errors },
+        { error: 'Validation failed', details: error.issues },
         { status: 400 }
       );
     }

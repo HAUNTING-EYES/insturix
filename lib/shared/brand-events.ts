@@ -45,10 +45,28 @@ export interface BrandEvent {
   type: BrandEventType;
   payload: Record<string, unknown>;
   consumedBy: string[];
+  processingLeases?: Record<string, Date | string>;
   createdAt: Date;
 }
 
+export type BrandEventClaim =
+  | { status: 'claimed'; event: BrandEvent }
+  | { status: 'already_consumed'; event: BrandEvent }
+  | { status: 'in_progress'; event: BrandEvent }
+  | { status: 'missing' };
+
+export interface BrandEventScopeOptions {
+  projectId?: string;
+  brandId?: string;
+  sessionId?: string;
+  type?: BrandEventType;
+  service?: BrandEventService;
+  limit?: number;
+  since?: Date;
+}
+
 const COLLECTION = 'brand_events';
+const DEFAULT_CLAIM_LEASE_MS = 10 * 60 * 1000;
 
 // ==================== Emit ====================
 
@@ -99,9 +117,71 @@ export async function markEventConsumed(
   consumer: string,
 ): Promise<void> {
   const db = await getDatabase();
+  const consumerKey = consumerPathSegment(consumer);
   await db
     .collection(COLLECTION)
-    .updateOne({ eventId }, { $addToSet: { consumedBy: consumer } });
+    .updateOne(
+      { eventId },
+      {
+        $addToSet: { consumedBy: consumer },
+        $unset: { [`processingLeases.${consumerKey}`]: '' },
+      },
+    );
+}
+
+export async function claimEventForConsumer(
+  eventId: string,
+  consumer: string,
+  options?: { now?: Date; leaseMs?: number },
+): Promise<BrandEventClaim> {
+  const db = await getDatabase();
+  const col = db.collection<BrandEvent>(COLLECTION);
+  const now = options?.now ?? new Date();
+  const leaseExpiresAt = new Date(now.getTime() + (options?.leaseMs ?? DEFAULT_CLAIM_LEASE_MS));
+  const consumerKey = consumerPathSegment(consumer);
+  const leasePath = `processingLeases.${consumerKey}`;
+
+  const claimed = await col.findOneAndUpdate(
+    {
+      eventId,
+      consumedBy: { $ne: consumer },
+      $or: [
+        { [leasePath]: { $exists: false } },
+        { [leasePath]: { $lte: now } },
+      ],
+    },
+    { $set: { [leasePath]: leaseExpiresAt } },
+    { returnDocument: 'after' },
+  );
+
+  if (claimed) {
+    return { status: 'claimed', event: claimed };
+  }
+
+  const existing = await col.findOne({ eventId });
+  if (!existing) {
+    return { status: 'missing' };
+  }
+
+  if (existing.consumedBy?.includes(consumer)) {
+    return { status: 'already_consumed', event: existing };
+  }
+
+  return { status: 'in_progress', event: existing };
+}
+
+export async function releaseEventClaim(
+  eventId: string,
+  consumer: string,
+): Promise<void> {
+  const db = await getDatabase();
+  const consumerKey = consumerPathSegment(consumer);
+  await db
+    .collection(COLLECTION)
+    .updateOne(
+      { eventId },
+      { $unset: { [`processingLeases.${consumerKey}`]: '' } },
+    );
 }
 
 export async function getEventsByProject(
@@ -132,6 +212,36 @@ export async function getEventsByUser(
     .find(filter)
     .sort({ createdAt: -1 })
     .limit(options?.limit ?? 100)
+    .toArray();
+}
+
+export async function getEventsByScope(
+  userId: string,
+  options: BrandEventScopeOptions,
+): Promise<BrandEvent[]> {
+  const projectId = cleanScopeValue(options.projectId);
+  const sessionId = cleanScopeValue(options.sessionId);
+  const brandId = cleanScopeValue(options.brandId);
+  const scopeClauses = brandEventScopeClauses({ projectId, sessionId, brandId });
+
+  if (scopeClauses.length === 0) {
+    return [];
+  }
+
+  const db = await getDatabase();
+  const filter: Record<string, unknown> = {
+    userId,
+    $or: scopeClauses,
+  };
+  if (options.type) filter.type = options.type;
+  if (options.service) filter.service = options.service;
+  if (options.since) filter.createdAt = { $gte: options.since };
+
+  return db
+    .collection<BrandEvent>(COLLECTION)
+    .find(filter)
+    .sort({ createdAt: -1 })
+    .limit(options.limit ?? 100)
     .toArray();
 }
 
@@ -169,4 +279,57 @@ export async function ensureBrandEventsIndexes(): Promise<void> {
     col.createIndex({ consumedBy: 1 }),
     col.createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 }),
   ]);
+}
+
+function consumerPathSegment(consumer: string): string {
+  if (!/^[a-zA-Z0-9_-]+$/.test(consumer)) {
+    throw new Error(`Invalid brand event consumer id: ${consumer}`);
+  }
+  return consumer;
+}
+
+function brandEventScopeClauses(scope: {
+  projectId?: string;
+  sessionId?: string;
+  brandId?: string;
+}): Record<string, string>[] {
+  const clauses: Record<string, string>[] = [];
+
+  if (scope.projectId) {
+    clauses.push(
+      { projectId: scope.projectId },
+      { 'payload.projectId': scope.projectId },
+      { 'payload.editronProjectId': scope.projectId },
+      { 'payload.sourceContext.projectId': scope.projectId },
+    );
+  }
+
+  if (scope.sessionId) {
+    clauses.push(
+      { 'payload.sessionId': scope.sessionId },
+      { 'payload.sourceSessionId': scope.sessionId },
+      { 'payload.sourceContext.sessionId': scope.sessionId },
+      { 'payload.sourceContext.sourceSessionId': scope.sessionId },
+    );
+  }
+
+  if (clauses.length > 0) {
+    return clauses;
+  }
+
+  if (scope.brandId) {
+    return [
+      { brandId: scope.brandId },
+      { 'payload.brandId': scope.brandId },
+      { 'payload.sourceContext.brandId': scope.brandId },
+    ];
+  }
+
+  return [];
+}
+
+function cleanScopeValue(value: string | undefined): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
 }

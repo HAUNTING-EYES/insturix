@@ -14,7 +14,7 @@ import * as db from './db';
 import { applyCommand } from './command-service';
 import { collectExemplarPassively } from './exemplar-collector';
 import { appendEvent } from './event-log';
-import type { SessionState, ProjectMeta } from '../state/types';
+import type { SessionState, ProjectMeta, ScriptState } from '../state/types';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { applyThinkForgeBlockPatches, extractTextFromRichText } from '../utils/thinkforge-block-patch';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
@@ -215,6 +215,9 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       userId,
       projectId: sessionId || undefined,
       sessionId: sessionId || undefined,
+      brandId: typeof session.projectMeta?.brandId === 'string'
+        ? session.projectMeta.brandId
+        : undefined,
       currentPrompt: prompt,
       currentScript: scriptContent,
       maxFacts: 5,
@@ -225,19 +228,21 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     }),
   ]);
   const systemBrief = retrievedCtx ? formatSystemBrief(retrievedCtx) : null;
+  const currentScriptState: ScriptState | null = script ? {
+    title: script.title || '',
+    blocks: thinkforgeBlocks,
+    content: script.content || '',
+    draft: false,
+    version: 1
+  } : null;
 
   // Build session state
   const sessionState: SessionState = {
     sessionId: session?._id || 'temp',
     userId,
     chat: chatHistory,
-    script: script ? {
-      title: script.title || '',
-      blocks: thinkforgeBlocks,
-      content: script.content || '',
-      draft: false,
-      version: 1
-    } : null,
+    script: currentScriptState,
+    documents: currentScriptState ? [currentScriptState] : [],
     ideas: [],
     metadata: {
       ...(providedProject || session?.projectMeta || {}),
@@ -322,7 +327,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       if (Array.isArray(providedBlueprintArtifacts) && providedBlueprintArtifacts.length > 0) {
         const artifacts = providedBlueprintArtifacts;
         const total = artifacts.length;
-        const projectDesc = session?.projectMeta?.idea || session?.projectMeta?.title || prompt;
+        const projectDesc = sessionState.metadata.idea
+          || sessionState.metadata.title
+          || sessionState.metadata.projectName
+          || sessionState.metadata.sessionName
+          || prompt;
 
         if (!(await emitEvent('token', { content: `Creating ${total} document${total > 1 ? 's' : ''} for your project...\n` }))) return;
 
@@ -773,7 +782,11 @@ CRITICAL: You are editing a SELECTION from a larger document.
         try {
           const thinking = await runThinkingAgent({
             userPrompt: effectivePrompt,
-            projectSummary: sessionState?.projectMeta?.idea || sessionState?.projectMeta?.title || '',
+            projectSummary: sessionState.metadata.idea
+              || sessionState.metadata.title
+              || sessionState.metadata.projectName
+              || sessionState.metadata.sessionName
+              || '',
           });
           if (thinking) {
             await emitEvent('thinking', { content: thinking });

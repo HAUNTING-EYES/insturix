@@ -33,6 +33,7 @@ const VariationSchema = new Schema({
   modelId: { type: String, required: true }, // Renamed from modelUsed and now required
   seed: { type: Number },
   generationParams: { type: Schema.Types.Mixed },
+  metadata: { type: Schema.Types.Mixed },
   error: { type: String },
 });
 
@@ -54,6 +55,13 @@ export interface IClickatronTask extends Document {
   clerkUserId: string;
   orgId?: string;  // null = personal, set = org-owned
   createdByName?: string;  // Creator's display name for org context
+  brandId?: string;
+  projectId?: string;
+  universalId?: string;
+  sourceService?: string;
+  sourceSessionId?: string;
+  sourceScriptId?: string;
+  metadata?: Record<string, unknown>;
   title?: string;
   details: {
     videoIdea: string;
@@ -72,6 +80,13 @@ const ClickatronTaskSchema = new Schema<IClickatronTask>(
     clerkUserId: { type: String, required: true, index: true },
     orgId: { type: String, index: true },  // Index for org-level queries
     createdByName: { type: String },  // Creator's name for display
+    brandId: { type: String, index: true },
+    projectId: { type: String, index: true },
+    universalId: { type: String, index: true },
+    sourceService: { type: String, index: true },
+    sourceSessionId: { type: String, index: true },
+    sourceScriptId: { type: String, index: true },
+    metadata: { type: Schema.Types.Mixed },
     title: { type: String },
     details: {
       videoIdea: { type: String, required: true },
@@ -90,6 +105,11 @@ ClickatronTaskSchema.index({ clerkUserId: 1, createdAt: -1 });
 
 // Compound index for org-level queries
 ClickatronTaskSchema.index({ orgId: 1, createdAt: -1 });
+
+// Compound indexes for cross-service and brand-aware retrieval
+ClickatronTaskSchema.index({ clerkUserId: 1, brandId: 1, createdAt: -1 });
+ClickatronTaskSchema.index({ clerkUserId: 1, universalId: 1, createdAt: -1 });
+ClickatronTaskSchema.index({ clerkUserId: 1, sourceService: 1, sourceSessionId: 1 });
 
 // Force model refresh by deleting cached model
 if (mongoose.models.ClickatronTask) {

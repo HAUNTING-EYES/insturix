@@ -25,7 +25,12 @@ export async function POST(req: NextRequest) {
     const project = await projectService.loadProject(userId, projectId);
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
 
-    const report = runQualityReview(project.overlays, project.fps || 30, project.durationInFrames);
+    const overlaysForReview: Parameters<typeof runQualityReview>[0] = project.overlays.map((overlay) => ({
+      ...overlay,
+      content: readReviewContent(overlay),
+    }));
+
+    const report = runQualityReview(overlaysForReview, project.fps || 30, project.durationInFrames);
 
     emitBrandEvent({
       userId,
@@ -33,6 +38,7 @@ export async function POST(req: NextRequest) {
       service: 'editron',
       type: 'quality_reviewed',
       payload: {
+        qualityScore: report.overallScore,
         score: report.overallScore,
         issueCount: report.issues?.length ?? 0,
         autoFixableCount: report.autoFixable?.length ?? 0,
@@ -52,4 +58,32 @@ export async function POST(req: NextRequest) {
     console.error('[quality-review]', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+function readReviewContent(overlay: object): string | undefined {
+  if ('content' in overlay && typeof overlay.content === 'string') {
+    return overlay.content;
+  }
+
+  if ('text' in overlay && typeof overlay.text === 'string') {
+    return overlay.text;
+  }
+
+  if (!('captions' in overlay) || !Array.isArray(overlay.captions)) {
+    return undefined;
+  }
+
+  const text = overlay.captions
+    .map((caption) => {
+      if (!caption || typeof caption !== 'object') {
+        return '';
+      }
+      return 'text' in caption && typeof caption.text === 'string'
+        ? caption.text
+        : '';
+    })
+    .filter(Boolean)
+    .join(' ');
+
+  return text || undefined;
 }

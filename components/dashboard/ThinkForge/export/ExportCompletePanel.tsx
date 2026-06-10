@@ -4,6 +4,8 @@ import React from "react";
 import { motion } from "framer-motion";
 import {
   ImageIcon,
+  Loader2,
+  Sparkles,
 } from "lucide-react";
 import type { UseExportPipelineReturn } from "./hooks/useExportPipeline";
 
@@ -22,6 +24,8 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
     audioGenerating,
     projectId,
     error,
+    clickatronCreating,
+    handleCreateClickatronSession,
     handleClose,
   } = pipeline;
 
@@ -186,6 +190,25 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
             Edit Storyboard
           </button>
         )}
+        <button
+          onClick={() => { void handleCreateClickatronSession(); }}
+          disabled={clickatronCreating}
+          style={{
+            padding: "7px 14px", borderRadius: 4,
+            background: "transparent", border: "1px solid rgba(92,184,204,0.3)",
+            color: "#5CB8CC", fontSize: 13, fontWeight: 600,
+            cursor: clickatronCreating ? "wait" : "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+            opacity: clickatronCreating ? 0.75 : 1,
+          }}
+        >
+          {clickatronCreating ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="h-4 w-4" />
+          )}
+          {clickatronCreating ? "Starting..." : "Create Thumbnail"}
+        </button>
         <button
           onClick={() => { window.location.href = `/dashboard/editron/project/${projectId}`; }}
           style={{

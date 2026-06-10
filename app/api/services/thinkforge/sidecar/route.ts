@@ -76,6 +76,9 @@ export async function POST(req: Request) {
         userId,
         projectId: sessionId,
         sessionId,
+        brandId: typeof session.projectMeta?.brandId === 'string'
+          ? session.projectMeta.brandId
+          : undefined,
         currentPrompt: content || '',
         currentScript: scriptContent,
         maxFacts: 5,
@@ -84,10 +87,11 @@ export async function POST(req: Request) {
     ]);
 
     const systemBrief = retrievedCtx ? formatSystemBrief(retrievedCtx) : null;
+    const projectContext = { ...(session.projectMeta || {}), preferences };
 
     const context = quickAssembleContext(
       'chat',
-      { ...(session.projectMeta || {}), preferences },
+      projectContext,
       script ? { title: script.title, content: scriptContent } : null,
       [],
       null,

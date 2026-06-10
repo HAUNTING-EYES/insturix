@@ -28,6 +28,8 @@ export interface IdeaCardData {
 
 export interface ProjectMeta {
   idea?: string;
+  projectName?: string;
+  title?: string;
   purpose?: string;
   style?: string;
   format?: string;

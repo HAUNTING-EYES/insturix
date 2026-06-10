@@ -12,6 +12,7 @@ import {
 } from "../types";
 import { getAutoSelectedProfile } from "@/lib/editron/services/profile-detection-service";
 import { EDIT_PROFILES } from "@/lib/editron/data/edit-profiles";
+import useClickatronStore from "@/stores/useCanvasStore";
 
 // ─── Hook input ──────────────────────────────────────────────────
 export interface UseExportPipelineInput {
@@ -85,6 +86,7 @@ export interface UseExportPipelineReturn {
   storyboardScenes: any[];
   videoProgress: { done: number; total: number };
   videosGenerated: boolean;
+  clickatronCreating: boolean;
 
   // ── Reference image state ──
   refSetId: string;
@@ -154,6 +156,7 @@ export interface UseExportPipelineReturn {
   handleSaveDescriptionAndRegenerate: (subjectId: string) => Promise<void>;
   handleRegenerateStoryboardScene: (sceneIndex: number, feedback?: string) => Promise<void>;
   handlePreviewVoice: (voiceId: string) => Promise<void>;
+  handleCreateClickatronSession: () => Promise<void>;
   handleClose: () => void;
   reset: () => void;
   estimateCredits: () => number;
@@ -208,6 +211,8 @@ export function useExportPipeline(
   const [storyboardScenes, setStoryboardScenes] = useState<any[]>([]);
   const [videoProgress, setVideoProgress] = useState({ done: 0, total: 0 });
   const [videosGenerated, setVideosGenerated] = useState(false);
+  const [clickatronCreating, setClickatronCreating] = useState(false);
+  const createClickatronSession = useClickatronStore((state) => state.createSession);
 
   // ── Reference image state ──────────────────────────────────────
   const [refSetId, setRefSetId] = useState("");
@@ -316,6 +321,7 @@ export function useExportPipeline(
     setStoryboardScenes([]);
     setVideoProgress({ done: 0, total: 0 });
     setVideosGenerated(false);
+    setClickatronCreating(false);
     setRefSetId("");
     setSubjects([]);
     setApprovedSubjectIds(new Set());
@@ -660,6 +666,104 @@ export function useExportPipeline(
   // ═══════════════════════════════════════════════════════════════
   // Phase 2: Generate storyboard images -> Pause for review
   // ═══════════════════════════════════════════════════════════════
+
+  const buildClickatronPrompt = (): string => {
+    const sceneLines = scenes
+      .slice(0, 5)
+      .map((scene: any, index: number) => {
+        const onScreenText = Array.isArray(scene.editDirections?.onScreenText)
+          ? scene.editDirections.onScreenText.filter(Boolean).join(", ")
+          : "";
+        const parts = [
+          scene.title,
+          scene.narration,
+          scene.visualDescription,
+          onScreenText ? `On-screen text: ${onScreenText}` : "",
+        ].filter((part) => typeof part === "string" && part.trim().length > 0);
+
+        return parts.length > 0 ? `Scene ${index + 1}: ${parts.join(" | ")}` : "";
+      })
+      .filter(Boolean);
+
+    return [
+      `Design a click-focused thumbnail for "${title || "this ThinkForge script"}".`,
+      plainText?.trim() ? `Script context:\n${plainText.trim()}` : "",
+      sceneLines.length > 0 ? `Visual beats:\n${sceneLines.join("\n")}` : "",
+      "Use the attached source metadata for brand context. Do not invent logos or brand assets.",
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 4000);
+  };
+
+  const appendContextField = (formData: FormData, key: string, value: unknown) => {
+    if (typeof value === "string" && value.trim().length > 0) {
+      formData.append(key, value.trim());
+    }
+  };
+
+  const handleCreateClickatronSession = async () => {
+    if (!sessionId) {
+      const message = "Cannot start Clickatron: ThinkForge session context is missing.";
+      setError(message);
+      throw new Error(message);
+    }
+
+    const prompt = buildClickatronPrompt();
+    if (!prompt.trim()) {
+      const message = "Cannot start Clickatron: no script or scene context is available.";
+      setError(message);
+      throw new Error(message);
+    }
+
+    setClickatronCreating(true);
+    setError("");
+
+    try {
+      const contextRes = await fetch("/api/services/thinkforge/clickatron-context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          scriptId,
+          projectId: projectId || undefined,
+          title: title || undefined,
+          aspectRatio,
+          scenesCount: scenes.length,
+        }),
+      });
+      const contextData = await contextRes.json().catch(() => ({}));
+      if (!contextRes.ok || !contextData.context) {
+        throw new Error(contextData.error || `Failed to resolve ThinkForge context (${contextRes.status})`);
+      }
+
+      const context = contextData.context as Record<string, unknown>;
+      const formData = new FormData();
+      formData.append("prompt", prompt);
+      formData.append("aspectRatio", aspectRatio);
+      appendContextField(formData, "brandId", context.brandId);
+      appendContextField(formData, "projectId", context.projectId);
+      appendContextField(formData, "universalId", context.universalId);
+      appendContextField(formData, "sourceService", context.sourceService);
+      appendContextField(formData, "sourceSessionId", context.sourceSessionId);
+      appendContextField(formData, "sourceScriptId", context.sourceScriptId);
+      if (context.metadata && typeof context.metadata === "object") {
+        formData.append("metadata", JSON.stringify(context.metadata));
+      }
+
+      const result = await createClickatronSession(formData);
+      if (!result?.sessionId) {
+        throw new Error("Clickatron session was not returned");
+      }
+
+      window.location.href = `/dashboard/clickatron/lab/${result.sessionId}`;
+    } catch (err: any) {
+      setError(`Clickatron handoff failed: ${err.message || "Unknown error"}`);
+      throw err;
+    } finally {
+      setClickatronCreating(false);
+    }
+  };
 
   const handlePhase2 = async (parsedScenes?: any[], projectTitle?: string) => {
     const currentScenes = parsedScenes || scenes;
@@ -1628,6 +1732,7 @@ export function useExportPipeline(
     storyboardScenes,
     videoProgress,
     videosGenerated,
+    clickatronCreating,
 
     // Reference image state
     refSetId,
@@ -1697,6 +1802,7 @@ export function useExportPipeline(
     handleSaveDescriptionAndRegenerate,
     handleRegenerateStoryboardScene,
     handlePreviewVoice,
+    handleCreateClickatronSession,
     handleClose,
     reset,
     estimateCredits,

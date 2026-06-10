@@ -40,6 +40,7 @@ const HANDLED_EVENT_TYPES: BrandEventType[] = [
   'quality_reviewed',
   'brand_updated',
   'video_published',
+  'thumbnail_created',
 ];
 
 const ALL_SERVICES: BrandEventService[] = [
@@ -53,6 +54,16 @@ const ALL_EVENT_TYPES: BrandEventType[] = [
   'analysis_complete', 'thumbnail_created', 'music_selected',
   'brand_updated', 'user_override', 'quality_reviewed', 'status_changed',
 ];
+
+function resolveQualityScore(payload: Record<string, unknown>): number | null {
+  if (typeof payload.qualityScore === 'number') {
+    return payload.qualityScore;
+  }
+  if (typeof payload.score === 'number') {
+    return payload.score;
+  }
+  return null;
+}
 
 describe('Brand Events', () => {
   describe('type coverage', () => {
@@ -76,8 +87,8 @@ describe('Brand Events', () => {
   });
 
   describe('worker handler coverage', () => {
-    it('handles the 5 key event types with real logic', () => {
-      expect(HANDLED_EVENT_TYPES).toHaveLength(5);
+    it('handles the 6 key event types with real logic', () => {
+      expect(HANDLED_EVENT_TYPES).toHaveLength(6);
     });
 
     it('all handled types are valid event types', () => {
@@ -98,11 +109,21 @@ describe('Brand Events', () => {
       }
     });
 
+    it('brand-learning events are all handled', () => {
+      const learningEvents: BrandEventType[] = [
+        'brand_updated',
+        'thumbnail_created',
+      ];
+      for (const type of learningEvents) {
+        expect(HANDLED_EVENT_TYPES).toContain(type);
+      }
+    });
+
     it('unhandled event types fall through to default (acknowledged)', () => {
       const unhandled = ALL_EVENT_TYPES.filter(
         (t) => !HANDLED_EVENT_TYPES.includes(t),
       );
-      expect(unhandled.length).toBe(8);
+      expect(unhandled.length).toBe(7);
       expect(unhandled).toContain('script_generated');
       expect(unhandled).toContain('status_changed');
       expect(unhandled).toContain('project_created');
@@ -135,6 +156,30 @@ describe('Brand Events', () => {
       expect(minimalEvent).not.toHaveProperty('projectId');
       expect(minimalEvent).not.toHaveProperty('brandId');
     });
+
+    it('quality review carries canonical qualityScore for bandit learning', () => {
+      const event = {
+        userId: 'user_123',
+        projectId: 'project_123',
+        service: 'editron' as BrandEventService,
+        type: 'quality_reviewed' as BrandEventType,
+        payload: {
+          qualityScore: 82,
+          score: 82,
+          issueCount: 2,
+          autoFixableCount: 1,
+        },
+      };
+
+      expect(event.payload.qualityScore).toBe(82);
+      expect(resolveQualityScore(event.payload)).toBe(82);
+    });
+
+    it('quality review worker contract accepts legacy score payloads', () => {
+      const legacyPayload = { score: 77 };
+
+      expect(resolveQualityScore(legacyPayload)).toBe(77);
+    });
   });
 
   describe('pipeline event flow', () => {
@@ -158,19 +203,44 @@ describe('Brand Events', () => {
 
     it('render completion emits video_rendered from editron service', () => {
       const event = {
+        userId: 'user_123',
+        projectId: 'project_123',
+        brandId: 'brand_123',
         service: 'editron' as BrandEventService,
         type: 'video_rendered' as BrandEventType,
+        payload: {
+          qualityScore: 84,
+          sessionId: 'sess_123',
+          projectName: 'Launch Cut',
+          renderId: 'render_123',
+          outputSize: 1024,
+        },
       };
       expect(event.service).toBe('editron');
       expect(HANDLED_EVENT_TYPES).toContain(event.type);
+      expect(event.brandId).toBe('brand_123');
+      expect(resolveQualityScore(event.payload)).toBe(84);
+      expect(event.payload.sessionId).toBe('sess_123');
+      expect(event.payload.projectName).toBe('Launch Cut');
     });
 
     it('quality review emits quality_reviewed from editron service', () => {
       const event = {
         service: 'editron' as BrandEventService,
         type: 'quality_reviewed' as BrandEventType,
+        payload: { qualityScore: 82, score: 82 },
       };
       expect(event.service).toBe('editron');
+      expect(HANDLED_EVENT_TYPES).toContain(event.type);
+      expect(resolveQualityScore(event.payload)).toBe(82);
+    });
+
+    it('thumbnail commit emits thumbnail_created from clickatron service', () => {
+      const event = {
+        service: 'clickatron' as BrandEventService,
+        type: 'thumbnail_created' as BrandEventType,
+      };
+      expect(event.service).toBe('clickatron');
       expect(HANDLED_EVENT_TYPES).toContain(event.type);
     });
   });

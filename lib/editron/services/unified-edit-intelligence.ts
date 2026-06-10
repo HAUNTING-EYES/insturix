@@ -637,6 +637,7 @@ export async function generateCreativeIntentPlan(
     targetCutsPerMinute?: number;
     graphicDensity?: 'minimal' | 'moderate' | 'heavy';
     style?: string;
+    brandBlock?: string;
     /** Asset briefings (compressed 5-Track data for LLM prompt) */
     assetBriefings?: Map<string, { promptText: string; slopFlags: Array<{ startFrame: number; endFrame: number; description: string }> }>;
   } = {},
