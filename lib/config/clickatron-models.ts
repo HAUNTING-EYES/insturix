@@ -1,4 +1,6 @@
 
+import { ClickatronR2Manager } from '@/lib/clickatron-r2';
+
 /**
  * Defines the type of model.
  * - 'text-to-image': Generates an image from a text prompt.
@@ -54,6 +56,18 @@ export interface ModelConfig {
   parameterMapping: ParameterMapping;
   constraints: ModelConstraints;
 }
+
+export type ClickatronModelContext =
+  | 'ideation'
+  | 'newVariation'
+  | 'edit'
+  | 'generativeFill'
+  | 'sketchToEdit';
+
+export type ClickatronDefaultGenerationType = Extract<ModelType, 'text-to-image' | 'image-to-image'>;
+
+export const DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID = 'fal-ai/imagen4/preview';
+export const DEFAULT_CLICKATRON_IMAGE_TO_IMAGE_MODEL_ID = 'fal-ai/flux-kontext/dev';
 
 /**
  * A map of all available models, keyed by their unique ID.
@@ -462,13 +476,62 @@ export function filterModelsByReferenceImageCount(
 }
 
 /**
+ * Get the preferred default model for a generation type.
+ * Falls back through registry defaults so model IDs stay centralized here.
+ */
+export function getDefaultClickatronModelId(type: ClickatronDefaultGenerationType): string {
+  const preferredModelId =
+    type === 'text-to-image'
+      ? DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID
+      : DEFAULT_CLICKATRON_IMAGE_TO_IMAGE_MODEL_ID;
+  const preferredModel = CLICKATRON_MODELS[preferredModelId];
+
+  if (preferredModel?.types.includes(type)) {
+    return preferredModelId;
+  }
+
+  return (
+    Object.values(CLICKATRON_MODELS).find((model) => model.isDefault && model.types.includes(type))?.id ||
+    Object.values(CLICKATRON_MODELS).find((model) => model.types.includes(type))?.id ||
+    preferredModelId
+  );
+}
+
+/**
+ * Select a default model from input shape.
+ * Text-only ThinkForge handoffs must land on text-to-image models, while edits
+ * and reference-image flows need image-to-image models.
+ */
+export function getDefaultClickatronModelIdForInput({
+  context = 'newVariation',
+  referenceImageCount = 0,
+  hasParentImage = false,
+}: {
+  context?: ClickatronModelContext;
+  referenceImageCount?: number;
+  hasParentImage?: boolean;
+} = {}): string {
+  const generationType: ClickatronDefaultGenerationType =
+    referenceImageCount > 0 || hasParentImage ? 'image-to-image' : 'text-to-image';
+  const preferredModelId = getDefaultClickatronModelId(generationType);
+  const availableModels = getAvailableModels(context, referenceImageCount);
+
+  return (
+    availableModels.find((model) => model.id === preferredModelId && model.types.includes(generationType))?.id ||
+    availableModels.find((model) => model.isDefault && model.types.includes(generationType))?.id ||
+    availableModels.find((model) => model.types.includes(generationType))?.id ||
+    preferredModelId
+  );
+}
+
+/**
  * Get available models for a specific context
  * @param context - The context ('ideation' | 'newVariation' | 'edit' | 'generativeFill' | 'sketchToEdit')
  * @param userAttachedImages - The number of images attached by the user
  * @returns The available models
  */
 export function getAvailableModels(
-  context: 'ideation' | 'newVariation' | 'edit' | 'generativeFill' | 'sketchToEdit',
+  context: ClickatronModelContext,
   userAttachedImages: number = 0
 ): ModelConfig[] {
   const allModels = Object.values(CLICKATRON_MODELS);

@@ -54,6 +54,35 @@ function pushField(lines: string[], label: string, value: unknown): void {
   if (text) lines.push(`${label}: ${text}`);
 }
 
+function summarizeTextLayers(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const layers = value
+    .map((entry) => {
+      const layer = asRecord(entry);
+      const text = cleanText(layer?.text);
+      if (!text) return undefined;
+      const role = cleanText(layer?.role);
+      return role ? `${role}: ${text}` : text;
+    })
+    .filter(Boolean);
+  return layers.length > 0 ? layers.join(" | ") : undefined;
+}
+
+function summarizeSlides(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const slides = value
+    .map((entry) => {
+      const slide = asRecord(entry);
+      const index = typeof slide?.index === "number" ? slide.index + 1 : undefined;
+      const prompt = cleanText(slide?.imagePrompt);
+      if (!prompt) return undefined;
+      const title = cleanText(slide?.title);
+      return `Slide ${index ?? "?"}${title ? ` (${title})` : ""}: ${prompt}`;
+    })
+    .filter(Boolean);
+  return slides.length > 0 ? slides.join(" | ") : undefined;
+}
+
 export function resolveClickatronPromptBrandId(
   brandId: unknown,
   metadata?: MetadataRecord | null,
@@ -94,6 +123,11 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   const script = asRecord(thinkforge?.script);
   const projectMeta = asRecord(thinkforge?.projectMeta);
   const clickatron = asRecord(safeMetadata.clickatron);
+  const creativeSpec = asRecord(clickatron?.creativeSpec);
+  const creativeBrief = asRecord(creativeSpec?.creativeBrief);
+  const userIntent = asRecord(creativeSpec?.userIntent);
+  const renderPlan = asRecord(creativeSpec?.renderPlan);
+  const validation = asRecord(creativeSpec?.validation);
 
   const lines: string[] = ["<clickatron_source_context>"];
   pushField(lines, "Handoff", safeMetadata.handoff);
@@ -101,6 +135,23 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   pushField(lines, "Script title", script?.title);
   pushField(lines, "Thumbnail title", clickatron?.title);
   pushField(lines, "Aspect ratio", clickatron?.aspectRatio);
+  pushField(lines, "Creative kind", creativeSpec?.kind);
+  pushField(lines, "Asset intent", creativeSpec?.assetIntent);
+  pushField(lines, "Platform", creativeSpec?.platform);
+  pushField(lines, "Validation status", validation?.status);
+  pushField(lines, "Creative objective", creativeBrief?.objective);
+  pushField(lines, "Core message", creativeBrief?.coreMessage);
+  pushField(lines, "Hook", creativeBrief?.hook);
+  pushField(lines, "Audience", creativeBrief?.audience);
+  pushField(lines, "CTA", creativeBrief?.cta);
+  pushField(lines, "Visual metaphor", creativeBrief?.visualMetaphor);
+  pushField(lines, "Visual mode", userIntent?.visualMode);
+  pushField(lines, "Text density", userIntent?.textDensity);
+  pushField(lines, "Image prompt", renderPlan?.imagePrompt);
+  pushField(lines, "Layout intent", renderPlan?.layoutIntent);
+  pushField(lines, "Text policy", renderPlan?.textPolicy);
+  pushField(lines, "Text layers", summarizeTextLayers(renderPlan?.textLayers));
+  pushField(lines, "Carousel slides", summarizeSlides(renderPlan?.slides));
 
   if (projectMeta) {
     for (const [key, label] of PROJECT_META_FIELDS) {
@@ -128,6 +179,8 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
     "</clickatron_thumbnail_request>",
     "<clickatron_generation_rules>",
     "Use source and brand context for concept, composition, typography, color, tone, and audience fit.",
+    "Treat Clickatron text layers as planned editable overlay copy; reserve clean readable areas for them instead of rasterizing long exact text into the image.",
+    "If short text must appear in the generated image, keep it high-contrast, mobile-readable, and faithful to the provided text layers.",
     "Do not invent logos, trademarks, mascots, product packs, or brand assets unless the prompt or reference images explicitly provide them.",
     "Do not render source IDs or internal metadata text in the thumbnail.",
     "</clickatron_generation_rules>",

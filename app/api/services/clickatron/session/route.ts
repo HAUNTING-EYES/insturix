@@ -9,6 +9,7 @@ import { createJob } from '@/lib/clickatron-jobs';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
 import { nanoid } from 'nanoid';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
+import { getDefaultClickatronModelIdForInput } from '@/lib/config/clickatron-models';
 
 
 // POST /api/services/clickatron/session - Create new session and generate the first variation
@@ -31,10 +32,15 @@ export async function POST(request: Request) {
     }
 
     const formData = await request.formData();
+    const referenceImages = formData.getAll('referenceImage') as File[];
+    const defaultModelId = getDefaultClickatronModelIdForInput({
+      context: 'newVariation',
+      referenceImageCount: referenceImages.length,
+    });
     const validatedData = CreateSessionRequestSchema.parse({
       prompt: formData.get('prompt') || '',
       aspectRatio: formData.get('aspectRatio') || '16:9',
-      modelId: formData.get('modelId') || 'fal-ai/flux-kontext/dev',
+      modelId: formData.get('modelId') || defaultModelId,
       brandId: formData.get('brandId'),
       projectId: formData.get('projectId'),
       universalId: formData.get('universalId'),
@@ -62,7 +68,6 @@ export async function POST(request: Request) {
     };
     const hasCreationMetadata = Object.keys(creationMetadata).length > 0;
 
-    const referenceImages = formData.getAll('referenceImage') as File[];
     const referenceImageRefs: string[] = [];
 
     await getClickatronDb();

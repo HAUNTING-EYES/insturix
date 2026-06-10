@@ -7,7 +7,7 @@ import { CreateVariationRequestSchema } from '@/types/clickatron';
 import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatron-jobs';
 import { z } from 'zod';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
-import { getAvailableModels } from '@/lib/config/clickatron-models';
+import { getDefaultClickatronModelIdForInput } from '@/lib/config/clickatron-models';
 import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 
@@ -128,42 +128,11 @@ export async function POST(
     
     // If no model is provided, select based on whether we have reference images
     if (!selectedModelId) {
-      const hasReferenceImages = referenceImageRefs && referenceImageRefs.length > 0;
-      
-      // Determine context based on whether we're editing an existing variation
-      const context = validatedData.parentVariationId ? 'edit' : 'newVariation';
-      
-      // Get available models for this context
-      const availableModels = getAvailableModels(context, hasReferenceImages ? referenceImageRefs.length : 0);
-      
-      // Find an appropriate model based on context
-      // First, try to find a default model that matches the requirements
-      let suitableModel = availableModels.find((model: any) => {
-        // Check if it's a default model and matches the type requirements
-        if (model.isDefault) {
-          // For image-to-image generation, we need reference images and an image-to-image model
-          if (hasReferenceImages) {
-            return model.type === 'image-to-image';
-          }
-          // For text-to-image generation, we don't want reference images and need a text-to-image model
-          return model.type === 'text-to-image';
-        }
-        return false;
+      selectedModelId = getDefaultClickatronModelIdForInput({
+        context: validatedData.parentVariationId ? 'edit' : 'newVariation',
+        referenceImageCount: referenceImageRefs.length,
+        hasParentImage: Boolean(validatedData.parentVariationId),
       });
-      
-      // If no default model is found, fall back to any suitable model
-      if (!suitableModel) {
-        suitableModel = availableModels.find((model: any) => {
-          // For image-to-image generation, we need reference images and an image-to-image model
-          if (hasReferenceImages) {
-            return model.type === 'image-to-image';
-          }
-          // For text-to-image generation, we don't want reference images and need a text-to-image model
-          return model.type === 'text-to-image';
-        });
-      }
-      
-      selectedModelId = suitableModel?.id || 'fal-ai/flux-kontext/dev'; // Fallback
     }
 
     // Inherit image + thumbnail from parent (important)

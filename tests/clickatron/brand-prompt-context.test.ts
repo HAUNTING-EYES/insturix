@@ -5,6 +5,7 @@ import {
   resolveClickatronBrandContextBlock,
   resolveClickatronPromptBrandId,
 } from "@/lib/clickatron/brand-prompt-context";
+import { CLICKATRON_CREATIVE_SPEC_VERSION } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 
 const unifiedBrand: UnifiedBrand = {
@@ -28,6 +29,58 @@ const unifiedBrand: UnifiedBrand = {
     banditProjectCount: 0,
   },
 };
+
+function creativeSpec() {
+  return {
+    schemaVersion: CLICKATRON_CREATIVE_SPEC_VERSION,
+    kind: "carousel",
+    assetIntent: "carousel",
+    platform: "linkedin",
+    aspectRatio: "4:5",
+    source: {
+      sourceService: "thinkforge",
+      sourceSessionId: "tf_session_secret",
+      sourceScriptId: "script_secret",
+      sourceBlockIds: ["blk_secret"],
+    },
+    userIntent: {
+      visualMode: "text_forward_graphic",
+      textDensity: "medium",
+      wantsCarousel: true,
+    },
+    creativeBrief: {
+      objective: "Turn the post into a carousel.",
+      coreMessage: "Context should travel with creative work.",
+      hook: "Stop rebuilding context for every tool.",
+      cta: "Design this in Clickatron",
+    },
+    renderPlan: {
+      textPolicy: "editable_text_layers",
+      imagePrompt: "Editorial carousel system with connected creative workflow nodes.",
+      layoutIntent: "Use generous headline-safe space.",
+      textLayers: [
+        {
+          id: "txt_hook",
+          text: "Stop rebuilding context for every tool.",
+          role: "headline",
+          priority: 100,
+          sourceBlockId: "blk_secret",
+        },
+      ],
+      slides: [
+        {
+          id: "slide_1",
+          index: 0,
+          title: "Hook",
+          imagePrompt: "Bold opening slide with workflow nodes.",
+        },
+      ],
+    },
+    validation: {
+      status: "ready",
+    },
+  };
+}
 
 describe("Clickatron brand prompt context", () => {
   it("enriches generation prompts with safe ThinkForge metadata and BrandVault context", () => {
@@ -129,6 +182,34 @@ describe("Clickatron brand prompt context", () => {
     expect(block).not.toContain("plink_secret");
     expect(block).not.toContain("project_secret");
     expect(block).not.toContain("doNotLeak");
+  });
+
+  it("enriches prompts with the ThinkForge-authored Clickatron creative plan without leaking IDs", () => {
+    const prompt = buildClickatronGenerationPrompt({
+      prompt: "Create the Clickatron graphic.",
+      metadata: {
+        handoff: "think-to-click",
+        sourceContext: {
+          sourceService: "thinkforge",
+          sourceSessionId: "tf_session_secret",
+          sourceScriptId: "script_secret",
+        },
+        clickatron: {
+          title: "Carousel handoff",
+          creativeSpec: creativeSpec(),
+        },
+      },
+    });
+
+    expect(prompt).toContain("Creative kind: carousel");
+    expect(prompt).toContain("Asset intent: carousel");
+    expect(prompt).toContain("Image prompt: Editorial carousel system");
+    expect(prompt).toContain("Text layers: headline: Stop rebuilding context for every tool.");
+    expect(prompt).toContain("Carousel slides: Slide 1 (Hook): Bold opening slide");
+    expect(prompt).toContain("reserve clean readable areas");
+    expect(prompt).not.toContain("tf_session_secret");
+    expect(prompt).not.toContain("script_secret");
+    expect(prompt).not.toContain("blk_secret");
   });
 
   it("prefers task brandId and resolves BrandVault context through injected deps", async () => {
