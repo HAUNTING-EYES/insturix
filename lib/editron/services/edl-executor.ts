@@ -1244,13 +1244,10 @@ function mergeUtilityOutputValues(
   }
 
   if (category === 'zoom') {
-    copy('scaleTo');
-    copy('scaleFrom', 'fill');
-    copy('zoomType');
-    copy('durationFrames');
-    if (typeof params.scaleTo === 'number' && params.scaleTo < 1 && params.scaleFrom == null) {
-      params.scaleFrom = 1;
-    }
+    // Zoom form is owned by resolveAtomicZoomForm(content signals + moment atoms).
+    // Utility outputs stay in atomicUtilityScoring as evidence; copying scaleTo
+    // here made upload-to-edit collapse into the same harsh legacy punch.
+    copy('durationFrames', 'fill');
     return;
   }
 
@@ -1375,7 +1372,7 @@ async function applyDecision(
       return applyTransition(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex);
 
     case 'zoom':
-      return applyZoom(decision, overlays, analyses);
+      return applyZoom(decision, overlays, canvas, analyses);
 
     case 'speed-change':
       return applySpeedChange(decision, overlays);
@@ -1796,9 +1793,52 @@ function applyTransition(
   return { created: 1, modified: 0 };
 }
 
+function buildZoomPanTracks(
+  zoomForm: ReturnType<typeof resolveAtomicZoomForm>,
+  canvas: { width: number; height: number },
+): KeyframeTrack[] {
+  const scaleMagnitude = Math.abs(zoomForm.scaleDelta);
+  if (scaleMagnitude < 0.01 || zoomForm.focal.strength < 0.1) return [];
+
+  const firstFrame = zoomForm.keyframes[0]?.frame ?? zoomForm.startFrame;
+  const settleFrame = zoomForm.keyframes[Math.min(1, zoomForm.keyframes.length - 1)]?.frame ?? zoomForm.endFrame;
+  const lastFrame = zoomForm.keyframes[zoomForm.keyframes.length - 1]?.frame ?? zoomForm.endFrame;
+  const movementMultiplier = zoomForm.compatibilityType === 'slow-push' ? 0.5 : 1;
+  const maxPanPx = Math.max(6, Math.min(34, canvas.width * 0.018))
+    * Math.max(0.45, Math.min(1.1, scaleMagnitude / 0.1))
+    * movementMultiplier;
+  const panX = roundPixel((0.5 - zoomForm.focal.x) * maxPanPx * zoomForm.intensity);
+  const panY = roundPixel((0.5 - zoomForm.focal.y) * maxPanPx * 0.62 * zoomForm.intensity);
+
+  const makeTrack = (property: 'x' | 'y', value: number): KeyframeTrack | null => {
+    if (Math.abs(value) < 1) return null;
+    return {
+      property,
+      keyframes: [
+        { frame: firstFrame, value: 0, easing: 'ease-in' },
+        { frame: settleFrame, value, easing: 'ease-out' },
+        { frame: lastFrame, value, easing: 'linear' },
+      ],
+    };
+  };
+
+  return [makeTrack('x', panX), makeTrack('y', panY)].filter((track): track is KeyframeTrack => Boolean(track));
+}
+
+function zoomPanEndValue(panTracks: KeyframeTrack[], property: 'x' | 'y'): number {
+  const track = panTracks.find((candidate) => candidate.property === property);
+  if (!track || track.keyframes.length === 0) return 0;
+  return track.keyframes[track.keyframes.length - 1]?.value ?? 0;
+}
+
+function roundPixel(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 function applyZoom(
   decision: EditDecision,
   overlays: Overlay[],
+  canvas: { width: number; height: number } = { width: 1920, height: 1080 },
   analyses?: Map<string, any>,
 ): { created: number; modified: number } | null {
   // Find the video overlay at this frame (with tolerance for pacing drift)
@@ -1887,10 +1927,11 @@ function applyZoom(
     durationFrames: decision.durationFrames,
   });
 
-  // Add scale keyframe track
+  // Add zoom keyframe tracks
   if (!videoOverlay.keyframeTracks) videoOverlay.keyframeTracks = [];
 
-  // Remove existing scale track if any
+  // Remove existing scale track if any. Preserve x/y tracks that may belong to
+  // camera-shake or user-authored motion; zoom pan only fills empty axes.
   videoOverlay.keyframeTracks = videoOverlay.keyframeTracks.filter(
     (t: KeyframeTrack) => t.property !== 'scale',
   );
@@ -1902,6 +1943,15 @@ function applyZoom(
     property: 'scale',
     keyframes: zoomForm.keyframes,
   });
+
+  const panTracks = buildZoomPanTracks(zoomForm, canvas);
+  const existingTrackProperties = new Set(videoOverlay.keyframeTracks.map((track: KeyframeTrack) => track.property));
+  for (const track of panTracks) {
+    if (!existingTrackProperties.has(track.property)) {
+      videoOverlay.keyframeTracks.push(track);
+      existingTrackProperties.add(track.property);
+    }
+  }
   appendAtomicOverlayReceipt(videoOverlay as any, buildOverlayAtomicReceipt({
     family: 'zoom',
     intent: zoomForm.intent,
@@ -1918,6 +1968,8 @@ function applyZoom(
       scaleFrom: zoomForm.scaleFrom,
       scaleTo: zoomForm.scaleTo,
       scaleDelta: zoomForm.scaleDelta,
+      panX: zoomPanEndValue(panTracks, 'x'),
+      panY: zoomPanEndValue(panTracks, 'y'),
       focalX: zoomForm.focal.x,
       focalY: zoomForm.focal.y,
       transformOrigin: zoomForm.focal.transformOrigin,
@@ -1933,6 +1985,7 @@ function applyZoom(
       overlayAtom('focal-x', 'zoom.focal_x', zoomForm.focal.x, zoomForm.focal.strength, 'derived-signal'),
       overlayAtom('focal-y', 'zoom.focal_y', zoomForm.focal.y, zoomForm.focal.strength, 'derived-signal'),
       overlayAtom('motion-curve', 'zoom.scale_keyframes', zoomForm.keyframes.length, Math.abs(zoomForm.scaleDelta), 'keyframe'),
+      overlayAtom('motion-curve', 'zoom.pan_keyframes', panTracks.length, Math.abs(zoomForm.scaleDelta), 'keyframe'),
     ],
   }));
   attachAtomicMomentBundleMetadata(videoOverlay as any, decision);

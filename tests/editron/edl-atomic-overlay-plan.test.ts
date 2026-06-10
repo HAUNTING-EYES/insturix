@@ -114,7 +114,7 @@ describe('EDL executor atomic overlay observe mode', () => {
           signal: 'emphasis_word',
           reason: 'speaker hits a point',
           confidence: 0.95,
-          params: { zoomType: 'punch-in', scaleFrom: 1, scaleTo: 1.1, signals: sharedSignals },
+          params: { signals: sharedSignals },
         },
         {
           type: 'fade',
@@ -186,6 +186,11 @@ describe('EDL executor atomic overlay observe mode', () => {
       expect.objectContaining({ kind: 'focal-y', key: 'zoom.focal_y', value: 0.42, source: 'derived-signal' }),
       expect.objectContaining({ kind: 'subject-action', key: 'visual.action_type', value: 'gesturing', source: 'vjepa' }),
     ]));
+    const zoomReceipt = videoReceipts.find((receipt) => receipt.family === 'zoom');
+    expect(zoomReceipt.payload.scaleDelta).toBeLessThanOrEqual(0.14);
+    expect(zoomReceipt.payload.scaleTo).toBeLessThan(1.15);
+    expect(Math.abs(zoomReceipt.payload.panX)).toBeGreaterThan(0);
+    expect(typeof zoomReceipt.payload.panY).toBe('number');
     expect((overlays[0] as any).styles.transformOrigin).toBe('78% 42%');
     expect(videoReceipts.find((receipt) => receipt.family === 'camera-shake').visualContext.motionType).toBe('both');
     expect(transitionReceipt.family).toBe('transition');

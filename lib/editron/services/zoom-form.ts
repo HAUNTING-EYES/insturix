@@ -154,10 +154,11 @@ export function deriveZoomFocalAnchor(signals: Record<string, unknown>): ZoomFoc
   const subjectWidth = signalNumber(signals, 'main_subject_width', 'subject_width', 'visual.main_subject.width', 'mainSubjectWidth', 'subjectWidth');
   const subjectHeight = signalNumber(signals, 'main_subject_height', 'subject_height', 'visual.main_subject.height', 'mainSubjectHeight', 'subjectHeight');
   const hasSubjectAnchor = subjectX > 0 || subjectY > 0 || subjectWidth > 0 || subjectHeight > 0 || facePresent;
+  const hasExplicitFocal = explicitX > 0 || explicitY > 0;
   const rawX = explicitX > 0 ? explicitX : hasSubjectAnchor && subjectX > 0 ? subjectX : 0.5;
   const rawY = explicitY > 0 ? explicitY : hasSubjectAnchor && subjectY > 0 ? subjectY : 0.5;
-  const x = clamp01(rawX);
-  const y = clamp01(rawY);
+  const x = hasExplicitFocal ? clamp01(rawX) : clampRange(rawX, 0.16, 0.84);
+  const y = hasExplicitFocal ? clamp01(rawY) : clampRange(rawY, 0.18, 0.82);
   const offCenter = Math.max(Math.abs(x - 0.5) * 2, Math.abs(y - 0.5) * 2);
   const subjectWeight = hasSubjectAnchor ? Math.max(facePresent ? 0.68 : 0.45, offCenter) : offCenter;
 

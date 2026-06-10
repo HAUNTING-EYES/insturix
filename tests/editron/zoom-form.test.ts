@@ -76,4 +76,29 @@ describe('resolveAtomicZoomForm', () => {
     expect(form.durationFrames).toBe(18);
     expect(form.focal.transformOrigin).toBe('61% 44%');
   });
+
+  it('keeps inferred subject anchors inside a safe zoom focal zone', () => {
+    const inferred = resolveAtomicZoomForm({
+      localFrame: 30,
+      sceneEnd: 120,
+      signals: {
+        speech_energy: 0.78,
+        main_subject_x: 0.03,
+        main_subject_y: 0.95,
+        face_present: 1,
+      },
+    });
+    const explicit = resolveAtomicZoomForm({
+      localFrame: 30,
+      sceneEnd: 120,
+      signals: {
+        speech_energy: 0.78,
+        zoom_focal_x: 0.03,
+        zoom_focal_y: 0.95,
+      },
+    });
+
+    expect(inferred.focal.transformOrigin).toBe('16% 82%');
+    expect(explicit.focal.transformOrigin).toBe('3% 95%');
+  });
 });
