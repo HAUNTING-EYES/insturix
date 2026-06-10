@@ -31,6 +31,11 @@ import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 import type { GridPointDecision, OverlayCategory } from '@/lib/editron/engine/utility-types';
 import { resolveDirectorBrandScope } from '@/lib/editron/agent/director-brand-scope';
 import { resolveAtomicCaptionPresentation } from '@/lib/editron/services/caption-form';
+import {
+  LEGACY_INTELLIGENCE_FALLBACK_ENV,
+  formatVjepaCoverageAuditWarning,
+  shouldRunLegacyIntelligenceFallback,
+} from '@/lib/editron/agent/director-observability';
 
 // D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
 // ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
@@ -40,6 +45,7 @@ function densityFromGenreParams(graphicDensity: number | undefined): 'heavy' | '
   if (graphicDensity < 5) return 'moderate';
   return 'heavy';
 }
+
 
 /**
  * Execute a Director Agent plan on a project.
@@ -617,134 +623,50 @@ export async function executeDirectorPlan(
               'speech.coverage': speechCoverage,
               'content.formality': genreFormality,
             };
-            // Per-frame signal injection: give each decision the signals of the MOMENT it lands on,
-            // not one video-level average. Previously every decision shared `signalCtx`, so every MG
-            // got identical treatment (the monotony, confirmed on real runs 2026-05-30). V-JEPA gives
-            // per-segment visual significance/motion; Wav2Vec gives per-segment vocal energy/emotion.
-            //
-            // TIMELINE FIX (2026-06-03): V-JEPA / Wav2Vec segments are timestamped on the ORIGINAL
-            // video; a decision `frame` is on the CUT timeline (clean ≈ 50% of original). Querying the
-            // raw cut-frame time landed later decisions in removed-silence gaps → no segment → constant
-            // fallback (6/13 MGs on proj_OzG2qgoYudFa). Map cut→original BEFORE the lookup.
-            const { mapCutFrameToOriginalFrame } = await import('@/lib/editron/services/brief-executor');
+            // Per-frame signal injection: give each decision the unified facts of the MOMENT it lands on,
+            // not one video-level average. V-JEPA/Wav2Vec live on the ORIGINAL timeline, while Path E
+            // decisions live on the CUT timeline, so UnifiedMomentContext owns the cut→original mapping
+            // and exposes the same atomic packet Path D can consume.
+            const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
+            const { buildUnifiedMomentContext } = await import('@/lib/editron/services/unified-moment-context');
             const cutToOriginalClips = (overlays as any[])
               .filter((o) => o.type === 'video')
               .map((o) => ({ from: o.from, durationInFrames: o.durationInFrames, sourceStartFrame: o.sourceStartFrame ?? o.videoStartTime }));
-            // Boundary/rounding safety net: if no segment strictly contains the mapped time, use the
-            // nearest one within tolerance (graceful) — but it still counts as a coverage MISS so the
-            // warning below stays honest about mapping quality.
-            const SEG_SNAP_MS = 5 * 1000; // mirrors brief-executor SNAP_TOLERANCE (fps*5 frames)
-            const nearestSeg = (segs: any[], timeMs: number): any => {
-              let best: any = null; let bestDist = Infinity;
-              for (const s of segs) {
-                const dist = timeMs < s.startMs ? s.startMs - timeMs : (timeMs >= s.endMs ? timeMs - s.endMs : 0);
-                if (dist < bestDist) { bestDist = dist; best = s; }
-              }
-              return bestDist <= SEG_SNAP_MS ? best : null;
-            };
+            const pathESignalTimeline = buildSignalTimeline(
+              analyses,
+              rfa,
+              overlayInfos,
+              pathEFps,
+              projectDoc.vjepaAnalysis ?? null,
+              projectDoc.wav2vecAnalysis ?? null,
+              musicAnalysis ?? null,
+            );
+            Object.assign(pathESignalTimeline.globalSignals, signalCtx);
             let sigCoverageTotal = 0;
             let sigCoverageMiss = 0;
-            const setNumericSignal = (target: Record<string, number | string>, key: string, value: unknown): void => {
-              if (typeof value === 'number' && Number.isFinite(value)) target[key] = value;
-              else if (typeof value === 'boolean') target[key] = value ? 1 : 0;
-            };
-            const setStringSignal = (target: Record<string, number | string>, key: string, value: unknown): void => {
-              if (typeof value === 'string' && value.trim()) target[key] = value;
-            };
-            const mirrorSignal = (target: Record<string, number | string>, flatKey: string, dotKey: string): void => {
-              const flat = target[flatKey];
-              const dot = target[dotKey];
-              if (dot == null && flat != null) target[dotKey] = flat;
-              if (flat == null && dot != null) target[flatKey] = dot;
-            };
-            const signalsAtFrame = (frameNum: number): Record<string, number | string> => {
-              // Cut-timeline frame → ORIGINAL-timeline ms (the clock the segments use).
-              const originalFrame = mapCutFrameToOriginalFrame(frameNum, cutToOriginalClips);
-              const timeMs = ((originalFrame ?? frameNum) / pathEFps) * 1000;
-              const out: Record<string, number | string> = { ...signalCtx };
-              sigCoverageTotal++;
-              let covered = false;
-              if (vjepaSegs?.length) {
-                const exact = vjepaSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs);
-                if (exact) covered = true;
-                const v = exact ?? nearestSeg(vjepaSegs, timeMs);
-                if (v) {
-                  setNumericSignal(out, 'motion_intensity', v.motionIntensity ?? v.motion_intensity);
-                  setNumericSignal(out, 'visual_change_rate', v.motionIntensity ?? v.motion_intensity);
-                  setNumericSignal(out, 'visual_significance', v.visualSignificance ?? v.visual_significance);
-                  setStringSignal(out, 'visual_action_type', v.actionType ?? v.action_type);
-                  setStringSignal(out, 'visual_motion_type', v.motionType ?? v.motion_type);
-                  setStringSignal(out, 'visual_face_emotion', v.faceEmotion ?? v.face_emotion);
-                  setNumericSignal(out, 'visual_eye_contact', v.eyeContact ?? v.eye_contact);
-                  setNumericSignal(out, 'motion_vector_x', v.motionVectorX ?? v.motion_vector_x);
-                  setNumericSignal(out, 'motion_vector_y', v.motionVectorY ?? v.motion_vector_y);
-                  setNumericSignal(out, 'main_subject_x', v.mainSubjectX ?? v.main_subject_x);
-                  setNumericSignal(out, 'main_subject_y', v.mainSubjectY ?? v.main_subject_y);
-                  setNumericSignal(out, 'main_subject_width', v.mainSubjectWidth ?? v.main_subject_width);
-                  setNumericSignal(out, 'main_subject_height', v.mainSubjectHeight ?? v.main_subject_height);
-                  setNumericSignal(out, 'text_coverage', v.textCoverage ?? v.text_coverage);
-                  setNumericSignal(out, 'text_box_count', v.textBoxCount ?? v.text_box_count);
-                  setNumericSignal(out, 'object_count', v.objectCount ?? v.object_count);
-                  setNumericSignal(out, 'face_count', v.faceCount ?? v.face_count);
-                  setNumericSignal(out, 'negative_space_top', v.negativeSpaceTop ?? v.negative_space_top);
-                  setNumericSignal(out, 'negative_space_right', v.negativeSpaceRight ?? v.negative_space_right);
-                  setNumericSignal(out, 'negative_space_bottom', v.negativeSpaceBottom ?? v.negative_space_bottom);
-                  setNumericSignal(out, 'negative_space_left', v.negativeSpaceLeft ?? v.negative_space_left);
-                  if (out.face_present == null && (out.visual_face_emotion != null || out.visual_eye_contact != null || out.face_count != null)) {
-                    out.face_present = Number(out.face_count ?? 1) > 0 ? 1 : 0;
-                  }
-                  mirrorSignal(out, 'motion_intensity', 'visual.motion_intensity');
-                  mirrorSignal(out, 'visual_significance', 'visual.significance');
-                  mirrorSignal(out, 'visual_action_type', 'visual.action_type');
-                  mirrorSignal(out, 'visual_motion_type', 'visual.motion_type');
-                  mirrorSignal(out, 'visual_face_emotion', 'visual.face_emotion');
-                  mirrorSignal(out, 'visual_eye_contact', 'visual.eye_contact');
-                  mirrorSignal(out, 'motion_vector_x', 'visual.motion_vector.x');
-                  mirrorSignal(out, 'motion_vector_y', 'visual.motion_vector.y');
-                  mirrorSignal(out, 'main_subject_x', 'visual.main_subject.x');
-                  mirrorSignal(out, 'main_subject_y', 'visual.main_subject.y');
-                  mirrorSignal(out, 'main_subject_width', 'visual.main_subject.width');
-                  mirrorSignal(out, 'main_subject_height', 'visual.main_subject.height');
-                  mirrorSignal(out, 'text_coverage', 'visual.text_coverage');
-                  mirrorSignal(out, 'text_box_count', 'visual.text_box_count');
-                  mirrorSignal(out, 'object_count', 'visual.object_count');
-                  mirrorSignal(out, 'face_count', 'visual.face_count');
-                  mirrorSignal(out, 'negative_space_top', 'visual.negative_space.top');
-                  mirrorSignal(out, 'negative_space_right', 'visual.negative_space.right');
-                  mirrorSignal(out, 'negative_space_bottom', 'visual.negative_space.bottom');
-                  mirrorSignal(out, 'negative_space_left', 'visual.negative_space.left');
-                  mirrorSignal(out, 'face_present', 'visual.face_present');
-                  // visualSignificance = "this moment visually stands out" → feeds the MG complexity
-                  // budget via visceral_impact, so standout moments earn richer graphics.
-                  out.visceral_impact = Math.max(Number(out.visceral_impact ?? 0), Number(out.visual_significance ?? 0));
-                }
-              }
-              if (w2vSegs?.length) {
-                const w = w2vSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs)
-                  ?? nearestSeg(w2vSegs, timeMs);
-                if (w) {
-                  setNumericSignal(out, 'emotion_intensity', w.emotionIntensity ?? w.emotion_intensity);
-                  setNumericSignal(out, 'emotional_arousal', w.emotionIntensity ?? w.emotion_intensity);
-                  setNumericSignal(out, 'speech_energy', w.energy ?? w.speech_energy);
-                  setNumericSignal(out, 'pitch_variability', w.pitchVariability ?? w.pitch_variability);
-                  setNumericSignal(out, 'stress_detected', w.stressDetected ?? w.stress_detected);
-                  setStringSignal(out, 'emotional_valence', w.emotionalValence ?? w.emotional_valence);
-                  mirrorSignal(out, 'emotion_intensity', 'speech.emotion_intensity');
-                  mirrorSignal(out, 'emotional_valence', 'speech.emotional_valence');
-                  mirrorSignal(out, 'speech_energy', 'speech.energy');
-                  mirrorSignal(out, 'pitch_variability', 'speech.pitch_variability');
-                  mirrorSignal(out, 'stress_detected', 'speech.stress_detected');
-                  out.enthusiasm = Math.min(1, Number(out.speech_energy ?? 0) * 1.2);
-                }
-              }
-              if (!covered) sigCoverageMiss++;
-              return out;
+            const pathEContextAtFrame = (frameNum: number) => buildUnifiedMomentContext({
+              timeline: pathESignalTimeline,
+              frame: frameNum,
+              sourceClips: cutToOriginalClips,
+              baseSignals: signalCtx,
+              eventWindowMs: 500,
+            });
+            const signalsFromContext = (context: ReturnType<typeof pathEContextAtFrame>): Record<string, unknown> => {
+              return {
+                ...context.signals,
+                visceral_impact: Math.max(Number(context.signals.visceral_impact ?? 0), Number(context.signals.visual_significance ?? context.signals['visual.significance'] ?? 0)),
+              };
             };
             for (const d of briefResult.edl.decisions) {
               const decisionParams = d.params as Record<string, any>;
-              if (!decisionParams.signals) {
-                decisionParams.signals = signalsAtFrame(d.frame);
+              const context = pathEContextAtFrame(d.frame);
+              sigCoverageTotal++;
+              if (!context.evidence.hasSnapshot || (vjepaSegs?.length && !context.evidence.hasScreenPrimitives)) {
+                sigCoverageMiss++;
               }
+              decisionParams.signals = { ...signalsFromContext(context), ...(decisionParams.signals ?? {}) };
+              decisionParams.atomicMomentBundle = context.atomicMomentBundle;
+              decisionParams.unifiedMomentEvidence = context.evidence;
             }
             // LOUD FALLBACK (R18N): silent no-segment misses are exactly what hid the timeline bug.
             // Warn if a meaningful fraction of decisions get no exact per-moment coverage even after the
@@ -752,9 +674,9 @@ export async function executeDirectorPlan(
             if (sigCoverageTotal > 0) {
               const missPct = Math.round((sigCoverageMiss / sigCoverageTotal) * 100);
               if (missPct > 15) {
-                console.warn(`[Director] Path E: SIGNAL COVERAGE LOW — ${sigCoverageMiss}/${sigCoverageTotal} decisions (${missPct}%) found no V-JEPA segment even after cut→original mapping; per-moment signals fell back to video-level constants for those. Check segment coverage / the clip mapping.`);
+                console.warn(`[Director] Path E: SIGNAL COVERAGE LOW — ${sigCoverageMiss}/${sigCoverageTotal} decisions (${missPct}%) had no unified source snapshot or screen primitives after cut→original mapping. Check segment coverage / the clip mapping.`);
               } else {
-                console.log(`[Director] Path E: signal coverage ${sigCoverageTotal - sigCoverageMiss}/${sigCoverageTotal} (${100 - missPct}%) matched a V-JEPA segment.`);
+                console.log(`[Director] Path E: signal coverage ${sigCoverageTotal - sigCoverageMiss}/${sigCoverageTotal} (${100 - missPct}%) matched unified moment context.`);
               }
             }
 
@@ -777,16 +699,12 @@ export async function executeDirectorPlan(
             try {
               const vjepaLookup = vjepaSegs?.length
                 ? (frameNum: number) => {
-                    // Same cut→original mapping as signalsAtFrame (the calibration snapshot must agree).
-                    const origFrame = mapCutFrameToOriginalFrame(frameNum, cutToOriginalClips);
-                    const timeMs = ((origFrame ?? frameNum) / pathEFps) * 1000;
-                    const seg = vjepaSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs)
-                      ?? nearestSeg(vjepaSegs, timeMs);
+                    const context = pathEContextAtFrame(frameNum);
                     return {
                       speech_coverage: speechCoverage,
-                      visual_change_rate: seg?.motionIntensity ?? visualChangeRate,
+                      visual_change_rate: Number(context.signals.motion_intensity ?? context.signals['visual.motion_intensity'] ?? visualChangeRate),
                       music_presence: musicPresence,
-                      visual_significance: seg?.visualSignificance ?? 0,
+                      visual_significance: Number(context.signals.visual_significance ?? context.signals['visual.significance'] ?? 0),
                     };
                   }
                 : { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate, music_presence: musicPresence };
@@ -845,7 +763,7 @@ export async function executeDirectorPlan(
 
             const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
             const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
-            const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores, applyBanditAdjustments } = await import('@/lib/editron/services/moment-weight-service');
+            const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores } = await import('@/lib/editron/services/moment-weight-service');
             const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
             const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
             const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
@@ -1139,6 +1057,34 @@ export async function executeDirectorPlan(
               }
             }
 
+            // Attach the same unified moment packet shape used by Path E. Path D decisions are now on
+            // the cut timeline after the remap above; UnifiedMomentContext maps them back to source
+            // frames to read the original-timeline signal snapshot.
+            const { buildUnifiedMomentContext } = await import('@/lib/editron/services/unified-moment-context');
+            const pathDSourceClips = videoClips.map((clip: any) => ({
+              from: clip.from,
+              durationInFrames: clip.durationInFrames,
+              sourceStartFrame: clip.sourceStartFrame ?? clip.videoStartTime,
+            }));
+            for (const d of edl.decisions) {
+              const context = buildUnifiedMomentContext({
+                timeline: signalTimeline,
+                frame: d.frame,
+                sourceClips: pathDSourceClips,
+                eventWindowMs: 500,
+              });
+              const decisionParams = d.params as Record<string, any>;
+              d.params = {
+                ...d.params,
+                signals: {
+                  ...context.signals,
+                  ...(decisionParams.signals ?? {}),
+                },
+                atomicMomentBundle: context.atomicMomentBundle,
+                unifiedMomentEvidence: context.evidence,
+              } as any;
+            }
+
             // Execute EDL (same as other paths)
             const { executeEDL: executeEDLPathD } = await import('@/lib/editron/services/edl-executor');
             const canvas = project.playerDimensions || { width: 1920, height: 1080 };
@@ -1154,13 +1100,14 @@ export async function executeDirectorPlan(
             console.log(`[Director] Path D: Signal-driven execution COMPLETE — ${edl.totalDecisions} decisions applied`);
           }
         } catch (pathDErr: any) {
-          console.warn(`[Director] Path D failed (${pathDErr.message}), falling through to Unified Intelligence`);
+          console.warn(`[Director] Path D failed (${pathDErr.message}), falling through to legacy intelligence fallback gate`);
           // Fall through to existing paths below
         }
       }
 
       // ── Generate Edit Plan — prefer Unified Intelligence, fallback to old EDL ──
-      if (!pathDHandled && analyses.length > 0) {
+      const legacyFallbackEnabled = shouldRunLegacyIntelligenceFallback();
+      if (!pathDHandled && analyses.length > 0 && legacyFallbackEnabled) {
         try {
           onProgress?.(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
 
@@ -1363,6 +1310,10 @@ export async function executeDirectorPlan(
           result.warnings.push(`EDL: ${edlErr.message}`);
           pipelineWarnings.errorSwallowed('director', edlErr, 'EDL generation/execution');
         }
+      } else if (!pathDHandled && analyses.length > 0) {
+        const legacyMsg = `Legacy intelligence fallback disabled (${LEGACY_INTELLIGENCE_FALLBACK_ENV}!=true); skipped Unified Intelligence/Reactive fallback after Path E/D did not handle.`;
+        console.warn(`[Director] ${legacyMsg}`);
+        result.warnings.push(legacyMsg);
       } else if (!pathDHandled) {
         // C6 FIX: Zero assets analyzed AND Path D didn't run — skip EDL but STILL
         // run profile-based steps (filters, transitions, captions, motion graphics).
@@ -1388,6 +1339,40 @@ export async function executeDirectorPlan(
 
     // Attach EDL summary to result for frontend inspection
     (result as any).edlSummary = edlSummary;
+
+    try {
+      const hasUploadToEditSignals = Array.isArray(projectDoc?.rawFootageAnalysis?.segments) || Array.isArray(projectDoc?.vjepaAnalysis?.segments);
+      if (hasUploadToEditSignals) {
+        const { auditVjepaCoverage } = await import('@/lib/editron/services/vjepa-coverage-audit');
+        const fpsForAudit = project.fps || 30;
+        const rawFootageSegments = projectDoc?.rawFootageAnalysis?.segments;
+        const vjepaAudit = auditVjepaCoverage({
+          fps: fpsForAudit,
+          originalDurationMs: projectDoc?.rawFootageAnalysis?.originalDurationMs,
+          cleanDurationMs: projectDoc?.rawFootageAnalysis?.estimatedCleanDurationMs,
+          vjepaSegments: projectDoc?.vjepaAnalysis?.segments ?? [],
+          rawFootageSegments: Array.isArray(rawFootageSegments) ? rawFootageSegments : undefined,
+          overlays: overlays as any[],
+        });
+        (result as any).vjepaCoverageAudit = vjepaAudit;
+        const auditWarning = formatVjepaCoverageAuditWarning(vjepaAudit);
+        if (auditWarning) {
+          console.warn(`[Director] ${auditWarning}`);
+          result.warnings.push(auditWarning);
+        }
+        try {
+          const auditDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+          await auditDb.collection('projects').updateOne(
+            { projectId },
+            { $set: { 'intelligence.vjepaCoverageAudit': vjepaAudit } },
+          );
+        } catch (err: unknown) {
+          console.warn('[Director] non-fatal V-JEPA coverage audit persistence:', err instanceof Error ? err.message : err);
+        }
+      }
+    } catch (auditErr: any) {
+      console.warn(`[Director] V-JEPA coverage audit failed (non-fatal): ${auditErr.message}`);
+    }
 
     // ─── Step 1.9: Utility AI caption/filter scoring (runs after BOTH Path E and Path D) ──
     // The overlay-based scoring for caption style and filter preset was previously
