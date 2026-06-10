@@ -13,6 +13,59 @@ export const DARK_SURFACE = '#0b0b0f';
 export const LIGHT_SURFACE = '#ffffff';
 
 const CTA_PATTERN = /\b(start|get|book|join|try|buy|shop|contact|talk|demo|learn|download|subscribe|apply|schedule|request)\b/i;
+const GENERIC_AUDIENCE_PATTERN = /^(?:teams?|businesses|companies|people|users|customers|clients|leaders|operators|creators|agents?|ai era|modern era)$/i;
+const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agency|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprise|startup|client|customer|support|finance|founder|operator|creator|editorial|content)\b/i;
+
+const CATEGORY_RULES: Array<{
+  label: string;
+  signals: Array<[RegExp, number]>;
+}> = [
+  {
+    label: 'analytics',
+    signals: [
+      [/\banalytics?\b/g, 2],
+      [/\bdashboards?\b/g, 1.5],
+      [/\bdata\b/g, 1],
+      [/\b(?:reporting|bi|metrics?|insights?|forecast)\b/g, 1],
+    ],
+  },
+  {
+    label: 'creative services',
+    signals: [
+      [/\b(?:agency|studio|creative|production|campaign|content)\b/g, 1.5],
+      [/\b(?:video|editorial|brand film|social creative)\b/g, 1],
+    ],
+  },
+  {
+    label: 'finance',
+    signals: [
+      [/\b(?:finance|wealth|bank|investment|portfolio|payments?)\b/g, 1.5],
+      [/\b(?:revenue|pipeline)\b/g, 0.75],
+    ],
+  },
+  {
+    label: 'health',
+    signals: [
+      [/\b(?:healthcare|clinic|clinical|patient|medical|wellness|therapy|hospital)\b/g, 2],
+      [/\bcare\b/g, 0.5],
+    ],
+  },
+  {
+    label: 'commerce',
+    signals: [
+      [/\b(?:shop|commerce|retail|store|checkout|merchandising|catalog)\b/g, 1.5],
+    ],
+  },
+  {
+    label: 'software',
+    signals: [
+      [/\b(?:software|platform|automation|workflow|saas|workspace|tooling|infrastructure)\b/g, 1.5],
+      [/\b(?:roadmaps?|issues?|sprints?|backlog|project management|product development|product teams?)\b/g, 1.5],
+      [/\b(?:planning and building products?|building products?|shipping products?)\b/g, 2],
+      [/\b(?:api|developer|engineering|agents?|ai)\b/g, 0.75],
+    ],
+  },
+];
 
 export function normalizeBrandWebsiteUrl(input: string): string {
   const trimmed = input.trim();
@@ -149,13 +202,14 @@ export function candidateOnly(
 
 export function inferCategory(text: string): string {
   const lower = text.toLowerCase();
-  if (/(analytics|dashboard|data|reporting|bi\b)/.test(lower)) return 'analytics';
-  if (/(agency|studio|creative|production)/.test(lower)) return 'creative services';
-  if (/(finance|wealth|bank|investment)/.test(lower)) return 'finance';
-  if (/(health|clinic|wellness|care)/.test(lower)) return 'health';
-  if (/(shop|commerce|retail|store)/.test(lower)) return 'commerce';
-  if (/(software|platform|automation|workflow|saas)/.test(lower)) return 'software';
-  return 'unknown';
+  const ranked = CATEGORY_RULES
+    .map(({ label, signals }) => ({
+      label,
+      score: signals.reduce((sum, [pattern, weight]) => sum + countMatches(lower, pattern) * weight, 0),
+    }))
+    .sort((a, b) => b.score - a.score);
+  const best = ranked[0];
+  return best && best.score >= 1.5 ? best.label : 'unknown';
 }
 
 export function inferAudience(text: string): string[] {
@@ -167,7 +221,7 @@ export function inferAudience(text: string): string[] {
     .map((match) => cleanAudiencePhrase(match[1]))
     .filter((value): value is string => Boolean(value));
 
-  return uniqueText(matches).slice(0, 4);
+  return rankAudiencePhrases(matches).slice(0, 4);
 }
 
 function cleanAudiencePhrase(value: string | undefined): string | undefined {
@@ -176,14 +230,36 @@ function cleanAudiencePhrase(value: string | undefined): string | undefined {
 
   phrase = phrase.replace(/^(?:the|a|an|our|your)\s+/i, '');
   phrase = phrase.replace(/^[\d,.]+\+?\s+/, '');
-  phrase = phrase.split(/\s+(?:to|who|that|with|using|through|via|into|by|from)\s+/i)[0] ?? phrase;
+  phrase = phrase.split(/\s+(?:to|who|that|with|using|through|via|into|by|from|in|across|during|while)\s+/i)[0] ?? phrase;
   phrase = phrase.split(/\s+(?:turn|build|launch|improve|ship|create|grow|scale|manage|make|cut|drive|unlock)\b/i)[0] ?? phrase;
   phrase = phrase.replace(/\b(?:fast|faster|trusted|simple|easy|better)\s*$/i, '');
   phrase = cleanText(phrase);
   if (!phrase || phrase.length < 4 || phrase.length > 64) return undefined;
   if (/\b(book|start|get|try|request|schedule|download|subscribe)\b/i.test(phrase)) return undefined;
+  if (/\b(?:planning and building|building|shipping)\s+products?\b/i.test(phrase)) return 'product teams';
+  if (/\bteams?\b/i.test(phrase) && /\bproducts?\b/i.test(phrase)) return 'product teams';
+  if (isGenericAudiencePhrase(phrase)) return undefined;
 
   return phrase;
+}
+
+function rankAudiencePhrases(values: string[]): string[] {
+  return uniqueText(values)
+    .filter((value) => !isGenericAudiencePhrase(value))
+    .sort((a, b) => audienceSpecificityScore(b) - audienceSpecificityScore(a) || a.localeCompare(b));
+}
+
+function audienceSpecificityScore(value: string): number {
+  const words = value.split(/\s+/).length;
+  return Math.min(words, 5) + (SPECIFIC_AUDIENCE_MODIFIER_PATTERN.test(value) ? 4 : 0) + (/[A-Z]{2,}/.test(value) ? 2 : 0);
+}
+
+function isGenericAudiencePhrase(value: string): boolean {
+  const normalized = value.trim();
+  if (GENERIC_AUDIENCE_PATTERN.test(normalized)) return true;
+  if (/^(?:teams?\s+and\s+agents?|agents?\s+and\s+teams?)$/i.test(normalized)) return true;
+  const words = normalized.split(/\s+/);
+  return words.length <= 2 && !SPECIFIC_AUDIENCE_MODIFIER_PATTERN.test(normalized);
 }
 
 export function inferProofStyle(text: string): BrandProofStyle {
@@ -205,6 +281,28 @@ export function inferHookArchetypes(headings: string[]): string[] {
   if (/\bhow\b|\bguide\b|\blearn\b/.test(joined)) hooks.push('education hook');
   if (/\btrusted\b|\bcustomer\b|\bcase\b/.test(joined)) hooks.push('proof-led hook');
   return hooks;
+}
+
+export function inferRecurringPhrases(headings: string[], ctas: string[]): string[] {
+  return uniqueText([...headings, ...ctas])
+    .filter(isMeaningfulBrandPhrase)
+    .slice(0, 8);
+}
+
+function isMeaningfulBrandPhrase(value: string): boolean {
+  const phrase = cleanText(value);
+  if (!phrase) return false;
+  if (isPureCtaPhrase(phrase)) return false;
+  const words = phrase.split(/\s+/).length;
+  return phrase.length >= 10 && (words >= 3 || /\d/.test(phrase));
+}
+
+function isPureCtaPhrase(value: string): boolean {
+  const phrase = value.trim();
+  if (/^(?:contact|contact us|contact sales|get started|start free|download|download brand assets|learn more|book a demo|request demo|try free)$/i.test(phrase)) {
+    return true;
+  }
+  return CTA_PATTERN.test(phrase) && phrase.split(/\s+/).length <= 4;
 }
 
 export function inferTypographyCategory(text: string): BrandSignalProfile['typography']['category']['value'] {
@@ -461,6 +559,10 @@ function rgb(hex: string): [number, number, number] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function countMatches(text: string, pattern: RegExp): number {
+  return [...text.matchAll(pattern)].length;
 }
 
 function hash(value: string): number {

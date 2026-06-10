@@ -45,6 +45,39 @@ const HTML = `
 </html>
 `;
 
+const LINEARISH_HTML = `
+<!doctype html>
+<html>
+  <head>
+    <title>Linear - Issue tracking for modern software teams</title>
+    <meta name="description" content="Linear is a purpose-built system for planning and building products in the AI era.">
+    <meta property="og:site_name" content="Linear">
+    <meta name="theme-color" content="#191d20">
+    <style>
+      :root { --brand: #191d20; --accent: #b2d5ff; --surface: #f6f8fa; }
+      body { color: #191d20; background: #f6f8fa; font-family: "Inter", system-ui, sans-serif; }
+    </style>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Linear",
+        "description": "Project management software for product teams and engineering teams."
+      }
+    </script>
+  </head>
+  <body>
+    <h1>Purpose-built system for planning and building products</h1>
+    <h2>Project health, roadmaps, issues, and cycles in one workspace</h2>
+    <h2>Built for teams and agents in the AI era</h2>
+    <a href="/contact">Contact</a>
+    <a href="/start">Get started</a>
+    <a href="/sales">Contact sales</a>
+    <a href="/brand">Download Brand Assets</a>
+  </body>
+</html>
+`;
+
 describe('Brand website refinery', () => {
   it('normalizes website URLs and rejects unsupported schemes', () => {
     expect(normalizeBrandWebsiteUrl('northstar.example')).toBe('https://northstar.example/');
@@ -82,6 +115,31 @@ describe('Brand website refinery', () => {
     const validation = validateBrandSignalProfile(result.profile);
     expect(validation.valid).toBe(true);
     expect(validation.warnings.some((issue) => issue.path === 'voice.killList')).toBe(true);
+  });
+
+  it('filters generic real-site noise from software brand drafts', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://linear.example',
+      html: LINEARISH_HTML,
+      brandId: 'brand_linear',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_linear',
+    });
+
+    expect(result.profile.identity.category.value).toBe('software');
+    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining(['product teams']));
+    expect(result.profile.identity.audience.value).not.toEqual(expect.arrayContaining(['teams', 'teams and agents', 'AI era']));
+    expect(result.profile.voice.recurringPhrases.value).toEqual(expect.arrayContaining([
+      'Purpose-built system for planning and building products',
+      'Project health, roadmaps, issues, and cycles in one workspace',
+    ]));
+    expect(result.profile.voice.recurringPhrases.value).not.toEqual(expect.arrayContaining([
+      'Contact',
+      'Get started',
+      'Contact sales',
+      'Download Brand Assets',
+    ]));
   });
 
   it('wraps website profiles in a review-required lifecycle draft', () => {
