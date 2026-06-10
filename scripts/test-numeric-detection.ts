@@ -28,7 +28,8 @@ for (const [val, kind, countUp] of cases) {
   const gotKind = shapes[0]?.kind;
   const gotCountUp = isCountUpValue(val);
   const ok = gotKind === kind && gotCountUp === countUp;
-  ok ? pass++ : fail++;
+  if (ok) pass++;
+  else fail++;
   console.log(`  ${ok ? '✓' : '✗ FAIL'} "${val}" → kind=${gotKind} (exp ${kind}), countUp=${gotCountUp} (exp ${countUp})`);
 }
 
@@ -38,7 +39,8 @@ for (const val of nonNumeric) {
   const shapes = analyzeContentShape({ value: val, text: val }, undefined, {}).shapes;
   const isNumeric = shapes.some(s => s.kind === 'numeric');
   const ok = !isNumeric;
-  ok ? pass++ : fail++;
+  if (ok) pass++;
+  else fail++;
   console.log(`  ${ok ? '✓' : '✗ FAIL'} "${val}" → numeric=${isNumeric} (exp false)`);
 }
 

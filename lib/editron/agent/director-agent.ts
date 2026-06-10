@@ -23,7 +23,6 @@
 
 import type { EditProfile, EditProfileAction, DirectorResult, ProjectBrief, ProfileId } from '@/lib/editron/data/edit-profile-types';
 import type { GateResult } from '@/lib/editron/services/quality-gate';
-import type { OverlayCategory } from '@/lib/editron/engine/utility-types';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import { projectService } from '@/lib/editron/services/project-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -31,6 +30,7 @@ import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 import type { GridPointDecision, OverlayCategory } from '@/lib/editron/engine/utility-types';
 import { resolveDirectorBrandScope } from '@/lib/editron/agent/director-brand-scope';
+import { resolveAtomicCaptionPresentation } from '@/lib/editron/services/caption-form';
 
 // D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
 // ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
@@ -741,8 +741,9 @@ export async function executeDirectorPlan(
               return out;
             };
             for (const d of briefResult.edl.decisions) {
-              if (!d.params.signals) {
-                d.params.signals = signalsAtFrame(d.frame);
+              const decisionParams = d.params as Record<string, any>;
+              if (!decisionParams.signals) {
+                decisionParams.signals = signalsAtFrame(d.frame);
               }
             }
             // LOUD FALLBACK (R18N): silent no-segment misses are exactly what hid the timeline bug.
@@ -2194,43 +2195,28 @@ async function executeAction(
     case 'sync_cuts_to_beats': {
       // Signal-driven caption style + display mode selection
       // Signals determine both the visual style AND the display mode (word grouping + animation)
-      if (action.tool === 'add_captions' && genreParams && !action.params?.style) {
-        const formality = genreParams.formality ?? 0.5;
-        const energy = genreParams.energy_baseline ?? 0.5;
-        const speakingRate = Math.max(100, 220 - (genreParams.pacing_tolerance * 10));
-        const enthusiasm = energy; // energy_baseline is our best proxy for enthusiasm at this point
+      if (action.tool === 'add_captions') {
+        const captionPresentation = resolveAtomicCaptionPresentation({
+          requestedStyle: action.params?.style,
+          profileStyle: captionStyleOverride || profile.captionStyle,
+          displayMode: action.params?.displayMode,
+          wordsPerGroup: action.params?.wordsPerGroup,
+          genreParams,
+        });
 
-        let signalStyle = 'minimal';
-        let displayMode = 'phrase';
-
-        // CRG: formality 0.7+ → restrained, formal
-        if (formality > 0.7 && speakingRate < 140) {
-          signalStyle = 'subtitle';
-          displayMode = 'subtitle';
-        }
-        // High energy + fast pace → hormozi (bold punch, spring pop)
-        else if (enthusiasm > 0.7 && speakingRate > 160) {
-          signalStyle = 'bold';
-          displayMode = 'hormozi';
-        }
-        // Moderate casual → instagram (center block, spring scale)
-        else if (formality < 0.4 && enthusiasm > 0.4) {
-          signalStyle = 'bold';
-          displayMode = 'instagram';
-        }
-        // Moderate formal → karaoke (all words visible, active highlighted)
-        else if (formality > 0.5) {
-          signalStyle = 'minimal';
-          displayMode = 'karaoke';
-        }
-        // Low formality → phrase with bold
-        else if (formality < 0.4) {
-          signalStyle = 'bold';
-          displayMode = 'phrase';
-        }
-
-        console.log(`[Director] Caption from signals: formality=${formality.toFixed(2)}, energy=${enthusiasm.toFixed(2)}, rate~${Math.round(speakingRate)}WPM → style="${signalStyle}", mode="${displayMode}"`);
-        action = { ...action, params: { ...action.params, style: signalStyle, displayMode } };
+        console.log(
+          `[Director] Caption form: source=${captionPresentation.source}, formality=${captionPresentation.signals.formality.toFixed(2)}, energy=${captionPresentation.signals.energy.toFixed(2)}, rate~${Math.round(captionPresentation.signals.speakingRate)}WPM -> style="${captionPresentation.style}", mode="${captionPresentation.displayMode}", words=${captionPresentation.wordsPerGroup}`,
+        );
+        action = {
+          ...action,
+          params: {
+            ...action.params,
+            style: captionPresentation.style,
+            displayMode: captionPresentation.displayMode,
+            wordsPerGroup: captionPresentation.wordsPerGroup,
+            captionPresentation,
+          },
+        };
       }
       // These are AI tools — delegate to invokeAITool which handles per-video iteration
       modified = await invokeAITool(action, userId, projectId, profile, overlays, captionStyleOverride);
@@ -2628,9 +2614,11 @@ async function invokeAITool(
         'creator': 'bold', 'fancy': 'bold', 'word-by-word': 'bold',
         'kinetic': 'bold', 'none': 'subtitle',
       };
-      // captionStyleOverride (from Utility AI via caller) takes priority over profile/action params
-      const rawCaptionStyle = captionStyleOverride || params.style || profile.captionStyle || 'subtitle';
+      // params.style is resolved upstream from caption atoms/signals; override/profile are compatibility fallbacks.
+      const rawCaptionStyle = params.style || captionStyleOverride || profile.captionStyle || 'subtitle';
       const captionStyle = CAPTION_STYLE_MAP[rawCaptionStyle] || rawCaptionStyle;
+      const captionDisplayMode = params.displayMode;
+      const captionWordsPerGroup = typeof params.wordsPerGroup === 'number' ? params.wordsPerGroup : undefined;
 
       // ── Mode 2 FIX: Seed transcription cache from rawFootageAnalysis ──
       // In Mode 2, Grok STT transcription is stored on the PROJECT doc
@@ -2689,7 +2677,7 @@ async function invokeAITool(
       } catch (warmErr: any) {
         console.warn(`[Director] add_captions: transcription warm-up error: ${warmErr.message}`);
       }
-      console.log(`[Director] add_captions: ${videoOverlays.length} videos, style=${captionStyle}`);
+      console.log(`[Director] add_captions: ${videoOverlays.length} videos, style=${captionStyle}, mode=${captionDisplayMode || 'default'}, words=${captionWordsPerGroup || 'default'}`);
 
       // Caption each video sequentially — tool.invoke handles transcription + caption creation.
       // Track which voiceover assetIds already produced captions → prevent duplicates.
@@ -2713,7 +2701,14 @@ async function invokeAITool(
             continue;
           }
 
-          const captionParams = { videoOverlayId: vo.id, style: captionStyle, position: 'bottom', overwrite: true };
+          const captionParams = {
+            videoOverlayId: vo.id,
+            style: captionStyle,
+            position: 'bottom',
+            overwrite: true,
+            ...(captionDisplayMode ? { displayMode: captionDisplayMode } : {}),
+            ...(captionWordsPerGroup ? { wordsPerGroup: captionWordsPerGroup } : {}),
+          };
           console.log(`[Director] add_captions: video ${vo.id} (${captionCount + 1}/${videoOverlays.length}), type=${vo.type}, assetId=${vo.assetId}, from=${vo.from}`);
           const resultStr = await tool.invoke(captionParams);
           const result = JSON.parse(resultStr);

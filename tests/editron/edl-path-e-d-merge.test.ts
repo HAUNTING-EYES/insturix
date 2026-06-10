@@ -492,6 +492,8 @@ describe('EDL Path E+D merge', () => {
           params: {
             text: 'one thing',
             keyword: 'one thing',
+            title: 'One thing',
+            body: 'Changed everything',
             contextPhrase: 'this is the one thing that changed everything',
             creativeDecisionType: 'graphic_keyword_highlight',
             signals: {
@@ -519,8 +521,146 @@ describe('EDL Path E+D merge', () => {
     expect(graphic?.metadata.graphicType).not.toBe('keyword-highlight');
     expect(graphic?.content.graphicType).toBeUndefined();
     expect(graphic?.content.creativeDecisionType).toBeUndefined();
+    expect(graphic?.content.title).toBe('One thing');
+    expect(graphic?.content.body).toBe('Changed everything');
     expect(graphic?.content.contextPhrase).toBe('this is the one thing that changed everything');
     expect(graphic?.recipe.id).toBe('composed-structured');
+  });
+
+  it('does not let transcript context alone promote weak keywords into standalone MGs', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = [
+      {
+        id: 901,
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 180,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/source.mp4',
+        src: 'https://example.com/source.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+    ];
+
+    const edl: EditDecisionList = {
+      projectId: 'path-e-d-context-only-keyword-test',
+      generatedAt: new Date('2026-06-10T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [
+        {
+          type: 'graphic',
+          frame: 48,
+          durationFrames: 60,
+          priority: 2,
+          source: 'creative-brief:test',
+          signal: 'emphasis',
+          reason: 'Transcript context alone should stay in captions',
+          confidence: 0.9,
+          technique: 'graphic_keyword_highlight',
+          params: {
+            text: 'these people',
+            keyword: 'these people',
+            contextPhrase: 'these people are not worth any more than any other two human beings',
+            creativeDecisionType: 'graphic_keyword_highlight',
+            signals: {
+              speech_energy: 0.88,
+              word_importance: 0.82,
+              visual_significance: 0.35,
+            },
+          },
+        } as any,
+      ],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 1,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.9,
+      },
+    };
+
+    await executeEDL(edl, 'path-e-d-context-only-keyword-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(overlays.some((overlay: any) => overlay.metadata?.sourceType === 'edl-graphic')).toBe(false);
+  });
+
+  it('lets relation atoms reach the MG engine without legacy text fields', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = [
+      {
+        id: 902,
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 180,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/source.mp4',
+        src: 'https://example.com/source.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+    ];
+
+    const edl: EditDecisionList = {
+      projectId: 'path-e-d-relation-atom-test',
+      generatedAt: new Date('2026-06-10T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [
+        {
+          type: 'graphic',
+          frame: 60,
+          durationFrames: 72,
+          priority: 3,
+          source: 'creative-brief:test',
+          signal: 'relation',
+          reason: 'Comparison atoms should drive MG form',
+          confidence: 0.95,
+          technique: 'graphic_callout',
+          params: {
+            from: 'Manual',
+            to: 'Automated',
+            fromLabel: 'Before',
+            toLabel: 'After',
+            relation: 'arrow',
+            creativeDecisionType: 'graphic_callout',
+            signals: {
+              visual_significance: 0.55,
+              speech_energy: 0.72,
+            },
+          },
+        } as any,
+      ],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 1,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.95,
+      },
+    };
+
+    await executeEDL(edl, 'path-e-d-relation-atom-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    const graphic = overlays.find((overlay: any) => overlay.metadata?.sourceType === 'edl-graphic') as any;
+    expect(graphic?.recipe.id).toBe('composed-comparison');
+    expect(graphic?.content.from).toBe('Manual');
+    expect(graphic?.content.to).toBe('Automated');
   });
 
   it('uses atomic graphic content and word timing instead of defaulting every MG to 90 frames', async () => {

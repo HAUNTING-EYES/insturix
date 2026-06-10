@@ -4,7 +4,8 @@ import {
   mapOriginalFrameToCutTimeline,
   mapCutFrameToOriginalFrame,
 } from '../../lib/editron/services/brief-executor';
-import type { BriefDecision, CreativeBrief } from '../../lib/editron/services/creative-brief';
+import { computeDecisionBudget, type BriefDecision, type CreativeBrief } from '../../lib/editron/services/creative-brief';
+import type { GenreParameters } from '../../lib/editron/services/graph-query';
 
 const transcription = [
   { word: 'we', startMs: 0, endMs: 250 },
@@ -34,6 +35,21 @@ function briefWith(decisions: BriefDecision[]): CreativeBrief {
     contentMode: 'speech',
     modelVersion: 'test',
     processingTimeMs: 0,
+  };
+}
+
+function genre(overrides: Partial<GenreParameters>): GenreParameters {
+  return {
+    pacing_tolerance: 5,
+    energy_baseline: 0.4,
+    transition_density: 8,
+    graphic_density: 1,
+    silence_tolerance: 1,
+    zoom_budget: 4,
+    sfx_density: 0.3,
+    color_temperature: 0,
+    formality: 0.5,
+    ...overrides,
   };
 }
 
@@ -150,7 +166,12 @@ describe('brief decision conversion', () => {
     expect(output.edl.decisions[0]).toMatchObject({
       type: 'transition',
       technique: 'transition_dissolve',
-      params: { creativeDecisionType: 'transition_dissolve', transitionType: 'dissolve' },
+      params: {
+        creativeDecisionType: 'transition_dissolve',
+        transitionIntent: 'continuity-blend',
+        transitionRelation: 'soft-topic-bridge',
+        transitionCompatibilityHint: 'dissolve',
+      },
     });
     expect(output.edl.decisions[1]).toMatchObject({
       type: 'graphic',
@@ -280,5 +301,23 @@ describe('brief decision conversion', () => {
       salience: 0.92,
       captionRedundancy: 0.15,
     }));
+  });
+
+  it('scales visible transition budget from signal-computed density instead of a fixed 2/min cap', () => {
+    const calm = computeDecisionBudget(genre({
+      transition_density: 4,
+      energy_baseline: 0.25,
+      sfx_density: 0.1,
+      formality: 0.85,
+    }), 120);
+    const energetic = computeDecisionBudget(genre({
+      transition_density: 20,
+      energy_baseline: 0.72,
+      sfx_density: 0.8,
+      formality: 0.2,
+    }), 120);
+
+    expect(calm.transition.max).toBeLessThan(energetic.transition.max);
+    expect(energetic.transition.max).toBeGreaterThan(4);
   });
 });

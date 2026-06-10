@@ -2,7 +2,6 @@
  * Remotion Cloud Run Configuration
  */
 import { Config } from '@remotion/cli/config';
-// @ts-ignore
 import { enableTailwind } from '@remotion/tailwind';
 
 // Enable TailwindCSS

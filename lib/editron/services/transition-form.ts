@@ -53,6 +53,8 @@ export function resolveAtomicTransitionForm(input: {
     : input.signals ?? {};
   const params = input.params ?? {};
   const explicitType = normalizeTransitionStyle(paramString(params, 'transitionType'));
+  const compatibilityHint = normalizeTransitionStyle(paramString(params, 'transitionCompatibilityHint'));
+  const intentHint = paramString(params, 'transitionIntent');
   const direction = resolveDirection(signals);
 
   const speechEnergy = signalNumber(signals, 'speech_energy', 'speech.energy');
@@ -90,6 +92,8 @@ export function resolveAtomicTransitionForm(input: {
   ));
   const compatibilityType = resolveCompatibilityType({
     explicitType,
+    compatibilityHint,
+    intentHint,
     direction,
     intensity,
     topicShift,
@@ -160,6 +164,8 @@ function resolveDirection(signals: Record<string, unknown>): AtomicTransitionDir
 
 function resolveCompatibilityType(input: {
   explicitType?: TransitionStyle;
+  compatibilityHint?: TransitionStyle;
+  intentHint?: string;
   direction: AtomicTransitionDirection;
   intensity: number;
   topicShift: number;
@@ -202,6 +208,33 @@ function resolveCompatibilityType(input: {
       return 'soft-cut';
     }
     return input.explicitType;
+  }
+
+  if (input.intentHint === 'editorial-cut'
+    && !hasStrongMotionTransfer
+    && !hasStrongImpactTransfer
+    && !hasBeatFlash
+    && !hasSoftBridge
+    && !hasEmotionalBridge) {
+    return 'hard-cut';
+  }
+
+  if (input.intentHint === 'motion-transfer' && input.direction.magnitude >= 0.32 && input.visualPressure < 0.72) {
+    if (input.direction.axis === 'y') return input.direction.y >= 0 ? 'slide-down' : 'slide-up';
+    return 'whip-pan';
+  }
+  if (input.intentHint === 'impact-transfer' && input.intensity >= 0.62 && input.visualPressure < 0.58) {
+    return input.beatStrength >= 0.62 ? 'flash' : 'zoom-punch';
+  }
+  if (input.intentHint === 'reveal-wipe' && input.direction.axis !== 'none' && input.visualPressure < 0.68) {
+    if (input.direction.axis === 'y') return input.direction.y >= 0 ? 'slide-down' : 'slide-up';
+    return input.direction.x >= 0 ? 'wipe-right' : 'wipe-left';
+  }
+  if (input.intentHint === 'soft-release' && input.compatibilityHint === 'dip-to-black' && input.visualPressure < 0.82) {
+    return 'dip-to-black';
+  }
+  if (input.intentHint === 'continuity-blend' && (input.topicShift >= 0.4 || input.emotion >= 0.4 || input.visualPressure < 0.65)) {
+    return input.compatibilityHint === 'soft-cut' && input.topicShift < 0.56 ? 'soft-cut' : 'dissolve';
   }
 
   if (input.topicShift >= 0.74 && input.intensity < 0.72) return 'dissolve';

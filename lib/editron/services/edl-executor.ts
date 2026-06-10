@@ -1252,10 +1252,11 @@ function mergeUtilityOutputValues(
   }
 
   if (category === 'transition') {
-    // Path E's semantic transition intent is already normalized by brief-executor
-    // (for example transition_fade_to_black -> dip-to-black). Utility curves may
-    // fill missing form hints, but must not erase that explicit intent.
-    copy('transitionType', 'fill');
+    // Utility transition scoring is evidence, not the source of form truth.
+    // The atomic resolver reads semantic transition atoms + moment signals.
+    if (outputValues.transitionType != null && params.utilityTransitionCompatibilityHint == null) {
+      params.utilityTransitionCompatibilityHint = outputValues.transitionType;
+    }
     copy('durationFrames');
     return;
   }
@@ -1404,7 +1405,7 @@ async function applyDecision(
       // structure to become a real atomic MG.
       const emphasisWord = (decision as any).params?.emphasisWord;
       if (!emphasisWord) return null;
-      if (!hasContextualGraphicEvidence((decision as any).params ?? {})) {
+      if (!hasStandaloneGraphicStructure((decision as any).params ?? {})) {
         console.log(`[EDL-Exec] Caption emphasis at frame ${decision.frame}: kept in caption layer, not promoted to standalone MG`);
         return null;
       }
@@ -1593,7 +1594,7 @@ function applyTransition(
   decisionIndex: number = 0,
 ): { created: number; modified: number } | null {
   decision.params = decision.params || {};
-  const requestedTransType = (decision.params.transitionType || 'soft-cut') as string;
+  const requestedTransType = (decision.params.transitionType || decision.params.transitionCompatibilityHint || 'soft-cut') as string;
   // Dissolve needs minimum duration to feel like a real crossfade, not a flash.
   // Intelligence layer often sets 15 frames (0.5s) → too fast. Clamp to 30+ (1s).
   const transitionForm = resolveAtomicTransitionForm({
@@ -2329,29 +2330,45 @@ function applyPlacementRegionGeometry(
   };
 }
 
-function hasContextualGraphicEvidence(params: Record<string, unknown>): boolean {
-  const contextualKeys = [
-    'contextPhrase',
+function hasRenderableGraphicContent(params: Record<string, unknown>): boolean {
+  const renderableKeys = [
+    'text',
+    'keyword',
     'title',
     'body',
-    'items',
     'value',
-    'label',
     'name',
     'quote',
-    'author',
     'from',
     'to',
     'logo',
+    'avatar',
     'mediaUrl',
     'imageUrl',
   ];
-  return contextualKeys.some((key) => {
-    const value = params[key];
-    if (Array.isArray(value)) return value.length > 0;
-    if (typeof value === 'string') return value.trim().length > 0;
-    return value !== undefined && value !== null;
-  });
+
+  if (renderableKeys.some((key) => hasNonEmptyValue(params[key]))) return true;
+  return ['items', 'values', 'labels'].some((key) => hasNonEmptyValue(params[key]));
+}
+
+function hasStandaloneGraphicStructure(params: Record<string, unknown>): boolean {
+  // Transcript context is supporting evidence, not standalone MG structure.
+  // A keyword plus nearby transcript words belongs in captions unless another
+  // atom gives it actual graphic form: scalar, identity, quote, relation, etc.
+  if (hasNonEmptyValue(params.value)) return true;
+  if (hasNonEmptyValue(params.name)) return true;
+  if (hasNonEmptyValue(params.quote)) return true;
+  if (hasNonEmptyValue(params.logo) || hasNonEmptyValue(params.avatar) || hasNonEmptyValue(params.mediaUrl) || hasNonEmptyValue(params.imageUrl)) return true;
+  if (hasNonEmptyValue(params.from) && hasNonEmptyValue(params.to)) return true;
+  if (hasNonEmptyValue(params.values)) return true;
+  if (hasNonEmptyValue(params.title) && (hasNonEmptyValue(params.body) || hasNonEmptyValue(params.items))) return true;
+  return false;
+}
+
+function hasNonEmptyValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') return value.trim().length > 0;
+  return value !== undefined && value !== null;
 }
 
 function isKeywordGraphicIntent(decision: EditDecision, graphicType: string): boolean {
@@ -2446,9 +2463,8 @@ async function applyGraphic(
   const graphicType = typeof decision.params.graphicType === 'string'
     ? decision.params.graphicType
     : 'atomic-graphic';
-  const hasContent = text || decision.params.name || decision.params.value || decision.params.quote || decision.params.title;
-  if (!hasContent) return null;
-  if (isKeywordGraphicIntent(decision, graphicType) && !hasContextualGraphicEvidence(decision.params)) {
+  if (!hasRenderableGraphicContent(decision.params)) return null;
+  if (isKeywordGraphicIntent(decision, graphicType) && !hasStandaloneGraphicStructure(decision.params)) {
     console.log(`[EDL-Exec] KEYWORD FILTER: skipped standalone keyword MG "${text}" - captions should carry naked word emphasis`);
     return null;
   }

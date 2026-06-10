@@ -273,7 +273,7 @@ export async function generateCreativeBrief(
 
 // ─── Prompt Construction (Rule 35: XML structure, data LAST) ────────────────
 
-type BudgetMap = Record<string, { min: number; max: number }>;
+export type BudgetMap = Record<string, { min: number; max: number }>;
 
 function buildPrompt(
   ctx: VideoContext,
@@ -897,7 +897,7 @@ function buildFeaturesBlock(ctx: VideoContext): string {
 
 // ─── Decision Budget Computation ────────────────────────────────────────────
 
-function computeDecisionBudget(
+export function computeDecisionBudget(
   gp: GenreParameters,
   durationSec: number,
 ): BudgetMap {
@@ -907,13 +907,24 @@ function computeDecisionBudget(
   // placed at narrative boundaries. Hard cuts are the default and don't need a
   // decision from Gemini. A 10-min talking head might have 1-3 dissolves and
   // 1-2 fade-to-blacks. Cap at 2/min — generous for any content type.
-  const transMax = Math.max(2, Math.ceil(Math.min(gp.transition_density, 2) * durationMin));
-  // SFX: 0.3-0.5 per transition. Not every transition gets sound.
-  const sfxMax = Math.max(1, Math.ceil(Math.min(gp.sfx_density, 0.5) * transMax));
+  // The executable budget below supersedes the old fixed-cap wording above.
+  const transitionDensity = clamp(gp.transition_density, 2, 25);
+  const visibleTransitionShare = clamp(
+    0.12
+      + gp.energy_baseline * 0.35
+      + gp.sfx_density * 0.22
+      + (1 - gp.formality) * 0.12,
+    0.12,
+    0.55,
+  );
+  const visibleTransitionsPerMin = clamp(transitionDensity * visibleTransitionShare, 0.4, 8);
+  const transMax = Math.max(1, Math.ceil(visibleTransitionsPerMin * durationMin));
+  const transMin = Math.min(transMax, Math.max(0, Math.floor(transMax * 0.25)));
+  const sfxMax = Math.max(1, Math.ceil(clamp(gp.sfx_density, 0, 1) * transMax));
 
   return {
     zoom: { min: 2, max: Math.max(2, gp.zoom_budget) },
-    transition: { min: 2, max: Math.max(2, transMax) },
+    transition: { min: transMin, max: transMax },
     sfx: { min: 0, max: sfxMax },
     graphic: { min: 0, max: Math.max(1, Math.ceil(gp.graphic_density * durationMin)) },
     caption: { min: 2, max: Math.max(3, Math.ceil(durationMin * 2)) },

@@ -308,8 +308,13 @@ function normalizeBriefDecisionParams(
 
   normalized.creativeDecisionType = type;
   if (type.startsWith('transition_')) {
-    const transitionType = transitionCompatibilityFromBriefType(type);
-    if (transitionType) normalized.transitionType = transitionType;
+    const transitionAtoms = transitionAtomsFromBriefType(type);
+    if (transitionAtoms) {
+      normalized.transitionIntent = transitionAtoms.intent;
+      normalized.transitionRelation = transitionAtoms.relation;
+      normalized.transitionEnergy = transitionAtoms.energy;
+      normalized.transitionCompatibilityHint = transitionAtoms.compatibilityHint;
+    }
   }
   if (type.startsWith('graphic_')) {
     atomizeGraphicDecision(normalized, transcription, targetWordIdx);
@@ -318,19 +323,31 @@ function normalizeBriefDecisionParams(
   return normalized;
 }
 
-function transitionCompatibilityFromBriefType(type: BriefDecisionType): string | undefined {
+function transitionAtomsFromBriefType(type: BriefDecisionType): {
+  intent: string;
+  relation: string;
+  energy: 'low' | 'medium' | 'high';
+  compatibilityHint: string;
+} | undefined {
   switch (type) {
-    case 'transition_dissolve': return 'dissolve';
-    case 'transition_hard_cut': return 'hard-cut';
-    case 'transition_whip_pan': return 'whip-pan';
-    case 'transition_fade_to_black': return 'dip-to-black';
-    case 'transition_flash': return 'flash';
-    case 'transition_soft_cut': return 'soft-cut';
-    case 'transition_wipe': return 'wipe-left';
+    case 'transition_dissolve':
+      return { intent: 'continuity-blend', relation: 'soft-topic-bridge', energy: 'low', compatibilityHint: 'dissolve' };
+    case 'transition_hard_cut':
+      return { intent: 'editorial-cut', relation: 'direct-continuity', energy: 'medium', compatibilityHint: 'hard-cut' };
+    case 'transition_whip_pan':
+      return { intent: 'motion-transfer', relation: 'directional-momentum', energy: 'high', compatibilityHint: 'whip-pan' };
+    case 'transition_fade_to_black':
+      return { intent: 'soft-release', relation: 'chapter-close', energy: 'low', compatibilityHint: 'dip-to-black' };
+    case 'transition_flash':
+      return { intent: 'impact-transfer', relation: 'beat-accent', energy: 'high', compatibilityHint: 'flash' };
+    case 'transition_soft_cut':
+      return { intent: 'continuity-blend', relation: 'invisible-polish', energy: 'low', compatibilityHint: 'soft-cut' };
+    case 'transition_wipe':
+      return { intent: 'reveal-wipe', relation: 'spatial-reveal', energy: 'medium', compatibilityHint: 'wipe-left' };
     case 'transition_j_cut':
-      return 'hard-cut';
+      return { intent: 'editorial-cut', relation: 'audio-leads-picture', energy: 'medium', compatibilityHint: 'hard-cut' };
     case 'transition_l_cut':
-      return 'hard-cut';
+      return { intent: 'editorial-cut', relation: 'audio-trails-picture', energy: 'medium', compatibilityHint: 'hard-cut' };
     default:
       return undefined;
   }
