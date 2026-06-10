@@ -168,6 +168,22 @@ function resolveCompatibilityType(input: {
   visualPressure: number;
   textOnScreen: number;
 }): TransitionStyle {
+  const explicitHardCut = input.explicitType && HARD_CUTS.has(input.explicitType);
+  const hasStrongMotionTransfer = input.direction.magnitude >= 0.48 && input.visualPressure < 0.72;
+  const hasStrongImpactTransfer = input.intensity >= 0.84 && input.visualPressure < 0.58;
+  const hasBeatFlash = input.beatStrength >= 0.72 && input.visualPressure < 0.55;
+  const hasSoftBridge = input.topicShift >= 0.74 && input.intensity < 0.72;
+  const hasEmotionalBridge = input.emotion >= 0.62 || input.topicShift >= 0.56;
+
+  if (explicitHardCut
+    && !hasStrongMotionTransfer
+    && !hasStrongImpactTransfer
+    && !hasBeatFlash
+    && !hasSoftBridge
+    && !hasEmotionalBridge) {
+    return input.explicitType as TransitionStyle;
+  }
+
   if (input.visualPressure >= 0.78 || input.textOnScreen >= 0.62) {
     return input.topicShift >= 0.72 && input.intensity < 0.78 ? 'dissolve' : 'soft-cut';
   }
@@ -257,6 +273,7 @@ function resolveIntent(
 }
 
 function resolveSfxRole(type: TransitionStyle, intensity: number, softness: number): AtomicTransitionForm['sfxRole'] {
+  if (HARD_CUTS.has(type)) return 'none';
   if (type === 'soft-cut' || type === 'dissolve' || softness > 0.7) return 'none';
   if (type === 'zoom-punch' || type === 'flash') return 'impact';
   if (type === 'glitch') return 'digital-tick';

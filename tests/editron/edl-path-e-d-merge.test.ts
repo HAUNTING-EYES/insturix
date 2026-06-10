@@ -28,7 +28,7 @@ describe('EDL Path E+D merge', () => {
     vi.restoreAllMocks();
   });
 
-  it('lets utility curves enrich Path E zoom execution instead of keeping weak preset params', async () => {
+  it('records utility zoom scoring without letting it override atomic zoom form', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -130,10 +130,12 @@ describe('EDL Path E+D merge', () => {
         overlayId: 'speech.zoom_punch_speech_speaker_energy_peak',
       },
     });
-    expect(decision.params.scaleTo).toBeGreaterThan(1.2);
+    expect(decision.params.scaleTo).toBe(1.01);
 
     const scaleTrack = overlays[0]?.keyframeTracks?.find((track) => track.property === 'scale');
-    expect(scaleTrack?.keyframes.some((keyframe) => keyframe.value > 1.2)).toBe(true);
+    const maxScale = Math.max(...(scaleTrack?.keyframes.map((keyframe) => keyframe.value) ?? [1]));
+    expect(maxScale).toBeLessThan(1.15);
+    expect(maxScale).toBeGreaterThan(1);
     expect((overlays[0] as any).metadata.atomicMomentBundle).toBe(bundle);
     expect((overlays[0] as any).metadata.atomicMomentGrammar).toBe(grammar);
   });
@@ -292,6 +294,89 @@ describe('EDL Path E+D merge', () => {
     expect(transition?.transitionStyle).toBe('dip-to-black');
     expect(transition?.metadata.transitionType).toBe('dip-to-black');
     expect(transition?.metadata.atomicTransitionForm.compatibilityType).toBe('dip-to-black');
+  });
+
+  it('lets primitive motion signals promote an upstream hard-cut hint into a rendered transition form', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = [
+      {
+        id: 401,
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 100,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/a.mp4',
+        src: 'https://example.com/a.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+      {
+        id: 402,
+        type: OverlayType.VIDEO,
+        from: 100,
+        durationInFrames: 100,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/b.mp4',
+        src: 'https://example.com/b.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+    ];
+
+    const edl: EditDecisionList = {
+      projectId: 'path-e-d-transition-hardcut-promotion-test',
+      generatedAt: new Date('2026-06-10T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [{
+        type: 'transition',
+        frame: 100,
+        durationFrames: 12,
+        priority: 3,
+        source: 'creative-chain:test',
+        signal: 'motion_boundary',
+        reason: 'Default hard-cut hint should yield to primitive motion atoms',
+        confidence: 0.94,
+        params: {
+          transitionType: 'hard-cut',
+          signals: {
+            motion_vector_x: 0.84,
+            motion_intensity: 0.88,
+            beat_strength: 0.86,
+            speech_energy: 0.74,
+            text_on_screen: 0,
+            visual_complexity: 0.1,
+          },
+        },
+      }],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 1,
+        graphicCount: 0,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.94,
+      },
+    };
+
+    const result = await executeEDL(edl, 'path-e-d-transition-hardcut-promotion-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    const transition = overlays.find((overlay) => overlay.type === 'transition') as any;
+    expect(result.overlaysCreated).toBe(1);
+    expect(transition?.transitionStyle).toBe('whip-pan');
+    expect(transition?.metadata.atomicTransitionForm.compatibilityType).toBe('whip-pan');
+    expect(transition?.metadata.atomicOverlayReceipt.payload.directionLabel).toBe('right');
   });
 
   it('does not add a duplicate D utility zoom near an existing Path E zoom', async () => {

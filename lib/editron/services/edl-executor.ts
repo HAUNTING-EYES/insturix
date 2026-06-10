@@ -1606,8 +1606,10 @@ function applyTransition(
   const transType = transitionForm.compatibilityType;
   const durationFrames = transitionForm.durationFrames;
 
-  // hard-cut and editorial cuts don't produce visual transitions
-  if (['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(requestedTransType)) {
+  // hard-cut and editorial cuts don't produce visual transitions. Use the
+  // resolved atomic form, not the upstream hint, so strong motion/beat atoms can
+  // promote a default hard-cut into a motivated visual transition.
+  if (['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
     return null;
   }
 

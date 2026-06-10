@@ -90,6 +90,35 @@ describe('resolveAtomicTransitionForm', () => {
     expect(form.sfxRole).toBe('fast-whoosh');
   });
 
+  it('treats upstream hard-cut as a weak editorial hint, not a preset veto', () => {
+    const ordinaryCut = resolveAtomicTransitionForm({
+      params: { transitionType: 'hard-cut' },
+      signals: {
+        speech_energy: 0.28,
+        motion_intensity: 0.12,
+        topic_shift: 0.1,
+        text_on_screen: 0,
+      },
+    });
+    const motionCut = resolveAtomicTransitionForm({
+      params: { transitionType: 'hard-cut' },
+      signals: {
+        motion_vector_x: -0.81,
+        motion_intensity: 0.88,
+        beat_strength: 0.83,
+        speech_energy: 0.74,
+        text_on_screen: 0,
+        visual_complexity: 0.12,
+      },
+    });
+
+    expect(ordinaryCut.compatibilityType).toBe('hard-cut');
+    expect(ordinaryCut.sfxRole).toBe('none');
+    expect(motionCut.compatibilityType).toBe('whip-pan');
+    expect(motionCut.intent).toBe('motion-transfer');
+    expect(motionCut.sfxRole).toBe('fast-whoosh');
+  });
+
   it('keeps upstream soft-cut requests as invisible polish instead of long mini-dissolves', () => {
     const form = resolveAtomicTransitionForm({
       params: { transitionType: 'soft-cut' },
