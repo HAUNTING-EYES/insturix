@@ -549,12 +549,15 @@ async function uploadLinkedInRestMedia({
       },
     }),
   });
-  const initData = await initResponse.json();
+  const initData = await safeJson(initResponse);
   const uploadUrl = initData.value?.uploadUrl;
   const mediaUrn = initData.value?.[urnField];
 
   if (!initResponse.ok || initData.error || !uploadUrl || !mediaUrn) {
-    throw new Error(`Failed to initialize LinkedIn ${mediaType} upload`);
+    const errorDetails = initData.error || initData.message || JSON.stringify(initData);
+    throw new Error(
+      `Failed to initialize LinkedIn ${mediaType} upload: ${initResponse.status} - ${errorDetails}`
+    );
   }
 
   const uploadResponse = await fetch(uploadUrl, {
@@ -594,14 +597,17 @@ async function uploadLinkedInRestVideo({
       },
     }),
   });
-  const initData = await initResponse.json();
+  const initData = await safeJson(initResponse);
   const videoUrn = initData.value?.video;
   const uploadInstructions = Array.isArray(initData.value?.uploadInstructions)
     ? initData.value.uploadInstructions
     : [];
 
   if (!initResponse.ok || initData.error || !videoUrn || uploadInstructions.length === 0) {
-    throw new Error("Failed to initialize LinkedIn video upload");
+    const errorDetails = initData.error || initData.message || JSON.stringify(initData);
+    throw new Error(
+      `Failed to initialize LinkedIn video upload: ${initResponse.status} - ${errorDetails}`
+    );
   }
 
   const uploadedPartIds: string[] = [];
@@ -642,10 +648,23 @@ async function uploadLinkedInRestVideo({
       },
     }),
   });
-  const finalizeData = await finalizeResponse.json();
+  const finalizeData = await safeJson(finalizeResponse);
   if (!finalizeResponse.ok || finalizeData.error) {
-    throw new Error("Failed to finalize LinkedIn video upload");
+    const errorDetails = finalizeData.error || finalizeData.message || JSON.stringify(finalizeData);
+    throw new Error(
+      `Failed to finalize LinkedIn video upload: ${finalizeResponse.status} - ${errorDetails}`
+    );
   }
 
   return videoUrn;
+}
+
+async function safeJson(response: Response): Promise<any> {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
 }
