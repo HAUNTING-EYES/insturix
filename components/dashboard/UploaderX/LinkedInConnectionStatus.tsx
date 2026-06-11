@@ -44,31 +44,18 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
     loading: true,
   });
 
-  // Debug: Log when status changes
-  useEffect(() => {
-    console.log("[LinkedInUI] Status changed:", JSON.stringify(status));
-  }, [status]);
-
   const { toast } = useToast();
 
   const checkStatus = async () => {
     try {
-      console.log("[LinkedInUI] Checking LinkedIn status...");
       setStatus(prev => ({ ...prev, loading: true }));
 
       const res = await fetch("/api/services/uploaderx/linkedin/status");
-      console.log("[LinkedInUI] Status API response status:", res.status);
       
       const data = await res.json();
-      console.log("[LinkedInUI] Status response data:", JSON.stringify(data));
 
       if (data.success) {
-        console.log("[LinkedInUI] data.success is true");
-        console.log("[LinkedInUI] data.connected value:", data.connected);
-        console.log("[LinkedInUI] typeof data.connected:", typeof data.connected);
-        
         const isConnected = !!data.connected;
-        console.log("[LinkedInUI] isConnected:", isConnected);
         
         const newStatus = {
           connected: isConnected,
@@ -85,7 +72,6 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
           connectedAt: data.connectedAt,
           loading: false,
         };
-        console.log("[LinkedInUI] Final status object:", JSON.stringify(newStatus));
         setStatus(newStatus);
 
         onConnectionChange?.(isConnected);
@@ -161,10 +147,7 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
     const isLinkedInSuccess = urlParams.get('success') === 'linkedin_connected';
     const isLinkedInError = urlParams.get('error') === 'linkedin_connected';
 
-    console.log("[LinkedInUI] Component mounted, checking OAuth state:", { isLinkedInSuccess, isLinkedInError });
-
     if (isLinkedInSuccess) {
-      console.log("[LinkedInUI] OAuth success detected, cleaning URL and refreshing status");
       // Clean up the URL
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.delete('success');
@@ -173,7 +156,6 @@ export function LinkedInConnectionStatus({ onConnectionChange }: LinkedInConnect
       
       // Add a longer delay to ensure database is updated after OAuth
       setTimeout(() => {
-        console.log("[LinkedInUI] Delayed status check after OAuth...");
         checkStatus();
       }, 2000);
     } else if (isLinkedInError) {

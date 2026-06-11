@@ -10,6 +10,10 @@ import {
 } from "@/lib/uploaderx/linkedin-publish-state";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
+const LINKEDIN_REST_API_VERSION = process.env.LINKEDIN_REST_API_VERSION || "202605";
+
+type LinkedInMediaType = "image" | "video" | "document";
+
 export async function POST(req: Request) {
   try {
     const session = await auth();
@@ -213,6 +217,7 @@ export async function POST(req: Request) {
     let mediaType = "NONE";
     let assetUrn: string | undefined;
     let fileName = title || "LinkedIn post";
+    const useRestMediaPath = hasMedia && shouldUseLinkedInRestMediaPath();
 
     if (hasMedia) {
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid, gcsPath });
@@ -229,7 +234,17 @@ export async function POST(req: Request) {
         mediaType = "document";
       }
 
-      const registerResponse = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
+      if (useRestMediaPath) {
+        assetUrn = await uploadLinkedInRestMedia({
+          accessToken,
+          authorUrn,
+          fileBuffer,
+          fileName,
+          contentType,
+          mediaType: mediaType as LinkedInMediaType,
+        });
+      } else {
+        const registerResponse = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -250,37 +265,38 @@ export async function POST(req: Request) {
         }),
       });
 
-      const registerData = await registerResponse.json();
-      if (!registerResponse.ok || registerData.error) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Failed to register upload with LinkedIn",
-            details: registerData,
+        const registerData = await registerResponse.json();
+        if (!registerResponse.ok || registerData.error) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Failed to register upload with LinkedIn",
+              details: registerData,
+            },
+            { status: 500 }
+          );
+        }
+
+        const uploadUrl =
+          registerData.value.uploadMechanism["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]
+            .uploadUrl;
+        assetUrn = registerData.value.asset;
+
+        const uploadResponse = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": contentType,
           },
-          { status: 500 }
-        );
-      }
+          body: fileBuffer,
+        });
 
-      const uploadUrl =
-        registerData.value.uploadMechanism["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]
-          .uploadUrl;
-      assetUrn = registerData.value.asset;
-
-      const uploadResponse = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": contentType,
-        },
-        body: fileBuffer,
-      });
-
-      if (!uploadResponse.ok) {
-        return NextResponse.json(
-          { success: false, error: "Failed to upload file to LinkedIn" },
-          { status: 500 }
-        );
+        if (!uploadResponse.ok) {
+          return NextResponse.json(
+            { success: false, error: "Failed to upload file to LinkedIn" },
+            { status: 500 }
+          );
+        }
       }
     }
 
@@ -300,40 +316,68 @@ export async function POST(req: Request) {
       ];
     }
 
-    const postBody: any = {
-      author: authorUrn,
-      lifecycleState: "PUBLISHED",
-      specificContent: {
-        "com.linkedin.ugc.ShareContent": shareContent,
-      },
-      visibility: {
-        "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-      },
-    };
+    let postId: string | undefined;
 
-    const postResponse = await fetch("https://api.linkedin.com/v2/ugcPosts", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        "X-Restli-Protocol-Version": "2.0.0",
-      },
-      body: JSON.stringify(postBody),
-    });
+    if (!hasMedia || useRestMediaPath) {
+      postId = await createLinkedInRestPost({
+        accessToken,
+        authorUrn,
+        postText,
+        media: hasMedia && assetUrn
+          ? {
+              id: assetUrn,
+              type: mediaType as LinkedInMediaType,
+              title: title || fileName,
+            }
+          : undefined,
+      });
+    } else {
+      const postBody: any = {
+        author: authorUrn,
+        lifecycleState: "PUBLISHED",
+        specificContent: {
+          "com.linkedin.ugc.ShareContent": shareContent,
+        },
+        visibility: {
+          "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+        },
+      };
 
-    const postData = await postResponse.json();
-    if (!postResponse.ok || postData.error) {
+      const postResponse = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "X-Restli-Protocol-Version": "2.0.0",
+        },
+        body: JSON.stringify(postBody),
+      });
+
+      const postData = await postResponse.json();
+      if (!postResponse.ok || postData.error) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Failed to create LinkedIn post",
+            details: postData,
+          },
+          { status: 500 }
+        );
+      }
+
+      postId = postData.id;
+    }
+
+    if (!postId) {
       return NextResponse.json(
         {
           success: false,
-          error: "Failed to create LinkedIn post",
-          details: postData,
+          error: "LinkedIn did not return a post id.",
         },
         { status: 500 }
       );
     }
 
-    const postId = postData.id;
     const postUrl = `https://www.linkedin.com/feed/update/${postId}`;
 
     if (videoUuid) {
@@ -386,4 +430,208 @@ export async function POST(req: Request) {
     console.error("LinkedIn upload error:", error);
     return NextResponse.json({ success: false, error: "Failed to upload to LinkedIn" }, { status: 500 });
   }
+}
+
+function shouldUseLinkedInRestMediaPath() {
+  return process.env.UPLOADERX_LINKEDIN_REST_MEDIA === "true";
+}
+
+function linkedInRestHeaders(accessToken: string) {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    "Linkedin-Version": LINKEDIN_REST_API_VERSION,
+    "X-Restli-Protocol-Version": "2.0.0",
+  };
+}
+
+async function createLinkedInRestPost({
+  accessToken,
+  authorUrn,
+  postText,
+  media,
+}: {
+  accessToken: string;
+  authorUrn: string;
+  postText: string;
+  media?: { id: string; type: LinkedInMediaType; title: string };
+}) {
+  const body: Record<string, unknown> = {
+    author: authorUrn,
+    commentary: postText,
+    visibility: "PUBLIC",
+    distribution: {
+      feedDistribution: "MAIN_FEED",
+      targetEntities: [],
+      thirdPartyDistributionChannels: [],
+    },
+    lifecycleState: "PUBLISHED",
+    isReshareDisabledByAuthor: false,
+  };
+
+  if (media) {
+    body.content = {
+      media: {
+        id: media.id,
+        ...(media.type === "image" ? {} : { title: media.title }),
+      },
+    };
+  }
+
+  const postResponse = await fetch("https://api.linkedin.com/rest/posts", {
+    method: "POST",
+    headers: linkedInRestHeaders(accessToken),
+    body: JSON.stringify(body),
+  });
+
+  const responseText = await postResponse.text();
+  let postData: any = {};
+  if (responseText) {
+    try {
+      postData = JSON.parse(responseText);
+    } catch {
+      postData = { raw: responseText };
+    }
+  }
+
+  if (!postResponse.ok || postData.error) {
+    throw new Error("Failed to create LinkedIn post");
+  }
+
+  return postResponse.headers.get("x-restli-id") || postData.id;
+}
+
+async function uploadLinkedInRestMedia({
+  accessToken,
+  authorUrn,
+  fileBuffer,
+  fileName,
+  contentType,
+  mediaType,
+}: {
+  accessToken: string;
+  authorUrn: string;
+  fileBuffer: Buffer;
+  fileName: string;
+  contentType: string;
+  mediaType: LinkedInMediaType;
+}) {
+  if (mediaType === "video") {
+    return uploadLinkedInRestVideo({ accessToken, authorUrn, fileBuffer });
+  }
+
+  const endpoint =
+    mediaType === "image"
+      ? "https://api.linkedin.com/rest/images?action=initializeUpload"
+      : "https://api.linkedin.com/rest/documents?action=initializeUpload";
+  const urnField = mediaType === "image" ? "image" : "document";
+
+  const initResponse = await fetch(endpoint, {
+    method: "POST",
+    headers: linkedInRestHeaders(accessToken),
+    body: JSON.stringify({
+      initializeUploadRequest: {
+        owner: authorUrn,
+      },
+    }),
+  });
+  const initData = await initResponse.json();
+  const uploadUrl = initData.value?.uploadUrl;
+  const mediaUrn = initData.value?.[urnField];
+
+  if (!initResponse.ok || initData.error || !uploadUrl || !mediaUrn) {
+    throw new Error(`Failed to initialize LinkedIn ${mediaType} upload`);
+  }
+
+  const uploadResponse = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": contentType || "application/octet-stream",
+    },
+    body: new Uint8Array(fileBuffer),
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error(`Failed to upload LinkedIn ${mediaType}`);
+  }
+
+  return mediaUrn;
+}
+
+async function uploadLinkedInRestVideo({
+  accessToken,
+  authorUrn,
+  fileBuffer,
+}: {
+  accessToken: string;
+  authorUrn: string;
+  fileBuffer: Buffer;
+}) {
+  const initResponse = await fetch("https://api.linkedin.com/rest/videos?action=initializeUpload", {
+    method: "POST",
+    headers: linkedInRestHeaders(accessToken),
+    body: JSON.stringify({
+      initializeUploadRequest: {
+        owner: authorUrn,
+        fileSizeBytes: fileBuffer.length,
+        uploadCaptions: false,
+        uploadThumbnail: false,
+      },
+    }),
+  });
+  const initData = await initResponse.json();
+  const videoUrn = initData.value?.video;
+  const uploadInstructions = Array.isArray(initData.value?.uploadInstructions)
+    ? initData.value.uploadInstructions
+    : [];
+
+  if (!initResponse.ok || initData.error || !videoUrn || uploadInstructions.length === 0) {
+    throw new Error("Failed to initialize LinkedIn video upload");
+  }
+
+  const uploadedPartIds: string[] = [];
+  for (const instruction of uploadInstructions) {
+    const firstByte = Number(instruction.firstByte);
+    const lastByte = Number(instruction.lastByte);
+    if (!instruction.uploadUrl || Number.isNaN(firstByte) || Number.isNaN(lastByte)) {
+      throw new Error("LinkedIn video upload instructions are invalid");
+    }
+
+    const uploadResponse = await fetch(instruction.uploadUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: new Uint8Array(fileBuffer.subarray(firstByte, lastByte + 1)),
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error("Failed to upload LinkedIn video part");
+    }
+
+    const etag = uploadResponse.headers.get("etag");
+    if (etag) {
+      uploadedPartIds.push(etag.replace(/^"|"$/g, ""));
+    }
+  }
+
+  const finalizeResponse = await fetch("https://api.linkedin.com/rest/videos?action=finalizeUpload", {
+    method: "POST",
+    headers: linkedInRestHeaders(accessToken),
+    body: JSON.stringify({
+      finalizeUploadRequest: {
+        video: videoUrn,
+        uploadToken: initData.value?.uploadToken || "",
+        uploadedPartIds,
+      },
+    }),
+  });
+  const finalizeData = await finalizeResponse.json();
+  if (!finalizeResponse.ok || finalizeData.error) {
+    throw new Error("Failed to finalize LinkedIn video upload");
+  }
+
+  return videoUrn;
 }

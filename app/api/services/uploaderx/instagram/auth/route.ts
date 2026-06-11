@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 
+const debugInstagramAuth = (...args: unknown[]) => {
+  if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
+    console.log(...args);
+  }
+};
+
 /**
  * GET /api/services/uploaderx/instagram/auth
  * Redirects user to Instagram OAuth (Instagram Login flow).
@@ -22,8 +28,7 @@ export async function GET(req: Request) {
 
   const redirectUri = `${baseUrl}/api/services/uploaderx/instagram/callback`;
 
-  console.log("[IG Auth] Redirect URI:", redirectUri);
-  console.log("[IG Auth] Using Instagram Login flow (app ID:", appId, ")");
+  debugInstagramAuth("[IG Auth] Redirect URI prepared");
 
   const scopes = [
     "instagram_business_basic",

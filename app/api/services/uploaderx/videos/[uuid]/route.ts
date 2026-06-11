@@ -3,6 +3,12 @@ import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
 
+const debugUploaderXMetadata = (...args: unknown[]) => {
+    if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
+        console.log(...args);
+    }
+};
+
 export async function PATCH(
     request: Request,
     props: { params: Promise<{ uuid: string }> }
@@ -11,7 +17,7 @@ export async function PATCH(
         const params = await props.params;
         const { uuid } = params;
 
-        console.log("📝 PATCH Metadata Request for UUID:", uuid);
+        debugUploaderXMetadata("[UploaderX:Metadata] PATCH request received");
 
         const session = await auth();
         if (!session?.userId) {
@@ -19,7 +25,7 @@ export async function PATCH(
         }
 
         const { metadata } = await request.json();
-        console.log("📄 PATCH API Received Metadata:", JSON.stringify(metadata, null, 2));
+        debugUploaderXMetadata("[UploaderX:Metadata] Metadata keys:", metadata && typeof metadata === "object" ? Object.keys(metadata) : []);
 
         if (!uuid) {
             return NextResponse.json({ success: false, error: "Missing video UUID" }, { status: 400 });

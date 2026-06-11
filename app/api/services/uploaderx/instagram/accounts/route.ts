@@ -22,17 +22,6 @@ export async function GET() {
             instagramTokens: { $exists: true, $ne: null },
         });
 
-        console.log("📄 Instagram Accounts API - User lookup:", {
-            userFound: !!user,
-            hasTokens: !!user?.instagramTokens,
-            accountsCount: user?.instagramTokens?.accounts?.length || 0,
-            clerkUserId: session.userId,
-            accounts: user?.instagramTokens?.accounts?.map((a: any) => ({
-                instagramAccountId: a.instagramAccountId,
-                instagramUsername: a.instagramUsername,
-            })) || []
-        });
-
         if (!user || !user.instagramTokens) {
             return NextResponse.json({
                 connected: false,

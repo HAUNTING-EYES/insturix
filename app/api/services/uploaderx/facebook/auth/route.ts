@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 
+const debugFacebookAuth = (...args: unknown[]) => {
+  if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
+    console.log(...args);
+  }
+};
+
 /**
  * GET /api/services/uploaderx/facebook/auth
  * Redirects user to Facebook OAuth dialog to request Page permissions.
@@ -18,7 +24,7 @@ export async function GET(req: Request) {
   //  MUST match exactly with callback + Meta app
   const redirectUri = `${baseUrl}/api/services/uploaderx/facebook/callback`;
 
-  console.log("[FB Auth] Redirect URI:", redirectUri);
+  debugFacebookAuth("[FB Auth] Redirect URI prepared");
 
   const scopes = [
     "pages_manage_posts",

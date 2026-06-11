@@ -47,8 +47,6 @@ export async function GET(req: Request) {
         twitterAuthUrl.searchParams.set("code_challenge", codeChallenge);
         twitterAuthUrl.searchParams.set("code_challenge_method", "S256");
 
-        console.log("🔐 OAuth 2.0 scopes requested:", scopes);
-
         // Create response with redirect
         const response = NextResponse.redirect(twitterAuthUrl.toString());
 
@@ -111,16 +109,8 @@ async function generateCodeChallenge(codeVerifier: string): Promise<string> {
  * Base64URL encode a byte array
  */
 function base64URLEncode(bytes: Uint8Array): string {
-    // Convert bytes to base64
-    let base64 = "";
-    const chunkSize = 0x8000; // Process in chunks to avoid call stack overflow
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-        const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-        base64 += String.fromCharCode.apply(null, chunk);
-    }
-
-    // Convert to base64 and make URL-safe
-    return btoa(base64)
+    return Buffer.from(bytes)
+        .toString("base64")
         .replace(/\+/g, "-")
         .replace(/\//g, "_")
         .replace(/=+$/, ""); // Remove padding

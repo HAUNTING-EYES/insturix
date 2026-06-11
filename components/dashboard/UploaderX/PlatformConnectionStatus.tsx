@@ -19,7 +19,7 @@ export function PlatformConnectionStatus() {
     instagram: false,
     linkedin: false,
   });
- const [twitterStatus, setTwitterStatus] = useState<TwitterStatus | { connected: boolean }>({ connected: false });
+  const [twitterStatus, setTwitterStatus] = useState<TwitterStatus>({ connected: false });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -28,8 +28,6 @@ export function PlatformConnectionStatus() {
         // Check if we just returned from OAuth success
         const urlParams = new URLSearchParams(window.location.search);
         const isLinkedInSuccess = urlParams.get('success') === 'linkedin_connected';
-
-        console.log("[PlatformStatus] OAuth success check:", isLinkedInSuccess);
 
         if (isLinkedInSuccess) {
           // Clean up the URL
@@ -42,7 +40,6 @@ export function PlatformConnectionStatus() {
           
           const liRes = await fetch('/api/services/uploaderx/linkedin/status');
           const liData = await liRes.json();
-          console.log("[PlatformStatus] LinkedIn status response (OAuth flow):", JSON.stringify(liData));
           
           setConnections(prev => ({ 
             ...prev, 
@@ -75,7 +72,7 @@ export function PlatformConnectionStatus() {
         }
 
         // Check Twitter via API
-        let twData = { connected: false };
+        let twData: TwitterStatus = { connected: false };
         try {
           const twRes = await fetch('/api/services/uploaderx/twitter/status');
           twData = await twRes.json();
@@ -93,13 +90,11 @@ export function PlatformConnectionStatus() {
         try {
           const liRes = await fetch('/api/services/uploaderx/linkedin/status');
           liData = await liRes.json();
-          console.log("[PlatformStatus] LinkedIn status response:", JSON.stringify(liData));
         } catch (e) {
           console.warn("[PlatformStatus] LinkedIn API error:", e);
           
         }
 
-        console.log("[PlatformStatus] Setting linkedin connection:", liData.connected);
         setConnections(prev => ({
           ...prev,
           facebook: fbData.connected || false,
@@ -117,11 +112,6 @@ export function PlatformConnectionStatus() {
       checkConnections();
     }
   }, [isLoaded, user]);
-
-  // Debug: log connections state changes
-  useEffect(() => {
-    console.log("[PlatformStatus] connections state changed:", JSON.stringify(connections));
-  }, [connections]);
 
   if (loading || !isLoaded) {
     return (

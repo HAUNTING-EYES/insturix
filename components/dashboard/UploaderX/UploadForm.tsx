@@ -24,7 +24,7 @@ interface UploadFormProps {
 
 export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const { toast } = useToast();
-  const { uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, isUploading, uploadProgress } = useUploaderXUpload();
+  const { uploadWithProgress, uploadThumbnail, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, isUploading, uploadProgress } = useUploaderXUpload();
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, boolean>>({
     youtube: true,
@@ -130,11 +130,16 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
       return;
     }
 
+    const selectedVideoFile = videoFile;
+    if (!selectedVideoFile) {
+      return;
+    }
+
     try {
-      const result = await uploadWithProgress(videoFile, (progress) => {
+      const result = await uploadWithProgress(selectedVideoFile, (progress) => {
         // Progress is handled by the hook
       }, {
-        title: defaultTitle || videoFile.name,
+        title: defaultTitle || selectedVideoFile.name,
         description: defaultDescription,
         tags: defaultTags ? defaultTags.split(',').map(tag => tag.trim()).filter(Boolean) : [],
         privacyStatus,
@@ -169,7 +174,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
               toast({ title: "Uploading to YouTube...", description: "Sending video to your channel." });
 
               // Auto-append #Shorts if type is shorts/reels
-              let finalTitle = defaultTitle || videoFile.name;
+              let finalTitle = defaultTitle || selectedVideoFile.name;
               let finalDescription = defaultDescription;
 
               if (activeType === 'short') {
@@ -177,8 +182,33 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                 if (!finalDescription.toLowerCase().includes('#shorts')) finalDescription += ' #Shorts';
               }
 
-              const result = await uploadToYouTube(videoUuid, gcsPath, finalTitle, finalDescription, privacyStatus);
+              let thumbnailPublicUrl: string | undefined;
+              if (thumbnailFile) {
+                const thumbnailResult = await uploadThumbnail(thumbnailFile);
+                if (!thumbnailResult.success || !thumbnailResult.publicUrl) {
+                  toast({
+                    title: "YouTube thumbnail upload failed",
+                    description: thumbnailResult.error || "Could not upload the selected thumbnail.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                thumbnailPublicUrl = thumbnailResult.publicUrl;
+              }
+
+              const result = await uploadToYouTube(
+                videoUuid,
+                gcsPath,
+                selectedVideoFile.name,
+                finalTitle,
+                finalDescription,
+                privacyStatus,
+                undefined,
+                undefined,
+                thumbnailPublicUrl,
+              );
               if (result.success) {
+                youtubeSuccess = true;
                 toast({ title: "✅ Uploaded to YouTube", description: "Your video is live!" });
               } else {
                 toast({ title: "❌ YouTube upload failed", description: result.error, variant: "destructive" });
@@ -354,8 +384,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
 
         // Wait for all selected platform uploads to complete
         if (uploadPromises.length > 0) {
-          const results = await Promise.all(uploadPromises);
-          console.log("📊 Platform upload results:", results);
+          await Promise.all(uploadPromises);
 
           // Show summary toast
           const summary = [];
@@ -506,7 +535,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                   <div className="text-zinc-200 text-sm font-medium">Drag & drop an image</div>
                   <div className="text-zinc-400 text-[11px]">PNG, JPG</div>
                 </div>
-                <Input type="file" accept="image/*" className="hidden" onChange={(e) => setThumbnailFile(e.target.files?.[0] || null)} />
+                <Input type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => setThumbnailFile(e.target.files?.[0] || null)} />
               </label>
               {thumbnailFile && <div className="mt-2 text-[11px] text-zinc-400">Selected: {thumbnailFile.name}</div>}
             </div>

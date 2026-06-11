@@ -13,7 +13,18 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { gcsPath, videoUuid, title, description } = body;
+    const { gcsPath, videoUuid, title, description, replySettings } = body;
+    const supportedReplySettings = new Set(["following", "mentionedUsers", "subscribers", "verified"]);
+    if (
+      replySettings !== undefined &&
+      replySettings !== "everyone" &&
+      !supportedReplySettings.has(replySettings)
+    ) {
+      return NextResponse.json(
+        { success: false, error: "Invalid X reply setting." },
+        { status: 400 },
+      );
+    }
 
     await connectToDatabase();
     const { User } = await import("@/schemas/user");
@@ -281,6 +292,9 @@ export async function POST(req: Request) {
     const tweetPayload: any = {
       text: tweetText,
     };
+    if (replySettings && replySettings !== "everyone") {
+      tweetPayload.reply_settings = replySettings;
+    }
     if (mediaId) {
       tweetPayload.media = { media_ids: [mediaId] };
     }

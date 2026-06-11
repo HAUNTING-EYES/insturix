@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import crypto from "crypto";
 
+const debugTwitterOAuth = (...args: unknown[]) => {
+    if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
+        console.log(...args);
+    }
+};
+
 /**
  * GET /api/services/uploaderx/twitter/oauth1a/init
  * Initiates OAuth 1.0a flow for Twitter media uploads.
@@ -37,17 +43,12 @@ export async function GET(req: Request) {
 
         const signatureBaseString = `POST&${percentEncode(requestTokenUrl)}&${percentEncode(sortedParams)}`;
         const signingKey = `${percentEncode(process.env.TWITTER_API_SECRET!)}&`;
-        
-        console.log("🔐 Signature base string:", signatureBaseString);
-        console.log("🔐 Signing key (last 10 chars):", signingKey.slice(-10));
-        
+
         // Generate signature
         const signature = crypto
             .createHmac("sha1", signingKey)
             .update(signatureBaseString)
             .digest("base64");
-
-        console.log("🔐 Generated signature:", signature);
 
         // Build Authorization header (include callback)
         const authHeader = `OAuth ` + [
@@ -60,8 +61,6 @@ export async function GET(req: Request) {
             `oauth_version="${percentEncode(oauthParams.oauth_version)}"`,
         ].join(", ");
 
-        console.log("🔐 Auth header:", authHeader);
-
         const response = await fetch(requestTokenUrl, {
             method: "POST",
             headers: {
@@ -70,15 +69,13 @@ export async function GET(req: Request) {
         });
 
         const responseText = await response.text();
-        
-        console.log("📥 Request token response status:", response.status);
-        console.log("📥 Response text:", responseText);
+        debugTwitterOAuth("[Twitter OAuth1a Init] Request token status:", response.status);
         
         if (response.status !== 200) {
-            console.error("❌ Failed to get request token:", responseText);
+            console.error("[Twitter OAuth1a Init] Failed to get request token:", response.status);
             return NextResponse.json({ 
                 error: "Failed to initialize Twitter OAuth 1.0a",
-                details: responseText 
+                details: `Request token endpoint returned status ${response.status}`,
             }, { status: 500 });
         }
 
@@ -88,7 +85,7 @@ export async function GET(req: Request) {
         const oauthTokenSecret = params.get("oauth_token_secret");
 
         if (!oauthToken) {
-            console.error("❌ No oauth_token in response:", responseText);
+            console.error("[Twitter OAuth1a Init] No oauth_token in response");
             return NextResponse.json({ 
                 error: "Invalid OAuth 1.0a response" 
             }, { status: 500 });

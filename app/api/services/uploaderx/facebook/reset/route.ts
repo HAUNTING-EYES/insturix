@@ -22,7 +22,6 @@ export async function POST() {
         );
 
         if (result) {
-            console.log("✅ Facebook tokens cleared for user:", session.userId);
             return NextResponse.json({ 
                 success: true, 
                 message: "Facebook connection cleared. Please reconnect." 

@@ -75,10 +75,7 @@ export async function POST(req: Request) {
 
       // Wire video into project link chain (fail-open)
       try {
-        const linked = await addVideoToLink(session.userId, editronProjectId, video.videoUuid);
-        if (linked) {
-          console.log(`[uploaderx/videos] Project link updated: project ${editronProjectId} → video ${video.videoUuid}`);
-        }
+        await addVideoToLink(session.userId, editronProjectId, video.videoUuid);
       } catch (linkErr: any) {
         console.error(`[uploaderx/videos] Project link update failed: ${linkErr.message}`);
       }

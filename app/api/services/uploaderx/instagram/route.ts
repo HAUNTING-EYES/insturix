@@ -151,7 +151,13 @@ export async function POST(req: Request) {
         const statusUrl = `https://graph.instagram.com/v21.0/${containerId}?fields=status_code&access_token=${igUserAccessToken}`;
         const statusRes = await fetch(statusUrl);
         const statusData = await statusRes.json();
-        console.log(`[IG] Poll attempt ${attempts}:`, JSON.stringify(statusData));
+        if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
+          console.log("[IG] Poll status:", {
+            attempts,
+            statusCode: statusData.status_code,
+            hasError: !!statusData.error,
+          });
+        }
         containerStatus = statusData.status_code;
 
         if (containerStatus === "ERROR") {

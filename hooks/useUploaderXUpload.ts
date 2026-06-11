@@ -1,5 +1,12 @@
 import { useState, useCallback } from 'react';
 import { useToast } from './use-toast';
+import type {
+  FacebookPublishPayload,
+  InstagramPublishPayload,
+  LinkedInPublishPayload,
+  TwitterPublishPayload,
+  YouTubePublishPayload,
+} from '@/lib/uploaderx/platform-capabilities';
 
 interface UploadProgress {
   loaded: number;
@@ -12,6 +19,13 @@ interface UploadResult {
   gcsPath?: string;
   videoUuid?: string;
   publicUrl?: string;
+  error?: string;
+}
+
+interface ThumbnailUploadResult {
+  success: boolean;
+  publicUrl?: string;
+  gcsPath?: string;
   error?: string;
 }
 async function updateProgressInRedis(uploadId: string, progress: number) {
@@ -61,7 +75,6 @@ export function useUploaderXUpload() {
       }
 
       const { url: signedUrl, gcsPath, videoUuid, publicUrl } = await signResponse.json();
-      console.log("✅ Signed URL data received:", { gcsPath, videoUuid, publicUrl });
       // Step 2: Upload file directly to R2 using signed URL
       const uploadResponse = await fetch(signedUrl, {
         method: 'PUT',
@@ -71,7 +84,6 @@ export function useUploaderXUpload() {
         },
 
       });
-      console.log('✅ Upload successful!');
 
       if (!uploadResponse.ok) {
         throw new Error('Failed to upload file to GCS');
@@ -253,8 +265,6 @@ export function useUploaderXUpload() {
             error: errorMessage,
           });
         });
-        console.log('Uploading to:', signedUrl);
-
         xhr.open('PUT', signedUrl);
         xhr.setRequestHeader('Content-Type', file.type);
         xhr.send(file);
@@ -285,26 +295,31 @@ export function useUploaderXUpload() {
     filename: string,
     title?: string,
     description?: string,
-    privacyStatus?: string
+    privacyStatus?: string,
+    categoryId?: string,
+    publishAt?: string,
+    thumbnailPublicUrl?: string
   ) => {
     try {
-      console.log("🎬 Starting YouTube upload:", { videoUuid, gcsPath, title });
-      
+      const payload: YouTubePublishPayload = {
+        gcsPath,
+        filename,
+        videoUuid,
+        title,
+        description,
+        privacyStatus,
+        categoryId,
+        publishAt,
+        thumbnailPublicUrl,
+      };
+
       const res = await fetch("/api/services/uploaderx/youtube", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gcsPath,
-          filename,
-          videoUuid,
-          title,
-          description,
-          privacyStatus
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
-      console.log("🎬 YouTube response:", data);
       
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}: Failed to upload to YouTube`);
@@ -322,6 +337,49 @@ export function useUploaderXUpload() {
     }
   }, []);
 
+  const uploadThumbnail = useCallback(async (file: File): Promise<ThumbnailUploadResult> => {
+    const supportedTypes = new Set(["image/jpeg", "image/png"]);
+    if (!supportedTypes.has(file.type)) {
+      return { success: false, error: "YouTube thumbnails must be JPEG or PNG." };
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      return { success: false, error: "YouTube thumbnails must be 2MB or smaller." };
+    }
+
+    try {
+      const signResponse = await fetch('/api/services/uploaderx/r2/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: `thumbnail-${file.name}`,
+          contentType: file.type,
+        }),
+      });
+
+      if (!signResponse.ok) {
+        const errorData = await signResponse.json();
+        throw new Error(errorData.error || 'Failed to get thumbnail upload URL');
+      }
+
+      const { url: signedUrl, gcsPath, publicUrl } = await signResponse.json();
+      const uploadResponse = await fetch(signedUrl, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': file.type },
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload thumbnail');
+      }
+
+      return { success: true, gcsPath, publicUrl };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Thumbnail upload failed';
+      return { success: false, error: errorMessage };
+    }
+  }, []);
+
   const uploadToFacebook = useCallback(async (
     videoUuid: string,
     gcsPath: string,
@@ -330,22 +388,21 @@ export function useUploaderXUpload() {
     pageId?: string
   ) => {
     try {
-      console.log("🔵 Starting Facebook upload:", { videoUuid, gcsPath, title, pageId });
+      const payload: FacebookPublishPayload = {
+        gcsPath,
+        videoUuid,
+        title,
+        description,
+        pageId,
+      };
 
       const res = await fetch("/api/services/uploaderx/facebook", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gcsPath,
-          videoUuid,
-          title,
-          description,
-          pageId,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
-      console.log("🔵 Facebook response:", data);
 
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Facebook`);
@@ -371,22 +428,21 @@ export function useUploaderXUpload() {
     accountId?: string
   ) => {
     try {
-      console.log("🟣 Starting Instagram upload:", { videoUuid, gcsPath, title, accountId });
+      const payload: InstagramPublishPayload = {
+        gcsPath,
+        videoUuid,
+        title,
+        description,
+        accountId,
+      };
 
       const res = await fetch("/api/services/uploaderx/instagram", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gcsPath,
-          videoUuid,
-          title,
-          description,
-          accountId,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
-      console.log("🟣 Instagram response:", data);
 
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Instagram`);
@@ -409,23 +465,24 @@ export function useUploaderXUpload() {
     gcsPath?: string,
     title?: string,
     description?: string,
+    replySettings?: TwitterPublishPayload["replySettings"],
   ) => {
     try {
-      console.log("🐦 Starting Twitter upload:", { videoUuid, gcsPath, title });
+      const payload: TwitterPublishPayload = {
+        gcsPath,
+        videoUuid,
+        title,
+        description,
+        replySettings,
+      };
 
       const res = await fetch("/api/services/uploaderx/twitter", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gcsPath,
-          videoUuid,
-          title,
-          description,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
-      console.log("🐦 Twitter response:", data);
 
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Twitter`);
@@ -452,23 +509,22 @@ export function useUploaderXUpload() {
     organizationId?: string
   ) => {
     try {
-      console.log("🔗 Starting LinkedIn upload:", { videoUuid, gcsPath, title, postType, organizationId });
+      const payload: LinkedInPublishPayload = {
+        gcsPath,
+        videoUuid,
+        title,
+        description,
+        postType: postType || 'personal',
+        organizationId,
+      };
 
       const res = await fetch("/api/services/uploaderx/linkedin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gcsPath,
-          videoUuid,
-          title,
-          description,
-          postType: postType || 'personal',
-          organizationId,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
-      console.log("🔗 LinkedIn response:", data);
 
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}: Failed to upload to LinkedIn`);
@@ -497,6 +553,7 @@ export function useUploaderXUpload() {
   return {
     uploadVideo,
     uploadWithProgress,
+    uploadThumbnail,
     uploadToYouTube,
     uploadToFacebook,
     uploadToInstagram,

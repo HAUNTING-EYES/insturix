@@ -3,6 +3,12 @@ import { auth } from "@clerk/nextjs/server";
 import { getLinkedInScopes } from "@/lib/uploaderx/linkedinScopes";
 import { getLinkedInRedirectUri } from "@/lib/uploaderx/linkedinUrl";
 
+const debugLinkedInAuth = (...args: unknown[]) => {
+    if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
+        console.log(...args);
+    }
+};
+
 /**
  * GET /api/services/uploaderx/linkedin/auth
  * Initiates LinkedIn OAuth flow
@@ -25,8 +31,7 @@ export async function GET(request: NextRequest) {
         // Personal posting needs profile access so we can resolve the member URN.
         // Organization scopes stay opt-in because many LinkedIn apps are not approved for them.
         const { scopes } = getLinkedInScopes();
-        
-        console.log("🔗 LinkedIn OAuth scopes:", scopes);
+        debugLinkedInAuth("[LinkedIn Auth] Scope count:", scopes.length);
 
         const scopeString = scopes.join(' ');
 
@@ -37,7 +42,7 @@ export async function GET(request: NextRequest) {
         authUrl.searchParams.set('scope', scopeString);
         authUrl.searchParams.set('state', session.userId); // Use userId as state for security
 
-        console.log("🔗 LinkedIn OAuth URL:", authUrl.toString());
+        debugLinkedInAuth("[LinkedIn Auth] Redirect URL prepared");
 
         return NextResponse.redirect(authUrl.toString());
     } catch (error) {

@@ -48,6 +48,8 @@ interface VideoItem {
   status: 'uploaded' | 'processing' | 'ready' | 'error';
   platforms?: string[];
   metadata?: {
+    title?: string;
+    description?: string;
     duration?: number;
     resolution?: string;
     format?: string;
@@ -99,7 +101,6 @@ export function VideoManager({
         }
 
         const data = await response.json();
-        console.log("[VideoFetch] Data received:", data);
 
         if (data.success) {
           // Convert uploadedAt strings to Date objects
@@ -121,12 +122,6 @@ export function VideoManager({
           variant: "destructive",
         });
         setVideos([]);
-
-        // Show a helpful message for debugging
-        console.log('Debug info:', {
-          error: error instanceof Error ? error.message : String(error),
-          timestamp: new Date().toISOString()
-        });
       } finally {
         setLoading(false);
       }
@@ -266,6 +261,13 @@ export function VideoManager({
   };
   // ================== 📺 Upload to YouTube ===================
   // ================== 📺 Upload to YouTube ===================
+  const formatDuration = (seconds: number) => {
+    const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+    const minutes = Math.floor(safeSeconds / 60);
+    const remainingSeconds = safeSeconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+  };
+
   const handleYouTubeUpload = async (video: VideoItem) => {
     try {
       // Direct call to backend - Clerk handles the token
@@ -295,7 +297,6 @@ export function VideoManager({
           description: `Your video is live on YouTube!`,
         });
 
-        console.log("🎬 YouTube Link:", data.youtubeUrl);
         setUploadedVideoLink(data.youtubeUrl);
         setUploadPlatform("YouTube");
         setShowUploadDialog(true);
@@ -320,8 +321,6 @@ export function VideoManager({
       const statusRes = await fetch('/api/services/uploaderx/facebook/pages');
       const statusData = await statusRes.json();
 
-      console.log("🔵 Facebook connection status:", statusData);
-
       if (!statusData.connected) {
         toast({
           title: "Facebook Not Connected",
@@ -343,7 +342,6 @@ export function VideoManager({
         // Clear old tokens and reconnect
         try {
           await fetch('/api/services/uploaderx/facebook/reset', { method: 'POST' });
-          console.log("✅ Cleared old Facebook tokens");
         } catch (e) {
           console.warn("Failed to clear old tokens:", e);
         }
@@ -388,7 +386,6 @@ export function VideoManager({
       });
 
       const data = await res.json();
-      console.log("🔵 Facebook upload response:", data);
 
       if (!data.success && res.status === 403) {
         throw new Error("Please connect your Facebook account first.");
@@ -400,7 +397,6 @@ export function VideoManager({
           description: `Video posted to ${data.pageName || 'your Page'}!`,
         });
 
-        console.log("🔵 Facebook Link:", data.facebookUrl);
         setUploadedVideoLink(data.facebookUrl);
         setUploadPlatform("Facebook");
         setShowUploadDialog(true);
@@ -424,8 +420,6 @@ export function VideoManager({
       const statusRes = await fetch('/api/services/uploaderx/instagram/status');
       const statusData = await statusRes.json();
 
-      console.log("🟣 Instagram connection status:", statusData);
-
       if (!statusData.connected) {
         toast({
           title: "Instagram Not Connected",
@@ -447,7 +441,6 @@ export function VideoManager({
         // Clear old tokens and reconnect
         try {
           await fetch('/api/services/uploaderx/instagram/accounts', { method: 'DELETE' });
-          console.log("✅ Cleared old Instagram tokens");
         } catch (e) {
           console.warn("Failed to clear old tokens:", e);
         }
@@ -492,7 +485,6 @@ export function VideoManager({
       });
 
       const data = await res.json();
-      console.log("🟣 Instagram upload response:", data);
 
       if (!data.success && res.status === 403) {
         throw new Error("Please connect your Instagram account first.");
@@ -504,7 +496,6 @@ export function VideoManager({
           description: `Reel published to ${data.accountUsername || 'your account'}!`,
         });
 
-        console.log("🟣 Instagram Link:", data.instagramUrl);
         setUploadedVideoLink(data.instagramUrl);
         setUploadPlatform("Instagram");
         setShowUploadDialog(true);
@@ -527,8 +518,6 @@ export function VideoManager({
       // 1. Check Twitter connection status first
       const statusRes = await fetch('/api/services/uploaderx/twitter/status');
       const statusData = await statusRes.json();
-
-      console.log("🐦 Twitter connection status:", statusData);
 
       if (!statusData.connected) {
         toast({
@@ -583,7 +572,6 @@ export function VideoManager({
       });
 
       const data = await res.json();
-      console.log("🐦 Twitter upload response:", data);
 
       if (!data.success && res.status === 403) {
         throw new Error("Please connect your Twitter account first.");
@@ -595,7 +583,6 @@ export function VideoManager({
           description: `Tweet posted to ${data.accountUsername || 'your account'}!`,
         });
 
-        console.log("🐦 Twitter Link:", data.tweetUrl);
         setUploadedVideoLink(data.tweetUrl);
         setUploadPlatform("Twitter");
         setShowUploadDialog(true);
@@ -618,8 +605,6 @@ export function VideoManager({
       // 1. Check LinkedIn connection status first
       const statusRes = await fetch('/api/services/uploaderx/linkedin/status');
       const statusData = await statusRes.json();
-
-      console.log("🔗 LinkedIn connection status:", statusData);
 
       if (!statusData.connected) {
         toast({
@@ -714,7 +699,6 @@ export function VideoManager({
       });
 
       const data = await res.json();
-      console.log("🔗 LinkedIn upload response:", data);
 
       if (!data.success && res.status === 403) {
         throw new Error("Please connect your LinkedIn account first.");
@@ -726,7 +710,6 @@ export function VideoManager({
           description: `Content posted to ${postTarget}!`,
         });
 
-        console.log("🔗 LinkedIn Post URL:", data.postUrl);
         setUploadedVideoLink(data.postUrl);
         setUploadPlatform("LinkedIn");
         setShowUploadDialog(true);
@@ -1057,7 +1040,6 @@ export function VideoManager({
                 initialData={selectedVideo.metadata as any} // Cast as any because metadata is generic locally but editor expects specific shape
                 onSave={async (platformData) => {
                   try {
-                    console.log("Saving metadata for:", selectedVideo.videoUuid, platformData);
                     const response = await fetch(`/api/services/uploaderx/videos/${selectedVideo.videoUuid}`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json' },
@@ -1070,8 +1052,6 @@ export function VideoManager({
                       console.error("Save failed response:", responseData);
                       throw new Error(responseData.error || 'Failed to save settings');
                     }
-
-                    console.log("Save successful:", responseData);
 
                     toast({
                       title: "Settings saved",

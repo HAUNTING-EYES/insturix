@@ -6,37 +6,32 @@ import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXStream, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
+const debugYouTubeUpload = (...args: unknown[]) => {
+  if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
+    console.log(...args);
+  }
+};
+
 export async function POST(req: Request) {
   try {
     const session = await auth();
     if (!session.userId) {
-      console.log("YouTube Upload: No active session");
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    console.log(`Fetching OAuth token for user: ${session.userId}`);
-
     const client = await clerkClient();
     const user = await client.users.getUser(session.userId);
-    console.log(
-      "User External Accounts:",
-      user.externalAccounts.map((account) => ({
-        provider: account.provider,
-        id: account.id,
-        label: account.emailAddress,
-      }))
-    );
 
     const googleAccount = user.externalAccounts.find((account) => account.provider.includes("google"));
     const providerId = googleAccount ? googleAccount.provider : "oauth_google";
 
-    console.log(`Using Provider ID: ${providerId}`);
+    debugYouTubeUpload("[UploaderX:YouTube] OAuth provider selected:", providerId);
 
     let accessToken: string | null = null;
 
     try {
       const tokenResponse = await client.users.getUserOauthAccessToken(session.userId, providerId as any);
-      console.log(`Token Response Length: ${tokenResponse.data.length}`);
+      debugYouTubeUpload("[UploaderX:YouTube] OAuth token count:", tokenResponse.data.length);
       accessToken = tokenResponse.data.length > 0 ? tokenResponse.data[0].token : null;
     } catch (tokenError: any) {
       console.error("Failed to get OAuth access token:", tokenError?.errors || tokenError);
@@ -55,6 +50,17 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { gcsPath, videoUuid } = body;
     let { title, description, privacyStatus } = body;
+    const requestCategoryId = typeof body.categoryId === "string" && body.categoryId.trim()
+      ? body.categoryId.trim()
+      : null;
+    const requestPublishAt = typeof body.publishAt === "string" && body.publishAt.trim()
+      ? body.publishAt.trim()
+      : null;
+    const thumbnailPublicUrl = typeof body.thumbnailPublicUrl === "string" && body.thumbnailPublicUrl.trim()
+      ? body.thumbnailPublicUrl.trim()
+      : null;
+    let categoryId = requestCategoryId || "22";
+    let publishAt = requestPublishAt;
 
     if (!gcsPath) {
       return NextResponse.json({ success: false, error: "Missing gcsPath" }, { status: 400 });
@@ -83,11 +89,23 @@ export async function POST(req: Request) {
             dbTitle = ytMeta.title;
             dbDescription = ytMeta.description;
             dbTags = ytMeta.tags;
+            if (!requestCategoryId && typeof ytMeta.categoryId === "string" && ytMeta.categoryId.trim()) {
+              categoryId = ytMeta.categoryId.trim();
+            }
+            if (!requestPublishAt && typeof ytMeta.scheduledTime === "string" && ytMeta.scheduledTime.trim()) {
+              publishAt = ytMeta.scheduledTime.trim();
+            }
             privacyStatus = ytMeta.youtube?.privacyStatus || ytMeta.privacyStatus || privacyStatus;
           } else {
             dbTitle = video.metadata.title;
             dbDescription = video.metadata.description;
             dbTags = video.metadata.tags;
+            if (!requestCategoryId && typeof video.metadata.categoryId === "string" && video.metadata.categoryId.trim()) {
+              categoryId = video.metadata.categoryId.trim();
+            }
+            if (!requestPublishAt && typeof video.metadata.scheduledTime === "string" && video.metadata.scheduledTime.trim()) {
+              publishAt = video.metadata.scheduledTime.trim();
+            }
           }
 
           title = dbTitle || title;
@@ -116,6 +134,13 @@ export async function POST(req: Request) {
     oauth2Client.setCredentials({ access_token: accessToken });
 
     const youtube = google.youtube({ version: "v3", auth: oauth2Client });
+    const scheduledPublishAt = publishAt ? new Date(publishAt) : null;
+    if (scheduledPublishAt && Number.isNaN(scheduledPublishAt.getTime())) {
+      return NextResponse.json({ success: false, error: "Invalid YouTube publishAt date" }, { status: 400 });
+    }
+    const youtubeStatus = scheduledPublishAt
+      ? { privacyStatus: "private", publishAt: scheduledPublishAt.toISOString() }
+      : { privacyStatus };
 
     let videoId: string;
     let youtubeUrl: string;
@@ -129,9 +154,9 @@ export async function POST(req: Request) {
             title: title || "UploaderX Video",
             description: description || "Uploaded via UploaderX",
             tags,
-            categoryId: "22",
+            categoryId,
           },
-          status: { privacyStatus },
+          status: youtubeStatus,
         },
       });
 
@@ -148,8 +173,9 @@ export async function POST(req: Request) {
             title: title || "UploaderX Video",
             description: description || "Uploaded via UploaderX",
             tags,
+            categoryId,
           },
-          status: { privacyStatus },
+          status: youtubeStatus,
         },
         media: { body: stream },
       });
@@ -181,11 +207,26 @@ export async function POST(req: Request) {
       }
     }
 
+    if (thumbnailPublicUrl) {
+      const { stream: thumbnailStream, contentType, contentLength } = await fetchUploaderXStream(thumbnailPublicUrl);
+      if (!["image/jpeg", "image/png"].includes(contentType)) {
+        return NextResponse.json({ success: false, error: "YouTube thumbnail must be JPEG or PNG" }, { status: 400 });
+      }
+      if (contentLength > 2 * 1024 * 1024) {
+        return NextResponse.json({ success: false, error: "YouTube thumbnail must be 2MB or smaller" }, { status: 400 });
+      }
+
+      await youtube.thumbnails.set({
+        videoId,
+        media: { body: thumbnailStream },
+      });
+    }
+
     return NextResponse.json({ success: true, youtubeUrl });
   } catch (error: any) {
     console.error("YouTube operation failed:", error);
     if (error.response) {
-      console.error("Google API Error Data:", JSON.stringify(error.response.data, null, 2));
+      console.error("[UploaderX:YouTube] Google API error status:", error.response.status);
     }
     return NextResponse.json(
       { success: false, error: error.message, details: error.response?.data },

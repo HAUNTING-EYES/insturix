@@ -22,7 +22,6 @@ export async function POST() {
         );
 
         if (result) {
-            console.log("✅ Instagram tokens cleared for user:", session.userId);
             return NextResponse.json({
                 success: true,
                 message: "Instagram connection cleared. Please reconnect."

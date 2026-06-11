@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
+import { isUploaderXFieldSupported } from "@/lib/uploaderx/platform-capabilities";
 import { useUser, useClerk, useReverification } from "@clerk/nextjs";
 import { useGSAP } from "@gsap/react";
 import { gsap } from "@/lib/animation/gsap-config";
@@ -17,6 +18,7 @@ const C = {
   green: "#5EC97E", red: "#D46A5C", purple: "#9088D4", pink: "#D088B4",
 } as const;
 const EASE = "cubic-bezier(.16,1,.3,1)";
+const UNSUPPORTED_CONTROL_TITLE = "Not wired to publishing yet";
 
 // ─── Types ─────────────────────────────────────────────────────
 type ViewState = "floor" | "library" | "fragmentation" | "reveal";
@@ -92,7 +94,7 @@ export function UploaderXClientWrapper() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [uploadedGcsPath, setUploadedGcsPath] = useState<string | null>(null);
   const [uploadedVideoUuid, setUploadedVideoUuid] = useState<string | null>(null);
-  const { uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, isUploading, uploadProgress } = useUploaderXUpload();
+  const { uploadWithProgress, uploadThumbnail, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, isUploading, uploadProgress } = useUploaderXUpload();
 
   // ─── Metadata state ──────────────────────────────────────────
   const [metaTitle, setMetaTitle] = useState("");
@@ -111,6 +113,7 @@ export function UploaderXClientWrapper() {
   const [igLocation, setIgLocation] = useState("");
   const [fbMessage, setFbMessage] = useState("");
   const [fbPrivacy, setFbPrivacy] = useState<"everyone" | "friends" | "only_me">("everyone");
+  const [xReplySettings, setXReplySettings] = useState<"everyone" | "following" | "mentionedUsers" | "subscribers" | "verified">("everyone");
   const [liPostType, setLiPostType] = useState<"personal" | "organization">("personal");
 
   // ✅ Add this useEffect block for YouTube token capture
@@ -238,7 +241,6 @@ export function UploaderXClientWrapper() {
     const linkedinError = params.get("error");
 
     if (linkedinConnected) {
-      console.log("[ClientWrapper] LinkedIn connection detected via URL parameter");
       toast({
         title: "LinkedIn connected!",
         description: "You can now post content to LinkedIn.",
@@ -478,9 +480,30 @@ export function UploaderXClientWrapper() {
       try {
         let res: { success: boolean; error?: string };
         switch (key) {
-          case "youtube":
-            res = await uploadToYouTube(videoUuid, gcsPath, selectedFile?.name || selectedVideo?.filename || "video", ytTitle, ytDesc, metaPrivacy);
+          case "youtube": {
+            let thumbnailPublicUrl: string | undefined;
+            if (metaThumbnail) {
+              const thumbnailResult = await uploadThumbnail(metaThumbnail);
+              if (!thumbnailResult.success || !thumbnailResult.publicUrl) {
+                res = { success: false, error: thumbnailResult.error || "Thumbnail upload failed" };
+                break;
+              }
+              thumbnailPublicUrl = thumbnailResult.publicUrl;
+            }
+
+            res = await uploadToYouTube(
+              videoUuid,
+              gcsPath,
+              selectedFile?.name || selectedVideo?.filename || "video",
+              ytTitle,
+              ytDesc,
+              metaPrivacy,
+              ytCategory,
+              metaSchedule ? new Date(metaSchedule).toISOString() : undefined,
+              thumbnailPublicUrl,
+            );
             break;
+          }
           case "facebook":
             res = await uploadToFacebook(videoUuid, gcsPath, title, fbMessage || description);
             break;
@@ -488,7 +511,7 @@ export function UploaderXClientWrapper() {
             res = await uploadToInstagram(videoUuid, gcsPath, title, igCaption || description);
             break;
           case "twitter":
-            res = await uploadToTwitter(videoUuid, gcsPath, title, description);
+            res = await uploadToTwitter(videoUuid, gcsPath, title, description, xReplySettings);
             break;
           case "linkedin":
             res = await uploadToLinkedIn(videoUuid, gcsPath, title, description, liPostType);
@@ -505,7 +528,7 @@ export function UploaderXClientWrapper() {
 
     setIsPublishing(false);
     setView("reveal");
-  }, [armedPlatforms, selectedFile, selectedVideo, uploadedGcsPath, uploadedVideoUuid, uploadWithProgress, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, toast, metaTitle, metaDescription, metaTags, metaPrivacy, metaVideoType, fbMessage, igCaption, liPostType]);
+  }, [armedPlatforms, selectedFile, selectedVideo, uploadedGcsPath, uploadedVideoUuid, uploadWithProgress, uploadThumbnail, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, toast, metaTitle, metaDescription, metaTags, metaPrivacy, metaVideoType, metaThumbnail, metaSchedule, ytCategory, fbMessage, igCaption, xReplySettings, liPostType]);
 
   const armedCount = armedPlatforms.size;
 
@@ -1017,18 +1040,27 @@ export function UploaderXClientWrapper() {
                 <option value="private">Private</option>
               </select>
               <button
-                onClick={() => thumbnailInputRef.current?.click()}
+                disabled={!isUploaderXFieldSupported("youtube", "thumbnail")}
+                title={isUploaderXFieldSupported("youtube", "thumbnail") ? "Upload YouTube thumbnail" : UNSUPPORTED_CONTROL_TITLE}
+                onClick={() => {
+                  if (isUploaderXFieldSupported("youtube", "thumbnail")) {
+                    thumbnailInputRef.current?.click();
+                  }
+                }}
                 style={{
                   background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: "10px 14px",
-                  fontSize: 12, color: metaThumbnail ? C.green : C.t4, cursor: "pointer", fontFamily: "inherit",
+                  fontSize: 12, color: metaThumbnail ? C.green : C.t4,
+                  cursor: isUploaderXFieldSupported("youtube", "thumbnail") ? "pointer" : "not-allowed",
+                  fontFamily: "inherit",
+                  opacity: isUploaderXFieldSupported("youtube", "thumbnail") ? 1 : 0.55,
                   display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
                   transition: `all .2s ${EASE}`,
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                {metaThumbnail ? "Thumbnail ✓" : "Thumbnail"}
+                {metaThumbnail ? "Thumbnail selected" : "Upload thumbnail"}
               </button>
-              <input ref={thumbnailInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => {
+              <input ref={thumbnailInputRef} type="file" accept="image/png,image/jpeg" style={{ display: "none" }} onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) setMetaThumbnail(f);
               }} />
@@ -1039,17 +1071,21 @@ export function UploaderXClientWrapper() {
               <input
                 type="datetime-local"
                 value={metaSchedule}
+                disabled={!isUploaderXFieldSupported("youtube", "publishAt")}
+                title={isUploaderXFieldSupported("youtube", "publishAt") ? "Schedule YouTube publish" : UNSUPPORTED_CONTROL_TITLE}
                 onChange={(e) => setMetaSchedule(e.target.value)}
                 style={{
                   background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: "10px 14px",
                   fontSize: 12, color: metaSchedule ? C.t2 : C.t5, fontFamily: "inherit", outline: "none",
+                  cursor: isUploaderXFieldSupported("youtube", "publishAt") ? "text" : "not-allowed",
+                  opacity: isUploaderXFieldSupported("youtube", "publishAt") ? 1 : 0.55,
                   colorScheme: "dark",
                   transition: `border-color .2s ${EASE}`,
                 }}
                 onFocus={(e) => { e.currentTarget.style.borderColor = C.gold; }}
                 onBlur={(e) => { e.currentTarget.style.borderColor = C.border; }}
               />
-              <span style={{ fontSize: 12, color: C.t5 }}>{metaSchedule ? "Scheduled" : "Schedule (optional)"}</span>
+              <span style={{ fontSize: 12, color: C.t5 }}>{metaSchedule ? "Scheduled on YouTube" : "Schedule on YouTube"}</span>
               {metaSchedule && (
                 <button onClick={() => setMetaSchedule("")} style={{ fontSize: 11, color: C.t4, background: "none", border: "none", cursor: "pointer" }}>Clear</button>
               )}
@@ -1075,9 +1111,16 @@ export function UploaderXClientWrapper() {
                 {armedPlatforms.has("youtube") && (
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 500, color: C.t2, marginBottom: 8 }}>YouTube</div>
-                    <select value={ytCategory} onChange={(e) => setYtCategory(e.target.value)} style={{
+                    <select
+                      value={ytCategory}
+                      disabled={!isUploaderXFieldSupported("youtube", "categoryId")}
+                      title={isUploaderXFieldSupported("youtube", "categoryId") ? "YouTube category" : UNSUPPORTED_CONTROL_TITLE}
+                      onChange={(e) => setYtCategory(e.target.value)}
+                      style={{
                       background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
                       fontSize: 12, color: C.t2, fontFamily: "inherit", outline: "none", width: "100%",
+                      cursor: isUploaderXFieldSupported("youtube", "categoryId") ? "pointer" : "not-allowed",
+                      opacity: isUploaderXFieldSupported("youtube", "categoryId") ? 1 : 0.55,
                     }}>
                       <option value="22">People & Blogs</option>
                       <option value="24">Entertainment</option>
@@ -1096,9 +1139,17 @@ export function UploaderXClientWrapper() {
                       background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
                       fontSize: 12, color: C.t1, fontFamily: "inherit", outline: "none", width: "100%", marginBottom: 6,
                     }} />
-                    <input value={igLocation} onChange={(e) => setIgLocation(e.target.value)} placeholder="Location (optional)" style={{
+                    <input
+                      value={igLocation}
+                      disabled={!isUploaderXFieldSupported("instagram", "location")}
+                      title={UNSUPPORTED_CONTROL_TITLE}
+                      onChange={(e) => setIgLocation(e.target.value)}
+                      placeholder="Location unavailable"
+                      style={{
                       background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
                       fontSize: 12, color: C.t1, fontFamily: "inherit", outline: "none", width: "100%",
+                      cursor: isUploaderXFieldSupported("instagram", "location") ? "text" : "not-allowed",
+                      opacity: isUploaderXFieldSupported("instagram", "location") ? 1 : 0.55,
                     }} />
                   </div>
                 )}
@@ -1110,13 +1161,44 @@ export function UploaderXClientWrapper() {
                       background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
                       fontSize: 12, color: C.t1, fontFamily: "inherit", outline: "none", width: "100%", marginBottom: 6,
                     }} />
-                    <select value={fbPrivacy} onChange={(e) => setFbPrivacy(e.target.value as "everyone" | "friends" | "only_me")} style={{
+                    <select
+                      value={fbPrivacy}
+                      disabled={!isUploaderXFieldSupported("facebook", "privacy")}
+                      title={UNSUPPORTED_CONTROL_TITLE}
+                      onChange={(e) => setFbPrivacy(e.target.value as "everyone" | "friends" | "only_me")}
+                      style={{
                       background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
                       fontSize: 12, color: C.t2, fontFamily: "inherit", outline: "none", width: "100%",
+                      cursor: isUploaderXFieldSupported("facebook", "privacy") ? "pointer" : "not-allowed",
+                      opacity: isUploaderXFieldSupported("facebook", "privacy") ? 1 : 0.55,
                     }}>
                       <option value="everyone">Public</option>
                       <option value="friends">Friends</option>
                       <option value="only_me">Only Me</option>
+                    </select>
+                  </div>
+                )}
+                {/* X */}
+                {armedPlatforms.has("twitter") && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: C.t2, marginBottom: 8 }}>X</div>
+                    <select
+                      value={xReplySettings}
+                      disabled={!isUploaderXFieldSupported("twitter", "replySettings")}
+                      title={isUploaderXFieldSupported("twitter", "replySettings") ? "Who can reply" : UNSUPPORTED_CONTROL_TITLE}
+                      onChange={(e) => setXReplySettings(e.target.value as "everyone" | "following" | "mentionedUsers" | "subscribers" | "verified")}
+                      style={{
+                        background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
+                        fontSize: 12, color: C.t2, fontFamily: "inherit", outline: "none", width: "100%",
+                        cursor: isUploaderXFieldSupported("twitter", "replySettings") ? "pointer" : "not-allowed",
+                        opacity: isUploaderXFieldSupported("twitter", "replySettings") ? 1 : 0.55,
+                      }}
+                    >
+                      <option value="everyone">Everyone can reply</option>
+                      <option value="following">Accounts you follow</option>
+                      <option value="mentionedUsers">Mentioned accounts</option>
+                      <option value="subscribers">Subscribers</option>
+                      <option value="verified">Verified accounts</option>
                     </select>
                   </div>
                 )}

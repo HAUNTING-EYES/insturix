@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as postFacebook } from "@/app/api/services/uploaderx/facebook/route";
 import { POST as postInstagram } from "@/app/api/services/uploaderx/instagram/route";
 import { POST as postLinkedIn } from "@/app/api/services/uploaderx/linkedin/route";
+import { GET as getTwitterAuth } from "@/app/api/services/uploaderx/twitter/auth/route";
 import { POST as postTwitter } from "@/app/api/services/uploaderx/twitter/route";
 import { POST as postYouTube } from "@/app/api/services/uploaderx/youtube/route";
 
@@ -22,11 +23,15 @@ const mocks = vi.hoisted(() => {
   const videoFindOne = vi.fn();
   const videoUpdateOne = vi.fn();
   const youtubeInsert = vi.fn();
+  const youtubeThumbnailSet = vi.fn();
   const youtubeUpdate = vi.fn();
   const youtubeFactory = vi.fn(() => ({
     videos: {
       insert: youtubeInsert,
       update: youtubeUpdate,
+    },
+    thumbnails: {
+      set: youtubeThumbnailSet,
     },
   }));
   const OAuth2 = vi.fn(() => ({ setCredentials: oauthSetCredentials }));
@@ -49,6 +54,7 @@ const mocks = vi.hoisted(() => {
     videoUpdateOne,
     youtubeFactory,
     youtubeInsert,
+    youtubeThumbnailSet,
     youtubeUpdate,
   };
 });
@@ -112,12 +118,14 @@ function jsonRequest(body: Record<string, unknown>): Request {
 
 function platformResponse(
   body: unknown,
-  options: { ok?: boolean; status?: number } = {},
+  options: { ok?: boolean; status?: number; headers?: Record<string, string> } = {},
 ): Response {
   const responseText = typeof body === "string" ? body : JSON.stringify(body);
+  const headers = new Headers(options.headers || {});
   return {
     ok: options.ok ?? true,
     status: options.status ?? 200,
+    headers,
     json: vi.fn(async () => body),
     text: vi.fn(async () => responseText),
   } as unknown as Response;
@@ -149,6 +157,49 @@ describe("UploaderX platform API route contracts", () => {
     mocks.userUpdateOne.mockResolvedValue({ modifiedCount: 1 });
     mocks.videoFindOne.mockResolvedValue(null);
     mocks.videoUpdateOne.mockResolvedValue({ modifiedCount: 1 });
+  });
+
+  it("starts Twitter/X OAuth with a PKCE challenge and verifier cookie", async () => {
+    const originalClientId = process.env.TWITTER_CLIENT_ID;
+    process.env.TWITTER_CLIENT_ID = "twitter_client_1";
+
+    try {
+      const response = await getTwitterAuth(
+        new Request("http://localhost/api/services/uploaderx/twitter/auth"),
+      );
+
+      expect(response.status).toBe(307);
+
+      const location = response.headers.get("location");
+      expect(location).toBeTruthy();
+
+      const authUrl = new URL(location!);
+      expect(authUrl.origin).toBe("https://x.com");
+      expect(authUrl.pathname).toBe("/i/oauth2/authorize");
+      expect(authUrl.searchParams.get("response_type")).toBe("code");
+      expect(authUrl.searchParams.get("client_id")).toBe("twitter_client_1");
+      expect(authUrl.searchParams.get("redirect_uri")).toBe(
+        "http://localhost/api/services/uploaderx/twitter/callback",
+      );
+      expect(authUrl.searchParams.get("state")).toBe("user_1");
+      expect(authUrl.searchParams.get("code_challenge_method")).toBe("S256");
+      expect(authUrl.searchParams.get("scope")).toContain("tweet.write");
+      expect(authUrl.searchParams.get("scope")).toContain("media.write");
+
+      const codeChallenge = authUrl.searchParams.get("code_challenge");
+      expect(codeChallenge).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
+      expect(codeChallenge).not.toContain("=");
+
+      const setCookie = response.headers.get("set-cookie") || "";
+      expect(setCookie).toContain("twitter_code_verifier=");
+      expect(setCookie).toContain("twitter_state=user_1");
+    } finally {
+      if (originalClientId === undefined) {
+        delete process.env.TWITTER_CLIENT_ID;
+      } else {
+        process.env.TWITTER_CLIENT_ID = originalClientId;
+      }
+    }
   });
 
   it("accepts an Instagram publish only after container creation and media_publish succeed", async () => {
@@ -268,6 +319,14 @@ describe("UploaderX platform API route contracts", () => {
         headers: expect.objectContaining({ Authorization: "Bearer x_token" }),
       }),
     );
+    const tweetCreateCall = fetchMock.mock.calls.find(([url]) => url === "https://api.x.com/2/tweets");
+    expect(tweetCreateCall?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({
+          text: "Launch\n\nNow live",
+        }),
+      }),
+    );
     expect(mocks.emitUploaderXVideoPublished).toHaveBeenCalledWith(
       expect.objectContaining({
         platform: "twitter",
@@ -278,7 +337,53 @@ describe("UploaderX platform API route contracts", () => {
     );
   });
 
-  it("accepts a LinkedIn publish only after ugcPosts returns a post id", async () => {
+  it("passes X reply settings to the tweet creation payload", async () => {
+    mocks.userFindOne.mockResolvedValue({
+      twitterTokens: {
+        accessToken: "x_token",
+        expiresAt: new Date(Date.now() + 60_000),
+        userName: "brand_x",
+      },
+    });
+    fetchMock.mockResolvedValue(platformResponse({ data: { id: "tweet_2" } }));
+
+    const response = await postTwitter(jsonRequest({
+      videoUuid: "video_2",
+      title: "Launch",
+      replySettings: "mentionedUsers",
+    }));
+
+    expect(response.status).toBe(200);
+    const tweetCreateCall = fetchMock.mock.calls.find(([url]) => url === "https://api.x.com/2/tweets");
+    expect(tweetCreateCall?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({
+          text: "Launch",
+          reply_settings: "mentionedUsers",
+        }),
+      }),
+    );
+  });
+
+  it("rejects invalid X reply settings before creating a tweet", async () => {
+    const response = await postTwitter(jsonRequest({
+      videoUuid: "video_invalid_reply",
+      title: "Launch",
+      replySettings: "friends",
+    }));
+
+    expect(response.status).toBe(400);
+    await expect(responseJson(response)).resolves.toMatchObject({
+      success: false,
+      error: "Invalid X reply setting.",
+    });
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://api.x.com/2/tweets",
+      expect.anything(),
+    );
+  });
+
+  it("uses LinkedIn REST Posts API for text-only posts", async () => {
     mocks.userFindOne.mockResolvedValue({
       linkedinTokens: {
         accessToken: "li_token",
@@ -286,11 +391,15 @@ describe("UploaderX platform API route contracts", () => {
         expiresAt: new Date(Date.now() + 60_000),
       },
     });
-    fetchMock.mockResolvedValue(platformResponse({ id: "urn:li:share:1" }));
+    fetchMock.mockResolvedValue(platformResponse("", {
+      status: 201,
+      headers: { "x-restli-id": "urn:li:share:1" },
+    }));
 
     const response = await postLinkedIn(jsonRequest({
       videoUuid: "video_1",
       title: "Launch",
+      description: "Now live",
       postType: "personal",
     }));
 
@@ -301,10 +410,25 @@ describe("UploaderX platform API route contracts", () => {
       postUrl: "https://www.linkedin.com/feed/update/urn:li:share:1",
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.linkedin.com/v2/ugcPosts",
+      "https://api.linkedin.com/rest/posts",
       expect.objectContaining({
         method: "POST",
-        headers: expect.objectContaining({ Authorization: "Bearer li_token" }),
+        headers: expect.objectContaining({
+          Authorization: "Bearer li_token",
+          "Linkedin-Version": "202605",
+        }),
+        body: JSON.stringify({
+          author: "urn:li:person:li_user_1",
+          commentary: "Launch",
+          visibility: "PUBLIC",
+          distribution: {
+            feedDistribution: "MAIN_FEED",
+            targetEntities: [],
+            thirdPartyDistributionChannels: [],
+          },
+          lifecycleState: "PUBLISHED",
+          isReshareDisabledByAuthor: false,
+        }),
       }),
     );
     expect(mocks.emitUploaderXVideoPublished).toHaveBeenCalledWith(
@@ -315,6 +439,181 @@ describe("UploaderX platform API route contracts", () => {
         mediaType: "text",
       }),
     );
+  });
+
+  it("keeps LinkedIn media posts on the existing ugcPosts upload path", async () => {
+    const originalFlag = process.env.UPLOADERX_LINKEDIN_REST_MEDIA;
+    process.env.UPLOADERX_LINKEDIN_REST_MEDIA = "false";
+
+    try {
+      mocks.userFindOne.mockResolvedValue({
+        linkedinTokens: {
+          accessToken: "li_token",
+          userId: "li_user_1",
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      });
+      mocks.resolveUploaderXVideo.mockResolvedValue({
+        publicUrl: "https://cdn.example.com/video.mp4",
+        contentType: "video/mp4",
+        filename: "video.mp4",
+      });
+      mocks.fetchUploaderXBuffer.mockResolvedValue(Buffer.from("video"));
+      fetchMock.mockImplementation(async (url: string | URL) => {
+        const href = String(url);
+        if (href === "https://api.linkedin.com/v2/assets?action=registerUpload") {
+          return platformResponse({
+            value: {
+              asset: "urn:li:digitalmediaAsset:asset_1",
+              uploadMechanism: {
+                "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest": {
+                  uploadUrl: "https://upload.linkedin.example/asset_1",
+                },
+              },
+            },
+          });
+        }
+        if (href === "https://upload.linkedin.example/asset_1") {
+          return platformResponse({});
+        }
+        if (href === "https://api.linkedin.com/v2/ugcPosts") {
+          return platformResponse({ id: "urn:li:share:media_1" });
+        }
+        throw new Error(`Unexpected LinkedIn fetch: ${href}`);
+      });
+
+      const response = await postLinkedIn(jsonRequest({
+        gcsPath: "video.mp4",
+        videoUuid: "video_1",
+        title: "Launch",
+        postType: "personal",
+      }));
+
+      expect(response.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.linkedin.com/v2/ugcPosts",
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        "https://api.linkedin.com/rest/posts",
+        expect.anything(),
+      );
+    } finally {
+      if (originalFlag === undefined) {
+        delete process.env.UPLOADERX_LINKEDIN_REST_MEDIA;
+      } else {
+        process.env.UPLOADERX_LINKEDIN_REST_MEDIA = originalFlag;
+      }
+    }
+  });
+
+  it.each([
+    {
+      label: "image",
+      contentType: "image/png",
+      filename: "image.png",
+      initUrl: "https://api.linkedin.com/rest/images?action=initializeUpload",
+      initValue: { uploadUrl: "https://upload.linkedin.example/image_1", image: "urn:li:image:image_1" },
+      mediaUrn: "urn:li:image:image_1",
+    },
+    {
+      label: "document",
+      contentType: "application/pdf",
+      filename: "deck.pdf",
+      initUrl: "https://api.linkedin.com/rest/documents?action=initializeUpload",
+      initValue: { uploadUrl: "https://upload.linkedin.example/document_1", document: "urn:li:document:document_1" },
+      mediaUrn: "urn:li:document:document_1",
+    },
+    {
+      label: "video",
+      contentType: "video/mp4",
+      filename: "video.mp4",
+      initUrl: "https://api.linkedin.com/rest/videos?action=initializeUpload",
+      initValue: {
+        uploadToken: "upload_token_1",
+        video: "urn:li:video:video_1",
+        uploadInstructions: [{
+          uploadUrl: "https://upload.linkedin.example/video_1",
+          firstByte: 0,
+          lastByte: 4,
+        }],
+      },
+      mediaUrn: "urn:li:video:video_1",
+    },
+  ])("can use the gated LinkedIn REST media path for $label posts", async (mediaCase) => {
+    const originalFlag = process.env.UPLOADERX_LINKEDIN_REST_MEDIA;
+    process.env.UPLOADERX_LINKEDIN_REST_MEDIA = "true";
+
+    try {
+      mocks.userFindOne.mockResolvedValue({
+        linkedinTokens: {
+          accessToken: "li_token",
+          userId: "li_user_1",
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      });
+      mocks.resolveUploaderXVideo.mockResolvedValue({
+        publicUrl: `https://cdn.example.com/${mediaCase.filename}`,
+        contentType: mediaCase.contentType,
+        filename: mediaCase.filename,
+      });
+      mocks.fetchUploaderXBuffer.mockResolvedValue(Buffer.from("asset"));
+      fetchMock.mockImplementation(async (url: string | URL) => {
+        const href = String(url);
+        if (href === mediaCase.initUrl) {
+          return platformResponse({ value: mediaCase.initValue });
+        }
+        if (href.startsWith("https://upload.linkedin.example/")) {
+          return platformResponse({}, { headers: { etag: '"part_1"' } });
+        }
+        if (href === "https://api.linkedin.com/rest/videos?action=finalizeUpload") {
+          return platformResponse({});
+        }
+        if (href === "https://api.linkedin.com/rest/posts") {
+          return platformResponse("", {
+            status: 201,
+            headers: { "x-restli-id": `urn:li:share:${mediaCase.label}_1` },
+          });
+        }
+        throw new Error(`Unexpected LinkedIn fetch: ${href}`);
+      });
+
+      const response = await postLinkedIn(jsonRequest({
+        gcsPath: mediaCase.filename,
+        videoUuid: `video_${mediaCase.label}`,
+        title: "Launch",
+        postType: "personal",
+      }));
+
+      expect(response.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledWith(
+        mediaCase.initUrl,
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({
+            Authorization: "Bearer li_token",
+            "Linkedin-Version": "202605",
+          }),
+        }),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.linkedin.com/rest/posts",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining(mediaCase.mediaUrn),
+        }),
+      );
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        "https://api.linkedin.com/v2/ugcPosts",
+        expect.anything(),
+      );
+    } finally {
+      if (originalFlag === undefined) {
+        delete process.env.UPLOADERX_LINKEDIN_REST_MEDIA;
+      } else {
+        process.env.UPLOADERX_LINKEDIN_REST_MEDIA = originalFlag;
+      }
+    }
   });
 
   it("accepts a Facebook publish only after Graph simple upload returns a video id", async () => {
@@ -375,6 +674,7 @@ describe("UploaderX platform API route contracts", () => {
       videoUuid: "video_1",
       title: "Launch",
       privacyStatus: "unlisted",
+      categoryId: "24",
     }));
 
     expect(response.status).toBe(200);
@@ -387,7 +687,7 @@ describe("UploaderX platform API route contracts", () => {
       expect.objectContaining({
         part: ["snippet", "status"],
         requestBody: expect.objectContaining({
-          snippet: expect.objectContaining({ title: "Launch" }),
+          snippet: expect.objectContaining({ title: "Launch", categoryId: "24" }),
           status: { privacyStatus: "unlisted" },
         }),
       }),
@@ -399,5 +699,66 @@ describe("UploaderX platform API route contracts", () => {
         platformUrl: "https://www.youtube.com/watch?v=yt_video_1",
       }),
     );
+  });
+
+  it("schedules a YouTube publish as private with publishAt", async () => {
+    mocks.clerkClient.mockResolvedValue({
+      users: {
+        getUser: vi.fn(async () => ({
+          externalAccounts: [{ provider: "oauth_google", id: "google_1", emailAddress: "brand@example.com" }],
+        })),
+        getUserOauthAccessToken: vi.fn(async () => ({ data: [{ token: "yt_token" }] })),
+      },
+    });
+    mocks.youtubeInsert.mockResolvedValue({ data: { id: "yt_video_2" } });
+
+    const response = await postYouTube(jsonRequest({
+      gcsPath: "video.mp4",
+      videoUuid: "video_2",
+      title: "Scheduled Launch",
+      privacyStatus: "public",
+      publishAt: "2030-01-02T03:04:05.000Z",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.youtubeInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestBody: expect.objectContaining({
+          status: {
+            privacyStatus: "private",
+            publishAt: "2030-01-02T03:04:05.000Z",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("sets a YouTube thumbnail after videos.insert returns a video id", async () => {
+    mocks.clerkClient.mockResolvedValue({
+      users: {
+        getUser: vi.fn(async () => ({
+          externalAccounts: [{ provider: "oauth_google", id: "google_1", emailAddress: "brand@example.com" }],
+        })),
+        getUserOauthAccessToken: vi.fn(async () => ({ data: [{ token: "yt_token" }] })),
+      },
+    });
+    mocks.youtubeInsert.mockResolvedValue({ data: { id: "yt_video_3" } });
+    mocks.youtubeThumbnailSet.mockResolvedValue({ data: { items: [] } });
+    mocks.fetchUploaderXStream
+      .mockResolvedValueOnce({ stream: Readable.from(["video"]), contentType: "video/mp4", contentLength: 1024 })
+      .mockResolvedValueOnce({ stream: Readable.from(["thumbnail"]), contentType: "image/png", contentLength: 1024 });
+
+    const response = await postYouTube(jsonRequest({
+      gcsPath: "video.mp4",
+      videoUuid: "video_3",
+      title: "Launch",
+      thumbnailPublicUrl: "https://cdn.example.com/thumb.png",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.youtubeThumbnailSet).toHaveBeenCalledWith({
+      videoId: "yt_video_3",
+      media: { body: expect.anything() },
+    });
   });
 });

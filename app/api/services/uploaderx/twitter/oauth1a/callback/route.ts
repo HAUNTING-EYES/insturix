@@ -3,6 +3,12 @@ import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import crypto from "crypto";
 
+const debugTwitterOAuth = (...args: unknown[]) => {
+    if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
+        console.log(...args);
+    }
+};
+
 /**
  * GET /api/services/uploaderx/twitter/oauth1a/callback
  * Handles the OAuth 1.0a callback and stores tokens.
@@ -58,10 +64,7 @@ export async function GET(req: Request) {
 
         const signatureBaseString = `POST&${percentEncode(accessTokenUrl)}&${percentEncode(sortedParams)}`;
         const signingKey = `${percentEncode(process.env.TWITTER_API_SECRET!)}&${percentEncode(oauthTokenSecret)}`;
-        
-        console.log("🔐 Callback signature base string:", signatureBaseString);
-        console.log("🔐 Signing key (last 10 chars):", signingKey.slice(-10));
-        
+
         // Generate signature
         const signature = crypto
             .createHmac("sha1", signingKey)
@@ -88,12 +91,10 @@ export async function GET(req: Request) {
         });
 
         const responseText = await response.text();
-        
-        console.log("📥 Access token response status:", response.status);
-        console.log("📥 Response text:", responseText);
+        debugTwitterOAuth("[Twitter OAuth1a Callback] Access token status:", response.status);
         
         if (response.status !== 200) {
-            console.error("❌ Failed to get access token:", responseText);
+            console.error("[Twitter OAuth1a Callback] Failed to get access token:", response.status);
             return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=token_exchange", url));
         }
 
@@ -105,7 +106,7 @@ export async function GET(req: Request) {
         const screenName = params.get("screen_name");
 
         if (!accessToken || !accessTokenSecret) {
-            console.error("❌ Invalid access token response:", responseText);
+            console.error("[Twitter OAuth1a Callback] Invalid access token response");
             return NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_error=no_token", url));
         }
 
@@ -126,8 +127,10 @@ export async function GET(req: Request) {
             }
         );
 
-        console.log("✅ OAuth 1.0a tokens stored for user:", session.userId);
-        console.log("👤 User ID:", userId, "| Screen name:", screenName);
+        debugTwitterOAuth("[Twitter OAuth1a Callback] Tokens stored", {
+            hasUserId: !!userId,
+            hasScreenName: !!screenName,
+        });
 
         // Clean up cookies
         const redirectResponse = NextResponse.redirect(new URL("/dashboard/uploaderx?twitter_connected=true", url));

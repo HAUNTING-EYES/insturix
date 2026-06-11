@@ -3,6 +3,11 @@ import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 
 const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
+const debugInstagramCallback = (...args: unknown[]) => {
+  if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
+    console.log(...args);
+  }
+};
 
 export async function GET(req: Request) {
   try {
@@ -29,7 +34,7 @@ export async function GET(req: Request) {
     const appSecret = (process.env.INSTAGRAM_APP_SECRET || process.env.FACEBOOK_APP_SECRET || "").trim();
     const redirectUri = `${baseUrl}/api/services/uploaderx/instagram/callback`;
 
-    console.log("[IG Callback] Redirect URI:", redirectUri);
+    debugInstagramCallback("[IG Callback] Redirect URI prepared");
 
     // Step 1: Exchange code for short-lived Instagram access token
     const tokenRes = await fetch("https://api.instagram.com/oauth/access_token", {
@@ -79,7 +84,11 @@ export async function GET(req: Request) {
     const accountType = meData.account_type || "UNKNOWN";
     const profilePicture = meData.profile_picture_url || null;
 
-    console.log(`[IG Callback] Connected: @${username} (${accountType}, ID: ${igUserId})`);
+    debugInstagramCallback("[IG Callback] Connected account", {
+      accountType,
+      hasUsername: !!username,
+      hasUserId: !!igUserId,
+    });
 
     // Step 4: Save to database
     await connectToDatabase();

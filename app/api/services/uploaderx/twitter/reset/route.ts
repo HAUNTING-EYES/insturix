@@ -32,8 +32,6 @@ export async function POST(req: Request) {
             );
         }
 
-        console.log("✅ Twitter disconnected for user:", session.userId);
-
         return NextResponse.json({
             success: true,
             message: "Twitter disconnected successfully",
