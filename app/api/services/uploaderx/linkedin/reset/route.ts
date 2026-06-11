@@ -37,10 +37,10 @@ export async function POST(req: Request) {
       message: "LinkedIn disconnected successfully",
     });
   } catch (error) {
-    console.error("❌ LinkedIn disconnect error:", error);
+    console.error(" LinkedIn disconnect error:", error);
     return NextResponse.json(
       { error: "Failed to disconnect LinkedIn" },
-      { status: 500 }
+      { status: 500 } 
     );
   }
 }
