@@ -91,7 +91,7 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.job.status).toBe('needs_review');
     expect(result.job.inputs.socialLinks).toEqual(['https://x.com/signalhouse']);
     expect(result.warnings).toContain(
-      'Social links were captured for later Brand Vault enrichment; this website draft does not read social posts yet.',
+      'Social links without connected post evidence were staged for review; connect read scopes or add pinned posts for richer social language.',
     );
     expect(result.record.id).toBe('draft_signal_site');
     expect(result.record.status).toBe('draft');
@@ -101,6 +101,28 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.reviewPayload.candidateCount).toBeGreaterThan(0);
     expect(result.reviewPayload.coverage.palette.evidenceCount).toBeGreaterThan(0);
     expect(result.reviewPayload.coverage.identity.actionableSignalCount).toBeGreaterThan(0);
+    expect(result.reviewPayload.intake.website).toMatchObject({
+      status: 'complete',
+      normalizedUrl: 'https://signal.example/',
+      providedCount: 1,
+    });
+    expect(result.reviewPayload.intake.social).toMatchObject({
+      status: 'needs_auth',
+      linksProvided: 1,
+      fetchedPostCount: 0,
+      needsAuthCount: 1,
+    });
+    expect(result.reviewPayload.intake.social.platforms).toEqual([
+      expect.objectContaining({ platform: 'x', status: 'needs_auth' }),
+    ]);
+    expect(result.reviewPayload.intake.uploads.status).toBe('not_provided');
+    expect(result.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'social')).toMatchObject({
+      label: 'Social Evidence',
+      status: 'needs_auth',
+    });
+    expect(result.reviewPayload.intake.nextActions.map((action) => action.id)).toEqual(
+      expect.arrayContaining(['review_candidates', 'connect_social', 'add_pinned_posts', 'add_uploads', 'accept_or_reject']),
+    );
     expect(repository.getRecord('draft_signal_site')?.status).toBe('draft');
     expect(repository.listEvents('draft_signal_site').map((event) => event.type)).toEqual(['draft_saved']);
   });
@@ -189,6 +211,11 @@ describe('Brand Vault draft orchestrator', () => {
     expect(crawled.some((candidate) => /privacy|brand\.pdf|other\.example|careers|features/.test(candidate.sourceUrl ?? ''))).toBe(false);
     expect(crawled[0]?.normalizedValue).toMatchObject({ title: 'About Signal House' });
     expect(result.warnings).toContain('Crawled 3 additional brand pages for draft evidence.');
+    expect(result.reviewPayload.intake.website.crawledPageCount).toBe(3);
+    expect(result.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'crawl')).toMatchObject({
+      status: 'complete',
+      sourceCount: 3,
+    });
   });
 
   it('auto-crawls brand pages and expands sitemap URLs without requiring a crawl seed', async () => {
@@ -268,6 +295,7 @@ describe('Brand Vault draft orchestrator', () => {
     ]));
     expect(crawledUrls.some((url) => /privacy|logo\.png|other\.example|brand-sitemap/.test(url ?? ''))).toBe(false);
     expect(result.warnings).toContain('Crawled 3 additional brand pages for draft evidence.');
+    expect(result.reviewPayload.intake.website.crawledPageCount).toBe(3);
   });
 
   it('turns uploaded brand books and assets into reviewable draft signal evidence', async () => {
@@ -356,6 +384,22 @@ describe('Brand Vault draft orchestrator', () => {
       'assets.logoCandidates',
     );
     expect(result.job.warnings).toContain('7 additional Brand Vault sources staged for enrichment and evidence review.');
+    expect(result.reviewPayload.intake.uploads).toMatchObject({
+      status: 'complete',
+      guidelineCount: 1,
+      assetCount: 1,
+      parsedColorCandidateCount: 2,
+      parsedTextCandidateCount: 2,
+      logoCandidateCount: 1,
+    });
+    expect(result.reviewPayload.intake.sources.byKind).toMatchObject({
+      uploaded_guideline: 1,
+      uploaded_asset: 1,
+    });
+    expect(result.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'uploads')).toMatchObject({
+      status: 'complete',
+      sourceCount: 2,
+    });
   });
 
   it('does not fetch or persist when the website URL is unsupported', async () => {

@@ -387,6 +387,27 @@ describe('Brand Vault refinery API boundary', () => {
     expect(fetchedUrls).toHaveLength(1);
     expect(fetchedUrls[0]).toContain('https://api.x.com/2/users/x_123/tweets');
     expect(created.body.job.warnings).toContain('Brand Vault fetched 1 recent X post for draft social evidence review.');
+    expect(created.body.job.warnings).not.toContain(
+      'Social links without connected post evidence were staged for review; connect read scopes or add pinned posts for richer social language.',
+    );
+    expect(created.body.reviewPayload.intake.social).toMatchObject({
+      status: 'complete',
+      linksProvided: 1,
+      connectedAccountCount: 2,
+      fetchedPostCount: 1,
+      needsAuthCount: 0,
+    });
+    expect(created.body.reviewPayload.intake.sources.byOrigin).toMatchObject({
+      connected_metadata: 1,
+      connected_fetch: 1,
+    });
+    expect(created.body.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'social')).toMatchObject({
+      status: 'complete',
+      sourceCount: 2,
+    });
+    expect(created.body.reviewPayload.intake.nextActions.map((action) => action.id)).not.toEqual(
+      expect.arrayContaining(['connect_social', 'add_pinned_posts']),
+    );
     expect(created.body.job.inputs.sourceEvidence).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -506,6 +527,7 @@ describe('Brand Vault refinery API boundary', () => {
     expect(accepted.body.record.status).toBe('accepted');
     expect(accepted.body.job?.status).toBe('accepted');
     expect(accepted.body.reviewPayload?.reviewRequired).toBe(false);
+    expect(accepted.body.reviewPayload?.intake.nextActions.map((action) => action.id)).not.toContain('review_candidates');
 
     const rejectedDraft = await createBrandVaultRefineryJobFromWebsite(
       { userId: 'user_vault', body: { websiteUrl: 'vaultline.example', brandId: 'brand_vaultline' } },

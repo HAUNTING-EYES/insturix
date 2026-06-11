@@ -32,6 +32,87 @@ export interface BrandVaultSignalGroupCoverage {
   evidenceCount: number;
 }
 
+export type BrandVaultIntakeStageStatus =
+  | 'complete'
+  | 'needs_review'
+  | 'needs_auth'
+  | 'not_provided'
+  | 'skipped'
+  | 'failed';
+
+export interface BrandVaultIntakeStageSummary {
+  status: BrandVaultIntakeStageStatus;
+  providedCount: number;
+  sourceCount: number;
+  candidateCount: number;
+  evidenceCount: number;
+  notes: string[];
+}
+
+export interface BrandVaultIntakeWebsiteSummary extends BrandVaultIntakeStageSummary {
+  normalizedUrl: string;
+  crawledPageCount: number;
+}
+
+export interface BrandVaultIntakeSocialSummary extends BrandVaultIntakeStageSummary {
+  linksProvided: number;
+  profileSourceCount: number;
+  postSourceCount: number;
+  connectedAccountCount: number;
+  fetchedPostCount: number;
+  needsAuthCount: number;
+  skippedCount: number;
+  platforms: Array<{
+    platform: NonNullable<BrandVaultSourceInput['platform']>;
+    status: BrandVaultIntakeStageStatus;
+    sourceCount: number;
+    postSourceCount: number;
+    connectedAccountCount: number;
+    fetchedPostCount: number;
+    notes: string[];
+  }>;
+}
+
+export interface BrandVaultIntakeUploadSummary extends BrandVaultIntakeStageSummary {
+  guidelineCount: number;
+  assetCount: number;
+  parsedColorCandidateCount: number;
+  parsedTextCandidateCount: number;
+  logoCandidateCount: number;
+}
+
+export interface BrandVaultReviewEvidenceLane {
+  id: 'website' | 'crawl' | 'social' | 'uploads' | 'legacy';
+  label: string;
+  status: BrandVaultIntakeStageStatus;
+  sourceCount: number;
+  candidateCount: number;
+  evidenceCount: number;
+  topSignalPaths: string[];
+  notes: string[];
+}
+
+export interface BrandVaultReviewNextAction {
+  id: 'review_candidates' | 'connect_social' | 'add_pinned_posts' | 'add_uploads' | 'review_crawl' | 'accept_or_reject';
+  label: string;
+  priority: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+export interface BrandVaultIntakeSummary {
+  website: BrandVaultIntakeWebsiteSummary;
+  social: BrandVaultIntakeSocialSummary;
+  uploads: BrandVaultIntakeUploadSummary;
+  sources: {
+    total: number;
+    byKind: Partial<Record<BrandVaultSourceInput['kind'], number>>;
+    byOrigin: Partial<Record<NonNullable<BrandVaultSourceInput['evidenceOrigin']>, number>>;
+    byPlatform: Partial<Record<NonNullable<BrandVaultSourceInput['platform']>, number>>;
+  };
+  evidenceLanes: BrandVaultReviewEvidenceLane[];
+  nextActions: BrandVaultReviewNextAction[];
+}
+
 export interface BrandVaultWebsiteDraftReviewPayload {
   jobId: string;
   recordId: string;
@@ -46,6 +127,7 @@ export interface BrandVaultWebsiteDraftReviewPayload {
   reviewReasons: string[];
   generatedAt: string;
   coverage: Record<BrandVaultSignalGroup, BrandVaultSignalGroupCoverage>;
+  intake: BrandVaultIntakeSummary;
 }
 
 export interface BrandVaultWebsiteDraftJobInput {
@@ -114,8 +196,8 @@ export type BrandVaultWebsiteDraftJobResult =
       };
     };
 
-const SOCIAL_LINKS_DEFERRED_WARNING =
-  'Social links were captured for later Brand Vault enrichment; this website draft does not read social posts yet.';
+const SOCIAL_LINKS_STAGED_WARNING =
+  'Social links without connected post evidence were staged for review; connect read scopes or add pinned posts for richer social language.';
 const SOURCE_STAGING_EXTRACTOR = 'brand-vault-source-staging.v1';
 const UPLOAD_EXTRACTOR = 'brand-vault-upload-evidence.v1';
 const DEFAULT_CRAWL_MAX_PAGES = 24;
@@ -246,7 +328,7 @@ export async function createBrandVaultWebsiteDraftJob(
     const warnings = mergeWarnings(
       draft.warnings,
       crawl.warnings,
-      socialLinks.length > 0 ? [SOCIAL_LINKS_DEFERRED_WARNING] : [],
+      shouldWarnForStagedSocialLinks(socialLinks, sourceEvidence) ? [SOCIAL_LINKS_STAGED_WARNING] : [],
       stagedCandidates.length > 0 ? [stagedSourcesWarning(stagedCandidates.length)] : [],
     );
     const job = createJob({
@@ -315,6 +397,14 @@ export function createBrandVaultDraftReviewPayload(args: {
     reviewReasons: args.record.review.reasons,
     generatedAt: args.record.profile.generatedAt,
     coverage: createSignalCoverage(args.record.profile),
+    intake: createIntakeSummary({
+      job: args.job,
+      profile: args.record.profile,
+      candidates: args.candidates,
+      normalizedUrl: args.normalizedUrl,
+      warnings: args.warnings ?? [],
+      reviewRequired: args.record.review.required,
+    }),
   };
 }
 
@@ -366,6 +456,392 @@ function coverageForGroup(
     actionableSignalCount: groupSignals.filter((item) => isBrandSignalActionable(item.signal)).length,
     evidenceCount: profile.evidence.filter((item) => item.signalPath.startsWith(prefix)).length,
   };
+}
+
+function createIntakeSummary(args: {
+  job: BrandRefineryJob;
+  profile: BrandSignalProfile;
+  candidates: BrandEvidenceCandidate[];
+  normalizedUrl: string;
+  warnings: string[];
+  reviewRequired: boolean;
+}): BrandVaultIntakeSummary {
+  const sourceEvidence = args.job.inputs.sourceEvidence ?? [];
+  const websiteCandidates = args.candidates.filter((candidate) => isWebsiteCandidate(candidate) && candidate.sourceField !== 'crawl.page');
+  const crawlCandidates = args.candidates.filter((candidate) => candidate.sourceField === 'crawl.page');
+  const socialSources = sourceEvidence.filter((source) => source.kind === 'social_profile' || source.kind === 'social_post');
+  const socialCandidates = args.candidates.filter((candidate) => candidate.sourceType === 'social_profile' || candidate.sourceType === 'social_post');
+  const uploadSources = sourceEvidence.filter((source) => source.kind === 'uploaded_guideline' || source.kind === 'uploaded_asset');
+  const uploadCandidates = args.candidates.filter((candidate) => candidate.sourceType === 'uploaded_guideline' || candidate.sourceType === 'uploaded_asset');
+  const uploadExtractorCandidates = uploadCandidates.filter((candidate) => candidate.extractorId === UPLOAD_EXTRACTOR);
+  const legacyCandidates = args.candidates.filter((candidate) => candidate.sourceType === 'legacy_brand_intelligence');
+  const websiteStatus: BrandVaultIntakeStageStatus = args.job.status === 'failed' ? 'failed' : 'complete';
+  const social = createSocialIntakeSummary({
+    socialLinks: args.job.inputs.socialLinks,
+    sources: socialSources,
+    candidates: socialCandidates,
+    warnings: args.warnings,
+  });
+  const uploads = createUploadIntakeSummary({
+    sources: uploadSources,
+    candidates: uploadCandidates,
+    uploadExtractorCandidates,
+  });
+  const evidenceLanes = [
+    createEvidenceLane({
+      id: 'website',
+      label: 'Website',
+      status: websiteStatus,
+      sourceCount: args.normalizedUrl ? 1 : 0,
+      candidates: websiteCandidates,
+      evidenceCount: args.profile.evidence.filter((item) => isWebsiteEvidenceSource(item.sourceType)).length,
+      notes: [`Fetched ${args.normalizedUrl}.`],
+    }),
+    createEvidenceLane({
+      id: 'crawl',
+      label: 'Crawled Pages',
+      status: crawlCandidates.length > 0 ? 'complete' : 'skipped',
+      sourceCount: crawlCandidates.length,
+      candidates: crawlCandidates,
+      evidenceCount: crawlCandidates.length,
+      notes: crawlCandidates.length > 0 ? [`Crawled ${crawlCandidates.length} additional page${crawlCandidates.length === 1 ? '' : 's'}.`] : [],
+    }),
+    createEvidenceLane({
+      id: 'social',
+      label: 'Social Evidence',
+      status: social.status,
+      sourceCount: social.sourceCount,
+      candidates: socialCandidates,
+      evidenceCount: social.postSourceCount + social.profileSourceCount,
+      notes: social.notes,
+    }),
+    createEvidenceLane({
+      id: 'uploads',
+      label: 'Uploads',
+      status: uploads.status,
+      sourceCount: uploads.sourceCount,
+      candidates: uploadCandidates,
+      evidenceCount: uploadExtractorCandidates.length,
+      notes: uploads.notes,
+    }),
+    createEvidenceLane({
+      id: 'legacy',
+      label: 'Legacy Intelligence',
+      status: legacyCandidates.length > 0 ? 'needs_review' : 'not_provided',
+      sourceCount: sourceEvidence.filter((source) => source.kind === 'legacy_brand_intelligence').length,
+      candidates: legacyCandidates,
+      evidenceCount: legacyCandidates.length,
+      notes: legacyCandidates.length > 0 ? ['Legacy Brand Intelligence was staged as supporting context.'] : [],
+    }),
+  ];
+
+  return {
+    website: {
+      status: websiteStatus,
+      normalizedUrl: args.normalizedUrl,
+      providedCount: args.normalizedUrl ? 1 : 0,
+      sourceCount: 1,
+      candidateCount: websiteCandidates.length,
+      evidenceCount: args.profile.evidence.filter((item) => isWebsiteEvidenceSource(item.sourceType)).length,
+      crawledPageCount: crawlCandidates.length,
+      notes: [`Website evidence fetched from ${args.normalizedUrl}.`],
+    },
+    social,
+    uploads,
+    sources: {
+      total: sourceEvidence.length,
+      byKind: countBy(sourceEvidence, (source) => source.kind),
+      byOrigin: countBy(sourceEvidence, (source) => source.evidenceOrigin),
+      byPlatform: countBy(sourceEvidence, (source) => source.platform),
+    },
+    evidenceLanes,
+    nextActions: createNextActions({
+      reviewRequired: args.reviewRequired,
+      social,
+      uploads,
+      crawlCount: crawlCandidates.length,
+    }),
+  };
+}
+
+function createSocialIntakeSummary(args: {
+  socialLinks: string[];
+  sources: BrandVaultSourceInput[];
+  candidates: BrandEvidenceCandidate[];
+  warnings: string[];
+}): BrandVaultIntakeSocialSummary {
+  const profileSourceCount = args.sources.filter((source) => source.kind === 'social_profile').length;
+  const postSourceCount = args.sources.filter((source) => source.kind === 'social_post').length;
+  const connectedAccountCount = args.sources.filter((source) => source.connection?.status === 'connected').length;
+  const fetchedPostCount = args.sources.filter((source) => source.kind === 'social_post' && source.evidenceOrigin === 'connected_fetch').length;
+  const needsAuthCount = args.sources.filter((source) =>
+    source.connection?.status === 'scope_missing' || source.connection?.status === 'connected_different_account',
+  ).length + args.warnings.filter(isAuthWarning).length;
+  const skippedCount = args.warnings.filter((warning) => /\bskipped\b/i.test(warning)).length;
+  const status = socialStatus({
+    linksProvided: args.socialLinks.length,
+    sourceCount: args.sources.length,
+    fetchedPostCount,
+    connectedAccountCount,
+    needsAuthCount,
+  });
+  const notes = socialNotes({
+    linksProvided: args.socialLinks.length,
+    connectedAccountCount,
+    fetchedPostCount,
+    needsAuthCount,
+    skippedCount,
+  });
+
+  return {
+    status,
+    providedCount: args.socialLinks.length,
+    sourceCount: args.sources.length,
+    candidateCount: args.candidates.length,
+    evidenceCount: profileSourceCount + postSourceCount,
+    notes,
+    linksProvided: args.socialLinks.length,
+    profileSourceCount,
+    postSourceCount,
+    connectedAccountCount,
+    fetchedPostCount,
+    needsAuthCount,
+    skippedCount,
+    platforms: createSocialPlatformSummaries(args.socialLinks, args.sources),
+  };
+}
+
+function createUploadIntakeSummary(args: {
+  sources: BrandVaultSourceInput[];
+  candidates: BrandEvidenceCandidate[];
+  uploadExtractorCandidates: BrandEvidenceCandidate[];
+}): BrandVaultIntakeUploadSummary {
+  const guidelineCount = args.sources.filter((source) => source.kind === 'uploaded_guideline').length;
+  const assetCount = args.sources.filter((source) => source.kind === 'uploaded_asset').length;
+  const parsedColorCandidateCount = args.uploadExtractorCandidates.filter((candidate) => candidate.sourceField.endsWith('.colors')).length;
+  const parsedTextCandidateCount = args.uploadExtractorCandidates.filter((candidate) =>
+    candidate.sourceField.endsWith('.brandRules') || candidate.sourceField.endsWith('.voiceGuidelines'),
+  ).length;
+  const logoCandidateCount = args.uploadExtractorCandidates.filter((candidate) => candidate.sourceField.endsWith('.logoAsset')).length;
+  const status: BrandVaultIntakeStageStatus =
+    args.sources.length === 0 ? 'not_provided' : args.uploadExtractorCandidates.length > 0 ? 'complete' : 'needs_review';
+  const notes =
+    args.sources.length === 0
+      ? ['No brand books, docs, PDFs, images, or assets were uploaded for this draft.']
+      : [`Parsed ${args.uploadExtractorCandidates.length} upload-derived candidate${args.uploadExtractorCandidates.length === 1 ? '' : 's'}.`];
+  return {
+    status,
+    providedCount: args.sources.length,
+    sourceCount: args.sources.length,
+    candidateCount: args.candidates.length,
+    evidenceCount: args.uploadExtractorCandidates.length,
+    notes,
+    guidelineCount,
+    assetCount,
+    parsedColorCandidateCount,
+    parsedTextCandidateCount,
+    logoCandidateCount,
+  };
+}
+
+function createSocialPlatformSummaries(
+  socialLinks: string[],
+  sources: BrandVaultSourceInput[],
+): BrandVaultIntakeSocialSummary['platforms'] {
+  const platforms = new Set<NonNullable<BrandVaultSourceInput['platform']>>();
+  for (const link of socialLinks) {
+    const platform = inferSourcePlatform(link);
+    if (platform) platforms.add(platform);
+  }
+  for (const source of sources) {
+    if (source.platform) platforms.add(source.platform);
+  }
+  return [...platforms].sort().map((platform) => {
+    const platformSources = sources.filter((source) => source.platform === platform);
+    const connectedAccountCount = platformSources.filter((source) => source.connection?.status === 'connected').length;
+    const fetchedPostCount = platformSources.filter((source) => source.kind === 'social_post' && source.evidenceOrigin === 'connected_fetch').length;
+    const needsAuthCount = platformSources.filter((source) =>
+      source.connection?.status === 'scope_missing' || source.connection?.status === 'connected_different_account',
+    ).length;
+    const postSourceCount = platformSources.filter((source) => source.kind === 'social_post').length;
+    return {
+      platform,
+      status: socialStatus({
+        linksProvided: socialLinks.some((link) => inferSourcePlatform(link) === platform) ? 1 : 0,
+        sourceCount: platformSources.length,
+        fetchedPostCount,
+        connectedAccountCount,
+        needsAuthCount,
+      }),
+      sourceCount: platformSources.length,
+      postSourceCount,
+      connectedAccountCount,
+      fetchedPostCount,
+      notes: socialNotes({
+        linksProvided: socialLinks.some((link) => inferSourcePlatform(link) === platform) ? 1 : 0,
+        connectedAccountCount,
+        fetchedPostCount,
+        needsAuthCount,
+        skippedCount: 0,
+      }),
+    };
+  });
+}
+
+function createEvidenceLane(args: {
+  id: BrandVaultReviewEvidenceLane['id'];
+  label: string;
+  status: BrandVaultIntakeStageStatus;
+  sourceCount: number;
+  candidates: BrandEvidenceCandidate[];
+  evidenceCount: number;
+  notes: string[];
+}): BrandVaultReviewEvidenceLane {
+  return {
+    id: args.id,
+    label: args.label,
+    status: args.status,
+    sourceCount: args.sourceCount,
+    candidateCount: args.candidates.length,
+    evidenceCount: args.evidenceCount,
+    topSignalPaths: topValues(args.candidates.map((candidate) => candidate.signalPath), 5),
+    notes: args.notes,
+  };
+}
+
+function createNextActions(args: {
+  reviewRequired: boolean;
+  social: BrandVaultIntakeSocialSummary;
+  uploads: BrandVaultIntakeUploadSummary;
+  crawlCount: number;
+}): BrandVaultReviewNextAction[] {
+  const actions: BrandVaultReviewNextAction[] = [];
+  if (args.reviewRequired) {
+    actions.push({
+      id: 'review_candidates',
+      label: 'Review draft brand signals',
+      priority: 'high',
+      reason: 'Brand Vault produced candidate signals that need approval before becoming reusable brand truth.',
+    });
+  }
+  if (args.social.needsAuthCount > 0 || (args.social.linksProvided > 0 && args.social.fetchedPostCount === 0)) {
+    actions.push({
+      id: 'connect_social',
+      label: 'Connect or refresh social read access',
+      priority: 'medium',
+      reason: 'Social links are present, but Brand Vault does not yet have enough connected post evidence from every linked account.',
+    });
+  }
+  if (args.social.linksProvided > 0 && args.social.fetchedPostCount === 0) {
+    actions.push({
+      id: 'add_pinned_posts',
+      label: 'Add pinned posts or examples',
+      priority: 'medium',
+      reason: 'Pinned social posts give stronger voice and proof-pattern evidence than profile URLs alone.',
+    });
+  }
+  if (args.uploads.status === 'not_provided') {
+    actions.push({
+      id: 'add_uploads',
+      label: 'Add brand books, docs, PDFs, or assets',
+      priority: 'low',
+      reason: 'Official uploads improve color, logo, voice, and constraint evidence.',
+    });
+  }
+  if (args.crawlCount > 0) {
+    actions.push({
+      id: 'review_crawl',
+      label: 'Review crawled pages',
+      priority: 'low',
+      reason: 'Crawled pages can include useful proof and positioning evidence, but should be checked for relevance.',
+    });
+  }
+  actions.push({
+    id: 'accept_or_reject',
+    label: 'Accept, edit, or reject the draft',
+    priority: args.reviewRequired ? 'high' : 'medium',
+    reason: 'The approved Brand Vault profile is what downstream generation should consume.',
+  });
+  return dedupeActions(actions);
+}
+
+function socialStatus(args: {
+  linksProvided: number;
+  sourceCount: number;
+  fetchedPostCount: number;
+  connectedAccountCount: number;
+  needsAuthCount: number;
+}): BrandVaultIntakeStageStatus {
+  if (args.linksProvided === 0 && args.sourceCount === 0) return 'not_provided';
+  if (args.fetchedPostCount > 0) return 'complete';
+  if (args.needsAuthCount > 0 || (args.linksProvided > 0 && args.connectedAccountCount === 0)) return 'needs_auth';
+  if (args.sourceCount > 0 || args.connectedAccountCount > 0) return 'needs_review';
+  return 'skipped';
+}
+
+function socialNotes(args: {
+  linksProvided: number;
+  connectedAccountCount: number;
+  fetchedPostCount: number;
+  needsAuthCount: number;
+  skippedCount: number;
+}): string[] {
+  const notes: string[] = [];
+  if (args.linksProvided > 0) notes.push(`${args.linksProvided} social link${args.linksProvided === 1 ? '' : 's'} provided.`);
+  if (args.connectedAccountCount > 0) notes.push(`${args.connectedAccountCount} connected social source${args.connectedAccountCount === 1 ? '' : 's'} found.`);
+  if (args.fetchedPostCount > 0) notes.push(`${args.fetchedPostCount} connected post sample${args.fetchedPostCount === 1 ? '' : 's'} fetched.`);
+  if (args.needsAuthCount > 0) notes.push(`${args.needsAuthCount} social source${args.needsAuthCount === 1 ? '' : 's'} need auth, scopes, or account matching.`);
+  if (args.skippedCount > 0) notes.push(`${args.skippedCount} social enrichment step${args.skippedCount === 1 ? '' : 's'} skipped.`);
+  if (notes.length === 0) notes.push('No social evidence was provided for this draft.');
+  return notes;
+}
+
+function shouldWarnForStagedSocialLinks(socialLinks: string[], sourceEvidence: BrandVaultSourceInput[]): boolean {
+  if (socialLinks.length === 0) return false;
+  return !sourceEvidence.some((source) => source.kind === 'social_post' && source.evidenceOrigin === 'connected_fetch');
+}
+
+function isWebsiteCandidate(candidate: BrandEvidenceCandidate): boolean {
+  return isWebsiteEvidenceSource(candidate.sourceType);
+}
+
+function isWebsiteEvidenceSource(sourceType: string): boolean {
+  return ['website', 'website_metadata', 'json_ld', 'css', 'logo_asset'].includes(sourceType);
+}
+
+function isAuthWarning(warning: string): boolean {
+  return /\b(?:auth|scope|permission|token|connect|reconnect|expired|account)\b/i.test(warning);
+}
+
+function topValues(values: string[], limit: number): string[] {
+  const counts = new Map<string, number>();
+  for (const value of values.filter(Boolean)) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([value]) => value);
+}
+
+function countBy<TKey extends string>(
+  values: BrandVaultSourceInput[],
+  selectKey: (value: BrandVaultSourceInput) => TKey | undefined,
+): Partial<Record<TKey, number>> {
+  const counts: Partial<Record<TKey, number>> = {};
+  for (const value of values) {
+    const key = selectKey(value);
+    if (!key) continue;
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function dedupeActions(actions: BrandVaultReviewNextAction[]): BrandVaultReviewNextAction[] {
+  const seen = new Set<string>();
+  return actions.filter((action) => {
+    if (seen.has(action.id)) return false;
+    seen.add(action.id);
+    return true;
+  });
 }
 
 function failedResult(args: {
