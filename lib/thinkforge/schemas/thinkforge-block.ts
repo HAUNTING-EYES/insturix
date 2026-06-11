@@ -1,4 +1,9 @@
 import { nanoid } from 'nanoid';
+import {
+  isThinkForgeBlockExportMeta,
+  normalizeThinkForgeBlockExportMeta,
+  type ThinkForgeBlockExportMeta,
+} from './clickatron-creative-contract';
 
 export type ThinkForgeBlockKind = 'header' | 'action' | 'why' | 'example' | 'paragraph' | 'scene' | 'editorial';
 
@@ -51,6 +56,7 @@ export interface ThinkForgeBlock {
     goal?: string;
     level?: number;
   };
+  exportMeta?: ThinkForgeBlockExportMeta;
   scene?: SceneSlots;
   editorial?: EditorialSlots;
 }
@@ -167,6 +173,7 @@ export function isThinkForgeBlock(value: unknown): value is ThinkForgeBlock {
     if (m.role !== undefined && typeof m.role !== 'string') return false;
     if (m.goal !== undefined && typeof m.goal !== 'string') return false;
   }
+  if (b.exportMeta !== undefined && !isThinkForgeBlockExportMeta(b.exportMeta)) return false;
   return true;
 }
 
@@ -192,6 +199,9 @@ export function validateThinkForgeBlocks(blocks: unknown[]): ThinkForgeBlock[] {
         meta: raw.meta && typeof raw.meta === 'object' && Object.keys(raw.meta).length > 0
           ? raw.meta
           : undefined,
+        ...(raw.exportMeta !== undefined ? {
+          exportMeta: normalizeThinkForgeBlockExportMeta(raw.exportMeta),
+        } : {}),
         // V2: Preserve Editron-ready structured slots when present
         ...(kind === 'scene' && raw.scene && typeof raw.scene === 'object' ? {
           scene: {
@@ -213,11 +223,12 @@ export function validateThinkForgeBlocks(blocks: unknown[]): ThinkForgeBlock[] {
           },
         } : {}),
       };
+      const candidateId = candidate.id;
 
       if (!isThinkForgeBlock(candidate)) {
         if (process.env.NODE_ENV === 'development') {
           console.error('ThinkForgeBlock Validation Failed:', JSON.stringify(candidate, null, 2));
-          throw new Error(`Invalid ThinkForgeBlock: ${candidate.id}`);
+          throw new Error(`Invalid ThinkForgeBlock: ${candidateId}`);
         }
         return null;
       }

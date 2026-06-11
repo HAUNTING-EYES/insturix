@@ -13,7 +13,7 @@ import { ensureThinkForgeBlockId, normalizeThinkForgeRichText, validateThinkForg
 import { ScriptOutlineAgent, type ScriptOutline } from './script-outline-agent';
 import type { SectionOutput } from './script-section-agent';
 import { ScriptContractAgent, type NarrativeContract } from './script-contract-agent';
-import { ScriptAuthorAgent } from './script-author-agent';
+import { ScriptAuthorAgent, type ScriptAuthorInput } from './script-author-agent';
 import type { AgentConfig } from './base-agent';
 import { quickAssembleContext } from '../context';
 import type { SessionState } from '../state/types';
@@ -22,6 +22,13 @@ import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import { scoreContent } from '../data/quality-scorer';
 import { StylistAgent } from './stylist-agent';
+import {
+  appendClickatronCreativeSidecarInstruction,
+  attachClickatronCreativeExportMeta,
+  extractRequiredClickatronCreativeSidecar,
+  shouldRequestClickatronCreativeSidecar,
+  stripClickatronCreativeSidecarText,
+} from '../utils/clickatron-creative-sidecar';
 
 function compactOutline(outline: ScriptOutline): ScriptOutline {
   const capped = outline.sections.slice(0, 5);
@@ -78,6 +85,10 @@ export class ScriptDraftAgent {
     this.applyAbortSignal(abortSignal);
     const generationMode = input.generationMode ?? 'manual';
     const modeAwareInput: AgentInput = { ...input, generationMode };
+    const shouldAuthorClickatronCreative = shouldRequestClickatronCreativeSidecar(modeAwareInput);
+    const authorInput = shouldAuthorClickatronCreative
+      ? appendClickatronCreativeSidecarInstruction(modeAwareInput)
+      : modeAwareInput;
 
     if (callbacks?.onProgress) {
       await callbacks.onProgress({ progress: 0.02, message: 'Analyzing brief' });
@@ -103,11 +114,13 @@ export class ScriptDraftAgent {
       await callbacks.onProgress({ progress: 0.2, message: 'Authoring full draft' });
     }
 
-    const { stream } = await this.authorAgent.run({
-      ...modeAwareInput,
+    const authorRunInput: ScriptAuthorInput = {
+      ...authorInput,
       outline,
       contract,
-    });
+    };
+
+    const { stream } = await this.authorAgent.run(authorRunInput);
 
     let markdown = '';
     let lastEmitLen = 0;
@@ -119,7 +132,8 @@ export class ScriptDraftAgent {
         const hasBoundary = /\n\n|\n##\s|\n###\s/.test(chunk);
         if (delta >= 800 || hasBoundary) {
           lastEmitLen = markdown.length;
-          const parsedBlocks = parseMarkdownToBlocks(markdown);
+          const partialContent = stripClickatronCreativeSidecarText(markdown);
+          const parsedBlocks = parseMarkdownToBlocks(partialContent);
           const partialBlocks = validateThinkForgeBlocks(
             parsedBlocks.length > 0
               ? parsedBlocks
@@ -127,7 +141,7 @@ export class ScriptDraftAgent {
                   {
                     id: ensureThinkForgeBlockId(),
                     kind: 'paragraph',
-                    content: normalizeThinkForgeRichText([{ type: 'text', text: markdown, styles: {} }]),
+                    content: normalizeThinkForgeRichText([{ type: 'text', text: partialContent, styles: {} }]),
                   },
                 ]
           );
@@ -136,7 +150,7 @@ export class ScriptDraftAgent {
             title: outline.title,
             blocks: partialBlocks,
             richText: partialRichText,
-            content: markdown,
+            content: partialContent,
             completed: 0,
             total: 1,
           });
@@ -144,7 +158,13 @@ export class ScriptDraftAgent {
       }
     }
 
-    const parsedBlocks = parseMarkdownToBlocks(markdown);
+    const clickatronExtraction = shouldAuthorClickatronCreative
+      ? extractRequiredClickatronCreativeSidecar(markdown)
+      : { visibleMarkdown: stripClickatronCreativeSidecarText(markdown), exportMeta: undefined };
+    let clickatronExportMeta = clickatronExtraction.exportMeta;
+    let clickatronStaleReason: string | undefined;
+    const visibleMarkdown = clickatronExtraction.visibleMarkdown;
+    const parsedBlocks = parseMarkdownToBlocks(visibleMarkdown);
     let blocks = validateThinkForgeBlocks(
       parsedBlocks.length > 0
         ? parsedBlocks
@@ -152,11 +172,11 @@ export class ScriptDraftAgent {
             {
               id: ensureThinkForgeBlockId(),
               kind: 'paragraph',
-              content: normalizeThinkForgeRichText([{ type: 'text', text: markdown, styles: {} }]),
+              content: normalizeThinkForgeRichText([{ type: 'text', text: visibleMarkdown, styles: {} }]),
             },
           ]
     );
-    let content = markdown.trim();
+    let content = visibleMarkdown.trim();
 
     // ─── Post-generation: Quality Scoring + Stylist Review ────────
     let qualityScore = 100;
@@ -208,6 +228,9 @@ export class ScriptDraftAgent {
                   ? newParsed
                   : [{ id: ensureThinkForgeBlockId(), kind: 'paragraph', content: normalizeThinkForgeRichText([{ type: 'text', text: rewritten, styles: {} }]) }]
               );
+              if (clickatronExportMeta) {
+                clickatronStaleReason = 'source_content_rewritten_by_stylist';
+              }
               qualityScore = newScore.score;
               qualityViolations = newScore.violations.map(v => v.message);
             } else {
@@ -218,6 +241,10 @@ export class ScriptDraftAgent {
       } catch (e) {
         console.error('[ThinkForge:Stylist] Review failed:', e);
       }
+    }
+
+    if (clickatronExportMeta) {
+      blocks = attachClickatronCreativeExportMeta(blocks, clickatronExportMeta, { staleReason: clickatronStaleReason });
     }
 
     // Convert to Tiptap JSON AST

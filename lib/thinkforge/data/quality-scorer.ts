@@ -19,6 +19,10 @@ export interface Violation {
   location?: string;
 }
 
+export type ContentQualityScore = Omit<QualityScore, 'violations'> & {
+  violations: Violation[];
+};
+
 function loadFillerPatterns(): Array<{ pattern: RegExp; label: string }> {
   const paths: string[] = [];
   if (typeof __dirname !== 'undefined') {
@@ -109,7 +113,7 @@ function detectHedgingOverload(text: string): Violation[] {
   return [];
 }
 
-export function scoreContent(text: string): QualityScore & { violations: Violation[] } {
+export function scoreContent(text: string): ContentQualityScore {
   const violations: Violation[] = [
     ...detectAiFiller(text),
     ...detectUniformSentences(text),
