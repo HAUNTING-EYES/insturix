@@ -10,10 +10,7 @@ import {
   DirectorProgress,
   NewSubjectFormState,
 } from "../types";
-import { getAutoSelectedProfile } from "@/lib/editron/services/profile-detection-service";
-import { EDIT_PROFILES } from "@/lib/editron/data/edit-profiles";
 import useClickatronStore from "@/stores/useCanvasStore";
-
 // ─── Hook input ──────────────────────────────────────────────────
 export interface UseExportPipelineInput {
   blocks: any[];
@@ -599,49 +596,20 @@ export function useExportPipeline(
         );
       }
 
-      // Profile Auto-Detection
-      try {
-        const metadata = {
-          title: exportData.title || projectTitle || "",
-          scenes: (exportData.scenes || []).map((s: any) => ({
-            narration: s.narration,
-            visualDescription: s.visualDescription,
-            mood: s.mood,
-            audioDescription: s.audioDescription,
-            rawProductionNotes: s.rawProductionNotes,
-            editDirections: {
-              onScreenText: s.editDirections?.onScreenText || [],
-              motionGraphicCue: s.editDirections?.motionGraphicCue || "",
-            },
-          })),
-          overallMusicPrompt: exportData.overallMusicPrompt,
-          characterDescriptions: exportData.characterDescriptions,
-          colorPalette: exportData.colorPalette,
-          environmentNotes: exportData.environmentNotes,
-          globalEditDirections: exportData.globalEditDirections,
-          suggestedProfileCategory: exportData.suggestedProfileCategory,
-        };
-        const detected = getAutoSelectedProfile(metadata);
-        setDetectedProfile({
-          profileId: detected.detection.profileId,
-          confidence: detected.detection.confidence,
-          reasoning: detected.detection.reasoning,
-          name: detected.profile.name,
-          description: detected.profile.description,
-        });
-        setSelectedProfileId(detected.detection.profileId);
-        console.log(
-          `[ExportToEditron] Profile detected: ${detected.profile.name} (${(detected.detection.confidence * 100).toFixed(0)}%)`,
-        );
+      // D-016: Profile detection removed — signal system + Utility AI drive editing decisions.
+      // Pre-fill G-01 (universal default). User can still override in profile selection step.
+      setDetectedProfile({
+        profileId: 'G-01',
+        confidence: 1.0,
+        reasoning: ['Signal-driven editing (D-016)'],
+        name: 'Universal Clean',
+        description: 'Signal-driven editing — Utility AI selects filter, entrance, and pacing from content signals.',
+      });
+      setSelectedProfileId('G-01');
 
-        // PAUSE: Show profile selection step
-        if (generateStoryboard) {
-          setStep("profile-selection");
-          return;
-        }
-      } catch (profileErr) {
-        console.warn("[ExportToEditron] Profile detection failed, using default:", profileErr);
-        setSelectedProfileId("G-01");
+      if (generateStoryboard) {
+        setStep("profile-selection");
+        return;
       }
 
       await runSubjectExtractionAndReferences();

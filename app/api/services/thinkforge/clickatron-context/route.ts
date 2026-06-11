@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import * as db from "@/lib/thinkforge/services/db";
 import { createProjectLink, findLinkBySessionId } from "@/lib/shared/project-links";
-import { buildThinkToClickContext, toNonEmptyString } from "@/lib/thinkforge/clickatron-context";
+import {
+  buildThinkToClickContext,
+  findClickatronCreativeSpecInBlocks,
+  toNonEmptyString,
+} from "@/lib/thinkforge/clickatron-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +41,7 @@ export async function POST(request: Request) {
     const projectMeta = session.projectMeta || {};
     const requestedScriptId = toNonEmptyString(body.scriptId);
     const requestedProjectId = toNonEmptyString(body.projectId);
+    const script = await db.getScript(sessionId, requestedScriptId || null);
     let projectLink = await findLinkBySessionId(userId, sessionId);
 
     if (!projectLink) {
@@ -54,6 +59,7 @@ export async function POST(request: Request) {
       projectId: requestedProjectId,
       projectMeta,
       projectLink,
+      creativeSpec: findClickatronCreativeSpecInBlocks(script?.blocks),
       title: toNonEmptyString(body.title),
       aspectRatio: toNonEmptyString(body.aspectRatio),
       scenesCount: typeof body.scenesCount === "number" ? body.scenesCount : undefined,

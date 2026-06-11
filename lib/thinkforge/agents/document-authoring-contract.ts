@@ -50,6 +50,14 @@ You are authoring a finished document, not brainstorming. Every block must add n
    - These replace inline metadata like "Emotional Target: ..." or "Instrumentation: ..."
    - The block content holds the actual note text
 
+5. **Hidden Export Metadata** (for service handoffs):
+   - exportMeta is never visible document content
+   - Only emit exportMeta.clickatron when a downstream prompt explicitly requests post, thread, blog header, ad creative, or carousel handoff data
+   - Keep important post/carousel words in renderPlan.textLayers so Clickatron can make editable text layers
+   - Use renderPlan.imagePrompt for visual scene, composition, objects, metaphor, style, and mood, not for critical readable text
+   - If user visual preference is missing, set validation.status to "needs_user_input" and list the missing question
+   - Do not invent logo placement, brand voice, or brand claims; use brand constraints only when supplied
+
 ### Style Preferences (NON-BLOCKING)
 
 - Paragraphs should remain visually scannable; keep them short when possible.
