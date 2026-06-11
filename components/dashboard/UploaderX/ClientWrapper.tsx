@@ -328,7 +328,7 @@ export function UploaderXClientWrapper() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [user]);
 
   // ─── Fetch recent videos ─────────────────────────────────────
   useEffect(() => {
@@ -405,12 +405,34 @@ export function UploaderXClientWrapper() {
   }, [user, openUserProfile, toast, createExternalAccountWithVerification]);
 
   const RESET_ENDPOINTS: Record<string, string> = {
+    youtube: "clerk",
     instagram: "/api/services/uploaderx/instagram/reset",
     facebook: "/api/services/uploaderx/facebook/reset",
     twitter: "/api/services/uploaderx/twitter/reset",
+    linkedin: "/api/services/uploaderx/linkedin/reset",
   };
 
   const handleDisconnect = useCallback(async (platform: PlatformStatus) => {
+    if (platform.key === "youtube") {
+      try {
+        const googleAccount = user?.externalAccounts.find(
+          (acc) => acc.provider === "google" || (acc.provider as string) === "oauth_google"
+        );
+        if (googleAccount) {
+          await googleAccount.destroy();
+          toast({ title: "YouTube disconnected", description: "Your Google account has been disconnected." });
+          setPlatformStatuses((prev) => prev.map((p) => p.key === "youtube" ? { ...p, connected: false, userName: undefined } : p));
+        } else {
+          toast({ title: "YouTube disconnected", description: "No connected Google account found." });
+          setPlatformStatuses((prev) => prev.map((p) => p.key === "youtube" ? { ...p, connected: false, userName: undefined } : p));
+        }
+      } catch (err) {
+        console.error("Failed to disconnect YouTube:", err);
+        toast({ title: "Disconnect failed", description: "Could not disconnect Google account. Try from your account settings.", variant: "destructive" });
+      }
+      return;
+    }
+
     const resetUrl = RESET_ENDPOINTS[platform.key];
     if (!resetUrl) return;
     try {
@@ -422,7 +444,7 @@ export function UploaderXClientWrapper() {
     } catch {
       toast({ title: "Disconnect failed", description: "Please try again.", variant: "destructive" });
     }
-  }, [toast]);
+  }, [toast, user]);
 
   const connectedCount = platformStatuses.filter(p => p.connected).length;
 
