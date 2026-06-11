@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import type { ChangeEvent, FormEvent } from "react";
 import {
   Archive,
   Check,
@@ -17,6 +17,10 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import {
+  extractBrandVaultUploadEvidence,
+  type BrandVaultUploadSourceEvidence,
+} from "@/lib/frontend/services/brand-vault-upload-extraction";
 
 type JobStatus = "queued" | "running" | "needs_review" | "accepted" | "rejected" | "failed";
 type ReviewStatus = "idle" | "creating" | "reloading" | "reviewing";
@@ -30,6 +34,11 @@ interface BrandVaultSourceInput {
   name?: string;
   note?: string;
   platform?: "website";
+  mimeType?: string;
+  sizeBytes?: number;
+  text?: string;
+  dominantColors?: string[];
+  assetRole?: BrandVaultUploadSourceEvidence["assetRole"];
 }
 
 interface BrandRefineryJob {
@@ -180,7 +189,10 @@ export function BrandVaultReview() {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [socialLinksText, setSocialLinksText] = useState("");
-  const [uploadNotes, setUploadNotes] = useState("brand-book.pdf\nlogo-pack.zip\nbest-performing-posts.csv");
+  const [uploadNotes, setUploadNotes] = useState("");
+  const [uploadedSources, setUploadedSources] = useState<BrandVaultUploadSourceEvidence[]>([]);
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "extracting">("idle");
+  const [uploadWarnings, setUploadWarnings] = useState<string[]>([]);
   const [lookupId, setLookupId] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [job, setJob] = useState<BrandRefineryJob | null>(null);
@@ -201,14 +213,14 @@ export function BrandVaultReview() {
     [record, candidates, selectedSignal],
   );
   const sources = useMemo(
-    () => createSources(job, candidates, reviewPayload, socialLinksText, uploadNotes),
-    [job, candidates, reviewPayload, socialLinksText, uploadNotes],
+    () => createSources(job, candidates, reviewPayload, socialLinksText, uploadNotes, uploadedSources),
+    [job, candidates, reviewPayload, socialLinksText, uploadNotes, uploadedSources],
   );
   const visibleSignals = useMemo(() => {
     if (activeGroup === "warnings") return signals.filter((signal) => signal.fallbackReason || signal.confidence < 0.55);
     return signals.filter((signal) => signal.group === activeGroup);
   }, [activeGroup, signals]);
-  const sourceWarnings = [...(job?.warnings ?? []), ...(reviewPayload?.warnings ?? [])].filter(Boolean);
+  const sourceWarnings = [...uploadWarnings, ...(job?.warnings ?? []), ...(reviewPayload?.warnings ?? [])].filter(Boolean);
 
   async function createDraft(event: FormEvent) {
     event.preventDefault();
@@ -227,7 +239,7 @@ export function BrandVaultReview() {
         websiteUrl: cleanUrl,
         companyName: companyName.trim() || undefined,
         socialLinks,
-        sourceEvidence: createSourceEvidence(uploadNotes, cleanUrl),
+        sourceEvidence: createSourceEvidence(uploadNotes, cleanUrl, uploadedSources),
       };
       const result = await postJson<ApiSuccess | ApiFailure>("/api/brand-vault/refinery/jobs", body);
       if (!result.ok) throw new Error(result.error?.message ?? "Could not create a draft.");
@@ -235,6 +247,33 @@ export function BrandVaultReview() {
       setLookupId(result.job?.id ?? result.reviewPayload?.jobId ?? "");
       setMessage("Draft ready for review.");
     });
+  }
+
+  async function handleUploadFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    if (files.length === 0) return;
+
+    setUploadStatus("extracting");
+    setError(null);
+    setMessage(null);
+    try {
+      const results = await Promise.all(files.slice(0, 24).map((file) => extractBrandVaultUploadEvidence(file)));
+      const nextSources = results.map((result) => result.source);
+      const warnings = results.flatMap((result) => result.warnings);
+      setUploadedSources((current) => mergeUploadedSources(current, nextSources));
+      setUploadWarnings((current) => uniqueStrings([...current, ...warnings]).slice(-8));
+      setMessage(`${nextSources.length} brand file${nextSources.length === 1 ? "" : "s"} staged.`);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Could not read selected brand files.");
+    } finally {
+      setUploadStatus("idle");
+    }
+  }
+
+  function removeUploadedSource(name: string) {
+    setUploadedSources((current) => current.filter((source) => source.name !== name));
+    setUploadWarnings((current) => current.filter((warning) => !warning.startsWith(name)));
   }
 
   async function reloadJob() {
@@ -363,9 +402,42 @@ export function BrandVaultReview() {
                   <textarea value={socialLinksText} onChange={(event) => setSocialLinksText(event.target.value)} placeholder="One link per line" />
                 </label>
                 <label>
-                  <span className="bv-mono">Docs and media</span>
+                  <span className="bv-mono">Manual source names</span>
                   <textarea value={uploadNotes} onChange={(event) => setUploadNotes(event.target.value)} />
                 </label>
+                <label>
+                  <span className="bv-mono">Brand files</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.markdown,.csv,.json,.html,.htm,.css,.svg,image/*"
+                    onChange={handleUploadFiles}
+                    disabled={status !== "idle" || uploadStatus === "extracting"}
+                  />
+                </label>
+                {uploadedSources.length > 0 && (
+                  <div className="bv-upload-list">
+                    {uploadedSources.map((source) => (
+                      <div className="bv-upload-item" key={`${source.name}_${source.sizeBytes ?? 0}`}>
+                        <FileText size={14} />
+                        <span>
+                          <strong>{source.name}</strong>
+                          <em>
+                            {source.assetRole ?? "other"} / {source.text ? "text" : "metadata"} / {source.dominantColors?.length ?? 0} colors
+                          </em>
+                        </span>
+                        <button type="button" onClick={() => removeUploadedSource(source.name)} aria-label={`Remove ${source.name}`}>
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {uploadWarnings.length > 0 && (
+                  <div className="bv-upload-warnings">
+                    {uploadWarnings.map((warning) => <span key={warning}>{warning}</span>)}
+                  </div>
+                )}
                 <button className="bv-primary" type="submit" disabled={status !== "idle"}>
                   <Search size={14} /> Start scan
                 </button>
@@ -518,7 +590,7 @@ export function BrandVaultReview() {
                   <FolderOpen size={14} /> Docs
                 </button>
               </div>
-              {kbMode === "graph" ? <KbGraph selectedSignal={selectedSignal} /> : <KbDocs uploadNotes={uploadNotes} record={record} />}
+              {kbMode === "graph" ? <KbGraph selectedSignal={selectedSignal} /> : <KbDocs uploadNotes={uploadNotes} uploadedSources={uploadedSources} record={record} />}
             </section>
 
             <section className="bv-panel bv-panel-inset">
@@ -617,12 +689,26 @@ function KbGraph({ selectedSignal }: { selectedSignal: SignalRow | null }) {
   );
 }
 
-function KbDocs({ uploadNotes, record }: { uploadNotes: string; record: BrandSignalProfileRecord | null }) {
-  const docs = uploadNotes.split(/\n+/).map((item) => item.trim()).filter(Boolean).slice(0, 4);
+function KbDocs({
+  uploadNotes,
+  uploadedSources,
+  record,
+}: {
+  uploadNotes: string;
+  uploadedSources: BrandVaultUploadSourceEvidence[];
+  record: BrandSignalProfileRecord | null;
+}) {
+  const docs = [
+    ...uploadedSources.map((source) => ({
+      name: source.name,
+      status: source.text || source.dominantColors?.length ? "extracted" : "staged",
+    })),
+    ...parseUploadNotes(uploadNotes).map((name) => ({ name, status: "staged" })),
+  ].slice(0, 4);
   return (
     <div className="bv-docs">
-      {(docs.length ? docs : ["Brand book.pdf", "Approved phrases.doc", "Logo placement.png"]).map((doc) => (
-        <div className="bv-doc" key={doc}><FileText size={14} /><span>{doc}</span><span className="bv-mono">staged</span></div>
+      {(docs.length ? docs : [{ name: "Brand book.pdf", status: "staged" }, { name: "Approved phrases.doc", status: "staged" }, { name: "Logo placement.png", status: "staged" }]).map((doc) => (
+        <div className="bv-doc" key={`${doc.name}_${doc.status}`}><FileText size={14} /><span>{doc.name}</span><span className="bv-mono">{doc.status}</span></div>
       ))}
       {record && <div className="bv-doc"><FileText size={14} /><span>Profile snapshot</span><span className="bv-mono">{record.status}</span></div>}
     </div>
@@ -656,8 +742,13 @@ function parseSocialLinks(value: string): string[] {
     .slice(0, 10);
 }
 
-function createSourceEvidence(uploadNotes: string, websiteUrl: string): BrandVaultSourceInput[] {
-  const uploadSources: BrandVaultSourceInput[] = parseUploadNotes(uploadNotes).map((name) => ({
+function createSourceEvidence(
+  uploadNotes: string,
+  websiteUrl: string,
+  uploadedSources: BrandVaultUploadSourceEvidence[],
+): BrandVaultSourceInput[] {
+  const uploadedNames = new Set(uploadedSources.map((source) => source.name.toLowerCase()));
+  const uploadSources: BrandVaultSourceInput[] = parseUploadNotes(uploadNotes).filter((name) => !uploadedNames.has(name.toLowerCase())).map((name) => ({
     kind: inferUploadKind(name),
     name,
     note: "User-supplied brand source for review.",
@@ -670,6 +761,7 @@ function createSourceEvidence(uploadNotes: string, websiteUrl: string): BrandVau
   };
   return [
     crawlSeed,
+    ...uploadedSources,
     ...uploadSources,
   ].slice(0, 30);
 }
@@ -684,6 +776,21 @@ function parseUploadNotes(value: string): string[] {
 
 function inferUploadKind(name: string): BrandVaultSourceKind {
   return /\.(pdf|docx?|pptx?|txt|md)$/i.test(name) ? "uploaded_guideline" : "uploaded_asset";
+}
+
+function mergeUploadedSources(
+  current: BrandVaultUploadSourceEvidence[],
+  incoming: BrandVaultUploadSourceEvidence[],
+): BrandVaultUploadSourceEvidence[] {
+  const byKey = new Map<string, BrandVaultUploadSourceEvidence>();
+  for (const source of [...current, ...incoming]) {
+    byKey.set(`${source.name.toLowerCase()}_${source.sizeBytes ?? 0}`, source);
+  }
+  return [...byKey.values()].slice(0, 24);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function collectSignals(profile: unknown): SignalRow[] {
@@ -760,9 +867,13 @@ function createSources(
   reviewPayload: ReviewPayload | null,
   socialLinksText: string,
   uploadNotes: string,
+  uploadedSources: BrandVaultUploadSourceEvidence[],
 ): SourceCard[] {
   const socialCount = job?.inputs.socialLinks.length ?? parseSocialLinks(socialLinksText).length;
-  const uploadCount = uploadNotes.split(/\n+/).map((item) => item.trim()).filter(Boolean).length;
+  const uploadCount =
+    job?.inputs.sourceEvidence?.filter((source) => source.kind === "uploaded_guideline" || source.kind === "uploaded_asset").length ??
+    uniqueStrings([...uploadedSources.map((source) => source.name), ...parseUploadNotes(uploadNotes)]).length;
+  const uploadCandidateCount = candidates.filter((item) => item.sourceType === "uploaded_guideline" || item.sourceType === "uploaded_asset").length;
   const websiteCount = candidates.filter((item) => item.sourceType.startsWith("website") || item.sourceType === "css" || item.sourceType === "json_ld" || item.sourceType === "logo_asset").length;
   const warningCount = (job?.warnings.length ?? 0) + (reviewPayload?.warnings.length ?? 0);
 
@@ -791,10 +902,10 @@ function createSources(
       id: "uploads",
       label: "Uploads",
       detail: "PDFs, docs, slides, screenshots, logos, and brand guideline files.",
-      status: uploadCount > 0 ? "partial" : "pending",
-      countLabel: `${uploadCount} files staged`,
-      progress: uploadCount > 0 ? 36 : 12,
-      tone: "warn",
+      status: uploadCandidateCount > 0 ? "processed" : uploadCount > 0 ? "partial" : "pending",
+      countLabel: uploadCandidateCount > 0 ? `${uploadCandidateCount} candidates` : `${uploadCount} files staged`,
+      progress: uploadCandidateCount > 0 ? 72 : uploadCount > 0 ? 42 : 12,
+      tone: uploadCandidateCount > 0 ? "good" : "warn",
       Icon: Upload,
     },
     {
@@ -1015,6 +1126,11 @@ const styles = `
     display: grid;
     gap: 8px;
   }
+  .bv-upload-list,
+  .bv-upload-warnings {
+    display: grid;
+    gap: 8px;
+  }
   .bv-app input,
   .bv-app textarea {
     width: 100%;
@@ -1028,16 +1144,60 @@ const styles = `
     min-height: 96px;
     resize: vertical;
   }
+  .bv-app input[type="file"] {
+    min-height: 40px;
+    color: ${C.muted};
+  }
   .bv-source-row,
   .bv-source-card,
   .bv-evidence,
   .bv-metric,
   .bv-doc,
+  .bv-upload-item,
   .bv-empty {
     border: 1px solid ${C.border};
     border-radius: 7px;
     background: ${C.deeper};
     padding: 12px;
+  }
+  .bv-upload-item {
+    min-height: 48px;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) 32px;
+    align-items: center;
+    gap: 10px;
+  }
+  .bv-upload-item strong,
+  .bv-upload-item em {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bv-upload-item strong {
+    font-size: 12px;
+    font-weight: 500;
+    color: ${C.soft};
+  }
+  .bv-upload-item em {
+    margin-top: 3px;
+    font-style: normal;
+    font-size: 10px;
+    color: ${C.dim};
+  }
+  .bv-upload-item button {
+    width: 32px;
+    min-height: 32px;
+    padding: 0;
+  }
+  .bv-upload-warnings span {
+    border: 1px solid #D4A65230;
+    border-radius: 7px;
+    padding: 8px 10px;
+    color: ${C.gold};
+    background: #D4A65210;
+    font-size: 11px;
+    line-height: 1.35;
   }
   .bv-source-row {
     display: grid;
