@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   ExportStep,
   SubjectRef,
@@ -11,6 +11,17 @@ import {
   NewSubjectFormState,
 } from "../types";
 import useClickatronStore from "@/stores/useCanvasStore";
+import {
+  buildThinkToClickContext,
+  findClickatronCreativeSpecInBlocks,
+  type ThinkToClickContext,
+} from "@/lib/thinkforge/clickatron-context";
+import {
+  buildThinkToClickHandoffState,
+  type ThinkToClickHandoffState,
+  type ThinkToClickUserVisualChoices,
+} from "@/lib/thinkforge/clickatron-handoff-state";
+import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 // ─── Hook input ──────────────────────────────────────────────────
 export interface UseExportPipelineInput {
   blocks: any[];
@@ -84,6 +95,9 @@ export interface UseExportPipelineReturn {
   videoProgress: { done: number; total: number };
   videosGenerated: boolean;
   clickatronCreating: boolean;
+  clickatronHandoffState: ThinkToClickHandoffState | null;
+  clickatronVisualChoices: ThinkToClickUserVisualChoices;
+  setClickatronVisualChoice: (key: keyof ThinkToClickUserVisualChoices, value: string) => void;
 
   // ── Reference image state ──
   refSetId: string;
@@ -209,6 +223,13 @@ export function useExportPipeline(
   const [videoProgress, setVideoProgress] = useState({ done: 0, total: 0 });
   const [videosGenerated, setVideosGenerated] = useState(false);
   const [clickatronCreating, setClickatronCreating] = useState(false);
+  const [clickatronVisualChoices, setClickatronVisualChoices] = useState<ThinkToClickUserVisualChoices>({
+    kind: "single_post_visual",
+    platform: "linkedin",
+    aspectRatio: "4:5",
+    visualMode: "text_forward_graphic",
+    textDensity: "medium",
+  });
   const createClickatronSession = useClickatronStore((state) => state.createSession);
 
   // ── Reference image state ──────────────────────────────────────
@@ -253,6 +274,38 @@ export function useExportPipeline(
       new Notification(ntitle, { body, icon: "/favicon.ico" });
     }
   };
+
+  const setClickatronVisualChoice = useCallback((key: keyof ThinkToClickUserVisualChoices, value: string) => {
+    setClickatronVisualChoices((prev) => ({
+      ...prev,
+      [key]: value.trim() || undefined,
+    }));
+  }, []);
+
+  const clickatronHandoffState = useMemo<ThinkToClickHandoffState | null>(() => {
+    if (!sessionId) return null;
+
+    try {
+      const creativeSpec = findClickatronCreativeSpecInBlocks(blocks as ThinkForgeBlock[]);
+      const context = buildThinkToClickContext({
+        sessionId,
+        scriptId,
+        projectId: projectId || undefined,
+        creativeSpec,
+        title: title || undefined,
+        aspectRatio: clickatronVisualChoices.aspectRatio || aspectRatio,
+        scenesCount: scenes.length,
+      });
+
+      return buildThinkToClickHandoffState({
+        context,
+        blocks: blocks as ThinkForgeBlock[],
+        userVisualChoices: clickatronVisualChoices,
+      });
+    } catch {
+      return null;
+    }
+  }, [aspectRatio, blocks, clickatronVisualChoices, projectId, scenes.length, scriptId, sessionId, title]);
 
   // ─── Request notification permission on mount ──────────────────
   useEffect(() => {
@@ -635,51 +688,55 @@ export function useExportPipeline(
   // Phase 2: Generate storyboard images -> Pause for review
   // ═══════════════════════════════════════════════════════════════
 
-  const buildClickatronPrompt = (): string => {
-    const sceneLines = scenes
-      .slice(0, 5)
-      .map((scene: any, index: number) => {
-        const onScreenText = Array.isArray(scene.editDirections?.onScreenText)
-          ? scene.editDirections.onScreenText.filter(Boolean).join(", ")
-          : "";
-        const parts = [
-          scene.title,
-          scene.narration,
-          scene.visualDescription,
-          onScreenText ? `On-screen text: ${onScreenText}` : "",
-        ].filter((part) => typeof part === "string" && part.trim().length > 0);
-
-        return parts.length > 0 ? `Scene ${index + 1}: ${parts.join(" | ")}` : "";
-      })
-      .filter(Boolean);
-
-    return [
-      `Design a click-focused thumbnail for "${title || "this ThinkForge script"}".`,
-      plainText?.trim() ? `Script context:\n${plainText.trim()}` : "",
-      sceneLines.length > 0 ? `Visual beats:\n${sceneLines.join("\n")}` : "",
-      "Use the attached source metadata for brand context. Do not invent logos or brand assets.",
-    ]
-      .filter(Boolean)
-      .join("\n\n")
-      .slice(0, 4000);
-  };
-
   const appendContextField = (formData: FormData, key: string, value: unknown) => {
     if (typeof value === "string" && value.trim().length > 0) {
       formData.append(key, value.trim());
     }
   };
 
+  const buildClickatronPromptFromHandoff = (handoffState: ThinkToClickHandoffState): string => {
+    const payload = handoffState.payloadPreview;
+    if (!payload?.prompt.trim()) {
+      throw new Error("Clickatron handoff is missing a generated visual prompt.");
+    }
+
+    const choices = handoffState.display.visualChoices;
+    const choiceLines = [
+      choices?.kind ? `Output type: ${choices.kind}` : "",
+      choices?.platform ? `Platform: ${choices.platform}` : "",
+      choices?.aspectRatio ? `Aspect ratio: ${choices.aspectRatio}` : "",
+      choices?.visualMode ? `Visual mode: ${choices.visualMode}` : "",
+      choices?.textDensity ? `Text density: ${choices.textDensity}` : "",
+      choices?.vibe ? `Vibe: ${choices.vibe}` : "",
+      choices?.imageStyle ? `Image style: ${choices.imageStyle}` : "",
+      choices?.notes ? `User notes: ${choices.notes}` : "",
+    ].filter(Boolean);
+
+    return [
+      payload.prompt,
+      choiceLines.length > 0 ? `User visual choices:\n${choiceLines.join("\n")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 4000);
+  };
+
+  const buildClickatronMetadataFromHandoff = (handoffState: ThinkToClickHandoffState): Record<string, unknown> => ({
+    ...(handoffState.payloadPreview?.metadata || {}),
+    clickatronHandoff: {
+      status: handoffState.status,
+      visualChoices: handoffState.display.visualChoices,
+      requiredUserInput: handoffState.requiredUserInput,
+      sourceBlockIds: handoffState.debug.sourceBlockIds,
+      contentHash: handoffState.debug.contentHash,
+      contentCardId: handoffState.debug.contentCardId,
+      campaignId: handoffState.debug.campaignId,
+    },
+  });
+
   const handleCreateClickatronSession = async () => {
     if (!sessionId) {
       const message = "Cannot start Clickatron: ThinkForge session context is missing.";
-      setError(message);
-      throw new Error(message);
-    }
-
-    const prompt = buildClickatronPrompt();
-    if (!prompt.trim()) {
-      const message = "Cannot start Clickatron: no script or scene context is available.";
       setError(message);
       throw new Error(message);
     }
@@ -696,7 +753,7 @@ export function useExportPipeline(
           scriptId,
           projectId: projectId || undefined,
           title: title || undefined,
-          aspectRatio,
+          aspectRatio: clickatronVisualChoices.aspectRatio || aspectRatio,
           scenesCount: scenes.length,
         }),
       });
@@ -705,19 +762,30 @@ export function useExportPipeline(
         throw new Error(contextData.error || `Failed to resolve ThinkForge context (${contextRes.status})`);
       }
 
-      const context = contextData.context as Record<string, unknown>;
-      const formData = new FormData();
-      formData.append("prompt", prompt);
-      formData.append("aspectRatio", aspectRatio);
-      appendContextField(formData, "brandId", context.brandId);
-      appendContextField(formData, "projectId", context.projectId);
-      appendContextField(formData, "universalId", context.universalId);
-      appendContextField(formData, "sourceService", context.sourceService);
-      appendContextField(formData, "sourceSessionId", context.sourceSessionId);
-      appendContextField(formData, "sourceScriptId", context.sourceScriptId);
-      if (context.metadata && typeof context.metadata === "object") {
-        formData.append("metadata", JSON.stringify(context.metadata));
+      const context = contextData.context as ThinkToClickContext;
+      const handoffState = buildThinkToClickHandoffState({
+        context,
+        blocks: blocks as ThinkForgeBlock[],
+        userVisualChoices: clickatronVisualChoices,
+      });
+      if (!handoffState.canSendToClickatron || !handoffState.payloadPreview) {
+        const needsInput = handoffState.requiredUserInput.length > 0
+          ? ` Needs: ${handoffState.requiredUserInput.join(", ")}.`
+          : "";
+        throw new Error(`${handoffState.display.statusLabel}: ${handoffState.display.readinessCopy}${needsInput}`);
       }
+
+      const payload = handoffState.payloadPreview;
+      const formData = new FormData();
+      formData.append("prompt", buildClickatronPromptFromHandoff(handoffState));
+      formData.append("aspectRatio", handoffState.display.visualChoices?.aspectRatio || payload.aspectRatio);
+      appendContextField(formData, "brandId", payload.brandId);
+      appendContextField(formData, "projectId", payload.projectId);
+      appendContextField(formData, "universalId", payload.universalId);
+      appendContextField(formData, "sourceService", payload.sourceService);
+      appendContextField(formData, "sourceSessionId", payload.sourceSessionId);
+      appendContextField(formData, "sourceScriptId", payload.sourceScriptId);
+      formData.append("metadata", JSON.stringify(buildClickatronMetadataFromHandoff(handoffState)));
 
       const result = await createClickatronSession(formData);
       if (!result?.sessionId) {
@@ -1701,6 +1769,9 @@ export function useExportPipeline(
     videoProgress,
     videosGenerated,
     clickatronCreating,
+    clickatronHandoffState,
+    clickatronVisualChoices,
+    setClickatronVisualChoice,
 
     // Reference image state
     refSetId,
