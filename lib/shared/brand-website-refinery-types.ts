@@ -68,6 +68,7 @@ export interface BrandVaultSourceInput {
   text?: string;
   dominantColors?: string[];
   assetRole?: BrandVaultUploadedAssetRole;
+  pinned?: boolean;
 }
 
 export interface BrandEvidenceCandidate {

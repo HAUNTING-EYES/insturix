@@ -124,10 +124,28 @@ describe('Brand Vault refinery API boundary', () => {
       assetRole: 'brand_book',
     });
     expect(created.body.job.inputs.sourceEvidence?.[1]?.crawl).toEqual({ maxPages: 6, maxDepth: 2, excludePaths: ['/privacy'] });
-    expect(created.body.job.warnings).toContain('7 additional Brand Vault sources staged for enrichment and evidence review.');
+    expect(created.body.job.warnings).toContain('8 additional Brand Vault sources staged for enrichment and evidence review.');
     expect(created.body.job.warnings).toContain('Crawled 6 additional brand pages for draft evidence.');
     expect(created.body.candidates.map((candidate) => candidate.sourceType)).toEqual(
       expect.arrayContaining(['social_profile', 'uploaded_guideline', 'crawl_seed', 'legacy_brand_intelligence']),
+    );
+    expect(created.body.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'socialLinks.0.socialIdentity',
+          normalizedValue: expect.objectContaining({
+            platform: 'x',
+            handle: 'vaultline',
+            accountType: 'profile',
+            capability: expect.objectContaining({
+              liveFetchStatus: 'adapter_required',
+              connectedAccountStatus: 'scope_audit_required',
+              publicFallbackStatus: 'review_only',
+            }),
+          }),
+        }),
+      ]),
     );
     expect(created.body.candidates.some((candidate) => candidate.extractorId === 'brand-vault-upload-evidence.v1')).toBe(true);
     expect(created.body.candidates.some((candidate) => candidate.sourceField === 'crawl.page')).toBe(true);
@@ -146,6 +164,78 @@ describe('Brand Vault refinery API boundary', () => {
     expect(loaded.body.reviewPayload?.reviewRequired).toBe(true);
     expect(loaded.body.candidates).toHaveLength(created.body.candidates.length);
     expect(loaded.body.job.inputs.sourceEvidence).toHaveLength(3);
+  });
+
+  it('turns user-selected pinned social post text into reviewable Brand Vault evidence candidates', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          sourceEvidence: [
+            {
+              kind: 'social_post',
+              url: 'https://www.linkedin.com/posts/vaultline_brand-systems-for-agencies-activity-123',
+              platform: 'linkedin',
+              pinned: true,
+              text: [
+                'Stop losing brand consistency between strategy and delivery.',
+                'Vaultline gives agency teams one reviewed brand system for every client.',
+                'Trusted by 80 creative teams. Book a demo this week.',
+                '#BrandOps',
+              ].join('\n'),
+            },
+          ],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    expect(created.body.job.inputs.sourceEvidence?.[0]).toMatchObject({
+      kind: 'social_post',
+      platform: 'linkedin',
+      pinned: true,
+    });
+
+    const socialCandidates = created.body.candidates.filter(
+      (candidate) => candidate.extractorId === 'brand-vault-social-evidence.v1',
+    );
+    expect(socialCandidates.map((candidate) => candidate.sourceField)).toEqual(
+      expect.arrayContaining([
+        'sourceEvidence.0.social_post.socialIdentity',
+        'sourceEvidence.0.social_post.text.voicePhrases',
+        'sourceEvidence.0.social_post.text.hookArchetypes',
+        'sourceEvidence.0.social_post.text.proofStyle',
+        'sourceEvidence.0.social_post.text.ctaDirectness',
+      ]),
+    );
+    expect(socialCandidates.find((candidate) => candidate.sourceField.endsWith('.socialIdentity'))?.normalizedValue).toMatchObject({
+      platform: 'linkedin',
+      accountType: 'post',
+      pinned: true,
+      capability: {
+        evidenceAccess: 'manual_post_text',
+        liveFetchStatus: 'adapter_required',
+        connectedAccountStatus: 'scope_audit_required',
+        publicFallbackStatus: 'review_only',
+        pinnedContentStatus: 'manual_selected_pinned',
+      },
+    });
+    expect(socialCandidates.find((candidate) => candidate.sourceField.endsWith('.text.voicePhrases'))?.normalizedValue).toEqual(
+      expect.arrayContaining(['Stop losing brand consistency between strategy and delivery', '#BrandOps']),
+    );
+    expect(socialCandidates.find((candidate) => candidate.sourceField.endsWith('.text.proofStyle'))?.normalizedValue).toBe('community');
+    expect(socialCandidates.find((candidate) => candidate.sourceField.endsWith('.text.ctaDirectness'))?.normalizedValue).toBeGreaterThan(0.5);
   });
 
   it('does not leak jobs or profiles across users', async () => {
@@ -308,6 +398,19 @@ describe('Brand Vault refinery API boundary', () => {
     );
     expect(badUploadMetadata.status).toBe(400);
     expect(badUploadMetadata.body.ok).toBe(false);
+
+    const badSocialPinnedFlag = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          sourceEvidence: [{ kind: 'social_post', text: 'Pinned launch post.', pinned: 'yes' }],
+        },
+      },
+      { store },
+    );
+    expect(badSocialPinnedFlag.status).toBe(400);
+    expect(badSocialPinnedFlag.body.ok).toBe(false);
 
     const created = await createBrandVaultRefineryJobFromWebsite(
       { userId: 'user_vault', body: { websiteUrl: 'vaultline.example' } },

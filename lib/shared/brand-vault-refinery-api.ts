@@ -487,11 +487,12 @@ function parseSourceEvidenceEntry(value: unknown): BrandVaultSourceInput | null 
   const sizeBytes = parseBoundedInteger(value.sizeBytes, 0, 250_000_000);
   const dominantColors = parseColorList(value.dominantColors);
   const assetRole = parseAssetRole(value.assetRole);
+  const pinned = parseOptionalBoolean(value.pinned);
   if (crawl === null) return null;
-  if (mimeType === null || text === null || sizeBytes === null || dominantColors === null || assetRole === null) return null;
+  if (mimeType === null || text === null || sizeBytes === null || dominantColors === null || assetRole === null || pinned === null) return null;
   if (!url && !name && !note && !text && !dominantColors?.length) return null;
 
-  return { kind, url, name, platform, note, crawl, mimeType, sizeBytes, text, dominantColors, assetRole };
+  return { kind, url, name, platform, note, crawl, mimeType, sizeBytes, text, dominantColors, assetRole, pinned };
 }
 
 function cleanString(value: unknown): string {
@@ -563,6 +564,11 @@ function parseAssetRole(value: unknown): BrandVaultUploadedAssetRole | undefined
   const role = value.trim() as BrandVaultUploadedAssetRole;
   if (!role) return undefined;
   return UPLOADED_ASSET_ROLES.has(role) ? role : null;
+}
+
+function parseOptionalBoolean(value: unknown): boolean | undefined | null {
+  if (value === undefined) return undefined;
+  return typeof value === 'boolean' ? value : null;
 }
 
 function statusForDraftFailure(result: Extract<BrandVaultWebsiteDraftJobResult, { ok: false }>): number {

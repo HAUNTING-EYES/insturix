@@ -12,6 +12,7 @@ import {
   fetchWebsiteBrandSnapshot,
   normalizeBrandWebsiteUrl,
 } from './brand-website-refinery';
+import { createBrandVaultSocialEvidenceCandidates } from './brand-vault-social-evidence';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
@@ -717,6 +718,21 @@ function createStagedSourceCandidates(args: {
         observedAt: args.observedAt,
       }),
     );
+    candidates.push(
+      ...createBrandVaultSocialEvidenceCandidates({
+        brandId: args.input.brandId,
+        jobId: args.jobId,
+        source: {
+          kind: 'social_profile',
+          url,
+          platform: inferSourcePlatform(url),
+          note: 'Social profile link staged for voice and proof-pattern extraction.',
+        },
+        sourceField: `socialLinks.${index}`,
+        startIndex: candidates.length,
+        observedAt: args.observedAt,
+      }),
+    );
   }
   for (const [index, source] of args.sourceEvidence.entries()) {
     const sourceField = `sourceEvidence.${index}.${source.kind}`;
@@ -733,6 +749,16 @@ function createStagedSourceCandidates(args: {
     candidates.push(
       ...createUploadedSourceCandidates({
         input: args.input,
+        jobId: args.jobId,
+        source,
+        sourceField,
+        startIndex: candidates.length,
+        observedAt: args.observedAt,
+      }),
+    );
+    candidates.push(
+      ...createBrandVaultSocialEvidenceCandidates({
+        brandId: args.input.brandId,
         jobId: args.jobId,
         source,
         sourceField,
@@ -764,6 +790,7 @@ function createStagedSourceCandidate(args: {
     textLength: args.source.text?.length,
     dominantColors: args.source.dominantColors,
     assetRole: args.source.assetRole,
+    pinned: args.source.pinned,
     status: 'staged',
   };
   const sourceId = idPart(`${args.source.kind}_${label}`, `source_${args.index + 1}`);
