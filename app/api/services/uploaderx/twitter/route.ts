@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { gcsPath, videoUuid, title, description, replySettings } = body;
+    const { gcsPath, videoUuid, title, description, replySettings, postType } = body;
     const supportedReplySettings = new Set(["following", "mentionedUsers", "subscribers", "verified"]);
     if (
       replySettings !== undefined &&
@@ -342,6 +342,7 @@ export async function POST(req: Request) {
             "metadata.twitter.tweetUrl": tweetUrl,
             "metadata.twitter.lastUploadedAt": new Date(),
             "metadata.twitter.processingState": processingState,
+            "metadata.twitter.postType": postType || "video",
           },
         }
       );
@@ -364,6 +365,7 @@ export async function POST(req: Request) {
       tweetId,
       mediaId: mediaId || null,
       accountUsername: twitterTokens.userName,
+      postType: postType || "video",
     });
   } catch (error: any) {
     console.error("Twitter upload error:", error);

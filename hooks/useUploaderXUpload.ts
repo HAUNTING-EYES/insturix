@@ -373,7 +373,8 @@ export function useUploaderXUpload() {
     privacyStatus?: string,
     categoryId?: string,
     publishAt?: string,
-    thumbnailPublicUrl?: string
+    thumbnailPublicUrl?: string,
+    postType?: string
   ): Promise<UploaderXPublishReceipt> => {
     try {
       const payload: YouTubePublishPayload = {
@@ -386,6 +387,7 @@ export function useUploaderXUpload() {
         categoryId,
         publishAt,
         thumbnailPublicUrl,
+        postType,
       };
 
       const res = await fetch("/api/services/uploaderx/youtube", {
@@ -460,7 +462,8 @@ export function useUploaderXUpload() {
     gcsPath: string,
     title?: string,
     description?: string,
-    pageId?: string
+    pageId?: string,
+    postType?: string
   ): Promise<UploaderXPublishReceipt> => {
     try {
       const payload: FacebookPublishPayload = {
@@ -469,6 +472,7 @@ export function useUploaderXUpload() {
         title,
         description,
         pageId,
+        postType,
       };
 
       const res = await fetch("/api/services/uploaderx/facebook", {
@@ -500,7 +504,8 @@ export function useUploaderXUpload() {
     gcsPath: string,
     title?: string,
     description?: string,
-    accountId?: string
+    accountId?: string,
+    postType?: string
   ): Promise<UploaderXPublishReceipt> => {
     try {
       const payload: InstagramPublishPayload = {
@@ -509,6 +514,7 @@ export function useUploaderXUpload() {
         title,
         description,
         accountId,
+        postType,
       };
 
       const res = await fetch("/api/services/uploaderx/instagram", {
@@ -541,6 +547,7 @@ export function useUploaderXUpload() {
     title?: string,
     description?: string,
     replySettings?: TwitterPublishPayload["replySettings"],
+    postType?: string
   ): Promise<UploaderXPublishReceipt> => {
     try {
       const payload: TwitterPublishPayload = {
@@ -549,6 +556,7 @@ export function useUploaderXUpload() {
         title,
         description,
         replySettings,
+        postType,
       };
 
       const res = await fetch("/api/services/uploaderx/twitter", {
@@ -581,7 +589,8 @@ export function useUploaderXUpload() {
     title?: string,
     description?: string,
     postType?: 'personal' | 'organization',
-    organizationId?: string
+    organizationId?: string,
+    videoPostType?: string
   ): Promise<UploaderXPublishReceipt> => {
     try {
       const payload: LinkedInPublishPayload = {
@@ -591,6 +600,7 @@ export function useUploaderXUpload() {
         description,
         postType: postType || 'personal',
         organizationId,
+        videoPostType,
       };
 
       const res = await fetch("/api/services/uploaderx/linkedin", {

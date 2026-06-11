@@ -48,7 +48,8 @@ export async function POST(request: Request) {
           tags: metadata.tags,
           privacyStatus: metadata.privacyStatus || 'private' // Default to private for initial upload
         },
-        videoType: metadata.videoType
+        videoType: metadata.videoType,
+        videoMetadata: metadata.videoMetadata
       };
     }
 

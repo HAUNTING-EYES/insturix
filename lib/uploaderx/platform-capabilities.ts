@@ -75,6 +75,7 @@ export type YouTubePublishPayload = {
   categoryId?: string;
   publishAt?: string;
   thumbnailPublicUrl?: string;
+  postType?: string;
 };
 
 export type FacebookPublishPayload = {
@@ -83,6 +84,7 @@ export type FacebookPublishPayload = {
   title?: string;
   description?: string;
   pageId?: string;
+  postType?: string;
 };
 
 export type InstagramPublishPayload = {
@@ -91,6 +93,7 @@ export type InstagramPublishPayload = {
   title?: string;
   description?: string;
   accountId?: string;
+  postType?: string;
 };
 
 export type TwitterPublishPayload = {
@@ -99,6 +102,7 @@ export type TwitterPublishPayload = {
   title?: string;
   description?: string;
   replySettings?: "everyone" | "following" | "mentionedUsers" | "subscribers" | "verified";
+  postType?: string;
 };
 
 export type LinkedInPublishPayload = {
@@ -108,6 +112,7 @@ export type LinkedInPublishPayload = {
   description?: string;
   postType: "personal" | "organization";
   organizationId?: string;
+  videoPostType?: string;
 };
 
 export type UploaderXPublishPayload =
