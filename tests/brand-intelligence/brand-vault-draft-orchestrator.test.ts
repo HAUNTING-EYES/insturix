@@ -147,7 +147,12 @@ describe('Brand Vault draft orchestrator', () => {
             kind: 'crawl_seed',
             url: 'https://signal.example/about?utm=ignored#team',
             platform: 'website',
-            crawl: { maxPages: 3, maxDepth: 2, excludePaths: ['/careers'] },
+            crawl: {
+              maxPages: 3,
+              maxDepth: 2,
+              includePaths: ['/about', '/case-studies', '/customers', '/features'],
+              excludePaths: ['/careers'],
+            },
           },
         ],
       },
@@ -171,6 +176,8 @@ describe('Brand Vault draft orchestrator', () => {
     expect(fetchCalls).toEqual([
       'https://signal.example/',
       'https://signal.example/about',
+      'https://signal.example/sitemap_index.xml',
+      'https://signal.example/sitemap.xml',
       'https://signal.example/case-studies',
       'https://signal.example/customers',
     ]);
@@ -181,6 +188,85 @@ describe('Brand Vault draft orchestrator', () => {
     ]);
     expect(crawled.some((candidate) => /privacy|brand\.pdf|other\.example|careers|features/.test(candidate.sourceUrl ?? ''))).toBe(false);
     expect(crawled[0]?.normalizedValue).toMatchObject({ title: 'About Signal House' });
+    expect(result.warnings).toContain('Crawled 3 additional brand pages for draft evidence.');
+  });
+
+  it('auto-crawls brand pages and expands sitemap URLs without requiring a crawl seed', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const pages: Record<string, { html: string; contentType: string }> = {
+      'https://signal.example/': {
+        contentType: 'text/html',
+        html: pageHtml(
+          'Signal House',
+          [
+            '<link rel="sitemap" href="/brand-sitemap.xml">',
+            '<a href="/about">About</a>',
+            '<a href="/privacy">Privacy</a>',
+            '<a href="/logo.png">Logo</a>',
+          ].join(''),
+        ),
+      },
+      'https://signal.example/brand-sitemap.xml': {
+        contentType: 'application/xml',
+        html: [
+          '<?xml version="1.0" encoding="UTF-8"?>',
+          '<urlset>',
+          '<url><loc>https://signal.example/mission</loc></url>',
+          '<url><loc>https://signal.example/customers?utm=ignored#proof</loc></url>',
+          '<url><loc>https://signal.example/privacy</loc></url>',
+          '<url><loc>https://other.example/work</loc></url>',
+          '</urlset>',
+        ].join(''),
+      },
+      'https://signal.example/about': {
+        contentType: 'text/html',
+        html: pageHtml('About Signal House', '<h1>About the team</h1>'),
+      },
+      'https://signal.example/mission': {
+        contentType: 'text/html',
+        html: pageHtml('Signal House Mission', '<h1>Operator-first mission</h1>'),
+      },
+      'https://signal.example/customers': {
+        contentType: 'text/html',
+        html: pageHtml('Signal House Customers', '<h1>Customer proof</h1>'),
+      },
+    };
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_auto_crawl',
+        profileRecordId: 'draft_auto_crawl',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchSnapshot: async (url) => {
+          const page = pages[url];
+          if (!page) throw new Error('not found');
+          return {
+            normalizedUrl: url,
+            html: page.html,
+            contentType: page.contentType,
+            fetchedAt: NOW,
+          };
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    const crawledUrls = result.candidates
+      .filter((candidate) => candidate.sourceField === 'crawl.page')
+      .map((candidate) => candidate.sourceUrl);
+    expect(crawledUrls).toEqual(expect.arrayContaining([
+      'https://signal.example/about',
+      'https://signal.example/mission',
+      'https://signal.example/customers',
+    ]));
+    expect(crawledUrls.some((url) => /privacy|logo\.png|other\.example|brand-sitemap/.test(url ?? ''))).toBe(false);
     expect(result.warnings).toContain('Crawled 3 additional brand pages for draft evidence.');
   });
 

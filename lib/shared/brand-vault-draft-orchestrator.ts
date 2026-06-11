@@ -117,11 +117,25 @@ const SOCIAL_LINKS_DEFERRED_WARNING =
   'Social links were captured for later Brand Vault enrichment; this website draft does not read social posts yet.';
 const SOURCE_STAGING_EXTRACTOR = 'brand-vault-source-staging.v1';
 const UPLOAD_EXTRACTOR = 'brand-vault-upload-evidence.v1';
-const DEFAULT_CRAWL_MAX_PAGES = 12;
-const HARD_CRAWL_MAX_PAGES = 24;
-const DEFAULT_CRAWL_MAX_DEPTH = 2;
+const DEFAULT_CRAWL_MAX_PAGES = 24;
+const HARD_CRAWL_MAX_PAGES = 60;
+const DEFAULT_CRAWL_MAX_DEPTH = 3;
 const HARD_CRAWL_MAX_DEPTH = 3;
-const DEFAULT_CRAWL_EXCLUDE_PATHS = ['/privacy', '/terms', '/login', '/sign-in', '/signup', '/cart', '/checkout', '/account'];
+const DEFAULT_CRAWL_EXCLUDE_PATHS = [
+  '/privacy',
+  '/terms',
+  '/login',
+  '/sign-in',
+  '/signin',
+  '/signup',
+  '/cart',
+  '/checkout',
+  '/account',
+  '/careers',
+  '/jobs',
+  '/support',
+  '/help',
+];
 
 interface CrawlPolicy {
   maxPages: number;
@@ -423,8 +437,6 @@ async function fetchCrawlSnapshots(args: {
   now: string;
 }): Promise<{ snapshots: BrandWebsiteSnapshot[]; warnings: string[] }> {
   const crawlSeeds = args.sourceEvidence.filter((source) => source.kind === 'crawl_seed');
-  if (crawlSeeds.length === 0) return { snapshots: [], warnings: [] };
-
   const policy = resolveCrawlPolicy(crawlSeeds);
   const rootUrl = new URL(args.root.normalizedUrl);
   const visited = new Set<string>([args.root.normalizedUrl]);
@@ -432,9 +444,11 @@ async function fetchCrawlSnapshots(args: {
   const snapshots: BrandWebsiteSnapshot[] = [];
   const warnings: string[] = [];
 
+  enqueueDefaultBrandPages(queue, rootUrl, policy, args.root.normalizedUrl);
   for (const seed of crawlSeeds) {
     if (seed.url) enqueueCrawlUrl(queue, seed.url, rootUrl, policy, 0, args.root.normalizedUrl, true);
   }
+  enqueueSitemapUrls(queue, args.root.html, rootUrl, policy, args.root.normalizedUrl);
   if (policy.maxDepth > 0) enqueueCrawlLinks(queue, args.root.html, rootUrl, policy, 1, args.root.normalizedUrl);
 
   while (snapshots.length < policy.maxPages) {
@@ -444,6 +458,11 @@ async function fetchCrawlSnapshots(args: {
 
     try {
       const snapshot = await args.fetchSnapshot(next.url, { ...args.fetchOptions, now: args.now });
+      if (isSitemapSnapshot(snapshot)) {
+        enqueueUrlsFromSitemap(queue, snapshot, rootUrl, policy);
+        continue;
+      }
+      if (isSitemapPath(next.url)) continue;
       if (!isHtmlSnapshot(snapshot)) {
         warnings.push(`Brand Vault crawler skipped ${next.url}: non-HTML response${snapshot.contentType ? ` (${snapshot.contentType})` : ''}.`);
         continue;
@@ -453,6 +472,7 @@ async function fetchCrawlSnapshots(args: {
         enqueueCrawlLinks(queue, snapshot.html, new URL(snapshot.normalizedUrl), policy, next.depth + 1, snapshot.normalizedUrl);
       }
     } catch (error) {
+      if (isSitemapPath(next.url)) continue;
       warnings.push(`Brand Vault crawler skipped ${next.url}: ${errorMessage(error)}`);
     }
   }
@@ -475,6 +495,32 @@ function resolveCrawlPolicy(seeds: BrandVaultSourceInput[]): CrawlPolicy {
   };
 }
 
+function enqueueDefaultBrandPages(
+  queue: Map<string, CrawlQueueItem>,
+  rootUrl: URL,
+  policy: CrawlPolicy,
+  discoveredFrom: string,
+): void {
+  [
+    '/about',
+    '/about-us',
+    '/company',
+    '/story',
+    '/mission',
+    '/brand',
+    '/services',
+    '/solutions',
+    '/product',
+    '/customers',
+    '/case-studies',
+    '/work',
+    '/portfolio',
+    '/press',
+    '/media-kit',
+    '/resources',
+  ].forEach((path) => enqueueCrawlUrl(queue, path, rootUrl, policy, 1, discoveredFrom, false));
+}
+
 function enqueueCrawlLinks(
   queue: Map<string, CrawlQueueItem>,
   html: string,
@@ -488,6 +534,22 @@ function enqueueCrawlLinks(
     const href = $(element).attr('href');
     if (href) enqueueCrawlUrl(queue, href, baseUrl, policy, depth, discoveredFrom, false);
   });
+}
+
+function enqueueSitemapUrls(
+  queue: Map<string, CrawlQueueItem>,
+  html: string,
+  baseUrl: URL,
+  policy: CrawlPolicy,
+  discoveredFrom: string,
+): void {
+  const $ = load(html);
+  const candidates = new Set<string>(['/sitemap.xml', '/sitemap_index.xml']);
+  $('link[rel="sitemap"], a[href*="sitemap"]').each((_, element) => {
+    const href = $(element).attr('href');
+    if (href) candidates.add(href);
+  });
+  for (const href of candidates) enqueueCrawlUrl(queue, href, baseUrl, policy, 1, discoveredFrom, true);
 }
 
 function enqueueCrawlUrl(
@@ -505,7 +567,7 @@ function enqueueCrawlUrl(
     url.search = '';
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
     if (url.origin !== baseUrl.origin) return;
-    if (/\.(avif|gif|jpe?g|mp4|pdf|png|svg|webm|webp|zip)$/i.test(url.pathname)) return;
+    if (isBlockedCrawlAsset(url.pathname) && !isSitemapPath(url.pathname)) return;
     const path = normalizeCrawlPath(url.pathname);
     if (pathMatches(path, policy.excludePaths)) return;
     if (!explicitSeed && policy.includePaths.length > 0 && !pathMatches(path, policy.includePaths)) return;
@@ -529,6 +591,7 @@ function nextCrawlQueueItem(queue: Map<string, CrawlQueueItem>, visited: Set<str
 
 function crawlPriority(url: string, explicitSeed: boolean): number {
   if (explicitSeed) return 20;
+  if (isSitemapPath(url)) return 12;
   if (/\/(about|company|story|brand|mission|team)\b/i.test(url)) return 9;
   if (/\/(case-studies|customers|work|portfolio|results)\b/i.test(url)) return 8;
   if (/\/(services|features|product|solutions|platform)\b/i.test(url)) return 7;
@@ -541,8 +604,35 @@ function isHtmlSnapshot(snapshot: BrandWebsiteSnapshot): boolean {
   return !snapshot.contentType || /text\/html|application\/xhtml\+xml/i.test(snapshot.contentType);
 }
 
+function isSitemapSnapshot(snapshot: BrandWebsiteSnapshot): boolean {
+  return /(?:application|text)\/xml|application\/rss\+xml|application\/atom\+xml/i.test(snapshot.contentType ?? '') ||
+    isSitemapPath(snapshot.normalizedUrl);
+}
+
+function enqueueUrlsFromSitemap(
+  queue: Map<string, CrawlQueueItem>,
+  snapshot: BrandWebsiteSnapshot,
+  rootUrl: URL,
+  policy: CrawlPolicy,
+): void {
+  const urls = [...snapshot.html.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi)]
+    .map((match) => decodeHtmlEntities(match[1] ?? '').trim())
+    .filter(Boolean);
+  for (const url of urls) {
+    enqueueCrawlUrl(queue, url, rootUrl, policy, 1, snapshot.normalizedUrl, false);
+  }
+}
+
+function isBlockedCrawlAsset(pathname: string): boolean {
+  return /\.(avif|gif|jpe?g|mp4|pdf|png|svg|webm|webp|zip|css|js|json|ico|woff2?|ttf|otf)$/i.test(pathname);
+}
+
+function isSitemapPath(value: string): boolean {
+  return /(?:^|\/)sitemap(?:[-_a-z0-9]*)?\.xml(?:$|\?)/i.test(value);
+}
+
 function pathMatches(path: string, filters: string[]): boolean {
-  return filters.some((filter) => path === filter || path.startsWith(`${filter}/`) || path.startsWith(filter));
+  return filters.some((filter) => path === filter || path.startsWith(`${filter}/`));
 }
 
 function uniquePaths(values: string[]): string[] {
@@ -553,6 +643,15 @@ function normalizeCrawlPath(value: string): string {
   const clean = value.trim();
   if (!clean) return '/';
   return clean.startsWith('/') ? clean : `/${clean}`;
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
 }
 
 function clampInteger(value: number, min: number, max: number): number {

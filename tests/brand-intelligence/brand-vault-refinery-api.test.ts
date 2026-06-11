@@ -125,7 +125,7 @@ describe('Brand Vault refinery API boundary', () => {
     });
     expect(created.body.job.inputs.sourceEvidence?.[1]?.crawl).toEqual({ maxPages: 6, maxDepth: 2, excludePaths: ['/privacy'] });
     expect(created.body.job.warnings).toContain('7 additional Brand Vault sources staged for enrichment and evidence review.');
-    expect(created.body.job.warnings).toContain('Crawled 2 additional brand pages for draft evidence.');
+    expect(created.body.job.warnings).toContain('Crawled 6 additional brand pages for draft evidence.');
     expect(created.body.candidates.map((candidate) => candidate.sourceType)).toEqual(
       expect.arrayContaining(['social_profile', 'uploaded_guideline', 'crawl_seed', 'legacy_brand_intelligence']),
     );
