@@ -14,6 +14,7 @@ import {
 } from './brand-website-refinery';
 import type {
   BrandEvidenceCandidate,
+  BrandVaultCrawlOptions,
   BrandRefineryJob,
   BrandVaultSourceInput,
   BrandWebsiteSnapshot,
@@ -115,7 +116,25 @@ export type BrandVaultWebsiteDraftJobResult =
 const SOCIAL_LINKS_DEFERRED_WARNING =
   'Social links were captured for later Brand Vault enrichment; this website draft does not read social posts yet.';
 const SOURCE_STAGING_EXTRACTOR = 'brand-vault-source-staging.v1';
-const MAX_CRAWLED_PAGES = 4;
+const DEFAULT_CRAWL_MAX_PAGES = 12;
+const HARD_CRAWL_MAX_PAGES = 24;
+const DEFAULT_CRAWL_MAX_DEPTH = 2;
+const HARD_CRAWL_MAX_DEPTH = 3;
+const DEFAULT_CRAWL_EXCLUDE_PATHS = ['/privacy', '/terms', '/login', '/sign-in', '/signup', '/cart', '/checkout', '/account'];
+
+interface CrawlPolicy {
+  maxPages: number;
+  maxDepth: number;
+  includePaths: string[];
+  excludePaths: string[];
+}
+
+interface CrawlQueueItem {
+  url: string;
+  depth: number;
+  priority: number;
+  discoveredFrom: string;
+}
 
 export async function createBrandVaultWebsiteDraftJob(
   input: BrandVaultWebsiteDraftJobInput,
@@ -405,14 +424,35 @@ async function fetchCrawlSnapshots(args: {
   const crawlSeeds = args.sourceEvidence.filter((source) => source.kind === 'crawl_seed');
   if (crawlSeeds.length === 0) return { snapshots: [], warnings: [] };
 
-  const urls = crawlUrls(args.root, crawlSeeds);
+  const policy = resolveCrawlPolicy(crawlSeeds);
+  const rootUrl = new URL(args.root.normalizedUrl);
+  const visited = new Set<string>([args.root.normalizedUrl]);
+  const queue = new Map<string, CrawlQueueItem>();
   const snapshots: BrandWebsiteSnapshot[] = [];
   const warnings: string[] = [];
-  for (const url of urls) {
+
+  for (const seed of crawlSeeds) {
+    if (seed.url) enqueueCrawlUrl(queue, seed.url, rootUrl, policy, 0, args.root.normalizedUrl, true);
+  }
+  if (policy.maxDepth > 0) enqueueCrawlLinks(queue, args.root.html, rootUrl, policy, 1, args.root.normalizedUrl);
+
+  while (snapshots.length < policy.maxPages) {
+    const next = nextCrawlQueueItem(queue, visited);
+    if (!next) break;
+    visited.add(next.url);
+
     try {
-      snapshots.push(await args.fetchSnapshot(url, { ...args.fetchOptions, now: args.now }));
+      const snapshot = await args.fetchSnapshot(next.url, { ...args.fetchOptions, now: args.now });
+      if (!isHtmlSnapshot(snapshot)) {
+        warnings.push(`Brand Vault crawler skipped ${next.url}: non-HTML response${snapshot.contentType ? ` (${snapshot.contentType})` : ''}.`);
+        continue;
+      }
+      snapshots.push(snapshot);
+      if (next.depth < policy.maxDepth) {
+        enqueueCrawlLinks(queue, snapshot.html, new URL(snapshot.normalizedUrl), policy, next.depth + 1, snapshot.normalizedUrl);
+      }
     } catch (error) {
-      warnings.push(`Brand Vault crawler skipped ${url}: ${errorMessage(error)}`);
+      warnings.push(`Brand Vault crawler skipped ${next.url}: ${errorMessage(error)}`);
     }
   }
 
@@ -422,44 +462,100 @@ async function fetchCrawlSnapshots(args: {
   return { snapshots, warnings };
 }
 
-function crawlUrls(root: BrandWebsiteSnapshot, seeds: BrandVaultSourceInput[]): string[] {
-  const rootUrl = new URL(root.normalizedUrl);
-  const urls = new Set<string>();
-  for (const seed of seeds) {
-    if (seed.url) addCrawlUrl(urls, seed.url, rootUrl);
-  }
-
-  const $ = load(root.html);
-  $('a[href]').each((_, element) => {
-    const href = $(element).attr('href');
-    if (href) addCrawlUrl(urls, href, rootUrl);
-  });
-
-  return [...urls]
-    .filter((url) => url !== root.normalizedUrl)
-    .sort((a, b) => crawlPriority(b) - crawlPriority(a) || a.localeCompare(b))
-    .slice(0, MAX_CRAWLED_PAGES);
+function resolveCrawlPolicy(seeds: BrandVaultSourceInput[]): CrawlPolicy {
+  const options = seeds.map((seed) => seed.crawl).filter((value): value is BrandVaultCrawlOptions => Boolean(value));
+  const maxPageOptions = options.map((option) => option.maxPages).filter((value): value is number => value !== undefined);
+  const maxDepthOptions = options.map((option) => option.maxDepth).filter((value): value is number => value !== undefined);
+  return {
+    maxPages: clampInteger(maxPageOptions.length > 0 ? Math.max(...maxPageOptions) : DEFAULT_CRAWL_MAX_PAGES, 1, HARD_CRAWL_MAX_PAGES),
+    maxDepth: clampInteger(maxDepthOptions.length > 0 ? Math.max(...maxDepthOptions) : DEFAULT_CRAWL_MAX_DEPTH, 0, HARD_CRAWL_MAX_DEPTH),
+    includePaths: uniquePaths(options.flatMap((option) => option.includePaths ?? [])),
+    excludePaths: uniquePaths([...DEFAULT_CRAWL_EXCLUDE_PATHS, ...options.flatMap((option) => option.excludePaths ?? [])]),
+  };
 }
 
-function addCrawlUrl(urls: Set<string>, href: string, rootUrl: URL): void {
+function enqueueCrawlLinks(
+  queue: Map<string, CrawlQueueItem>,
+  html: string,
+  baseUrl: URL,
+  policy: CrawlPolicy,
+  depth: number,
+  discoveredFrom: string,
+): void {
+  const $ = load(html);
+  $('a[href]').each((_, element) => {
+    const href = $(element).attr('href');
+    if (href) enqueueCrawlUrl(queue, href, baseUrl, policy, depth, discoveredFrom, false);
+  });
+}
+
+function enqueueCrawlUrl(
+  queue: Map<string, CrawlQueueItem>,
+  href: string,
+  baseUrl: URL,
+  policy: CrawlPolicy,
+  depth: number,
+  discoveredFrom: string,
+  explicitSeed: boolean,
+): void {
   try {
-    const url = new URL(href, rootUrl);
+    const url = new URL(href, baseUrl);
     url.hash = '';
+    url.search = '';
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
-    if (url.origin !== rootUrl.origin) return;
+    if (url.origin !== baseUrl.origin) return;
     if (/\.(avif|gif|jpe?g|mp4|pdf|png|svg|webm|webp|zip)$/i.test(url.pathname)) return;
-    urls.add(url.href);
+    const path = normalizeCrawlPath(url.pathname);
+    if (pathMatches(path, policy.excludePaths)) return;
+    if (!explicitSeed && policy.includePaths.length > 0 && !pathMatches(path, policy.includePaths)) return;
+    const priority = crawlPriority(url.href, explicitSeed);
+    const existing = queue.get(url.href);
+    if (!existing || priority > existing.priority || depth < existing.depth) {
+      queue.set(url.href, { url: url.href, depth, priority, discoveredFrom });
+    }
   } catch {
     return;
   }
 }
 
-function crawlPriority(url: string): number {
-  if (/\/(about|company|story|brand)\b/i.test(url)) return 5;
-  if (/\/(case-studies|customers|work|portfolio)\b/i.test(url)) return 4;
-  if (/\/(services|features|product|solutions)\b/i.test(url)) return 3;
-  if (/\/(press|media-kit|resources|blog)\b/i.test(url)) return 2;
+function nextCrawlQueueItem(queue: Map<string, CrawlQueueItem>, visited: Set<string>): CrawlQueueItem | undefined {
+  const next = [...queue.values()]
+    .filter((item) => !visited.has(item.url))
+    .sort((a, b) => b.priority - a.priority || a.depth - b.depth || a.url.localeCompare(b.url))[0];
+  if (next) queue.delete(next.url);
+  return next;
+}
+
+function crawlPriority(url: string, explicitSeed: boolean): number {
+  if (explicitSeed) return 20;
+  if (/\/(about|company|story|brand|mission|team)\b/i.test(url)) return 9;
+  if (/\/(case-studies|customers|work|portfolio|results)\b/i.test(url)) return 8;
+  if (/\/(services|features|product|solutions|platform)\b/i.test(url)) return 7;
+  if (/\/(pricing|plans)\b/i.test(url)) return 5;
+  if (/\/(press|media-kit|resources|blog|guides)\b/i.test(url)) return 4;
   return 1;
+}
+
+function isHtmlSnapshot(snapshot: BrandWebsiteSnapshot): boolean {
+  return !snapshot.contentType || /text\/html|application\/xhtml\+xml/i.test(snapshot.contentType);
+}
+
+function pathMatches(path: string, filters: string[]): boolean {
+  return filters.some((filter) => path === filter || path.startsWith(`${filter}/`) || path.startsWith(filter));
+}
+
+function uniquePaths(values: string[]): string[] {
+  return [...new Set(values.map(normalizeCrawlPath).filter(Boolean))];
+}
+
+function normalizeCrawlPath(value: string): string {
+  const clean = value.trim();
+  if (!clean) return '/';
+  return clean.startsWith('/') ? clean : `/${clean}`;
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
 function combineSnapshotHtml(root: BrandWebsiteSnapshot, snapshots: BrandWebsiteSnapshot[]): string {
@@ -483,14 +579,18 @@ function createCrawlCandidates(args: {
     sourceUrl: snapshot.normalizedUrl,
     sourceField: 'crawl.page',
     signalPath: 'identity.proofStyle',
-    rawValue: snapshot.normalizedUrl,
-    normalizedValue: snapshot.normalizedUrl,
+    rawValue: { url: snapshot.normalizedUrl, contentType: snapshot.contentType },
+    normalizedValue: { url: snapshot.normalizedUrl, title: pageTitle(snapshot.html), contentType: snapshot.contentType },
     excerpt: sanitizeEvidenceExcerpt(`Crawled page included in Brand Vault draft: ${snapshot.normalizedUrl}`),
     confidence: 0.45,
     authorityClass: 'owned',
     observedAt: args.observedAt,
     extractorId: 'brand-vault-crawler.v1',
   }));
+}
+
+function pageTitle(html: string): string | undefined {
+  return sanitizeEvidenceExcerpt(load(html)('title').first().text(), 120);
 }
 
 function createStagedSourceCandidates(args: {

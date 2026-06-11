@@ -40,12 +40,20 @@ export type BrandVaultSourcePlatform =
   | 'facebook'
   | 'other';
 
+export interface BrandVaultCrawlOptions {
+  maxPages?: number;
+  maxDepth?: number;
+  includePaths?: string[];
+  excludePaths?: string[];
+}
+
 export interface BrandVaultSourceInput {
   kind: BrandVaultSourceKind;
   url?: string;
   name?: string;
   platform?: BrandVaultSourcePlatform;
   note?: string;
+  crawl?: BrandVaultCrawlOptions;
 }
 
 export interface BrandEvidenceCandidate {

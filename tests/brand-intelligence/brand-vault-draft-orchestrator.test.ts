@@ -49,6 +49,21 @@ function htmlResponse(status = 200): Response {
   });
 }
 
+function pageHtml(title: string, body: string): string {
+  return `
+<!doctype html>
+<html>
+  <head>
+    <title>${title}</title>
+    <meta name="description" content="${title} for Signal House.">
+    <meta property="og:site_name" content="Signal House">
+    <meta name="theme-color" content="#0b1b2b">
+  </head>
+  <body>${body}</body>
+</html>
+`;
+}
+
 describe('Brand Vault draft orchestrator', () => {
   it('creates and persists an API-ready website draft job without reading social links yet', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
@@ -88,6 +103,85 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.reviewPayload.coverage.identity.actionableSignalCount).toBeGreaterThan(0);
     expect(repository.getRecord('draft_signal_site')?.status).toBe('draft');
     expect(repository.listEvents('draft_signal_site').map((event) => event.type)).toEqual(['draft_saved']);
+  });
+
+  it('crawls prioritized same-origin pages across depth with policy caps', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const pages: Record<string, string> = {
+      'https://signal.example/': pageHtml(
+        'Signal House',
+        [
+          '<a href="/about?utm=ignored#team">About</a>',
+          '<a href="/case-studies">Case studies</a>',
+          '<a href="/privacy">Privacy</a>',
+          '<a href="/brand.pdf">Brand PDF</a>',
+          '<a href="https://other.example/work">Offsite work</a>',
+        ].join(''),
+      ),
+      'https://signal.example/about': pageHtml(
+        'About Signal House',
+        '<h1>About Signal House</h1><a href="/customers">Customers</a><a href="/careers">Careers</a>',
+      ),
+      'https://signal.example/case-studies': pageHtml(
+        'Signal House Case Studies',
+        '<h1>Case studies</h1><a href="/features">Features</a>',
+      ),
+      'https://signal.example/customers': pageHtml(
+        'Signal House Customers',
+        '<h1>Customer proof</h1><a href="/features">Features</a>',
+      ),
+      'https://signal.example/features': pageHtml('Signal House Features', '<h1>Feature platform</h1>'),
+    };
+    const fetchCalls: string[] = [];
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_crawl',
+        profileRecordId: 'draft_crawl',
+        now: NOW,
+        sourceEvidence: [
+          {
+            kind: 'crawl_seed',
+            url: 'https://signal.example/about?utm=ignored#team',
+            platform: 'website',
+            crawl: { maxPages: 3, maxDepth: 2, excludePaths: ['/careers'] },
+          },
+        ],
+      },
+      {
+        repository,
+        fetchOptions: {
+          fetchFn: async (url) => {
+            fetchCalls.push(url);
+            return new Response(pages[url] ?? 'missing', {
+              status: pages[url] ? 200 : 404,
+              headers: { 'content-type': 'text/html' },
+            });
+          },
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    const crawled = result.candidates.filter((candidate) => candidate.sourceField === 'crawl.page');
+    expect(fetchCalls).toEqual([
+      'https://signal.example/',
+      'https://signal.example/about',
+      'https://signal.example/case-studies',
+      'https://signal.example/customers',
+    ]);
+    expect(crawled.map((candidate) => candidate.sourceUrl)).toEqual([
+      'https://signal.example/about',
+      'https://signal.example/case-studies',
+      'https://signal.example/customers',
+    ]);
+    expect(crawled.some((candidate) => /privacy|brand\.pdf|other\.example|careers|features/.test(candidate.sourceUrl ?? ''))).toBe(false);
+    expect(crawled[0]?.normalizedValue).toMatchObject({ title: 'About Signal House' });
+    expect(result.warnings).toContain('Crawled 3 additional brand pages for draft evidence.');
   });
 
   it('does not fetch or persist when the website URL is unsupported', async () => {

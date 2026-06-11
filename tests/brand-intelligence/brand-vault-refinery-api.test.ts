@@ -80,7 +80,12 @@ describe('Brand Vault refinery API boundary', () => {
           socialLinks: ['https://x.com/vaultline'],
           sourceEvidence: [
             { kind: 'uploaded_guideline', name: 'brand-book.pdf', note: 'Official tone and color rules.' },
-            { kind: 'crawl_seed', url: 'https://vaultline.example/case-studies', platform: 'website' },
+            {
+              kind: 'crawl_seed',
+              url: 'https://vaultline.example/case-studies',
+              platform: 'website',
+              crawl: { maxPages: 6, maxDepth: 2, excludePaths: ['/privacy'] },
+            },
             { kind: 'legacy_brand_intelligence', name: 'legacy-profile-v1', note: 'Existing Brand Intelligence profile.' },
           ],
         },
@@ -100,6 +105,7 @@ describe('Brand Vault refinery API boundary', () => {
     expect(created.body.record.profile.identity.brandName.value).toBe('Vaultline');
     expect(created.body.reviewPayload.candidateCount).toBeGreaterThan(0);
     expect(created.body.job.inputs.sourceEvidence).toHaveLength(3);
+    expect(created.body.job.inputs.sourceEvidence?.[1]?.crawl).toEqual({ maxPages: 6, maxDepth: 2, excludePaths: ['/privacy'] });
     expect(created.body.job.warnings).toContain('4 additional Brand Vault sources staged for enrichment and evidence review.');
     expect(created.body.job.warnings).toContain('Crawled 2 additional brand pages for draft evidence.');
     expect(created.body.candidates.map((candidate) => candidate.sourceType)).toEqual(
@@ -249,6 +255,19 @@ describe('Brand Vault refinery API boundary', () => {
     );
     expect(badSourceEvidence.status).toBe(400);
     expect(badSourceEvidence.body.ok).toBe(false);
+
+    const badCrawlPolicy = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          sourceEvidence: [{ kind: 'crawl_seed', url: 'https://vaultline.example/work', crawl: { maxPages: 'many' } }],
+        },
+      },
+      { store },
+    );
+    expect(badCrawlPolicy.status).toBe(400);
+    expect(badCrawlPolicy.body.ok).toBe(false);
 
     const created = await createBrandVaultRefineryJobFromWebsite(
       { userId: 'user_vault', body: { websiteUrl: 'vaultline.example' } },

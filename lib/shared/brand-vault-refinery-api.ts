@@ -17,6 +17,7 @@ import {
 } from './brand-vault-draft-orchestrator';
 import type {
   BrandEvidenceCandidate,
+  BrandVaultCrawlOptions,
   BrandRefineryJob,
   BrandVaultSourceInput,
   FetchWebsiteBrandSnapshotOptions,
@@ -469,13 +470,51 @@ function parseSourceEvidenceEntry(value: unknown): BrandVaultSourceInput | null 
   const note = cleanString(value.note) || undefined;
   const platformValue = cleanString(value.platform) as NonNullable<BrandVaultSourceInput['platform']>;
   const platform = SOURCE_PLATFORMS.has(platformValue) ? platformValue : undefined;
+  const crawl = kind === 'crawl_seed' ? parseCrawlOptions(value.crawl) : undefined;
+  if (crawl === null) return null;
   if (!url && !name && !note) return null;
 
-  return { kind, url, name, platform, note };
+  return { kind, url, name, platform, note, crawl };
 }
 
 function cleanString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function parseCrawlOptions(value: unknown): BrandVaultCrawlOptions | undefined | null {
+  if (value === undefined) return undefined;
+  if (!isObjectRecord(value)) return null;
+
+  const maxPages = parseBoundedInteger(value.maxPages, 1, 24);
+  const maxDepth = parseBoundedInteger(value.maxDepth, 0, 3);
+  const includePaths = parsePathList(value.includePaths);
+  const excludePaths = parsePathList(value.excludePaths);
+  if (maxPages === null || maxDepth === null || includePaths === null || excludePaths === null) return null;
+
+  const crawl: BrandVaultCrawlOptions = {};
+  if (maxPages !== undefined) crawl.maxPages = maxPages;
+  if (maxDepth !== undefined) crawl.maxDepth = maxDepth;
+  if (includePaths !== undefined) crawl.includePaths = includePaths;
+  if (excludePaths !== undefined) crawl.excludePaths = excludePaths;
+  return crawl;
+}
+
+function parseBoundedInteger(value: unknown, min: number, max: number): number | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value)) return null;
+  return value >= min && value <= max ? value : null;
+}
+
+function parsePathList(value: unknown): string[] | undefined | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 20) return null;
+  const paths = value.map(cleanString).filter(Boolean);
+  if (paths.length !== value.length) return null;
+  return [...new Set(paths.map(normalizeCrawlPath))];
+}
+
+function normalizeCrawlPath(value: string): string {
+  return value.startsWith('/') ? value : `/${value}`;
 }
 
 function statusForDraftFailure(result: Extract<BrandVaultWebsiteDraftJobResult, { ok: false }>): number {
