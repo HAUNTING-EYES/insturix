@@ -7,6 +7,7 @@ import {
   reviewBrandVaultSignalProfileDraft,
   type BrandVaultRefineryStore,
 } from '../../lib/shared/brand-vault-refinery-api';
+import { createBrandVaultConnectedSocialEvidence } from '../../lib/shared/brand-vault-connected-social-ingestion';
 
 const NOW = '2026-06-09T06:00:00.000Z';
 
@@ -323,6 +324,108 @@ describe('Brand Vault refinery API boundary', () => {
       ]),
     );
     expect(created.body.record.profile.evidence.some((item) => item.sourceType === 'connected_social_account')).toBe(false);
+  });
+
+  it('fetches connected X post samples as draft-only social evidence when tweet.read is available', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const fetchedUrls: string[] = [];
+    const fetchFn = async (url: string, init?: RequestInit): Promise<Response> => {
+      fetchedUrls.push(url);
+      expect(init?.headers).toEqual({ Authorization: 'Bearer token_x' });
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'tweet_1',
+              text: 'Stop losing brand consistency between strategy and delivery. Book a demo this week.',
+              created_at: '2026-06-08T10:00:00.000Z',
+              public_metrics: { like_count: 12, reply_count: 2, retweet_count: 3, quote_count: 1 },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          socialLinks: ['https://x.com/vaultline'],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        sourceEvidenceProvider: async ({ socialLinks }) =>
+          createBrandVaultConnectedSocialEvidence({
+            socialLinks,
+            uploaderXUser: {
+              twitterTokens: {
+                accessToken: 'token_x',
+                userId: 'x_123',
+                userName: 'vaultline',
+                scopes: ['tweet.read', 'users.read'],
+                missingScopes: [],
+                expiresAt: '2026-06-10T00:00:00.000Z',
+              },
+            },
+            youtubeConnection: null,
+            apifyApiKey: '',
+            fetchFn,
+            now: NOW,
+          }),
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    expect(fetchedUrls).toHaveLength(1);
+    expect(fetchedUrls[0]).toContain('https://api.x.com/2/users/x_123/tweets');
+    expect(created.body.job.warnings).toContain('Brand Vault fetched 1 recent X post for draft social evidence review.');
+    expect(created.body.job.inputs.sourceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'social_post',
+          platform: 'x',
+          text: 'Stop losing brand consistency between strategy and delivery. Book a demo this week.',
+          evidenceOrigin: 'connected_fetch',
+          connection: expect.objectContaining({
+            provider: 'uploaderx',
+            status: 'connected',
+            canReadPosts: true,
+          }),
+        }),
+      ]),
+    );
+    expect(created.body.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.1.social_post.socialIdentity',
+          normalizedValue: expect.objectContaining({
+            evidenceOrigin: 'connected_fetch',
+            capability: {
+              evidenceAccess: 'connected_post_sample',
+              liveFetchStatus: 'available_with_connected_account',
+              connectedAccountStatus: 'connected',
+              publicFallbackStatus: 'review_only',
+              pinnedContentStatus: 'platform_pinned_supported',
+            },
+          }),
+        }),
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.1.social_post.text.ctaDirectness',
+          normalizedValue: expect.any(Number),
+        }),
+      ]),
+    );
+    expect(created.body.record.profile.evidence.some((item) => String(item.sourceType) === 'connected_social_post')).toBe(false);
   });
 
   it('does not leak jobs or profiles across users', async () => {

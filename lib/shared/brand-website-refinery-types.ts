@@ -77,6 +77,12 @@ export interface BrandVaultSocialConnectionEvidence {
   matchStatus?: 'matched' | 'mismatched' | 'unverified';
 }
 
+export type BrandVaultSourceEvidenceOrigin =
+  | 'user_supplied'
+  | 'connected_metadata'
+  | 'connected_fetch'
+  | 'public_fallback';
+
 export interface BrandVaultSourceInput {
   kind: BrandVaultSourceKind;
   url?: string;
@@ -90,6 +96,7 @@ export interface BrandVaultSourceInput {
   dominantColors?: string[];
   assetRole?: BrandVaultUploadedAssetRole;
   pinned?: boolean;
+  evidenceOrigin?: BrandVaultSourceEvidenceOrigin;
   connection?: BrandVaultSocialConnectionEvidence;
 }
 

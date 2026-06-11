@@ -34,6 +34,7 @@ export interface BrandVaultSocialCapability {
     | 'post_url_only'
     | 'manual_post_text'
     | 'connected_profile_metadata'
+    | 'connected_post_sample'
     | 'connected_post_read_possible';
   liveFetchStatus: 'adapter_required' | 'available_with_connected_account' | 'metadata_only' | 'public_fallback_available';
   connectedAccountStatus:
@@ -70,6 +71,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         name: args.source.name,
         platform: args.source.platform,
         pinned: args.source.pinned,
+        evidenceOrigin: args.source.evidenceOrigin,
         connection: args.source.connection,
       },
       normalizedValue: {
@@ -81,6 +83,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         isPostUrl: parsed?.isPostUrl ?? args.source.kind === 'social_post',
         capability,
         pinned: args.source.pinned === true,
+        evidenceOrigin: args.source.evidenceOrigin,
         connection: args.source.connection,
       },
       excerpt: socialIdentityExcerpt(args.source, parsed),
@@ -330,6 +333,7 @@ function socialCapability(
   }
 
   if (connection) {
+    const connectedPostSample = source.evidenceOrigin === 'connected_fetch' && Boolean(source.text) && connection.canReadPosts;
     const connectedAccountStatus =
       connection.status === 'connected' && connection.canReadPosts
         ? 'connected'
@@ -341,7 +345,9 @@ function socialCapability(
               ? 'connected_different_account'
               : 'not_connected';
     return {
-      evidenceAccess: source.text
+      evidenceAccess: connectedPostSample
+        ? 'connected_post_sample'
+        : source.text
         ? 'manual_post_text'
         : connection.canReadPosts
           ? 'connected_post_read_possible'
@@ -371,12 +377,15 @@ function socialIdentityExcerpt(source: BrandVaultSourceInput, parsed: BrandVault
   const platform = parsed?.platform ?? source.platform ?? 'social';
   const pinned = source.pinned ? ' Pinned/featured by user.' : '';
   const connection = source.connection ? ` Connection: ${source.connection.status}.` : '';
-  return `${label} parsed as ${platform} ${parsed?.accountType ?? 'social source'}.${pinned}${connection}`;
+  const origin = source.evidenceOrigin ? ` Origin: ${source.evidenceOrigin}.` : '';
+  return `${label} parsed as ${platform} ${parsed?.accountType ?? 'social source'}.${pinned}${connection}${origin}`;
 }
 
 function confidenceForSocialIdentity(source: BrandVaultSourceInput, parsed: BrandVaultParsedSocialUrl | undefined): number {
   const parsedConfidence = parsed?.confidence ?? (source.platform ? 0.36 : 0.24);
   if (!source.connection) return parsedConfidence;
+  if (source.evidenceOrigin === 'connected_fetch' && source.connection.status === 'connected' && source.connection.matchStatus === 'matched') return Math.max(parsedConfidence, 0.82);
+  if (source.evidenceOrigin === 'connected_fetch' && source.connection.status === 'connected') return Math.max(parsedConfidence, 0.68);
   if (source.connection.status === 'connected' && source.connection.matchStatus === 'matched') return Math.max(parsedConfidence, 0.76);
   if (source.connection.status === 'connected' && source.connection.matchStatus === 'unverified') return Math.max(parsedConfidence, 0.58);
   if (source.connection.status === 'scope_missing') return Math.max(parsedConfidence, 0.5);
