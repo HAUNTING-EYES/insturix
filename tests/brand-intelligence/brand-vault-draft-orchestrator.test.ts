@@ -184,6 +184,94 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.warnings).toContain('Crawled 3 additional brand pages for draft evidence.');
   });
 
+  it('turns uploaded brand books and assets into reviewable draft signal evidence', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_uploads',
+        profileRecordId: 'draft_uploads',
+        now: NOW,
+        sourceEvidence: [
+          {
+            kind: 'uploaded_guideline',
+            name: 'brand-book.pdf',
+            mimeType: 'application/pdf',
+            sizeBytes: 420_000,
+            text: [
+              'Color palette: #102033 #ffcc33 #f7f7f7',
+              'Tone: precise, editorial, operator-first.',
+              'Do not use stock-photo language.',
+              'Avoid neon gradients.',
+            ].join('\n'),
+            assetRole: 'brand_book',
+          },
+          {
+            kind: 'uploaded_asset',
+            name: 'primary-logo.svg',
+            url: 'https://signal.example/assets/primary-logo.svg',
+            mimeType: 'image/svg+xml',
+            dominantColors: ['#102033', '#ffcc33'],
+            assetRole: 'logo',
+          },
+        ],
+      },
+      {
+        repository,
+        fetchOptions: {
+          fetchFn: async () => htmlResponse(),
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+
+    const stagedGuideline = result.candidates.find(
+      (candidate) => candidate.extractorId === 'brand-vault-source-staging.v1' && candidate.sourceField === 'sourceEvidence.0.uploaded_guideline',
+    );
+    expect(stagedGuideline?.normalizedValue).toMatchObject({
+      kind: 'uploaded_guideline',
+      mimeType: 'application/pdf',
+      sizeBytes: 420_000,
+      textLength: 135,
+      assetRole: 'brand_book',
+      status: 'staged',
+    });
+
+    const uploadCandidates = result.candidates.filter((candidate) => candidate.extractorId === 'brand-vault-upload-evidence.v1');
+    expect(uploadCandidates.map((candidate) => candidate.sourceField)).toEqual(
+      expect.arrayContaining([
+        'sourceEvidence.0.uploaded_guideline.colors',
+        'sourceEvidence.0.uploaded_guideline.brandRules',
+        'sourceEvidence.0.uploaded_guideline.voiceGuidelines',
+        'sourceEvidence.1.uploaded_asset.colors',
+        'sourceEvidence.1.uploaded_asset.logoAsset',
+      ]),
+    );
+    expect(uploadCandidates.find((candidate) => candidate.sourceField === 'sourceEvidence.0.uploaded_guideline.colors')?.normalizedValue).toEqual([
+      '#102033',
+      '#ffcc33',
+      '#f7f7f7',
+    ]);
+    expect(uploadCandidates.find((candidate) => candidate.sourceField === 'sourceEvidence.0.uploaded_guideline.brandRules')?.signalPath).toBe(
+      'voice.killList',
+    );
+    expect(uploadCandidates.find((candidate) => candidate.sourceField === 'sourceEvidence.0.uploaded_guideline.brandRules')?.normalizedValue).toEqual(
+      expect.arrayContaining(['Do not use stock-photo language', 'Avoid neon gradients.']),
+    );
+    expect(uploadCandidates.find((candidate) => candidate.sourceField === 'sourceEvidence.0.uploaded_guideline.voiceGuidelines')?.signalPath).toBe(
+      'voice.recurringPhrases',
+    );
+    expect(uploadCandidates.find((candidate) => candidate.sourceField === 'sourceEvidence.1.uploaded_asset.logoAsset')?.signalPath).toBe(
+      'assets.logoCandidates',
+    );
+    expect(result.job.warnings).toContain('7 additional Brand Vault sources staged for enrichment and evidence review.');
+  });
+
   it('does not fetch or persist when the website URL is unsupported', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
     let fetchCalls = 0;

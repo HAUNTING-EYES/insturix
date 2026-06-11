@@ -18,6 +18,7 @@ import {
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
+  BrandVaultUploadedAssetRole,
   BrandRefineryJob,
   BrandVaultSourceInput,
   FetchWebsiteBrandSnapshotOptions,
@@ -453,6 +454,16 @@ const SOURCE_PLATFORMS = new Set<NonNullable<BrandVaultSourceInput['platform']>>
   'other',
 ]);
 
+const UPLOADED_ASSET_ROLES = new Set<BrandVaultUploadedAssetRole>([
+  'brand_book',
+  'logo',
+  'font',
+  'color_palette',
+  'creative_reference',
+  'prior_work',
+  'other',
+]);
+
 function parseSourceEvidence(value: unknown): BrandVaultSourceInput[] | null {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 30) return null;
@@ -471,14 +482,28 @@ function parseSourceEvidenceEntry(value: unknown): BrandVaultSourceInput | null 
   const platformValue = cleanString(value.platform) as NonNullable<BrandVaultSourceInput['platform']>;
   const platform = SOURCE_PLATFORMS.has(platformValue) ? platformValue : undefined;
   const crawl = kind === 'crawl_seed' ? parseCrawlOptions(value.crawl) : undefined;
+  const mimeType = parseLimitedString(value.mimeType, 160);
+  const text = parseLimitedString(value.text, 20_000);
+  const sizeBytes = parseBoundedInteger(value.sizeBytes, 0, 250_000_000);
+  const dominantColors = parseColorList(value.dominantColors);
+  const assetRole = parseAssetRole(value.assetRole);
   if (crawl === null) return null;
-  if (!url && !name && !note) return null;
+  if (mimeType === null || text === null || sizeBytes === null || dominantColors === null || assetRole === null) return null;
+  if (!url && !name && !note && !text && !dominantColors?.length) return null;
 
-  return { kind, url, name, platform, note, crawl };
+  return { kind, url, name, platform, note, crawl, mimeType, sizeBytes, text, dominantColors, assetRole };
 }
 
 function cleanString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function parseLimitedString(value: unknown, maxLength: number): string | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') return null;
+  const cleaned = value.trim();
+  if (!cleaned) return undefined;
+  return cleaned.length <= maxLength ? cleaned : null;
 }
 
 function parseCrawlOptions(value: unknown): BrandVaultCrawlOptions | undefined | null {
@@ -515,6 +540,29 @@ function parsePathList(value: unknown): string[] | undefined | null {
 
 function normalizeCrawlPath(value: string): string {
   return value.startsWith('/') ? value : `/${value}`;
+}
+
+function parseColorList(value: unknown): string[] | undefined | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 24) return null;
+  const colors = value.map((item) => normalizeHexColor(cleanString(item)));
+  if (colors.some((color) => !color)) return null;
+  return [...new Set(colors.filter((color): color is string => Boolean(color)))];
+}
+
+function normalizeHexColor(value: string): string | undefined {
+  const hex = value.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(hex)) return hex;
+  if (/^#[0-9a-f]{3}$/.test(hex)) return `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`;
+  return undefined;
+}
+
+function parseAssetRole(value: unknown): BrandVaultUploadedAssetRole | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') return null;
+  const role = value.trim() as BrandVaultUploadedAssetRole;
+  if (!role) return undefined;
+  return UPLOADED_ASSET_ROLES.has(role) ? role : null;
 }
 
 function statusForDraftFailure(result: Extract<BrandVaultWebsiteDraftJobResult, { ok: false }>): number {

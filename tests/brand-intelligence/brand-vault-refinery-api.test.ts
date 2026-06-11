@@ -79,7 +79,16 @@ describe('Brand Vault refinery API boundary', () => {
           brandId: 'brand_vaultline',
           socialLinks: ['https://x.com/vaultline'],
           sourceEvidence: [
-            { kind: 'uploaded_guideline', name: 'brand-book.pdf', note: 'Official tone and color rules.' },
+            {
+              kind: 'uploaded_guideline',
+              name: 'brand-book.pdf',
+              note: 'Official tone and color rules.',
+              mimeType: 'application/pdf',
+              sizeBytes: 512_000,
+              text: ['Palette: #abc #182433', 'Voice: direct but calm.', 'Never use lazy stock captions.'].join('\n'),
+              dominantColors: ['#abc', '#182433'],
+              assetRole: 'brand_book',
+            },
             {
               kind: 'crawl_seed',
               url: 'https://vaultline.example/case-studies',
@@ -105,12 +114,22 @@ describe('Brand Vault refinery API boundary', () => {
     expect(created.body.record.profile.identity.brandName.value).toBe('Vaultline');
     expect(created.body.reviewPayload.candidateCount).toBeGreaterThan(0);
     expect(created.body.job.inputs.sourceEvidence).toHaveLength(3);
+    expect(created.body.job.inputs.sourceEvidence?.[0]).toMatchObject({
+      kind: 'uploaded_guideline',
+      name: 'brand-book.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 512_000,
+      text: 'Palette: #abc #182433\nVoice: direct but calm.\nNever use lazy stock captions.',
+      dominantColors: ['#aabbcc', '#182433'],
+      assetRole: 'brand_book',
+    });
     expect(created.body.job.inputs.sourceEvidence?.[1]?.crawl).toEqual({ maxPages: 6, maxDepth: 2, excludePaths: ['/privacy'] });
-    expect(created.body.job.warnings).toContain('4 additional Brand Vault sources staged for enrichment and evidence review.');
+    expect(created.body.job.warnings).toContain('7 additional Brand Vault sources staged for enrichment and evidence review.');
     expect(created.body.job.warnings).toContain('Crawled 2 additional brand pages for draft evidence.');
     expect(created.body.candidates.map((candidate) => candidate.sourceType)).toEqual(
       expect.arrayContaining(['social_profile', 'uploaded_guideline', 'crawl_seed', 'legacy_brand_intelligence']),
     );
+    expect(created.body.candidates.some((candidate) => candidate.extractorId === 'brand-vault-upload-evidence.v1')).toBe(true);
     expect(created.body.candidates.some((candidate) => candidate.sourceField === 'crawl.page')).toBe(true);
     expect(created.body.record.profile.evidence.some((item) => item.sourceType === 'public_social_page')).toBe(false);
 
@@ -268,6 +287,27 @@ describe('Brand Vault refinery API boundary', () => {
     );
     expect(badCrawlPolicy.status).toBe(400);
     expect(badCrawlPolicy.body.ok).toBe(false);
+
+    const badUploadMetadata = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          sourceEvidence: [
+            {
+              kind: 'uploaded_guideline',
+              name: 'bad-brand-book.pdf',
+              dominantColors: ['not-a-color'],
+              sizeBytes: 'large',
+              assetRole: 'brand_manual',
+            },
+          ],
+        },
+      },
+      { store },
+    );
+    expect(badUploadMetadata.status).toBe(400);
+    expect(badUploadMetadata.body.ok).toBe(false);
 
     const created = await createBrandVaultRefineryJobFromWebsite(
       { userId: 'user_vault', body: { websiteUrl: 'vaultline.example' } },

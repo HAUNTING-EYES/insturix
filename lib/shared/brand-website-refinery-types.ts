@@ -47,6 +47,15 @@ export interface BrandVaultCrawlOptions {
   excludePaths?: string[];
 }
 
+export type BrandVaultUploadedAssetRole =
+  | 'brand_book'
+  | 'logo'
+  | 'font'
+  | 'color_palette'
+  | 'creative_reference'
+  | 'prior_work'
+  | 'other';
+
 export interface BrandVaultSourceInput {
   kind: BrandVaultSourceKind;
   url?: string;
@@ -54,6 +63,11 @@ export interface BrandVaultSourceInput {
   platform?: BrandVaultSourcePlatform;
   note?: string;
   crawl?: BrandVaultCrawlOptions;
+  mimeType?: string;
+  sizeBytes?: number;
+  text?: string;
+  dominantColors?: string[];
+  assetRole?: BrandVaultUploadedAssetRole;
 }
 
 export interface BrandEvidenceCandidate {

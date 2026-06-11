@@ -116,6 +116,7 @@ export type BrandVaultWebsiteDraftJobResult =
 const SOCIAL_LINKS_DEFERRED_WARNING =
   'Social links were captured for later Brand Vault enrichment; this website draft does not read social posts yet.';
 const SOURCE_STAGING_EXTRACTOR = 'brand-vault-source-staging.v1';
+const UPLOAD_EXTRACTOR = 'brand-vault-upload-evidence.v1';
 const DEFAULT_CRAWL_MAX_PAGES = 12;
 const HARD_CRAWL_MAX_PAGES = 24;
 const DEFAULT_CRAWL_MAX_DEPTH = 2;
@@ -619,13 +620,24 @@ function createStagedSourceCandidates(args: {
     );
   }
   for (const [index, source] of args.sourceEvidence.entries()) {
+    const sourceField = `sourceEvidence.${index}.${source.kind}`;
     candidates.push(
       createStagedSourceCandidate({
         input: args.input,
         jobId: args.jobId,
         source,
-        sourceField: `sourceEvidence.${index}.${source.kind}`,
+        sourceField,
         index: candidates.length,
+        observedAt: args.observedAt,
+      }),
+    );
+    candidates.push(
+      ...createUploadedSourceCandidates({
+        input: args.input,
+        jobId: args.jobId,
+        source,
+        sourceField,
+        startIndex: candidates.length,
         observedAt: args.observedAt,
       }),
     );
@@ -648,6 +660,11 @@ function createStagedSourceCandidate(args: {
     name: args.source.name,
     platform: args.source.platform,
     note: args.source.note,
+    mimeType: args.source.mimeType,
+    sizeBytes: args.source.sizeBytes,
+    textLength: args.source.text?.length,
+    dominantColors: args.source.dominantColors,
+    assetRole: args.source.assetRole,
     status: 'staged',
   };
   const sourceId = idPart(`${args.source.kind}_${label}`, `source_${args.index + 1}`);
@@ -667,6 +684,198 @@ function createStagedSourceCandidate(args: {
     observedAt: args.observedAt,
     extractorId: SOURCE_STAGING_EXTRACTOR,
   };
+}
+
+function createUploadedSourceCandidates(args: {
+  input: BrandVaultWebsiteDraftJobInput;
+  jobId: string;
+  source: BrandVaultSourceInput;
+  sourceField: string;
+  startIndex: number;
+  observedAt: string;
+}): BrandEvidenceCandidate[] {
+  if (args.source.kind !== 'uploaded_guideline' && args.source.kind !== 'uploaded_asset') return [];
+
+  const candidates: BrandEvidenceCandidate[] = [];
+  const colors = uniqueStrings([...normalizeColorValues(args.source.dominantColors ?? []), ...colorsFromText(args.source.text ?? '')]);
+  if (colors.length > 0) {
+    candidates.push(
+      uploadCandidate({
+        ...args,
+        index: args.startIndex + candidates.length,
+        sourceField: `${args.sourceField}.colors`,
+        signalPath: 'palette.supporting',
+        rawValue: colors,
+        normalizedValue: colors,
+        excerpt: `Uploaded ${uploadLabel(args.source)} color evidence: ${colors.join(', ')}`,
+        confidence: args.source.kind === 'uploaded_guideline' ? 0.78 : 0.62,
+      }),
+    );
+  }
+
+  const rules = extractBrandRules(args.source.text);
+  if (rules.length > 0) {
+    candidates.push(
+      uploadCandidate({
+        ...args,
+        index: args.startIndex + candidates.length,
+        sourceField: `${args.sourceField}.brandRules`,
+        signalPath: 'voice.killList',
+        rawValue: rules,
+        normalizedValue: rules,
+        excerpt: rules.join(' | '),
+        confidence: 0.82,
+      }),
+    );
+  }
+
+  const voiceGuidelines = extractVoiceGuidelines(args.source.text);
+  if (voiceGuidelines.length > 0) {
+    candidates.push(
+      uploadCandidate({
+        ...args,
+        index: args.startIndex + candidates.length,
+        sourceField: `${args.sourceField}.voiceGuidelines`,
+        signalPath: 'voice.recurringPhrases',
+        rawValue: voiceGuidelines,
+        normalizedValue: voiceGuidelines,
+        excerpt: voiceGuidelines.join(' | '),
+        confidence: args.source.kind === 'uploaded_guideline' ? 0.76 : 0.58,
+      }),
+    );
+  }
+
+  if (isLogoUpload(args.source)) {
+    const logoValue = args.source.url ?? args.source.name ?? uploadLabel(args.source);
+    candidates.push(
+      uploadCandidate({
+        ...args,
+        index: args.startIndex + candidates.length,
+        sourceField: `${args.sourceField}.logoAsset`,
+        signalPath: 'assets.logoCandidates',
+        rawValue: logoValue,
+        normalizedValue: {
+          url: args.source.url,
+          name: args.source.name,
+          mimeType: args.source.mimeType,
+          assetRole: args.source.assetRole,
+        },
+        excerpt: `Uploaded logo asset candidate: ${logoValue}`,
+        confidence: 0.7,
+      }),
+    );
+  }
+
+  if (args.source.kind === 'uploaded_asset' && candidates.length === 0) {
+    candidates.push(
+      uploadCandidate({
+        ...args,
+        index: args.startIndex,
+        sourceField: `${args.sourceField}.assetReference`,
+        signalPath: 'visual.expressiveness',
+        rawValue: uploadLabel(args.source),
+        normalizedValue: {
+          url: args.source.url,
+          name: args.source.name,
+          mimeType: args.source.mimeType,
+          sizeBytes: args.source.sizeBytes,
+          assetRole: args.source.assetRole,
+        },
+        excerpt: `Uploaded brand asset reference: ${uploadLabel(args.source)}`,
+        confidence: 0.54,
+      }),
+    );
+  }
+
+  return candidates;
+}
+
+function uploadCandidate(args: {
+  input: BrandVaultWebsiteDraftJobInput;
+  jobId: string;
+  source: BrandVaultSourceInput;
+  sourceField: string;
+  signalPath: string;
+  rawValue: unknown;
+  normalizedValue: unknown;
+  excerpt: string;
+  confidence: number;
+  index: number;
+  observedAt: string;
+}): BrandEvidenceCandidate {
+  return {
+    id: `candidate_upload_${args.index + 1}_${idPart(`${args.sourceField}_${args.signalPath}_${stringifyCandidateValue(args.normalizedValue)}`, 'upload')}`,
+    brandId: args.input.brandId,
+    jobId: args.jobId,
+    sourceType: args.source.kind,
+    sourceUrl: args.source.url,
+    sourceField: args.sourceField,
+    signalPath: args.signalPath,
+    rawValue: args.rawValue,
+    normalizedValue: args.normalizedValue,
+    excerpt: sanitizeEvidenceExcerpt(args.excerpt),
+    confidence: args.confidence,
+    authorityClass: authorityForSource(args.source.kind),
+    observedAt: args.observedAt,
+    extractorId: UPLOAD_EXTRACTOR,
+  };
+}
+
+function colorsFromText(text: string): string[] {
+  const colors: string[] = [];
+  for (const match of text.matchAll(/#[0-9a-f]{3,6}\b/gi)) {
+    const color = normalizeHexColor(match[0]);
+    if (color) colors.push(color);
+  }
+  return colors;
+}
+
+function normalizeColorValues(values: string[]): string[] {
+  return values.map(normalizeHexColor).filter((color): color is string => Boolean(color));
+}
+
+function normalizeHexColor(value: string): string | undefined {
+  const hex = value.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(hex)) return hex;
+  if (/^#[0-9a-f]{3}$/.test(hex)) return `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`;
+  return undefined;
+}
+
+function extractBrandRules(text: string | undefined): string[] {
+  return extractMeaningfulUploadLines(text)
+    .filter((line) => /\b(?:do not|don't|dont|avoid|never|must not|prohibited|forbidden|no\s+(?:logo|logos|gradient|gradients|slang|emoji|emojis|stock|clipart|clip art))\b/i.test(line))
+    .slice(0, 8);
+}
+
+function extractVoiceGuidelines(text: string | undefined): string[] {
+  return extractMeaningfulUploadLines(text)
+    .filter((line) => /\b(?:voice|tone|personality|tagline|headline|copy|messaging|we sound|we speak)\b/i.test(line))
+    .slice(0, 8);
+}
+
+function extractMeaningfulUploadLines(text: string | undefined): string[] {
+  if (!text) return [];
+  return uniqueStrings(text.split(/\r?\n|[.;]\s+/).map((line) => sanitizeEvidenceExcerpt(line, 180)).filter((line) => line.length >= 8));
+}
+
+function isLogoUpload(source: BrandVaultSourceInput): boolean {
+  const label = `${source.name ?? ''} ${source.url ?? ''} ${source.mimeType ?? ''}`.toLowerCase();
+  return source.assetRole === 'logo' || /\b(?:logo|logomark|wordmark|brandmark)\b/.test(label);
+}
+
+function uploadLabel(source: BrandVaultSourceInput): string {
+  return source.name ?? source.url ?? source.note ?? source.mimeType ?? source.kind;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function stringifyCandidateValue(value: unknown): string {
+  if (Array.isArray(value)) return value.join('_');
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') return Object.values(value).filter(Boolean).join('_');
+  return String(value);
 }
 
 function signalPathForSource(kind: BrandVaultSourceInput['kind']): string {
