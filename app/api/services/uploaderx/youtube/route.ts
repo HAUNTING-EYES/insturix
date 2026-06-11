@@ -49,7 +49,7 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const { gcsPath, videoUuid } = body;
-    let { title, description, privacyStatus } = body;
+    let { title, description, privacyStatus, postType } = body;
     const requestCategoryId = typeof body.categoryId === "string" && body.categoryId.trim()
       ? body.categoryId.trim()
       : null;
@@ -69,6 +69,7 @@ export async function POST(req: Request) {
     privacyStatus = privacyStatus || "unlisted";
     let tags: string[] = [];
     let existingVideoId: string | null = null;
+    let dbVideoType: string | null = null;
 
     if (videoUuid) {
       try {
@@ -116,17 +117,22 @@ export async function POST(req: Request) {
             privacyStatus = video.metadata.youtube.privacyStatus;
           }
 
-          if (video.metadata.videoType === "short") {
-            if (title && !title.toLowerCase().includes("#shorts")) {
-              title = `${title} #Shorts`;
-            }
-            if (description && !description.toLowerCase().includes("#shorts")) {
-              description = `${description}\n#Shorts`;
-            }
+          if (typeof video.metadata.videoType === "string") {
+            dbVideoType = video.metadata.videoType;
           }
         }
       } catch (dbError) {
         console.error("Failed to fetch video metadata:", dbError);
+      }
+    }
+
+    const finalPostType = postType || dbVideoType;
+    if (finalPostType === "short") {
+      if (title && !title.toLowerCase().includes("#shorts")) {
+        title = `${title} #Shorts`;
+      }
+      if (description && !description.toLowerCase().includes("#shorts")) {
+        description = `${description}\n#Shorts`;
       }
     }
 

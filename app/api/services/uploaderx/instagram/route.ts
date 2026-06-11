@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { gcsPath, videoUuid, title, description, accountId: requestedAccountId } = body;
+    const { gcsPath, videoUuid, title, description, accountId: requestedAccountId, postType } = body;
 
     if (!gcsPath) {
       return NextResponse.json({ success: false, error: "Missing gcsPath" }, { status: 400 });
@@ -210,6 +210,7 @@ export async function POST(req: Request) {
             "metadata.instagram.instagramAccountId": igAccountId,
             "metadata.instagram.instagramUsername": targetAccount.instagramUsername,
             "metadata.instagram.lastUploadedAt": new Date(),
+            "metadata.instagram.postType": postType || "reel",
           },
         }
       );
@@ -232,6 +233,7 @@ export async function POST(req: Request) {
       mediaId,
       accountUsername: targetAccount.instagramUsername,
       mediaType,
+      postType: postType || "reel",
     });
   } catch (error: any) {
     console.error("Instagram operation failed:", error);

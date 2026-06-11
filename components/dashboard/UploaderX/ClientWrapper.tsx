@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload, type UploaderXPublishReceipt } from "@/hooks/useUploaderXUpload";
 import { isUploaderXFieldSupported } from "@/lib/uploaderx/platform-capabilities";
+import { detectPostTypes, validatePostType, type VideoMetadata } from "@/lib/uploaderx/platform-rules";
 import { useUser, useClerk, useReverification } from "@clerk/nextjs";
 import { useGSAP } from "@gsap/react";
 import { gsap } from "@/lib/animation/gsap-config";
@@ -84,6 +85,89 @@ const STAGES = [
   { key: "share", label: "Share" },
 ] as const;
 
+function extractVideoMetadata(file: File): Promise<VideoMetadata> {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    const url = URL.createObjectURL(file);
+    video.src = url;
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      const duration = video.duration;
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+      const divisor = gcd(width, height);
+      const rWidth = width / divisor;
+      const rHeight = height / divisor;
+      const aspectRatio = `${rWidth}:${rHeight}`;
+      let orientation: "vertical" | "horizontal" | "square" = "horizontal";
+      if (height > width) {
+        orientation = "vertical";
+      } else if (width === height) {
+        orientation = "square";
+      }
+      resolve({
+        duration,
+        width,
+        height,
+        aspectRatio,
+        orientation,
+        fileSize: file.size,
+      });
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve({
+        duration: 0,
+        width: 0,
+        height: 0,
+        aspectRatio: "16:9",
+        orientation: "horizontal",
+        fileSize: file.size,
+      });
+    };
+  });
+}
+
+function extractVideoMetadataFromUrl(url: string): Promise<Omit<VideoMetadata, "fileSize">> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.src = url;
+    video.onloadedmetadata = () => {
+      const duration = video.duration;
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+      const divisor = gcd(width, height);
+      const rWidth = width / divisor;
+      const rHeight = height / divisor;
+      const aspectRatio = `${rWidth}:${rHeight}`;
+      let orientation: "vertical" | "horizontal" | "square" = "horizontal";
+      if (height > width) {
+        orientation = "vertical";
+      } else if (width === height) {
+        orientation = "square";
+      }
+      resolve({
+        duration,
+        width,
+        height,
+        aspectRatio,
+        orientation,
+      });
+    };
+    video.onerror = () => {
+      reject(new Error("Failed to load video metadata from URL"));
+    };
+  });
+}
+
 export function UploaderXClientWrapper() {
   const { toast } = useToast();
   const { user } = useUser();
@@ -97,6 +181,9 @@ export function UploaderXClientWrapper() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
+  const [videoMetadata, setVideoMetadata] = useState<VideoMetadata | null>(null);
+  const [selectedPostTypes, setSelectedPostTypes] = useState<Record<string, string>>({});
+  const [userOverriddenPlatforms, setUserOverriddenPlatforms] = useState<Set<string>>(new Set());
   const [loadingPlatforms, setLoadingPlatforms] = useState(true);
   const [loadingVideos, setLoadingVideos] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -348,13 +435,75 @@ export function UploaderXClientWrapper() {
   }, []);
 
   // ─── File handling ───────────────────────────────────────────
-  const handleFile = useCallback((file: File) => {
+  const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith("video/")) {
       toast({ title: "Invalid file", description: "Please upload a video file (MP4, MOV, WebM).", variant: "destructive" });
       return;
     }
     setSelectedFile(file);
+    try {
+      const meta = await extractVideoMetadata(file);
+      setVideoMetadata(meta);
+      const detection = detectPostTypes(meta);
+      const initialPostTypes: Record<string, string> = {};
+      Object.entries(detection).forEach(([key, val]) => {
+        initialPostTypes[key] = val.recommended;
+      });
+      setSelectedPostTypes(initialPostTypes);
+      setUserOverriddenPlatforms(new Set());
+    } catch (err) {
+      console.error("Failed to extract metadata:", err);
+    }
   }, [toast]);
+
+  const handleSelectVideo = useCallback(async (video: VideoItem) => {
+    setSelectedVideo(video);
+    setView("fragmentation");
+    
+    const dbMeta = video.metadata?.videoMetadata as VideoMetadata | undefined;
+    if (dbMeta && dbMeta.duration && dbMeta.width) {
+      setVideoMetadata(dbMeta);
+      const detection = detectPostTypes(dbMeta);
+      const initialPostTypes: Record<string, string> = {};
+      Object.entries(detection).forEach(([key, val]) => {
+        initialPostTypes[key] = val.recommended;
+      });
+      setSelectedPostTypes(initialPostTypes);
+      setUserOverriddenPlatforms(new Set());
+    } else {
+      if (video.publicUrl) {
+        try {
+          const meta = await extractVideoMetadataFromUrl(video.publicUrl);
+          const completeMeta = { ...meta, fileSize: video.fileSize };
+          setVideoMetadata(completeMeta);
+          const detection = detectPostTypes(completeMeta);
+          const initialPostTypes: Record<string, string> = {};
+          Object.entries(detection).forEach(([key, val]) => {
+            initialPostTypes[key] = val.recommended;
+          });
+          setSelectedPostTypes(initialPostTypes);
+          setUserOverriddenPlatforms(new Set());
+        } catch {
+          const fallbackMeta: VideoMetadata = {
+            duration: 60,
+            width: 1920,
+            height: 1080,
+            aspectRatio: "16:9",
+            orientation: "horizontal",
+            fileSize: video.fileSize,
+          };
+          setVideoMetadata(fallbackMeta);
+          const detection = detectPostTypes(fallbackMeta);
+          const initialPostTypes: Record<string, string> = {};
+          Object.entries(detection).forEach(([key, val]) => {
+            initialPostTypes[key] = val.recommended;
+          });
+          setSelectedPostTypes(initialPostTypes);
+          setUserOverriddenPlatforms(new Set());
+        }
+      }
+    }
+  }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -478,23 +627,42 @@ export function UploaderXClientWrapper() {
 
   // ─── Publish to all armed platforms ──────────────────────────
   const handlePublish = useCallback(async () => {
+    setIsPublishing(true);
+
+    // Validate selections first
+    if (videoMetadata) {
+      for (const key of armedPlatforms) {
+        const selectedType = selectedPostTypes[key] || "video";
+        const validation = validatePostType(key, selectedType, videoMetadata);
+        if (!validation.valid) {
+          toast({
+            title: "Validation Error",
+            description: validation.error || `This video is not eligible for ${key}.`,
+            variant: "destructive",
+          });
+          setIsPublishing(false);
+          return;
+        }
+      }
+    }
+
     let gcsPath = uploadedGcsPath;
     let videoUuid = uploadedVideoUuid;
     const title = metaTitle || selectedFile?.name || selectedVideo?.filename || "Untitled";
     const description = metaDescription;
-    const isShort = metaVideoType === "short";
+    const isShort = selectedPostTypes["youtube"] === "short";
     const ytTitle = isShort && !title.includes("#Shorts") ? `${title} #Shorts` : title;
     const ytDesc = isShort && description && !description.includes("#Shorts") ? `${description}\n#Shorts` : description;
 
     // Step 1: Upload file to R2 if needed
     if (selectedFile && !gcsPath) {
-      setIsPublishing(true);
       const result = await uploadWithProgress(selectedFile, undefined, {
         title,
         description,
         tags: metaTags.split(",").map(t => t.trim()).filter(Boolean),
         privacyStatus: metaPrivacy,
-        videoType: metaVideoType,
+        videoType: selectedPostTypes["youtube"] === "short" ? "short" : "long",
+        videoMetadata: videoMetadata || undefined,
       });
       if (!result.success) {
         toast({ title: "Upload failed", description: result.error || "Could not upload video", variant: "destructive" });
@@ -516,7 +684,6 @@ export function UploaderXClientWrapper() {
       return;
     }
 
-    setIsPublishing(true);
     const results: Record<string, UploaderXPublishReceipt> = {};
 
     // Step 2: Publish to each armed platform with proper metadata
@@ -545,20 +712,50 @@ export function UploaderXClientWrapper() {
               ytCategory,
               metaSchedule ? new Date(metaSchedule).toISOString() : undefined,
               thumbnailPublicUrl,
+              selectedPostTypes["youtube"] || "video",
             );
             break;
           }
           case "facebook":
-            res = await uploadToFacebook(videoUuid, gcsPath, title, fbMessage || description);
+            res = await uploadToFacebook(
+              videoUuid,
+              gcsPath,
+              title,
+              fbMessage || description,
+              undefined,
+              selectedPostTypes["facebook"] || "reel",
+            );
             break;
           case "instagram":
-            res = await uploadToInstagram(videoUuid, gcsPath, title, igCaption || description);
+            res = await uploadToInstagram(
+              videoUuid,
+              gcsPath,
+              title,
+              igCaption || description,
+              undefined,
+              selectedPostTypes["instagram"] || "reel",
+            );
             break;
           case "twitter":
-            res = await uploadToTwitter(videoUuid, gcsPath, title, description, xReplySettings);
+            res = await uploadToTwitter(
+              videoUuid,
+              gcsPath,
+              title,
+              description,
+              xReplySettings,
+              selectedPostTypes["twitter"] || "video",
+            );
             break;
           case "linkedin":
-            res = await uploadToLinkedIn(videoUuid, gcsPath, title, description, liPostType);
+            res = await uploadToLinkedIn(
+              videoUuid,
+              gcsPath,
+              title,
+              description,
+              liPostType,
+              undefined,
+              selectedPostTypes["linkedin"] || "video",
+            );
             break;
           default:
             res = { success: false, platform: key as UploaderXPublishReceipt["platform"], error: "Unknown platform" };
@@ -572,7 +769,7 @@ export function UploaderXClientWrapper() {
 
     setIsPublishing(false);
     setView("reveal");
-  }, [armedPlatforms, selectedFile, selectedVideo, uploadedGcsPath, uploadedVideoUuid, uploadWithProgress, uploadThumbnail, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, toast, metaTitle, metaDescription, metaTags, metaPrivacy, metaVideoType, metaThumbnail, metaSchedule, ytCategory, fbMessage, igCaption, xReplySettings, liPostType]);
+  }, [armedPlatforms, selectedFile, selectedVideo, uploadedGcsPath, uploadedVideoUuid, uploadWithProgress, uploadThumbnail, uploadToYouTube, uploadToFacebook, uploadToInstagram, uploadToTwitter, uploadToLinkedIn, toast, metaTitle, metaDescription, metaTags, metaPrivacy, metaVideoType, metaThumbnail, metaSchedule, ytCategory, fbMessage, igCaption, xReplySettings, liPostType, videoMetadata, selectedPostTypes]);
 
   const armedCount = armedPlatforms.size;
 
@@ -738,7 +935,7 @@ export function UploaderXClientWrapper() {
                 <div style={{ fontSize: 13, color: C.t3, marginBottom: 16, lineHeight: 1.5 }}>
                   {connectedCount} platform{connectedCount !== 1 ? "s" : ""} connected · Ready to distribute
                 </div>
-                <button onClick={() => { setSelectedVideo(videos[0]); setView("fragmentation"); }} style={{
+                <button onClick={() => handleSelectVideo(videos[0])} style={{
                   background: C.gold, color: C.bg, border: "none", padding: "10px 24px", borderRadius: 7,
                   fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", alignSelf: "flex-start",
                   transition: `all .2s ${EASE}`,
@@ -778,7 +975,7 @@ export function UploaderXClientWrapper() {
                 {videos.slice(0, 5).map((v) => (
                   <div
                     key={v.videoUuid}
-                    onClick={() => { setSelectedVideo(v); setView("fragmentation"); }}
+                    onClick={() => handleSelectVideo(v)}
                     style={{
                       display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 7,
                       border: `1px solid ${C.border}`, background: C.raised, cursor: "pointer",
@@ -862,7 +1059,7 @@ export function UploaderXClientWrapper() {
 
           {/* Topbar */}
           <div style={{ display: "flex", alignItems: "center", padding: "12px 0", borderBottom: `1px solid ${C.border}`, gap: 12, marginBottom: 24 }}>
-            <button onClick={() => { setView("floor"); setUploadedGcsPath(null); setUploadedVideoUuid(null); }} style={{
+            <button onClick={() => { setView("floor"); setUploadedGcsPath(null); setUploadedVideoUuid(null); setVideoMetadata(null); setSelectedPostTypes({}); }} style={{
               display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: C.t4,
               fontFamily: "inherit", fontSize: 13, cursor: "pointer", padding: "6px 10px", borderRadius: 6,
               transition: `all .2s ${EASE}`,
@@ -961,11 +1158,78 @@ export function UploaderXClientWrapper() {
 
                     {/* Info */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 500, color: armed ? C.t1 : connected ? C.t3 : C.t5, transition: "color .2s" }}>
-                        {p.label}
+                      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+                        <span style={{ fontSize: 14, fontWeight: 500, color: armed ? C.t1 : connected ? C.t3 : C.t5, transition: "color .2s" }}>
+                          {p.label}
+                        </span>
+                        {connected && videoMetadata && (() => {
+                          const platformKey = p.key === "twitter" ? "x" : p.key;
+                          const detection = detectPostTypes(videoMetadata)[platformKey as keyof ReturnType<typeof detectPostTypes>];
+                          if (!detection) return null;
+                          const availableTypes = detection.available;
+                          const currentSelection = selectedPostTypes[p.key] || detection.recommended;
+                          const isAuto = !userOverriddenPlatforms.has(p.key);
+                          return (
+                            <>
+                              {availableTypes.length > 1 ? (
+                                <select
+                                  value={currentSelection}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    const nextVal = e.target.value;
+                                    setSelectedPostTypes(prev => ({ ...prev, [p.key]: nextVal }));
+                                    setUserOverriddenPlatforms(prev => {
+                                      const next = new Set(prev);
+                                      next.add(p.key);
+                                      return next;
+                                    });
+                                  }}
+                                  style={{
+                                    background: C.deeper,
+                                    border: `1px solid ${armed ? C.goldBd : C.borderL}`,
+                                    borderRadius: 4,
+                                    padding: "2px 6px",
+                                    fontSize: 11,
+                                    color: armed ? C.gold : C.t2,
+                                    fontFamily: "inherit",
+                                    outline: "none",
+                                    cursor: "pointer",
+                                    marginLeft: 4,
+                                  }}
+                                >
+                                  {availableTypes.map(t => (
+                                    <option key={t} value={t}>
+                                      {t === "short" ? "Short" : t === "feed_video" ? "Feed Video" : t === "reel" ? "Reel" : "Video"}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span style={{ fontSize: 11, color: armed ? C.t2 : C.t4, marginLeft: 4, fontWeight: 500 }}>
+                                  ✓ {currentSelection === "video" ? "Video Post" : currentSelection}
+                                </span>
+                              )}
+                              {isAuto && (
+                                <span style={{ fontSize: 9, color: C.gold, opacity: 0.8, background: C.goldBg, border: `1px solid ${C.goldBd}`, borderRadius: 3, padding: "1px 4px", marginLeft: 4, fontFamily: "var(--font-mono)" }}>
+                                  Auto
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, marginTop: 2 }}>
-                        {connected ? p.fmt : "Not connected"}
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t5, marginTop: 4 }}>
+                        {connected ? (
+                          videoMetadata ? (
+                            (() => {
+                              const platformKey = p.key === "twitter" ? "x" : p.key;
+                              const detection = detectPostTypes(videoMetadata)[platformKey as keyof ReturnType<typeof detectPostTypes>];
+                              return detection?.reason || p.fmt;
+                            })()
+                          ) : p.fmt
+                        ) : (
+                          "Not connected"
+                        )}
                       </div>
                     </div>
 
@@ -1368,7 +1632,7 @@ export function UploaderXClientWrapper() {
                   {/* Actions */}
                   <div style={{ display: "flex", gap: 6 }}>
                     <button
-                      onClick={() => { setSelectedVideo(v); setView("fragmentation"); }}
+                      onClick={() => handleSelectVideo(v)}
                       style={{
                         fontSize: 11, color: C.gold, background: "none", border: `1px solid ${C.goldBd}`,
                         padding: "4px 12px", borderRadius: 5, cursor: "pointer", fontFamily: "inherit",

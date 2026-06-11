@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { gcsPath, videoUuid, title, description, pageId: requestedPageId } = body;
+    const { gcsPath, videoUuid, title, description, pageId: requestedPageId, postType } = body;
 
     if (!gcsPath) {
       return NextResponse.json({ success: false, error: "Missing gcsPath" }, { status: 400 });
@@ -175,6 +175,7 @@ export async function POST(req: Request) {
                   "metadata.facebook.pageId": targetPage.pageId,
                   "metadata.facebook.pageName": targetPage.pageName,
                   "metadata.facebook.lastUploadedAt": new Date(),
+                  "metadata.facebook.postType": postType || "reel",
                 },
               }
             );
@@ -196,6 +197,7 @@ export async function POST(req: Request) {
             facebookUrl,
             videoId: simpleData.id,
             pageName: targetPage.pageName,
+            postType: postType || "reel",
           });
         }
       } catch (simpleError: any) {
@@ -312,6 +314,7 @@ export async function POST(req: Request) {
             "metadata.facebook.pageId": targetPage.pageId,
             "metadata.facebook.pageName": targetPage.pageName,
             "metadata.facebook.lastUploadedAt": new Date(),
+            "metadata.facebook.postType": postType || "reel",
           },
         }
       );
@@ -333,6 +336,7 @@ export async function POST(req: Request) {
       facebookUrl,
       videoId,
       pageName: targetPage.pageName,
+      postType: postType || "reel",
     });
   } catch (error: any) {
     console.error("Facebook operation failed:", error);

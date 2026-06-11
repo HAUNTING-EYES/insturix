@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    let { gcsPath, videoUuid, title, description, postType = "personal", organizationId } = body;
+    let { gcsPath, videoUuid, title, description, postType = "personal", organizationId, videoPostType } = body;
     postType = normalizeLinkedInPostTarget(postType);
     const postText = title || description || "Posted via Insturix UploaderX";
     const hasMedia = !!gcsPath;
@@ -401,6 +401,7 @@ export async function POST(req: Request) {
         publishPath,
         organizationId: postType === "organization" ? organizationId : null,
         uploadedAt: new Date(),
+        postType: videoPostType || "video",
       };
       const metadataSet: Record<string, unknown> = {
         [`metadata.linkedin.${postType}`]: linkedInMetadata,
@@ -439,6 +440,7 @@ export async function POST(req: Request) {
       postType,
       publishPath,
       organizationId: postType === "organization" ? organizationId : null,
+      videoPostType: videoPostType || "video",
     });
   } catch (error) {
     console.error("LinkedIn upload error:", error);
