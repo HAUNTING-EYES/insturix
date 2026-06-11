@@ -8,6 +8,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { UseExportPipelineReturn } from "./hooks/useExportPipeline";
+import { ClickatronHandoffPanel } from "./ClickatronHandoffPanel";
 
 interface ExportCompletePanelProps {
   pipeline: UseExportPipelineReturn;
@@ -32,11 +33,6 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
     handleClose,
   } = pipeline;
   const clickatronCanSend = Boolean(clickatronHandoffState?.canSendToClickatron);
-  const clickatronStatusColor = clickatronHandoffState?.status === "ready"
-    ? "#5EC97E"
-    : clickatronHandoffState?.status === "needs_user_input"
-      ? "#D4A652"
-      : "#E06C75";
   const clickatronButtonText = clickatronCreating
     ? "Starting..."
     : clickatronVisualChoices.kind === "carousel"
@@ -130,50 +126,11 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
         </div>
       )}
 
-      <div style={{ padding: 12, borderRadius: 4, background: "rgba(92,184,204,0.05)", border: "1px solid rgba(92,184,204,0.16)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 8 }}>
-          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#5CB8CC" }}>
-            Clickatron Handoff
-          </span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: clickatronStatusColor }}>
-            {clickatronHandoffState?.display.statusLabel || "Unavailable"}
-          </span>
-        </div>
-        <p style={{ fontSize: 11, color: "#9A968B", lineHeight: 1.45, marginBottom: 10 }}>
-          {clickatronHandoffState?.display.readinessCopy || "ThinkForge session context is not available yet."}
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))", gap: 6, marginBottom: 8 }}>
-          <select value={clickatronVisualChoices.kind || "single_post_visual"} onChange={(e) => setClickatronVisualChoice("kind", e.target.value)} style={{ minWidth: 0, background: "#131312", border: "1px solid #282724", color: "#ECE9E1", borderRadius: 3, padding: "7px 8px", fontSize: 11 }}>
-            <option value="single_post_visual">Single post</option>
-            <option value="carousel">Carousel</option>
-          </select>
-          <select value={clickatronVisualChoices.platform || "linkedin"} onChange={(e) => setClickatronVisualChoice("platform", e.target.value)} style={{ minWidth: 0, background: "#131312", border: "1px solid #282724", color: "#ECE9E1", borderRadius: 3, padding: "7px 8px", fontSize: 11 }}>
-            {["linkedin", "instagram", "x", "facebook", "youtube", "tiktok", "pinterest", "generic"].map((platform) => <option key={platform} value={platform}>{platform}</option>)}
-          </select>
-          <select value={clickatronVisualChoices.aspectRatio || "4:5"} onChange={(e) => setClickatronVisualChoice("aspectRatio", e.target.value)} style={{ minWidth: 0, background: "#131312", border: "1px solid #282724", color: "#ECE9E1", borderRadius: 3, padding: "7px 8px", fontSize: 11 }}>
-            {["4:5", "1:1", "9:16", "16:9", "3:2"].map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
-          </select>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))", gap: 6 }}>
-          <input value={clickatronVisualChoices.vibe || ""} onChange={(e) => setClickatronVisualChoice("vibe", e.target.value)} placeholder="Vibe" style={{ minWidth: 0, background: "#131312", border: "1px solid #282724", color: "#ECE9E1", borderRadius: 3, padding: "7px 8px", fontSize: 11 }} />
-          <input value={clickatronVisualChoices.imageStyle || ""} onChange={(e) => setClickatronVisualChoice("imageStyle", e.target.value)} placeholder="Image style" style={{ minWidth: 0, background: "#131312", border: "1px solid #282724", color: "#ECE9E1", borderRadius: 3, padding: "7px 8px", fontSize: 11 }} />
-        </div>
-        {clickatronHandoffState?.display.imagePrompt && (
-          <p style={{ marginTop: 9, fontSize: 10, color: "#B5B2A8", lineHeight: 1.45 }}>
-            {clickatronHandoffState.display.imagePrompt}
-          </p>
-        )}
-        {clickatronHandoffState?.display.sourceSnippets[0]?.text && (
-          <p style={{ marginTop: 6, fontSize: 10, color: "#6F6B61", lineHeight: 1.45 }}>
-            {clickatronHandoffState.display.sourceSnippets[0].label}: {clickatronHandoffState.display.sourceSnippets[0].text}
-          </p>
-        )}
-        {clickatronHandoffState && !clickatronCanSend && (
-          <p style={{ marginTop: 7, fontSize: 10, color: clickatronStatusColor }}>
-            {clickatronHandoffState.requiredUserInput[0] || clickatronHandoffState.issues[0]?.message || "Regenerate the ThinkForge output before sending."}
-          </p>
-        )}
-      </div>
+      <ClickatronHandoffPanel
+        handoffState={clickatronHandoffState}
+        visualChoices={clickatronVisualChoices}
+        setVisualChoice={setClickatronVisualChoice}
+      />
 
       {/* Storyboard preview with film-frame borders */}
       {storyboardScenes.length > 0 && (
