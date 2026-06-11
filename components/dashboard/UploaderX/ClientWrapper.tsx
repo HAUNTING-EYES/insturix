@@ -569,6 +569,8 @@ export function UploaderXClientWrapper() {
         );
         if (googleAccount) {
           await googleAccount.destroy();
+          // Force refresh user data to ensure externalAccounts is updated
+          await user.reload();
           toast({ title: "YouTube disconnected", description: "Your Google account has been disconnected." });
           setPlatformStatuses((prev) => prev.map((p) => p.key === "youtube" ? { ...p, connected: false, userName: undefined } : p));
         } else {
@@ -577,7 +579,11 @@ export function UploaderXClientWrapper() {
         }
       } catch (err) {
         console.error("Failed to disconnect YouTube:", err);
-        toast({ title: "Disconnect failed", description: "Could not disconnect Google account. Try from your account settings.", variant: "destructive" });
+        toast({ 
+          title: "Disconnect failed", 
+          description: err instanceof Error ? err.message : "Could not disconnect Google account. Try from your account settings.", 
+          variant: "destructive" 
+        });
       }
       return;
     }
