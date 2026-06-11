@@ -1,0 +1,138 @@
+import { deflateRawSync } from 'node:zlib';
+import { describe, expect, it } from 'vitest';
+import { extractBrandVaultUploadEvidenceFromBuffer } from '../../lib/shared/brand-vault-upload-parser';
+
+describe('Brand Vault server upload parser', () => {
+  it('extracts text and colors from plain-text brand books', async () => {
+    const result = await extractBrandVaultUploadEvidenceFromBuffer({
+      name: 'brand-book.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Tone: precise and practical.\nPalette: #abc #102033'),
+    });
+
+    expect(result.source).toMatchObject({
+      kind: 'uploaded_guideline',
+      assetRole: 'brand_book',
+      text: 'Tone: precise and practical.\nPalette: #abc #102033',
+      dominantColors: ['#aabbcc', '#102033'],
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('extracts DOCX text and theme colors from Office Open XML packages', async () => {
+    const docx = makeZip([
+      {
+        name: 'word/document.xml',
+        content:
+          '<w:document><w:body><w:p><w:r><w:t>Voice: confident, plainspoken.</w:t></w:r></w:p><w:color w:val="12AB34"/></w:body></w:document>',
+      },
+    ]);
+
+    const result = await extractBrandVaultUploadEvidenceFromBuffer({
+      name: 'approved-guidelines.docx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      buffer: docx,
+    });
+
+    expect(result.source.kind).toBe('uploaded_guideline');
+    expect(result.source.assetRole).toBe('brand_book');
+    expect(result.source.text).toContain('Voice: confident, plainspoken.');
+    expect(result.source.dominantColors).toEqual(['#12ab34']);
+    expect(result.source.note).toBe('Uploaded brand guideline; text extracted; 1 color observed.');
+  });
+
+  it('extracts PPTX slide language and colors', async () => {
+    const pptx = makeZip([
+      {
+        name: 'ppt/slides/slide1.xml',
+        content:
+          '<p:sld><p:cSld><a:t>Messaging: move fast, show proof.</a:t><a:srgbClr val="C0FFEE"/></p:cSld></p:sld>',
+      },
+    ]);
+
+    const result = await extractBrandVaultUploadEvidenceFromBuffer({
+      name: 'sales-deck.pptx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      buffer: pptx,
+    });
+
+    expect(result.source.text).toContain('Messaging: move fast, show proof.');
+    expect(result.source.dominantColors).toEqual(['#c0ffee']);
+  });
+
+  it('extracts simple PDF text operators without claiming unsupported PDFs worked', async () => {
+    const pdf = Buffer.from(
+      '%PDF-1.4\n1 0 obj\n<</Length 56>>\nstream\nBT (Tone: crisp. Palette #123abc) Tj ET\nendstream\nendobj\n%%EOF',
+      'latin1',
+    );
+
+    const result = await extractBrandVaultUploadEvidenceFromBuffer({
+      name: 'brand-book.pdf',
+      mimeType: 'application/pdf',
+      buffer: pdf,
+    });
+
+    expect(result.source.text).toContain('Tone: crisp. Palette #123abc');
+    expect(result.source.dominantColors).toEqual(['#123abc']);
+    expect(result.warnings).toEqual([]);
+  });
+});
+
+function makeZip(entries: Array<{ name: string; content: string }>): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name);
+    const raw = Buffer.from(entry.content);
+    const compressed = deflateRawSync(raw);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(0, 10);
+    local.writeUInt32LE(0, 14);
+    local.writeUInt32LE(compressed.length, 18);
+    local.writeUInt32LE(raw.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    local.writeUInt16LE(0, 28);
+    localParts.push(local, name, compressed);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0, 8);
+    central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(0, 12);
+    central.writeUInt32LE(0, 16);
+    central.writeUInt32LE(compressed.length, 20);
+    central.writeUInt32LE(raw.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt16LE(0, 34);
+    central.writeUInt16LE(0, 36);
+    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, name);
+
+    offset += local.length + name.length + compressed.length;
+  }
+
+  const centralDirectoryOffset = offset;
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(centralDirectoryOffset, 16);
+  end.writeUInt16LE(0, 20);
+
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}

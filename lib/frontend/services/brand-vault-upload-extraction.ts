@@ -41,6 +41,7 @@ const MAX_IMAGE_SAMPLE_PIXELS = MAX_IMAGE_SAMPLE_SIZE * MAX_IMAGE_SAMPLE_SIZE;
 const TEXT_EXTENSIONS = new Set(["txt", "md", "markdown", "csv", "json", "html", "htm", "css", "svg", "xml"]);
 const GUIDELINE_EXTENSIONS = new Set(["pdf", "doc", "docx", "ppt", "pptx", "txt", "md", "markdown", "csv", "json"]);
 const IMAGE_EXTENSIONS = new Set(["avif", "gif", "jpg", "jpeg", "png", "svg", "webp"]);
+const SERVER_EXTRACTION_EXTENSIONS = new Set(["pdf", "doc", "docx", "ppt", "pptx"]);
 
 export async function extractBrandVaultUploadEvidence(file: File): Promise<BrandVaultUploadExtractionResult> {
   const warnings: string[] = [];
@@ -64,7 +65,7 @@ export async function extractBrandVaultUploadEvidence(file: File): Promise<Brand
     }
   }
 
-  return {
+  const localResult: BrandVaultUploadExtractionResult = {
     source: createBrandVaultUploadSourceFromMetadata({
       name: file.name,
       mimeType: file.type || undefined,
@@ -73,6 +74,19 @@ export async function extractBrandVaultUploadEvidence(file: File): Promise<Brand
       dominantColors,
     }),
     warnings,
+  };
+
+  if (!shouldRequestServerExtraction(file, localResult.source)) return localResult;
+
+  const serverResult = await requestServerUploadExtraction(file);
+  if (serverResult) return mergeUploadExtractionResults(localResult, serverResult);
+
+  return {
+    source: localResult.source,
+    warnings: uniqueStrings([
+      ...localResult.warnings,
+      `${file.name} could not be server-extracted; metadata staged for review.`,
+    ]),
   };
 }
 
@@ -141,6 +155,75 @@ function isImageUpload(file: File): boolean {
 
 function isImageExtension(extension: string): boolean {
   return IMAGE_EXTENSIONS.has(extension);
+}
+
+function shouldRequestServerExtraction(file: File, source: BrandVaultUploadSourceEvidence): boolean {
+  const extension = fileExtension(file.name);
+  if (SERVER_EXTRACTION_EXTENSIONS.has(extension) || file.type === "application/pdf") return true;
+  return source.kind === "uploaded_asset" && !source.dominantColors?.length && file.size <= 25_000_000;
+}
+
+async function requestServerUploadExtraction(file: File): Promise<BrandVaultUploadExtractionResult | null> {
+  if (typeof fetch !== "function" || typeof FormData === "undefined") return null;
+  try {
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    const response = await fetch("/api/brand-vault/uploads/extract", {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as unknown;
+    if (!isServerUploadExtractionResult(body)) return null;
+    return {
+      source: body.source,
+      warnings: body.warnings,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isServerUploadExtractionResult(value: unknown): value is { source: BrandVaultUploadSourceEvidence; warnings: string[] } {
+  if (!value || typeof value !== "object") return false;
+  const body = value as { ok?: unknown; source?: unknown; warnings?: unknown };
+  if (body.ok !== true || !Array.isArray(body.warnings) || !isUploadSourceEvidence(body.source)) return false;
+  return body.warnings.every((warning) => typeof warning === "string");
+}
+
+function isUploadSourceEvidence(value: unknown): value is BrandVaultUploadSourceEvidence {
+  if (!value || typeof value !== "object") return false;
+  const source = value as BrandVaultUploadSourceEvidence;
+  return (
+    (source.kind === "uploaded_guideline" || source.kind === "uploaded_asset") &&
+    typeof source.name === "string" &&
+    typeof source.note === "string" &&
+    (source.text === undefined || typeof source.text === "string") &&
+    (source.dominantColors === undefined || Array.isArray(source.dominantColors))
+  );
+}
+
+function mergeUploadExtractionResults(
+  localResult: BrandVaultUploadExtractionResult,
+  serverResult: BrandVaultUploadExtractionResult,
+): BrandVaultUploadExtractionResult {
+  const source = createBrandVaultUploadSourceFromMetadata({
+    name: localResult.source.name,
+    mimeType: serverResult.source.mimeType ?? localResult.source.mimeType,
+    sizeBytes: serverResult.source.sizeBytes ?? localResult.source.sizeBytes,
+    text: serverResult.source.text ?? localResult.source.text,
+    dominantColors: uniqueStrings([
+      ...(localResult.source.dominantColors ?? []),
+      ...(serverResult.source.dominantColors ?? []),
+    ]),
+  });
+  return {
+    source: {
+      ...source,
+      assetRole: serverResult.source.assetRole ?? localResult.source.assetRole ?? source.assetRole,
+    },
+    warnings: uniqueStrings([...localResult.warnings, ...serverResult.warnings]),
+  };
 }
 
 function limitText(value: string | undefined): string | undefined {
