@@ -408,6 +408,7 @@ describe("UploaderX platform API route contracts", () => {
       success: true,
       postId: "urn:li:share:1",
       postUrl: "https://www.linkedin.com/feed/update/urn:li:share:1",
+      publishPath: "linkedin-rest-text",
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.linkedin.com/rest/posts",
@@ -490,6 +491,11 @@ describe("UploaderX platform API route contracts", () => {
       }));
 
       expect(response.status).toBe(200);
+      await expect(responseJson(response)).resolves.toMatchObject({
+        success: true,
+        postId: "urn:li:share:media_1",
+        publishPath: "linkedin-legacy-media",
+      });
       expect(fetchMock).toHaveBeenCalledWith(
         "https://api.linkedin.com/v2/ugcPosts",
         expect.objectContaining({ method: "POST" }),
@@ -586,6 +592,11 @@ describe("UploaderX platform API route contracts", () => {
       }));
 
       expect(response.status).toBe(200);
+      await expect(responseJson(response)).resolves.toMatchObject({
+        success: true,
+        postId: `urn:li:share:${mediaCase.label}_1`,
+        publishPath: "linkedin-rest-media",
+      });
       expect(fetchMock).toHaveBeenCalledWith(
         mediaCase.initUrl,
         expect.objectContaining({

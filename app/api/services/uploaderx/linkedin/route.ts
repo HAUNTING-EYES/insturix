@@ -208,6 +208,7 @@ export async function POST(req: Request) {
           mediaType: existingPost.mediaType || (hasMedia ? "media" : "text"),
           postType,
           organizationId: existingPost.organizationId,
+          publishPath: hasMedia ? "linkedin-existing-media" : "linkedin-existing-text",
           updated: false,
           note: "LinkedIn post already exists for this target. Returning existing post.",
         });
@@ -218,6 +219,11 @@ export async function POST(req: Request) {
     let assetUrn: string | undefined;
     let fileName = title || "LinkedIn post";
     const useRestMediaPath = hasMedia && shouldUseLinkedInRestMediaPath();
+    const publishPath = hasMedia
+      ? useRestMediaPath
+        ? "linkedin-rest-media"
+        : "linkedin-legacy-media"
+      : "linkedin-rest-text";
 
     if (hasMedia) {
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid, gcsPath });
@@ -271,6 +277,8 @@ export async function POST(req: Request) {
             {
               success: false,
               error: "Failed to register upload with LinkedIn",
+              publishPath,
+              step: "register-upload",
               details: registerData,
             },
             { status: 500 }
@@ -293,7 +301,7 @@ export async function POST(req: Request) {
 
         if (!uploadResponse.ok) {
           return NextResponse.json(
-            { success: false, error: "Failed to upload file to LinkedIn" },
+            { success: false, error: "Failed to upload file to LinkedIn", publishPath, step: "upload-media" },
             { status: 500 }
           );
         }
@@ -359,6 +367,8 @@ export async function POST(req: Request) {
           {
             success: false,
             error: "Failed to create LinkedIn post",
+            publishPath,
+            step: "create-post",
             details: postData,
           },
           { status: 500 }
@@ -373,6 +383,8 @@ export async function POST(req: Request) {
         {
           success: false,
           error: "LinkedIn did not return a post id.",
+          publishPath,
+          step: "create-post",
         },
         { status: 500 }
       );
@@ -386,6 +398,7 @@ export async function POST(req: Request) {
         postUrl,
         assetUrn,
         mediaType,
+        publishPath,
         organizationId: postType === "organization" ? organizationId : null,
         uploadedAt: new Date(),
       };
@@ -424,6 +437,7 @@ export async function POST(req: Request) {
       postId,
       mediaType: hasMedia ? mediaType : "text",
       postType,
+      publishPath,
       organizationId: postType === "organization" ? organizationId : null,
     });
   } catch (error) {

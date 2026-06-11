@@ -28,6 +28,81 @@ interface ThumbnailUploadResult {
   gcsPath?: string;
   error?: string;
 }
+
+export type UploaderXPublishPlatform = "youtube" | "facebook" | "instagram" | "twitter" | "linkedin";
+
+export interface UploaderXPublishReceipt {
+  success: boolean;
+  platform: UploaderXPublishPlatform;
+  platformPostId?: string;
+  platformUrl?: string;
+  publishPath?: string;
+  step?: string;
+  mediaType?: string;
+  postType?: string;
+  accountName?: string;
+  youtubeUrl?: string;
+  facebookUrl?: string;
+  instagramUrl?: string;
+  tweetUrl?: string;
+  postUrl?: string;
+  videoId?: string;
+  tweetId?: string;
+  postId?: string;
+  pageName?: string;
+  accountUsername?: string;
+  organizationId?: string | null;
+  organizationName?: string;
+  error?: string;
+  details?: unknown;
+  [key: string]: unknown;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const result = stringValue(value);
+    if (result) return result;
+  }
+  return undefined;
+}
+
+function normalizePublishSuccess(
+  platform: UploaderXPublishPlatform,
+  data: Record<string, unknown>
+): UploaderXPublishReceipt {
+  return {
+    ...data,
+    success: true,
+    platform,
+    platformPostId: firstString(data.platformPostId, data.videoId, data.tweetId, data.postId),
+    platformUrl: firstString(data.platformUrl, data.youtubeUrl, data.facebookUrl, data.instagramUrl, data.tweetUrl, data.postUrl),
+    publishPath: firstString(data.publishPath),
+    step: firstString(data.step),
+    mediaType: firstString(data.mediaType),
+    postType: firstString(data.postType),
+    accountName: firstString(data.pageName, data.accountUsername, data.organizationName),
+  };
+}
+
+function normalizePublishFailure(
+  platform: UploaderXPublishPlatform,
+  data: Record<string, unknown>,
+  fallbackError: string
+): UploaderXPublishReceipt {
+  return {
+    success: false,
+    platform,
+    error: firstString(data.error) || fallbackError,
+    publishPath: firstString(data.publishPath),
+    step: firstString(data.step),
+    details: data.details,
+  };
+}
+
 async function updateProgressInRedis(uploadId: string, progress: number) {
   try {
     await fetch('/api/services/uploaderx/gcs/track-upload', {
@@ -299,7 +374,7 @@ export function useUploaderXUpload() {
     categoryId?: string,
     publishAt?: string,
     thumbnailPublicUrl?: string
-  ) => {
+  ): Promise<UploaderXPublishReceipt> => {
     try {
       const payload: YouTubePublishPayload = {
         gcsPath,
@@ -322,18 +397,18 @@ export function useUploaderXUpload() {
       const data = await res.json();
       
       if (!res.ok) {
-        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to YouTube`);
+        return normalizePublishFailure("youtube", data, `HTTP ${res.status}: Failed to upload to YouTube`);
       }
       
       if (!data.success) {
-        throw new Error(data.error || "Failed to upload to YouTube");
+        return normalizePublishFailure("youtube", data, "Failed to upload to YouTube");
       }
 
-      return { success: true, youtubeUrl: data.youtubeUrl };
+      return normalizePublishSuccess("youtube", data);
     } catch (error) {
       console.error("❌ YouTube upload error:", error);
       const errorMessage = error instanceof Error ? error.message : 'YouTube upload failed';
-      return { success: false, error: errorMessage };
+      return { success: false, platform: "youtube", error: errorMessage };
     }
   }, []);
 
@@ -386,7 +461,7 @@ export function useUploaderXUpload() {
     title?: string,
     description?: string,
     pageId?: string
-  ) => {
+  ): Promise<UploaderXPublishReceipt> => {
     try {
       const payload: FacebookPublishPayload = {
         gcsPath,
@@ -405,18 +480,18 @@ export function useUploaderXUpload() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Facebook`);
+        return normalizePublishFailure("facebook", data, `HTTP ${res.status}: Failed to upload to Facebook`);
       }
 
       if (!data.success) {
-        throw new Error(data.error || "Failed to upload to Facebook");
+        return normalizePublishFailure("facebook", data, "Failed to upload to Facebook");
       }
 
-      return { success: true, facebookUrl: data.facebookUrl, pageName: data.pageName };
+      return normalizePublishSuccess("facebook", data);
     } catch (error) {
       console.error("❌ Facebook upload error:", error);
       const errorMessage = error instanceof Error ? error.message : 'Facebook upload failed';
-      return { success: false, error: errorMessage };
+      return { success: false, platform: "facebook", error: errorMessage };
     }
   }, []);
 
@@ -426,7 +501,7 @@ export function useUploaderXUpload() {
     title?: string,
     description?: string,
     accountId?: string
-  ) => {
+  ): Promise<UploaderXPublishReceipt> => {
     try {
       const payload: InstagramPublishPayload = {
         gcsPath,
@@ -445,18 +520,18 @@ export function useUploaderXUpload() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Instagram`);
+        return normalizePublishFailure("instagram", data, `HTTP ${res.status}: Failed to upload to Instagram`);
       }
 
       if (!data.success) {
-        throw new Error(data.error || "Failed to upload to Instagram");
+        return normalizePublishFailure("instagram", data, "Failed to upload to Instagram");
       }
 
-      return { success: true, instagramUrl: data.instagramUrl, accountUsername: data.accountUsername, mediaType: data.mediaType };
+      return normalizePublishSuccess("instagram", data);
     } catch (error) {
       console.error("❌ Instagram upload error:", error);
       const errorMessage = error instanceof Error ? error.message : 'Instagram upload failed';
-      return { success: false, error: errorMessage };
+      return { success: false, platform: "instagram", error: errorMessage };
     }
   }, []);
 
@@ -466,7 +541,7 @@ export function useUploaderXUpload() {
     title?: string,
     description?: string,
     replySettings?: TwitterPublishPayload["replySettings"],
-  ) => {
+  ): Promise<UploaderXPublishReceipt> => {
     try {
       const payload: TwitterPublishPayload = {
         gcsPath,
@@ -485,18 +560,18 @@ export function useUploaderXUpload() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Twitter`);
+        return normalizePublishFailure("twitter", data, `HTTP ${res.status}: Failed to upload to Twitter`);
       }
 
       if (!data.success) {
-        throw new Error(data.error || "Failed to upload to Twitter");
+        return normalizePublishFailure("twitter", data, "Failed to upload to Twitter");
       }
 
-      return { success: true, tweetUrl: data.tweetUrl, tweetId: data.tweetId, accountUsername: data.accountUsername };
+      return normalizePublishSuccess("twitter", data);
     } catch (error) {
       console.error("❌ Twitter upload error:", error);
       const errorMessage = error instanceof Error ? error.message : 'Twitter upload failed';
-      return { success: false, error: errorMessage };
+      return { success: false, platform: "twitter", error: errorMessage };
     }
   }, []);
 
@@ -507,7 +582,7 @@ export function useUploaderXUpload() {
     description?: string,
     postType?: 'personal' | 'organization',
     organizationId?: string
-  ) => {
+  ): Promise<UploaderXPublishReceipt> => {
     try {
       const payload: LinkedInPublishPayload = {
         gcsPath,
@@ -527,26 +602,18 @@ export function useUploaderXUpload() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to LinkedIn`);
+        return normalizePublishFailure("linkedin", data, `HTTP ${res.status}: Failed to upload to LinkedIn`);
       }
 
       if (!data.success) {
-        throw new Error(data.error || "Failed to upload to LinkedIn");
+        return normalizePublishFailure("linkedin", data, "Failed to upload to LinkedIn");
       }
 
-      return {
-        success: true,
-        postUrl: data.postUrl,
-        postId: data.postId,
-        mediaType: data.mediaType,
-        postType: data.postType,
-        organizationId: data.organizationId,
-        organizationName: data.organizationName
-      };
+      return normalizePublishSuccess("linkedin", data);
     } catch (error) {
       console.error("❌ LinkedIn upload error:", error);
       const errorMessage = error instanceof Error ? error.message : 'LinkedIn upload failed';
-      return { success: false, error: errorMessage };
+      return { success: false, platform: "linkedin", error: errorMessage };
     }
   }, []);
 

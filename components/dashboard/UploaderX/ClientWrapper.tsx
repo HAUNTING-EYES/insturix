@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
+import { useUploaderXUpload, type UploaderXPublishReceipt } from "@/hooks/useUploaderXUpload";
 import { isUploaderXFieldSupported } from "@/lib/uploaderx/platform-capabilities";
 import { useUser, useClerk, useReverification } from "@clerk/nextjs";
 import { useGSAP } from "@gsap/react";
@@ -52,6 +52,28 @@ const PLATFORMS = [
   { key: "linkedin", label: "LinkedIn", statusUrl: "/api/services/uploaderx/linkedin/status", authUrl: "/api/services/uploaderx/linkedin/auth", aspect: "4:3", fmt: "Post · square crop" },
 ] as const;
 
+function formatPublishPath(path?: string) {
+  switch (path) {
+    case "linkedin-rest-text":
+      return "REST text";
+    case "linkedin-rest-media":
+      return "REST media";
+    case "linkedin-legacy-media":
+      return "Legacy media";
+    case "linkedin-existing-text":
+      return "Existing text";
+    case "linkedin-existing-media":
+      return "Existing media";
+    default:
+      return path;
+  }
+}
+
+function compactPlatformId(id?: string) {
+  if (!id) return undefined;
+  return id.length > 24 ? `...${id.slice(-21)}` : id;
+}
+
 // ─── Pipeline stages ───────────────────────────────────────────
 const STAGES = [
   { key: "script", label: "Script" },
@@ -90,7 +112,7 @@ export function UploaderXClientWrapper() {
   }, { scope: uxPageRef });
   const [isDragging, setIsDragging] = useState(false);
   const [armedPlatforms, setArmedPlatforms] = useState<Set<string>>(new Set());
-  const [publishResults, setPublishResults] = useState<Record<string, { success: boolean; error?: string }>>({});
+  const [publishResults, setPublishResults] = useState<Record<string, UploaderXPublishReceipt>>({});
   const [isPublishing, setIsPublishing] = useState(false);
   const [uploadedGcsPath, setUploadedGcsPath] = useState<string | null>(null);
   const [uploadedVideoUuid, setUploadedVideoUuid] = useState<string | null>(null);
@@ -473,19 +495,19 @@ export function UploaderXClientWrapper() {
     }
 
     setIsPublishing(true);
-    const results: Record<string, { success: boolean; error?: string }> = {};
+    const results: Record<string, UploaderXPublishReceipt> = {};
 
     // Step 2: Publish to each armed platform with proper metadata
     for (const key of armedPlatforms) {
       try {
-        let res: { success: boolean; error?: string };
+        let res: UploaderXPublishReceipt;
         switch (key) {
           case "youtube": {
             let thumbnailPublicUrl: string | undefined;
             if (metaThumbnail) {
               const thumbnailResult = await uploadThumbnail(metaThumbnail);
               if (!thumbnailResult.success || !thumbnailResult.publicUrl) {
-                res = { success: false, error: thumbnailResult.error || "Thumbnail upload failed" };
+                res = { success: false, platform: "youtube", step: "thumbnail", error: thumbnailResult.error || "Thumbnail upload failed" };
                 break;
               }
               thumbnailPublicUrl = thumbnailResult.publicUrl;
@@ -517,11 +539,11 @@ export function UploaderXClientWrapper() {
             res = await uploadToLinkedIn(videoUuid, gcsPath, title, description, liPostType);
             break;
           default:
-            res = { success: false, error: "Unknown platform" };
+            res = { success: false, platform: key as UploaderXPublishReceipt["platform"], error: "Unknown platform" };
         }
         results[key] = res;
       } catch (err) {
-        results[key] = { success: false, error: err instanceof Error ? err.message : "Failed" };
+        results[key] = { success: false, platform: key as UploaderXPublishReceipt["platform"], error: err instanceof Error ? err.message : "Failed" };
       }
       setPublishResults({ ...results });
     }
@@ -1392,6 +1414,8 @@ export function UploaderXClientWrapper() {
                 const result = publishResults[key];
                 const done = Boolean(result);
                 const success = result?.success;
+                const pathLabel = formatPublishPath(result?.publishPath);
+                const postId = compactPlatformId(result?.platformPostId);
 
                 return (
                   <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
@@ -1427,6 +1451,32 @@ export function UploaderXClientWrapper() {
                       <span style={{ fontSize: 9, color: C.red, maxWidth: 100, lineHeight: 1.3, fontFamily: "var(--font-mono)" }}>
                         {result.error.length > 40 ? result.error.slice(0, 40) + "..." : result.error}
                       </span>
+                    )}
+                    {result && result.success && (pathLabel || postId || result.platformUrl) && (
+                      <div style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 3,
+                        maxWidth: 130,
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 9,
+                        lineHeight: 1.35,
+                        color: C.t4,
+                      }}>
+                        {pathLabel && <span>{pathLabel}</span>}
+                        {postId && <span title={result.platformPostId}>{postId}</span>}
+                        {result.platformUrl && (
+                          <a
+                            href={result.platformUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: C.green, textDecoration: "none" }}
+                          >
+                            Open
+                          </a>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
