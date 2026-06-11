@@ -328,7 +328,7 @@ export function UploaderXClientWrapper() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [user]);
 
   // ─── Fetch recent videos ─────────────────────────────────────
   useEffect(() => {
