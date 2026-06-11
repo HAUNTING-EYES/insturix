@@ -29,11 +29,21 @@ export interface BrandVaultParsedSocialUrl {
 }
 
 export interface BrandVaultSocialCapability {
-  evidenceAccess: 'profile_url_only' | 'post_url_only' | 'manual_post_text';
-  liveFetchStatus: 'adapter_required';
-  connectedAccountStatus: 'scope_audit_required';
+  evidenceAccess:
+    | 'profile_url_only'
+    | 'post_url_only'
+    | 'manual_post_text'
+    | 'connected_profile_metadata'
+    | 'connected_post_read_possible';
+  liveFetchStatus: 'adapter_required' | 'available_with_connected_account' | 'metadata_only' | 'public_fallback_available';
+  connectedAccountStatus:
+    | 'connected'
+    | 'connected_different_account'
+    | 'scope_missing'
+    | 'not_connected'
+    | 'scope_audit_required';
   publicFallbackStatus: 'review_only';
-  pinnedContentStatus: 'manual_selected_pinned' | 'not_assumed';
+  pinnedContentStatus: 'manual_selected_pinned' | 'platform_pinned_supported' | 'not_assumed';
 }
 
 export function createBrandVaultSocialEvidenceCandidates(args: {
@@ -60,6 +70,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         name: args.source.name,
         platform: args.source.platform,
         pinned: args.source.pinned,
+        connection: args.source.connection,
       },
       normalizedValue: {
         platform: parsed?.platform ?? normalizeSocialPlatform(args.source.platform),
@@ -70,9 +81,10 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         isPostUrl: parsed?.isPostUrl ?? args.source.kind === 'social_post',
         capability,
         pinned: args.source.pinned === true,
+        connection: args.source.connection,
       },
       excerpt: socialIdentityExcerpt(args.source, parsed),
-      confidence: parsed?.confidence ?? (args.source.platform ? 0.36 : 0.24),
+      confidence: confidenceForSocialIdentity(args.source, parsed),
     }),
   );
 
@@ -306,6 +318,45 @@ function socialCapability(
   source: BrandVaultSourceInput,
   parsed: BrandVaultParsedSocialUrl | undefined,
 ): BrandVaultSocialCapability {
+  const connection = source.connection;
+  if (connection?.status === 'public_fallback_available') {
+    return {
+      evidenceAccess: parsed?.isPostUrl || source.kind === 'social_post' ? 'post_url_only' : 'profile_url_only',
+      liveFetchStatus: 'public_fallback_available',
+      connectedAccountStatus: 'not_connected',
+      publicFallbackStatus: 'review_only',
+      pinnedContentStatus: source.pinned ? 'manual_selected_pinned' : 'not_assumed',
+    };
+  }
+
+  if (connection) {
+    const connectedAccountStatus =
+      connection.status === 'connected' && connection.canReadPosts
+        ? 'connected'
+        : connection.status === 'connected' && !connection.canReadPosts
+          ? 'scope_missing'
+          : connection.status === 'scope_missing'
+            ? 'scope_missing'
+            : connection.status === 'connected_different_account'
+              ? 'connected_different_account'
+              : 'not_connected';
+    return {
+      evidenceAccess: source.text
+        ? 'manual_post_text'
+        : connection.canReadPosts
+          ? 'connected_post_read_possible'
+          : 'connected_profile_metadata',
+      liveFetchStatus: connection.canReadPosts ? 'available_with_connected_account' : 'metadata_only',
+      connectedAccountStatus,
+      publicFallbackStatus: 'review_only',
+      pinnedContentStatus: source.pinned
+        ? 'manual_selected_pinned'
+        : connection.canReadPinned
+          ? 'platform_pinned_supported'
+          : 'not_assumed',
+    };
+  }
+
   return {
     evidenceAccess: source.text ? 'manual_post_text' : parsed?.isPostUrl || source.kind === 'social_post' ? 'post_url_only' : 'profile_url_only',
     liveFetchStatus: 'adapter_required',
@@ -319,7 +370,19 @@ function socialIdentityExcerpt(source: BrandVaultSourceInput, parsed: BrandVault
   const label = source.name ?? parsed?.handle ?? source.url ?? source.platform ?? source.kind;
   const platform = parsed?.platform ?? source.platform ?? 'social';
   const pinned = source.pinned ? ' Pinned/featured by user.' : '';
-  return `${label} parsed as ${platform} ${parsed?.accountType ?? 'social source'}.${pinned}`;
+  const connection = source.connection ? ` Connection: ${source.connection.status}.` : '';
+  return `${label} parsed as ${platform} ${parsed?.accountType ?? 'social source'}.${pinned}${connection}`;
+}
+
+function confidenceForSocialIdentity(source: BrandVaultSourceInput, parsed: BrandVaultParsedSocialUrl | undefined): number {
+  const parsedConfidence = parsed?.confidence ?? (source.platform ? 0.36 : 0.24);
+  if (!source.connection) return parsedConfidence;
+  if (source.connection.status === 'connected' && source.connection.matchStatus === 'matched') return Math.max(parsedConfidence, 0.76);
+  if (source.connection.status === 'connected' && source.connection.matchStatus === 'unverified') return Math.max(parsedConfidence, 0.58);
+  if (source.connection.status === 'scope_missing') return Math.max(parsedConfidence, 0.5);
+  if (source.connection.status === 'connected_different_account') return Math.min(parsedConfidence, 0.34);
+  if (source.connection.status === 'public_fallback_available') return Math.max(parsedConfidence, 0.42);
+  return parsedConfidence;
 }
 
 function normalizeHttpUrl(rawUrl: string): string | undefined {

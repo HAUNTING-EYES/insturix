@@ -56,6 +56,27 @@ export type BrandVaultUploadedAssetRole =
   | 'prior_work'
   | 'other';
 
+export type BrandVaultSocialConnectionStatus =
+  | 'connected'
+  | 'connected_different_account'
+  | 'scope_missing'
+  | 'not_connected'
+  | 'public_fallback_available';
+
+export interface BrandVaultSocialConnectionEvidence {
+  provider: 'uploaderx' | 'clerk_external_account' | 'alyzitron_apify';
+  status: BrandVaultSocialConnectionStatus;
+  accountId?: string;
+  accountName?: string;
+  accountHandle?: string;
+  scopes?: string[];
+  missingScopes?: string[];
+  canReadProfile: boolean;
+  canReadPosts: boolean;
+  canReadPinned: boolean;
+  matchStatus?: 'matched' | 'mismatched' | 'unverified';
+}
+
 export interface BrandVaultSourceInput {
   kind: BrandVaultSourceKind;
   url?: string;
@@ -69,6 +90,7 @@ export interface BrandVaultSourceInput {
   dominantColors?: string[];
   assetRole?: BrandVaultUploadedAssetRole;
   pinned?: boolean;
+  connection?: BrandVaultSocialConnectionEvidence;
 }
 
 export interface BrandEvidenceCandidate {

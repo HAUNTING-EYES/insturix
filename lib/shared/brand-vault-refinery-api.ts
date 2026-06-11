@@ -25,6 +25,20 @@ import type {
 } from './brand-website-refinery-types';
 import { createBrandVaultMongoRefineryStoreFromEnvironment } from './brand-vault-mongo-store';
 
+export type BrandVaultSourceEvidenceProviderResult = {
+  sourceEvidence?: BrandVaultSourceInput[];
+  warnings?: string[];
+};
+
+export type BrandVaultSourceEvidenceProvider = (args: {
+  userId: string;
+  websiteUrl: string;
+  brandId?: string;
+  companyName?: string;
+  socialLinks: string[];
+  sourceEvidence: BrandVaultSourceInput[];
+}) => BrandVaultStoreResult<BrandVaultSourceEvidenceProviderResult | null | undefined>;
+
 export interface BrandVaultApiResult<TBody> {
   status: number;
   body: TBody;
@@ -215,10 +229,22 @@ export async function createBrandVaultRefineryJobFromWebsite(
     store: BrandVaultRefineryStore;
     fetchOptions?: FetchWebsiteBrandSnapshotOptions;
     clock?: () => string;
+    sourceEvidenceProvider?: BrandVaultSourceEvidenceProvider;
   },
 ): Promise<BrandVaultApiResult<CreateBrandVaultRefineryJobSuccessBody | BrandVaultApiErrorBody>> {
   const parsed = parseCreateBody(args.body);
   if (!parsed.ok) return parsed.result;
+
+  const providerEvidence = await resolveSourceEvidenceProvider({
+    provider: dependencies.sourceEvidenceProvider,
+    userId: args.userId,
+    websiteUrl: parsed.value.websiteUrl,
+    brandId: parsed.value.brandId,
+    companyName: parsed.value.companyName,
+    socialLinks: parsed.value.socialLinks,
+    sourceEvidence: parsed.value.sourceEvidence,
+  });
+  const sourceEvidence = [...parsed.value.sourceEvidence, ...providerEvidence.sourceEvidence];
 
   const result = await createBrandVaultWebsiteDraftJob(
     {
@@ -227,7 +253,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
       brandId: parsed.value.brandId,
       companyName: parsed.value.companyName,
       socialLinks: parsed.value.socialLinks,
-      sourceEvidence: parsed.value.sourceEvidence,
+      sourceEvidence,
       actorId: args.actorId ?? args.userId,
       now: dependencies.clock?.(),
     },
@@ -239,7 +265,8 @@ export async function createBrandVaultRefineryJobFromWebsite(
   );
 
   if (!result.ok) {
-    await dependencies.store.saveJobSnapshot({ job: result.job, candidates: [] });
+    const failedJob = appendWarningsToJob(result.job, providerEvidence.warnings);
+    await dependencies.store.saveJobSnapshot({ job: failedJob, candidates: [] });
     return {
       status: statusForDraftFailure(result),
       body: {
@@ -252,24 +279,80 @@ export async function createBrandVaultRefineryJobFromWebsite(
     };
   }
 
+  const job = appendWarningsToJob(result.job, providerEvidence.warnings);
+  const reviewPayload =
+    job === result.job
+      ? result.reviewPayload
+      : createBrandVaultDraftReviewPayload({
+          job,
+          record: result.record,
+          candidates: result.candidates,
+          normalizedUrl: result.normalizedUrl,
+          warnings: job.warnings,
+        });
+
   await dependencies.store.saveJobSnapshot({
-    job: result.job,
+    job,
     recordId: result.record.id,
     normalizedUrl: result.normalizedUrl,
     candidates: result.candidates,
-    reviewPayload: result.reviewPayload,
+    reviewPayload,
   });
 
   return {
     status: 201,
     body: {
       ok: true,
-      job: result.job,
+      job,
       record: result.record,
-      reviewPayload: result.reviewPayload,
+      reviewPayload,
       candidates: result.candidates,
     },
   };
+}
+
+async function resolveSourceEvidenceProvider(args: {
+  provider?: BrandVaultSourceEvidenceProvider;
+  userId: string;
+  websiteUrl: string;
+  brandId?: string;
+  companyName?: string;
+  socialLinks: string[];
+  sourceEvidence: BrandVaultSourceInput[];
+}): Promise<{ sourceEvidence: BrandVaultSourceInput[]; warnings: string[] }> {
+  if (!args.provider) return { sourceEvidence: [], warnings: [] };
+  try {
+    const result = await args.provider({
+      userId: args.userId,
+      websiteUrl: args.websiteUrl,
+      brandId: args.brandId,
+      companyName: args.companyName,
+      socialLinks: args.socialLinks,
+      sourceEvidence: args.sourceEvidence,
+    });
+    return {
+      sourceEvidence: result?.sourceEvidence?.slice(0, 20) ?? [],
+      warnings: result?.warnings ?? [],
+    };
+  } catch (error) {
+    return {
+      sourceEvidence: [],
+      warnings: [`Brand Vault connected social enrichment skipped: ${errorMessage(error)}`],
+    };
+  }
+}
+
+function appendWarningsToJob(job: BrandRefineryJob, warnings: string[]): BrandRefineryJob {
+  if (warnings.length === 0) return job;
+  return { ...job, warnings: mergeWarnings(job.warnings, warnings) };
+}
+
+function mergeWarnings(...groups: string[][]): string[] {
+  return [...new Set(groups.flat().filter(Boolean))];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error';
 }
 
 export async function getBrandVaultRefineryJob(

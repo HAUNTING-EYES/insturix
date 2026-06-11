@@ -238,6 +238,93 @@ describe('Brand Vault refinery API boundary', () => {
     expect(socialCandidates.find((candidate) => candidate.sourceField.endsWith('.text.ctaDirectness'))?.normalizedValue).toBeGreaterThan(0.5);
   });
 
+  it('lets Brand Vault-owned providers add connected social capability evidence without accepting it as profile truth', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          socialLinks: ['https://x.com/vaultline'],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        sourceEvidenceProvider: async ({ socialLinks }) => ({
+          warnings: ['Connected X account metadata was added from UploaderX.'],
+          sourceEvidence: [
+            {
+              kind: 'social_profile',
+              url: socialLinks[0],
+              platform: 'x',
+              name: '@vaultline',
+              note: 'Existing UploaderX X connection can read authored posts.',
+              connection: {
+                provider: 'uploaderx',
+                status: 'connected',
+                accountId: 'x_123',
+                accountName: 'Vaultline',
+                accountHandle: 'vaultline',
+                scopes: ['tweet.read', 'users.read'],
+                missingScopes: [],
+                canReadProfile: true,
+                canReadPosts: true,
+                canReadPinned: true,
+                matchStatus: 'matched',
+              },
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    expect(created.body.job.inputs.sourceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'social_profile',
+          platform: 'x',
+          connection: expect.objectContaining({
+            provider: 'uploaderx',
+            status: 'connected',
+            canReadPosts: true,
+            canReadPinned: true,
+          }),
+        }),
+      ]),
+    );
+    expect(created.body.job.warnings).toContain('Connected X account metadata was added from UploaderX.');
+    expect(created.body.reviewPayload.warnings).toContain('Connected X account metadata was added from UploaderX.');
+    expect(created.body.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.0.social_profile.socialIdentity',
+          normalizedValue: expect.objectContaining({
+            capability: {
+              evidenceAccess: 'connected_post_read_possible',
+              liveFetchStatus: 'available_with_connected_account',
+              connectedAccountStatus: 'connected',
+              publicFallbackStatus: 'review_only',
+              pinnedContentStatus: 'platform_pinned_supported',
+            },
+            connection: expect.objectContaining({
+              provider: 'uploaderx',
+              matchStatus: 'matched',
+            }),
+          }),
+        }),
+      ]),
+    );
+    expect(created.body.record.profile.evidence.some((item) => item.sourceType === 'connected_social_account')).toBe(false);
+  });
+
   it('does not leak jobs or profiles across users', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
     const created = await createBrandVaultRefineryJobFromWebsite(
