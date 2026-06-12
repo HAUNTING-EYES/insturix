@@ -10,6 +10,9 @@ import {
 } from './brand-signal-lifecycle';
 import type {
   BrandEvidenceCandidate,
+  BrandWebsiteAssetAvailability,
+  BrandWebsiteAssetProbeOptions,
+  BrandWebsiteAssetProbeResult,
   BrandWebsiteDraftInput,
   BrandWebsiteDraftResult,
   BrandWebsiteSignalProfileResult,
@@ -24,6 +27,10 @@ export type {
   BrandEvidenceCandidateAuthority,
   BrandEvidenceCandidateSourceType,
   BrandRefineryJob,
+  BrandWebsiteAssetAvailability,
+  BrandWebsiteAssetAvailabilityStatus,
+  BrandWebsiteAssetProbeOptions,
+  BrandWebsiteAssetProbeResult,
   BrandWebsiteDraftInput,
   BrandWebsiteDraftResult,
   BrandWebsiteSignalProfileResult,
@@ -60,6 +67,11 @@ import {
 } from './brand-website-refinery-utils';
 export { normalizeBrandWebsiteUrl } from './brand-website-refinery-utils';
 
+const ASSET_SIGNAL_PATHS = new Set(['assets.logoCandidates', 'assets.socialPreviewImages']);
+const DEFAULT_ASSET_PROBE_MAX_CANDIDATES = 16;
+const UNAVAILABLE_ASSET_CONFIDENCE_CEILING = 0.18;
+const UNKNOWN_ASSET_CONFIDENCE_CEILING = 0.38;
+
 export async function fetchWebsiteBrandSnapshot(
   websiteUrl: string,
   options: FetchWebsiteBrandSnapshotOptions = {},
@@ -91,6 +103,48 @@ export async function fetchWebsiteBrandSnapshot(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function verifyWebsiteBrandAssetCandidates(
+  candidates: BrandEvidenceCandidate[],
+  options: BrandWebsiteAssetProbeOptions = {},
+): Promise<BrandWebsiteAssetProbeResult> {
+  const fetchFn =
+    options.fetchFn ??
+    (options.allowDefaultFetch === false ? undefined : globalThis.fetch?.bind(globalThis));
+  if (!fetchFn) {
+    return { candidates, warnings: [], checkedCount: 0, unavailableCount: 0, unknownCount: 0 };
+  }
+
+  const candidateUrls = uniqueText(
+    candidates
+      .filter(isWebsiteAssetCandidate)
+      .map((candidate) => (typeof candidate.normalizedValue === 'string' ? candidate.normalizedValue : undefined)),
+  ).slice(0, options.maxCandidates ?? DEFAULT_ASSET_PROBE_MAX_CANDIDATES);
+  if (candidateUrls.length === 0) {
+    return { candidates, warnings: [], checkedCount: 0, unavailableCount: 0, unknownCount: 0 };
+  }
+
+  const availabilityByUrl = new Map(
+    await Promise.all(candidateUrls.map(async (url) => [url, await probeWebsiteAssetUrl(url, fetchFn, options)] as const)),
+  );
+
+  const checkedCandidates = candidates.map((candidate) => {
+    if (!isWebsiteAssetCandidate(candidate) || typeof candidate.normalizedValue !== 'string') return candidate;
+    const availability = availabilityByUrl.get(candidate.normalizedValue);
+    return availability ? applyAssetAvailability(candidate, availability) : candidate;
+  });
+  const availability = [...availabilityByUrl.values()];
+  const unavailableCount = availability.filter((item) => item.status === 'unavailable').length;
+  const unknownCount = availability.filter((item) => item.status === 'unknown').length;
+
+  return {
+    candidates: checkedCandidates,
+    warnings: assetAvailabilityWarnings(unavailableCount, unknownCount),
+    checkedCount: availability.length,
+    unavailableCount,
+    unknownCount,
+  };
 }
 
 export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): BrandWebsiteSignalProfileResult {
@@ -176,7 +230,18 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
   };
 
   for (const logo of parsed.logoCandidates) {
-    candidates.push(candidateOnly('assets.logoCandidates', logo, 'logo_asset', 'website.logo', normalizedUrl, observedAt, extractor, input));
+    const candidate = candidateOnly('assets.logoCandidates', logo.url, 'logo_asset', logo.sourceField, normalizedUrl, observedAt, extractor, input);
+    candidate.rawValue = {
+      url: logo.rawValue,
+      role: logo.role,
+      sourceField: logo.sourceField,
+    };
+    candidate.confidence = logo.confidence;
+    candidate.excerpt = sanitizeEvidenceExcerpt(`${logo.role} candidate from ${logo.sourceField}: ${logo.url}`);
+    candidates.push(candidate);
+  }
+  for (const image of parsed.socialPreviewImages) {
+    candidates.push(candidateOnly('assets.socialPreviewImages', image, 'website_metadata', 'metadata.socialPreviewImage', normalizedUrl, observedAt, extractor, input));
   }
 
   return { profile, candidates, normalizedUrl, warnings: parsed.colors.length ? [] : ['No website colors were detected.'] };
@@ -191,6 +256,131 @@ export function createWebsiteBrandSignalProfileDraft(
     ...result,
     record: createBrandSignalProfileDraft(result.profile, options),
   };
+}
+
+function isWebsiteAssetCandidate(candidate: BrandEvidenceCandidate): boolean {
+  return ASSET_SIGNAL_PATHS.has(candidate.signalPath) && typeof candidate.normalizedValue === 'string';
+}
+
+async function probeWebsiteAssetUrl(
+  url: string,
+  fetchFn: NonNullable<BrandWebsiteAssetProbeOptions['fetchFn']>,
+  options: BrandWebsiteAssetProbeOptions,
+): Promise<BrandWebsiteAssetAvailability> {
+  try {
+    const head = await fetchWebsiteAsset(url, 'HEAD', fetchFn, options);
+    if (head.ok || !shouldRetryAssetProbeWithGet(head.status)) {
+      return responseAvailability(head, 'HEAD');
+    }
+    const get = await fetchWebsiteAsset(url, 'GET', fetchFn, options);
+    return responseAvailability(get, 'GET');
+  } catch (error) {
+    return {
+      status: 'unknown',
+      method: 'HEAD',
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function fetchWebsiteAsset(
+  url: string,
+  method: 'HEAD' | 'GET',
+  fetchFn: NonNullable<BrandWebsiteAssetProbeOptions['fetchFn']>,
+  options: BrandWebsiteAssetProbeOptions,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5_000);
+  try {
+    return await fetchFn(url, {
+      method,
+      signal: controller.signal,
+      headers: {
+        'user-agent': options.userAgent ?? 'InsturixBrandVault/1.0',
+        accept: 'image/avif,image/webp,image/svg+xml,image/*,*/*;q=0.8',
+      },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function shouldRetryAssetProbeWithGet(status: number): boolean {
+  return status === 403 || status === 405 || status === 501;
+}
+
+function responseAvailability(response: Response, method: 'HEAD' | 'GET'): BrandWebsiteAssetAvailability {
+  const contentType = response.headers.get('content-type') ?? undefined;
+  if (response.ok) {
+    return {
+      status: 'available',
+      method,
+      httpStatus: response.status,
+      contentType,
+    };
+  }
+  if (response.status === 401 || response.status === 403 || response.status === 429 || response.status >= 500) {
+    return {
+      status: 'unknown',
+      method,
+      httpStatus: response.status,
+      contentType,
+      reason: `HTTP ${response.status}`,
+    };
+  }
+  return {
+    status: 'unavailable',
+    method,
+    httpStatus: response.status,
+    contentType,
+    reason: `HTTP ${response.status}`,
+  };
+}
+
+function applyAssetAvailability(
+  candidate: BrandEvidenceCandidate,
+  availability: BrandWebsiteAssetAvailability,
+): BrandEvidenceCandidate {
+  if (availability.status === 'available') {
+    return {
+      ...candidate,
+      rawValue: rawValueWithAssetAvailability(candidate.rawValue, availability),
+      excerpt: sanitizeEvidenceExcerpt(`${candidate.excerpt ?? candidate.normalizedValue} Verified asset: HTTP ${availability.httpStatus}.`),
+    };
+  }
+  const confidenceCeiling =
+    availability.status === 'unavailable' ? UNAVAILABLE_ASSET_CONFIDENCE_CEILING : UNKNOWN_ASSET_CONFIDENCE_CEILING;
+  return {
+    ...candidate,
+    rawValue: rawValueWithAssetAvailability(candidate.rawValue, availability),
+    confidence: Math.min(candidate.confidence, confidenceCeiling),
+    excerpt: sanitizeEvidenceExcerpt(`${candidate.excerpt ?? candidate.normalizedValue} Asset check ${availability.reason ?? availability.status}.`),
+  };
+}
+
+function rawValueWithAssetAvailability(
+  rawValue: unknown,
+  availability: BrandWebsiteAssetAvailability,
+): Record<string, unknown> {
+  if (rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)) {
+    return { ...rawValue, availability };
+  }
+  return { value: rawValue, availability };
+}
+
+function assetAvailabilityWarnings(unavailableCount: number, unknownCount: number): string[] {
+  const warnings: string[] = [];
+  if (unavailableCount > 0) {
+    warnings.push(
+      `${unavailableCount} website asset candidate${unavailableCount === 1 ? ' was' : 's were'} unreachable and downgraded before review.`,
+    );
+  }
+  if (unknownCount > 0) {
+    warnings.push(
+      `${unknownCount} website asset candidate${unknownCount === 1 ? ' could' : 's could'} not be verified before review.`,
+    );
+  }
+  return warnings;
 }
 
 function createSignalFactory(args: {

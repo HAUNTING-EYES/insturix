@@ -4,6 +4,8 @@ import { sanitizeEvidenceExcerpt } from './brand-signal-profile';
 import type {
   BrandEvidenceCandidate,
   BrandEvidenceCandidateSourceType,
+  BrandWebsiteLogoCandidate,
+  BrandWebsiteLogoCandidateRole,
   BrandWebsiteDraftInput,
   ParsedWebsiteEvidence,
   SignalSource,
@@ -15,6 +17,8 @@ export const LIGHT_SURFACE = '#ffffff';
 const CTA_PATTERN = /\b(start|get|book|join|try|buy|shop|contact|talk|demo|learn|download|subscribe|apply|schedule|request)\b/i;
 const GENERIC_AUDIENCE_PATTERN = /^(?:teams?|businesses|companies|people|users|customers|clients|leaders|operators|creators|agents?|ai era|modern era)$/i;
 const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agency|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprise|startup|client|customer|support|finance|founder|operator|creator|editorial|content)\b/i;
+const IMAGE_ASSET_EXTENSIONS = new Set(['.avif', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.svg', '.webp']);
+const SOCIAL_PREVIEW_ASSET_PATTERN = /(?:^|[-_/])(og|open-graph|opengraph|twitter|social|share|card)(?:[-_.]|$)/i;
 
 const CATEGORY_RULES: Array<{
   label: string;
@@ -107,11 +111,8 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
     .get())
     .filter((text) => text.length >= 12)
     .slice(0, 8);
-  const logoCandidates = uniqueText([
-    readLogo(schema),
-    meta($, ['og:image', 'twitter:image']),
-    ...$('link[rel*="icon"],img[alt*="logo" i],img[src*="logo" i]').map((_, el) => cleanText($(el).attr('href') ?? $(el).attr('src'))).get(),
-  ]).slice(0, 12);
+  const logoCandidates = extractLogoCandidates($, schema, normalizedUrl);
+  const socialPreviewImages = extractSocialPreviewImages($, normalizedUrl);
 
   $('script,style,noscript,svg').remove();
   const bodyText = sanitizeEvidenceExcerpt(readBodyText($) ?? '', 1200);
@@ -130,6 +131,7 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
     ctas,
     proofSnippets,
     logoCandidates,
+    socialPreviewImages,
     bodyText,
   };
 }
@@ -146,6 +148,123 @@ function readBodyText($: ReturnType<typeof load>): string | undefined {
     .filter((text): text is string => Boolean(text));
 
   return cleanText(chunks.length ? chunks.join('. ') : $('body').text());
+}
+
+function extractLogoCandidates(
+  $: ReturnType<typeof load>,
+  schema: Record<string, unknown> | undefined,
+  normalizedUrl: string,
+): BrandWebsiteLogoCandidate[] {
+  const baseUrl = new URL(normalizedUrl);
+  const candidates = new Map<string, BrandWebsiteLogoCandidate & { score: number }>();
+
+  const add = (
+    rawValue: string | undefined,
+    sourceField: string,
+    role: BrandWebsiteLogoCandidateRole,
+    baseScore: number,
+    context = '',
+  ): void => {
+    const clean = cleanText(rawValue);
+    const url = clean ? resolveWebsiteAssetUrl(clean, baseUrl) : undefined;
+    if (!clean || !url || !isLogoAssetCandidate(url)) return;
+    const score = scoreLogoCandidate(url, `${clean} ${context}`, role, baseScore);
+    const existing = candidates.get(url);
+    if (!existing || score > existing.score) {
+      candidates.set(url, {
+        url,
+        rawValue: clean,
+        sourceField,
+        role,
+        confidence: confidenceFromLogoScore(score, role),
+        score,
+      });
+    }
+  };
+
+  add(readLogo(schema), 'jsonLd.logo', 'logo', 82);
+  $('link[rel*="icon" i],link[rel*="mask-icon" i]').each((_, el) => {
+    add($(el).attr('href'), 'metadata.icon', 'icon', 76, [
+      $(el).attr('rel'),
+      $(el).attr('type'),
+      $(el).attr('sizes'),
+    ].filter(Boolean).join(' '));
+  });
+  $('img[alt*="logo" i],img[src*="logo" i],img[src*="mark" i]').each((_, el) => {
+    add($(el).attr('src'), 'website.logoImage', 'logo', 90, [
+      $(el).attr('alt'),
+      $(el).attr('class'),
+      $(el).attr('id'),
+    ].filter(Boolean).join(' '));
+  });
+
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.url.localeCompare(b.url))
+    .slice(0, 12)
+    .map(({ score: _score, ...candidate }) => candidate);
+}
+
+function extractSocialPreviewImages($: ReturnType<typeof load>, normalizedUrl: string): string[] {
+  const baseUrl = new URL(normalizedUrl);
+  return uniqueText([meta($, ['og:image']), meta($, ['twitter:image'])]
+    .map((value) => (value ? resolveWebsiteAssetUrl(value, baseUrl) : undefined)))
+    .slice(0, 4);
+}
+
+function resolveWebsiteAssetUrl(value: string, baseUrl: URL): string | undefined {
+  try {
+    const url = new URL(value, baseUrl);
+    url.hash = '';
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+function isLogoAssetCandidate(url: string): boolean {
+  const parsed = new URL(url);
+  const path = parsed.pathname.toLowerCase();
+  if (SOCIAL_PREVIEW_ASSET_PATTERN.test(path)) return false;
+  const extension = assetExtension(path);
+  if (extension && IMAGE_ASSET_EXTENSIONS.has(extension)) return true;
+  return /\b(?:logo|logomark|wordmark|brandmark|brand|mark|icon)\b/i.test(path);
+}
+
+function scoreLogoCandidate(url: string, context: string, role: BrandWebsiteLogoCandidateRole, baseScore: number): number {
+  const parsed = new URL(url);
+  const path = parsed.pathname.toLowerCase();
+  let score = baseScore;
+  if (path.endsWith('.svg')) score += 18;
+  if (/\b(?:logo|logomark|wordmark|brandmark)\b/i.test(`${path} ${context}`)) score += 12;
+  if (/\b(?:mark|icon)\b/i.test(`${path} ${context}`)) score += 4;
+  if (/\b(?:apple-touch-icon|android-chrome)\b/i.test(path)) score += 8;
+  if (/\bfavicon\b/i.test(path)) score -= 18;
+  const size = largestAssetSize(`${path} ${context}`);
+  if (size >= 512) score += 10;
+  else if (size >= 180) score += 6;
+  else if (size >= 64) score += 3;
+  if (role === 'logo') score += 4;
+  return score;
+}
+
+function confidenceFromLogoScore(score: number, role: BrandWebsiteLogoCandidateRole): number {
+  const ceiling = role === 'logo' ? 0.86 : 0.78;
+  const floor = role === 'logo' ? 0.48 : 0.42;
+  return Math.min(ceiling, Math.max(floor, clamp01((role === 'logo' ? 0.44 : 0.34) + score / 220)));
+}
+
+function largestAssetSize(value: string): number {
+  let largest = 0;
+  for (const match of value.matchAll(/\b(\d{2,4})x(\d{2,4})\b/gi)) {
+    largest = Math.max(largest, Number(match[1]), Number(match[2]));
+  }
+  return largest;
+}
+
+function assetExtension(path: string): string | undefined {
+  const match = path.match(/\.[a-z0-9]+$/i);
+  return match?.[0];
 }
 
 export function source(

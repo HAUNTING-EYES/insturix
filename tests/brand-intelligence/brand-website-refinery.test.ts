@@ -4,6 +4,7 @@ import {
   createWebsiteBrandSignalProfileDraft,
   fetchWebsiteBrandSnapshot,
   normalizeBrandWebsiteUrl,
+  verifyWebsiteBrandAssetCandidates,
 } from '../../lib/shared/brand-website-refinery';
 import { validateBrandSignalProfile } from '../../lib/shared/brand-signal-lifecycle';
 
@@ -121,6 +122,143 @@ describe('Brand website refinery', () => {
     const validation = validateBrandSignalProfile(result.profile);
     expect(validation.valid).toBe(true);
     expect(validation.warnings.some((issue) => issue.path === 'voice.killList')).toBe(true);
+  });
+
+  it('ranks logo assets separately from social preview images', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://northstar.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Northstar Analytics</title>
+    <meta property="og:image" content="/icons/og-image.jpg">
+    <meta name="twitter:image" content="/icons/twitter-card.jpg">
+    <link rel="icon" href="./favicon.ico">
+    <link rel="shortcut icon" href="/favicon.ico">
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Northstar Analytics",
+        "logo": "/icons/logo.png"
+      }
+    </script>
+  </head>
+  <body>
+    <h1>Northstar Analytics</h1>
+    <img alt="Northstar Analytics logo" src="/assets/wordmark.svg">
+  </body>
+</html>
+`,
+      brandId: 'brand_northstar',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_logo_rank',
+    });
+
+    const logoCandidates = result.candidates.filter((candidate) => candidate.signalPath === 'assets.logoCandidates');
+    const logoUrls = logoCandidates.map((candidate) => candidate.normalizedValue);
+    expect(logoUrls).toEqual([
+      'https://northstar.example/assets/wordmark.svg',
+      'https://northstar.example/icons/icon.svg',
+      'https://northstar.example/icons/logo.png',
+      'https://northstar.example/icons/apple-touch-icon.png',
+      'https://northstar.example/favicon.ico',
+    ]);
+    expect(logoUrls).not.toContain('https://northstar.example/icons/og-image.jpg');
+    expect(logoUrls.filter((url) => url === 'https://northstar.example/favicon.ico')).toHaveLength(1);
+    expect(logoCandidates[0]).toMatchObject({
+      sourceType: 'logo_asset',
+      sourceField: 'website.logoImage',
+      rawValue: {
+        role: 'logo',
+        sourceField: 'website.logoImage',
+      },
+    });
+    expect(logoCandidates[0]?.confidence).toBeGreaterThan(logoCandidates.at(-1)?.confidence ?? 1);
+
+    const socialPreviewImages = result.candidates
+      .filter((candidate) => candidate.signalPath === 'assets.socialPreviewImages')
+      .map((candidate) => candidate.normalizedValue);
+    expect(socialPreviewImages).toEqual([
+      'https://northstar.example/icons/og-image.jpg',
+      'https://northstar.example/icons/twitter-card.jpg',
+    ]);
+  });
+
+  it('probes website asset availability and downgrades unreachable candidates', async () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://northstar.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Northstar Analytics</title>
+    <meta property="og:image" content="/share-card.jpg">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Northstar Analytics",
+        "logo": "/missing-logo.png"
+      }
+    </script>
+  </head>
+  <body>
+    <h1>Northstar Analytics</h1>
+    <img alt="Northstar Analytics logo" src="/assets/wordmark.svg">
+  </body>
+</html>
+`,
+      brandId: 'brand_northstar',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_asset_probe',
+    });
+    const calls: Array<{ url: string; method: string | undefined }> = [];
+
+    const checked = await verifyWebsiteBrandAssetCandidates(result.candidates, {
+      fetchFn: async (url, init) => {
+        calls.push({ url, method: init?.method });
+        if (url.endsWith('/missing-logo.png')) {
+          return new Response('', { status: 404 });
+        }
+        return new Response('', {
+          status: 200,
+          headers: { 'content-type': url.endsWith('.svg') ? 'image/svg+xml' : 'image/jpeg' },
+        });
+      },
+    });
+
+    const broken = checked.candidates.find((candidate) => candidate.normalizedValue === 'https://northstar.example/missing-logo.png');
+    const verified = checked.candidates.find((candidate) => candidate.normalizedValue === 'https://northstar.example/assets/wordmark.svg');
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        { url: 'https://northstar.example/missing-logo.png', method: 'HEAD' },
+        { url: 'https://northstar.example/assets/wordmark.svg', method: 'HEAD' },
+        { url: 'https://northstar.example/share-card.jpg', method: 'HEAD' },
+      ]),
+    );
+    expect(broken?.confidence).toBeLessThanOrEqual(0.18);
+    expect(broken?.rawValue).toMatchObject({
+      availability: {
+        status: 'unavailable',
+        method: 'HEAD',
+        httpStatus: 404,
+      },
+    });
+    expect(verified?.rawValue).toMatchObject({
+      availability: {
+        status: 'available',
+        method: 'HEAD',
+        httpStatus: 200,
+        contentType: 'image/svg+xml',
+      },
+    });
+    expect(checked.warnings).toEqual(['1 website asset candidate was unreachable and downgraded before review.']);
   });
 
   it('filters generic real-site noise from software brand drafts', () => {

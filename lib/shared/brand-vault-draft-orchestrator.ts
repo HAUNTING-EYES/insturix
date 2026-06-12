@@ -11,6 +11,7 @@ import {
   createWebsiteBrandSignalProfileDraft,
   fetchWebsiteBrandSnapshot,
   normalizeBrandWebsiteUrl,
+  verifyWebsiteBrandAssetCandidates,
 } from './brand-website-refinery';
 import { createBrandVaultSocialEvidenceCandidates } from './brand-vault-social-evidence';
 import type {
@@ -307,6 +308,10 @@ export async function createBrandVaultWebsiteDraftJob(
         actorId: input.actorId,
       },
     );
+    const assetProbe = await verifyWebsiteBrandAssetCandidates(draft.candidates, {
+      ...dependencies.fetchOptions,
+      allowDefaultFetch: !dependencies.fetchSnapshot,
+    });
     const savedRecord = await dependencies.repository.saveRecord(draft.record, {
       now: snapshot.fetchedAt,
       actorId: input.actorId,
@@ -324,9 +329,10 @@ export async function createBrandVaultWebsiteDraftJob(
       snapshots: crawl.snapshots,
       observedAt: snapshot.fetchedAt,
     });
-    const candidates = [...draft.candidates, ...stagedCandidates, ...crawlCandidates];
+    const candidates = [...assetProbe.candidates, ...stagedCandidates, ...crawlCandidates];
     const warnings = mergeWarnings(
       draft.warnings,
+      assetProbe.warnings,
       crawl.warnings,
       shouldWarnForStagedSocialLinks(socialLinks, sourceEvidence) ? [SOCIAL_LINKS_STAGED_WARNING] : [],
       stagedCandidates.length > 0 ? [stagedSourcesWarning(stagedCandidates.length)] : [],
@@ -1039,7 +1045,8 @@ function enqueueCrawlUrl(
   explicitSeed: boolean,
 ): void {
   try {
-    const url = new URL(href, baseUrl);
+    const normalizedHref = explicitSeed ? normalizeExplicitCrawlSeedHref(href, baseUrl) : href;
+    const url = new URL(normalizedHref, baseUrl);
     url.hash = '';
     url.search = '';
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
@@ -1056,6 +1063,37 @@ function enqueueCrawlUrl(
   } catch {
     return;
   }
+}
+
+function normalizeExplicitCrawlSeedHref(href: string, baseUrl: URL): string {
+  const clean = href.trim();
+  if (!clean || hasUrlProtocol(clean) || clean.startsWith('//') || clean.startsWith('/')) return clean;
+
+  const firstSegment = clean.split(/[/?#]/, 1)[0] ?? '';
+  if (!firstSegment.includes('.')) return clean;
+
+  try {
+    const url = new URL(`${baseUrl.protocol}//${clean}`);
+    if (sameCrawlHost(url.hostname, baseUrl.hostname)) {
+      url.protocol = baseUrl.protocol;
+      url.host = baseUrl.host;
+    }
+    return url.href;
+  } catch {
+    return clean;
+  }
+}
+
+function hasUrlProtocol(value: string): boolean {
+  return /^[a-z][a-z\d+.-]*:/i.test(value);
+}
+
+function sameCrawlHost(left: string, right: string): boolean {
+  return stripWww(left) === stripWww(right);
+}
+
+function stripWww(hostname: string): string {
+  return hostname.toLowerCase().replace(/^www\./, '');
 }
 
 function nextCrawlQueueItem(queue: Map<string, CrawlQueueItem>, visited: Set<string>): CrawlQueueItem | undefined {

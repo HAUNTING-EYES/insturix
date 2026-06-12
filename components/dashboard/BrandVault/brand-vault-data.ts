@@ -168,6 +168,7 @@ export function signalTone(signal: SignalRow): SignalTone {
 export function groupConflicts(candidates: BrandEvidenceCandidate[]): SignalConflict[] {
   const byPath = new Map<string, BrandEvidenceCandidate[]>();
   for (const candidate of candidates) {
+    if (isAssetAlternativePath(candidate.signalPath)) continue;
     const list = byPath.get(candidate.signalPath) ?? [];
     list.push(candidate);
     byPath.set(candidate.signalPath, list);
@@ -187,6 +188,10 @@ export function groupConflicts(candidates: BrandEvidenceCandidate[]): SignalConf
     });
   }
   return conflicts.sort((a, b) => b.candidates.length - a.candidates.length);
+}
+
+function isAssetAlternativePath(path: string): boolean {
+  return path === 'assets.logoCandidates' || path === 'assets.socialPreviewImages';
 }
 
 /* ------------------------------------------------------------------ */

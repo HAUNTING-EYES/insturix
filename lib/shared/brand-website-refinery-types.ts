@@ -158,6 +158,29 @@ export interface FetchWebsiteBrandSnapshotOptions {
   userAgent?: string;
 }
 
+export type BrandWebsiteAssetAvailabilityStatus = 'available' | 'unavailable' | 'unknown';
+
+export interface BrandWebsiteAssetAvailability {
+  status: BrandWebsiteAssetAvailabilityStatus;
+  method: 'HEAD' | 'GET';
+  httpStatus?: number;
+  contentType?: string;
+  reason?: string;
+}
+
+export interface BrandWebsiteAssetProbeOptions extends FetchWebsiteBrandSnapshotOptions {
+  maxCandidates?: number;
+  allowDefaultFetch?: boolean;
+}
+
+export interface BrandWebsiteAssetProbeResult {
+  candidates: BrandEvidenceCandidate[];
+  warnings: string[];
+  checkedCount: number;
+  unavailableCount: number;
+  unknownCount: number;
+}
+
 export interface BrandWebsiteSignalProfileResult {
   profile: BrandSignalProfile;
   candidates: BrandEvidenceCandidate[];
@@ -167,6 +190,16 @@ export interface BrandWebsiteSignalProfileResult {
 
 export interface BrandWebsiteDraftResult extends BrandWebsiteSignalProfileResult {
   record: BrandSignalProfileRecord;
+}
+
+export type BrandWebsiteLogoCandidateRole = 'logo' | 'icon';
+
+export interface BrandWebsiteLogoCandidate {
+  url: string;
+  rawValue: string;
+  sourceField: string;
+  role: BrandWebsiteLogoCandidateRole;
+  confidence: number;
 }
 
 export interface ParsedWebsiteEvidence {
@@ -183,7 +216,8 @@ export interface ParsedWebsiteEvidence {
   headings: string[];
   ctas: string[];
   proofSnippets: string[];
-  logoCandidates: string[];
+  logoCandidates: BrandWebsiteLogoCandidate[];
+  socialPreviewImages: string[];
   bodyText: string;
 }
 

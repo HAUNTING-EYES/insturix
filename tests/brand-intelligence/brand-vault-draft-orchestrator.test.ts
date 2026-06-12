@@ -127,6 +127,46 @@ describe('Brand Vault draft orchestrator', () => {
     expect(repository.listEvents('draft_signal_site').map((event) => event.type)).toEqual(['draft_saved']);
   });
 
+  it('downgrades unreachable website asset candidates before review payload assembly', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_asset_probe',
+        profileRecordId: 'draft_asset_probe',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: {
+          fetchFn: async (url) => {
+            if (url === 'https://signal.example/') return htmlResponse();
+            if (url.endsWith('/logo.svg')) return new Response('', { status: 404 });
+            return new Response('', { status: 200, headers: { 'content-type': 'image/svg+xml' } });
+          },
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    const logo = result.candidates.find(
+      (candidate) => candidate.signalPath === 'assets.logoCandidates' && candidate.normalizedValue === 'https://signal.example/logo.svg',
+    );
+    expect(logo?.confidence).toBeLessThanOrEqual(0.18);
+    expect(logo?.rawValue).toMatchObject({
+      availability: {
+        status: 'unavailable',
+        httpStatus: 404,
+      },
+    });
+    expect(result.warnings).toContain('1 website asset candidate was unreachable and downgraded before review.');
+    expect(result.reviewPayload.warnings).toContain('1 website asset candidate was unreachable and downgraded before review.');
+  });
+
   it('crawls prioritized same-origin pages across depth with policy caps', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
     const pages: Record<string, string> = {
@@ -216,6 +256,65 @@ describe('Brand Vault draft orchestrator', () => {
       status: 'complete',
       sourceCount: 3,
     });
+  });
+
+  it('normalizes bare-domain crawl seeds against the final website origin', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const fetchCalls: string[] = [];
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_bare_seed_crawl',
+        profileRecordId: 'draft_bare_seed_crawl',
+        now: NOW,
+        sourceEvidence: [
+          {
+            kind: 'crawl_seed',
+            url: 'signal.example/about?utm=ignored#team',
+            platform: 'website',
+            crawl: {
+              maxPages: 1,
+              maxDepth: 0,
+              includePaths: ['/about'],
+            },
+          },
+        ],
+      },
+      {
+        repository,
+        fetchSnapshot: async (url) => {
+          fetchCalls.push(url);
+          if (url === 'https://signal.example/') {
+            return {
+              normalizedUrl: 'https://www.signal.example/',
+              html: pageHtml('Signal House', '<h1>Signal House</h1>'),
+              contentType: 'text/html',
+              fetchedAt: NOW,
+            };
+          }
+          if (url === 'https://www.signal.example/about') {
+            return {
+              normalizedUrl: url,
+              html: pageHtml('About Signal House', '<h1>About Signal House</h1>'),
+              contentType: 'text/html',
+              fetchedAt: NOW,
+            };
+          }
+          throw new Error(`Unexpected crawl URL: ${url}`);
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(fetchCalls).toEqual(['https://signal.example/', 'https://www.signal.example/about']);
+    expect(fetchCalls).not.toContain('https://www.signal.example/signal.example/about');
+    expect(result.candidates.find((candidate) => candidate.sourceField === 'crawl.page')?.sourceUrl).toBe(
+      'https://www.signal.example/about',
+    );
   });
 
   it('auto-crawls brand pages and expands sitemap URLs without requiring a crawl seed', async () => {
