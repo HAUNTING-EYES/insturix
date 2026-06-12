@@ -136,98 +136,131 @@ export async function POST(req: Request) {
     const fileName = videoAsset.filename || gcsPath.split("/").pop() || "video.mp4";
     const contentType = videoAsset.contentType || "video/mp4";
 
-    const useResumableUpload = fileSize > 10 * 1024 * 1024;
-    if (!useResumableUpload) {
-      const nodeFormData = new FormData();
-      const videoResponse = await axios.get(videoAsset.publicUrl, { responseType: "stream" });
+    const isReel = postType === "reel";
 
-      nodeFormData.append("source", videoResponse.data, {
-        filename: fileName,
-        contentType,
-      });
-      if (finalTitle) {
-        nodeFormData.append("title", finalTitle);
-      }
-      if (finalDescription) {
-        nodeFormData.append("description", finalDescription);
-      }
+    if (!isReel) {
+      const useResumableUpload = fileSize > 10 * 1024 * 1024;
+      if (!useResumableUpload) {
+        const nodeFormData = new FormData();
+        const videoResponse = await axios.get(videoAsset.publicUrl, { responseType: "stream" });
 
-      const simpleUploadUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/videos?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
-
-      try {
-        const simpleRes = await axios.post(simpleUploadUrl, nodeFormData, {
-          headers: nodeFormData.getHeaders(),
-          timeout: 120000,
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity,
+        nodeFormData.append("source", videoResponse.data, {
+          filename: fileName,
+          contentType,
         });
-
-        const simpleData = simpleRes.data;
-        if (!simpleData.error) {
-          const facebookUrl = `https://www.facebook.com/${targetPage.pageId}/videos/${simpleData.id}`;
-          if (videoUuid) {
-            await UploaderXVideo.updateOne(
-              { userId: session.userId, videoUuid },
-              {
-                $set: {
-                  "metadata.facebook.videoId": simpleData.id,
-                  "metadata.facebook.url": facebookUrl,
-                  "metadata.facebook.pageId": targetPage.pageId,
-                  "metadata.facebook.pageName": targetPage.pageName,
-                  "metadata.facebook.lastUploadedAt": new Date(),
-                  "metadata.facebook.postType": postType || "reel",
-                },
-              }
-            );
-            await emitUploaderXVideoPublished({
-              userId: session.userId,
-              videoUuid,
-              platform: "facebook",
-              platformPostId: simpleData.id,
-              platformUrl: facebookUrl,
-              accountUsername: targetPage.pageName,
-              mediaType: "video",
-            }).catch((eventErr) =>
-              console.warn("[UploaderX:Facebook] video_published event failed:", eventErr),
-            );
-          }
-
-          return NextResponse.json({
-            success: true,
-            facebookUrl,
-            videoId: simpleData.id,
-            pageName: targetPage.pageName,
-            postType: postType || "reel",
-          });
+        if (finalTitle) {
+          nodeFormData.append("title", finalTitle);
         }
-      } catch (simpleError: any) {
-        console.warn("Facebook simple upload failed, falling back to resumable upload:", simpleError.message);
+        if (finalDescription) {
+          nodeFormData.append("description", finalDescription);
+        }
+
+        const simpleUploadUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/videos?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
+
+        try {
+          const simpleRes = await axios.post(simpleUploadUrl, nodeFormData, {
+            headers: nodeFormData.getHeaders(),
+            timeout: 120000,
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+          });
+
+          const simpleData = simpleRes.data;
+          if (!simpleData.error) {
+            const facebookUrl = `https://www.facebook.com/${targetPage.pageId}/videos/${simpleData.id}`;
+            if (videoUuid) {
+              await UploaderXVideo.updateOne(
+                { userId: session.userId, videoUuid },
+                {
+                  $set: {
+                    "metadata.facebook.videoId": simpleData.id,
+                    "metadata.facebook.url": facebookUrl,
+                    "metadata.facebook.pageId": targetPage.pageId,
+                    "metadata.facebook.pageName": targetPage.pageName,
+                    "metadata.facebook.lastUploadedAt": new Date(),
+                    "metadata.facebook.postType": postType || "reel",
+                  },
+                }
+              );
+              await emitUploaderXVideoPublished({
+                userId: session.userId,
+                videoUuid,
+                platform: "facebook",
+                platformPostId: simpleData.id,
+                platformUrl: facebookUrl,
+                accountUsername: targetPage.pageName,
+                mediaType: "video",
+              }).catch((eventErr) =>
+                console.warn("[UploaderX:Facebook] video_published event failed:", eventErr),
+              );
+            }
+
+            return NextResponse.json({
+              success: true,
+              facebookUrl,
+              videoId: simpleData.id,
+              pageName: targetPage.pageName,
+              postType: postType || "reel",
+            });
+          }
+        } catch (simpleError: any) {
+          console.warn("Facebook simple upload failed, falling back to resumable upload:", simpleError.message);
+        }
       }
     }
 
-    const initUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/videos?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
-    const initRes = await fetch(initUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        upload_phase: "start",
-        file_size: fileSize,
-      }),
-    });
+    let uploadSessionId: string;
+    let videoId: string;
 
-    const initData = await initRes.json();
-    if (initData.error) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: initData.error.message || "Failed to initialize Facebook upload",
-        },
-        { status: 500 }
-      );
+    if (isReel) {
+      const initUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/video_reels?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
+      const initRes = await fetch(initUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_phase: "start",
+        }),
+      });
+
+      const initData = await initRes.json();
+      if (initData.error) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: initData.error.message || "Failed to initialize Facebook Reel upload",
+          },
+          { status: 500 }
+        );
+      }
+
+      videoId = initData.video_id;
+      uploadSessionId = videoId;
+    } else {
+      const initUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/videos?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
+      const initRes = await fetch(initUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_phase: "start",
+          file_size: fileSize,
+        }),
+      });
+
+      const initData = await initRes.json();
+      if (initData.error) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: initData.error.message || "Failed to initialize Facebook upload",
+          },
+          { status: 500 }
+        );
+      }
+
+      uploadSessionId = initData.upload_session_id;
+      videoId = initData.video_id;
     }
 
-    const uploadSessionId = initData.upload_session_id;
-    const videoId = initData.video_id;
     const fileBuffer = await fetchUploaderXBuffer(videoAsset.publicUrl);
 
     const transferFormData = new FormData();
@@ -272,29 +305,57 @@ export async function POST(req: Request) {
     }
 
     try {
-      const finishUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/videos?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
-      const finishRes = await axios.post(
-        finishUrl,
-        {
-          upload_phase: "finish",
-          upload_session_id: uploadSessionId,
-          title: finalTitle,
-          description: finalDescription,
-        },
-        {
-          headers: { "Content-Type": "application/json" },
-          timeout: 60000,
-        }
-      );
-
-      if (finishRes.data?.error) {
-        return NextResponse.json(
+      if (isReel) {
+        const finishUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/video_reels?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
+        const finishRes = await axios.post(
+          finishUrl,
           {
-            success: false,
-            error: finishRes.data.error.message || "Failed to finish Facebook upload",
+            upload_phase: "finish",
+            video_id: videoId,
+            video_state: "PUBLISHED",
+            title: finalTitle,
+            description: finalDescription,
           },
-          { status: 500 }
+          {
+            headers: { "Content-Type": "application/json" },
+            timeout: 60000,
+          }
         );
+
+        if (finishRes.data?.error) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: finishRes.data.error.message || "Failed to finish Facebook Reel upload",
+            },
+            { status: 500 }
+          );
+        }
+      } else {
+        const finishUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/videos?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
+        const finishRes = await axios.post(
+          finishUrl,
+          {
+            upload_phase: "finish",
+            upload_session_id: uploadSessionId,
+            title: finalTitle,
+            description: finalDescription,
+          },
+          {
+            headers: { "Content-Type": "application/json" },
+            timeout: 60000,
+          }
+        );
+
+        if (finishRes.data?.error) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: finishRes.data.error.message || "Failed to finish Facebook upload",
+            },
+            { status: 500 }
+          );
+        }
       }
     } catch (finishError: any) {
       return NextResponse.json(
