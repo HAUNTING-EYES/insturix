@@ -7,6 +7,7 @@ import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { KnowledgePanel } from "@/components/dashboard/ThinkForge/KnowledgePanel";
 import { ExportToEditronDialog } from "@/components/dashboard/ThinkForge/export/ExportToEditronDialog";
+import { ClickatronHandoffDialog } from "@/components/dashboard/ThinkForge/export/ClickatronHandoffDialog";
 import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import { Script } from "@/app/dashboard/thinkforge/types";
 import SessionMetadataSettings from "./SessionMetadataSettings";
@@ -34,14 +35,6 @@ interface StoryboardingModeProps {
   onTabClose?: (scriptId: string) => void;
 }
 
-function buildSelectedIdeaPayload(selectedIdea: IdeaCardData) {
-  return {
-    ...selectedIdea,
-    id: Number(selectedIdea.id),
-    tone: selectedIdea.tone as any,
-  };
-}
-
 export default function StoryboardingMode({
   isVisible,
   selectedIdea,
@@ -66,6 +59,7 @@ export default function StoryboardingMode({
   const [showSettings, setShowSettings] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showClickatronDialog, setShowClickatronDialog] = useState(false);
 
   // Selection editing state
   const [editingSelection, setEditingSelection] = useState<{ text: string, range: { from: number, to: number }, blocks: any[] } | null>(null);
@@ -98,6 +92,8 @@ export default function StoryboardingMode({
 
   const handleOpenSettings = () => setShowSettings(true);
   const handleCloseSettings = () => setShowSettings(false);
+  const scriptBlocks = Array.isArray(script?.blocks) ? script.blocks : [];
+  const scriptText = script?.content || script?.body || "";
 
   if (!selectedIdea) {
     return (
@@ -114,8 +110,6 @@ export default function StoryboardingMode({
       </div>
     );
   }
-
-  const exportBlocks = Array.isArray(script?.blocks) ? script.blocks : [];
 
   return (
     <div className={clsx("control-view enter", isVisible ? "visible" : "")} id="s3" style={{ display: isVisible ? 'flex' : 'none', flex: 1, height: '100%' }}>
@@ -134,7 +128,8 @@ export default function StoryboardingMode({
           <div className="sidebar-section">
             <div className="mono sidebar-label" style={{ color: 'var(--text-muted)' }}>export</div>
             <div className="sidebar-items">
-              <button className="sidebar-item" onClick={() => setShowExportDialog(true)} disabled={!script}>→ Editron</button>
+              <button className="sidebar-item" onClick={() => setShowClickatronDialog(true)} disabled={!script || !sessionId}>-&gt; Clickatron</button>
+              <button className="sidebar-item" onClick={() => setShowExportDialog(true)} disabled={!script}>-&gt; Editron</button>
             </div>
           </div>
         </div>
@@ -142,7 +137,15 @@ export default function StoryboardingMode({
         {/* CENTER — Editor */}
         <div className="editor-col" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <ScriptPanel
-            selectedIdea={buildSelectedIdeaPayload(selectedIdea)}
+            selectedIdea={{
+              id: Number(selectedIdea.id),
+              idea: selectedIdea.idea,
+              purpose: selectedIdea.purpose,
+              style: selectedIdea.style,
+              format: selectedIdea.format,
+              platform: selectedIdea.platform,
+              tone: selectedIdea.tone as any
+            }}
             script={script}
             sessionId={sessionId}
             scriptId={scriptId}
@@ -173,7 +176,16 @@ export default function StoryboardingMode({
         <div className="chat-col" style={{ display: 'flex', flexDirection: 'column' }}>
           <ChatPanel
             key={(sessionId || 'no-session')}
-            selectedIdea={buildSelectedIdeaPayload(selectedIdea)}
+            selectedIdea={{
+              id: Number(selectedIdea.id),
+              idea: selectedIdea.idea,
+              purpose: selectedIdea.purpose,
+              style: selectedIdea.style,
+              format: selectedIdea.format,
+              platform: selectedIdea.platform,
+              tone: selectedIdea.tone as any,
+              sessionName: selectedIdea.sessionName
+            }}
             script={script}
             scriptId={scriptId}
             isScriptLoading={isScriptLoading}
@@ -205,11 +217,19 @@ export default function StoryboardingMode({
       <ExportToEditronDialog
         open={showExportDialog}
         onOpenChange={setShowExportDialog}
-        blocks={exportBlocks}
-        plainText={script?.content || ''}
+        blocks={scriptBlocks}
+        plainText={scriptText}
         sessionId={sessionId || undefined}
         scriptId={scriptId || undefined}
-        projectMeta={selectedIdea}
+      />
+
+      <ClickatronHandoffDialog
+        open={showClickatronDialog}
+        onOpenChange={setShowClickatronDialog}
+        blocks={scriptBlocks}
+        sessionId={sessionId || undefined}
+        scriptId={scriptId || undefined}
+        title={script?.title || selectedIdea.idea}
       />
 
       <AnimatePresence>
@@ -239,7 +259,16 @@ export default function StoryboardingMode({
 
               <div className="bg-[#0B0B0A] rounded-3xl border border-[#1C1B19] p-6 shadow-2xl">
                 <SessionMetadataSettings
-                  idea={buildSelectedIdeaPayload(selectedIdea)}
+                  idea={{
+                    id: Number(selectedIdea.id),
+                    idea: selectedIdea.idea,
+                    purpose: selectedIdea.purpose,
+                    style: selectedIdea.style,
+                    format: selectedIdea.format,
+                    platform: selectedIdea.platform,
+                    tone: selectedIdea.tone as any,
+                    sessionName: selectedIdea.sessionName
+                  }}
                   onProceedToChat={handleCloseSettings}
                   onGoBack={onGoToIdeation}
                   onUpdateIdea={(updatedIdea) => {
