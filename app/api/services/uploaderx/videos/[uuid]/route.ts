@@ -69,3 +69,42 @@ export async function PATCH(
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 }
+
+export async function GET(
+    request: Request,
+    props: { params: Promise<{ uuid: string }> }
+) {
+    try {
+        const params = await props.params;
+        const { uuid } = params;
+
+        const session = await auth();
+        if (!session?.userId) {
+            return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+        }
+
+        if (!uuid) {
+            return NextResponse.json({ success: false, error: "Missing video UUID" }, { status: 400 });
+        }
+
+        await connectToDatabase();
+
+        const video = await UploaderXVideo.findOne({
+            userId: session.userId,
+            videoUuid: uuid
+        }).lean();
+
+        if (!video) {
+            return NextResponse.json({ success: false, error: "Video not found" }, { status: 404 });
+        }
+
+        return NextResponse.json({
+            success: true,
+            video,
+        });
+    } catch (error: any) {
+        console.error("❌ Error fetching video by UUID:", error);
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+}
+
