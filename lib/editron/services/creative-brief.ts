@@ -350,16 +350,21 @@ semanticAtoms schema (include only facts supported by transcript/video evidence)
   "claim": "short factual claim in speaker words",
   "evidencePhrase": "nearby transcript phrase proving this graphic",
   "keyword": "exact term to emphasize when useful",
-  "relation": { "from": "before/source/group A", "to": "after/result/group B", "relation": "vs|arrow" },
-  "values": [numbers only],
-  "labels": ["labels for values"],
+  "text": { "primary": "headline/title", "secondary": "supporting phrase", "keyword": "specific term", "phrase": "source phrase" },
+  "quantity": { "displayText": "73%", "label": "user satisfaction", "kind": "percentage|currency|count|duration|fraction", "unit": "%|$|seconds|etc", "denominator": number, "bounded": boolean },
+  "series": { "values": [numbers only], "labels": ["labels for values"] },
+  "identity": { "name": "person/company/product name", "role": "speaker role/title when stated", "avatar": "known image URL only if provided by context" },
+  "media": { "role": "avatar|image|logo", "url": "provided media URL only" },
+  "quote": { "text": "verbatim quote", "author": "speaker/entity when stated" },
+  "truth": { "polarity": "true|false|mixed|uncertain", "negated": boolean, "refuted": boolean, "warranted": boolean },
+  "relation": { "from": "before/source/group A", "to": "after/result/group B", "relation": "vs|arrow", "kind": "contrast|cause|part_of_whole|rank|sequence" },
   "items": ["list/ranked steps when explicitly present"],
   "badge": "rank/status label",
   "annotation": "small explanatory note",
   "kicker": "short category label"
 }
 
-Never invent atom facts. If the transcript only supports a simple fact, emit simple atoms. If it supports comparison, list, rank, or multiple numbers, emit those atoms instead of flattening the idea into only title/body/text.
+Never invent atom facts. If the transcript only supports a simple fact, emit simple atoms. If it supports comparison, list, rank, identity, quote, truth/negation, proportion, or multiple numbers, emit those atoms instead of flattening the idea into only title/body/text. These atoms are semantic facts, NOT visual presets. Do not say "box", "lower left", "counter", "bar chart", "circle", or animation names inside semanticAtoms.
 
 Graphics are NOT decoration — they surface KEY INFORMATION. Use the MOST SPECIFIC type for each moment:
 
@@ -392,7 +397,7 @@ Do NOT default to keyword-highlight for everything. If a number is spoken, use s
 {
   "video_understanding": { "primary_content": string, "shot_scale": string, "lighting": string, "production_quality": 0-1, "environment": string, "speaker_count": number, "has_b_roll": boolean },
   "narrative_arc": [{ "section_id": number, "start_word_idx": number, "end_word_idx": number, "label": "setup"|"build"|"peak"|"resolve"|"transition"|"hook"|"closing", "energy_level": "low"|"building"|"high"|"declining"|"neutral", "mood": string, "pacing_feel": "calm"|"measured"|"balanced"|"energetic"|"fast" }],
-  "decisions": [{ "type": "<valid_type>", "target_word_idx": number, "confidence": 0.55-0.95, "reason": "<valid_reason>", "params": { "...required_params_for_type": "...", "semanticAtoms": { "concept": string, "claim": string, "evidencePhrase": string, "relation": { "from": string, "to": string, "relation": "vs|arrow" }, "values": number[], "labels": string[], "items": string[], "annotation": string, "badge": string, "kicker": string } } }],
+  "decisions": [{ "type": "<valid_type>", "target_word_idx": number, "confidence": 0.55-0.95, "reason": "<valid_reason>", "params": { "...required_params_for_type": "...", "semanticAtoms": { "concept": string, "claim": string, "evidencePhrase": string, "text": { "primary": string, "secondary": string, "keyword": string, "phrase": string }, "quantity": { "displayText": string, "label": string, "kind": string, "unit": string, "denominator": number, "bounded": boolean }, "series": { "values": number[], "labels": string[] }, "identity": { "name": string, "role": string, "avatar": string }, "media": { "role": "avatar|image|logo", "url": string }, "quote": { "text": string, "author": string }, "truth": { "polarity": string, "negated": boolean, "refuted": boolean, "warranted": boolean }, "relation": { "from": string, "to": string, "relation": "vs|arrow", "kind": string }, "items": string[], "annotation": string, "badge": string, "kicker": string } } }],
   "audio_design": { "ambient_bed": string, "ducking_profile": "standard_speech"|"music_dominant"|"balanced" },
   "caption_style": "word_by_word"|"sentence"|"key_phrases"|"none",
   "overall_pacing": "calm"|"measured"|"balanced"|"energetic"|"fast"

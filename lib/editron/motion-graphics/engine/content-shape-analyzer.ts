@@ -533,10 +533,16 @@ function layoutForShape(
 ): RecipeLayout {
   const facePresent = (signals as Record<string, unknown>)?.face_present;
   const captionAware = !!facePresent;
+  const textLoad = readableTextLoad(shape);
 
+  // INVENTED / CALIBRATION TARGET:
+  // These width bands are deterministic readability guardrails, not proven taste constants.
+  // Calibrate with rendered-aesthetic runs across quote/body/stat-label examples.
   switch (shape.kind) {
     case 'numeric':
+      return textLoad.needsWideLayout ? { position: 'center', maxWidth: '78%' } : { position: 'center' };
     case 'quotation':
+      return { position: 'center', maxWidth: textLoad.needsWideLayout ? '85%' : '70%' };
     case 'brand':
       return { position: 'center' };
     case 'identity':
@@ -551,10 +557,51 @@ function layoutForShape(
     case 'comparison':
       return { position: 'center', maxWidth: '85%' };
     case 'structured':
-      return { position: 'top-right' };
+      return textLoad.needsWideLayout
+        ? { position: 'top-right', maxWidth: '68%' }
+        : { position: 'top-right' };
     case 'free-text':
+      return textLoad.needsWideLayout ? { position: 'center', maxWidth: '82%' } : { position: 'center' };
     default:
       return { position: 'center' };
+  }
+}
+
+function readableTextLoad(shape: ContentShape): { charCount: number; wordCount: number; needsWideLayout: boolean } {
+  const text = textForReadability(shape);
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const charCount = text.replace(/\s+/g, ' ').trim().length;
+  const wordCount = words.length;
+
+  // INVENTED / CALIBRATION TARGET:
+  // Char/word thresholds decide when a semantic atom needs a wider reading measure.
+  // They are deliberately explicit so reference calibration can tune them later.
+  switch (shape.kind) {
+    case 'quotation':
+      return { charCount, wordCount, needsWideLayout: charCount >= 44 || wordCount >= 8 };
+    case 'structured':
+      return { charCount, wordCount, needsWideLayout: charCount >= 48 || wordCount >= 7 };
+    case 'numeric':
+      return { charCount, wordCount, needsWideLayout: charCount >= 34 || wordCount >= 5 };
+    case 'free-text':
+      return { charCount, wordCount, needsWideLayout: charCount >= 40 || wordCount >= 7 };
+    default:
+      return { charCount, wordCount, needsWideLayout: false };
+  }
+}
+
+function textForReadability(shape: ContentShape): string {
+  switch (shape.kind) {
+    case 'quotation':
+      return shape.quote;
+    case 'structured':
+      return [shape.title, shape.body, ...(shape.items ?? [])].filter(Boolean).join(' ');
+    case 'numeric':
+      return String(shape.label ?? '');
+    case 'free-text':
+      return shape.text;
+    default:
+      return '';
   }
 }
 

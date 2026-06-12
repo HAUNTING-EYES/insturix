@@ -15,6 +15,7 @@
 import type { EditDecision, EditDecisionList } from '../types/edit-decision';
 import type { CreativeBrief, BriefDecision, BriefDecisionType } from './creative-brief';
 import { TYPE_TO_EDL } from '../data/decision-registry';
+import { normalizeMotionGraphicContent } from './mg-content-atoms';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -377,72 +378,22 @@ function atomizeGraphicDecision(
   transcription: { word: string; startMs: number; endMs: number }[],
   targetWordIdx: number | null,
 ): void {
-  flattenSemanticGraphicAtoms(normalized);
+  applySharedGraphicContentNormalization(normalized);
   enrichGraphicDecisionWithTranscriptAtoms(normalized, transcription, targetWordIdx);
   deriveGraphicAtomsFromText(normalized);
+  stampGraphicContentStructure(normalized);
 }
 
-function flattenSemanticGraphicAtoms(normalized: Record<string, unknown>): void {
-  const atoms = objectParam(normalized.semanticAtoms) ?? objectParam(normalized.contentAtoms) ?? objectParam(normalized.atoms);
-  if (!atoms) return;
-
-  copyStringAtom(atoms, normalized, 'concept', 'title');
-  copyStringAtom(atoms, normalized, 'claim', 'body');
-  copyStringAtom(atoms, normalized, 'evidencePhrase', 'contextPhrase');
-  copyStringAtom(atoms, normalized, 'keyword', 'keyword');
-  copyStringAtom(atoms, normalized, 'badge', 'badge');
-  copyStringAtom(atoms, normalized, 'rank', 'rank');
-  copyStringAtom(atoms, normalized, 'annotation', 'annotation');
-  copyStringAtom(atoms, normalized, 'kicker', 'kicker');
-  copyStringAtom(atoms, normalized, 'category', 'category');
-  copyStringAtom(atoms, normalized, 'avatar', 'avatar');
-  copyStringAtom(atoms, normalized, 'logo', 'logo');
-
-  const quantity = objectParam(atoms.quantity) ?? objectParam(atoms.scalar);
-  if (quantity) {
-    copyScalarAtomAsString(quantity, normalized, 'displayText', 'value');
-    copyScalarAtomAsString(quantity, normalized, 'valueText', 'value');
-    copyScalarAtomAsString(quantity, normalized, 'value', 'value');
-    copyStringAtom(quantity, normalized, 'label', 'label');
-    copyStringAtom(quantity, normalized, 'kind', 'quantityKind');
-    copyStringAtom(quantity, normalized, 'unit', 'unit');
-    copyNumberAtom(quantity, normalized, 'denominator', 'denominator');
-    copyBooleanAtom(quantity, normalized, 'bounded', 'bounded');
+function applySharedGraphicContentNormalization(normalized: Record<string, unknown>): void {
+  const content = normalizeMotionGraphicContent(normalized).content;
+  for (const [key, value] of Object.entries(content)) {
+    if (key === 'contentStructure') continue;
+    normalized[key] = value;
   }
+}
 
-  const truth = objectParam(atoms.truth) ?? objectParam(atoms.claimTruth);
-  if (truth) {
-    copyStringAtom(truth, normalized, 'polarity', 'polarity');
-    copyBooleanAtom(truth, normalized, 'negated', 'negated');
-    copyBooleanAtom(truth, normalized, 'refuted', 'refuted');
-    copyBooleanAtom(truth, normalized, 'warranted', 'warranted');
-  }
-  copyStringAtom(atoms, normalized, 'polarity', 'polarity');
-  copyBooleanAtom(atoms, normalized, 'negated', 'negated');
-  copyBooleanAtom(atoms, normalized, 'refuted', 'refuted');
-  copyNumberAtom(atoms, normalized, 'salience', 'salience');
-  copyBooleanAtom(atoms, normalized, 'warranted', 'warranted');
-  copyNumberAtom(atoms, normalized, 'captionRedundancy', 'captionRedundancy');
-
-  const relation = objectParam(atoms.relation) ?? objectParam(atoms.contrast) ?? objectParam(atoms.comparison);
-  if (relation) {
-    copyStringAtom(relation, normalized, 'from', 'from');
-    copyStringAtom(relation, normalized, 'to', 'to');
-    copyStringAtom(relation, normalized, 'fromLabel', 'fromLabel');
-    copyStringAtom(relation, normalized, 'toLabel', 'toLabel');
-    copyStringAtom(relation, normalized, 'relation', 'relation');
-    copyStringAtom(relation, normalized, 'kind', 'relationKind');
-    copyStringAtom(relation, normalized, 'type', 'relationKind');
-  }
-
-  const values = numberArrayParam(atoms.values);
-  if (values.length > 0 && !Array.isArray(normalized.values) && !(normalized.value != null && values.length === 1)) {
-    normalized.values = values;
-  }
-  const labels = stringArrayParam(atoms.labels);
-  if (labels.length > 0 && !Array.isArray(normalized.labels)) normalized.labels = labels;
-  const items = stringArrayParam(atoms.items);
-  if (items.length > 0 && !Array.isArray(normalized.items)) normalized.items = items;
+function stampGraphicContentStructure(normalized: Record<string, unknown>): void {
+  normalized.contentStructure = normalizeMotionGraphicContent(normalized).content.contentStructure;
 }
 
 function enrichGraphicDecisionWithTranscriptAtoms(
@@ -514,68 +465,8 @@ function trimComparisonSide(value: string): string {
     .trim();
 }
 
-function objectParam(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
 function stringParam(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
-function copyStringAtom(source: Record<string, unknown>, target: Record<string, unknown>, fromKey: string, toKey: string): void {
-  if (typeof target[toKey] === 'string' && target[toKey].trim().length > 0) return;
-  if (target[toKey] != null && typeof target[toKey] !== 'string') return;
-  const value = stringParam(source[fromKey]);
-  if (value) target[toKey] = value;
-}
-
-function copyScalarAtomAsString(source: Record<string, unknown>, target: Record<string, unknown>, fromKey: string, toKey: string): void {
-  if (typeof target[toKey] === 'string' && target[toKey].trim().length > 0) return;
-  if (target[toKey] != null && typeof target[toKey] !== 'string') return;
-  const value = source[fromKey];
-  if (typeof value === 'string' && value.trim().length > 0) target[toKey] = value.trim();
-  if (typeof value === 'number' && Number.isFinite(value)) target[toKey] = String(value);
-}
-
-function copyNumberAtom(source: Record<string, unknown>, target: Record<string, unknown>, fromKey: string, toKey: string): void {
-  if (typeof target[toKey] === 'number' && Number.isFinite(target[toKey])) return;
-  if (target[toKey] != null && typeof target[toKey] !== 'number') return;
-  const value = source[fromKey];
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    target[toKey] = value;
-    return;
-  }
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) target[toKey] = parsed;
-  }
-}
-
-function copyBooleanAtom(source: Record<string, unknown>, target: Record<string, unknown>, fromKey: string, toKey: string): void {
-  if (typeof target[toKey] === 'boolean') return;
-  if (target[toKey] != null && typeof target[toKey] !== 'boolean') return;
-  const value = source[fromKey];
-  if (typeof value === 'boolean') {
-    target[toKey] = value;
-    return;
-  }
-  if (typeof value === 'string') {
-    const text = value.trim().toLowerCase();
-    if (text === 'true') target[toKey] = true;
-    if (text === 'false') target[toKey] = false;
-  }
-}
-
-function numberArrayParam(value: unknown): number[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => typeof item === 'number' ? item : typeof item === 'string' ? parseFloat(item.replace(/,/g, '')) : NaN)
-    .filter((item) => Number.isFinite(item));
-}
-
-function stringArrayParam(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map(String).map((item) => item.trim()).filter(Boolean);
 }
 
 function transcriptPhraseAroundWord(

@@ -81,7 +81,7 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   const renderLayout = flipped ? { ...recipe.layout, arrangement: 'vertical-stack' as const } : recipe.layout;
   const layoutStyle = resolveLayout(renderLayout);
   // G-1: px box width for text fit = canvas width × the layout's max-width fraction.
-  const boxWidthPx = width * layoutMaxWidthFraction(renderLayout.position);
+  const boxWidthPx = width * layoutMaxWidthFraction(renderLayout);
   // When a horizontal comparison is flipped to a vertical stack (above), its baked horizontal
   // connector glyph ("→") would point the wrong way in a column — remap it to the vertical "↓".
   const elementsToRender = flipped
@@ -1134,13 +1134,26 @@ function computeMaskClipPath(shape: string, progress: number, direction: string)
 
 // G-1: box-width fraction per layout position (mirrors resolveLayout's maxWidth) — used by the text
 // fit to size text against its container in px.
-function layoutMaxWidthFraction(position: string): number {
-  switch (position) {
+function layoutMaxWidthFraction(layout: CompositionRendererProps['recipe']['layout']): number {
+  const override = maxWidthFraction(layout.maxWidth);
+  if (override != null) return override;
+
+  switch (layout.position) {
     case 'center': return 0.70;
     case 'full-width-bottom':
     case 'full-width-top': return 0.90;
     default: return 0.45; // corners
   }
+}
+
+function maxWidthFraction(maxWidth: string | undefined): number | undefined {
+  const match = maxWidth?.trim().match(/^(\d+(?:\.\d+)?)%$/);
+  if (!match) return undefined;
+  const pct = Number(match[1]);
+  if (!Number.isFinite(pct)) return undefined;
+  // INVENTED / CALIBRATION TARGET: safety clamp for authored maxWidth hints.
+  // Keep until rendered calibration proves tighter per-aspect bounds.
+  return Math.max(0.1, Math.min(0.95, pct / 100));
 }
 
 function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): React.CSSProperties {
@@ -1162,25 +1175,26 @@ function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): Re
   // captionZoneAware: shift bottom-positioned graphics above caption zone
   // ⚠️ 22% bottom offset INVENTED — typical captions occupy bottom 15-20%
   const bottomOffset = layout.captionZoneAware ? '22%' : '12%';
+  const layoutMaxWidth = (fallback: string): string => layout.maxWidth ?? fallback;
 
   // G-1: insets >=5% keep the block inside the title-safe zone (center 90% / 5% margin, SMPTE ST 2046-1).
   switch (layout.position) {
     case 'bottom-left':
-      return { ...base, bottom: bottomOffset, left: '5%', maxWidth: '45%' };
+      return { ...base, bottom: bottomOffset, left: '5%', maxWidth: layoutMaxWidth('45%') };
     case 'bottom-right':
-      return { ...base, bottom: bottomOffset, right: '5%', maxWidth: '45%', alignItems: 'flex-end' };
+      return { ...base, bottom: bottomOffset, right: '5%', maxWidth: layoutMaxWidth('45%'), alignItems: 'flex-end' };
     case 'top-left':
-      return { ...base, top: '8%', left: '5%', maxWidth: '45%' };
+      return { ...base, top: '8%', left: '5%', maxWidth: layoutMaxWidth('45%') };
     case 'top-right':
-      return { ...base, top: '8%', right: '5%', maxWidth: '45%', alignItems: 'flex-end' };
+      return { ...base, top: '8%', right: '5%', maxWidth: layoutMaxWidth('45%'), alignItems: 'flex-end' };
     case 'center':
-      return { ...base, top: '50%', left: '50%', transform: 'translate(-50%, -50%)', alignItems: 'center', textAlign: 'center', maxWidth: '70%' };
+      return { ...base, top: '50%', left: '50%', transform: 'translate(-50%, -50%)', alignItems: 'center', textAlign: 'center', maxWidth: layoutMaxWidth('70%') };
     case 'full-width-bottom':
-      return { ...base, bottom: '15%', left: '5%', right: '5%', alignItems: 'center' };
+      return { ...base, bottom: '15%', left: '5%', right: '5%', alignItems: 'center', ...(layout.maxWidth ? { maxWidth: layout.maxWidth } : {}) };
     case 'full-width-top':
-      return { ...base, top: '8%', left: '5%', right: '5%', alignItems: 'center' };
+      return { ...base, top: '8%', left: '5%', right: '5%', alignItems: 'center', ...(layout.maxWidth ? { maxWidth: layout.maxWidth } : {}) };
     default:
-      return { ...base, bottom: '12%', left: '5%', maxWidth: '45%' };
+      return { ...base, bottom: '12%', left: '5%', maxWidth: layoutMaxWidth('45%') };
   }
 }
 

@@ -32,6 +32,12 @@ import type { GridPointDecision, OverlayCategory } from '@/lib/editron/engine/ut
 import { resolveDirectorBrandScope } from '@/lib/editron/agent/director-brand-scope';
 import { resolveAtomicCaptionPresentation } from '@/lib/editron/services/caption-form';
 import {
+  planUnifiedDecisionBundleFromCandidates,
+  type UnifiedDecisionBundle,
+  type UnifiedDecisionProducerCandidate,
+} from '@/lib/editron/services/unified-decision-bundle';
+import { shouldRunPostEdlUtilityScoring } from '@/lib/editron/agent/post-edl-action-policy';
+import {
   LEGACY_INTELLIGENCE_FALLBACK_ENV,
   formatVjepaCoverageAuditWarning,
   shouldRunLegacyIntelligenceFallback,
@@ -136,6 +142,7 @@ export async function executeDirectorPlan(
     let briefCaptionStyle: string | undefined;
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
+    let unifiedDecisionBundleExecuted = false;
 
     const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
@@ -360,7 +367,38 @@ export async function executeDirectorPlan(
       // resolves word indices to exact frames deterministically.
       // Enable via env: USE_CREATIVE_BRIEF=true
       let pathDHandled = false;
-      if (process.env.USE_CREATIVE_BRIEF === 'true' && projectDoc?.rawFootageAnalysis?.segments?.length > 0) {
+      let unifiedDecisionBundle: UnifiedDecisionBundle | null = null;
+      const unifiedDecisionCandidates: UnifiedDecisionProducerCandidate[] = [];
+      const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
+      let editedTimelineContext: any = null;
+      if (hasRawFootage) {
+        try {
+          const { buildEditedTimelineContext } = await import('@/lib/editron/services/edited-timeline-context');
+          editedTimelineContext = buildEditedTimelineContext({
+            rawFootage: projectDoc.rawFootageAnalysis,
+            overlays,
+            fps: project.fps || 30,
+            projectDurationFrames: project.durationInFrames,
+          });
+          console.log(
+            `[Director] Edited timeline context: ${editedTimelineContext.evidence.keptWordCount}/${editedTimelineContext.evidence.inputWordCount} words kept, ` +
+            `${editedTimelineContext.durationFrames} frames, sourceMap=${editedTimelineContext.evidence.hasSourceMapping}, ` +
+            `canonical=${editedTimelineContext.evidence.isCanonicalDecisionTimeline}`
+          );
+        } catch (timelineErr: any) {
+          console.warn(`[Director] Edited timeline context unavailable: ${timelineErr.message}`);
+        }
+      }
+      if (hasRawFootage && !editedTimelineContext) {
+        throw new Error('[Director] Canonical edited timeline unavailable; refusing raw-timeline overlay decisions');
+      }
+      if (editedTimelineContext?.evidence?.requiresSourceMapping && !editedTimelineContext.evidence.isCanonicalDecisionTimeline) {
+        throw new Error(
+          `[Director] Unsafe canonical edited timeline: ${editedTimelineContext.evidence.missingSourceMappingCount}/` +
+          `${editedTimelineContext.evidence.inputClipCount} video clips are missing source mapping`
+        );
+      }
+      if (process.env.USE_CREATIVE_BRIEF === 'true' && hasRawFootage) {
         try {
           onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
           console.log('[Director] Path E: Creative Brief architecture (USE_CREATIVE_BRIEF=true)');
@@ -370,15 +408,21 @@ export async function executeDirectorPlan(
           const { executeBrief } = await import('@/lib/editron/services/brief-executor');
           const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
           const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
-          const { executeEDL: executeEDLPathE } = await import('@/lib/editron/services/edl-executor');
 
           const pathEFps = project.fps || 30;
           const rfa = projectDoc.rawFootageAnalysis;
+          const decisionRawFootage = editedTimelineContext?.editedRawFootage ?? rfa;
 
           // Build transcription from the single persisted word-timing source.
           // Older projects may still have segment.words, so keep a compatibility fallback.
           const transcription: { word: string; startMs: number; endMs: number }[] =
-            Array.isArray(rfa.transcription?.words)
+            Array.isArray(editedTimelineContext?.transcription) && editedTimelineContext.transcription.length > 0
+              ? editedTimelineContext.transcription.map((w: any) => ({
+                word: w.word || w.text || '',
+                startMs: w.startMs ?? w.start ?? 0,
+                endMs: w.endMs ?? w.end ?? 0,
+              }))
+              : Array.isArray(rfa.transcription?.words)
               ? rfa.transcription.words.map((w: any) => ({
                 word: w.word || w.text || '',
                 startMs: w.startMs ?? w.start ?? 0,
@@ -416,16 +460,16 @@ export async function executeDirectorPlan(
 
           // Use estimated clean duration (post-transcript-editor), not durationInFrames
           // which may reflect a buggy silence-removal output.
-          const cleanDurationSec = (rfa.estimatedCleanDurationMs || rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000) / 1000;
+          const cleanDurationSec = (editedTimelineContext?.durationMs || rfa.estimatedCleanDurationMs || rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000) / 1000;
 
           // Build video context for Creative Brief
           const videoContext = {
             transcription,
             totalDurationSec: cleanDurationSec,
-            segmentCount: rfa.segments?.length || 0,
+            segmentCount: decisionRawFootage.segments?.length || 0,
             audioFeatures: audioEnergyCurve.length > 0 ? {
               rmsEnergyCurve: audioEnergyCurve,
-              silenceGaps: (rfa.silenceGaps || []).map((g: any) => ({ startMs: g.startMs || g.start || 0, endMs: g.endMs || g.end || 0 })),
+              silenceGaps: (decisionRawFootage.silenceGaps || []).map((g: any) => ({ startMs: g.startMs || g.start || 0, endMs: g.endMs || g.end || 0 })),
             } : undefined,
             vjepaFeatures: projectDoc.vjepaAnalysis?.segments?.length > 0 ? { segments: projectDoc.vjepaAnalysis.segments } : undefined,
             wav2vecFeatures: projectDoc.wav2vecAnalysis?.segments?.length > 0 ? { segments: projectDoc.wav2vecAnalysis.segments } : undefined,
@@ -436,7 +480,7 @@ export async function executeDirectorPlan(
           try {
             const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
             const genreResult = computeGenreParameters({
-              rawFootage: rfa,
+              rawFootage: decisionRawFootage,
               analyses,
               videoDurationSec: cleanDurationSec,
             });
@@ -479,7 +523,7 @@ export async function executeDirectorPlan(
           // ── Content mode routing (D-004) ──
           // Compute from measured signals. musicPresence from Essentia analysis (Modal endpoint).
           // Falls back to 0 if music analysis hasn't run.
-          const speechCoverage = Number.isFinite(rfa.speechCoverage) ? rfa.speechCoverage : 0;
+          const speechCoverage = Number.isFinite((decisionRawFootage as any).speechCoverage) ? (decisionRawFootage as any).speechCoverage : 0;
           const musicAnalysis = projectDoc.musicAnalysis;
           let musicPresence = musicAnalysis?.musicPresence ?? 0;
           // Penalize musicPresence when speech is present — speech rhythm creates
@@ -523,19 +567,17 @@ export async function executeDirectorPlan(
             console.log(`[Director] Path E: Creative Brief generated — ${creativeBrief.decisions.length} decisions, pacing=${creativeBrief.overallPacing}`);
 
             // Brief Executor: resolve word indices → frame numbers
-            // Use ORIGINAL video duration, not post-cut durationInFrames. Word timestamps
-            // reference the original video (up to 1172s). Using clean duration (527s) kills
-            // every decision targeting the second half of the video as "out of range."
-            const totalDurationMs = rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000;
+            // Resolve against the canonical edited timeline when available. The raw source
+            // mapping is kept separately for V-JEPA/Wav2Vec lookup; decisions themselves
+            // must land on the final cut timeline.
+            const totalDurationMs = editedTimelineContext?.durationMs || rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000;
             const briefResult = executeBrief({
               brief: creativeBrief,
               transcription,
               fps: pathEFps,
               audioEnergyCurve: audioEnergyCurve.length > 0 ? audioEnergyCurve : undefined,
               totalDurationMs,
-              // Pass overlays for original-to-cut timeline frame mapping.
-              // Word timestamps reference the original video; overlays are on the cut timeline.
-              overlays: overlays.filter((o: any) => o.type === 'video').map((o: any) => ({
+              overlays: editedTimelineContext ? undefined : overlays.filter((o: any) => o.type === 'video').map((o: any) => ({
                 from: o.from, durationInFrames: o.durationInFrames,
                 sourceStartFrame: o.sourceStartFrame ?? o.videoStartTime, type: 'video',
               })),
@@ -544,7 +586,7 @@ export async function executeDirectorPlan(
             console.log(`[Director] Path E: Brief Executor — ${briefResult.stats.resolvedToFrame} resolved, ${briefResult.stats.snappedToEnergy} snapped to energy`);
 
             // Humanize pass (organic imperfection)
-            const humanizedEdl = humanizeEdl(briefResult.edl, projectId, rfa, pathEFps);
+            const humanizedEdl = humanizeEdl(briefResult.edl, projectId, decisionRawFootage, pathEFps);
 
             // Constraint enforcement (8-pass safety net)
             const overlayInfos = overlays.map((o: any) => ({
@@ -560,7 +602,7 @@ export async function executeDirectorPlan(
 
             if (graphIndex) {
               const constraintResult = enforceConstraints(
-                humanizedEdl.decisions, overlayInfos, graphIndex, rfa, pathEFps
+                humanizedEdl.decisions, overlayInfos, graphIndex, decisionRawFootage, pathEFps
               );
               if (constraintResult.totalViolations > 0) {
                 console.log(`[Director] Path E: ${constraintResult.totalViolations} constraint violations (${constraintResult.totalAutoCorrected} auto-corrected)`);
@@ -629,7 +671,7 @@ export async function executeDirectorPlan(
             // and exposes the same atomic packet Path D can consume.
             const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
             const { buildUnifiedMomentContext } = await import('@/lib/editron/services/unified-moment-context');
-            const cutToOriginalClips = (overlays as any[])
+            const cutToOriginalClips = editedTimelineContext?.sourceClips ?? (overlays as any[])
               .filter((o) => o.type === 'video')
               .map((o) => ({ from: o.from, durationInFrames: o.durationInFrames, sourceStartFrame: o.sourceStartFrame ?? o.videoStartTime }));
             const pathESignalTimeline = buildSignalTimeline(
@@ -680,20 +722,13 @@ export async function executeDirectorPlan(
               }
             }
 
-            // Execute EDL (apply to overlays)
-            const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-            const analysesMap = new Map<string, any>();
-            for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
-            const pathEEdlForExecutor = briefResult.edl as unknown as Parameters<typeof executeEDLPathE>[0];
-            await executeEDLPathE(pathEEdlForExecutor, projectId, userId, overlays, canvas, analysesMap, densityFromGenreParams(pathEGenreParams?.graphic_density) || effectiveProfile.graphicsDensity);
-
-            // Update summary for downstream quality review
-            edlSummary.totalDecisions = humanizedEdl.decisions.length;
-            edlSummary.executed = briefResult.stats.resolvedToFrame;
-            edlSummary.skipped = briefResult.stats.skippedOutOfRange;
-            for (const d of humanizedEdl.decisions) {
-              edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
-            }
+            unifiedDecisionCandidates.push({
+              source: 'creative-brief',
+              edl: briefResult.edl,
+              graphicsDensity: densityFromGenreParams(pathEGenreParams?.graphic_density) || effectiveProfile.graphicsDensity,
+              expectedExecuted: briefResult.stats.resolvedToFrame,
+              expectedSkipped: briefResult.stats.skippedOutOfRange,
+            });
 
             // Snapshot decisions for threshold calibration feedback loop
             try {
@@ -732,8 +767,7 @@ export async function executeDirectorPlan(
             briefSignalContext = { ...signalCtx };
             console.log(`[Director] Path E: Brief outputs — captionStyle=${briefCaptionStyle || 'none'}, pacing=${briefPacing}`);
 
-            pathDHandled = true;
-            console.log(`[Director] Path E: Creative Brief execution COMPLETE — ${humanizedEdl.decisions.length} decisions applied`);
+            console.log(`[Director] Path E: Creative Brief decision bundle READY — ${humanizedEdl.decisions.length} decisions`);
           } else {
             console.warn('[Director] Path E: Creative Brief returned null or empty — falling through to Path D');
           }
@@ -750,9 +784,8 @@ export async function executeDirectorPlan(
       // USE_CREATIVE_BRIEF=true skipped 5-Track and Path E failed, Path D was
       // also blocked, leaving zero intelligence. Fixed: Mode 2 projects (with
       // rawFootageAnalysis) can run Path D without 5-Track.
-      const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
       const canRunPathD = hasRawFootage && (analyses.length > 0 || projectDoc?.segmentAnalysis?.version === 1);
-      if (canRunPathD && !pathDHandled) {
+      if (canRunPathD) {
         try {
           const { loadGraph } = await import('@/lib/editron/services/graph-query');
           const graphIndex = loadGraph();
@@ -770,12 +803,13 @@ export async function executeDirectorPlan(
 
             // Use project fps (not hardcoded 30 — real footage may be 24/29.97/60)
             const pathDFps = project.fps || 30;
+            const pathDDecisionRawFootage = editedTimelineContext?.editedRawFootage ?? projectDoc.rawFootageAnalysis;
 
             // Step D.1: Compute genre parameters from signals
             const genreOutput = computeGenreParameters({
-              rawFootage: projectDoc.rawFootageAnalysis,
+              rawFootage: pathDDecisionRawFootage,
               analyses,
-              videoDurationSec: (project.durationInFrames || 900) / pathDFps,
+              videoDurationSec: (editedTimelineContext?.durationMs ?? ((project.durationInFrames || 900) / pathDFps * 1000)) / 1000,
               userPlatform: brief?.platform,
               userIntent: brief?.intent,
             });
@@ -841,6 +875,20 @@ export async function executeDirectorPlan(
               );
             }
 
+            const sourceSignalTimeline = signalTimeline;
+            if (editedTimelineContext) {
+              const {
+                projectMomentWeightMapToEditedTimeline,
+                projectSignalTimelineToEditedTimeline,
+              } = await import('@/lib/editron/services/edited-timeline-context');
+              signalTimeline = projectSignalTimelineToEditedTimeline(signalTimeline, editedTimelineContext);
+              weightMap = projectMomentWeightMapToEditedTimeline(weightMap, editedTimelineContext);
+              console.log(
+                `[Director] Path D: projected signal timeline to edited time ` +
+                `(${signalTimeline.gridSignals.size} grid points, ${signalTimeline.eventSignals.length} events)`
+              );
+            }
+
             console.log(`[Director] Path D: Moment weights Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
 
             // Step D.3b: Threshold bandit — sample adjusted thresholds for this project
@@ -853,7 +901,7 @@ export async function executeDirectorPlan(
                 const banditContext = {
                   contentType: rfa?.contentTypeDetection?.contentType || 'unknown',
                   speechCoverageBucket: buildSpeechCoverageBucket(rfa?.speechCoverage ?? 0),
-                  durationBucket: buildDurationBucket((project.durationInFrames || 900) / pathDFps),
+                  durationBucket: buildDurationBucket((editedTimelineContext?.durationMs ?? ((project.durationInFrames || 900) / pathDFps * 1000)) / 1000),
                   platform: projectDoc.syntheticStoryboard?.platform || 'youtube',
                 };
                 const adj = sampleThresholdAdjustments(banditState, banditContext);
@@ -986,11 +1034,11 @@ export async function executeDirectorPlan(
             }
 
             // Step D.5: Humanize pass (organic imperfection injection)
-            const humanizedEdl = humanizeEdl(signalEdl, projectId, projectDoc.rawFootageAnalysis, pathDFps);
+            const humanizedEdl = humanizeEdl(signalEdl, projectId, pathDDecisionRawFootage, pathDFps);
 
             // Step D.6: Constraint enforcement (8-pass ordered)
             const constraintResult = enforceConstraints(
-              humanizedEdl.decisions, overlayInfos, graphIndex, projectDoc.rawFootageAnalysis, pathDFps
+              humanizedEdl.decisions, overlayInfos, graphIndex, pathDDecisionRawFootage, pathDFps
             );
             if (constraintResult.totalViolations > 0) {
               console.log(`[Director] Path D: ${constraintResult.totalViolations} constraint violations (${constraintResult.totalAutoCorrected} auto-corrected, ${constraintResult.totalUncorrectable} uncorrectable)`);
@@ -1036,7 +1084,7 @@ export async function executeDirectorPlan(
               .filter(o => o.type === 'video')
               .sort((a, b) => ((a as any).sourceStartFrame || 0) - ((b as any).sourceStartFrame || 0));
             const hasSourceMapping = videoClips.some(c => (c as any).sourceStartFrame !== undefined);
-            if (hasSourceMapping) {
+            if (hasSourceMapping && !editedTimelineContext) {
               const { mapOriginalFrameToCutTimeline } = await import('@/lib/editron/services/brief-executor');
               const preCount = edl.decisions.length;
               edl.decisions = edl.decisions.filter(d => {
@@ -1061,14 +1109,14 @@ export async function executeDirectorPlan(
             // the cut timeline after the remap above; UnifiedMomentContext maps them back to source
             // frames to read the original-timeline signal snapshot.
             const { buildUnifiedMomentContext } = await import('@/lib/editron/services/unified-moment-context');
-            const pathDSourceClips = videoClips.map((clip: any) => ({
+            const pathDSourceClips = editedTimelineContext?.sourceClips ?? videoClips.map((clip: any) => ({
               from: clip.from,
               durationInFrames: clip.durationInFrames,
               sourceStartFrame: clip.sourceStartFrame ?? clip.videoStartTime,
             }));
             for (const d of edl.decisions) {
               const context = buildUnifiedMomentContext({
-                timeline: signalTimeline,
+                timeline: sourceSignalTimeline,
                 frame: d.frame,
                 sourceClips: pathDSourceClips,
                 eventWindowMs: 500,
@@ -1085,23 +1133,64 @@ export async function executeDirectorPlan(
               } as any;
             }
 
-            // Execute EDL (same as other paths)
-            const { executeEDL: executeEDLPathD } = await import('@/lib/editron/services/edl-executor');
-            const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-            const analysesMap = new Map<string, any>();
-            for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
-            await executeEDLPathD(edl, projectId, userId, overlays, canvas, analysesMap, densityFromGenreParams(pathDGenreParams?.graphic_density) || effectiveProfile.graphicsDensity);
-
-            for (const d of edl.decisions) {
-              edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
-            }
-
-            pathDHandled = true;
-            console.log(`[Director] Path D: Signal-driven execution COMPLETE — ${edl.totalDecisions} decisions applied`);
+            unifiedDecisionCandidates.push({
+              source: 'signal-driven',
+              edl,
+              graphicsDensity: densityFromGenreParams(pathDGenreParams?.graphic_density) || effectiveProfile.graphicsDensity,
+              expectedExecuted: edl.totalDecisions,
+              expectedSkipped: 0,
+            });
+            console.log(`[Director] Path D: Signal-driven decision candidate READY - ${edl.totalDecisions} decisions`);
           }
         } catch (pathDErr: any) {
           console.warn(`[Director] Path D failed (${pathDErr.message}), falling through to legacy intelligence fallback gate`);
           // Fall through to existing paths below
+        }
+      }
+
+      unifiedDecisionBundle = planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates);
+      if (unifiedDecisionBundle?.source === 'creative-brief+signal-driven') {
+        console.log(
+          `[Director] Unified decision planner: creative primary + signal advisor - ` +
+          `+${unifiedDecisionBundle.evidence.addedSignalDecisionCount} signal decisions, ` +
+          `${unifiedDecisionBundle.evidence.validatedDecisionCount} validated, ` +
+          `${unifiedDecisionBundle.edl.totalDecisions} total`
+        );
+      }
+
+      if (unifiedDecisionBundle) {
+        try {
+          const canvas = project.playerDimensions || { width: 1920, height: 1080 };
+          const analysesMap = new Map<string, any>();
+          for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
+
+          await executeEDL(
+            unifiedDecisionBundle.edl,
+            projectId,
+            userId,
+            overlays,
+            canvas,
+            analysesMap,
+            unifiedDecisionBundle.graphicsDensity,
+          );
+
+          edlSummary.totalDecisions = unifiedDecisionBundle.edl.totalDecisions;
+          edlSummary.executed = unifiedDecisionBundle.expectedExecuted;
+          edlSummary.skipped = unifiedDecisionBundle.expectedSkipped;
+          for (const d of unifiedDecisionBundle.edl.decisions) {
+            edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
+          }
+
+          pathDHandled = true;
+          unifiedDecisionBundleExecuted = true;
+          console.log(
+            `[Director] Unified decision bundle execution COMPLETE (${unifiedDecisionBundle.source}) — ` +
+            `${unifiedDecisionBundle.edl.totalDecisions} decisions applied`
+          );
+        } catch (bundleErr: any) {
+          console.error(`[Director] Unified decision bundle execution failed (${bundleErr.message}), falling through to legacy intelligence fallback gate`);
+          result.warnings.push(`Unified decision bundle: ${bundleErr.message}`);
+          pipelineWarnings.errorSwallowed('director', bundleErr, 'unified decision bundle execution');
         }
       }
 
@@ -1374,11 +1463,15 @@ export async function executeDirectorPlan(
       console.warn(`[Director] V-JEPA coverage audit failed (non-fatal): ${auditErr.message}`);
     }
 
-    // ─── Step 1.9: Utility AI caption/filter scoring (runs after BOTH Path E and Path D) ──
-    // The overlay-based scoring for caption style and filter preset was previously
-    // inside Path D only. When Path E handled intelligence, the utility scoring was
-    // skipped — leaving captions/filters profile-driven. Now it runs unconditionally.
-    if (process.env.USE_UTILITY_ENGINE === 'true' && briefSignalContext.speech_coverage !== undefined) {
+    // ─── Step 1.9: Utility AI caption/filter scoring ──
+    // This compatibility scorer is allowed only when no unified bundle handled the edit.
+    // Once executeEDL applied the bundle, later profile-level scoring must not override it.
+    const postEdlUtilityScoring = shouldRunPostEdlUtilityScoring({
+      utilityEngineEnabled: useUtilityEngine,
+      hasSpeechCoverage: briefSignalContext.speech_coverage !== undefined,
+      unifiedDecisionBundleExecuted,
+    });
+    if (postEdlUtilityScoring.run) {
       try {
         const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
         const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
@@ -1405,6 +1498,8 @@ export async function executeDirectorPlan(
       } catch (utilErr: any) {
         console.warn(`[Director] Utility AI caption/filter scoring failed (non-fatal): ${utilErr.message}`);
       }
+    } else if (postEdlUtilityScoring.reason === 'unified-bundle-already-executed') {
+      console.log('[Director] Utility AI caption/filter scoring skipped after unified decision bundle execution');
     }
 
     // ─── Step 2: Standard action sequence (D-016: signal-driven, not profile-driven) ──────────

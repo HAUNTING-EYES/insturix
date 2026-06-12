@@ -303,6 +303,81 @@ describe('brief decision conversion', () => {
     }));
   });
 
+  it('normalizes nested semantic MG atoms into EDL params and content structure', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_callout',
+        targetWordIdx: 2,
+        confidence: 0.9,
+        reason: 'emphasis_word',
+        params: {
+          semanticAtoms: {
+            text: {
+              primary: 'Growth Pattern',
+              secondary: 'Compounding across cohorts',
+              keyword: 'compounding',
+            },
+            series: {
+              values: [12, 19, 31],
+              labels: ['Jan', 'Feb', 'Mar'],
+            },
+            identity: {
+              name: 'Hank Green',
+              role: 'Creator',
+              avatar: 'https://example.com/hank.jpg',
+            },
+            media: {
+              role: 'logo',
+              url: 'https://example.com/logo.png',
+            },
+            quote: {
+              text: 'we grew fast',
+              author: 'Hank Green',
+            },
+            truth: {
+              polarity: 'true',
+              warranted: true,
+            },
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    const params = output.edl.decisions[0].params as Record<string, unknown>;
+
+    expect(params).toEqual(expect.objectContaining({
+      title: 'Growth Pattern',
+      body: 'Compounding across cohorts',
+      keyword: 'Growth Pattern',
+      values: [12, 19, 31],
+      labels: ['Jan', 'Feb', 'Mar'],
+      name: 'Hank Green',
+      avatar: 'https://example.com/hank.jpg',
+      logo: 'https://example.com/logo.png',
+      quote: 'we grew fast',
+      author: 'Hank Green',
+      polarity: 'true',
+      warranted: true,
+    }));
+    expect(params.contentStructure).toEqual(expect.objectContaining({
+      evidence: expect.objectContaining({
+        hasSeries: true,
+        hasIdentity: true,
+        hasMedia: true,
+      }),
+      parts: expect.arrayContaining([
+        expect.objectContaining({ role: 'series-values', channel: 'series' }),
+        expect.objectContaining({ role: 'name', channel: 'identity' }),
+        expect.objectContaining({ role: 'avatar', channel: 'media' }),
+        expect.objectContaining({ role: 'logo', channel: 'media' }),
+        expect.objectContaining({ role: 'quote', channel: 'text' }),
+      ]),
+    }));
+  });
+
   it('scales visible transition budget from signal-computed density instead of a fixed 2/min cap', () => {
     const calm = computeDecisionBudget(genre({
       transition_density: 4,

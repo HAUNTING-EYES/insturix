@@ -541,11 +541,15 @@ export function fitFontSize(
 ): number {
   if (!text || boxWidthPx <= 0 || desiredPx <= 0) return desiredPx;
   const safe = boxWidthPx * (opts?.safeFraction ?? 0.9);
-  // The longest word guards no-mid-word breaks; the full phrase guards browser layouts that keep
-  // short multi-word titles on one line.
-  const longestWord = text.split(/\s+/).reduce((a, b) => (b.length > a.length ? b : a), '');
+  const words = text.split(/\s+/).filter(Boolean);
+  // The longest word guards no-mid-word breaks. The full phrase only guards short titles that
+  // should remain one-line; long sentence/quote/body copy must be allowed to wrap at spaces.
+  const longestWord = words.reduce((a, b) => (b.length > a.length ? b : a), '');
   const wordTarget = longestWord || text;
   const phraseTarget = text.trim();
+  // INVENTED / CALIBRATION TARGET:
+  // Short title phrase-fit threshold. Long copy is allowed to wrap; tune with rendered MG calibration.
+  const shouldFitPhrase = phraseTarget.length <= 34 || words.length <= 5;
   // G-1b: prefer exact measurement when the caller supplies one (browser canvas); fall back to the
   // conservative estimator (Node scripts/tests, or measurement unavailable). measureText is ~linear
   // in fontSize, so the single-step scale below stays accurate.
@@ -554,7 +558,7 @@ export function fitFontSize(
     return Number.isFinite(m) ? m : estimateTextWidth(target, px, opts);
   };
   const wordWidthAtDesired = widthAt(wordTarget, desiredPx);
-  const phraseWidthAtDesired = widthAt(phraseTarget, desiredPx);
+  const phraseWidthAtDesired = shouldFitPhrase ? widthAt(phraseTarget, desiredPx) : 0;
   const widthAtDesired = Math.max(wordWidthAtDesired, phraseWidthAtDesired);
   const logTarget = phraseWidthAtDesired >= wordWidthAtDesired ? phraseTarget : wordTarget;
   const target = logTarget;

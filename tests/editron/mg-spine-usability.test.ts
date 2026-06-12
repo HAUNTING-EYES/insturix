@@ -10,6 +10,7 @@ import {
 import { planComposition, type MgOverlayScores } from '../../lib/editron/motion-graphics/engine/composition-planner';
 import { buildAtomicOverlayPlan } from '../../lib/editron/motion-graphics/engine/atomic-overlay-plan';
 import { analyzeContentShape } from '../../lib/editron/motion-graphics/engine/content-shape-analyzer';
+import { fitFontSize } from '../../lib/editron/motion-graphics/engine/primitive-renderers';
 
 const energeticSignals = {
   formality: 0.15,
@@ -375,6 +376,55 @@ describe('MG spine usability', () => {
       title: 'editing',
       body: 'editing completely changed how people watch YouTube',
     }));
+  });
+
+  it('gives long semantic MG copy readable width instead of corner-card compression', () => {
+    const tokens = resolveMotionTokens(energeticSignals);
+    const scores = mgScoresFor(energeticSignals);
+    const quoteText = "Anonymity doesn't bring out the worst in people. It just brings out the worst people.";
+    const quote = planComposition(
+      { content: { quote: quoteText }, triggerMoment: 'standout assertion' },
+      tokens,
+      energeticSignals,
+      scores,
+    );
+    const structured = planComposition(
+      {
+        content: {
+          title: 'Algorithm Problem',
+          body: 'Promoting inflammatory discussion over enthusiasm',
+        },
+        triggerMoment: 'claim support',
+      },
+      tokens,
+      energeticSignals,
+      scores,
+    );
+
+    expect(quote.id).toBe('composed-quotation');
+    expect(quote.layout.maxWidth).toBe('85%');
+    expect(quote.elements.find((element) => element.role === 'primary')?.bind.minSize).toBeLessThanOrEqual(64);
+
+    expect(structured.id).toBe('composed-structured');
+    expect(structured.layout).toEqual(expect.objectContaining({ position: 'top-right', maxWidth: '68%' }));
+    expect(structured.elements.find((element) => element.role === 'secondary')?.bind.minSize).toBeLessThanOrEqual(54);
+  });
+
+  it('keeps short MG titles one-line but lets long sentence copy wrap at spaces', () => {
+    const measure = (text: string, px: number) => text.length * px * 0.62;
+    const shortTitle = fitFontSize('Selection Bias', 864, 98, 36, {}, measure);
+    const longSentence = fitFontSize(
+      "Anonymity doesn't bring out the worst in people. It just brings out the worst people.",
+      864,
+      64,
+      36,
+      {},
+      measure,
+    );
+
+    expect(shortTitle).toBeLessThan(98);
+    expect('Selection Bias'.length * shortTitle * 0.62).toBeLessThanOrEqual(864 * 0.9);
+    expect(longSentence).toBe(64);
   });
 
   it('infers data-viz form in the structural signature before planning', () => {

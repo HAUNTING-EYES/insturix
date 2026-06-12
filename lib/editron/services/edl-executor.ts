@@ -29,6 +29,7 @@ import { resolveAtomicZoomForm } from '@/lib/editron/services/zoom-form';
 import { resolveAtomicTransitionForm } from '@/lib/editron/services/transition-form';
 import { evaluateAtomicSfxAssetCandidate, resolveAtomicSfxForm, type AtomicSfxCandidateEvaluation, type AtomicSfxForm } from '@/lib/editron/services/sfx-form';
 import { resolveAtomicPlacement } from '@/lib/editron/services/atomic-placement';
+import { normalizeMotionGraphicContent } from '@/lib/editron/services/mg-content-atoms';
 import { buildAtomicMomentBundle, type AtomicMomentBundle, type MomentAtom } from '@/lib/editron/services/moment-bundle';
 import { resolveMomentBundleGrammar, type AtomicMomentGrammar } from '@/lib/editron/services/moment-bundle-grammar';
 import {
@@ -2446,7 +2447,7 @@ async function applyGraphic(
   usedTemplateIds?: Set<string>,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
 ): Promise<{ created: number; modified: number } | null> {
-  const { text, position } = decision.params;
+  const { position } = decision.params;
   const requestedPlacementAdjustment = readPlacementAdjustment(decision.params.placementAdjustment);
   const requestedPlacementRegion = requestedPlacementAdjustment?.candidateRegion ?? normalizePlacementRegion(position);
   const atomicPlacement = resolveAtomicPlacement({
@@ -2463,8 +2464,29 @@ async function applyGraphic(
   const graphicType = typeof decision.params.graphicType === 'string'
     ? decision.params.graphicType
     : 'atomic-graphic';
-  if (!hasRenderableGraphicContent(decision.params)) return null;
-  if (isKeywordGraphicIntent(decision, graphicType) && !hasStandaloneGraphicStructure(decision.params)) {
+  const {
+    brand: _brandTokensForContent,
+    signals: _signalsForContent,
+    mgOverlayScores: _mgOverlayScoresForContent,
+    graphicType: _graphicTypeForContent,
+    creativeDecisionType: _creativeDecisionTypeForContent,
+    placementAdjustment: _placementAdjustmentForContent,
+    position: _positionForContent,
+    ...contentParamsForNormalization
+  } = decision.params;
+  const normalizedGraphicContent = normalizeMotionGraphicContent(contentParamsForNormalization);
+  const contentMap = normalizedGraphicContent.content;
+  const text = String(
+    contentMap.text
+      ?? contentMap.keyword
+      ?? contentMap.title
+      ?? contentMap.value
+      ?? '',
+  ).trim();
+  const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;
+
+  if (!hasRenderableGraphicContent(contentMap)) return null;
+  if (useCompositionEngine && isKeywordGraphicIntent(decision, graphicType) && !hasStandaloneGraphicStructure(contentMap)) {
     console.log(`[EDL-Exec] KEYWORD FILTER: skipped standalone keyword MG "${text}" - captions should carry naked word emphasis`);
     return null;
   }
@@ -2493,15 +2515,15 @@ async function applyGraphic(
   // Runtime guard: reject obviously hallucinated placeholder names.
   // Full transcript validation requires plumbing transcription data — deferred to signal expansion.
   // ⚠️ INVENTED placeholder list — covers most common Gemini defaults.
-  if (graphicType === 'lower-third' && decision.params.name) {
+  if (graphicType === 'lower-third' && contentMap.name) {
     const HALLUCINATION_NAMES = new Set([
       'john smith', 'jane doe', 'john doe', 'speaker', 'host', 'guest',
       'presenter', 'narrator', 'interviewer', 'interviewee', 'person',
       'man', 'woman', 'unknown', 'name', 'first last',
     ]);
-    const normalizedName = String(decision.params.name).toLowerCase().trim();
+    const normalizedName = String(contentMap.name).toLowerCase().trim();
     if (HALLUCINATION_NAMES.has(normalizedName) || normalizedName.length < 2) {
-      console.log(`[EDL-Exec] HALLUCINATION GUARD: skipped lower-third for "${decision.params.name}" — likely hallucinated placeholder`);
+      console.log(`[EDL-Exec] HALLUCINATION GUARD: skipped lower-third for "${contentMap.name}" — likely hallucinated placeholder`);
       return null;
     }
   }
@@ -2542,28 +2564,9 @@ async function applyGraphic(
   // ── COMPOSITION ENGINE PATH (feature flag) ──
   // When enabled, ALL graphic types route through planComposition → MOTION_GRAPHIC (Remotion).
   // When disabled, stat-counter uses MOTION_GRAPHIC, everything else uses html-scene (old path).
-  const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;
-
   if (useCompositionEngine) {
     const rawSignals = buildMotionGraphicSignalSnapshot(decision);
     const tokens = resolveMotionTokens(rawSignals, decision.params.brand || {});
-
-    // `brand` is RENDER TOKENS (consumed by resolveMotionTokens above), NOT graphic content. Passing
-    // it through as content.brand mis-fires the brand SHAPE detector (content-shape-analyzer.ts:74,
-    // `text && content.brand`) so every keyword/text graphic in a BRANDED project renders as a
-    // wordmark instead of emphasis. Keep render tokens out of the content map.
-    const {
-      brand: _brandTokens,
-      signals: _signals,
-      mgOverlayScores: _mgOverlayScores,
-      graphicType: _graphicType,
-      creativeDecisionType: _creativeDecisionType,
-      placementAdjustment: _placementAdjustment,
-      position: _position,
-      ...contentParams
-    } = decision.params;
-    const contentMap: Record<string, unknown> = { ...contentParams };
-    if (text) contentMap.text = text;
 
     let mgScores: MgOverlayScores | undefined = decision.params.mgOverlayScores as MgOverlayScores | undefined;
     if (!mgScores && rawSignals && Object.keys(rawSignals).length > 0) {
@@ -2651,6 +2654,8 @@ async function applyGraphic(
         atomicOverlayPlan,
         atomicOverlayDecision,
         atomicPlanObserveMode: true,
+        contentStructure: normalizedGraphicContent.structure,
+        semanticAtoms: normalizedGraphicContent.semanticAtoms,
         ...atomicMomentBundleMetadata(decision),
         edlSource: decision.source,
         edlReason: decision.reason,

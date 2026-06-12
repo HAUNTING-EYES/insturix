@@ -70,6 +70,22 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function textLoad(text: string | undefined): { charCount: number; wordCount: number } {
+  const normalized = String(text ?? '').replace(/\s+/g, ' ').trim();
+  return {
+    charCount: normalized.length,
+    wordCount: normalized ? normalized.split(/\s+/).length : 0,
+  };
+}
+
+function isLongReadableCopy(text: string | undefined, charLimit: number, wordLimit: number): boolean {
+  // INVENTED / CALIBRATION TARGET:
+  // Callers pass provisional char/word thresholds for "copy is too long for hero sizing".
+  // Tune these from rendered reference calibration, not from intuition.
+  const load = textLoad(text);
+  return load.charCount >= charLimit || load.wordCount >= wordLimit;
+}
+
 const CRG = {
   STAT_MIN_FONT: 64,              // constant:typography.stat_counter_min_font → 64px
   LOWER_THIRD_MIN_FONT: 48,      // constant:typography.lower_third_name_min_font → 48px
@@ -731,8 +747,12 @@ function composeQuotation(
   language: MotionTokens,
   mgScores?: MgOverlayScores,
 ): void {
-  const quoteSize = Math.max(CRG.QUOTE_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.QUOTE_MIN_FONT));
-  const quoteLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.4);
+  const scoredQuoteSize = Math.max(CRG.QUOTE_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.QUOTE_MIN_FONT));
+  // INVENTED / CALIBRATION TARGET: quote length gate, 64px cap, and 1.16-1.28 line-height clamp.
+  const longQuote = isLongReadableCopy(shape.quote, 44, 8);
+  const quoteSize = longQuote ? Math.min(scoredQuoteSize, 64) : scoredQuoteSize;
+  const scoredLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.4);
+  const quoteLineHeight = longQuote ? Math.max(1.16, Math.min(1.28, scoredLineHeight)) : scoredLineHeight;
 
   elements.push({
     primitive: 'text',
@@ -878,7 +898,12 @@ function composeStructured(
   const primaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.1);
   // Title is the HERO — it MUST carry an explicit size, else the renderer leaves fontSize undefined
   // (~16px) and the body reads larger than the title (inverted hierarchy). Body sits one step below.
-  const titleSize = Math.max(CRG.KEYWORD_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.KEYWORD_MIN_FONT));
+  // INVENTED / CALIBRATION TARGET: body length gates, 96px title cap, 54px body cap,
+  // and 1.18-1.34 body line-height clamp for long structured copy.
+  const longBody = isLongReadableCopy(shape.body, 40, 6);
+  const longStructuredCopy = isLongReadableCopy([shape.title, shape.body].filter(Boolean).join(' '), 48, 7);
+  const scoredTitleSize = Math.max(CRG.KEYWORD_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.KEYWORD_MIN_FONT));
+  const titleSize = longStructuredCopy ? Math.min(scoredTitleSize, 96) : scoredTitleSize;
 
   elements.push({
     primitive: 'text',
@@ -895,8 +920,10 @@ function composeStructured(
   });
 
   if (shape.body) {
-    const bodySize = Math.max(CRG.CALLOUT_MIN_FONT, titleSize / emphasisRatio(mgScores)); // body one modular step below the title hero
-    const bodyLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.4);
+    const scoredBodySize = Math.max(CRG.CALLOUT_MIN_FONT, titleSize / emphasisRatio(mgScores)); // body one modular step below the title hero
+    const bodySize = longBody ? Math.min(scoredBodySize, 54) : scoredBodySize;
+    const scoredBodyLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.4);
+    const bodyLineHeight = longBody ? Math.max(1.18, Math.min(1.34, scoredBodyLineHeight)) : scoredBodyLineHeight;
 
     elements.push({
       primitive: 'text',
