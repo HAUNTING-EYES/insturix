@@ -126,15 +126,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const finalPostType = postType || dbVideoType;
-    if (finalPostType === "short") {
-      if (title && !title.toLowerCase().includes("#shorts")) {
-        title = `${title} #Shorts`;
-      }
-      if (description && !description.toLowerCase().includes("#shorts")) {
-        description = `${description}\n#Shorts`;
-      }
-    }
+
 
     const oauth2Client = new google.auth.OAuth2();
     oauth2Client.setCredentials({ access_token: accessToken });

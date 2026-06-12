@@ -46,11 +46,11 @@ interface VideoItem {
 
 // ─── Platform definitions ──────────────────────────────────────
 const PLATFORMS = [
-  { key: "youtube", label: "YouTube", statusUrl: "", authUrl: "", aspect: "16:9", fmt: "Short · #Shorts appended" },
+  { key: "youtube", label: "YouTube", statusUrl: "", authUrl: "", aspect: "16:9", fmt: "Native video post" },
   { key: "instagram", label: "Instagram", statusUrl: "/api/services/uploaderx/instagram/status", authUrl: "/api/services/uploaderx/instagram/auth", aspect: "9:16", fmt: "Reel · vertical crop" },
   { key: "facebook", label: "Facebook", statusUrl: "/api/services/uploaderx/facebook/pages", authUrl: "/api/services/uploaderx/facebook/auth", aspect: "16:9", fmt: "Video post" },
   { key: "twitter", label: "X", statusUrl: "/api/services/uploaderx/twitter/status", authUrl: "/api/services/uploaderx/twitter/auth", aspect: "16:9", fmt: "Post · native" },
-  { key: "linkedin", label: "LinkedIn", statusUrl: "/api/services/uploaderx/linkedin/status", authUrl: "/api/services/uploaderx/linkedin/auth", aspect: "4:3", fmt: "Post · square crop" },
+  { key: "linkedin", label: "LinkedIn", statusUrl: "/api/services/uploaderx/linkedin/status", authUrl: "/api/services/uploaderx/linkedin/auth", aspect: "1:1", fmt: "Native video post" },
 ] as const;
 
 function formatPublishPath(path?: string) {
@@ -656,9 +656,8 @@ export function UploaderXClientWrapper() {
     let videoUuid = uploadedVideoUuid;
     const title = metaTitle || selectedFile?.name || selectedVideo?.filename || "Untitled";
     const description = metaDescription;
-    const isShort = selectedPostTypes["youtube"] === "short";
-    const ytTitle = isShort && !title.includes("#Shorts") ? `${title} #Shorts` : title;
-    const ytDesc = isShort && description && !description.includes("#Shorts") ? `${description}\n#Shorts` : description;
+    const ytTitle = title;
+    const ytDesc = description;
 
     // Step 1: Upload file to R2 if needed
     if (selectedFile && !gcsPath) {
@@ -1538,6 +1537,25 @@ export function UploaderXClientWrapper() {
               </div>
             )}
           </div>
+
+          {armedPlatforms.has("twitter") && videoMetadata && videoMetadata.duration > 140 && (
+            <div
+              style={{
+                padding: "10px 16px",
+                borderRadius: 7,
+                background: "rgba(212,106,92,.08)",
+                border: "1px solid rgba(212,106,92,.3)",
+                fontSize: 12,
+                color: C.red,
+                marginBottom: 12,
+                textAlign: "left",
+                width: "100%",
+                maxWidth: 380,
+              }}
+            >
+              ⚠️ X (Twitter): video is {Math.round(videoMetadata.duration)}s — exceeds the free account limit (2:20). X Premium required.
+            </div>
+          )}
 
           {/* Publish bar */}
           <div style={{ padding: "16px 0", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16 }}>
