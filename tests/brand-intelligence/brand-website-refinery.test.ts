@@ -111,6 +111,12 @@ describe('Brand website refinery', () => {
     expect(result.profile.voice.killList.trustLevel).toBe('fallback_default');
     expect(result.candidates.some((candidate) => candidate.signalPath === 'assets.logoCandidates')).toBe(true);
     expect(result.candidates.every((candidate) => candidate.sourceUrl === 'https://northstar.example/')).toBe(true);
+    const dataVizCandidate = result.candidates.find((candidate) => candidate.signalPath === 'visual.dataVizAffinity');
+    const motionEnergyCandidate = result.candidates.find((candidate) => candidate.signalPath === 'motion.motionEnergy');
+    expect(dataVizCandidate?.normalizedValue).toBe(result.profile.visual.dataVizAffinity.value);
+    expect(dataVizCandidate?.normalizedValue).toBeGreaterThan(0.5);
+    expect(motionEnergyCandidate?.normalizedValue).toBe(result.profile.motion.motionEnergy.value);
+    expect(motionEnergyCandidate?.normalizedValue).toBeGreaterThan(0.5);
 
     const validation = validateBrandSignalProfile(result.profile);
     expect(validation.valid).toBe(true);

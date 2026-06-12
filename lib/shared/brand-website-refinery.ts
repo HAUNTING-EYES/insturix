@@ -296,16 +296,25 @@ function makeVisualSignals(
     confidence: 0.43,
     authorityClass: 'inferred_hint',
   });
+  const minimalism = score(text, ['minimal', 'clean', 'simple', 'premium'], ['busy', 'maximal']);
+  const densityTolerance = score(text, ['dashboard', 'data', 'analytics', 'platform'], ['simple', 'minimal']);
+  const dataVizAffinity = score(text, ['data', 'analytics', 'metrics', 'reporting'], ['lifestyle']);
+  const expressiveness = score(text, ['bold', 'creative', 'playful'], ['restrained', 'compliance']);
+  const geometryTendency = score(text, ['system', 'technical', 'structured'], ['organic', 'handmade']);
+  const decorationTolerance = score(text, ['playful', 'creative', 'immersive'], ['simple', 'clean']);
+  const cornerRadiusBias = score(text, ['friendly', 'easy', 'human'], ['sharp', 'enterprise']);
+  const layoutSymmetry = score(text, ['trusted', 'enterprise', 'professional'], ['playful', 'experimental']);
+  const contrastPreference = score(text, ['bold', 'stand out', 'high impact'], ['subtle', 'calm']);
   return {
-    minimalism: makeSignal('visual.minimalism', score(text, ['minimal', 'clean', 'simple', 'premium'], ['busy', 'maximal']), visualSource(0)),
-    densityTolerance: makeSignal('visual.densityTolerance', score(text, ['dashboard', 'data', 'analytics', 'platform'], ['simple', 'minimal']), visualSource(0)),
-    dataVizAffinity: makeSignal('visual.dataVizAffinity', score(text, ['data', 'analytics', 'metrics', 'reporting'], ['lifestyle']), visualSource(0)),
-    expressiveness: makeSignal('visual.expressiveness', score(text, ['bold', 'creative', 'playful'], ['restrained', 'compliance']), visualSource(0)),
-    geometryTendency: makeSignal('visual.geometryTendency', score(text, ['system', 'technical', 'structured'], ['organic', 'handmade']), visualSource(0)),
-    decorationTolerance: makeSignal('visual.decorationTolerance', score(text, ['playful', 'creative', 'immersive'], ['simple', 'clean']), visualSource(0)),
-    cornerRadiusBias: makeSignal('visual.cornerRadiusBias', score(text, ['friendly', 'easy', 'human'], ['sharp', 'enterprise']), visualSource(0)),
-    layoutSymmetry: makeSignal('visual.layoutSymmetry', score(text, ['trusted', 'enterprise', 'professional'], ['playful', 'experimental']), visualSource(0)),
-    contrastPreference: makeSignal('visual.contrastPreference', score(text, ['bold', 'stand out', 'high impact'], ['subtle', 'calm']), visualSource(0)),
+    minimalism: makeSignal('visual.minimalism', minimalism, visualSource(minimalism)),
+    densityTolerance: makeSignal('visual.densityTolerance', densityTolerance, visualSource(densityTolerance)),
+    dataVizAffinity: makeSignal('visual.dataVizAffinity', dataVizAffinity, visualSource(dataVizAffinity)),
+    expressiveness: makeSignal('visual.expressiveness', expressiveness, visualSource(expressiveness)),
+    geometryTendency: makeSignal('visual.geometryTendency', geometryTendency, visualSource(geometryTendency)),
+    decorationTolerance: makeSignal('visual.decorationTolerance', decorationTolerance, visualSource(decorationTolerance)),
+    cornerRadiusBias: makeSignal('visual.cornerRadiusBias', cornerRadiusBias, visualSource(cornerRadiusBias)),
+    layoutSymmetry: makeSignal('visual.layoutSymmetry', layoutSymmetry, visualSource(layoutSymmetry)),
+    contrastPreference: makeSignal('visual.contrastPreference', contrastPreference, visualSource(contrastPreference)),
   };
 }
 
@@ -331,10 +340,14 @@ function makeMotionSignals(
     confidence: 0.32,
     authorityClass: 'inferred_hint',
   });
+  const motionEnergy = score(text, ['fast', 'dynamic', 'bold'], ['calm', 'stable']);
+  const overshootTolerance = score(text, ['playful', 'fun', 'creator'], ['premium', 'trusted']);
+  const transitionSharpness = score(text, ['fast', 'sharp', 'precision'], ['soft', 'warm']);
+  const rhythmRegularity = score(text, ['system', 'workflow', 'consistent'], ['experimental', 'playful']);
   return {
-    motionEnergy: makeSignal('motion.motionEnergy', score(text, ['fast', 'dynamic', 'bold'], ['calm', 'stable']), motionSource(0)),
-    overshootTolerance: makeSignal('motion.overshootTolerance', score(text, ['playful', 'fun', 'creator'], ['premium', 'trusted']), motionSource(0)),
-    transitionSharpness: makeSignal('motion.transitionSharpness', score(text, ['fast', 'sharp', 'precision'], ['soft', 'warm']), motionSource(0)),
-    rhythmRegularity: makeSignal('motion.rhythmRegularity', score(text, ['system', 'workflow', 'consistent'], ['experimental', 'playful']), motionSource(0)),
+    motionEnergy: makeSignal('motion.motionEnergy', motionEnergy, motionSource(motionEnergy)),
+    overshootTolerance: makeSignal('motion.overshootTolerance', overshootTolerance, motionSource(overshootTolerance)),
+    transitionSharpness: makeSignal('motion.transitionSharpness', transitionSharpness, motionSource(transitionSharpness)),
+    rhythmRegularity: makeSignal('motion.rhythmRegularity', rhythmRegularity, motionSource(rhythmRegularity)),
   };
 }
